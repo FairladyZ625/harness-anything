@@ -15,7 +15,7 @@ import type {
   RuntimeDaemonRoute,
   RuntimeSessionSelection,
 } from "./runtime-spawn-types.ts";
-import { assertTaskTransitionDocumentReady, locateTaskTransitionDocument } from "./transition-document-access.ts";
+import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
@@ -134,15 +134,31 @@ export function resolveRuntimeInstanceCandidates(input: {
         `ha settings update ${enableCommand(instanceId)}.`,
     );
   };
+  // An explicit instance pin and a resumed provider session both bypass the declaration filter
+  // below, so they owe the same rule here: an Agent that declares runtimes never selects an
+  // instance of another kind, whatever lane carried the choice in.
+  const assertDeclarationServes = (instanceId: string): void => {
+    if (input.agent === null) return;
+    const instance = input.instances.find((row) => row.instanceId === instanceId);
+    if (instance === undefined || agentRuntimeKindMatches(input.agent.runtimes, instance.kindId)) return;
+    throw runtimeSpawnError(
+      "agent_runtime_unavailable",
+      `Agent ${input.agent.id} declares ${agentRuntimeTargetSummary(input.agent.runtimes)}, but ${instanceId} ` +
+        `is a ${instance.kindId} instance. Dispatch it without the instance pin, resume a session served by a ` +
+        `declared runtime, or add the runtime kind to the Agent declaration.`,
+    );
+  };
   if (input.providerSessionId) {
     const session = input.sessions.find((row) => row.providerSessionId === input.providerSessionId);
     if (session) {
       assertAllowed(session.instanceId);
+      assertDeclarationServes(session.instanceId);
       return [session.instanceId];
     }
   }
   if (input.requested) {
     assertAllowed(input.requested);
+    assertDeclarationServes(input.requested);
     return [input.requested];
   }
   // input.model is the dispatch-level override (--model); the per-kind declared model lives
@@ -325,15 +341,26 @@ export async function prepareRuntimeInstance<T>(
 export function taskQueryGuidance(taskId: string): string {
   return [
     "# 台账查询引导",
-    "- 动手前先读任务包 task_plan.md 与已注入的 <task-context> 因果上下文；其中 work、parent、decision、fact 和 refs " +
-      "提供本任务的关系背景，不要求先查询全仓图。",
-    `- 本任务阅读集合用 ha task read-set ${taskId} 查；按任务契约、read-set 和注入上下文点名的路径读取资料。`,
-    `- 需要核对本任务状态时用 ha task show ${taskId}；其他命令仅按本次 dispatch 已授权范围调用。`,
-    "- 受限执行凭据绑定本 task/execution，不授予 graph、Work 全貌、跨任务查询或创建任务的权限；" +
-      "不得清除凭据、切换身份或申请扩大权限来执行这些查询。",
-    "- 未注入因果块不表示查询故障，也不要求补查图。资料不足或需要跨任务背景时，向 owner 报告具体缺项，" +
-      "由 owner 按已授权范围提供；不要猜测。",
+    `- 本任务的 task_plan.md 全文与 <task-context> 已注入上面的 mission，不必再读文件；` +
+      `ha task read-set ${taskId} 点名的资料与 ha task show ${taskId} 的任务状态，信息不够时再查。` +
+      `资料不足时向 owner 报告具体缺项。`,
   ].join("\n");
+}
+
+/**
+ * The plan-first opening every task-bound mission carries: the task's own task_plan.md injected
+ * verbatim, so the worker starts from the contract instead of spending its first calls reading
+ * the package (the measured waste this replaces: ~1,685 package-flipping calls across 206 worker
+ * sessions over two days, 2026-10-19). Bodies are measured, not capped — over the production
+ * ledger's 4,235 plans they run 4.3 KiB median, 8.8 KiB p90, 148 KiB max, and even the outlier
+ * sits orders of magnitude below every dispatch provider's context window.
+ */
+export function taskPlanSection(planBody: string, packageRoot?: string): string {
+  const lead =
+    packageRoot === undefined
+      ? "本任务的 task_plan.md 全文如下（已内嵌，不必再读文件）："
+      : `Your task package is ${packageRoot}.\n本任务的 task_plan.md 全文如下（已内嵌，不必再读文件），按其完成本任务：`;
+  return `${lead}\n\n${planBody.trim()}`;
 }
 
 /**
@@ -361,33 +388,9 @@ export function livingDeliverableProtocol(profileId: string | null | undefined, 
   ].join("\n");
 }
 
-/** PR delivery is owed by the declared document slot, independently of the task profile. */
-export function prBodyDeliveryProtocol(documentPath: string | null): string | null {
-  if (documentPath === null) return null;
-  return [
-    "# PR Body Delivery Protocol",
-    `- 本任务持有 task.pr-body 文档槽：\`${documentPath}\`（任务包内路径）。`,
-    "- 在 closeout 与 ha task submit 之前，按 .github/pull_request_template.md 完整填写该正文；" +
-      "保留全部模板标题与 English / 中文 两块，填写真实交付事实，包括 Architectural Justification / 架构辩护。",
-    "- 涉及写入路径时，在同一隔离环境分别对 base 与 head 运行 node tools/gates/cost-budget.mjs，" +
-      "将实测 200/2000 的 G1 全操作、五指标前后计数填入 Per-Write Cost 表；不得用预算值或猜测值代替。",
-    "- Production-Delta 用 node tools/gates/production-delta.mjs --base origin/main 实算；" +
-      "机读声明只写真实适用项。未运行的验证、CI 与现场验收明确标为 unverified。",
-    "- 交付 SHA、base SHA 这类锚一律从冻结的 submission 记录派生（execution 的 Commit 字段）；" +
-      "不要把任何 SHA 手抄进 closeout 或 PR 正文——追加一个 commit 再 submit 后，手抄的锚就会过期，" +
-      "评审只以 submission 记录为准。",
-    `- 运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/${documentPath}，` +
-      "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
-    "- 随 ha doc sync --submit --task 同步正文与 closeout，再执行 ha task submit；" +
-      "提交自动冻结中心已接受的任务 artifacts，无需在 Summary 手写交付物锚。",
-    "- submit 回执中的 prBody 指向已冻结正文；worker 经 `ha task push <task-id>` 发布本任务分支，再运行 `ha task pr <task-id>` 创建 PR；CEO 负责评审与合并。",
-  ].join("\n");
-}
-
-export function taskPrBodyPath(projection: TaskProjection, taskId: string): string | null {
-  const document = locateTaskTransitionDocument({ projection, taskId, slot: "task.pr-body" });
-  return document.path === null ? null : path.posix.relative(document.packagePath, document.path);
-}
+/** The whole PR-body contract a task mission still carries (dec_BB2BCE9F CH2): the framework
+ * owns the credentialed channel, the body convention is the delivered repository's own. */
+export const taskPrPublicationNote = "推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。";
 
 /**
  * The managed rework record of the iteration a re-dispatched worker must answer: the rendered
@@ -405,28 +408,58 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
   return body ? body : null;
 }
 
-/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. */
+/** Dynamic sections follow the dispatch action: review, delivery, or rework.
+ * reviewerBinding is the spawner's existing review judgment; workers owe the delivery contracts. */
+export function taskMissionSections(
+  taskId: string,
+  causalContext: string | null,
+  profileId: string | null | undefined,
+  taskClass: string | undefined,
+  ownerReturnBody: string | null,
+  reviewerBinding: boolean,
+): string[] {
+  const living = reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass);
+  return [
+    taskQueryGuidance(taskId),
+    ...(living === null ? [] : [living]),
+    ...(reviewerBinding ? [] : [taskPrPublicationNote]),
+    ...(causalContext === null ? [] : [causalContext]),
+    ...(reviewerBinding || ownerReturnBody === null
+      ? []
+      : [
+          `# Owner rework instruction
+
+${ownerReturnBody}`,
+        ]),
+  ];
+}
+
+/** An explicit task prompt carries the same action-specific sections as a derived mission, led by
+ * the inlined plan when the caller supplies its body. */
 export function explicitPromptMission(
   taskId: string | null,
   causalContext: string | null,
   prompt: string,
   profileId: string | null | undefined = undefined,
-  prBodyPath: string | null = null,
   taskClass?: string,
   ownerReturnBody: string | null = null,
+  reviewerBinding: boolean = false,
+  planBody: string | null = null,
 ): string {
-  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass),
-    prProtocol = taskId === null ? null : prBodyDeliveryProtocol(prBodyPath);
   return [
-    ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
-    ...(prProtocol === null ? [] : [prProtocol]),
-    ...(causalContext === null ? [] : [causalContext]),
-    ...(taskId === null || ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
+    ...(planBody === null ? [] : [taskPlanSection(planBody)]),
+    ...(taskId === null
+      ? causalContext === null
+        ? []
+        : [causalContext]
+      : taskMissionSections(taskId, causalContext, profileId, taskClass, ownerReturnBody, reviewerBinding)),
     prompt,
   ].join("\n\n");
 }
 
-/** The package root is named as the worker reaches it from `cwd`, the root it runs in. */
+/** The package root is named as the worker reaches it from `cwd`, the root it runs in; the plan
+ * rides verbatim ahead of the sections. Reviewer bindings keep the task guidance but carry no
+ * worker delivery contract. */
 export function deriveTaskMission(
   rootDir: string,
   cwd: string,
@@ -435,9 +468,12 @@ export function deriveTaskMission(
   transition: "runtime.run" | "squad.run",
   missionName?: string,
   causalContext?: string | null,
+  reviewerBinding: boolean = false,
 ): {
   readonly mission: string;
   readonly packageRoot: string;
+  /** The plan body the mission inlines, handed to explicit-prompt assembly over the same projection. */
+  readonly planBody: string;
 } {
   const planDocument = assertTaskTransitionDocumentReady({
       rootDir,
@@ -451,34 +487,35 @@ export function deriveTaskMission(
       cwd,
       path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
     ),
-    planPath = path.join(packageRoot, ...path.posix.relative(planDocument.packagePath, planDocument.path).split("/")),
     missionDocument = missionName
       ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName)
       : null,
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
-    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
-    prProtocol = prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
-    ownerReturnBody = priorOwnerReturnBody(projection, taskId),
     mission = [
-      `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
-      ...(ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
-      taskQueryGuidance(taskId),
-      ...(livingProtocol === null ? [] : [livingProtocol]),
-      ...(prProtocol === null ? [] : [prProtocol]),
-      ...(causalContextResolved === null ? [] : [causalContextResolved]),
+      taskPlanSection(planDocument.body, packageRoot),
+      ...taskMissionSections(
+        taskId,
+        causalContextResolved,
+        snapshot.task?.metadata?.profileId,
+        snapshot.task?.taskClass,
+        reviewerBinding ? null : priorOwnerReturnBody(projection, taskId),
+        reviewerBinding,
+      ),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");
   return {
     packageRoot,
     mission,
+    planBody: planDocument.body,
   };
 }
 
 /**
  * A dispatched task's mission and package root as the worker reaches them from `cwd`: an edge's come from its
- * mirrored package, a node that holds the ledger derives them from its projection.
+ * mirrored package, a node that holds the ledger derives them from its projection. Remote sources
+ * carry no plan body here — the caller reads it from the remote task context directly.
  */
 export function missionAt(
   rootDir: string,
@@ -491,9 +528,10 @@ export function missionAt(
         readonly missionName: string | undefined;
         readonly causalContext: string | null;
       },
-): { readonly mission: string; readonly packageRoot: string } {
-  if ("projection" in source)
-    return deriveTaskMission(
+  reviewerBinding: boolean = false,
+): { readonly mission: string; readonly packageRoot: string; readonly planBody: string | null } {
+  if ("projection" in source) {
+    const derived = deriveTaskMission(
       rootDir,
       cwd,
       source.projection,
@@ -501,9 +539,12 @@ export function missionAt(
       "runtime.run",
       source.missionName,
       source.causalContext,
+      reviewerBinding,
     );
+    return { mission: derived.mission, packageRoot: derived.packageRoot, planBody: derived.planBody };
+  }
   const packageRoot = workerLedgerPath(rootDir, cwd, source.packageRoot);
-  return { packageRoot, mission: source.mission(packageRoot) };
+  return { packageRoot, mission: source.mission(packageRoot), planBody: null };
 }
 
 export function runtimeMissionName(value: unknown): string {
@@ -639,7 +680,9 @@ export function resolveRuntimeMission(input: {
     missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
     // A re-dispatched worker answers the latest owner return, so its mission carries the managed
     // rework record verbatim — from the center's serving read remotely, from the projection
-    // locally. Reviewers bind to a submitted cut instead, so their missions never carry it.
+    // locally. Reviewers bind to a submitted cut instead, so their missions never carry it, and
+    // the same binding omits the worker delivery contracts (living deliverable, PR publication)
+    // from every task-bound assembly path.
     ownerReturnBody =
       taskId === null || input.reviewerBinding
         ? null
@@ -647,8 +690,11 @@ export function resolveRuntimeMission(input: {
           ? remoteTask.ownerReturnBody
           : priorOwnerReturnBody(projection, taskId),
     taskMission = taskId
-      ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext })
+      ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext }, input.reviewerBinding)
       : null;
+  // Every task-bound assembly path inlines the plan (derived missions through deriveTaskMission,
+  // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
+  const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
   return {
     taskMission,
     mission:
@@ -659,9 +705,10 @@ export function resolveRuntimeMission(input: {
             causalContext,
             explicitMission,
             missionProfileId,
-            remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection, taskId) : null,
             remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             ownerReturnBody,
+            input.reviewerBinding,
+            planBody,
           ),
   };
 }

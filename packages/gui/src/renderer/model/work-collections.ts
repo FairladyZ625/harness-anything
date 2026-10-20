@@ -168,13 +168,17 @@ export interface WorkRef {
 }
 
 export interface WorkIndex {
+  /** The daemon index has answered. False while loading, so "no works" is not a conclusion yet. */
+  readonly ready: boolean;
+  /** The answered index names at least one work. */
+  readonly hasWorks: boolean;
   /** A root `ha work list --all` names: declared work, or a top-level task with children. */
   readonly isWorkRoot: (taskId: string) => boolean;
   /** The work a task belongs to (a root belongs to its own work); null for a task in no work. */
   readonly workOf: (taskId: string) => WorkRef | null;
 }
 
-export const NO_WORKS: WorkIndex = { isWorkRoot: () => false, workOf: () => null };
+export const NO_WORKS: WorkIndex = { ready: false, hasWorks: false, isWorkRoot: () => false, workOf: () => null };
 
 /** Lookups over the daemon work index (`repo.works.index`); the GUI holds no work rule of its own. */
 export function workIndexOf(read: WorkIndexRead | undefined): WorkIndex {
@@ -187,5 +191,10 @@ export function workIndexOf(read: WorkIndexRead | undefined): WorkIndex {
     owner.set(work.taskId, ref);
     for (const taskId of work.memberTaskIds) owner.set(taskId, ref);
   }
-  return { isWorkRoot: (taskId) => roots.has(taskId), workOf: (taskId) => owner.get(taskId) ?? null };
+  return {
+    ready: true,
+    hasWorks: roots.size > 0,
+    isWorkRoot: (taskId) => roots.has(taskId),
+    workOf: (taskId) => owner.get(taskId) ?? null,
+  };
 }

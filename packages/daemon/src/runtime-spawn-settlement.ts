@@ -55,6 +55,32 @@ export async function publishExit(
     if (persistedTerminal && (resumePublishedExit || persistedTerminal.payload.outcome !== "failed")) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
+      // The stream's terminal append and its ledger settlement are separate steps: a daemon
+      // that dies between them replays this branch on adoption and must still reach the
+      // single settlement entry, or a claimed Schedule occurrence (or task lease) stays
+      // open forever. The settlement is queued ahead of the exit publication in the same
+      // write chain, so a ledger that already shows the exit (resumePublishedExit) has
+      // already taken the settlement — only a ledger with no trace of the terminal replays
+      // it. A fallback chain still holding the attempt leaves settlement to the
+      // continuation's own terminal.
+      if (
+        !resumePublishedExit &&
+        readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled"
+      )
+        await context.input.onAttemptTerminal?.({
+          runtimeSessionId: active.runtimeSessionId,
+          dispatchId: active.dispatchId,
+          task: active.task,
+          schedule: active.schedule,
+          outcome: active.schedule
+            ? scheduleOutcomeFromRuntime(persistedTerminal.payload.outcome, persistedTerminal.body)
+            : persistedTerminal.payload.outcome === "succeeded"
+              ? "succeeded"
+              : "failed",
+          reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
+          endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
+          binding: active.binding,
+        });
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
       return;
     }
@@ -175,6 +201,8 @@ export async function publishExit(
     }
     const submissionRecovery = unsubmittedDeliveryRecovery(context, active, outcome, hasDelivery);
     if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
+    const exitGuidance = unsubmittedExitGuidance(active, outcome);
+    if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
     let reasonCode: string | null = reviewResultMissing ? "review_result_missing" : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
@@ -344,6 +372,10 @@ export async function publishExit(
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
+          ...(() => {
+            const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
+            return fallbackState === "scheduled" || fallbackState === "exhausted" ? { fallbackState } : {};
+          })(),
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
         },
@@ -435,6 +467,21 @@ function unsubmittedDeliveryRecovery(
   );
 }
 
+/** An undelivered stop names the task it left unsubmitted and hands back the reopen entry, so the
+ * receipt reads as "exited without delivering" plus the way to continue rather than a success shape
+ * the owner must discover is hollow (dec_614F7BBB18C8687E7EFC72173D CH1). Reviewers re-dispatch
+ * through review dispatches and squad turns through their coordinator, so only direct task exits. */
+function unsubmittedExitGuidance(
+  active: ActiveRuntime,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
+): string | null {
+  if (outcome !== "stopped" || !active.task || active.role === "reviewer" || active.squadId !== null) return null;
+  return (
+    `Task ${active.task.taskId} is not submitted: the worker exited without a submitted delivery. ` +
+    `Reopen the execution to re-dispatch with: ha task start ${active.task.taskId}`
+  );
+}
+
 function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {
   const { authorizationDecision: _spawnDecision, ...current } = binding;
   return {
@@ -497,21 +544,26 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // coordinator parsing it. The same evidence class as a taskless run witnesses the turn.
   if (active.squadId !== null && active.delegatedBy === null)
     return active.providerOutcome === "succeeded" && active.finalText !== null;
-  // A squad worker delivers on the commander-cut `<branch>--squad-…` checkout, which never equals
-  // the task id the witness below requires; a squad-context dispatch on the task branch still falls
-  // through to that witness.
+  // Branch commits witness delivery only where no submission is readable: a squad worker delivers
+  // commits to its commander rather than a submission (the commander-cut `<branch>--squad-…` checkout
+  // never equals the task id, and a squad-context dispatch on the task branch falls through to the
+  // same branch witness), and a remote edge has no canonical projection to read a submission from.
+  // At the center a direct dispatch delivers only its accepted submission — mid-work branch commits
+  // are not a delivery facet (dec_614F7BBB18C8687E7EFC72173D RJ1: a normal exit without a submitted
+  // delivery must not settle succeeded).
   if (active.squadId !== null && (await squadWorkerBranchHasDelivery({ cwd: active.cwd }))) return true;
   if (
-    await workerBranchHasDelivery({
+    (active.squadId !== null || !context.input.projection) &&
+    (await workerBranchHasDelivery({
       cwd: active.cwd,
       canonicalRoot: context.input.rootDir,
       taskId: active.task.taskId,
-    })
+    }))
   )
     return true;
   // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
   // repository-diff witness; absence must settle unknown rather than abort terminal publication.
-  if (context.input.remote) return false;
+  if (!context.input.projection) return false;
   const projection = context.requiredRuntimeProjection(context.input),
     snapshot = projection.read(active.task.taskId).snapshot,
     submission = snapshot.executions.find(

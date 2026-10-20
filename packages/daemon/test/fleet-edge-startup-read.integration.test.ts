@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readDaemonRegistry } from "@harness-anything/kernel";
+import { openSqliteEventStore, readDaemonRegistry, sqliteLedgerPath } from "@harness-anything/kernel";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
@@ -15,6 +15,7 @@ import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { eventuallyValue } from "./fixtures/runtime-ingress.ts";
 
 test(
@@ -181,5 +182,47 @@ test(
       if (after) assert.deepEqual(result, after);
       after = result;
     }
+  },
+);
+
+test(
+  "remote-edge mount ignores a stale generation-two ledger from the center mirror",
+  { timeout: 180_000 },
+  async (t) => {
+    const fixture = await fleetNodeClaimFixture(t);
+    const edge = await fleetEdgeHostFixture(t, fixture, {
+      beforeOpen: (edgeRoot) => {
+        const oldLedger = openSqliteEventStore({ repoId: "lease-repo", rootInput: edgeRoot, generation: 2 });
+        oldLedger.close();
+      },
+    });
+    const status = edge.host.status().repos.find((repo) => repo.repoId === "lease-repo");
+    t.diagnostic(JSON.stringify({ state: status?.state, lastError: status?.lastError, mode: status?.mode }));
+    assert.equal(status?.mode, "remote-edge");
+    assert.equal(status?.state, "attached");
+    assert.equal(status?.lastError, null);
+    assert.equal(existsSync(sqliteLedgerPath(edge.edgeRoot, 2)), false);
+    assert.equal(existsSync(`${sqliteLedgerPath(edge.edgeRoot, 3)}.activation.json`), true);
+  },
+);
+
+test(
+  "remote-edge mount preserves generation-two data when generation-three activation is corrupt",
+  { timeout: 180_000 },
+  async (t) => {
+    const fixture = await fleetNodeClaimFixture(t);
+    const edge = await fleetEdgeHostFixture(t, fixture, {
+      beforeOpen: (edgeRoot) => {
+        const oldLedger = openSqliteEventStore({ repoId: "lease-repo", rootInput: edgeRoot, generation: 2 });
+        oldLedger.close();
+        const activationPath = `${sqliteLedgerPath(edgeRoot, 3)}.activation.json`;
+        mkdirSync(path.dirname(activationPath), { recursive: true });
+        writeFileSync(activationPath, "{}\n");
+      },
+    });
+    const status = edge.host.status().repos.find((repo) => repo.repoId === "lease-repo");
+    assert.equal(status?.mode, "remote-edge");
+    assert.equal(status?.state, "unavailable");
+    assert.equal(existsSync(sqliteLedgerPath(edge.edgeRoot, 2)), true);
   },
 );

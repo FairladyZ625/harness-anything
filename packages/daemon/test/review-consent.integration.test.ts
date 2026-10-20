@@ -324,6 +324,115 @@ test("review-consent derives the recorded Review digests without a packet and re
   }
 });
 
+test("only the task owner can consent to a changes_requested review, and override needs its rationale", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-owner-review-override-")),
+    repoId = workspaceId("owner-review-override"),
+    taskId = "task-owner-review-override",
+    executionId = "execution-owner-review-override",
+    ownerBinding = withPolicyGroup({ actor, source: "local" as const }, "maintainer"),
+    reviewer = withPolicyGroup(
+      {
+        actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },
+        source: "local" as const,
+      },
+      "maintainer",
+    );
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "owner-review-override" });
+    const store = () => makeTaskEventReader({ repoId, rootDir }),
+      created = await cell.run({ kind: "task-create", taskId, title: "Owner review override" }, ownerBinding);
+    await waitForFixturePublication(cell, created.opId, ownerBinding);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, ownerBinding),
+    );
+    await cell.run({ kind: "task-start", taskId, executionId }, ownerBinding);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, ownerBinding)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Review this cut." },
+          ownerBinding,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "The delivery has a finding.",
+        evidenceChecked: ["submitted cut"],
+      }),
+    );
+    writeReviewReport(rootDir, created.packagePath, "review-owner-override");
+    const reviewed = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "review-owner-override",
+        fromFile: "review.json",
+      },
+      reviewer,
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+
+    const missingRationale = await cell.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-owner-override",
+        dispose: ["review-owner-override"],
+      },
+      ownerBinding,
+    );
+    assert.deepEqual(
+      { outcome: missingRationale.outcome, code: missingRationale.code },
+      { outcome: "op_rejected", code: "invalid_proof" },
+    );
+    const nonOwner = await cell.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-owner-override",
+        dispose: ["review-owner-override"],
+        rationale: "The finding is pre-existing and does not block this delivery.",
+      },
+      withPolicyGroup({ actor: outsider, source: "local" }, "maintainer"),
+    );
+    assert.deepEqual(
+      { outcome: nonOwner.outcome, code: nonOwner.code },
+      { outcome: "op_rejected", code: "invalid_proof" },
+    );
+
+    const consented = await cell.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-owner-override",
+        dispose: ["review-owner-override"],
+        rationale: "The finding is pre-existing and does not block this delivery.",
+      },
+      ownerBinding,
+    );
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+    const event = store().readEvent(String(consented.opId));
+    if (event?.type !== "review_consent_overridden") throw new Error("owner override event missing");
+    assert.equal(event.payload.disposition.actor.principal.personId, actor.principal.personId);
+    assert.equal(event.payload.disposition.rationale, "The finding is pre-existing and does not block this delivery.");
+    assert.deepEqual(event.payload.disposition.disposedReviewIds, ["review-owner-override"]);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function writeSelectionCloseout(rootDir: string, packagePath: unknown): void {
   writeFileSync(
     path.join(rootDir, "harness", String(packagePath), "closeout.md"),
@@ -405,9 +514,7 @@ test("review-execution without --execution-id derives the sole current submitted
         taskId,
         executionId: firstExecutionId,
         return: true,
-        workerMode: "fresh",
-        followUp: "Revise the delivery.",
-        runtimeInstanceId: "missing-return-worker",
+        workerMode: "none",
         reason: "Owner accepts the review findings and returns the cut.",
       },
       owner,
@@ -470,9 +577,7 @@ test("review-execution without --execution-id derives the sole current submitted
         taskId,
         executionId: secondExecutionId,
         return: true,
-        workerMode: "fresh",
-        followUp: "Revise the delivery.",
-        runtimeInstanceId: "missing-return-worker",
+        workerMode: "none",
         reason: "Owner returns an approved cut after red CI.",
       },
       owner,
@@ -556,9 +661,7 @@ test("review-execution without --execution-id names the resubmission command whi
             taskId,
             executionId: firstExecutionId,
             return: true,
-            workerMode: "fresh",
-            followUp: "Revise the delivery.",
-            runtimeInstanceId: "missing-return-worker",
+            workerMode: "none",
             reviewId: "review-selection-empty",
             reason: "Owner returns the cut before resubmission.",
           },

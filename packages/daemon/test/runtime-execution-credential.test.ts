@@ -15,6 +15,7 @@ import {
   requireExecutionRequestScope,
   requireExecutionActionScope,
 } from "../src/runtime-execution-scope.ts";
+import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
@@ -86,27 +87,12 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
 test("execution requests exclude other tasks, repos, controls, and human consent", () => {
   const p = principal();
   const request = (kind: string, overrides = {}) =>
-    requireExecutionRequestScope(
-      p,
-      kind === "task-push" || kind === "ci-observe-pull" ? "repo.task.run" : "repo.task.read",
-      {
-        repo: { repoId: p.repoId },
-        payload: { action: { kind, taskId: p.taskId, ...overrides } },
-      },
-    );
+    requireExecutionRequestScope(p, kind === "task-push" ? "repo.task.run" : "repo.task.read", {
+      repo: { repoId: p.repoId },
+      payload: { action: { kind, taskId: p.taskId, ...overrides } },
+    });
   assert.doesNotThrow(() => request("task-show"));
-  assert.doesNotThrow(() => request("task-ci"));
-  assert.doesNotThrow(() =>
-    requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: p.taskId }),
-  );
-  assert.doesNotThrow(() => request("task-ci", { taskId: "task-other" }));
-  assert.doesNotThrow(() =>
-    requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: "task-other" }),
-  );
   assert.doesNotThrow(() => request("task-push"));
-  assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId }));
-  assert.throws(() => request("ci-observe-pull", { taskId: undefined }), { code: "execution_credential_rejected" });
-  assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId, limit: 1 }));
   for (const kind of ["task-review-consent", "task-adjudicate", "people-delegate", "task-review-execution"])
     assert.throws(() => request(kind));
   assert.doesNotThrow(() => request("task-show", { taskId: "task-other" }));
@@ -308,15 +294,12 @@ test("a live worker may publish and read CI after submission releases the lease"
     };
   assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   assert.doesNotThrow(() => bindVerifiedExecutorClaim(input));
-  const ci = { ...input, action: { kind: "task-ci", taskId: p.taskId } };
-  assert.doesNotThrow(() => requireCurrentExecutionScope(ci));
-  assert.doesNotThrow(() => requireCurrentExecutionScope({ ...ci, action: { kind: "task-ci", taskId: "task-other" } }));
   assert.doesNotThrow(
     () => requireCurrentExecutionScope({ ...input, action: { kind: "task-progress-append", taskId: p.taskId } }),
     {},
   );
   liveness = "exited";
-  assert.throws(() => requireCurrentExecutionScope(ci), { code: "execution_credential_rejected" });
+  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
   assert.throws(() => bindVerifiedExecutorClaim(input), { code: "execution_credential_rejected" });
   assert.throws(() => bindVerifiedExecutorClaim({ ...input, action: { ...action, taskId: "task-other" } }), {
     code: "execution_credential_rejected",
@@ -597,7 +580,6 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
   for (const method of ["repo.agenda.read", "repo.agentRuntime.overview"])
     assert.doesNotThrow(() => requireExecutionRequestScope(p, method, { repo: { repoId: p.repoId }, payload: {} }));
   for (const action of [
-    { kind: "task-ci", taskId: "task-any" },
     { kind: "decision-show", decisionId: "dec_any" },
     { kind: "doc-show", path: "tasks/x/y.md" },
     { kind: "event-list" },
@@ -610,6 +592,9 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
       code: "execution_credential_rejected",
       message: /allowlisted ledger queries/u,
     });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-ci", taskId: "task-any" } as never), {
+    code: "unsupported_command",
+  });
   assert.throws(
     () => requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
     { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },
@@ -644,6 +629,37 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
   );
 });
 
+test("every repo-read protocol command resolves through the execution request precheck", () => {
+  // The request precheck resolves every credential-bearing method through actionForDaemonMethod,
+  // so a repo-read command whose method stops resolving dies as unsupported_command before the
+  // read-only allowlist can speak (F-2B12D3CB; the protocol-registry fallback fixed it for
+  // repo.agenda.read and repo.agentRuntime.overview). Enumerate the whole class so the next
+  // branch-owned read command fails here instead of in a dispatched worker's shell.
+  const worker = principal(),
+    // The local service controls (daemon service install/status/uninstall, daemon start) borrow the
+    // handshake method as a sentinel: they never travel a daemon RPC request, so the precheck never
+    // resolves them. Everything else the CLI can name must resolve.
+    readCommands = daemonProtocolCommands.filter(
+      (command) => command.commandClass === "repo-read" && command.method !== "protocol.hello",
+    );
+  for (const command of readCommands) {
+    const kind = "actionKind" in command ? command.actionKind : command.id,
+      params = {
+        repo: { repoId: worker.repoId },
+        payload: command.method === "repo.task.run" || command.method === "repo.task.read" ? { action: { kind } } : {},
+      };
+    // CH2 (dec_CF96A3C910B31D2D7498F32DDD): a task-bound worker keeps every repository read.
+    assert.doesNotThrow(() => requireExecutionRequestScope(worker, command.method, params), command.method);
+    // The read-only dispatch narrows reads to its allowlist, but descriptor absence must never be
+    // the rejection: unsupported_command here is the exact regression class this gate guards.
+    try {
+      requireExecutionRequestScope(readOnlyPrincipal(), command.method, params);
+    } catch (error) {
+      assert.equal((error as { code?: string }).code, "execution_credential_rejected", command.method);
+    }
+  }
+});
+
 test("execution credentials keep validator sources inside the dispatched repository", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-source-scope-"));
   try {
@@ -656,7 +672,6 @@ test("execution credentials keep validator sources inside the dispatched reposit
             defaultPreset: "standard-task",
             locale: "en-US",
             scaffolds: { task: "t", repository: "r" },
-            ci: { workflows: [] },
           }),
         },
         store: { readHead: () => null },

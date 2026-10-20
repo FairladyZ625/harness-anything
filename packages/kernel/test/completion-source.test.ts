@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Schema } from "effect";
 import { VerticalCompletionDeclarationSchema } from "../src/schemas/completion-source.ts";
@@ -34,11 +35,7 @@ const declaration = {
   closeoutDefaults: { codeDoc: false },
 };
 const digest = `sha256:${"a".repeat(64)}`;
-const resolved = resolveCompletionContract(
-  ["version-pinned"],
-  { gates: [], ci: { workflows: [] } },
-  { digest, completion: declaration },
-);
+const resolved = resolveCompletionContract(["version-pinned"], { gates: [] }, { digest, completion: declaration });
 assert.equal(resolved.ok, true);
 if (!resolved.ok) throw new Error(resolved.message);
 const requirement = resolved.contract.gates[0]!;
@@ -59,11 +56,7 @@ test("source IDs are declarations and arbitrary additional IDs resolve without k
       sources: { [id]: declaration.sources["research/anchor-check"] },
       gates: { "version-pinned": { ...declaration.gates["version-pinned"], source: id } },
     };
-    const cut = resolveCompletionContract(
-      ["version-pinned"],
-      { gates: [], ci: { workflows: [] } },
-      { digest, completion },
-    );
+    const cut = resolveCompletionContract(["version-pinned"], { gates: [] }, { digest, completion });
     assert.equal(cut.ok && cut.contract.gates[0]!.witness.adapterId, id);
   }
 });
@@ -80,6 +73,49 @@ test("source admission rejects invalid schemas, external references, and asynchr
         sources: { source: { ...declaration.sources["research/anchor-check"], resultSchema } },
       }),
     );
+});
+
+test("new vertical definitions and the published schema exclude hosted CI sources", () => {
+  assert.throws(() =>
+    Schema.decodeUnknownSync(VerticalCompletionDeclarationSchema)({
+      ...declaration,
+      sources: {
+        ...declaration.sources,
+        hosted: {
+          kind: "github-actions",
+          predicateType: "harness/ci/v1",
+          resultSchema: { type: "object" },
+        },
+      },
+    }),
+  );
+
+  const published = JSON.parse(
+      readFileSync(new URL("../schemas/json/vertical-definition.schema.json", import.meta.url), "utf8"),
+    ) as {
+      readonly properties: {
+        readonly completion: {
+          readonly properties: {
+            readonly sources: {
+              readonly patternProperties: Readonly<
+                Record<
+                  string,
+                  {
+                    readonly anyOf: readonly {
+                      readonly properties: { readonly kind: { readonly enum: readonly string[] } };
+                    }[];
+                  }
+                >
+              >;
+            };
+          };
+        };
+      };
+    },
+    sourceKinds = published.properties.completion.properties.sources.patternProperties[""]!.anyOf.map(
+      ({ properties }) => properties.kind.enum[0]!,
+    );
+  assert.deepEqual(sourceKinds.sort(), ["command", "external", "manual"]);
 });
 
 test("missing seed has a field path; mismatched metadata and substituted subjects never pass", () => {
@@ -183,34 +219,38 @@ test("a cut has one claimed run and a terminal result cannot be replaced by arri
 
 test("domain defaults are reachable only when the repository left a value unset, then the cut freezes them", () => {
   const defaults = { review: true, consent: true, factDisposition: true, codeDoc: false };
-  assert.deepEqual(effectiveCloseoutGates({}, [], undefined, defaults), { ...defaults, fact: true });
+  assert.deepEqual(effectiveCloseoutGates({}, [], undefined, defaults), defaults);
   assert.equal(effectiveCloseoutGates({ profile: "standard" }, [], undefined, defaults).review, false);
   assert.equal(effectiveCloseoutGates({ overrides: { consent: false } }, [], undefined, defaults).consent, false);
   assert.equal(effectiveCloseoutGates({ profile: "strict" }, [], { review: false }, defaults).review, false);
   assert.equal(effectiveCloseoutGates({}, ["code-doc-reconciliation"], { codeDoc: false }, defaults).codeDoc, true);
-  assert.equal(effectiveCloseoutGates({}, [], { fact: false }, defaults).fact, false);
   const frozen = resolveCompletionContract(
     [],
-    { gates: [], ci: { workflows: [] } },
+    { gates: [] },
     { digest, completion: { ...declaration, closeoutDefaults: defaults } },
   );
   assert.equal(frozen.ok && frozen.contract.closeoutGates.consent, true);
 });
 
 test("expired GitHub claims can be replaced while command claims and terminal verdicts stay fenced", () => {
-  const ci = resolveCompletionContract(
-    ["ci"],
-    { gates: [], ci: { workflows: ["rewrite-ci"] } },
-    {
-      digest,
-      completion: {
-        sources: { "github-actions": { kind: "github-actions", predicateType: "ci/v1" } },
-        gates: { ci: { source: "github-actions", appliesTo: "code" } },
+  const requirement = {
+    gateId: "ci",
+    appliesTo: "code" as const,
+    witness: {
+      adapterId: "github-actions",
+      kind: "github-actions" as const,
+      predicateType: "ci/v1",
+      resultSchema: { type: "object" },
+      adapterOptions: {
+        workflows: ["rewrite-ci"],
+        branch: "main",
+        event: "push",
+        coverage: "descendant" as const,
+        selection: "newest" as const,
       },
     },
-  );
-  assert.ok(ci.ok);
-  const requirement = ci.contract.gates[0]!;
+  };
+  const ci = { contract: { ...resolved.contract, gates: [requirement] } };
   const cut = {
     ...execution,
     submission: { ...execution.submission!, commitSha: "a".repeat(40), completionContract: ci.contract },

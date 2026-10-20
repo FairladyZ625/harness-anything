@@ -23,6 +23,7 @@ import {
   type WorktreeReclaim,
 } from "./schedule-occurrence-workspace.ts";
 import {
+  isLinkedWorktree,
   runWorktreeSetup,
   worktreeSetupFailure,
   type WorktreeSetupResult,
@@ -50,7 +51,7 @@ export function presetSnapshotReader(projection: Pick<TaskProjection, "readPrese
 
 /** The task's declared output shape: the compiled preset snapshot's profile field, or null before it compiles. */
 export function taskOutputShape(
-  task: TaskV2 | null | undefined,
+  task: { readonly presetSnapshotDigest?: string | null } | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
 ): string | null {
   if (!task?.presetSnapshotDigest) return null;
@@ -94,7 +95,7 @@ export function taskWorkspaceView(
 ): TaskWorkspaceView | null {
   const binding = taskWorktreeBinding(task, readPresetSnapshot);
   if (task && binding) {
-    const present = existsSync(path.join(rootDir, binding.path));
+    const present = isLinkedWorktree(path.join(rootDir, binding.path));
     return {
       kind: "worktree",
       ...binding,
@@ -187,7 +188,7 @@ export async function checkoutTaskWorktree(
     const published = await publishedBranchRef(rootDir, binding.branch);
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
     // A checkout this node already had, or a branch that survived one, may predate another node's push.
-    if (published) await continuePublishedBranch(cwd, published);
+    if (published) await continuePublishedBranch(cwd, published, defaultRef);
     // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
     // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
     else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);

@@ -1,9 +1,8 @@
-import { validateCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
+import { validateRetiredCiRunObservationEvent } from "../domain/ci-run-observation-retired-event.ts";
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
-import { ciRunObservationV3Migration, ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
 import {
   serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
@@ -159,51 +158,58 @@ function planConversion(source: SqliteEventStore) {
           (error instanceof Error ? error.message : String(error)),
       );
     }
-    try {
-      // Historical CI observations walk the same v1 → v2 → v3 chain replay applies.
-      const verified = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original,
-        event = ciRunObservationV3Migration.rewrite(verified)?.event ?? verified;
-      if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
-        throw new Error("source event identity or occurredAt column differs");
-      // Root's history ruling: these observations really happened, so generation 2 keeps them as
-      // read-only history instead of dropping them and renumbering every later revision and cut.
-      if (event.type === "runtime_session_liveness_changed")
-        reasons.push("historical liveness observation preserved read-only; it cannot establish current liveness");
-      else if (event.type === "runtime_session_provider_bound" || event.type === "runtime_session_task_bound")
-        // Root ruled these binding facts are kept where they happened and never backfilled into the
-        // earlier started cut, so they convert in place rather than being folded into a start event.
-        reasons.push("historical session binding preserved read-only at its own cut; it is not backfilled");
-      else if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_installation_observed") {
-        const key = event.payload.installationId,
-          value = stableStringify(event.payload);
-        if (installations.get(key) === value)
-          reasons.push("repeated installation observation preserved read-only; it adds no new installation fact");
-        installations.set(key, value);
-      }
-      const issues =
-        event.schema === "ci-run-observation/v3"
-          ? validateCiRunObservationEvent(event)
-          : validateCurrentCanonicalEvent(event);
-      if (issues.length) throw new Error(issues.join("; "));
-      for (const claim of contentClaims(event)) {
+    const retiredCi = String(original.schema).startsWith("ci-run-observation/");
+    if (retiredCi) {
+      const issues = validateRetiredCiRunObservationEvent(original);
+      if (issues.length) throw new Error(`invalid historical CI observation: ${issues.join("; ")}`);
+      for (const claim of contentClaims(original)) {
         const bytes = source.readContentObject(claim.sha256);
-        if (bytes && (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256))
-          throw new Error(`corrupt accepted content ${claim.sha256}`);
-        if (!bytes) throw new Error(`missing accepted content ${claim.sha256}`);
+        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+          throw new Error(`historical CI observation content ${claim.sha256} is unavailable or corrupt`);
       }
-      candidate = { ...event, workspaceRevision: events.length + 1 };
-      // Preserving every source record keeps revisions aligned. Once anything is dropped, every
-      // later cut and digest reference shifts, and a blind string rewrite cannot repair that.
-      if (candidate.workspaceRevision !== row.revision)
-        throw new Error("a dropped earlier record shifted this revision/cut; it requires an explicit mapping");
-    } catch (error) {
-      consumeKnownError(error);
-      const reason = error instanceof Error ? error.message : String(error);
-      if (reason.startsWith("corrupt accepted content ")) throw error;
-      reasons.push(reason);
-      candidate = historicalWitness(original, row, source);
-      reasons.push("source-witness-only: original event bytes retained as a read-only content object");
-    }
+      candidate = original;
+      reasons.push("historical CI observation preserved read-only without schema rewrite");
+    } else
+      try {
+        const event = original;
+        if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
+          throw new Error("source event identity or occurredAt column differs");
+        // Root's history ruling: these observations really happened, so generation 2 keeps them as
+        // read-only history instead of dropping them and renumbering every later revision and cut.
+        if (event.type === "runtime_session_liveness_changed")
+          reasons.push("historical liveness observation preserved read-only; it cannot establish current liveness");
+        else if (event.type === "runtime_session_provider_bound" || event.type === "runtime_session_task_bound")
+          // Root ruled these binding facts are kept where they happened and never backfilled into the
+          // earlier started cut, so they convert in place rather than being folded into a start event.
+          reasons.push("historical session binding preserved read-only at its own cut; it is not backfilled");
+        else if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_installation_observed") {
+          const key = event.payload.installationId,
+            value = stableStringify(event.payload);
+          if (installations.get(key) === value)
+            reasons.push("repeated installation observation preserved read-only; it adds no new installation fact");
+          installations.set(key, value);
+        }
+        const issues = validateCurrentCanonicalEvent(event);
+        if (issues.length) throw new Error(issues.join("; "));
+        for (const claim of contentClaims(event)) {
+          const bytes = source.readContentObject(claim.sha256);
+          if (bytes && (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256))
+            throw new Error(`corrupt accepted content ${claim.sha256}`);
+          if (!bytes) throw new Error(`missing accepted content ${claim.sha256}`);
+        }
+        candidate = { ...event, workspaceRevision: events.length + 1 };
+        // Preserving every source record keeps revisions aligned. Once anything is dropped, every
+        // later cut and digest reference shifts, and a blind string rewrite cannot repair that.
+        if (candidate.workspaceRevision !== row.revision)
+          throw new Error("a dropped earlier record shifted this revision/cut; it requires an explicit mapping");
+      } catch (error) {
+        consumeKnownError(error);
+        const reason = error instanceof Error ? error.message : String(error);
+        if (reason.startsWith("corrupt accepted content ")) throw error;
+        reasons.push(reason);
+        candidate = historicalWitness(original, row, source);
+        reasons.push("source-witness-only: original event bytes retained as a read-only content object");
+      }
     if (candidate) events.push(candidate);
     mappings.push({
       sourceRevision: row.revision,

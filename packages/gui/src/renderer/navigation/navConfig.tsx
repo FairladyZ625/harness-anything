@@ -19,6 +19,8 @@ import {
   IdentificationCard,
   UsersThree,
   House,
+  ClipboardText,
+  SunHorizon,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -74,17 +76,23 @@ export const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
 
 /**
  * 重构区视图 id(dec_C612E69B7C7E3480A5F9D2CAD3):新页面从头实现、与旧页面并存试用。
- * 这一版不进 ViewId 联合——保持旧页面全集，路由先由 App 级状态承载。
+ * 这一版不进 ViewId 联合——viewHistory.ts 正被 task_48399f09 改(任务禁区),
+ * viewHistoryStorage 的恢复白名单也不认识新 id;路由先由 App 级状态承载,窗口
+ * 历史任务合入后再把 homeOverview/myAsks/today 纳入 ViewId 与白名单转正。「主页」来自
+ * task_9569401085732d86d1f658e3a1(PR #3731),与「今天」「你交代的事」并列住在重构组。
  */
-export type RedesignViewId = "homeOverview";
+export type RedesignViewId = "homeOverview" | "myAsks" | "today";
 
 /** 侧栏导航能导航到的全集:旧 ViewId + 重构区页面。 */
 export type NavViewId = ViewId | RedesignViewId;
 
-export const isRedesignViewId = (id: NavViewId): id is RedesignViewId => id === "homeOverview";
+export const isRedesignViewId = (id: NavViewId): id is RedesignViewId =>
+  id === "homeOverview" || id === "myAsks" || id === "today";
 
 const REDESIGN_LABEL_KEY: Readonly<Record<RedesignViewId, MessageKey>> = {
   homeOverview: "shell.nav.homeOverview",
+  myAsks: "shell.nav.myAsks",
+  today: "shell.nav.today",
 };
 
 export const redesignNavLabel = (id: RedesignViewId): string => t(REDESIGN_LABEL_KEY[id]);
@@ -156,9 +164,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   // 重构区(dec_C612E69B7C7E3480A5F9D2CAD3):试用期内新页面与旧页面并存,不改默认
   // 启动页;业主确认后再按删除条件收编/退役旧页。组放在四组之外,不掺旧分组。
+  // 组内顺序(业主 2026-10-18 rebase 指示):主页、今天(「你交代的事」落地后排第三)。
   {
     id: "redesign",
     labelKey: "shell.nav.redesignGroup",
-    items: [{ id: "homeOverview", icon: <House weight="duotone" /> }],
+    items: [
+      { id: "homeOverview", icon: <House weight="duotone" /> },
+      { id: "today", icon: <SunHorizon weight="duotone" /> },
+      { id: "myAsks", icon: <ClipboardText weight="duotone" /> },
+    ],
   },
 ];

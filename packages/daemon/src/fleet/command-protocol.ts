@@ -32,6 +32,7 @@ export interface FleetLoginAuthority {
   readonly url: string;
   readonly realm: string;
   readonly clientId: string;
+  readonly certificate?: string;
 }
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
@@ -45,7 +46,7 @@ export interface FleetRuntimeDispatchContext {
   readonly executionId: string | null;
 }
 type Msg<S extends string, P extends object = object> = S extends string
-  ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
+  ? Readonly<{ schema: S; messageId: string; accessToken?: string; humanClientId?: string }> & Readonly<P>
   : never;
 export interface FleetDeviceLoginNotice {
   readonly userCode: string;
@@ -55,10 +56,17 @@ export interface FleetDeviceLoginNotice {
 }
 
 export type FleetFrameV1 =
-  | Msg<"fleet.edge.join/v1", { inviteToken: string; nodeId: string }>
+  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken: string }>
   | Msg<
       "fleet.edge.join.result/v1",
-      { inReplyTo: string; nodeId: string; personId: string; credential: string; repoId: string; harnessYaml: string }
+      {
+        inReplyTo: string;
+        joinId: string;
+        nodeId: string;
+        personId: string;
+        credential: string;
+        repositories: readonly { readonly repoId: string; readonly harnessYaml: string }[];
+      }
     >
   | Msg<"fleet.device.sessions.revoke/v1">
   | Msg<"fleet.device.sessions.revoked/v1", { inReplyTo: string }>
@@ -296,6 +304,13 @@ const shape =
     record(value) &&
     Object.keys(value).length === Object.keys(fields).length &&
     Object.entries(fields).every(([key, check]) => Object.hasOwn(value, key) && check(value[key]));
+const loginAuthority: Check = (value) =>
+  record(value) &&
+  (Object.keys(value).length === 3 || Object.keys(value).length === 4) &&
+  typeof value.url === "string" &&
+  typeof value.realm === "string" &&
+  typeof value.clientId === "string" &&
+  (Object.keys(value).length === 3 || (Object.hasOwn(value, "certificate") && typeof value.certificate === "string"));
 const array =
   (check: Check, maximum = FLEET_PAGE_ROWS): Check =>
   (value) =>
@@ -630,14 +645,14 @@ const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), po
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
-  "fleet.edge.join/v1": shape({ ...common, inviteToken: text, nodeId: id }),
+  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text }),
   "fleet.edge.join.result/v1": shape({
     ...reply,
+    joinId: id,
     nodeId: id,
     personId: id,
     credential: text,
-    repoId: id,
-    harnessYaml: bodyText,
+    repositories: array(shape({ repoId: id, harnessYaml: bodyText }), 64),
   }),
   "fleet.device.sessions.revoke/v1": shape(common),
   "fleet.device.sessions.revoked/v1": shape(reply),
@@ -650,7 +665,7 @@ const schemas: Readonly<Record<string, Check>> = {
       sessionId: id,
       maxFrameBytes: one(FLEET_FRAME_BYTES),
       chunkBytes: one(FLEET_CHUNK_BYTES),
-      loginAuthority: nullable(shape({ url: text, realm: text, clientId: text })),
+      loginAuthority: nullable(loginAuthority),
     },
     ["schema", "messageId", "inReplyTo", "sessionId", "maxFrameBytes", "chunkBytes"],
   ),
@@ -803,11 +818,13 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
     throw new FleetContractError("Fleet frame is not valid JSON");
   }
   const payload = record(value)
-    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken"))
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken" && key !== "humanClientId"))
     : value;
   if (
     !record(value) ||
     (value.accessToken !== undefined && !accessToken(value.accessToken)) ||
+    (value.humanClientId !== undefined &&
+      (typeof value.humanClientId !== "string" || value.humanClientId.length === 0)) ||
     typeof value.schema !== "string" ||
     !schemas[value.schema]?.(payload)
   )

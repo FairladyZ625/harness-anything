@@ -1,9 +1,10 @@
 # Hosted Git credentials
 
-Task branch publishing, pull request creation, and CI reading go through the
-daemon, not through a worker's personal GitHub login. The credential they use
-is a GitHub or GitLab token the machine's operator configures once per runtime instance.
-This page is the operator setup; the worker-facing commands are described in
+Task branch publishing and pull request creation go through the daemon.
+Workers read CI checks directly with their hosting-platform CLI and their own
+platform credentials. The daemon credential is a GitHub or GitLab token the
+machine's operator configures once per runtime instance. This page is the
+operator setup; the worker-facing commands are described in
 [Task branch publishing and direct-push protection](operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
 
 ## What the credential powers
@@ -15,7 +16,6 @@ the dispatch, and uses it only for that task:
 | --- | --- |
 | `ha task push <task-id>` | Pushes the task branch over HTTPS git (`git push --force-with-lease`). |
 | `ha task pr <task-id>` | Runs the repository PR body gate, then creates or updates the pull request through the GitHub CLI. |
-| `ha task ci <task-id>` | Reads checks, workflow runs, failed-job logs, and pull request state for the task branch through the GitHub CLI. |
 
 The GitHub CLI (`gh`) and `git` must be on the daemon's `PATH`; a resident
 service records the installing shell's `PATH` (see
@@ -75,13 +75,10 @@ these permissions on the one repository the workspace publishes to:
 | --- | --- | --- |
 | Push the task branch over HTTPS | `ha task push` | Contents: Read and write |
 | Create or update the pull request | `ha task pr` | Pull requests: Read and write |
-| Read check runs | `ha task ci` | Checks: Read |
-| Read workflow runs, jobs, failed logs | `ha task ci` | Actions: Read |
-| Read repository, branch, pull request metadata | `ha task ci` | Metadata: Read |
 
 A classic personal access token covers the same operations with the `repo`
 scope. A token without push access fails at `ha task push`; a token without
-pull request or CI read access fails at `ha task pr` / `ha task ci`. Rotating
+pull request access fails at `ha task pr`. Rotating
 the token means storing a new vault item and rebinding — the daemon removes a
 retired vault item only when no other instance or credential setting still
 references it.
@@ -89,11 +86,12 @@ references it.
 ## Current limits
 
 GitHub and GitLab task delivery are supported. GitHub tokens need repository
-contents write access for pushes and Actions read access for CI; GitLab tokens
-need `write_repository` for pushes and `read_api` for pipelines, jobs, and
-traces. The daemon resolves the provider-specific reference and supplies the
-token only to its own git/API operation. Provider selection is inferred from
+contents write access for pushes; GitLab tokens need `write_repository` for
+pushes. The daemon resolves the provider-specific reference and supplies the
+token only to its own git/API operation. Workers wait for checks with
+`ha task pr <task-id> --wait-ci`, which reads through the daemon-held
+credential; inspecting a failure with `gh run view --log-failed` uses the
+worker's own platform CLI session. Provider selection is inferred from
 `origin`; declare `hosting.provider` and `hosting.host` in repository settings
 for an unrecognized or self-hosted GitLab host. GitLab CI uses REST API v4 and
-does not require `glab` (see
-[Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)).
+does not require `glab` for daemon-managed publishing (see [Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)).

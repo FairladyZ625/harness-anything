@@ -11,9 +11,6 @@ import { withBackfilledContractDocuments } from "../src/repo-cell-task-maintenan
 import { taskMutation } from "../src/repo-cell-task-mutation.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 
-const PR_TEMPLATE =
-  "# English\n\n## Summary\n\nFilled summary for the fixture template.\n\n---\n\n# 中文\n\n## 概要\n\n夹具模板的概要正文。\n";
-
 function compileCurrentContract(rootDir: string): { readonly body: string; readonly digest: `sha256:${string}` } {
   const compiled = compileRepoTaskPackage({
     rootDir,
@@ -32,8 +29,6 @@ function slotFixture(): string {
     path.join(rootDir, "harness", "harness.yaml"),
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  mkdirSync(path.join(rootDir, ".github"), { recursive: true });
-  writeFileSync(path.join(rootDir, ".github", "pull_request_template.md"), PR_TEMPLATE);
   return rootDir;
 }
 
@@ -43,11 +38,7 @@ function legacyContractBody(currentBody: string): string {
     {
       ...contract,
       documents: contract.documents.filter(
-        (document) =>
-          !(
-            typeof (document as { readonly slot?: unknown }).slot === "string" &&
-            ["task.explainer", "task.pr-body"].includes((document as { readonly slot: string }).slot)
-          ),
+        (document) => (document as { readonly slot?: unknown }).slot !== "task.explainer",
       ),
     },
     null,
@@ -104,15 +95,14 @@ test("backfill appends only the descriptors the contract predates and keeps decl
         { slot: "task.index", path: "INDEX.md" },
         { slot: "task.plan", path: "task_plan.md" },
         { slot: "task.explainer", path: "artifacts/explainer.html" },
-        { slot: "task.pr-body", path: "artifacts/pr-body.md" },
       ],
     },
     backfill = backfillRestatedContractDocuments(`${JSON.stringify(current)}\n`, `${JSON.stringify(compiled)}\n`)!;
-  assert.deepEqual(backfill.addedSlots, ["task.explainer", "task.pr-body"]);
+  assert.deepEqual(backfill.addedSlots, ["task.explainer"]);
   const restated = JSON.parse(backfill.body) as { readonly documents: readonly { readonly slot: string }[] };
   assert.deepEqual(
     restated.documents.map(({ slot }) => slot),
-    ["task.index", "task.plan", "task.explainer", "task.pr-body"],
+    ["task.index", "task.plan", "task.explainer"],
   );
   assert.deepEqual(
     restated.documents.slice(0, 2),
@@ -139,7 +129,7 @@ test("contract migrate upgrades a current verdict to a repair that backfills mis
       );
     assert.equal(row.status, "repair");
     assert.equal(row.disposition, "document-slots-backfilled");
-    assert.deepEqual(row.addedSlots, ["task.explainer", "task.pr-body"]);
+    assert.deepEqual(row.addedSlots, ["task.explainer"]);
     const upToDate = withBackfilledContractDocuments(
       cellHolding(rootDir, task, current.body),
       task.taskId,

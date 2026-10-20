@@ -106,10 +106,32 @@ test("successful Decision proposals point to the canonical action explanation", 
   };
   assert.deepEqual(renderCliReceipt(receipt), {
     stream: "stdout",
-    text: "Decision proposed\nnext: ha explain decision/dec_example",
+    text:
+      "Decision proposed\n" +
+      "next: ha explain decision/dec_example\n" +
+      "next: ha relation relate --source-ref decision/dec_example/<claim-id> --target-ref fact/<fact-id> --type evidenced-by --rationale <why> --expected-version 0" +
+      " (accept requires an evidenced claim, or --judgment-only)",
   });
   assert.equal(renderCliReceipt({ ...receipt, ok: false, code: "invalid_command" }).stream, "stderr");
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
+});
+
+test("settlement-none publication receipts render their next lane in text mode", () => {
+  // task-push and task-pr settle without canonical acceptance, so they reach the generic
+  // successful-receipt renderer instead of the accepted_durable branch that appends `next`.
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: true,
+      command: "task-push",
+      outcome: "applied",
+      evidence: "Worker branch pushed: task_x @ 0123456789.",
+      next: [{ command: "ha task pr task_x", reason: "publish the pushed branch as the task's pull request" }],
+    }),
+    {
+      stream: "stdout",
+      text: "task-push: applied\nnext: ha task pr task_x (publish the pushed branch as the task's pull request)",
+    },
+  );
 });
 
 test("fact record receipts advise conclusion-first statements and leave tight ones alone", () => {
@@ -781,16 +803,16 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.doesNotMatch(legacy.text, /expected-version/u);
 });
 
-test("task show renders the current fact prerequisite as a completion gate", () => {
+test("task show renders the completion blocker as an appended completion gate", () => {
   const rendered = renderCliReceipt({
     ok: true,
     command: "task-show",
     evidence: JSON.stringify({
       task: { status: "in_review", currentNode: "review", completionGateIds: [] },
-      completionBlocker: { code: "fact_missing", gate: "facts" },
+      completionBlocker: { code: "gate_witness_missing", gate: "lint" },
     }),
   });
-  assert.match(rendered.text, /completion gates: facts \(fact_missing\)/u);
+  assert.match(rendered.text, /completion gates: lint \(gate_witness_missing\)/u);
 });
 
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {

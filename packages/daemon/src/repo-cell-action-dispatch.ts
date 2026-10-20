@@ -217,7 +217,10 @@ export function executeRepoAction(
       targetId =
         typeof action[targetIdField] === "string" && action[targetIdField] ? String(action[targetIdField]) : null,
       targetRevision = targetId
-        ? cell.projection.read(targetId).snapshot.revision
+        ? (action.kind === "task-contract-migrate"
+            ? cell.projection.readForTaskContractMigration(targetId)
+            : cell.projection.read(targetId)
+          ).snapshot.revision
         : (cell.store.readHead()?.revision ?? 0),
       lifecycle = actionContract.execution.lifecycle;
     if (lifecycle?.coordination === "reserve" && targetId) cell.assertTaskWipCapacity(targetId, "active");
@@ -519,7 +522,7 @@ export function declareExecutionExecutor(
         return document ? [document] : [];
       }),
       completionContext: {
-        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status),
+        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status, cell.rootDir),
         hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),
@@ -583,7 +586,7 @@ export function annotateExecution(
         return document ? [document] : [];
       }),
       completionContext: {
-        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status),
+        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status, cell.rootDir),
         hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),

@@ -114,10 +114,36 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   return readSnapshots(db, [taskId], now).get(taskId) ?? emptyTaskLifecycleSnapshot();
 }
 
+export function readSnapshotForTaskEventReduction(
+  db: DatabaseSync,
+  taskId: string,
+  now?: string,
+): TaskLifecycleSnapshot {
+  return readSnapshotsForTaskEventReduction(db, [taskId], now).get(taskId) ?? emptyTaskLifecycleSnapshot();
+}
+
 export function readSnapshots(
   db: DatabaseSync,
   taskIds: readonly string[],
   now?: string,
+): ReadonlyMap<string, TaskLifecycleSnapshot> {
+  return readSnapshotsInternal(db, taskIds, now, true);
+}
+
+/** Event reduction folds historical states until a migration event restores the current Task contract. */
+export function readSnapshotsForTaskEventReduction(
+  db: DatabaseSync,
+  taskIds: readonly string[],
+  now?: string,
+): ReadonlyMap<string, TaskLifecycleSnapshot> {
+  return readSnapshotsInternal(db, taskIds, now, false);
+}
+
+function readSnapshotsInternal(
+  db: DatabaseSync,
+  taskIds: readonly string[],
+  now: string | undefined,
+  validateTask: boolean,
 ): ReadonlyMap<string, TaskLifecycleSnapshot> {
   if (taskIds.length === 0) return new Map();
   const requested = JSON.stringify(taskIds),
@@ -137,7 +163,7 @@ export function readSnapshots(
     } catch {
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     }
-    if (snapshot.task !== null && validateTaskV2(snapshot.task, true).length)
+    if (validateTask && snapshot.task !== null && validateTaskV2(snapshot.task, true).length)
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     snapshots.set(row.task_id, snapshot);
   }

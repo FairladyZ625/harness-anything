@@ -14,6 +14,7 @@ export interface FleetEdgeConfig {
   readonly servername?: string;
   readonly nodeId: string;
   readonly credential: string;
+  readonly humanClientId?: string;
   readonly viewRoot: string;
   readonly quotaBytes: number;
   readonly waitTimeoutMs?: number;
@@ -76,6 +77,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     ...(text("servername") ? { servername: text("servername") } : {}),
     nodeId: text("nodeId")!,
     credential: text("credential")!,
+    ...(text("humanClientId") ? { humanClientId: text("humanClientId") } : {}),
     viewRoot: text("viewRoot")!,
     quotaBytes,
     ...(waitTimeoutMs !== undefined ? { waitTimeoutMs } : {}),

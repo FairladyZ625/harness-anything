@@ -10,14 +10,18 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   resolveHarnessLayout,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import { removeFileDurably } from "./durable-file.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
+import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
@@ -42,10 +46,15 @@ export type {
 const coldAttachCatchUpLimit = 32;
 
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
-export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
+export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries, rootDir?: string): TaskQueryJudgments {
   return {
     closeout: (snapshot, availability) =>
-      closeoutReadiness(snapshot, availability, readEffectiveCloseoutGates(projection, snapshot)),
+      closeoutReadiness(
+        snapshot,
+        availability,
+        readEffectiveCloseoutGates(projection, snapshot),
+        readCompletionDeliveryStatus(projection, snapshot, rootDir),
+      ),
     blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
   };
 }
@@ -85,6 +94,31 @@ export interface RepoCellCore {
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
+  // A remote edge is read-only against the center's replica. Its prior local ledger is disposable;
+  // canonical repositories still go through the kernel's strict offline-conversion requirement.
+  if (context.mode === "remote-edge") {
+    try {
+      resolveActiveGeneration({ rootInput: context.rootDir, repoId: context.input.repoId });
+    } catch (error) {
+      consumeKnownError(error);
+      const generationTwo = sqliteLedgerPath(context.rootDir, 2);
+      const isIncompleteUpgrade =
+        error instanceof Error &&
+        error.name === "TaskEventStoreError" &&
+        "code" in error &&
+        error.code === "invalid_store" &&
+        error.message.startsWith("generation 3 upgrade is incomplete;");
+      if (!isIncompleteUpgrade || !existsSync(generationTwo)) throw error;
+      for (const stalePath of [
+        generationTwo,
+        `${generationTwo}-wal`,
+        `${generationTwo}-shm`,
+        `${generationTwo}.activation.json`,
+        `${generationTwo}.import-source.json`,
+      ])
+        removeFileDurably(stalePath);
+    }
+  }
   // Maintenance pins and the commit guard both belong to the ledger repository, never the project
   // repository around it: the pins tune the WAL write path, and refusing a project commit is the
   // exact harm the guard exists to prevent.
@@ -142,7 +176,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
     // writer events remain the authority and apply through the normal single-writer path.
     try {
-      projection.catchUp?.();
+      // Cold attach can replay a large canonical ledger. Yield between bounded batches so the
+      // transport can continue serving protocol/status requests while the projection warms.
+      if (projection.catchUpAsync) await projection.catchUpAsync();
+      else projection.catchUp?.();
       // Opening a reader generation is also a structural probe: a watermark can
       // be current while a persisted snapshot row is corrupt.
       projection.readTaskIndex({ limit: 1 });

@@ -14,6 +14,7 @@ import { claimGateRun, settleGateRun } from "../../src/domain/gate-run.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const commitSha = "a".repeat(40);
+const mergedDelivery = { required: true, merged: true, targetBranch: "main", platform: "github" as const };
 
 function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
   // dec_5EC2631352B17EE2BF4979E37E: current native cuts carry their frozen contract and run.
@@ -137,29 +138,22 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
   };
 }
 
-test("closeout readiness requires a passing exact-cut gate, not witness existence", () => {
-  assert.equal(closeoutReadiness(closeout("pass")).readiness, "ready");
-  const failed = closeoutReadiness(closeout("fail"));
-  assert.equal(failed.readiness, "failed");
-  assert.deepEqual(failed.gates, [{ gateId: "ci", status: "failed", ok: false, detail: "checker reported fail" }]);
+test("closeout readiness interprets a frozen CI gate through merged delivery", () => {
+  const unmerged = { ...mergedDelivery, merged: false };
+  assert.equal(closeoutReadiness(closeout("pass"), undefined, undefined, mergedDelivery).readiness, "ready");
+  assert.equal(closeoutReadiness(closeout("fail"), undefined, undefined, unmerged).readiness, "incomplete");
+  assert.deepEqual(closeoutReadiness(closeout("fail"), undefined, undefined, unmerged).gates, [
+    { gateId: "ci", status: "missing", ok: false, detail: "delivery merge is not on origin/main" },
+  ]);
   const stale = closeout();
   assert.equal(
-    closeoutReadiness({
-      ...stale,
-      gateWitnesses: stale.gateWitnesses.map((witness) => ({ ...witness, commitSha: "c".repeat(40) })),
-    }).readiness,
-    "incomplete",
-  );
-  const recovered = closeout("fail");
-  assert.deepEqual(
-    closeoutReadiness({
-      ...recovered,
-      gateWitnesses: [
-        ...recovered.gateWitnesses,
-        { ...recovered.gateWitnesses[0]!, witnessId: "witness-2", receiptId: "receipt-2", result: "pass" },
-      ],
-    }).gates,
-    [{ gateId: "ci", status: "passed", ok: true }],
+    closeoutReadiness(
+      { ...stale, gateWitnesses: stale.gateWitnesses.map((witness) => ({ ...witness, commitSha: "c".repeat(40) })) },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
+    "ready",
   );
 });
 
@@ -170,23 +164,22 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
   const lifted = Object.freeze({
       review: false,
       consent: false,
-      fact: false,
       factDisposition: false,
       codeDoc: false,
     }),
     forwarded = closeout("pass"),
     awaiting = {
       ...forwarded,
-      task: { ...forwarded.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+      task: { ...forwarded.task!, closeoutOverrides: { review: false, consent: false } },
       forwardedCuts: [{ executionId: "exe-1", iteration: 0 }],
       reviews: [],
       consents: [],
     };
-  assert.equal(closeoutReadiness(awaiting, undefined, lifted).readiness, "incomplete");
-  assert.equal(closeoutReadiness(awaiting, undefined, lifted).blocker, "review");
+  assert.equal(closeoutReadiness(awaiting, undefined, lifted, mergedDelivery).readiness, "incomplete");
+  assert.equal(closeoutReadiness(awaiting, undefined, lifted, mergedDelivery).blocker, "review");
   // An approved review settles the corridor; consent stays lifted with the profile.
   const approvedOnly = { ...awaiting, reviews: forwarded.reviews, consents: [] };
-  assert.equal(closeoutReadiness(approvedOnly, undefined, lifted).readiness, "ready");
+  assert.equal(closeoutReadiness(approvedOnly, undefined, lifted, mergedDelivery).readiness, "ready");
   // Without the owner's forward record the lifted default stands even at the in_review position:
   // the submitted cut completes straight, and no other snapshot state buys the verdict.
   const unforwarded = {
@@ -194,12 +187,12 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
     task: { ...awaiting.task!, status: "submitted" as const },
     forwardedCuts: [],
   };
-  assert.equal(closeoutReadiness(unforwarded, undefined, lifted).readiness, "ready");
+  assert.equal(closeoutReadiness(unforwarded, undefined, lifted, mergedDelivery).readiness, "ready");
   const positioned = { ...awaiting, forwardedCuts: [] };
-  assert.equal(closeoutReadiness(positioned, undefined, lifted).readiness, "ready");
+  assert.equal(closeoutReadiness(positioned, undefined, lifted, mergedDelivery).readiness, "ready");
   // A forward of an earlier iteration never reaches the current cut.
   const staleRecord = { ...awaiting, forwardedCuts: [{ executionId: "exe-1", iteration: -1 }] };
-  assert.equal(closeoutReadiness(staleRecord, undefined, lifted).readiness, "ready");
+  assert.equal(closeoutReadiness(staleRecord, undefined, lifted, mergedDelivery).readiness, "ready");
 });
 
 test("a done projection without an execution cut is not passed", () => {
@@ -305,16 +298,64 @@ test("closeout consumes the latest content-pinned consent selection and ignores 
     consentedApprovedReviewForExecution(history.reviews, history.consents, history.executions[0]!)?.review.reviewId,
     selected.reviewId,
   );
-  assert.equal(closeoutReadiness(history).readiness, "ready");
+  assert.equal(closeoutReadiness(history, undefined, undefined, mergedDelivery).readiness, "ready");
   const unpinnedSelection = {
     ...history,
     consents: [{ ...selectedConsent, reviewDigest: `sha256:${"0".repeat(64)}` as `sha256:${string}` }],
   };
   assert.equal(
-    closeoutReadiness(unpinnedSelection).blocker,
+    closeoutReadiness(unpinnedSelection, undefined, undefined, mergedDelivery).blocker,
     "consent",
     "an unselected approved Review must not satisfy the gate",
   );
+});
+
+test("owner-disposed changes_requested review satisfies the shared consent readiness", () => {
+  const base = closeout(),
+    selected = {
+      ...base.reviews[0]!,
+      verdict: "changes_requested" as const,
+      reason: "A finding was reviewed by the owner.",
+    },
+    digest = reviewDigest(selected),
+    submission = submissionDigest(base.executions[0]!.submission!);
+  const overridden = {
+    ...base,
+    reviews: [selected],
+    consents: [
+      {
+        ...base.consents[0]!,
+        reviewDigest: digest,
+        contentDigest: selected.contentDigest,
+        submissionDigest: submission,
+      },
+    ],
+    reviewDispositions: [
+      {
+        schema: "review-disposition/v1" as const,
+        dispositionId: "disposition-owner-override",
+        taskId: selected.taskId,
+        executionId: selected.executionId,
+        iteration: selected.iteration,
+        submissionDigest: submission,
+        disposedReviewIds: [selected.reviewId],
+        rationale: "The finding predates this delivery and is non-blocking.",
+        actor,
+        source: "local" as const,
+        disposedAt: "2026-08-18T00:05:00.000Z",
+      },
+    ],
+  };
+  assert.equal(
+    consentedApprovedReviewForExecution(
+      overridden.reviews,
+      overridden.consents,
+      overridden.executions[0]!,
+      overridden.reviewDispositions,
+    )?.review.reviewId,
+    selected.reviewId,
+  );
+  assert.equal(closeoutReadiness(overridden, undefined, undefined, mergedDelivery).readiness, "ready");
 });
 
 test("closeout readiness gates work and long_running completion on an active decision derives edge", () => {
@@ -326,55 +367,127 @@ test("closeout readiness gates work and long_running completion on an active dec
     return { ...base, task: { ...base.task!, taskId: "task-1", taskClass: "work" as const } };
   };
   // An orphan work root is not closeout-ready even with every other criterion green.
-  const orphan = closeoutReadiness(workRoot());
+  const orphan = closeoutReadiness(workRoot(), undefined, undefined, mergedDelivery);
   assert.equal(orphan.readiness, "incomplete");
   assert.equal(orphan.blocker, "lineage");
   // Only an active derives edge naming this task authorises completion.
   assert.equal(
-    closeoutReadiness({ ...workRoot(), decisionRelations: edge("derives", "retired") }).readiness,
+    closeoutReadiness(
+      { ...workRoot(), decisionRelations: edge("derives", "retired") },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
     "incomplete",
   );
   assert.equal(
-    closeoutReadiness({ ...workRoot(), decisionRelations: edge("relates", "active") }).readiness,
+    closeoutReadiness(
+      { ...workRoot(), decisionRelations: edge("relates", "active") },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
     "incomplete",
   );
   assert.equal(
-    closeoutReadiness({ ...workRoot(), decisionRelations: edge("derives", "active", "task/someone-else") }).readiness,
+    closeoutReadiness(
+      { ...workRoot(), decisionRelations: edge("derives", "active", "task/someone-else") },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
     "incomplete",
   );
-  assert.equal(closeoutReadiness({ ...workRoot(), decisionRelations: edge("derives", "active") }).readiness, "ready");
-  // long_running tasks read their class, not a boolean, and obey the same rule.
-  const longRunning = { ...workRoot(), task: { ...workRoot().task!, taskClass: "long_running" as const } };
-  assert.equal(closeoutReadiness(longRunning).blocker, "lineage");
-  assert.equal(closeoutReadiness({ ...longRunning, decisionRelations: edge("derives", "active") }).readiness, "ready");
-  // Standard tasks never required lineage and still do not.
   assert.equal(
-    closeoutReadiness({
-      ...closeout("pass"),
-      task: { ...closeout("pass").task!, taskId: "task-1", taskClass: "standard" },
-    }).readiness,
+    closeoutReadiness(
+      { ...workRoot(), decisionRelations: edge("derives", "active") },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
     "ready",
   );
-  // A missing gate keeps its own blocker; the lineage gap still withholds readiness.
-  const gateFirst = closeoutReadiness({
-    ...workRoot(),
-    gateWitnesses: [],
-    decisionRelations: edge("derives", "active"),
-  });
+  // long_running tasks read their class, not a boolean, and obey the same rule.
+  const longRunning = { ...workRoot(), task: { ...workRoot().task!, taskClass: "long_running" as const } };
+  assert.equal(closeoutReadiness(longRunning, undefined, undefined, mergedDelivery).blocker, "lineage");
+  assert.equal(
+    closeoutReadiness(
+      { ...longRunning, decisionRelations: edge("derives", "active") },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
+    "ready",
+  );
+  // Standard tasks never required lineage and still do not.
+  assert.equal(
+    closeoutReadiness(
+      {
+        ...closeout("pass"),
+        task: { ...closeout("pass").task!, taskId: "task-1", taskClass: "standard" },
+      },
+      undefined,
+      undefined,
+      mergedDelivery,
+    ).readiness,
+    "ready",
+  );
+  // A missing non-CI gate keeps its own blocker; the lineage gap still withholds readiness.
+  const gateRequirement = {
+      gateId: "quality",
+      appliesTo: "code",
+      witness: {
+        kind: "manual",
+        predicateType: "manual/v1",
+        resultSchema: { type: "object" },
+        adapterId: "manual-attest",
+        adapterOptions: {},
+      },
+    } as const,
+    gateFirstSnapshot = workRoot(),
+    gateFirstExecution = gateFirstSnapshot.executions[0]!;
+  const gateFirst = closeoutReadiness(
+    {
+      ...gateFirstSnapshot,
+      executions: [
+        {
+          ...gateFirstExecution,
+          submission: {
+            ...gateFirstExecution.submission!,
+            completionContract: {
+              ...gateFirstExecution.submission!.completionContract,
+              gates: [...gateFirstExecution.submission!.completionContract.gates, gateRequirement],
+            },
+          },
+        },
+      ],
+      decisionRelations: edge("derives", "active"),
+    },
+    undefined,
+    { review: false, consent: false, factDisposition: false, codeDoc: false },
+    mergedDelivery,
+  );
   assert.equal(gateFirst.readiness, "incomplete");
   assert.equal(gateFirst.blocker, "gate");
 });
 
 test("completed tasks retain passed gate badges from their accepted execution cut", () => {
   const snapshot = closeout("pass");
-  const assessment = closeoutReadiness({
-    ...snapshot,
-    task: { ...snapshot.task!, status: "done" },
-    executions: snapshot.executions.map((execution) => ({ ...execution, state: "accepted" })),
-  });
+  const assessment = closeoutReadiness(
+    {
+      ...snapshot,
+      task: { ...snapshot.task!, status: "done" },
+      executions: snapshot.executions.map((execution) => ({ ...execution, state: "accepted" })),
+    },
+    undefined,
+    undefined,
+    mergedDelivery,
+  );
   assert.equal(assessment.readiness, "passed");
   assert.equal(assessment.executionId, "exe-1");
-  assert.deepEqual(assessment.gates, [{ gateId: "ci", status: "passed", ok: true }]);
+  assert.deepEqual(assessment.gates, [
+    { gateId: "ci", status: "passed", ok: true, detail: "delivery merge is on origin/main" },
+  ]);
 });
 
 test("closeout gate ok is the renderer's three-state predicate", () => {

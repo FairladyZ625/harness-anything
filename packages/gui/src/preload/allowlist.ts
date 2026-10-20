@@ -96,7 +96,14 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   if (payload !== null && (typeof payload !== "object" || Array.isArray(payload))) {
     throw new Error("Preload payload must be an object or null.");
   }
-  if (containsSecretLikeKey(payload, ["createRuntimeInstance", "updateRuntimeInstance"].includes(method)))
+  if (
+    containsSecretLikeKey(
+      payload,
+      ["createRuntimeInstance", "updateRuntimeInstance", "createDecisionProvider", "updateDecisionProvider"].includes(
+        method,
+      ),
+    )
+  )
     throw new Error("Preload payload contains a forbidden secret-like key.");
   if (
     instanceTargetMethods.has(method as PreloadApiMethod) &&
@@ -193,6 +200,31 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   if (method === "createRuntimeInstance") {
     const problem = runtimeInstanceCreateProblem(payload);
     if (problem !== undefined) throw new Error(`Runtime instance create request is invalid: ${problem}`);
+  }
+  if (["createDecisionProvider", "updateDecisionProvider"].includes(method)) {
+    const fields =
+        method === "createDecisionProvider"
+          ? ["type", "providerId", "name", "model", "baseUrl", "apiKey", "credentialRef", "enabled"]
+          : ["providerId", "name", "model", "baseUrl", "apiKey", "credentialRef", "enabled"],
+      record = isPreloadPayloadRecord(payload) ? payload : null;
+    if (!record || !closed(record, fields)) throw new Error(`Preload ${method} request has unexpected fields.`);
+    if (method === "createDecisionProvider" && record.type !== "decisions")
+      throw new Error("Only Decisions API providers can be created here.");
+    if (typeof record.providerId !== "string" || record.providerId.trim() === "")
+      throw new Error(`Preload ${method} requires a providerId.`);
+    if (
+      method === "createDecisionProvider" &&
+      ["name", "model"].some((field) => typeof record[field] !== "string" || !(record[field] as string).trim())
+    )
+      throw new Error("Preload createDecisionProvider requires a name and model.");
+    if (record.enabled !== undefined && typeof record.enabled !== "boolean")
+      throw new Error(`Preload ${method} enabled must be boolean.`);
+    if (record.apiKey !== undefined && (typeof record.apiKey !== "string" || record.apiKey.trim() === ""))
+      throw new Error(`Preload ${method} apiKey must be nonblank text.`);
+    if (record.credentialRef !== undefined && typeof record.credentialRef !== "string")
+      throw new Error(`Preload ${method} credentialRef must be text.`);
+    if (record.apiKey !== undefined && record.credentialRef !== undefined)
+      throw new Error(`Preload ${method} accepts an apiKey or credentialRef, not both.`);
   }
   return true;
 }

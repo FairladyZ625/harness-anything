@@ -209,7 +209,13 @@ export function readTaskActionExplanation(
             snapshot,
             evaluatedAtCut: cut,
             closeoutGates: readEffectiveCloseoutGates(dependencies.projection, snapshot),
-            completionContext: readCompletionContext(dependencies.projection, entity.id, snapshot, "ready"),
+            completionContext: readCompletionContext(
+              dependencies.projection,
+              entity.id,
+              snapshot,
+              "ready",
+              dependencies.rootDir,
+            ),
           }).subjects[0]!;
         }
       } else {

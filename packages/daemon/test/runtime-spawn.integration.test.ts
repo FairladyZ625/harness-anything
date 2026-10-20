@@ -578,7 +578,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     assert.match(launched?.prompt ?? "", /AGENT_INSTRUCTIONS_WITNESS/u);
     assert.match(
       launched?.prompt ?? "",
-      /# Harness Execution Discipline.*configured commit identity.*conventional type prefix.*do not mention AI.*share one `git stash` stack.*temporary WIP commit.*Do not use `git stash` in concurrent work.*# Worker Role.*Deliver at a local commit.*ha task push <task-id>.*ha task ci <task-id> --wait.*`pending` and `not_started` are not verdicts.*bounded implementation.*local commit.*residual risks/su,
+      /# Harness Execution Discipline.*canonical repository root read-only.*temporary WIP commit.*# Worker Role.*a fix deletes or narrows by default.*PR checks for that delivery commit.*Pending is not green.*residual risks/su,
     );
     assert.match(launched?.prompt ?? "", /# Standard Task/u);
     assert.ok(
@@ -660,7 +660,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     assert.equal(launched?.definition.model, "instance-default");
     assert.match(
       launched?.prompt ?? "",
-      /# Harness Execution Discipline.*<very_important>.*# Commander Context.*attention.*run the gate yourself.*<\/very_important>/su,
+      /# Harness Execution Discipline.*<very_important>.*# Commander Context.*attention.*applicable gates.*<\/very_important>/su,
     );
     for (const kindId of ["claude", "codex", "agy"] as const) {
       await cell.spawnRuntime(
@@ -980,38 +980,26 @@ test("Agent skill is really read by the provider from the absolute path in its f
       },
     });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    const attached = await host.attach(repoId, String(receipt.runtimeSessionId), "stream:0", auth);
-    try {
-      assert.equal(attached.initial.ok, true, JSON.stringify(attached.initial));
-      const pending = attached.initial.ok ? [...attached.initial.events] : [];
-      for (;;) {
-        const event = pending.shift() ?? (await attached.next());
-        assert.notEqual(event, null, "runtime attach stream closed before the provider witness arrived");
-        if (event?.type === "activity" && event.activity === "message" && event.content === "provider-witness:true")
-          break;
-        assert.notEqual(event?.type, "exit", "runtime exited before the provider witness arrived");
-      }
-      const dispatch = readDispatchStream(root, receipt.dispatchId),
-        stream = JSON.stringify(dispatch),
-        records = dispatch?.records ?? [],
-        witness = records.find(
-          (record) =>
-            record.kind === "provider_event" &&
-            ((record.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined)
-              ?.skill_witness === true,
-        ),
-        item = (witness?.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined;
-      assert.equal(item?.skill_witness, true, stream);
-      assert.match(
-        String(item?.prompt_witness),
-        /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u,
-      );
-      assert.match(stream, /"text":"provider-witness:true"/u);
-      assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);
-      context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);
-    } finally {
-      attached.detach();
-    }
+    // This provider answers from stdin EOF and exits immediately, so whether the live-frame
+    // attach window is still open when the caller asks is timing luck. The witness is durable
+    // in the dispatch stream before the provider exit record, so wait on that record instead
+    // of racing the live window.
+    const witness = await waitForDispatchRecord(
+      root,
+      String(receipt.dispatchId),
+      (record) =>
+        record.kind === "provider_event" &&
+        ((record.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined)
+          ?.skill_witness === true,
+    );
+    const dispatch = readDispatchStream(root, receipt.dispatchId),
+      stream = JSON.stringify(dispatch),
+      item = (witness.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined;
+    assert.equal(item?.skill_witness, true, stream);
+    assert.match(String(item?.prompt_witness), /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u);
+    assert.match(stream, /"text":"provider-witness:true"/u);
+    assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);
+    context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
@@ -1187,4 +1175,24 @@ async function rpc(
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", ["-C", root, ...args]);
+}
+
+/** Wait on a durable dispatch record. A provider that already exited cannot serve live frames,
+ * so the stream, not the attach endpoint, is where its last evidence is guaranteed to land. */
+async function waitForDispatchRecord(
+  root: string,
+  dispatchId: string,
+  predicate: (record: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const stream = readDispatchStream(root, dispatchId),
+      match = stream?.records.find(predicate);
+    if (match) return match;
+    if (stream?.process?.exited)
+      throw new Error(`provider exited before recording the awaited event: ${JSON.stringify(stream.records)}`);
+    if (Date.now() >= deadline)
+      throw new Error(`dispatch ${dispatchId} did not record the awaited provider event within 30000ms`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }

@@ -554,7 +554,8 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain('data-testid="rail-session-runtime-0"');
     expect(markup).toContain("Round 2");
     expect(markup).toContain("Fable → terra");
-    expect(markup).toContain("No dispatch record: 1 bound sessions");
+    expect(markup).toContain("No dispatch record: 1 bound session");
+    expect(markup).not.toContain("No dispatch record: 1 bound sessions");
     expect(markup).toContain('data-testid="rail-session-runtime-orphan"');
     expect(markup).not.toContain("runtime-sessions-more");
   });

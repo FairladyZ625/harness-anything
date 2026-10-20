@@ -1,6 +1,6 @@
 ---
 name: harness-contributing
-description: Contribute a public change to Harness Anything from a GitHub issue through an isolated worktree, scoped tests, manifest-selected gates, a complete bilingual PR body, review triage, and maintainer merge. Use when a human or coding agent is preparing or updating a contribution to this repository.
+description: Contribute a public change to Harness Anything from a GitHub issue through an isolated worktree, scoped tests, manifest-selected gates, a complete PR body, review triage, and maintainer merge. Use when a human or coding agent is preparing or updating a contribution to this repository.
 ---
 
 # Harness Contributing
@@ -260,7 +260,7 @@ git commit -m "<feat|fix|refactor|docs|test|ci>: <concise English summary>"
 Do not mention an AI author in the commit message. Use the actual human or
 agent operator's configured git identity.
 
-## Prepare the bilingual PR body
+## Prepare the PR body
 
 Do this after all contribution commits, because the production-delta gate
 measures committed `HEAD` from its merge-base. Refresh and synchronize first,
@@ -275,10 +275,9 @@ git merge-base origin/main HEAD
 git status --short --branch
 ```
 
-Put the `date -u` output in `Last git fetch origin time`. If the initial
-worktree check found approved pre-existing commits, describe the complete
-`origin/main...HEAD` delta in the PR body and explicitly separate those commits
-from the changes authored in the current run.
+If the initial worktree check found approved pre-existing commits, describe the
+complete `origin/main...HEAD` delta in the PR body and explicitly separate
+those commits from the changes authored in the current run.
 
 Copy the current template; never reconstruct its sections from memory:
 
@@ -287,58 +286,44 @@ cp .github/pull_request_template.md /tmp/harness-anything-pr-body.md
 ${EDITOR:-vi} /tmp/harness-anything-pr-body.md
 ```
 
-Fill every uncommented section in the complete `# English` block and the
-complete `# 中文` block. Preserve their order and the shared checklist. Use
-`not applicable` plus a reason where appropriate instead of deleting a section.
-Keep machine-readable declarations exactly once and only in the English block,
-flush left as the template instructs. Do not claim CI, human review, or a test
-that has not happened.
+Fill every uncommented section with real delivery facts. Governance
+Declaration and the Dependency-Change line are required only when their
+trigger applies — a manifest-derived protected surface is touched, or a
+package manifest or lockfile changes; otherwise the template defaults are
+complete. Do not claim CI, human review, or a test that has not happened.
 
-For an external contributor, fill `Harness task` in both language blocks with
-the public issue number, for example `#1234`; if there is no public issue, write
-`not applicable`. Never put a private task ID, local planning ID, or private
-evidence path in the public PR body. If neither `package.json` nor
-`package-lock.json` changed, delete the entire `Dependency-Change:` line; do not
-leave `Dependency-Change: none`. Keep and fully describe that line only when one
-of those dependency files changed.
+Reference the public issue number in the Summary section, for example
+`#1234`. Never put a private task ID, local planning ID, or private evidence
+path in the public PR body. If neither `package.json` nor
+`package-lock.json` changed, delete the entire `Dependency-Change:` line; do
+not leave `Dependency-Change: none`. Keep and fully describe that line only
+when one of those dependency files changed.
 
-In the Verification checklist, check an item only when its exact command exited
-zero, either because you ran it directly or because the manifest runner printed
+In Verification, record a command only when its exact command exited zero,
+either because you ran it directly or because the manifest runner printed
 that command and reported it passed. A passing current `boundaries` job
-indirectly runs these checklist items:
+indirectly runs `npm run harness:check-import-boundaries`,
+`npm run harness:scan-forbidden-symbols`,
+`npm run harness:check-private-boundary`,
+`npm run harness:check-implementation-contracts`,
+`npm run harness:check-schema-contracts`, and
+`npm run harness:check-legacy-intake-readiness`; list anything else that was
+not run with a reason.
 
-- `npm run harness:check-import-boundaries`
-- `npm run harness:scan-forbidden-symbols`
-- `npm run harness:check-private-boundary`
-- `npm run harness:check-implementation-contracts`
-- `npm run harness:check-schema-contracts`
-- `npm run harness:check-legacy-intake-readiness`
-
-Check those items only when all appear as passed in the runner output. Do not
-infer that `npm run check`, `npm test`,
-`npm run harness:check-package-policy`, or
-`npm run harness:smoke-cli-package` ran as part of `boundaries`; leave each
-unchecked unless that exact command actually passed. Record the top-level
-manifest command and any allowed exclusion in the surrounding Verification
-text.
-
-Run the authoritative production-delta calculator after all commits. It reports
-the computed addition, deletion, churn, and net values without requiring a PR
-body declaration:
+Run the authoritative production-delta calculator after all commits. It
+reports the computed addition, deletion, churn, and net values from the diff
+alone — no PR body declaration is involved:
 
 ```bash
-node tools/gates/production-delta.mjs --base origin/main --pr-body-file /tmp/harness-anything-pr-body.md
+node tools/gates/production-delta.mjs --base origin/main
 ```
 
-If computed production churn exceeds 200 lines or net growth exceeds +300, fill
-both architectural-justification sections.
-
-Preflight the two complete language blocks through the requested environment
-interface, then run the manifest's full PR-body job:
+Preflight the completed body through the requested environment interface,
+then run the manifest's full PR-body job:
 
 ```bash
 export PR_BODY="$(cat /tmp/harness-anything-pr-body.md)"
-node tools/check-pr-body-bilingual.mjs --env PR_BODY
+node tools/check-pr-body.mjs --env PR_BODY
 export PR_BASE_SHA="$(git merge-base origin/main HEAD)"
 export PR_HEAD_SHA="$(git rev-parse HEAD)"
 node tools/run-manifest-gates.mjs --workflow-job pr-body-lint
@@ -349,21 +334,23 @@ unset PR_BODY PR_BASE_SHA PR_HEAD_SHA
 docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
-> 中文：所有 commit 完成后运行 production-delta 计算器。PR body 必须保留模板的完整
-> 英文块、完整中文块和共享 checklist；其余机读声明只在英文块顶格出现一次。外部贡献者的
-> `Harness task` 只填公开 issue 号，没有就填 `not applicable`，不要放私有 ID；无依赖
-> 文件变化时删除整条 `Dependency-Change:`。checklist 只勾选直接通过、或由 runner
-> 明确打印并通过的命令。不得把未发生的 CI、人工 review 或测试写成已完成。
+> 中文：所有 commit 完成后运行 production-delta 计算器（它只从 diff 实算，不读 PR
+> 正文）。PR body 按模板填写所有未注释的节；治理声明与 `Dependency-Change:` 仅在
+> 触发条件成立时必填。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID；无
+> 依赖文件变化时删除整条 `Dependency-Change:`。Verification 只记录直接通过、或由
+> runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生的 CI、人工
+> review 或测试写成已完成。
 
 ## Push and open the PR
 
 This section is the external-contributor path: it uses the contributor's own
 Git credentials. A different model exists for dispatched, task-bound workers in
-a registered Harness workspace — they hold no personal Git credentials and
-publish through the daemon with `ha task push <task-id>`, `ha task pr
-<task-id>`, and `ha task ci <task-id>`, with direct-push protection limiting
-any push to the task's own branch. If your session runs as such a worker, use
-those commands instead of this section; see
+a registered Harness workspace — they publish through the daemon with
+`ha task push <task-id>` and `ha task pr <task-id>`, with direct-push
+protection limiting any push to the task's own branch. Read hosted checks and
+failure logs directly with the hosting platform CLI and your own platform
+credentials. If your session runs as such a worker, use those publishing
+commands instead of this section; see
 [Task branch publishing](../../docs-release/operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
 
 Push only the contribution branch to a remote where the contributor has write

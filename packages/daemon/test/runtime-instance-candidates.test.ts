@@ -312,3 +312,85 @@ test("repository init seeds enabled instances once and preserves explicit projec
   assert.equal(initialRuntimeInstanceSettings(projectA, []), projectA);
   assert.equal(settings.runtime?.allowedInstances, undefined);
 });
+
+const sol = (): RuntimeAgent => ({
+  id: "sol",
+  name: "Sol",
+  instructions: "Run the mission.",
+  runtimes: [{ type: "codex", model: "gpt-6.1-sol" }],
+});
+
+const splitInstances = () => [
+  instance("codex-api", "codex", "provider-codex", ["gpt-6.1-sol"]),
+  instance("zcode-flash", "zcode", "provider-zcode", ["GLM-5.3-Flash"]),
+];
+
+test("an explicit instance pin of an undeclared runtime kind is rejected for a declaring Agent", () => {
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "zcode-flash",
+        agent: sol(),
+        instances: splitInstances(),
+        sessions: [],
+        allowedInstanceIds: ["codex-api", "zcode-flash"],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code?: string }).code === "agent_runtime_unavailable" &&
+      /declares codex.*zcode-flash.*zcode instance/u.test(error.message),
+  );
+});
+
+test("a resumed provider session on an undeclared runtime kind is rejected for a declaring Agent", () => {
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        providerSessionId: "drifted-session",
+        agent: sol(),
+        instances: splitInstances(),
+        sessions: [{ providerSessionId: "drifted-session", instanceId: "zcode-flash" } as never],
+        allowedInstanceIds: ["codex-api", "zcode-flash"],
+      }),
+    (error: unknown) =>
+      error instanceof Error && (error as Error & { code?: string }).code === "agent_runtime_unavailable",
+  );
+});
+
+test("a declared-kind pin and resume keep the requested instance", () => {
+  const instances = splitInstances();
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      requested: "codex-api",
+      agent: sol(),
+      instances,
+      sessions: [],
+      allowedInstanceIds: ["codex-api", "zcode-flash"],
+    }),
+    ["codex-api"],
+  );
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      providerSessionId: "worker-session",
+      agent: sol(),
+      instances,
+      sessions: [{ providerSessionId: "worker-session", instanceId: "codex-api" } as never],
+      allowedInstanceIds: ["codex-api", "zcode-flash"],
+    }),
+    ["codex-api"],
+  );
+});
+
+test("an Agent without runtime declarations keeps every explicit pin and resume", () => {
+  const instances = splitInstances();
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      requested: "zcode-flash",
+      agent: { id: "observer", name: "Observer", instructions: "Observe.", runtimes: [] },
+      instances,
+      sessions: [],
+      allowedInstanceIds: ["codex-api", "zcode-flash"],
+    }),
+    ["zcode-flash"],
+  );
+});

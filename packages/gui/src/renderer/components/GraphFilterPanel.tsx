@@ -230,7 +230,7 @@ export function GraphFilterPanel({
       <div
         id={bodyId}
         data-testid={bodyId}
-        className={`glass nowheel absolute left-0 top-[calc(100%+6px)] z-30 w-[min(22rem,85vw)] rounded-sm p-3 flex-col gap-3 ${open ? "flex bounded-content overflow-y-auto" : "hidden"}`}
+        className={`glass glass-overlay nowheel absolute left-0 top-[calc(100%+6px)] z-30 w-[min(22rem,85vw)] rounded-sm p-3 flex-col gap-3 ${open ? "flex bounded-content overflow-y-auto" : "hidden"}`}
       >
         {/* 语义轴 */}
         <div className="flex flex-col gap-2">

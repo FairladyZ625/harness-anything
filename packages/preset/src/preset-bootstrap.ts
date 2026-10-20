@@ -1,11 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import {
   REPLAY_TASK_GRAPH,
   assertTransitionDocumentReady,
   classifyTextualArtifactPath,
   currentTaskForWrite,
-  deriveTaskWorktreeBinding,
   getExecutableEntityAction,
   presetSnapshotUpgradeWritePlan,
   sha256Text,
@@ -227,21 +224,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           requiredAnchors: [],
           templateRef: null,
         };
-  const prBodyBody = prBodyScaffoldBody(input, snapshot.profile.outputShape),
-    prBody =
-      prBodyBody === null
-        ? null
-        : {
-            slot: "task.pr-body",
-            relativePath: "artifacts/pr-body.md",
-            path: `${packagePath}/artifacts/pr-body.md`,
-            body: prBodyBody,
-            contentSha256: sha256Text(prBodyBody),
-            mediaType: "text/markdown" as const,
-            owner: "doc-sync" as const,
-            requiredAnchors: [],
-            templateRef: null,
-          };
   const scaffoldDigest = resolved.snapshot.scaffold.resolvedSelectionDigest,
     orderedProse = [bySlot.get("task.plan")!, bySlot.get("task.closeout")!, bySlot.get("task.artifacts.keep")!],
     additions = prose
@@ -260,7 +242,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       descriptor(orderedProse[2]!),
       ...additions.map((document) => descriptor(document)),
       ...(explainer === null ? [] : [descriptor(explainer)]),
-      ...(prBody === null ? [] : [descriptor(prBody)]),
       ...presetScripts.map((document) => descriptor(document)),
     ],
     index = machine("task.index", "INDEX.md", renderIndex(input, packagePath, metadata, descriptors)),
@@ -308,7 +289,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       orderedProse[2]!,
       ...additions,
       ...(explainer === null ? [] : [explainer]),
-      ...(prBody === null ? [] : [prBody]),
       ...presetScripts,
     ];
   return {
@@ -332,29 +312,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       templateRef: null,
     };
   }
-}
-
-/**
- * The PR-body skeleton: when the repository declares `.github/pull_request_template.md`, a
- * repository-diff task materializes its current bytes as an editable scaffold. Materialization
- * does not fill the body; the dispatch delivery protocol assigns that work to the worker. Who qualifies is not a new judgment: it
- * is the worktree binding, the same derivation `ha task show` names the workspace kind with. Tasks
- * without a binding — work roots, task-package presets like docs-task — never change repository
- * files and never open a PR of their own. A repository without the template has nothing to
- * materialize.
- */
-function prBodyScaffoldBody(input: CompileTaskPackageInput, outputShape: string): string | null {
-  if (
-    input.repoRoot === undefined ||
-    deriveTaskWorktreeBinding({
-      taskId: input.taskId,
-      taskClass: input.taskClass ?? "standard",
-      outputShape,
-    }) === null
-  )
-    return null;
-  const templatePath = path.join(input.repoRoot, ".github", "pull_request_template.md");
-  return existsSync(templatePath) ? readFileSync(templatePath, "utf8") : null;
 }
 
 function withoutCodeDeliveryGates(snapshot: PresetSnapshotV1): PresetSnapshotV1 {
@@ -388,7 +345,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
       policyId:
         document.owner === "machine"
           ? ("typed-machine-writer/v1" as const)
-          : ((document.relativePath === "artifacts/explainer.html" || document.relativePath === "artifacts/pr-body.md"
+          : ((document.relativePath === "artifacts/explainer.html"
               ? OPAQUE_TEXTUAL_POLICY_ID
               : ("markdown-body-replaceable/v1" as const)) as
               | "markdown-body-replaceable/v1"
@@ -501,13 +458,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
     addedPaths = compiled.documents
       .map(({ relativePath }) => relativePath)
-      .filter(
-        (item) =>
-          !knownPaths.has(item) &&
-          !input.documentExists?.(item) &&
-          item !== "artifacts/explainer.html" &&
-          item !== "artifacts/pr-body.md",
-      );
+      .filter((item) => !knownPaths.has(item) && !input.documentExists?.(item) && item !== "artifacts/explainer.html");
   if (addedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",

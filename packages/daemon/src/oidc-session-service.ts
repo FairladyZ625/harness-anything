@@ -9,6 +9,8 @@ import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
+import { Agent } from "undici";
+import { errorMessageWithCause } from "./error-cause.ts";
 
 interface RbacConfig {
   readonly url: string;
@@ -32,6 +34,7 @@ export interface OidcLoginAuthority {
   readonly clientId: string;
   readonly clientSecret?: string;
   readonly browserUrl?: string;
+  readonly certificate?: string;
 }
 
 export interface DeviceLoginRequest {
@@ -52,6 +55,7 @@ interface PendingDeviceLogin {
   readonly expiresAt: number;
   interval: number;
   nextPollAt: number;
+  lastTransportError?: string;
 }
 
 interface StoredSession {
@@ -67,7 +71,12 @@ interface StoredSession {
   readonly roles: readonly string[];
   readonly loginTarget?: string;
   /** The Keycloak issuer this session was issued by; binding a request reads it instead of asking the center. */
-  readonly authority?: { readonly url: string; readonly realm: string };
+  readonly authority?: {
+    readonly url: string;
+    readonly realm: string;
+    readonly clientId?: string;
+    readonly certificate?: string;
+  };
 }
 
 /** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
@@ -162,7 +171,7 @@ export class OidcSessionService {
     this.#pending = undefined;
     const authority = pending.authority,
       tokenUrl = `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`,
-      tokenResponse = await this.#ports.fetch(tokenUrl, {
+      tokenResponse = await this.#fetchAuthority(authority, tokenUrl, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -188,10 +197,15 @@ export class OidcSessionService {
       throw coded("oidc_login_superseded", "A newer login or logout superseded this sign-in attempt.");
   }
 
-  async beginDevice(loginTarget?: string, authorityOverride?: OidcLoginAuthority): Promise<Record<string, unknown>> {
+  async beginDevice(
+    loginTarget?: string,
+    authorityOverride?: OidcLoginAuthority,
+    expiresAtLimit?: number,
+  ): Promise<Record<string, unknown>> {
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
-      response = await this.#ports.fetch(
+      response = await this.#fetchAuthority(
+        authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
         {
           method: "POST",
@@ -210,7 +224,10 @@ export class OidcSessionService {
     const device = (await response.json()) as Record<string, unknown>,
       interval = requiredNumber(device.interval, "interval"),
       createdAt = this.#ports.now(),
-      expiresAt = createdAt + requiredNumber(device.expires_in, "expires_in") * 1_000,
+      expiresAt = Math.min(
+        createdAt + requiredNumber(device.expires_in, "expires_in") * 1_000,
+        expiresAtLimit ?? Number.POSITIVE_INFINITY,
+      ),
       userCode = requiredString(device.user_code, "user_code"),
       verificationUri = requiredString(device.verification_uri, "verification_uri"),
       notice = { userCode, createdAt, expiresAt, pending: true };
@@ -299,23 +316,50 @@ export class OidcSessionService {
       if (!pending) throw coded("oidc_device_missing", "Start device login first.");
       if (this.#ports.now() >= pending.expiresAt) {
         this.#device = undefined;
-        throw coded("oidc_device_expired", "Device authorization expired; start login again.");
+        await this.#reportDevice(pending, false);
+        throw coded(
+          "oidc_device_expired",
+          pending.lastTransportError
+            ? `Device authorization expired; the last Keycloak request failed: ${pending.lastTransportError}`
+            : "Device authorization expired; start login again.",
+        );
       }
-      if (this.#ports.now() < pending.nextPollAt) return { ok: true, pending: true, interval: pending.interval };
-      const response = await this.#ports.fetch(
-        `${pending.authority.url}/realms/${encodeURIComponent(pending.authority.realm)}/protocol/openid-connect/token`,
-        {
-          method: "POST",
-          body: new URLSearchParams({
-            ...clientFields(pending.authority),
-            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-            device_code: pending.deviceCode,
-            code_verifier: pending.verifier,
-          }),
-        },
-      );
+      if (this.#ports.now() < pending.nextPollAt)
+        return {
+          ok: true,
+          pending: true,
+          interval: pending.interval,
+        };
+      let response: Response;
+      try {
+        response = await this.#fetchAuthority(
+          pending.authority,
+          `${pending.authority.url}/realms/${encodeURIComponent(pending.authority.realm)}/protocol/openid-connect/token`,
+          {
+            method: "POST",
+            body: new URLSearchParams({
+              ...clientFields(pending.authority),
+              grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+              device_code: pending.deviceCode,
+              code_verifier: pending.verifier,
+            }),
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof TypeError) || !transientDeviceTransportFailure(error)) throw error;
+        const transportError = errorMessageWithCause(error);
+        pending.lastTransportError = transportError;
+        pending.nextPollAt = this.#ports.now() + pending.interval * 1_000;
+        (error as TypeError & { code?: string }).code = "oidc_device_transport_unavailable";
+        throw error;
+      }
       const result = (await response.json()) as Record<string, unknown>;
+      delete pending.lastTransportError;
       if (!response.ok) {
+        if (result.error === "invalid_grant") {
+          await this.#reportDevice(pending, false);
+          return this.beginDevice(pending.loginTarget, pending.authority, pending.expiresAt);
+        }
         if (result.error === "authorization_pending" || result.error === "slow_down") {
           if (result.error === "slow_down") pending.interval += 5;
           pending.nextPollAt = this.#ports.now() + pending.interval * 1_000;
@@ -339,7 +383,8 @@ export class OidcSessionService {
     generation?: number,
   ): Promise<Record<string, unknown>> {
     const accessToken = requiredString(tokens.access_token, "access_token"),
-      userResponse = await this.#ports.fetch(
+      userResponse = await this.#fetchAuthority(
+        authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
         { headers: { authorization: `Bearer ${accessToken}` } },
       );
@@ -379,7 +424,10 @@ export class OidcSessionService {
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
     const authority = await this.#loginAuthority(loginTarget, true),
-      response = await this.#ports.fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}`);
+      response = await this.#fetchAuthority(
+        authority,
+        `${authority.url}/realms/${encodeURIComponent(authority.realm)}`,
+      );
     return {
       source: "fleet-center",
       mode: "external",
@@ -402,8 +450,11 @@ export class OidcSessionService {
       const session = this.#session();
       this.#ports.sessionStore.delete();
       if (session) {
-        const authority = await this.#loginAuthority(session.loginTarget),
-          response = await this.#ports.fetch(
+        const authority = session.authority?.clientId
+            ? (session.authority as OidcLoginAuthority)
+            : await this.#loginAuthority(session.loginTarget),
+          response = await this.#fetchAuthority(
+            authority,
             `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/revoke`,
             {
               method: "POST",
@@ -430,10 +481,21 @@ export class OidcSessionService {
   }
 
   /** Public metadata carried by new edge invitations; contains no secret or session token. */
-  async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
+  async interactiveAuthority(): Promise<{
+    readonly url: string;
+    readonly realm: string;
+    readonly clientId: string;
+    readonly certificate?: string;
+  }> {
     const authority = await this.#loginAuthority();
-    // An invitation travels to another machine, so it names the listener every node can reach.
-    return { url: authority.browserUrl ?? authority.url, realm: authority.realm, clientId: authority.clientId };
+    // An invitation travels to another machine, so it names the listener every node can reach;
+    // the pinned certificate belongs to that same listener.
+    return {
+      url: authority.browserUrl ?? authority.url,
+      realm: authority.realm,
+      clientId: authority.clientId,
+      ...(authority.certificate ? { certificate: authority.certificate } : {}),
+    };
   }
 
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
@@ -530,7 +592,12 @@ export class OidcSessionService {
     const config = this.#config(),
       url = config.listener ? managedRbacListenerUrl(config.listener) : config.url;
     if (new URL(url).protocol !== "https:") return null;
-    return { url, realm: config.realm, clientId: `harness-node-${nodeId}` };
+    return {
+      url,
+      realm: config.realm,
+      clientId: `harness-node-${nodeId}`,
+      ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
+    };
   }
 
   async requireRole(role: string): Promise<StoredSession> {
@@ -542,7 +609,8 @@ export class OidcSessionService {
     const session = await this.#live();
     if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
-      response = await this.#ports.fetch(
+      response = await this.#fetchAuthority(
+        authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
         {
           headers: { authorization: `Bearer ${session.accessToken}` },
@@ -578,14 +646,17 @@ export class OidcSessionService {
       if (
         existsSync(path.join(this.#rbacRoot, "config.json")) &&
         !(await this.#bootstrapRequired(await this.#centerToken()))
-      ) {
-        // Already in the write queue: renew directly rather than enqueueing behind ourselves.
-        const { session, unavailable } = await this.#useCurrent();
-        if (unavailable) throw unavailable;
-        this.#requireRole("access-admin", session);
-      }
+      )
+        await this.#requireRoleInWriter("access-admin");
       return operation();
     });
+  }
+
+  /** Role check for a caller already inside the write queue: renewal runs directly, never queued behind itself. */
+  async #requireRoleInWriter(role: string): Promise<StoredSession> {
+    const { session, unavailable } = await this.#useCurrent();
+    if (unavailable) throw unavailable;
+    return this.#requireRole(role, session);
   }
 
   async #bootstrapRequired(token: string): Promise<boolean> {
@@ -622,13 +693,18 @@ export class OidcSessionService {
     });
   }
 
-  async invite(input: {
-    readonly username: string;
-    readonly email: string;
-    readonly displayName: string;
-    readonly personId: string;
-  }): Promise<Record<string, unknown>> {
-    await this.requireRole("access-admin");
+  async invite(
+    input: {
+      readonly username: string;
+      readonly email: string;
+      readonly displayName: string;
+      readonly personId: string;
+    },
+    withinWriter = false,
+  ): Promise<Record<string, unknown>> {
+    // A caller already inside the write queue must not re-queue its own session renewal.
+    if (withinWriter) await this.#requireRoleInWriter("access-admin");
+    else await this.requireRole("access-admin");
     const token = await this.#centerToken(),
       userId = await this.#createUser(token, input, true);
     await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
@@ -788,7 +864,28 @@ export class OidcSessionService {
       realm: config.realm,
       clientId: "harness-gui",
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
+      ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
     };
+  }
+
+  async #fetchAuthority(
+    authority: Pick<OidcLoginAuthority, "url" | "realm" | "certificate">,
+    input: string | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    if (!authority.certificate) return this.#ports.fetch(input, init);
+    const dispatcher = new Agent({ connect: { ca: authority.certificate } });
+    try {
+      const response = await this.#ports.fetch(input, { ...init, dispatcher } as RequestInit & { dispatcher: Agent }),
+        body = await response.arrayBuffer();
+      return new Response([204, 205, 304].includes(response.status) ? null : body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    } finally {
+      await dispatcher.close();
+    }
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
@@ -824,9 +921,13 @@ export class OidcSessionService {
       authority =
         edge && session.authority
           ? { ...session.authority, clientId: `harness-node-${edge.nodeId}`, clientSecret: edge.credential }
-          : await this.#loginAuthority(session.loginTarget),
-      response = await this.#ports
-        .fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`, {
+          : session.authority?.clientId
+            ? (session.authority as OidcLoginAuthority)
+            : await this.#loginAuthority(session.loginTarget),
+      response = await this.#fetchAuthority(
+        authority,
+        `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`,
+        {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
@@ -834,8 +935,8 @@ export class OidcSessionService {
             ...clientFields(authority),
             refresh_token: session.refreshToken,
           }),
-        })
-        .catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
+        },
+      ).catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
     if (generation !== this.#loginGeneration) return { session: undefined };
     if (response instanceof Error)
       return {
@@ -884,7 +985,12 @@ export class OidcSessionService {
           : now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
       roles: realmRoles(decodeJwtPayload(accessToken)),
       ...(identity.loginTarget ? { loginTarget: identity.loginTarget } : {}),
-      authority: { url: authority.url, realm: authority.realm },
+      authority: {
+        url: authority.url,
+        realm: authority.realm,
+        clientId: authority.clientId,
+        ...(authority.certificate ? { certificate: authority.certificate } : {}),
+      },
     };
   }
 
@@ -929,4 +1035,37 @@ function unavailable(message: string, cause?: unknown): Error {
 }
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+const transientDeviceTransportCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+
+function transientDeviceTransportFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false;
+  let cause: unknown = error,
+    depth = 0;
+  while (cause !== undefined && depth < 4) {
+    if (
+      typeof cause === "object" &&
+      cause !== null &&
+      "code" in cause &&
+      typeof cause.code === "string" &&
+      transientDeviceTransportCodes.has(cause.code)
+    )
+      return true;
+    cause = cause instanceof Error ? cause.cause : undefined;
+    depth += 1;
+  }
+  return false;
 }

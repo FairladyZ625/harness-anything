@@ -11,7 +11,8 @@ import type {
   RpcShape,
 } from "./preset-command-contract-support.ts";
 import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
-import { settingsFieldProtocolProjection, taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
+import { settingsFieldProtocolProjection } from "./settings-field-projection.generated.ts";
+import { taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
 
 export type {
   CliInputError,
@@ -250,7 +251,7 @@ export const generatedTaskCreateResultFields = Object.freeze(
 // A cold agent picks the short path from --help alone: the flag says what lightweight lifts and what it keeps,
 // and the Recommended presets rows name the presets that declare it.
 const taskCreateProfileFormat =
-  "<profile; lightweight = short plan and closeout with no review, consent, or fact at closeout, for a " +
+  "<profile; lightweight = short plan and closeout with no review or consent at closeout, for a " +
   "low-risk small change (a code change still lands through the PR's CI); Recommended presets below lists " +
   "the presets that declare it>";
 // Same advice the over-wide-title receipt hint gives: one focus in the title, everything else in the plan.

@@ -45,9 +45,12 @@ test("an in-effect deriving chosen decision grants a bounded surface in the actu
   assert.match(mission, /Current contract 0/u);
   assert.match(mission, /Replace the owner-person binding/u);
   assert.match(mission, /C1 Preserve authenticated provenance/u);
-  assert.match(mission, /保留并补齐负例.*引用决策 id.*closeout/su);
-  assert.match(mission, /CI workflow.*阈值与预算.*required checks.*凭据与宿主服务.*删除断言.*allowlist/su);
-  assert.match(mission, /范围内直接执行并报备/u);
+  assert.match(mission, /closeout 和 PR 治理声明.*引用决策 id.*保留并补齐负例/su);
+  assert.doesNotMatch(mission, /硬红线|Hard prohibitions|remain prohibited/u);
+  assert.match(mission, /没有决策依据的写明‘需要业主授权’/u);
+  assert.match(mission, /凭据、宿主服务、对外发布.*未经明确授权就停手/u);
+  assert.match(mission, /grants no additional daemon command or ledger permissions/u);
+  assert.match(mission, /决策条款写到的面按条款做/u);
   assert.ok(mission.endsWith("Implement the contract."));
   const xml = context.slice(0, context.indexOf("</task-context>") + "</task-context>".length);
   assert.ok(Buffer.byteLength(xml) <= CAUSAL_CONTEXT_MAX_BYTES);

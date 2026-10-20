@@ -1,6 +1,6 @@
 // CLI arm: cold start (daemon stopped -> first command, which must autostart the daemon and
 // attach the repo) plus warm common-read sampling that tools/measure-cli-command-timing.mjs does
-// not carry (doc show; task ci is documented, not timed — see the suite notes). Warm per-command
+// not carry (doc show). Warm per-command
 // ratios come from the existing measurement, run as a subprocess so its fixture lifecycle stays
 // authoritative.
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -120,12 +120,6 @@ export async function runCliArm({ rootDir, outDir, coldCycles = 5, docSamples = 
         attachP50Ms: stats(attachDurations).p50Ms,
       },
       docShow: { measured: true, path: canonicalDocPath, samples: docSamples, wallMs: stats(docShow) },
-      taskCi: {
-        measured: false,
-        reason:
-          "task ci rides repo.task.read like task show (protocol declaration), but the PR-present path needs a " +
-          "dispatch-held GitHub credential that a fixture cannot mint; timing the error path would not represent it",
-      },
     };
   } finally {
     await stopFixtureDaemon(fixture);

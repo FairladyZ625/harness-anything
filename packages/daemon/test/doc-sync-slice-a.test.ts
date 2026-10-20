@@ -900,10 +900,22 @@ test("retired people files are ordinary documents while typed writable routes re
     const document = await cell.run({ kind: "doc-show", path: "people.yaml" }, binding);
     assert.match(document.evidence ?? "", /harness-people\/v1/u);
 
+    // The authored config keeps its human drift for the settings ingress to absorb: it is the
+    // declaration surface, not a pure projection, so the channel reports the owning route.
     const workspace = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding),
       workspaceRow = rows(workspace.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
     assert.deepEqual([workspaceRow?.state, workspaceRow?.reason], ["blocked", "path is owned by workspace-config"]);
     assert.equal(workspace.detail?.unresolvedTouches[0]?.requiredRoute, "workspace-config");
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8"),
+      "schema: harness-anything/v1\nname: hand-edited\n",
+    );
+    // A route-owned path with no canonical document to rebuild from still reports its owner.
+    write(rootDir, "events/segments/manifest.json", "{}\n");
+    const stray = await cell.run({ kind: "doc-status", paths: ["events/segments/manifest.json"] }, binding),
+      strayRow = rows(stray.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([strayRow?.state, strayRow?.reason], ["blocked", "path is owned by canonical-event"]);
+    assert.equal(stray.detail?.unresolvedTouches[0]?.requiredRoute, "canonical-event");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

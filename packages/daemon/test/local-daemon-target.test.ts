@@ -7,7 +7,11 @@ import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { INITIAL_SETTINGS_V1, resolveHarnessLayout } from "@harness-anything/kernel";
 import { createPresetProcessService } from "@harness-anything/preset";
-import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
+import {
+  localUserDaemonEndpoint,
+  perUserSocketRoot,
+  resolveLocalDaemonTarget,
+} from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
 
 test("local daemon target resolves a v1 workspace after the shared registry reader upgrades it", async () => {
@@ -354,7 +358,7 @@ test("workspace relay resolves through an enabled registration matching the curr
     userRoot = path.join(fixtureRoot, "user"),
     workspaceRoot = path.join(fixtureRoot, "workspace"),
     workerRoot = path.join(workspaceRoot, ".worktrees", "worker"),
-    endpoint = path.join(realpathSync.native(fixtureRoot), "workspace", ".harness", "r-0123456789abcdef01234567.sock");
+    endpoint = path.join(perUserSocketRoot(), "r-0123456789abcdef01234567.sock");
   try {
     mkdirSync(workerRoot, { recursive: true });
     const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);

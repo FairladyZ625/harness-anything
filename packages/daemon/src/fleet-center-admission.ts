@@ -50,7 +50,7 @@ export interface FleetCenterAdmissionRequest {
   > & {
     readonly edgeJoin?: (
       input: Parameters<NonNullable<FleetCenterOptions["edgeJoin"]>>[0],
-    ) => Promise<Omit<EdgeJoinAdmission, "repoId" | "harnessYaml">>;
+    ) => Promise<Omit<EdgeJoinAdmission, "repositories"> & { readonly repoIds: readonly string[] }>;
   };
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
@@ -112,21 +112,34 @@ function withoutEdgeJoin<T extends { readonly edgeJoin?: unknown }>(nodes: T): O
   const { edgeJoin: _edgeJoin, ...rest } = nodes;
   return rest;
 }
-/** An edge joins the authority repository; its layout file is public and lets the edge register the mirror. */
+/** The join result carries every selected repository layout so the edge can register separate mirrors. */
 function edgeJoinFor(
   input: FleetCenterAdmissionRequest,
   admit: NonNullable<FleetCenterAdmissionRequest["nodes"]["edgeJoin"]>,
 ): NonNullable<FleetCenterOptions["edgeJoin"]> {
   return async (join) => {
     const admitted = await admit(join),
-      authority = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
-        (repo) => repo.repoId === input.payload.repoId && repo.canonicalRoot !== null,
-      );
-    if (!authority?.canonicalRoot) throw new Error("Fleet center authority repository is not registered.");
+      registry = readDaemonRegistry({ userRoot: input.userRoot }),
+      repositories = admitted.repoIds.map((repoId) => {
+        const repository = registry.repos.find(
+          (repo) =>
+            repo.repoId === repoId &&
+            repo.state === "enabled" &&
+            repo.mode !== "remote-proxy" &&
+            repo.canonicalRoot !== null,
+        );
+        if (!repository?.canonicalRoot) throw new Error(`Fleet center repository ${repoId} is not registered.`);
+        return {
+          repoId,
+          harnessYaml: readFileSync(path.join(repository.canonicalRoot, "harness", "harness.yaml"), "utf8"),
+        };
+      });
     return {
-      ...admitted,
-      repoId: input.payload.repoId,
-      harnessYaml: readFileSync(path.join(authority.canonicalRoot, "harness", "harness.yaml"), "utf8"),
+      joinId: admitted.joinId,
+      nodeId: admitted.nodeId,
+      personId: admitted.personId,
+      credential: admitted.credential,
+      repositories,
     };
   };
 }
@@ -147,6 +160,7 @@ export interface FleetEdgeSyncRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
+    readonly humanClientId?: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -186,6 +200,7 @@ export async function syncFleetEdgeMirror(
     },
     head = await readFleetRepositoryMetadataClient({
       ...(readAccessToken ? { readAccessToken } : {}),
+      ...(request.humanClientId ? { humanClientId: request.humanClientId } : {}),
       hostname: request.host,
       port: request.port,
       ca: material(request.caPath, "--ca"),
@@ -263,6 +278,11 @@ function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
     ...(request.servername ? { servername: request.servername } : {}),
     nodeId: request.nodeId,
     credential: request.credential,
+    ...(request.humanClientId
+      ? { humanClientId: request.humanClientId }
+      : previous?.humanClientId
+        ? { humanClientId: previous.humanClientId }
+        : {}),
     viewRoot: request.viewRoot,
     quotaBytes: request.quotaBytes,
     ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),

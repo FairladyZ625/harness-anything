@@ -10,6 +10,7 @@ import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-com
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
+import { parseProvider } from "./thin-command-provider.ts";
 import { parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -23,16 +24,38 @@ type RoutedParser = (
   inputs: ThinCliInputDirectory,
 ) => ThinParseResult;
 
-function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>): Record<string, unknown> {
+type SuccessfulFlags = Extract<ReturnType<typeof readFlags>, { ok: true }>;
+
+function edgeJoinFields(f: SuccessfulFlags): Record<string, unknown> {
   return {
-    ...(f.one.get("--center-url") ? { centerUrl: f.one.get("--center-url") } : {}),
-    ...(f.one.get("--spki-sha256") ? { spkiSha256: f.one.get("--spki-sha256") } : {}),
-    ...(f.one.get("--ttl-ms") ? { ttlMs: Number(f.one.get("--ttl-ms")) } : {}),
-    ...(f.one.get("--invite-id") ? { inviteId: f.one.get("--invite-id") } : {}),
-    ...(f.one.get("--link") ? { link: f.one.get("--link") } : {}),
-    ...(f.one.get("--login-person-id") ? { loginPersonId: f.one.get("--login-person-id") } : {}),
-    ...(f.one.get("--observed-spki-sha256") ? { observedSpkiSha256: f.one.get("--observed-spki-sha256") } : {}),
+    ...(f.one.get("--join-id") ? { joinId: f.one.get("--join-id") } : {}),
+    ...(f.many.get("--join-repo") ? { repoIds: f.many.get("--join-repo") } : {}),
+    ...(f.many.get("--join-group") ? { groupIds: f.many.get("--join-group") } : {}),
+    ...(f.one.get("--node-label") ? { nodeLabel: f.one.get("--node-label") } : {}),
   };
+}
+
+const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
+  parseProvider(route, args, rootDir, json, inputs);
+
+function validateEdgeJoinBootstrap(f: SuccessfulFlags, json: boolean): ThinParseResult | undefined {
+  const operation = f.one.get("--operation");
+  if (operation === "edge-join-create") {
+    const required = ["--username", "--email", "--display-name", "--person-id"];
+    if (
+      required.some((flag) => !f.one.get(flag)) ||
+      !f.many.get("--join-repo")?.length ||
+      !f.many.get("--join-group")?.length
+    )
+      return rejected(
+        "missing_field",
+        "Edge invitations require --username, --email, --display-name, --person-id, and at least one --join-repo and --join-group.",
+        json,
+      );
+  }
+  if (["edge-join-status", "edge-join-revoke"].includes(operation ?? "") && !f.one.get("--join-id"))
+    return rejected("missing_field", "Edge join status and revoke require --join-id.", json);
+  return undefined;
 }
 
 // Routes whose argv shape needs a dedicated parser, keyed by command id.
@@ -49,6 +72,12 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["work-list", parseWorkRead],
   ["work-show", parseWorkRead],
   ["agent-retire", parseAgentRetire],
+  ["provider-create", parseProviderRoute],
+  ["provider-delete", parseProviderRoute],
+  ["provider-list", parseProviderRoute],
+  ["provider-probe", parseProviderRoute],
+  ["provider-show", parseProviderRoute],
+  ["provider-update", parseProviderRoute],
 ]);
 
 function parseEdgeJoin(
@@ -71,7 +100,6 @@ function parseEdgeJoin(
       kind: "rbac-bootstrap",
       operation: "edge-join",
       link,
-      ...(flags.one.get("--repo-id") ? { repoId: flags.one.get("--repo-id") } : {}),
       ...(flags.one.get("--root") ? { workspaceRoot: path.resolve(flags.one.get("--root")!) } : {}),
     },
     method,
@@ -105,8 +133,11 @@ function parseRbacBootstrap(
   const administratorFields = ["--username", "--email", "--display-name", "--person-id", "--password-file"];
   if (f.one.get("--operation") === "bootstrap-admin" && administratorFields.some((flag) => !f.one.get(flag)))
     return rejected("missing_field", `First administrator creation requires ${administratorFields.join(", ")}.`, json);
+  const edgeJoinError = validateEdgeJoinBootstrap(f, json);
+  if (edgeJoinError) return edgeJoinError;
   if (
     f.one.get("--operation") !== "bootstrap-admin" &&
+    f.one.get("--operation") !== "edge-join-create" &&
     ["--username", "--email", "--display-name", "--password-file"].some((flag) => f.one.has(flag))
   )
     return rejected("invalid_field", "Administrator fields require --operation bootstrap-admin.", json);
@@ -135,6 +166,7 @@ function parseRbacBootstrap(
       ...(f.one.get("--team-id") ? { teamId: f.one.get("--team-id") } : {}),
       ...(f.one.get("--team-name") ? { teamName: f.one.get("--team-name") } : {}),
       ...(f.one.get("--node-id") ? { nodeId: f.one.get("--node-id") } : {}),
+      ...(f.one.get("--platform") ? { platform: f.one.get("--platform") } : {}),
       ...(f.one.get("--person-id") ? { personId: f.one.get("--person-id") } : {}),
       ...(f.one.get("--group-id") ? { groupId: f.one.get("--group-id") } : {}),
       ...(f.one.get("--resource") ? { resource: f.one.get("--resource") } : {}),

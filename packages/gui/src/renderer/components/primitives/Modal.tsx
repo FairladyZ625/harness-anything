@@ -66,7 +66,7 @@ function ModalSurface({ title, hint, wide = false, testId, footer, onClose, chil
         transition={enter}
       />
       <motion.div
-        className={`glass mx-auto flex max-h-[var(--overlay-content-cap)] w-full flex-col overflow-hidden rounded-lg shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
+        className={`glass glass-overlay mx-auto flex max-h-[var(--overlay-content-cap)] w-full flex-col overflow-hidden rounded-lg shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
         initial={enabled ? (reduced ? { opacity: 0 } : { opacity: 0, y: ENTER_DISTANCE }) : false}
         animate={{ opacity: 1, ...(reduced || !enabled ? {} : { y: 0 }) }}
         exit={

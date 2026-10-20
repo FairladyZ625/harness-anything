@@ -83,10 +83,9 @@ async function initializedCenterWithEdge() {
       schedules: readonly { scheduleId: string; createdBy: { principal: { personId: string } } }[];
     };
   const beforeSeeds = (await seeds()).schedules;
-  assert.equal(beforeSeeds.filter((s) => s.scheduleId === "builtin-ci-observe").length, 1);
   assert.equal(
-    beforeSeeds.find((s) => s.scheduleId === "builtin-ci-observe")!.createdBy.principal.personId,
-    "person-node-one",
+    beforeSeeds.some((s) => s.scheduleId === "builtin-ci-observe"),
+    false,
   );
   const configured = await host.bootstrap({ rootDir: repo, configureOnly: true }, auth);
   assert.equal(configured.ok, true, JSON.stringify(configured));

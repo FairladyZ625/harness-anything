@@ -3,6 +3,7 @@ import {
   consumeKnownError,
   currentGateRun,
   gateAppliesToSubmission,
+  isRetiredCiRequirement,
   getExecutableEntityAction,
   type CompletionEvidenceV1,
   type ExecutionV1,
@@ -38,7 +39,8 @@ export async function runCompletionSources(
   for (const requirement of execution.submission.completionContract.gates) {
     if (
       !gateAppliesToSubmission(requirement, execution.submission) ||
-      !["command", "github-actions", "gitlab-pipeline"].includes(requirement.witness.kind)
+      isRetiredCiRequirement(requirement.gateId, requirement) ||
+      requirement.witness.kind !== "command"
     )
       continue;
     const sourceActor: RepoCellBinding = {
@@ -48,22 +50,6 @@ export async function runCompletionSources(
       },
       source: "local",
     };
-    if (requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline") {
-      const claimed = await accept(
-        { kind: "task-witness-claim", taskId, executionId: execution.executionId, gateId: requirement.gateId },
-        sourceActor,
-      );
-      if (claimed.receipt.code === "invalid_proof")
-        throw context.cellCodedError(
-          "invalid_proof",
-          claimed.receipt.rejectionExplanation ?? claimed.receipt.evidence ?? "CI witness evidence is invalid.",
-        );
-      if (!["applied", "no_changes"].includes(claimed.receipt.outcome))
-        warnings.push(
-          `${claimed.receipt.code ?? claimed.receipt.outcome}: ${claimed.receipt.rejectionExplanation ?? claimed.receipt.evidence ?? "CI source rejected."}`,
-        );
-      continue;
-    }
     const current = currentGateRun(execution, requirement.gateId);
     // A command is executed only by the request that accepted its claim. Existing running
     // commands are owned by that invocation; terminal runs require an explicit owner rerun.

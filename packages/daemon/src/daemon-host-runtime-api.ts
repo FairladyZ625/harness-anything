@@ -51,6 +51,7 @@ export function createDaemonHostRuntimeApi(
   | "fleet"
   | "system"
   | "runtimeInstance"
+  | "decisionProvider"
   | "runtimeInstanceAuth"
 > {
   // Runtime orchestration (bounded batch window) is a host-level composer of
@@ -139,7 +140,28 @@ export function createDaemonHostRuntimeApi(
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
-      return cell.runtimeIngress(action, await context.binding(cell.status().rootDir, auth, undefined, repoId));
+      const receipt = await cell.runtimeIngress(
+        action,
+        await context.binding(cell.status().rootDir, auth, undefined, repoId),
+      );
+      if (
+        cell.status().mode === "local" &&
+        action.kind === "event" &&
+        action.type === "runtime_session_outcome_observed" &&
+        receipt.outcome === "applied"
+      ) {
+        void context
+          .decisionPointExecutorFor(repoId, cell.status().rootDir)
+          .settle(
+            cell,
+            receipt.event as unknown as Extract<
+              import("@harness-anything/kernel").AgentRuntimeEventV1,
+              { readonly type: "runtime_session_outcome_observed" }
+            >,
+          )
+          .catch((error: unknown) => console.error(error));
+      }
+      return receipt;
     },
     terminalAttach: async (repoId, sessionId, afterSeq, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
@@ -280,8 +302,8 @@ export function createDaemonHostRuntimeApi(
               verifyHuman: (auth) => context.oidc.bind(auth),
               edgeJoin: (input) =>
                 context.accessAdmin.admitEdgeJoin({
+                  joinId: input.joinId,
                   inviteToken: input.inviteToken,
-                  nodeId: input.nodeId,
                   accessToken: input.accessToken ?? "",
                 }),
             },
@@ -463,6 +485,29 @@ export function createDaemonHostRuntimeApi(
         ...(operation === "update" && payload.clearFreeze === true ? { providerHealthCleared: true } : {}),
         authorizationDecision: authorizationDecision as unknown as JsonObject,
       } as JsonObject;
+    },
+    decisionProvider: async (method, payload, auth) => {
+      context.localOnly(auth);
+      const operation = method.replace("daemon.provider.", ""),
+        actionKind = ["create", "list", "show", "update", "probe", "delete"].includes(operation)
+          ? `provider-${operation}`
+          : null;
+      if (!actionKind) throw context.hostCodedError("unsupported_command", `Unsupported provider method: ${method}.`);
+      const authorizeProvider = (kind: string) =>
+        requireAuthorizedFleetAction({
+          kind,
+          userRoot: context.input.userRoot,
+          auth,
+          actionId: `${kind}:${String(payload.providerId ?? "current")}`,
+          evaluatedAtCut: "host:current",
+        });
+      const authorizationDecision = await (actionKind === "provider-show"
+        ? authorizeProvider("provider-show")
+        : authorizeProvider(actionKind));
+      return {
+        ...((await context.decisionProviders.command({ ...payload, kind: actionKind })) as JsonObject),
+        authorizationDecision: authorizationDecision as unknown as JsonObject,
+      };
     },
     runtimeInstanceAuth: async (repoId, method, payload, auth) => {
       context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);

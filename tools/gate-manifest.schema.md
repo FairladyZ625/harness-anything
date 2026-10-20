@@ -190,7 +190,7 @@ The registry records:
   `gui-build`, `node26-compatibility`, `pr-body-lint`, `crlf-checkout`,
   `windows-first-run (ubuntu-latest)`, and `windows-first-run (windows-latest)`.
 - 2 PR-body meta-governance commands under the `pr-body-lint` required
-  context: bilingual body structure and protected-surface governance
+  context: single-language body structure and protected-surface governance
   declaration shape. That job and the manifest-registered `production-delta`
   and `evidence-contract` jobs run from `.github/workflows/pr-body.yml`.
 

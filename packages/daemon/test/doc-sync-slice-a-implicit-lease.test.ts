@@ -675,9 +675,9 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
       (await cell.run({ kind: "task-start", taskId, executionId: "exec-prbody" }, person)).outcome,
       "applied",
     );
-    const prBody = `${packagePath}/artifacts/pr-body.md`;
-    write(rootDir, prBody, "# PR body\n\nv1\n");
-    const firstSync = (await cell.run({ kind: "doc-submit", paths: [prBody] }, person)) as {
+    const deliveryNote = `${packagePath}/artifacts/delivery-note.md`;
+    write(rootDir, deliveryNote, "# Delivery note\n\nv1\n");
+    const firstSync = (await cell.run({ kind: "doc-submit", paths: [deliveryNote] }, person)) as {
       opId?: string;
       outcome?: string;
       revision?: number;
@@ -687,7 +687,7 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
     write(
       rootDir,
       `${packagePath}/closeout.md`,
-      `# Closeout\n\n## Summary\n\nDelivered artifact:${prBody}@${firstSync.revision}\n\n` +
+      `# Closeout\n\n## Summary\n\nDelivered artifact:${deliveryNote}@${firstSync.revision}\n\n` +
         "## Verification\n\nIntegration assertions exercise the post-submit order.\n\n" +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
     );
@@ -697,10 +697,10 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
     );
     const submitted = (await cell.run({ kind: "task-submit", taskId }, person)) as { outcome?: string };
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    // The friction: the worker's runtime session tries to land an updated pr-body.md after
+    // The friction: the worker's runtime session tries to land an updated delivery-note.md after
     // submit released the lease; the recovery must name the before-submit order.
-    write(rootDir, prBody, "# PR body\n\nv2\n");
-    const rejected = (await cell.run({ kind: "doc-submit", paths: [prBody] }, worker)) as {
+    write(rootDir, deliveryNote, "# Delivery note\n\nv2\n");
+    const rejected = (await cell.run({ kind: "doc-submit", paths: [deliveryNote] }, worker)) as {
       outcome?: string;
       code?: string;
       rejectionExplanation?: string;

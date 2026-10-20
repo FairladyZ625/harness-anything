@@ -34,24 +34,17 @@ async function main() {
   }
 
   const npmCli = resolveNpmCli();
-  const vitestResults = process.env.HARNESS_CI_VITEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
   const quarantinePattern =
     process.env.HARNESS_TEST_QUARANTINE === "skip"
       ? excludedTestNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
       : null;
-  const vitestArgs = [
-    ...(vitestResults
-      ? ["--reporter=default", "--reporter=json", `--outputFile=${resolve(repoRoot, vitestResults)}`]
-      : []),
-    ...(quarantinePattern ? [`--testNamePattern=${quarantinePattern}`] : []),
-  ];
-  const observationArgs = vitestArgs.length > 0 ? ["--", ...vitestArgs] : [];
+  const vitestArgs = quarantinePattern ? ["--", `--testNamePattern=${quarantinePattern}`] : [];
   const child = npmCli
-    ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui", ...observationArgs], {
+    ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui", ...vitestArgs], {
         cwd: repoRoot,
         stdio: "inherit",
       })
-    : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui", ...observationArgs], {
+    : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui", ...vitestArgs], {
         cwd: repoRoot,
         stdio: "inherit",
       });

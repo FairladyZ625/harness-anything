@@ -52,7 +52,7 @@ export async function adoptRuntimes(
     if (fallbackSummary) context.reconcileFallback(fallbackSummary);
     const session = byId.get(header.runtimeSessionId);
     if (sessionRead.status === "fulfilled" && (!session || session.outcome !== null)) {
-      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
+      removeRuntimeCallbackRelay(header.dispatchId);
       continue;
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
@@ -64,7 +64,7 @@ export async function adoptRuntimes(
     // center projection is still catching up, the local stream is the authoritative owner
     // record and must not publish the same terminal transition a second time.
     if (stream.terminalOutcome && processState?.exited && session?.outcome !== null && session?.outcome !== undefined) {
-      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
+      removeRuntimeCallbackRelay(header.dispatchId);
       continue;
     }
     const runtimeProcess = adoptNativeProcess(
@@ -155,7 +155,7 @@ export async function adoptRuntimes(
           active.lossReason = processState?.exited ? null : reason;
           active.lossExitCode = processState?.exitCode ?? null;
           active.lossSignal = processState?.signal ?? null;
-          removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
+          removeRuntimeCallbackRelay(active.dispatchId);
           if (!processState?.exited)
             appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
               kind: "process_lost",

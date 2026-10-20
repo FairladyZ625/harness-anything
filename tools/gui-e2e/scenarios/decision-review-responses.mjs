@@ -12,21 +12,28 @@ export default {
     "Adopt and rebut independent review findings, save, and read both response histories back from the daemon.",
   async run({ page, fixture, shot, runRoot }) {
     await bridgeReady(page);
-    // Enter the review route using the existing persisted navigation state.
+    // Enter the review route using the existing persisted navigation state. 运行期栈在
+    // 每窗口的 sessionStorage(PR #3686),localStorage 只在窗口关闭时由 pagehide 交接。
+    // 启动早期还会有 projectId=unselected 的临时键;真实仓的键一并改写,reload 后
+    // 无论先解析到哪个 projectId 都落在同一处评审路由。
     await page.waitForFunction(() =>
-      Object.keys(globalThis.localStorage).some((key) => key.startsWith("harness-view-history")),
+      Object.keys(globalThis.sessionStorage).some(
+        (key) => key.startsWith("harness-view-history:") && key !== "harness-view-history:unselected",
+      ),
     );
     await page.evaluate(() => {
-      const key = Object.keys(globalThis.localStorage).find(
-        (key) => key.startsWith("harness-view-history") && key.includes("gui-e2e-catalog"),
-      );
-      const value = JSON.parse(globalThis.localStorage.getItem(key));
-      const base = value.history.entries[value.history.index];
-      value.history = {
-        entries: [{ ...base, view: "decisionDetail", focusedEntityRef: "decisionreview/dec_gui_smoke/review" }],
-        index: 0,
-      };
-      globalThis.localStorage.setItem(key, JSON.stringify(value));
+      for (const key of Object.keys(globalThis.sessionStorage).filter(
+        (candidate) => candidate.startsWith("harness-view-history:") && candidate !== "harness-view-history:unselected",
+      )) {
+        const value = JSON.parse(globalThis.sessionStorage.getItem(key));
+        const base = value.history.entries[value.history.index] ?? value.history.entries[0];
+        if (base === undefined) continue;
+        value.history = {
+          entries: [{ ...base, view: "decisionDetail", focusedEntityRef: "decisionreview/dec_gui_smoke/review" }],
+          index: 0,
+        };
+        globalThis.sessionStorage.setItem(key, JSON.stringify(value));
+      }
     });
     await page.reload();
     await page.getByTestId("decision-review-tab").waitFor();

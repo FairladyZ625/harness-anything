@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   DAEMON_RPC_SCHEMA,
+  commandIdForDaemonMethod,
   daemonMethodAcceptsPayloadExecutor,
   daemonProtocolCommands,
   thinCliCommands,
@@ -57,6 +58,76 @@ test("permission request CLI parses self-request inputs and directs decisions to
   ]);
   assert.equal(decision.ok, false);
   if (!decision.ok) assert.equal(decision.code, "unsupported_command");
+});
+
+test("Decisions provider CLI accepts only the approved provider type and credential inputs", () => {
+  const create = parseThinCommand([
+    "provider",
+    "create",
+    "--type",
+    "decisions",
+    "--id",
+    "review-choice",
+    "--name",
+    "Review choice",
+    "--model",
+    "openrouter/model-a",
+    "--credential-ref",
+    "credential:v1:test-key",
+    "--base-url",
+    "https://openrouter.ai",
+  ]);
+  assert.equal(create.ok, true);
+  if (create.ok) {
+    assert.equal(create.command.method, "daemon.provider.create");
+    assert.deepEqual(create.command.action, {
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "review-choice",
+      name: "Review choice",
+      model: "openrouter/model-a",
+      baseUrl: "https://openrouter.ai",
+      credentialRef: "credential:v1:test-key",
+      enabled: true,
+    });
+  }
+  assert.equal(
+    parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "llm",
+      "--id",
+      "a",
+      "--name",
+      "A",
+      "--model",
+      "m",
+      "--credential-ref",
+      "credential:v1:key",
+    ]).ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand(["provider", "create", "--type", "decisions", "--id", "a", "--name", "A", "--model", "m"]).ok,
+    false,
+  );
+  const update = parseThinCommand(["provider", "update", "review-choice", "--disable", "--clear-base-url"]);
+  assert.equal(update.ok, true);
+  if (update.ok)
+    assert.deepEqual(update.command.action, {
+      kind: "provider-update",
+      providerId: "review-choice",
+      baseUrl: "",
+      enabled: false,
+    });
+  assert.equal(parseThinCommand(["provider", "update", "review-choice"]).ok, false);
+  for (const operation of ["list", "show", "probe", "delete"]) {
+    const args = operation === "list" ? ["provider", operation] : ["provider", operation, "review-choice"],
+      parsed = parseThinCommand(args);
+    assert.equal(parsed.ok, true, `provider ${operation} should parse`);
+    if (parsed.ok) assert.equal(parsed.command.method, `daemon.provider.${operation}`);
+  }
 });
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
@@ -131,16 +202,6 @@ test("an unknown command domain reports unknown with the available set instead o
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
   assert.match(logs[0] ?? "", /migrate ledger/u);
-});
-
-test("settings update projects repeatable CI workflow flags into the daemon Action", () => {
-  const parsed = parseThinCommand(["settings", "update", "--ci-workflows", "ci", "--ci-workflows", "nightly"]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.deepEqual(parsed.command.action, { kind: "settings-update", ciWorkflows: ["ci", "nightly"] });
-  // .yml suffixes pass the identifier regex here and are rejected by the kernel compiler.
-  const rejected = parseThinCommand(["settings", "update", "--ci-workflows", "bad name"]);
-  assert.equal(rejected.ok, false);
 });
 
 test("repo lifecycle commands validate cache and destructive purge inputs", () => {
@@ -406,7 +467,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "agent-run",
       "agent-validate",
     ],
-    ci: ["ci-observe-pull", "ci-observe-statistics"],
     daemon: [
       "daemon-connection-add",
       "daemon-connection-probe",
@@ -480,7 +540,13 @@ test("capabilities is an exact-set projection of the command contract", () => {
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: ["migrate-completion", "migrate-import", "migrate-ledger", "vertical-declaration-migrate"],
+    migrate: [
+      "migrate-completion",
+      "migrate-import",
+      "migrate-ledger",
+      "migrate-settings",
+      "vertical-declaration-migrate",
+    ],
     preset: [
       "preset-audit",
       "preset-check",
@@ -491,6 +557,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "preset-uninstall",
       "preset-upgrade",
       "preset-validate",
+    ],
+    provider: [
+      "provider-create",
+      "provider-delete",
+      "provider-list",
+      "provider-probe",
+      "provider-show",
+      "provider-update",
     ],
     receipt: ["receipt-show"],
     relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-triples", "relation-unrelate"],
@@ -549,7 +623,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-artifact-add",
       "task-assign",
       "task-attest",
-      "task-ci",
       "task-code-doc-reconcile",
       "task-code-doc-repoint",
       "task-complete",
@@ -764,7 +837,7 @@ test("task-create help renders recommended presets only from effective catalog r
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
   assert.match(
     renderThinHelp([], "task", "ha task create"),
-    /--profile — optional; value; format: <profile; lightweight = short plan and closeout with no review, consent, or fact at closeout, for a low-risk small change \(a code change still lands through the PR's CI\)/u,
+    /--profile — optional; value; format: <profile; lightweight = short plan and closeout with no review or consent at closeout, for a low-risk small change \(a code change still lands through the PR's CI\)/u,
   );
   // The one-focus title advice rides --title help in both create commands (task and work alias).
   for (const help of [renderThinHelp([], "task", "ha task create"), renderThinHelp([], "work", "ha work create")]) {
@@ -1090,25 +1163,10 @@ test("runtime instance parser rejects repeated static headers regardless of spel
   }
 });
 
-test("thin parser routes CI observation pulls through the repo task command", () => {
-  const parsed = parseThinCommand(["ci", "observe", "pull", "--limit", "20"]);
-  assert.equal(parsed.ok, true, JSON.stringify(parsed));
-  if (parsed.ok) {
-    assert.equal(parsed.command.method, "repo.task.run");
-    assert.deepEqual(parsed.command.action, { kind: "ci-observe-pull", limit: 20 });
-  }
-  assert.equal(parseThinCommand(["ci", "observe", "pull", "--limit", "0"]).ok, false);
-  const named = parseThinCommand(["ci", "observe", "pull", "--run", "34091151001", "--run", "33890867571"]);
-  assert.equal(named.ok, true, JSON.stringify(named));
-  if (named.ok)
-    assert.deepEqual(named.command.action, { kind: "ci-observe-pull", runs: ["34091151001", "33890867571"] });
-  assert.equal(parseThinCommand(["ci", "observe", "pull", "--run", "abc"]).ok, false);
-  const tasked = parseThinCommand(["ci", "observe", "pull", "--task", "task-1"]);
-  assert.equal(tasked.ok, true, JSON.stringify(tasked));
-  if (tasked.ok) assert.deepEqual(tasked.command.action, { kind: "ci-observe-pull", taskId: "task-1" });
-  const conflicting = parseThinCommand(["ci", "observe", "pull", "--task", "task-1", "--run", "34091151001"]);
-  assert.equal(conflicting.ok, false);
-  if (!conflicting.ok) assert.match(conflicting.nextAction, /mutually exclusive/u);
+test("thin parser rejects retired CI observer and task CI commands", () => {
+  assert.equal(parseThinCommand(["ci", "observe", "pull"]).ok, false);
+  assert.equal(parseThinCommand(["task", "ci", "task-1", "--json"]).ok, false);
+  assert.equal(parseThinCommand(["task", "ci", "task-1", "--wait"]).ok, false);
 });
 
 test("thin parser exposes task push as a task-bound daemon action", () => {
@@ -1120,121 +1178,6 @@ test("thin parser exposes task push as a task-bound daemon action", () => {
   }
   assert.equal(parseThinCommand(["task", "push"]).ok, false);
   assert.equal(parseThinCommand(["task", "push", "task-1", "--main"]).ok, false);
-});
-
-test("thin parser exposes read-only task CI with JSON and rejects ref/run selectors", () => {
-  const parsed = parseThinCommand(["task", "ci", "task-1", "--json"]);
-  assert.equal(parsed.ok, true, JSON.stringify(parsed));
-  if (parsed.ok) {
-    assert.equal(parsed.command.method, "repo.task.read");
-    assert.equal(parsed.command.json, true);
-    assert.deepEqual(parsed.command.action, { kind: "task-ci", taskId: "task-1" });
-  }
-  const ci = {
-    taskId: "task-1",
-    headSha: "a".repeat(40),
-    conclusion: "failure",
-    checks: [],
-    runs: [
-      {
-        id: 1,
-        attempt: 1,
-        event: "pull_request",
-        status: "completed",
-        conclusion: "failure",
-        url: "https://runs/1",
-        jobs: [
-          {
-            id: 2,
-            name: "fast",
-            status: "completed",
-            conclusion: "failure",
-            url: "https://jobs/2",
-            failure: {
-              testFiles: ["fail tools/scope.test.mjs"],
-              tests: ["task scope"],
-              errors: [
-                {
-                  test: "task scope",
-                  firstLine: "AssertionError: expected 1",
-                  frames: ["at TestContext.<anonymous> (tools/scope.test.mjs:9:1)"],
-                },
-              ],
-              excerpt: "",
-              truncated: false,
-              logUrl: "https://jobs/2",
-            },
-          },
-        ],
-      },
-    ],
-  };
-  const renderedCi = renderCliReceipt({ ok: true, command: "task-ci", ci }).text;
-  assert.match(renderedCi, /failed job fast/u);
-  assert.match(renderedCi, /test file: fail tools\/scope\.test\.mjs/u);
-  assert.match(renderedCi, /failed test: task scope/u);
-  assert.match(renderedCi, /error: AssertionError: expected 1 \(task scope\)/u);
-  assert.match(renderedCi, /at TestContext\.<anonymous> \(tools\/scope\.test\.mjs:9:1\)/u);
-  assert.match(renderedCi, /full log: https:\/\/jobs\/2/u);
-  assert.equal(parseThinCommand(["task", "ci"]).ok, false);
-  for (const flag of ["--branch", "--sha", "--run", "--rerun"])
-    assert.equal(parseThinCommand(["task", "ci", "task-1", flag, "other"]).ok, false);
-});
-
-test("thin parser gates the task CI wait flags", () => {
-  const waited = parseThinCommand(["task", "ci", "task-1", "--wait", "--json"]);
-  assert.equal(waited.ok, true, JSON.stringify(waited));
-  if (waited.ok) {
-    assert.equal(waited.command.method, "repo.task.read");
-    assert.deepEqual(waited.command.action, { kind: "task-ci", taskId: "task-1", wait: true });
-  }
-  const bounded = parseThinCommand(["task", "ci", "task-1", "--wait", "--timeout", "90"]);
-  assert.equal(bounded.ok, true, JSON.stringify(bounded));
-  if (bounded.ok)
-    assert.deepEqual(bounded.command.action, {
-      kind: "task-ci",
-      taskId: "task-1",
-      wait: true,
-      timeoutSeconds: 90,
-    });
-  // --timeout only bounds a wait, and it is a second count.
-  const unbounded = parseThinCommand(["task", "ci", "task-1", "--timeout", "90"]);
-  assert.equal(unbounded.ok, false);
-  if (!unbounded.ok) assert.match(unbounded.nextAction, /requires --wait/u);
-  assert.equal(parseThinCommand(["task", "ci", "task-1", "--wait", "--timeout", "abc"]).ok, false);
-  // A bare read keeps the exact pre-existing action shape.
-  const bare = parseThinCommand(["task", "ci", "task-1"]);
-  assert.equal(bare.ok, true, JSON.stringify(bare));
-  if (bare.ok) assert.deepEqual(bare.command.action, { kind: "task-ci", taskId: "task-1" });
-});
-
-test("task CI rendering names a not_started reason and a wait timeout", () => {
-  const notStarted = renderCliReceipt({
-    ok: true,
-    command: "task-ci",
-    ci: {
-      taskId: "task-1",
-      headSha: "a".repeat(40),
-      conclusion: "not_started",
-      notStarted: {
-        reason: "pull_request_conflict",
-        detail: "Pull request #7 for this branch conflicts with its base branch. Rebase onto the base and push again.",
-      },
-      checks: [],
-      runs: [],
-    },
-  }).text;
-  assert.match(notStarted, /: not_started/u);
-  assert.match(notStarted, /not started: pull_request_conflict/u);
-  assert.match(notStarted, /Pull request #7 for this branch conflicts/u);
-  const timedOut = renderCliReceipt({
-    ok: true,
-    command: "task-ci",
-    ci: { taskId: "task-1", headSha: "a".repeat(40), conclusion: "pending", checks: [], runs: [] },
-    wait: { state: "timeout", waitedSeconds: 30, conclusion: "pending" },
-  }).text;
-  assert.match(timedOut, /: pending/u);
-  assert.match(timedOut, /wait: timeout/u);
 });
 
 test("thin parser validates only the selected command descriptor", () => {
@@ -1605,4 +1548,16 @@ test("task create and work create payloads pass the repo.task.create wire shape"
       argv.join(" "),
     );
   }
+});
+
+test("parsed commands name their route id and sole-method attribution matches the registry", () => {
+  const parsed = parseThinCommand(["agenda", "--json"], "/repo");
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.id, "agenda", "the CLI command id rides on the parsed command");
+  // Sole-owner methods attribute without a caller declaration; shared methods cannot.
+  assert.equal(commandIdForDaemonMethod("repo.agenda.read"), "agenda");
+  assert.equal(commandIdForDaemonMethod("repo.entity.actions.explain"), "explain");
+  assert.equal(commandIdForDaemonMethod("repo.task.run"), null);
+  assert.equal(commandIdForDaemonMethod("protocol.hello"), null);
 });

@@ -39,6 +39,59 @@ test("daemon repo registration derives its closed mode enum at the wire boundary
   for (const mode of [undefined, "local", "remote-proxy", "remote-center", "remote-edge"]) assert.equal(parseDaemonRpcParams("daemon.repo.register", { ...base, ...(mode ? { mode } : {}) }).ok, true, String(mode));
   const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-proxy, remote-center, remote-edge"]);
 });
+test("edge invitation fields cross the shared daemon.rbac.manage wire contract", () => {
+  const result = parseDaemonRpcParams("daemon.rbac.manage", {
+    operation: "edge-join-create",
+    personId: "person-edge",
+    username: "edge.operator",
+    email: "edge@example.test",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["contributor"],
+    nodeLabel: "edge-west",
+  });
+  assert.equal(result.ok, true, result.ok ? "" : result.errors.join("; "));
+});
+// prettier-ignore
+
+test("JSON-RPC failures retain the underlying fetch cause in the CLI rejection explanation", async () => {
+  const cause = Object.assign(new Error("self-signed certificate"), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" }),
+    failure = new TypeError("fetch failed", { cause }),
+    server = createJsonRpcProtocolServer({
+      host: {
+        manageRbac: async () => {
+          throw failure;
+        },
+      } as never,
+      build: { commit: null },
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "daemon.rbac.manage",
+      params: { operation: "login" },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    const result = response && !Array.isArray(response) && "result" in response ? response.result : null;
+    assert.ok(result && typeof result === "object");
+    assert.match(
+      String((result as Record<string, unknown>).rejectionExplanation),
+      /fetch failed.*self-signed certificate \[DEPTH_ZERO_SELF_SIGNED_CERT\]/u,
+    );
+  } finally {
+    server.close();
+  }
+});
+
 // prettier-ignore
 
 test("local Fleet runtime envelope admits the paged overview read", async () => {
@@ -314,7 +367,7 @@ test("runtime steer is contracted outside the GUI preload surface and rejects in
 test("GUI command receipts and task supplements reject unknown, missing, and mistyped fields", () => {
   const proof = { committedRevision: 0, appliedCut: 0, durable: true, canonicalVisible: true, worktreeVisible: null }, receipt = { schema: "command-receipt/v2", ok: true, command: "decision-list", outcome: "applied", opId: "read:decision-list", revision: 0, evidence: "{}", visibility: "center", proof };
   assert.deepEqual(validateDaemonGuiCommandReceipt(receipt), []); assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, extra: true }), []); const { schema: _schema, ...missing } = receipt; assert.notDeepEqual(validateDaemonGuiCommandReceipt(missing), []); assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, revision: "0" }), []);
-const availability = { consents: "unknown", codeDocWitnesses: "unknown", gateWitnesses: "unknown" }, placement = { productLines: [], spawningDecisionIds: [], parentTaskId: null, origin: "native", engine: "kernel/task-lifecycle/v1", packageDisposition: "active", provenance: [{ kind: "canonical-event", ref: "task/task-old" }] }, old = { ok: true, status: "ready", watermark: 0, sourceRevision: 0, warnings: [], invalidRows: [], rows: [{ taskId: "task-old", packagePath: null, generation: "v1", workspaceRevision: 0, createdAt: null, updatedAt: "2026-08-14T00:00:00.000Z", snapshot: { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null, decisionRelations: [] }, coordinationStatus: "unknown", snapshotAvailability: availability, closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] }, blockingAssessment: { taskId: "task-old", state: "clear", label: "none", blockers: [], warnings: [] }, placement, board: { columnId: null, rank: 5 }, visibility: { archived: false, noise: false }, capabilities: [{ id: "start", available: false, reason: "unknown" }, { id: "progress", available: false, reason: "unknown" }, { id: "submit", available: false, reason: "unknown" }, { id: "adjudicate", available: false, reason: "unknown" }, { id: "review", available: false, reason: "unknown" }, { id: "complete", available: false, reason: "unknown" }], phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "submitted", "in_review", "done"] }, risk: { flagged: true }, workspace: null, executionEvidence: [] }] };
+const availability = { consents: "unknown", codeDocWitnesses: "unknown", gateWitnesses: "unknown" }, placement = { productLines: [], spawningDecisionIds: [], parentTaskId: null, origin: "native", engine: "kernel/task-lifecycle/v1", packageDisposition: "active", provenance: [{ kind: "canonical-event", ref: "task/task-old" }] }, old = { ok: true, status: "ready", watermark: 0, sourceRevision: 0, warnings: [], invalidRows: [], rows: [{ taskId: "task-old", packagePath: null, generation: "v1", workspaceRevision: 0, createdAt: null, completedAt: null, updatedAt: "2026-08-14T00:00:00.000Z", snapshot: { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null, decisionRelations: [] }, coordinationStatus: "unknown", snapshotAvailability: availability, closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] }, blockingAssessment: { taskId: "task-old", state: "clear", label: "none", blockers: [], warnings: [] }, placement, board: { columnId: null, rank: 5 }, visibility: { archived: false, noise: false }, capabilities: [{ id: "start", available: false, reason: "unknown" }, { id: "progress", available: false, reason: "unknown" }, { id: "submit", available: false, reason: "unknown" }, { id: "adjudicate", available: false, reason: "unknown" }, { id: "review", available: false, reason: "unknown" }, { id: "complete", available: false, reason: "unknown" }], phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "submitted", "in_review", "done"] }, risk: { flagged: true }, workspace: null, executionEvidence: [] }] };
   assert.deepEqual(validateDaemonTaskSnapshotList(old), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, unknown: true }] }), []); const { placement: _placement, ...withoutPlacement } = old.rows[0]!; assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [withoutPlacement] }), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, executionEvidence: [{ executionId: 1, origin: "native", outputs: [] }] }] }), []);
   const metadata = { idempotencyKey: null, parentTaskId: null, workKind: "feat", riskTier: "medium", urgency: "high", verticalId: "software/coding", presetId: "standard-task", profileId: "default", moduleKey: "daemon", slug: "current-task", surfaces: ["cli"], longRunning: false, fromLegacyId: null }, provenance = [{ runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable", boundAt: "2026-08-14T00:00:00.000Z" }], currentTask = { schema: "task/v2", taskId: "task-current", title: "Current task", taskClass: "standard", status: "blocked", graph: {}, currentNode: "implementation", iteration: 0, createdBy: { principal: { personId: "person-owner" }, executor: null }, completionGateIds: [], presetSnapshotDigest: null, provenance, pinned: true, metadata, packageDisposition: "archived", supersededBy: "task-next", contractVersion: 1 }, current = { ...old, rows: [{ ...old.rows[0]!, taskId: "task-current", coordinationStatus: "blocked", snapshot: { ...old.rows[0]!.snapshot, task: currentTask } }] };
   assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, coordinationStatus: "weird" }] }), []);

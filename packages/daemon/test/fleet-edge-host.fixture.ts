@@ -40,6 +40,7 @@ export async function fleetEdgeHostFixture(
     readonly repoId?: string;
     /** false leaves fleet-edge.json for the first `daemon.fleet.edge.sync` to write. */
     readonly writeEdgeConfig?: boolean;
+    readonly beforeOpen?: (edgeRoot: string) => void | Promise<void>;
   } = {},
 ) {
   // The edge lives outside the center fixture's root: its daemon writes until it is closed.
@@ -71,7 +72,10 @@ export async function fleetEdgeHostFixture(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
-  const signIn = (personId: string) =>
+  const authority = options.oidcPorts?.loginAuthority
+    ? await options.oidcPorts.loginAuthority(edgeRoot)
+    : { url: f.owners.url, realm: "harness" };
+  const signIn = (personId: string, sessionAuthority = authority) =>
     managedRbacSessionStore(edgeUser).write(
       JSON.stringify({
         schema: "harness-oidc-session/v2",
@@ -86,7 +90,7 @@ export async function fleetEdgeHostFixture(
         sessionExpiresAt: Date.now() + 21_600_000,
         roles: [],
         loginTarget: edgeRoot,
-        authority: { url: f.owners.url, realm: "harness" },
+        authority: sessionAuthority,
       }),
     );
   signIn(options.personId ?? "person-one");
@@ -104,6 +108,7 @@ export async function fleetEdgeHostFixture(
     waitTimeoutMs: 2000,
   };
   if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+  await options.beforeOpen?.(edgeRoot);
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.openCell ? { openCell: options.openCell } : {}),

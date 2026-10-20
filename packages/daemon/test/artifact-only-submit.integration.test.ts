@@ -4,7 +4,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test, { after, before } from "node:test";
+import test from "node:test";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
@@ -12,17 +12,6 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-
-const ciBin = mkdtempSync(path.join(tmpdir(), "ha-artifact-only-ci-")),
-  originalPath = process.env.PATH;
-before(() => {
-  writeFileSync(path.join(ciBin, "gh"), "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
-  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
-});
-after(() => {
-  process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
-});
 
 async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "delete" | "empty-commit") {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-only-submit-")),
@@ -51,10 +40,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
   const baseline = git(rootDir, "rev-parse", "HEAD");
   mkdirSync(ledger);
   initRepo(ledger);
-  writeFileSync(
-    path.join(ledger, "harness.yaml"),
-    "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n",
-  );
+  writeFileSync(path.join(ledger, "harness.yaml"), "settings:\n  closeout:\n    profile: strict\n");
   const cell = await openBootstrappedRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
@@ -147,12 +133,12 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     assert.equal(forward.outcome, "applied", JSON.stringify(forward));
     await waitForFixturePublication(cell, forward.opId, holder);
     if (!artifact && !hasPublicDiff) {
+      // dec_BB2BCE9F995CD3A126E2918734 CH4: no fact quota — the strict cut waits on review, not facts.
       const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
-      assert.equal(completed.code, "fact_missing");
-      assert.doesNotMatch(JSON.stringify(completed), /code_doc_missing/);
+      assert.equal(completed.code, "review_missing");
+      assert.doesNotMatch(JSON.stringify(completed), /fact_missing|code_doc_missing/);
       assert.deepEqual(completed.gateChecks, [
-        { gate: "ci", status: "not_applicable", witnessRef: null },
         { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
       ]);
     }
@@ -170,6 +156,12 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     );
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     await waitForFixturePublication(cell, fact.opId, holder);
+    // dec_BB2BCE9F995CD3A126E2918734 CH4: the daemon anchors the record to the worktree HEAD.
+    const recordedFactId = String((fact as { readonly factId?: unknown }).factId);
+    assert.match(
+      readFileSync(path.join(ledger, "facts", `${recordedFactId}.md`), "utf8"),
+      new RegExp(`- Observed commit: ${deliveryHead}`),
+    );
     const reviewId = "review-public-cut",
       reportPath = `${packagePath}/artifacts/reports/public-cut.md`;
     mkdirSync(path.join(ledger, packagePath, "artifacts/reports"), { recursive: true });
@@ -203,7 +195,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     await waitForFixturePublication(cell, consent.opId, holder);
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
     assert.equal(completed.outcome, hasPublicDiff ? "op_rejected" : "applied", JSON.stringify(completed));
-    if (hasPublicDiff) assert.equal(completed.code, "ci_missing");
+    if (hasPublicDiff) assert.equal(completed.code, "delivery_missing");
     else {
       assert.equal(completed.stoppedAt, undefined);
       const shown = await cell.run({ kind: "task-show", taskId }, holder);
@@ -223,14 +215,15 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
 
 test("a real artifact-only task submits without claiming its baseline merge paths", () => submitBaselineTask(true));
 
-test("a closeout-only no-diff task completes after review, consent and a Fact", () => submitBaselineTask(false));
+test("a closeout-only no-diff task completes after review and consent", () => submitBaselineTask(false));
 
-test("an empty public commit cannot force a CI witness for a no-diff delivery", () =>
+test("an empty public commit cannot force a merge requirement for a no-diff delivery", () =>
   submitBaselineTask(true, "empty-commit"));
 
-test("an added public path still requires main CI after review and consent", () => submitBaselineTask(true, "add"));
+test("an added public path still requires merged delivery after review and consent", () =>
+  submitBaselineTask(true, "add"));
 
-test("a deletion-only public cut still requires main CI after review and consent", () =>
+test("a deletion-only public cut still requires merged delivery after review and consent", () =>
   submitBaselineTask(true, "delete"));
 
 test("a documentation amendment completes with newly accepted artifact paths on its own cut", async () => {

@@ -149,7 +149,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     assert.equal(upgraded.event.payload.taskContractClaim.path, contractPath);
     const legacyContract = JSON.parse(contract.body) as { documents: Array<{ path: string }> };
     legacyContract.documents = legacyContract.documents.filter(
-      ({ path: documentPath }) => !["artifacts/explainer.html", "artifacts/pr-body.md"].includes(documentPath),
+      ({ path: documentPath }) => documentPath !== "artifacts/explainer.html",
     );
     const legacyUpgrade = compilePresetSnapshotUpgrade({
       userRoot,

@@ -11,7 +11,7 @@ import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/t
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
-import { serializeCanonicalEvent, type CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture, twoRoundLifecycleEvents } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -235,7 +235,7 @@ test("historical agent entity envelopes replay into the generic entity projectio
       } as unknown as CanonicalEventV1,
       body = bundle.blobs[0].body,
       bytes = new TextEncoder().encode(body),
-      eventDigest = `sha256:${sha256Text(serializeCanonicalEvent(event))}` as const,
+      eventDigest = `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}` as const,
       eventStore = {
         readHead: () => ({ revision: 1, eventDigest }),
         readBatch: () => ({

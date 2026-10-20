@@ -3,14 +3,22 @@ import {
   closeoutReadiness,
   currentExecutionCuts,
   gateSatisfied,
+  isRetiredCiRequirement,
   lineageOrphan,
   type CloseoutGateStatus,
+  type CompletionDeliveryStatus,
 } from "./closeout-readiness.ts";
 import type { FrozenCompletionContract } from "./completion-contract.ts";
 import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
-import { approvedReviewHistoryForExecution, reviewsForExecution, type ReviewV1 } from "./review.ts";
-import type { ExecutionV1 } from "./execution.ts";
+import {
+  approvedReviewHistoryForExecution,
+  reviewsForExecution,
+  type ReviewDispositionV1,
+  type ReviewV1,
+} from "./review.ts";
+import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
+import { submissionDigest, type ExecutionV1 } from "./execution.ts";
 import { isWorkRoot } from "./task.ts";
 
 export type CompletionBlockerCode =
@@ -24,13 +32,12 @@ export type CompletionBlockerCode =
   | "closeout_placeholder"
   | "review_missing"
   | "consent_missing"
-  | "ci_missing"
+  | "delivery_missing"
   | "code_doc_missing"
   | "decision_lineage_missing"
   | "lease_held"
   | "doc_sync_required"
   | "gate_witness_missing"
-  | "fact_missing"
   | "fact_retirement_undeclared";
 export interface CompletionNext {
   readonly reason: string;
@@ -53,12 +60,12 @@ export interface CompletionReadinessContext {
   readonly closeoutPath: string;
   readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
   readonly eligibleDirtyPaths: readonly string[];
-  readonly producesFactCount: number;
   readonly projectionStatus?: "ready" | "pending";
   readonly preparedGateIds?: readonly string[];
   readonly authorization?: "allowed" | "denied";
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
+  readonly delivery?: CompletionDeliveryStatus;
   readonly closeoutContract?: MarkdownDocumentContract | null;
   /** Whether declare-executor has a dispatch record it can replay as executor proof. */
   readonly hasDispatchLineage?: boolean;
@@ -110,9 +117,7 @@ function witnessCommand(
   if (sourceKind === "command")
     return `ha task witness-rerun ${taskId} --execution-id ${executionId} --gate ${gateId} --run-id <current-run-id> --reason <reason>`;
   if (sourceKind === "github-actions" || sourceKind === "gitlab-pipeline")
-    return (
-      `Wait for the center CI observer to import the workflow witness; ` + `ha task ci ${taskId} reports its progress.`
-    );
+    return `Read required checks on the hosting platform and merge the delivery into its configured target branch.`;
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
 }
 
@@ -272,15 +277,16 @@ function evaluateCompletion(
   const closeoutGates = context.closeoutGates ?? {
       review: true,
       consent: true,
-      fact: true,
       factDisposition: true,
       codeDoc: true,
     },
-    assessment = closeoutReadiness(snapshot, undefined, closeoutGates);
+    assessment = closeoutReadiness(snapshot, undefined, closeoutGates, context.delivery);
+  const submission = execution.submission;
   // A changes request on the current cut ends that cut: no witness can complete it, so the owner's
   // return comes before any missing evidence.
-  const changes =
-    includeReview && assessment.blocker === "review" ? changesRequestedReview(snapshot.reviews, execution) : undefined;
+  const changes = includeReview
+    ? changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? [])
+    : undefined;
   if (changes)
     return one(
       "review_missing",
@@ -290,26 +296,29 @@ function evaluateCompletion(
     );
   // An empty manifest leaves the holder no path to reconcile: completion preparation writes that
   // witness itself, so it is never the step to name.
-  const reconcilable = closeoutGates.codeDoc && execution.submission.deliverables.length > 0;
-  const gate = assessment.gates.find(
-    ({ gateId, status }) =>
+  const reconcilable = closeoutGates.codeDoc && submission.deliverables.length > 0;
+  const gate = assessment.gates.find(({ gateId, status }) => {
+    const requirement = submission.completionContract.gates.find((candidate) => candidate.gateId === gateId);
+    return (
       !gateSatisfied(status) &&
+      !(context.delivery?.required && isRetiredCiRequirement(gateId, requirement)) &&
       (gateId !== "code-doc-reconciliation" || reconcilable) &&
-      !context.preparedGateIds?.includes(gateId),
-  );
+      !context.preparedGateIds?.includes(gateId)
+    );
+  });
   if (gate)
     return gate.gateId === "code-doc-reconciliation"
       ? one(
           "code_doc_missing",
           gate.gateId,
           `ha task code-doc reconcile ${task.taskId}` +
-            execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
+            submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
           "The submitted execution cut has no canonical code/doc witness.",
         )
       : one(
-          gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
+          "gate_witness_missing",
           gate.gateId,
-          witnessCommand(task.taskId, gate.gateId, gate.status, execution.submission.completionContract, executionId),
+          witnessCommand(task.taskId, gate.gateId, gate.status, submission.completionContract, executionId),
           gate.status === "signoff_missing"
             ? `Gate ${gate.gateId} passed its automated witness and requires a human signoff for this execution cut.`
             : (gate.detail ?? `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`),
@@ -320,16 +329,6 @@ function evaluateCompletion(
       "lineage",
       `Identify the authorizing Decision claim in harness/${context.closeoutPath} Summary.`,
       `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
-    );
-  // The Fact-production requirement is task-bound: a profile that declared `fact: false`
-  // (lightweight) closes its loop with the closeout verification record instead.
-  if (closeoutGates.fact !== false && context.producesFactCount < 1)
-    return one(
-      "fact_missing",
-      "facts",
-      `ha fact record --task ${task.taskId} --statement "<what changed and why it matters>" --source "<evidence path or observation>" --confidence high`,
-      "Describe the system's observable change and cite its evidence in a Fact. " +
-        "Keep execution recaps and test counts in closeout Verification; the Fact should explain what is now true.",
     );
   if (context.closeout !== "ready" && context.closeout !== "dirty_eligible")
     return one(
@@ -362,13 +361,29 @@ function evaluateCompletion(
       reviewConsentCommands(task.taskId, snapshot.reviews, execution).join(" or "),
       "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
+  if (context.delivery?.required && submission.commitSha !== null && !context.delivery.merged)
+    return one(
+      "delivery_missing",
+      "delivery",
+      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${task.taskId}.`,
+      context.delivery.merged === false
+        ? `The delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
+        : `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
+    );
   return [];
 }
 
-/** The latest changes_requested verdict on the submitted cut: an adverse verdict the owner adjudicates. */
-export function changesRequestedReview(reviews: readonly ReviewV1[], execution: ExecutionV1): ReviewV1 | undefined {
+/** The latest changes_requested verdict on the submitted cut that no consent disposition removed:
+ * an adverse verdict the owner adjudicates. Dispositions share the consent side's one standard. */
+export function changesRequestedReview(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  dispositions: readonly ReviewDispositionV1[],
+): ReviewV1 | undefined {
+  if (!execution.submission) return undefined;
+  const disposed = disposedReviewIdsForSubmission(dispositions, submissionDigest(execution.submission));
   return reviewsForExecution(reviews, execution)
-    .filter((review) => review.verdict === "changes_requested")
+    .filter((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
     .at(-1);
 }
 

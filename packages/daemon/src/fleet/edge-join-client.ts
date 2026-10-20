@@ -1,6 +1,5 @@
-// `ha edge join <link>` on a fresh machine: sign in to the center's Keycloak, exchange the invitation for
-// a machine credential, register the workspace as a remote-edge mirror and run its first sync. The
-// credential reaches only fleet-edge.json (written by the edge sync); the receipt never carries it.
+// `ha edge join <link>`: authenticate the invited person over the center's pinned TLS channel,
+// then register and sync one local mirror for each repository carried by the invitation.
 import { X509Certificate } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -31,8 +30,8 @@ export async function joinFleetEdge(
   ports: EdgeJoinClientPorts,
 ): Promise<Record<string, unknown>> {
   const link = decodeEdgeJoinLink(request.link);
-  if (!link.loginUrl || !link.loginRealm || !link.loginClientId)
-    throw Object.assign(new Error("The invitation carries no center sign-in; ask for a new invitation."), {
+  if (!link.token)
+    throw Object.assign(new Error("The invitation has no token; ask for a new invitation."), {
       code: "edge_join_invalid",
     });
   const authority = { url: link.loginUrl, realm: link.loginRealm, clientId: link.loginClientId },
@@ -40,49 +39,74 @@ export async function joinFleetEdge(
   // A session for another Keycloak would be rejected by the center; sign in to the invitation's.
   if (!session || session.authority.url !== authority.url || session.authority.realm !== authority.realm)
     return { ...(await ports.beginLogin(authority)), command: "edge-join" };
-  const center = new URL(link.centerUrl),
+  const center = new URL(link.centerOrigin),
     port = Number(center.port || 443),
     admitted = await (ports.join ?? requestFleetEdgeJoinPinned)({
       hostname: center.hostname,
       port,
       servername: center.hostname,
-      nodeId: link.nodeId,
+      joinId: link.joinId,
       inviteToken: link.token,
       accessToken: session.accessToken,
       spkiSha256: link.spkiSha256,
     }),
-    root = path.resolve(
-      request.workspaceRoot ?? path.join(ports.homeDir ?? homedir(), "harness-edge", admitted.repoId),
-    ),
-    caPath = path.join(root, "fleet-center-ca.pem");
-  await prepareWorkspace(root, admitted.harnessYaml);
-  // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
-  writeFileDurably(caPath, new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString());
-  await ports.register(root, admitted.repoId);
-  const synced = await ports.sync({
-    repoId: admitted.repoId,
-    workspaceRoot: root,
-    host: center.hostname,
-    port,
-    servername: center.hostname,
-    caPath,
-    nodeId: admitted.nodeId,
-    credential: admitted.credential,
-    viewRoot: `${root}-view`,
-    quotaBytes: defaultQuotaBytes,
-    timeoutMs: 60_000,
-  });
+    certificate = new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString(),
+    repositories = [] as {
+      readonly repoId: string;
+      readonly workspaceRoot: string;
+      readonly mirrorOutcome?: unknown;
+      readonly knownHead?: unknown;
+      readonly ok: boolean;
+      readonly code?: unknown;
+      readonly error?: unknown;
+    }[];
+
+  for (const repository of admitted.repositories) {
+    const root = edgeWorkspaceRoot(repository.repoId, request.workspaceRoot, ports.homeDir ?? homedir()),
+      caPath = path.join(root, "fleet-center-ca.pem");
+    await prepareWorkspace(root, repository.harnessYaml);
+    // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
+    writeFileDurably(caPath, certificate);
+    await ports.register(root, repository.repoId);
+    const synced = await ports.sync({
+      repoId: repository.repoId,
+      workspaceRoot: root,
+      host: center.hostname,
+      port,
+      servername: center.hostname,
+      caPath,
+      nodeId: admitted.nodeId,
+      credential: admitted.credential,
+      humanClientId: authority.clientId,
+      viewRoot: `${root}-view`,
+      quotaBytes: defaultQuotaBytes,
+      timeoutMs: 60_000,
+    });
+    repositories.push({
+      repoId: repository.repoId,
+      workspaceRoot: root,
+      ok: synced.ok !== false,
+      ...(synced.mirrorOutcome === undefined ? {} : { mirrorOutcome: synced.mirrorOutcome }),
+      ...(synced.knownHead === undefined ? {} : { knownHead: synced.knownHead }),
+      ...(synced.ok === false ? { code: synced.code, error: synced.error } : {}),
+    });
+  }
   return {
-    ok: synced.ok !== false,
+    ok: repositories.every((repository) => repository.ok),
     command: "edge-join",
-    repoId: admitted.repoId,
+    joinId: admitted.joinId,
+    state: repositories.every((repository) => repository.ok) ? "synced" : "partial",
+    repoIds: repositories.map((repository) => repository.repoId),
+    repositories,
     nodeId: admitted.nodeId,
     personId: admitted.personId,
-    workspaceRoot: root,
-    mirrorOutcome: synced.mirrorOutcome,
-    knownHead: synced.knownHead,
-    ...(synced.ok === false ? { code: synced.code, error: synced.error } : {}),
   };
+}
+
+function edgeWorkspaceRoot(repoId: string, requestedRoot: string | undefined, homeDir: string): string {
+  if (!requestedRoot) return path.join(homeDir, "harness-edge", repoId);
+  const base = path.resolve(requestedRoot);
+  return path.join(base, repoId);
 }
 
 /** A remote-edge registration needs the center's layout file inside a Git repository with a branch. */

@@ -1,37 +1,21 @@
 // harness-test-tier: contract
-import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import assert from "node:assert/strict";
-import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
-import {
-  claimGateRun,
-  settleGateRun,
-  getExecutableEntityAction,
-  localGitObjectRefStore,
-  readSettingsFacet,
-  reviewDigest,
-  submissionDigest,
-  type CompletionEvidenceV1,
-  type FrozenGateRequirement,
-} from "@harness-anything/kernel";
+import { getExecutableEntityAction, readSettingsFacet, reviewDigest, submissionDigest } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { completeTask, prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
-import { ciWitnessCommit, githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";
 import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
-const settingsStub = (workflows: readonly string[]) => {
-  const settings = { closeout: { profile: "standard" }, ci: { workflows } };
-  return { read: () => settings, readRepository: () => settings };
-};
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8",
@@ -49,33 +33,12 @@ function init(root: string): string {
 const publicRoot = mkdtempSync(path.join(tmpdir(), "ha-public-evidence-"));
 const publicSha = init(publicRoot);
 after(() => rmSync(publicRoot, { recursive: true, force: true }));
-const ciRequirement = (workflows: readonly string[] = ["rewrite-ci"]): FrozenGateRequirement => ({
-    gateId: "ci",
-    appliesTo: "code",
-    witness: {
-      ...completionSnapshot.completion.sources["github-actions"],
-      adapterId: "github-actions",
-      adapterOptions: {
-        workflows,
-        branch: "main",
-        event: "push",
-        coverage: "descendant",
-        selection: "newest",
-      },
-    },
-  }),
-  codeDocRequirement: FrozenGateRequirement = {
-    gateId: "code-doc-reconciliation",
-    appliesTo: "code",
-    witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
-  },
-  ci = (cell: RepoCellOperationalContext, current: Snapshot["executions"][number], workflows?: readonly string[]) =>
-    githubActionsWitnessEvidence(cell, ciRequirement(workflows), current);
-function execution(
-  commitSha: string,
-  deliverables: string[] = [],
-  requirements: readonly FrozenGateRequirement[] = [ciRequirement(), codeDocRequirement],
-): Snapshot["executions"][number] {
+const codeDocRequirement = {
+  gateId: "code-doc-reconciliation",
+  appliesTo: "code",
+  witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
+} as const;
+function execution(commitSha: string, deliverables: string[] = []): Snapshot["executions"][number] {
   const current = {
     schema: "execution/v1",
     executionId: "execution",
@@ -97,390 +60,43 @@ function execution(
       knownGaps: [],
       residualRisks: [],
       evidenceRefs: [],
-      completionContract: { ...emptyCompletionContract, gates: [...requirements] },
+      completionContract: { ...emptyCompletionContract, gates: [codeDocRequirement] },
     },
   } as Snapshot["executions"][number];
-  return {
-    ...current,
-    gateRuns: requirements
-      .filter(({ witness }) => witness.kind === "github-actions")
-      .map((requirement) =>
-        claimGateRun({
-          execution: current,
-          requirement,
-          repoId: "repo",
-          runId: `run-${requirement.gateId}`,
-          claimFence: 1,
-          actor,
-          occurredAt: current.submittedAt!,
-          expiresAt: "2026-09-13T00:00:00.000Z",
-        }),
-      ),
-  };
-}
-function observation(
-  sha: string,
-  revision = 1,
-  conclusion: string | null = "success",
-  workflow = "rewrite-ci",
-  branch = "main",
-  trigger: "push" | "schedule" = "push",
-  runId = revision,
-  attempt = 1,
-): CiRunObservationEventV3 {
-  return {
-    schema: "ci-run-observation/v3",
-    eventId: `event-${revision}`,
-    opId: `op-${revision}`,
-    workspaceRevision: revision,
-    type: "ci_run_observed",
-    actor,
-    source: "local",
-    occurredAt: "2026-09-12T00:00:00.000Z",
-    payload: {
-      run: { runId: `${runId}.${attempt}`, sha, branch, prNumber: null, job: workflow, wallclockMs: 0, runner: "test" },
-      verification:
-        conclusion === null
-          ? null
-          : {
-              source: workflow === "ledger-publication" ? "write-coordinator" : "github-actions",
-              workflow,
-              runId: String(runId),
-              attempt,
-              headSha: sha,
-              conclusion,
-              event: trigger,
-            },
-      tests: [],
-      gates: [],
-    },
-  };
+  return current;
 }
 
-test("CI evidence follows GitHub run and attempt order instead of observation delivery order", () => {
-  const current = execution(publicSha),
-    newerGreen = observation(publicSha, 1, "success", "rewrite-ci", "main", "push", 200),
-    olderRedReimportedLater = observation(publicSha, 3, "failure", "rewrite-ci", "main", "push", 100),
-    newestRed = observation(publicSha, 2, "failure", "rewrite-ci", "main", "push", 300),
-    firstAttemptRed = observation(publicSha, 5, "failure", "rewrite-ci", "main", "push", 400, 1),
-    retryGreen = observation(publicSha, 4, "success", "rewrite-ci", "main", "push", 400, 2);
-
-  assert.equal(ci(fixture(publicRoot, current, [olderRedReimportedLater, newerGreen]).cell, current)?.result, "pass");
-  assert.equal(
-    ci(fixture(publicRoot, current, [newerGreen, newestRed, olderRedReimportedLater]).cell, current)?.result,
-    "fail",
-  );
-  assert.equal(ci(fixture(publicRoot, current, [firstAttemptRed, retryGreen]).cell, current)?.result, "pass");
-});
-
-test("scheduled failures do not override push delivery evidence, while push failures still reject", () => {
-  const current = execution(publicSha),
-    legacy = observation(publicSha, 3, "failure"),
-    scheduledAfterPush = fixture(publicRoot, current, [
-      observation(publicSha, 2, "failure", "rewrite-ci", "main", "schedule"),
-      observation(publicSha, 1, "success"),
-    ]),
-    failedPush = fixture(publicRoot, current, [observation(publicSha, 3, "failure")]);
-  delete legacy.payload.verification?.event;
-  assert.equal(ci(scheduledAfterPush.cell, current)?.result, "pass");
-  assert.equal(ci(fixture(publicRoot, current, [legacy, observation(publicSha)]).cell, current)?.result, "pass");
-  assert.equal(ci(failedPush.cell, current)?.result, "fail");
-});
 function fixture(
   rootDir: string,
   submitted: Snapshot["executions"][number],
-  events: CiRunObservationEventV3[],
-  gates = ["ci", "code-doc-reconciliation"],
+  codeDocWitnesses: Snapshot["codeDocWitnesses"] = [],
 ) {
   const snapshot = {
-    revision: 1,
-    task: { iteration: 0, completionGateIds: gates },
-    executions: [submitted],
-    codeDocWitnesses: [],
-    gateWitnesses: [],
-  } as unknown as Snapshot;
-  const read = { snapshot, packagePath: "harness/tasks/task" },
-    calls: unknown[] = [];
-  const cell = {
-    rootDir,
-    projectionReady,
-    service: { read: async () => read },
-    settings: settingsStub(["rewrite-ci"]),
-    store: { readContentBlob: () => null, publication: () => "published" },
-    projection: {
-      read: () => read,
-      readCiRunObservations: () => ({ status: "ready", events, watermark: 2, sourceRevision: 2 }),
-    },
-    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-    lifecycleAction: async (action: unknown) => {
-      calls.push(action);
-      return { outcome: "applied", opId: "reconcile" };
-    },
-    publishGateWitness: (
-      _task: string,
-      _execution: string,
-      _snapshot: unknown,
-      _path: unknown,
-      _binding: unknown,
-      evidence: CompletionEvidenceV1,
-    ) => {
-      calls.push(evidence);
-      return { outcome: "applied", opId: "witness" };
-    },
-  } as unknown as RepoCellOperationalContext;
+      revision: 1,
+      task: { iteration: submitted.iteration, completionGateIds: ["code-doc-reconciliation"] },
+      executions: [submitted],
+      codeDocWitnesses,
+      gateWitnesses: [],
+    } as unknown as Snapshot,
+    read = { snapshot, packagePath: "harness/tasks/task", status: "ready", watermark: 1, sourceRevision: 1 },
+    calls: unknown[] = [],
+    cell = {
+      rootDir,
+      projectionReady,
+      projection: {},
+      service: { read: async () => read },
+      lifecycleAction: async (action: unknown) => {
+        calls.push(action);
+        return { outcome: "applied", opId: "reconcile" };
+      },
+    } as unknown as RepoCellOperationalContext;
   return { cell, snapshot, calls };
 }
-
-test("automatic CI evidence selects exact and descendant main runs, excluding unrelated runs and non-main descendants", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-"));
-  try {
-    const submitted = init(root),
-      current = execution(submitted);
-    git(root, "commit", "--allow-empty", "-qm", "descendant");
-    const descendant = git(root, "rev-parse", "HEAD");
-    git(root, "update-ref", "refs/remotes/origin/main", descendant);
-    assert.equal(ci(fixture(root, current, [observation(submitted)]).cell, current)?.result, "pass");
-    assert.equal(ci(fixture(root, current, [observation(descendant)]).cell, current)?.result, "pass");
-    assert.equal(
-      ci(fixture(root, current, [observation(descendant, 2, "cancelled"), observation(submitted)]).cell, current)
-        ?.result,
-      "pass",
-    );
-    assert.equal(ci(fixture(root, current, [observation("f".repeat(40))]).cell, current), null);
-    // A run on another branch never witnesses the delivery, and a newer one does not shadow a main run.
-    assert.equal(
-      ci(fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell, current),
-      null,
-    );
-    assert.equal(
-      ci(
-        fixture(root, current, [observation(descendant, 2, "success", "rewrite-ci", "feature"), observation(submitted)])
-          .cell,
-        current,
-      )?.result,
-      "pass",
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("merge CI uses the exact merge commit and ignores a later unrelated green main run", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-merge-sha-"));
-  try {
-    const delivery = init(root);
-    git(root, "commit", "--allow-empty", "-qm", "merge commit");
-    const mergeSha = git(root, "rev-parse", "HEAD");
-    git(root, "update-ref", "refs/remotes/origin/main", mergeSha);
-    git(root, "commit", "--allow-empty", "-qm", "unrelated later main run");
-    const unrelatedGreenSha = git(root, "rev-parse", "HEAD"),
-      submitted = {
-        ...execution(delivery),
-        annotations: [
-          { kind: "correction", note: `merge_commit_sha:${mergeSha}`, annotatedAt: "2026-09-12T00:00:00.000Z", actor },
-        ],
-      } as Snapshot["executions"][number],
-      current = fixture(root, submitted, [
-        observation(unrelatedGreenSha, 2, "success"),
-        observation(mergeSha, 1, "failure"),
-      ]);
-    assert.equal(ciWitnessCommit(submitted), mergeSha);
-    assert.equal(ci(current.cell, submitted)?.result, "fail");
-    const fallbackExecution = execution(delivery),
-      fallback = fixture(root, fallbackExecution, [observation(delivery)]);
-    assert.equal(ciWitnessCommit(fallbackExecution), delivery, "without a merge record, use the delivery SHA");
-    assert.equal(
-      ci(fallback.cell, fallbackExecution)?.result,
-      "pass",
-      "the delivery SHA remains the fallback CI target",
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("unmerged descendant coverage checks the target head once and avoids loading the observation window", (t) => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-unmerged-"));
-  try {
-    const targetHead = init(root);
-    git(root, "update-ref", "refs/remotes/origin/main", targetHead);
-    git(root, "commit", "--allow-empty", "-qm", "unmerged delivery");
-    const submitted = git(root, "rev-parse", "HEAD"),
-      current = execution(submitted),
-      events = Array.from({ length: 775 }, (_, index) => observation(targetHead, index + 1)),
-      prepared = fixture(root, current, events),
-      limits: number[] = [];
-    Object.assign(prepared.cell.projection, {
-      readCiRunObservations: (limit: number) => {
-        limits.push(limit);
-        return { status: "ready", events: events.slice(0, limit), watermark: 775, sourceRevision: 775 };
-      },
-    });
-    const before = localGitObjectRefStore.processCount(),
-      startedAt = performance.now();
-    assert.equal(ci(prepared.cell, current), null);
-    const elapsedMs = performance.now() - startedAt;
-    assert.deepEqual(limits, [1]);
-    assert.equal(localGitObjectRefStore.processCount() - before, 3);
-    t.diagnostic(`unmerged descendant evaluation: ${elapsedMs.toFixed(1)}ms`);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("unverified latest observation rejects and latest real red never falls back to older green", async () => {
-  const current = execution(publicSha);
-  const unverified = fixture(publicRoot, current, [
-    observation(current.submission!.commitSha, 2, null),
-    observation(current.submission!.commitSha),
-  ]);
-  assert.throws(() => ci(unverified.cell, current), { code: "invalid_proof" });
-  // The same unverified observation on a task branch is an imported diagnostic measurement, not
-  // a broken proof: it must not shadow or reject the verified main witness behind it.
-  const branchMeasurement = fixture(publicRoot, current, [
-    observation(current.submission!.commitSha, 2, null, "rewrite-ci", "task-delivery", "push", 300),
-    observation(current.submission!.commitSha),
-  ]);
-  assert.equal(ci(branchMeasurement.cell, current)?.result, "pass");
-  const red = fixture(publicRoot, current, [
-    observation(current.submission!.commitSha, 2, "failure"),
-    observation(current.submission!.commitSha),
-  ]);
-  Object.assign(red.snapshot, {
-    gateWitnesses: [
-      {
-        ...ci(fixture(publicRoot, current, [observation(current.submission!.commitSha)]).cell, current),
-        executionId: "execution",
-        iteration: 0,
-        commitSha: current.submission!.commitSha,
-      },
-    ],
-  });
-  assert.equal(ci(red.cell, current)?.result, "fail");
-  // Submit-time preparation runs after the submission is durable: the red is neither attached nor
-  // allowed to bounce the accepted cut. Completion judges it (completeOverRedCi below).
-  await prepareSubmissionEvidence(red.cell, "task", "execution", binding);
-  assert.deepEqual(
-    red.calls.map((call) => (call as { kind?: string }).kind),
-    ["task-code-doc-reconcile"],
-    "no CI witness is published for the red observation",
-  );
-});
-
-for (const conclusion of ["cancelled", "skipped"]) {
-  test(`${conclusion} latest observation falls back to older success`, () => {
-    const current = execution(publicSha),
-      prepared = fixture(publicRoot, current, [observation(publicSha, 2, conclusion), observation(publicSha)]),
-      evidence = ci(prepared.cell, current);
-    assert.equal(evidence?.result, "pass");
-    assert.equal(evidence?.provenance.rawResult, "event:op-1");
-  });
-
-  test(`${conclusion} observation without older evidence returns null`, () => {
-    const current = execution(publicSha);
-    assert.equal(ci(fixture(publicRoot, current, [observation(publicSha, 2, conclusion)]).cell, current), null);
-  });
-}
-
-for (const conclusion of ["failure", "timed_out"]) {
-  test(`cancelled latest observation preserves older ${conclusion} over success`, () => {
-    const current = execution(publicSha),
-      prepared = fixture(publicRoot, current, [
-        observation(publicSha, 3, "cancelled"),
-        observation(publicSha, 2, conclusion),
-        observation(publicSha),
-      ]);
-    assert.equal(ci(prepared.cell, current)?.result, "fail");
-    assert.equal(ci(prepared.cell, current)?.provenance.rawResult, "event:op-2");
-  });
-}
-
-test("private ledger ancestor observation supports its cut and pending publication provides no witness", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-ledger-evidence-"));
-  try {
-    init(root);
-    const ledger = path.join(root, "harness"),
-      submitted = init(ledger),
-      current = execution(submitted);
-    git(ledger, "commit", "--allow-empty", "-qm", "published");
-    const published = git(ledger, "rev-parse", "HEAD"),
-      observed = fixture(root, current, [observation(published, 1, "success", "ledger-publication", "ledger")]);
-    assert.equal(ci(observed.cell, current)?.result, "pass");
-    const pending = fixture(root, current, []);
-    assert.equal(ci(pending.cell, current), null);
-    await prepareSubmissionEvidence(pending.cell, "task", "execution", binding);
-    assert.deepEqual(pending.calls, [{ kind: "task-code-doc-reconcile", taskId: "task", paths: [] }]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("public and private cuts reject cross-kind exact and descendant witnesses", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-cut-kind-"));
-  try {
-    const publicCommit = init(root),
-      ledger = path.join(root, "harness"),
-      privateCommit = init(ledger);
-    git(root, "commit", "--allow-empty", "-qm", "public descendant");
-    git(ledger, "commit", "--allow-empty", "-qm", "private descendant");
-    for (const [cut, sha, workflow, branch] of [
-      [publicCommit, publicCommit, "ledger-publication", "ledger"],
-      [publicCommit, git(root, "rev-parse", "HEAD"), "ledger-publication", "main"],
-      [privateCommit, privateCommit, "rewrite-ci", "main"],
-      [privateCommit, git(ledger, "rev-parse", "HEAD"), "rewrite-ci", "main"],
-    ]) {
-      const current = execution(cut!);
-      assert.throws(
-        () => ci(fixture(root, current, [observation(sha!, 2, "success", workflow, branch)]).cell, current),
-        { code: "invalid_proof" },
-      );
-    }
-    const current = execution(privateCommit);
-    assert.equal(
-      ci(
-        fixture(root, current, [observation(privateCommit, 1, "success", "ledger-publication", "ledger")]).cell,
-        current,
-      )?.result,
-      "pass",
-    );
-    // If both object stores contain a commit, the public witness boundary wins.
-    git(root, "fetch", ledger, "HEAD");
-    assert.throws(
-      () =>
-        ci(
-          fixture(root, current, [observation(privateCommit, 1, "success", "ledger-publication", "ledger")]).cell,
-          current,
-        ),
-      { code: "invalid_proof" },
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("CI evidence follows the workflows frozen into the contract, not only rewrite-ci", () => {
-  const current = execution(publicSha),
-    configured = fixture(publicRoot, current, [observation(publicSha, 1, "success", "ci")]);
-  assert.equal(ci(configured.cell, current, ["ci"])?.result, "pass");
-  const unconfigured = fixture(publicRoot, current, [observation(publicSha, 2, "success", "rewrite-ci")]);
-  assert.equal(ci(unconfigured.cell, current, ["ci"]), null);
-});
-
-test("verified runs from non-configured workflows never shadow configured main runs", () => {
-  const current = execution(publicSha),
-    unrelatedGreen = observation(publicSha, 2, "success", "rebuild-gates", "main", "push", 35066679301),
-    configuredGreen = observation(publicSha, 1, "success", "rewrite-ci", "main", "push", 35066679233),
-    unrelatedRed = observation(publicSha, 4, "failure", "rebuild-gates", "main", "push", 35066679400),
-    configuredRed = observation(publicSha, 3, "failure", "rewrite-ci", "main", "push", 35066679350);
-  assert.equal(ci(fixture(publicRoot, current, [unrelatedGreen, configuredGreen]).cell, current)?.result, "pass");
-  assert.equal(ci(fixture(publicRoot, current, [unrelatedRed, configuredGreen]).cell, current)?.result, "pass");
-  assert.equal(ci(fixture(publicRoot, current, [unrelatedGreen, configuredRed]).cell, current)?.result, "fail");
-});
 
 test("pure deletion reconciles empty paths and surviving deliverables reconcile without deletion output", async () => {
   for (const paths of [[], ["packages/daemon/src/live.ts"]]) {
     const current = execution(publicSha, paths),
-      prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
+      prepared = fixture(publicRoot, current);
     const steps = await prepareSubmissionEvidence(prepared.cell, "task", "execution", binding);
     assert.deepEqual(prepared.calls[0], { kind: "task-code-doc-reconcile", taskId: "task", paths });
     assert.deepEqual(
@@ -489,43 +105,24 @@ test("pure deletion reconciles empty paths and surviving deliverables reconcile 
     );
   }
 });
-
 test("retry after a lost response reuses canonical cut witnesses without another append", async () => {
   const current = execution(publicSha),
-    prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha)]),
-    evidence = ci(prepared.cell, current)!;
-  Object.assign(prepared.snapshot, {
-    codeDocWitnesses: [
+    prepared = fixture(publicRoot, current, [
       {
         schema: "code-doc-witness/v1",
+        witnessId: "reconciled",
+        taskId: "task",
         executionId: "execution",
         iteration: 0,
-        commitSha: current.submission!.commitSha,
+        commitSha: current.submission!.commitSha!,
         paths: [],
-        witnessId: "reconciled",
+        actor,
+        source: "local",
+        reconciledAt: "2026-09-12T00:02:00.000Z",
       },
-    ],
-    gateWitnesses: [{ ...evidence, executionId: "execution", iteration: 0, commitSha: current.submission!.commitSha }],
-  });
+    ]);
   assert.deepEqual(await prepareSubmissionEvidence(prepared.cell, "task", "execution", binding), []);
   assert.deepEqual(prepared.calls, []);
-});
-
-test("pending projection cannot select stale green and failed reconciliation stops before CI publication", async () => {
-  const current = execution(publicSha),
-    pending = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
-  Object.assign(pending.cell.projection, {
-    readCiRunObservations: () => ({ status: "pending", events: [], watermark: 1, sourceRevision: 2 }),
-  });
-  assert.throws(() => ci(pending.cell, current), { code: "content_not_ready" });
-  const rejected = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
-  Object.assign(rejected.cell, {
-    lifecycleAction: async () => ({ outcome: "commit_unknown", code: "publication_indeterminate", opId: "reconcile" }),
-  });
-  const steps = await prepareSubmissionEvidence(rejected.cell, "task", "execution", binding);
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0]?.code, "publication_indeterminate");
-  assert.deepEqual(rejected.calls, []);
 });
 
 test("complete without a code-doc witness stops on code_doc_missing under its own criterion", async () => {
@@ -538,7 +135,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
     git(root, "commit", "-qm", "deliverable");
     const sha = git(root, "rev-parse", "HEAD"),
       deliverables = ["packages/daemon/src/live.ts"],
-      submitted = execution(sha, deliverables, [codeDocRequirement]),
+      submitted = execution(sha, deliverables),
       pinned = submissionDigest(submitted.submission!),
       review = {
         schema: "review/v1",
@@ -604,9 +201,8 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         closeout: "ready",
         closeoutPath: `${packagePath}/closeout.md`,
         eligibleDirtyPaths: [],
-        producesFactCount: 1,
         projectionStatus: "ready",
-        closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
+        closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
       },
       cell = {
         rootDir: root,
@@ -626,6 +222,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
           getEntity: () => null,
           readTaskChildCounts: () => ({}),
           readTaskCompletion: () => null,
+          readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
           readRelationQuery: (query: { readonly relationType?: string }) =>
             query.relationType === "produces"
               ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }
@@ -700,71 +297,10 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
   }
 });
 
-test("completed receipt replay does not inspect a newer red or unavailable CI observation", async () => {
-  const current = execution(publicSha),
-    prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha, 2, "failure")]);
-  Object.assign(prepared.snapshot.task!, { taskId: "task", status: "done", createdBy: actor });
-  const packagePath = "harness/tasks/task",
-    completedEvent = { opId: "completed-original" },
-    receipt = { outcome: "applied", opId: completedEvent.opId },
-    proof = { durable: true, canonicalVisible: true, worktreeVisible: true },
-    read = { snapshot: prepared.snapshot, packagePath, status: "ready", watermark: 2, sourceRevision: 2 };
-  Object.assign(prepared.cell, {
-    input: { repoId: "repo" },
-    requiredCellText: (value: string) => value,
-    service: { read: async () => read },
-    operationId: () => "retry-operation",
-    store: { readContentBlob: () => null, publication: () => "published" },
-    publicPublication: (value: unknown) => value,
-    lifecycleReceipt: (event: unknown) => {
-      assert.equal(event, completedEvent);
-      return receipt;
-    },
-    receiptProof: () => proof,
-    completionApplied: (value: unknown) => value,
-  });
-  Object.assign(prepared.cell.projection, {
-    read: () => read,
-    getEntity: () => null,
-    readTaskChildCounts: () => ({}),
-    readTaskCompletion: () => completedEvent,
-    readCiRunObservations: () => {
-      assert.fail("completed replay must not read newer CI observations");
-    },
-    readRelationQuery: () => ({ rows: [], status: "ready" }),
-    readDocument: (target: string) => ({
-      watermark: 2,
-      sourceRevision: 2,
-      document: {
-        body: target.endsWith("task-contract.json")
-          ? JSON.stringify({
-              documents: [
-                {
-                  slot: "task.closeout",
-                  path: "closeout.md",
-                  templateRef: "template://planning/closeout@1",
-                  locale: "en-US",
-                },
-              ],
-            })
-          : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
-            "## Same Mechanism Elsewhere\nChecked.\n",
-      },
-    }),
-  });
-  assert.equal(
-    await completeTask(prepared.cell, { kind: "task-complete", taskId: "task", executionId: "execution" }, {
-      ...binding,
-      authorizationDecision: { outcome: "allowed" },
-    } as RepoCellBinding),
-    receipt,
-  );
-});
-
 test("replayed complete retries archiveOnComplete through the regular archive action; baseline and archived tasks skip it", async () => {
   const setup = (overrides: Record<string, unknown>, archiveTasks: RepoCellOperationalContext["archiveTasks"]) => {
     const current = execution(publicSha),
-      prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha, 2, "failure")]);
+      prepared = fixture(publicRoot, current);
     Object.assign(prepared.snapshot.task!, { taskId: "task", status: "done", createdBy: actor, ...overrides });
     const read = {
       snapshot: prepared.snapshot,
@@ -846,256 +382,4 @@ test("replayed complete retries archiveOnComplete through the regular archive ac
     assert.fail("an already-archived task skips the archive write"),
   );
   assert.deepEqual((await complete(alreadyArchived.cell)).steps, []);
-});
-
-async function completeOverRedCi(
-  requirement: FrozenGateRequirement,
-  observations:
-    | readonly CiRunObservationEventV3[]
-    | ((sha: string) => readonly CiRunObservationEventV3[])
-    | null = null,
-  witnesses:
-    | ((sha: string, submitted: Snapshot["executions"][number]) => readonly Snapshot["gateWitnesses"][number][])
-    | null = null,
-) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-complete-override-"));
-  try {
-    const sha = init(root),
-      submitted = execution(sha, [], [requirement]),
-      settings = readSettingsFacet(""),
-      packagePath = "tasks/task-complete-override",
-      presetSnapshotDigest = compileRepoTaskPackage({
-        rootDir: root,
-        settings,
-        taskId: "task",
-        action: { kind: "task-create", title: "Complete Override" },
-      }).snapshot.digest,
-      snapshot = {
-        revision: 1,
-        task: {
-          taskId: "task",
-          status: "in_review",
-          currentNode: "review",
-          iteration: 0,
-          completionGateIds: ["ci"],
-          createdBy: actor,
-          taskClass: "standard",
-          presetSnapshotDigest,
-        },
-        executions: [submitted],
-        reviews: [],
-        consents: [],
-        codeDocWitnesses: [],
-        gateWitnesses: witnesses?.(sha, submitted) ?? [],
-        lease: null,
-        decisionRelations: [],
-      } as unknown as Snapshot,
-      read = { snapshot, packagePath, status: "ready", watermark: 2, sourceRevision: 2 },
-      published: CompletionEvidenceV1[] = [],
-      cell = {
-        rootDir: root,
-        projectionReady,
-        input: { repoId: "repo" },
-        settings: { read: () => settings, readRepository: () => settings },
-        requiredCellText: (value: string) => value,
-        operationId: () => "facade-op",
-        store: { readContentBlob: () => null, publication: () => "published" },
-        completeRetryCommand: () => "ha task complete task",
-        completionContext: () => ({
-          closeout: "ready",
-          closeoutPath: `${packagePath}/closeout.md`,
-          eligibleDirtyPaths: [],
-          producesFactCount: 1,
-          projectionStatus: "ready",
-          closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
-        }),
-        completionStopped,
-        completionSettlement,
-        service: { read: async () => read },
-        projection: {
-          read: () => read,
-          readTaskCompletion: () => null,
-          getEntity: () => null,
-          readTaskChildCounts: () => ({}),
-          readRelationQuery: (query: { readonly relationType?: string }) =>
-            query.relationType === "produces"
-              ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }
-              : { rows: [], status: "ready" },
-          readDecisions: () => ({ decisions: [], status: "ready" }),
-          readDocument: (target: string) => ({
-            watermark: 2,
-            sourceRevision: 2,
-            document: {
-              path: target,
-              blobSha256: "0".repeat(64),
-              body: target.endsWith("task-contract.json")
-                ? JSON.stringify({
-                    title: "Complete Override",
-                    documents: [
-                      {
-                        slot: "task.closeout",
-                        path: "closeout.md",
-                        templateRef: "template://planning/closeout@1",
-                        locale: "en-US",
-                      },
-                    ],
-                  })
-                : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
-                  "## Same Mechanism Elsewhere\nChecked.\n",
-            },
-          }),
-          readCiRunObservations: () => ({
-            status: "ready",
-            events:
-              typeof observations === "function"
-                ? observations(sha)
-                : (observations ?? [observation(sha, 1, "failure")]),
-            watermark: 2,
-            sourceRevision: 2,
-          }),
-        },
-        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-        lifecycleAction: async () => assert.fail("completion must stop before any lifecycle write"),
-        publishGateWitness: (...args: unknown[]) => {
-          const evidence = args[5] as CompletionEvidenceV1;
-          const run = submitted.gateRuns[0]!;
-          (submitted as { gateRuns: typeof submitted.gateRuns }).gateRuns = [
-            settleGateRun({
-              execution: submitted,
-              runId: run.runId,
-              claimFence: run.claimFence,
-              actor,
-              occurredAt: "2026-09-12T00:06:00.000Z",
-              outcome: {
-                availability: "available",
-                result: evidence.result as "pass" | "fail",
-                diagnostic: evidence.diagnostic,
-              },
-            }),
-          ];
-          published.push(evidence);
-          // The canonical write is durable before the read below re-judges the refreshed snapshot.
-          (snapshot.gateWitnesses as Snapshot["gateWitnesses"][number][]).push({
-            gateId: evidence.gateId,
-            checkerId: evidence.checkerId,
-            result: evidence.result as "pass" | "fail",
-            observed: evidence.observed,
-            basis: evidence.basis,
-            provenance: evidence.provenance,
-            ...(evidence.override ? { override: evidence.override } : {}),
-            schema: "completion-gate-witness/v1",
-            witnessId: `gate-witness-${published.length}`,
-            receiptId: `op-witness-${published.length}`,
-            taskId: "task",
-            executionId: submitted.executionId,
-            commitSha: sha,
-            iteration: submitted.iteration,
-            actor,
-            source: "local",
-            verifiedAt: "2026-09-12T00:06:00.000Z",
-          });
-          return { outcome: "applied", opId: "witness-fail" };
-        },
-      } as unknown as RepoCellOperationalContext;
-    // The source host settles the run before the completion facade reads its canonical evidence.
-    const evidence = githubActionsWitnessEvidence(cell, requirement, submitted);
-    if (evidence) cell.publishGateWitness("task", "execution", snapshot, packagePath, binding, evidence);
-    const receipt = (await completeTask(cell, { kind: "task-complete", taskId: "task", executionId: "execution" }, {
-      ...binding,
-      authorizationDecision: { outcome: "allowed" },
-    } as RepoCellBinding)) as unknown as Record<string, unknown>;
-    return { receipt, published };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
-test("complete records the automated fail of an override-allowed gate and stops; other gates still reject", async () => {
-  const { receipt, published } = await completeOverRedCi({ ...ciRequirement(), allowOverride: true });
-  assert.deepEqual(
-    published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
-    [["ci", "fail", "runner"]],
-  );
-  assert.equal(receipt.outcome, "op_rejected");
-  assert.equal(receipt.code, "ci_missing");
-  // Without allowOverride the automated fail still rejects the completion outright.
-  assert.equal((await completeOverRedCi(ciRequirement())).receipt.code, "ci_missing");
-
-  // No covering CI observation at all: nothing is recorded, and the blocker offers the owner's
-  // break-glass override over the absent receipt.
-  const empty = await completeOverRedCi({ ...ciRequirement(), allowOverride: true }, []);
-  assert.equal(empty.published.length, 0);
-  assert.equal(empty.receipt.outcome, "op_rejected");
-  assert.equal(empty.receipt.code, "ci_missing");
-  assert.match(
-    String((empty.receipt.next as readonly { action: string }[])[0]?.action),
-    /ha task attest task --gate ci --result pass --mode override --rationale/u,
-  );
-});
-
-/** A human break-glass witness over the cut's absent automated receipt (`waivedReceiptId: null`). */
-function nullWaiver(sha: string, submitted: Snapshot["executions"][number]): Snapshot["gateWitnesses"][number] {
-  return {
-    schema: "completion-gate-witness/v1",
-    witnessId: "gate-op-waiver",
-    receiptId: "op-waiver",
-    checkerId: "ci",
-    gateId: "ci",
-    result: "pass",
-    observed: true,
-    basis: {
-      executionId: submitted.executionId,
-      iteration: submitted.iteration,
-      submissionDigest: submissionDigest(submitted.submission!),
-      codeCommit: sha,
-    },
-    provenance: {
-      source: "human",
-      adapterId: "manual-attest",
-      runId: "override:owner",
-      rawResult: "override with no automated receipt by owner: runner was unreachable",
-    },
-    override: { rationale: "CI runner host was unreachable during the window", waivedReceiptId: null },
-    taskId: "task",
-    executionId: submitted.executionId,
-    commitSha: sha,
-    iteration: submitted.iteration,
-    actor,
-    source: "local",
-    verifiedAt: "2026-09-12T00:05:00.000Z",
-  } as Snapshot["gateWitnesses"][number];
-}
-
-test("a no-receipt waiver is voided by a later automated receipt on the same cut", async () => {
-  // A red run lands after the waiver: the fail is recorded verbatim and blocks completion again.
-  const red = await completeOverRedCi(
-    { ...ciRequirement(), allowOverride: true },
-    (sha) => [observation(sha, 1, "failure")],
-    (sha, submitted) => [nullWaiver(sha, submitted)],
-  );
-  assert.deepEqual(
-    red.published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
-    [["ci", "fail", "runner"]],
-  );
-  assert.equal(red.receipt.outcome, "op_rejected");
-  assert.equal(red.receipt.code, "ci_missing");
-
-  // A green run lands after the waiver: the pass is recorded, the gate still blocks on the
-  // mandatory signoff — the voided override never counts as one.
-  const green = await completeOverRedCi(
-    { ...ciRequirement(), allowOverride: true, mandatorySignoff: true },
-    (sha) => [observation(sha, 1, "success")],
-    (sha, submitted) => [nullWaiver(sha, submitted)],
-  );
-  assert.deepEqual(
-    green.published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
-    [["ci", "pass", "runner"]],
-  );
-  assert.equal(green.receipt.outcome, "op_rejected");
-  assert.equal(green.receipt.code, "ci_missing");
-  assert.match(
-    String((green.receipt.next as readonly { action: string }[])[0]?.action),
-    /ha task attest task --gate ci --result pass$/u,
-    "the blocker must ask for a plain signoff, not another override",
-  );
 });

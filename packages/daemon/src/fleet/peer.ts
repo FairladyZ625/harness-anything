@@ -41,6 +41,7 @@ export interface FleetEdgeChange {
 }
 export interface FleetPeerOptions {
   readonly readAccessToken?: () => Promise<string | undefined>;
+  readonly humanClientId?: string;
   readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
@@ -194,6 +195,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           nodeId: options.nodeId,
           credential: options.credential,
           ...(accessToken ? { accessToken } : {}),
+          ...(options.humanClientId ? { humanClientId: options.humanClientId } : {}),
         }),
       );
     });
@@ -700,7 +702,13 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
         frame.schema === "fleet.device.sessions.revoke/v1"
           ? undefined
           : await options.readAccessToken?.();
-      return socket.write(serializeFleetFrame({ ...frame, ...(token ? { accessToken: token } : {}) }));
+      return socket.write(
+        serializeFleetFrame({
+          ...frame,
+          ...(token ? { accessToken: token } : {}),
+          ...(options.humanClientId ? { humanClientId: options.humanClientId } : {}),
+        }),
+      );
     },
     request = async (frame: FleetFrameV1, responseTimeoutMs?: number | null) => {
       await send(frame);
@@ -727,7 +735,7 @@ export async function requestFleetEdgeJoinPinned(options: {
   readonly hostname: string;
   readonly port: number;
   readonly servername?: string;
-  readonly nodeId: string;
+  readonly joinId: string;
   readonly inviteToken: string;
   readonly accessToken: string;
   readonly spkiSha256: string;
@@ -749,9 +757,9 @@ export async function requestFleetEdgeJoinPinned(options: {
     const peer = socket.getPeerCertificate(true);
     if (!peer.raw)
       throw Object.assign(new Error("The center did not present a certificate."), { code: "pin_mismatch" });
-    const pin = `sha256:${createHash("sha256")
+    const pin = createHash("sha256")
       .update(new X509Certificate(peer.raw).publicKey.export({ type: "spki", format: "der" }))
-      .digest("base64")}`;
+      .digest("hex");
     if (pin !== options.spkiSha256)
       throw Object.assign(new Error("The center certificate fingerprint does not match the invitation."), {
         code: "pin_mismatch",
@@ -759,12 +767,12 @@ export async function requestFleetEdgeJoinPinned(options: {
     const response = await new Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }>>(
       (resolve, reject) => {
         const peerState = peerFor(socket, options.timeoutMs ?? 10_000);
-        const messageId = `${options.nodeId}_${Date.now().toString(36)}`;
+        const messageId = `${options.joinId}_join`;
         socket.write(
           serializeFleetFrame({
             schema: "fleet.edge.join/v1",
             messageId,
-            nodeId: options.nodeId,
+            joinId: options.joinId,
             inviteToken: options.inviteToken,
             accessToken: options.accessToken,
           }),

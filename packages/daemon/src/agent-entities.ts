@@ -653,15 +653,22 @@ export function prepareAgentEntityDelete(input: {
   if (!reason.trim()) throw entityError("invalid_command", "reason is required.");
   if (kind === "agent") {
     const references = agentReferenceCounts(input.projection, entityId);
-    if (references.length)
+    if (references.length) {
+      const retireCommand = `ha agent retire ${entityId} --successor <agent-id>`,
+        detail = references.map(({ kind: referenceKind, count }) => `${referenceKind}: ${count}`).join(", ");
       throw attributeEntityActionCriterion(
-        Object.assign(new Error(`Agent ${entityId} is still referenced.`), {
-          code: "agent_referenced",
-          references,
-        }),
+        Object.assign(
+          new Error(`Agent ${entityId} is still referenced (${detail}). Retire it with \`${retireCommand}\` instead.`),
+          {
+            code: "agent_referenced",
+            references,
+          },
+        ),
         "delete",
         "agent/no-references",
+        [retireCommand],
       );
+    }
   }
   return { entityId, baseBlobSha256: current.documentSha256 };
 }

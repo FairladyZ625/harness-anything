@@ -38,13 +38,16 @@ export type TaskSnapshotProjectionRow = DaemonGuiReadResultMap["repo.tasks.list"
 export type TaskSnapshotInvalidRow = DaemonGuiReadResultMap["repo.tasks.list"]["invalidRows"][number];
 export type TaskWipRead = DaemonGuiReadResultMap["repo.tasks.wip"];
 export type WorkIndexRead = DaemonGuiReadResultMap["repo.works.index"];
+/** `repo.works.briefs.read`: per-work-root status bucket and progress sentence parts (redesign zone). */
+export type WorkBriefsRead = DaemonGuiReadResultMap["repo.works.briefs.read"];
+export type WorkBrief = WorkBriefsRead["briefs"][number];
+export type WorkBriefSentencePart = WorkBrief["sentenceParts"][number];
+export type WorkBriefAsk = WorkBrief["asks"][number];
 export type TaskCompletionRead = DaemonGuiReadResultMap["repo.tasks.completion.read"];
 /** `repo.agenda.read`: the same supervisory agenda projection the CEO CLI tick reads. */
 export type AgendaRead = DaemonGuiReadResultMap["repo.agenda.read"];
 export type AgendaAttentionItem = AgendaRead["attentionItems"][number];
 export type AgendaRegionWeights = AgendaRead["regionWeights"];
-/** `repo.ci.observatory.read`: main-branch CI run window for the overview's CI region. */
-export type CiObservatoryRead = DaemonGuiReadResultMap["repo.ci.observatory.read"];
 export type AgendaTaskRow = AgendaRead["inFlight"][number];
 export type AgendaExecutionRow = AgendaRead["awaitingAdjudication"][number];
 export type AgendaDecisionRow = AgendaRead["awaitingDecision"][number];

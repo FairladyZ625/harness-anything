@@ -1,15 +1,15 @@
 # PR、审查与合入
 
-标准 PR body、production delta、双语 lint、创建 PR、review triage 与 merge handoff
+标准 PR body、production delta、PR 正文 lint、创建 PR、review triage 与 merge handoff
 步骤统一放在
-[Prepare the bilingual PR body](../../../skills/harness-contributing/SKILL.md#prepare-the-bilingual-pr-body)、
+[Prepare the PR body](../../../skills/harness-contributing/SKILL.md#prepare-the-pr-body)、
 [Push and open the PR](../../../skills/harness-contributing/SKILL.md#push-and-open-the-pr)
 和 [Review and merge](../../../skills/harness-contributing/SKILL.md#review-and-merge)。
 
 ## PR 合同
 
-实时 [pull request template](../../../.github/pull_request_template.md) 是正文权威。英文块和
-中文块各自完整；机读声明必须保留在 template 指定的位置和格式。即使轻量 lint 偶然接受，
+实时 [pull request template](../../../.github/pull_request_template.md) 是正文权威。模板保留的每个
+section 都要填写；机读声明必须保留在 template 指定的位置和格式。即使轻量 lint 偶然接受，
 空白或删掉的 section 仍会破坏可审计性。
 
 ## Review 责任

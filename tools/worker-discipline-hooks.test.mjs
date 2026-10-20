@@ -17,6 +17,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { agentRolePrompt } from "../packages/daemon/src/agent-role-prompts.ts";
+import { explicitPromptMission } from "../packages/daemon/src/runtime-spawn-mission.ts";
 import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
@@ -178,20 +180,40 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
-    assert.match(body, /ha task ci <task-id> --wait/u);
+    // The wait is the CLI's quiet blocking command; the template must not teach worker-side polling.
+    assert.match(body, /ha task pr <task-id> --wait-ci/u);
+    assert.doesNotMatch(body, /gh pr checks <PR-number> --watch/u);
+    assert.match(body, /Do not poll checks yourself|不要自己用/u);
     assert.match(body, /ha task pr <task-id>/u);
-    assert.match(body, /not_started/u);
+    assert.match(body, /unverified/u);
     assert.match(body, /PR 冲突|conflicting pull request/u);
     assert.match(body, /排队|queued/u);
     assert.match(body, /main 也红|main-red/u);
   }
-  const prompt = readFileSync(path.join(repositoryRoot, "packages/daemon/src/agent-role-prompts.ts"), "utf8");
+});
+
+test("worker publication commands belong to the delivery mission while review carries none", () => {
+  const prompt = agentRolePrompt("worker"),
+    mission = (reviewerBinding) =>
+      explicitPromptMission(
+        "task-handoff",
+        null,
+        "Inspect the package.",
+        "baseline",
+        "standard",
+        null,
+        reviewerBinding,
+      ),
+    delivery = mission(false),
+    review = mission(true);
   assert.match(prompt, /canonical repository root/u);
-  assert.match(prompt, /ha doc sync --submit --task <task-id>/u);
-  assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
-  assert.match(prompt, /ha task ci <task-id> --wait/u);
-  // The prompt source escapes backticks inside the template literal; match both spellings.
-  assert.match(prompt, /`pending` and `not_started` are not verdicts/u);
+  assert.match(prompt, /Sync delivery documents before task submit, which freezes the cut/u);
+  assert.match(prompt, /PR checks for that delivery commit/u);
+  assert.match(prompt, /Pending is not green/u);
+  assert.doesNotMatch(prompt, /ha doc sync|ha task push|ha task pr|gh pr checks/u);
+  assert.match(delivery, /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
+  assert.doesNotMatch(delivery, /PR Body Delivery Protocol|pull_request_template\.md|check-pr-body/u);
+  assert.doesNotMatch(review, /Living Deliverable Protocol|推送后用 `ha task pr`|ha doc sync|ha task push|ha task pr/u);
 });
 
 function makeRepo(context, prefix) {

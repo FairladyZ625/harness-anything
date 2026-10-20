@@ -544,8 +544,8 @@ function contextFor(
       // Pre-queue reads resolve gate requirements from settings; this fixture declares no gates or workflows.
       extracted: {
         settings: {
-          read: () => ({ ci: { workflows: [] } }),
-          readRepository: () => ({ gates: [], ci: { workflows: [] } }),
+          read: () => ({}),
+          readRepository: () => ({ gates: [] }),
         },
       },
       mode: "local",

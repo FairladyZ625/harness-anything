@@ -38,14 +38,65 @@ const squadRunView = (props: Partial<Parameters<typeof SquadRunList>[0]>) =>
   );
 
 describe("sessions page: squad orchestration", () => {
-  it("renders each squad run as one summary from the list read", () => {
+  it("groups runs under their squad first, then one plain run row: phase + mission + relative time", () => {
     const markup = squadRunView({});
+    // 第一层:小队(名称 + 收敛状态 + run 数),不是一 run 一行。
+    expect(markup).toMatch(/data-testid="squad-group-toggle-squad_465504a{12}"/u);
     expect(markup).toContain("ontology-squad");
     expect(markup).toContain("Converged");
-    expect(markup).toContain("6 leader turns");
-    expect(markup).toContain("5 worker attempts");
+    expect(markup).toContain("1 run");
+    // 第二层:run 行只留 phase + mission 一句 + 相对时间。
     expect(markup).toContain("Ship the ontology work");
+    expect(markup).toMatch(/data-testid="squad-run-toggle-squad_a{18}"/u);
+    // 机器短码与流水账撤出列表,进详情。
+    expect(markup).not.toContain("task_5fc508");
+    expect(markup).not.toContain("6 leader turns");
+    expect(markup).not.toContain("5 worker attempts");
+    expect(markup).not.toContain("revision");
+    expect(markup).not.toContain("最后报告");
     expect(markup).not.toContain("runtime-sessions-more");
+  });
+
+  it("uses singular copy for one run and plural copy for several, including the truncated footer", () => {
+    const one = squadRunView({});
+    expect(one).toContain("1 run");
+    expect(one).not.toContain("1 runs");
+
+    const second = {
+      ...squadRunSummary,
+      squadRunId: "squad_" + "d".repeat(18),
+      mission: "Second run in the same squad",
+      latestActivityAt: "2026-08-25T19:22:00.000Z",
+    };
+    const many = squadRunView({ runs: [squadRunSummary, second], totalRuns: 2 });
+    expect(many).toContain("2 runs");
+
+    const truncated = squadRunView({ truncated: true, totalRuns: 2 });
+    expect(truncated).toContain("First 1 run listed (2 total)");
+    expect(truncated).not.toContain("First 1 runs");
+  });
+
+  it("keeps separate squads in separate first-level groups", () => {
+    const other = {
+      ...squadRunSummary,
+      squadRunId: "squad_" + "b".repeat(18),
+      squadId: "other-squad",
+      phase: "workers_running" as const,
+      latestActivityAt: "2026-08-26T00:00:00.000Z",
+    };
+    const markup = squadRunView({
+      runs: [squadRunSummary, other],
+      totalRuns: 2,
+      squadNames: new Map([
+        [squadRunSummary.squadId, "ontology-squad"],
+        [other.squadId, "other-squad"],
+      ]),
+    });
+    expect(markup).toMatch(/data-testid="squad-group-toggle-squad_465504a{12}"/u);
+    expect(markup).toContain('data-testid="squad-group-toggle-other-squad"');
+    expect(markup).toContain("Active");
+    // 两个 run 行都在各自小队下,不是平铺重复小队名。
+    expect(markup.match(/data-testid="squad-run-toggle-/gu)).toHaveLength(2);
   });
 
   it("keeps the whole run row clickable with a selected state (G12 §2b)", () => {

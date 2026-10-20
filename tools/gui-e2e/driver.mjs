@@ -26,6 +26,11 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
     });
     page.on("pageerror", (error) => consoleFailures.push(error.message));
     await page.waitForLoadState("domcontentloaded");
+    // 每次运行都是全新 profile,首次启动引导浮层(task_aba0fddb 起)必然弹出并拦截所有
+    // 点击;e2e 验收的是各页面流程而非引导本身,落它的已完成标记后重载一次关掉。
+    await page.evaluate(() => globalThis.localStorage.setItem("harness.desktop-first-run.done", "1"));
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
     const assertBackground = async () => {
       if (!headless) return;
       const windows = await app.evaluate(({ BrowserWindow }) =>

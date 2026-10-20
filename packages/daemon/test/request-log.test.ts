@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -218,29 +218,15 @@ test("a parked sessions.await records wait while ordinary reads do not", async (
       payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
     },
   });
-  // The command path keeps its own wait criterion: the client-declared --wait flag.
-  await server.handle({
-    jsonrpc: "2.0",
-    id: 4,
-    method: "repo.task.read",
-    params: {
-      repo: { repoId: "logged" },
-      payload: {
-        action: { kind: "task-ci", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV", wait: true },
-      },
-    },
-  });
   server.close();
   await server.requestLog.settle();
 
   const records = readRecords(rootDir);
-  assert.equal(records.length, 3);
+  assert.equal(records.length, 2);
   assert.equal(records[0].method, "repo.agentRuntime.sessions.await");
   assert.equal(records[0].wait, true);
   assert.equal(records[1].command, "task-show");
   assert.equal(records[1].wait, false);
-  assert.equal(records[2].command, "task-ci");
-  assert.equal(records[2].wait, true);
 });
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {
@@ -268,6 +254,34 @@ test("the declared agent executor is recorded so a request can be attributed to 
   await server.requestLog.settle();
 
   assert.deepEqual(readRecords(rootDir)[0].executor, { kind: "agent", id: "codex-worker" });
+  assert.equal(readRecords(rootDir)[0].actor, "codex-worker");
+});
+
+test("actor falls back to the connection's session actor, the identity read-family requests carry", async (t) => {
+  const rootDir = tempRoot(t);
+  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir });
+  // Read-family payloads declare no executor; the CLI names the same session actor in hello.
+  log.record(
+    entry({
+      method: "repo.agenda.read",
+      command: "repo.agenda.read",
+      auth: { transportKind: "unix-socket", sessionEnvironment: { HARNESS_ACTOR: "agent:runtime-session:runtime_1" } },
+    }),
+  );
+  log.record(
+    entry({
+      opId: "op_declared",
+      executor: { kind: "agent", id: "declared-worker" },
+      auth: { transportKind: "unix-socket", sessionEnvironment: { HARNESS_ACTOR: "agent:runtime-session:runtime_1" } },
+    }),
+  );
+  log.record(entry({ opId: "op_person" }));
+  await log.settle();
+
+  const records = readRecords(rootDir);
+  assert.equal(records[0].actor, "runtime-session:runtime_1");
+  assert.equal(records[1].actor, "declared-worker", "an action-declared executor wins over the session actor");
+  assert.equal(records[2].actor, null, "a person's terminal session declares neither identity");
 });
 
 test("requests from one connection share a connection id", async (t) => {
@@ -370,20 +384,51 @@ test("a request that binds no repository is not recorded", async (t) => {
   assert.equal(readdirSync(rootDir).length, 0);
 });
 
-test("rotation holds the log to a bounded number of files", async (t) => {
+test("rotation never drops records: every request stays readable across generations", async (t) => {
   const rootDir = tempRoot(t);
-  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, maxBytes: 512, keptFiles: 2 });
-  for (let index = 0; index < 400; index += 1) log.record(entry({ opId: `op_${index}` }));
+  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, maxBytes: 512 });
+  for (let index = 0; index < 120; index += 1) log.record(entry({ opId: `op_${index}` }));
   await log.settle();
 
   const logDir = path.dirname(daemonRequestLogPath(rootDir)),
-    files = readdirSync(logDir).sort();
-  assert.deepEqual(files, ["requests.jsonl", "requests.jsonl.1", "requests.jsonl.2"]);
-  // The ceiling is the point: without it an always-on request log is an unbounded disk write.
-  for (const file of files) assert.ok(readFileSync(path.join(logDir, file), "utf8").length < 512 + 1024);
-  // The newest record survives rotation; the oldest is the one that was dropped.
-  const live = readRecords(rootDir);
-  assert.equal(live.at(-1)?.opId, "op_399");
+    // Chain rotation keeps the live file newest; older content shifts to higher generations.
+    generation = (name: string) => Number(/\.jsonl\.(\d+)$/u.exec(name)?.[1] ?? -1),
+    files = readdirSync(logDir).sort((left, right) => generation(right) - generation(left)),
+    opIds = files.flatMap((file) =>
+      readFileSync(path.join(logDir, file), "utf8")
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => (JSON.parse(line) as DaemonRequestLogRecord).opId),
+    );
+  // The count-based ceiling this test replaces dropped the oldest files on every rotation; retention
+  // is now age-based (next test), so a busy repository loses nothing within the retention window.
+  assert.equal(files.length, 120);
+  assert.deepEqual(
+    opIds,
+    Array.from({ length: 120 }, (_, index) => `op_${index}`),
+  );
+});
+
+test("retention is age-based: files older than kept days are pruned on the next rotation", async (t) => {
+  const rootDir = tempRoot(t),
+    logDir = path.dirname(daemonRequestLogPath(rootDir));
+  mkdirSync(logDir, { recursive: true });
+  // Generations shift names on every rotation, so identity is asserted by content, not filename.
+  const stale = path.join(logDir, "requests.jsonl.1"),
+    fresh = path.join(logDir, "requests.jsonl.2");
+  writeFileSync(stale, "stale-generation-marker\n", "utf8");
+  writeFileSync(fresh, "fresh-generation-marker\n", "utf8");
+  const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
+  utimesSync(stale, eightDaysAgo, eightDaysAgo);
+  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, maxBytes: 512 });
+  for (let index = 0; index < 3; index += 1) log.record(entry({ opId: `op_${index}` }));
+  await log.settle();
+
+  const survivors = readdirSync(logDir)
+    .map((name) => readFileSync(path.join(logDir, name), "utf8"))
+    .join("");
+  assert.ok(!survivors.includes("stale-generation-marker"), "the aged generation was pruned");
+  assert.ok(survivors.includes("fresh-generation-marker"), "the fresh generation survived");
 });
 
 test("a repository sink keeps one descriptor for many records and closes it on settle", async (t) => {

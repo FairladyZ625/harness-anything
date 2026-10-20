@@ -503,14 +503,15 @@ test("gen3 reuses the evidence conversion without promoting historical CI measur
     } finally {
       source.close();
     }
-    assert.notEqual(targetRows(f.destination)[2]!.digest, digest);
+    // dec_4C06F7F902E91C4210020A9E75/CH2 retires CI observation writes without rewriting
+    // historical events; conversion therefore preserves the original event bytes and digest.
+    assert.equal(targetRows(f.destination)[2]!.digest, digest);
     const target = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       const current = target.events()[2]!;
-      assert.equal(current.schema, "ci-run-observation/v3");
-      assert.equal((current.payload as Record<string, unknown>).verification, null);
+      assert.equal(current.schema, "ci-run-observation/v1");
       assert.deepEqual((current.payload as { gates: unknown[] }).gates, [
-        { gate: "G32", result: "pass", metrics: { files: 42 } },
+        { gate: "G32", pass: true, metrics: { files: 42 } },
       ]);
       assert.equal(target.outcome(event.opId)?.intentDigest, digest);
     } finally {

@@ -2,6 +2,7 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import { daemonProtocolError } from "./daemon-protocol-validate-results.ts";
 import type { DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
+import { errorMessageWithCause } from "../error-cause.ts";
 import {
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
@@ -16,6 +17,7 @@ import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcResponse } f
 
 type DaemonRpcCallFor<Method extends DaemonRpcMethod> = Extract<DaemonRpcCall, { readonly method: Method }>;
 type RuntimeInstanceMethod = Extract<DaemonRpcMethod, `daemon.runtimeInstance.${string}`>;
+type ProviderMethod = Extract<DaemonRpcMethod, `daemon.provider.${string}`>;
 type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.auth.${string}`>;
 // repo.tasks.runtimeContext.read is a cell/fleet-internal read: it is served by
 // host.read and the fleet runtime-read channel, not by the socket RPC catalog,
@@ -37,6 +39,9 @@ export type DaemonRepoPayloadCall = WithRepoPayload<DaemonRpcCall>;
 
 export function isRuntimeInstanceCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RuntimeInstanceMethod> {
   return call.method.startsWith("daemon.runtimeInstance.");
+}
+export function isProviderCall(call: DaemonRpcCall): call is DaemonRpcCallFor<ProviderMethod> {
+  return call.method.startsWith("daemon.provider.");
 }
 export function isRuntimeInstanceAuthCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RuntimeInstanceAuthMethod> {
   return call.method.startsWith("repo.runtimeInstance.auth.");
@@ -151,8 +156,8 @@ type ProtocolDispatchError =
 
 export function protocolErrorMessage(error: unknown): string {
   let normalized: ProtocolDispatchError;
-  if (error instanceof Error) normalized = { _tag: "NativeError", message: error.message };
-  else normalized = { _tag: "UnknownThrownValue", message: String(error) };
+  if (error instanceof Error) normalized = { _tag: "NativeError", message: errorMessageWithCause(error) };
+  else normalized = { _tag: "UnknownThrownValue", message: errorMessageWithCause(error) };
   switch (normalized._tag) {
     case "NativeError":
     case "UnknownThrownValue":

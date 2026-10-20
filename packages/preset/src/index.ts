@@ -36,5 +36,4 @@ export { acceptBuiltinVerticalScriptPlan, prepareBuiltinVerticalScriptExecution 
 export type { PreparedBuiltinVerticalScript } from "./vertical-script.ts";
 export { listGovernanceScaffoldOverlays } from "./scaffold-overlay.ts";
 export type { GovernanceScaffoldOverlays } from "./scaffold-overlay.ts";
-export { listRepositoryWorkflowNames } from "./repository-workflows.ts";
 export { listBundledAgentDeclarationIds, readBundledAgentDeclaration } from "./bundled-agent-declarations.ts";

@@ -8,6 +8,8 @@ export async function awaitDeviceLogin(
 ): Promise<JsonObject> {
   onPhase(begun);
   let receipt = begun,
+    announcedUserCode = typeof begun.userCode === "string" ? begun.userCode : undefined,
+    lastTransportError = typeof begun.lastTransportError === "string" ? begun.lastTransportError : undefined,
     timer: ReturnType<typeof setTimeout>,
     intervalTimer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<false>((resolve) => {
@@ -23,10 +25,26 @@ export async function awaitDeviceLogin(
           ok: false,
           code: "oidc_device_expired",
           command: "bootstrap",
-          rejectionExplanation: "Device login expired; start login again.",
+          rejectionExplanation: lastTransportError
+            ? `Device login expired; the last Keycloak request failed: ${lastTransportError}`
+            : "Device login expired; start login again.",
         };
-      receipt = await request({ operation: "login-poll" });
-      if (receipt.ok === false) return receipt;
+      const polled = await request({ operation: "login-poll" });
+      if (polled.ok === false) {
+        if (polled.code !== "oidc_device_transport_unavailable") return polled;
+        lastTransportError =
+          typeof polled.rejectionExplanation === "string"
+            ? polled.rejectionExplanation
+            : "The Keycloak device authorization request failed.";
+        continue;
+      }
+      receipt = polled;
+      if (typeof receipt.lastTransportError === "string") lastTransportError = receipt.lastTransportError;
+      else lastTransportError = undefined;
+      if (typeof receipt.userCode === "string" && receipt.userCode !== announcedUserCode) {
+        announcedUserCode = receipt.userCode;
+        onPhase(receipt);
+      }
     }
     return receipt;
   } finally {

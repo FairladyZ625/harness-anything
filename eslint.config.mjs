@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import { includeIgnoreFile } from "eslint/config";
 import { fileURLToPath } from "node:url";
 import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
 import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
 import noSwallowedFailure from "./tools/gates/eslint-rules/no-swallowed-failure.js";
@@ -411,6 +412,14 @@ export default tseslint.config(
     files: ["packages/gui/src/preload/electron-preload.ts"],
     rules: {
       "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...guiIpcSyntaxWithoutIpcRenderer],
+    },
+  },
+  {
+    files: ["packages/gui/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
   ...kernelImportKnownDebtOverrides,

@@ -43,7 +43,7 @@ export function fakeKeycloak() {
     permissions = new Map<string, Permission>(),
     users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
     tokens = new Map<string, string>(),
-    interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string }>(),
+    interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string; clientId?: string }>(),
     nodeClients = new Map<string, NodeClient>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
@@ -117,7 +117,7 @@ export function fakeKeycloak() {
               active: true,
               exp: Math.floor(Date.now() / 1000) + 3600,
               iss: `${session.issuer}/realms/${keycloakRealm}`,
-              azp: `harness-node-${session.nodeId}`,
+              azp: session.clientId ?? `harness-node-${session.nodeId}`,
               aud: ["harness-center"],
               sub: tokens.get(token),
               harness_person_id: session.personId,
@@ -137,6 +137,20 @@ export function fakeKeycloak() {
         if (ok) return json({ access_token: `node-token-${clientId}` });
         // Keycloak 26.7.3 names the two refusals differently; both are HTTP 401.
         return json({ error: client ? "unauthorized_client" : "invalid_client" }, 401);
+      }
+      if (form.get("grant_type") === "refresh_token") {
+        // A refresh returns the subject's realm roles in a JWT the daemon can decode.
+        const subject = tokens.get(form.get("refresh_token") ?? "");
+        if (!subject) return json({ error: "invalid_grant" }, 400);
+        const roles = [...realmRoles.values()].filter((role) => role.members.has(subject)).map((role) => role.name),
+          accessToken = `x.${Buffer.from(JSON.stringify({ realm_access: { roles } })).toString("base64url")}.x`;
+        tokens.set(accessToken, subject);
+        return json({
+          access_token: accessToken,
+          refresh_token: form.get("refresh_token"),
+          expires_in: 3_600,
+          refresh_expires_in: 21_600,
+        });
       }
       return decide(tokens.get(bearer ?? ""), form.get("permission") ?? "");
     }
@@ -282,6 +296,8 @@ export function fakeKeycloak() {
       users.set(user.id, user);
       return new Response(null, { status: 201, headers: { location: `${keycloakUrl}/users/${user.id}` } });
     }
+    if (/^\/users\/[^/]+\/execute-actions-email$/u.test(route) && method === "PUT")
+      return new Response(null, { status: 204 });
     if (route.endsWith("/role-mappings/realm")) {
       for (const role of body as unknown as Named[]) realmRoles.get(role.name)?.members.add(route.split("/")[2]!);
       return new Response(null, { status: 204 });
@@ -442,14 +458,20 @@ export function fakeKeycloak() {
       nodeClients.set(clientId, client);
       return client.secret;
     },
-    interactiveSession(personId: string, nodeId: string, issuer: string, token = `token-${personId}`): void {
+    interactiveSession(
+      personId: string,
+      nodeId: string,
+      issuer: string,
+      token = `token-${personId}`,
+      clientId?: string,
+    ): void {
       const subject =
         tokens.get(`token-${personId}`) ??
         [...users.values()].find((user) => user.attributes.harness_person_id?.[0] === personId)?.id;
       if (!subject) throw new Error(`unknown fixture account ${personId}`);
       tokens.set(`token-${personId}`, subject);
       tokens.set(token, subject);
-      interactiveSessions.set(token, { personId, nodeId, issuer });
+      interactiveSessions.set(token, { personId, nodeId, issuer, ...(clientId ? { clientId } : {}) });
     },
     endInteractiveSession(token: string): void {
       interactiveSessions.delete(token);
@@ -530,6 +552,8 @@ export async function serveKeycloak(): Promise<{
           });
         response.statusCode = answer.status;
         response.setHeader("content-type", "application/json");
+        const location = answer.headers.get("location");
+        if (location) response.setHeader("location", location);
         response.end(await answer.text());
       })().catch((error: unknown) => {
         response.statusCode = 500;

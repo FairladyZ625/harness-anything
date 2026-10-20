@@ -181,7 +181,7 @@ ha --root "<目标仓库绝对路径>" task submit <任务标识>
 
 `verdict` 使用当前合法值，如 `approved`、`changes_requested`、`dismissed`。owner 的同意绑定实际已记录评审与内容版本，不把工作者的报告当作同意。使用当前 `task review-consent` 和 `task complete` 契约完成；不添加过期的提交版本参数或自己制造摘要。
 
-`task complete` 不接受已退役的 `--ci passed`。CI 证据由完成契约要求的见证来源提供，不能用参数代替运行结果。所选任务无需 CI 时按实际契约处理；无法满足必需门时交付具体缺口，不伪造完成。
+`task complete` 不接受已退役的 `--ci passed`。Hosted CI 由托管平台的 PR 检查与合并保护判定，不作为台账完成见证；完成仍要求适用的评审、业主同意、合入设置及任务声明的其他非 hosted gate。直接在托管平台检查 CI 状态，不把结果写回台账。
 
 最后回读任务是否真的到 `done`，并检查原始目标确实实现。独立评审尚缺时，准确报告“环境和仓库已就绪，首任务待评审”，不能把整个引导说成已验证。
 

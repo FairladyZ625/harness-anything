@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { completionSnapshot, emptyCompletionContract } from "../domain/completion.fixtures.ts";
+import { emptyCompletionContract, retiredHostedCiSource } from "../domain/completion.fixtures.ts";
 import test from "node:test";
 import { makeOfflineCompletionChain } from "../../src/store/offline-completion-chain.ts";
 import { claimGateRun } from "../../src/domain/gate-run.ts";
@@ -18,6 +18,7 @@ import {
 import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
+import { canonicalGateReceipts } from "../../src/domain/task-lifecycle-contract-support.ts";
 import { validateTaskGraph } from "../../src/domain/task-graph.ts";
 import {
   applyTransition,
@@ -41,6 +42,59 @@ const metadata = {
   fromLegacyId: null,
 };
 
+test("retired CI is omitted from completion receipt cuts even when an old receipt exists", () => {
+  const gates = [
+      {
+        gateId: "ci",
+        appliesTo: "code" as const,
+        witness: {
+          kind: "github-actions" as const,
+          predicateType: "ci/v1",
+          resultSchema: { type: "object" },
+          adapterId: "github-actions" as const,
+          adapterOptions: {
+            workflows: ["rewrite-ci"],
+            branch: "main",
+            event: "push",
+            coverage: "exact" as const,
+            selection: "newest" as const,
+          },
+        },
+      },
+    ],
+    fixture = lifecycleFixture({ gates, complete: false }),
+    current = fixture.snapshot.executions[0]!;
+  const snapshot: TaskLifecycleSnapshot = {
+    ...fixture.snapshot,
+    gateWitnesses: [
+      {
+        schema: "completion-gate-witness/v1",
+        witnessId: "old-ci-witness",
+        receiptId: "old-ci-receipt",
+        checkerId: "github-actions",
+        gateId: "ci",
+        result: "pass",
+        taskId: current.taskId,
+        executionId: current.executionId,
+        commitSha: current.submission!.commitSha,
+        iteration: current.iteration,
+        actor: implementer,
+        source: "local",
+        verifiedAt: "2026-08-11T00:04:30.000Z",
+      } as TaskLifecycleSnapshot["gateWitnesses"][number],
+    ],
+  };
+  assert.deepEqual(
+    canonicalGateReceipts(snapshot, current, {
+      required: true,
+      merged: true,
+      targetBranch: "main",
+      platform: "github",
+    }),
+    [],
+  );
+});
+
 function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]): string {
   const gates = gateIds.map((gateId) =>
       gateId === "ci"
@@ -48,7 +102,7 @@ function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]
             gateId,
             appliesTo: "code" as const,
             witness: {
-              ...completionSnapshot.completion.sources["github-actions"],
+              ...retiredHostedCiSource,
               adapterId: "github-actions" as const,
               adapterOptions: {
                 workflows: ["rewrite-ci"],
@@ -401,7 +455,7 @@ function legacyCompletion() {
         gateId: "ci",
         appliesTo: "code" as const,
         witness: {
-          ...completionSnapshot.completion.sources["github-actions"],
+          ...retiredHostedCiSource,
           adapterId: "github-actions" as const,
           adapterOptions: {
             workflows: ["rewrite-ci"],
@@ -504,7 +558,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
         capabilityRef: "cap-complete",
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
         gateReceipts: [],
       }),
     /gate|witness|completion/i,
@@ -517,9 +571,6 @@ test("historical acceptance cannot authorize a new completion with missing appro
     { ...snapshot, task: { ...snapshot.task!, iteration: snapshot.task!.iteration + 1 } },
     { ...snapshot, reviews: [] },
     { ...snapshot, consents: [] },
-    { ...snapshot, gateWitnesses: [] },
-    { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, commitSha: "b".repeat(40) })) },
-    { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, executionId: "other-execution" })) },
   ])
     assert.throws(
       () =>
@@ -539,7 +590,7 @@ test("offline conversion freezes pre-freeze submissions before replaying histori
           gateId: "ci",
           appliesTo: "code" as const,
           witness: {
-            ...completionSnapshot.completion.sources["github-actions"],
+            ...retiredHostedCiSource,
             adapterId: "github-actions" as const,
             adapterOptions: {
               workflows: ["rewrite-ci"],
@@ -720,7 +771,7 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
       gateId: "ci",
       appliesTo: "code" as const,
       witness: {
-        ...completionSnapshot.completion.sources["github-actions"],
+        ...retiredHostedCiSource,
         adapterId: "github-actions" as const,
         adapterOptions: {
           workflows: ["rewrite-ci"],

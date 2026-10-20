@@ -1,7 +1,7 @@
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";
-import { detachedWaitGuidance, waitForRuntimeSessions, waitForSquadRun, waitForTaskCi } from "./cli-runtime-wait.ts";
+import { detachedWaitGuidance, waitForRuntimeSessions, waitForSquadRun } from "./cli-runtime-wait.ts";
 import { runSquadRun } from "./cli-squad-run.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
@@ -12,7 +12,6 @@ export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
     command.action.kind === "task-submit" ||
     command.action.kind === "squad-run" ||
     (command.action.kind === "squad-status" && command.action.wait === true) ||
-    (command.action.kind === "task-ci" && command.action.wait === true) ||
     command.method.startsWith("repo.agentRuntime.") ||
     command.method.startsWith("repo.runtimeInstance.auth.")
   );
@@ -61,24 +60,13 @@ export async function runRuntimeFacadeCommand(
   if (action.kind === "task-submit") {
     const submitted = await request(command);
     if (submitted.ok !== true || submitted.outcome !== "pending") return submitted;
-    const waited = await waitForTaskCi(
-      {
-        ...command,
-        method: "repo.task.read",
-        action: { kind: "task-ci", taskId: String(action.taskId), wait: true },
-      },
-      request,
-    );
-    if (waited.ok !== true || (waited.ci as JsonObject | undefined)?.conclusion !== "success")
-      return { ...waited, command: "task-submit", pendingSubmission: submitted };
-    return request(command);
+    return submitted;
   }
   if (action.kind.startsWith("runtime-handoff-")) return runCommandThroughDaemon(command);
   if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
   if (action.kind === "runtime-batch") return runRuntimeBatch(command);
   if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
   if (action.kind === "squad-status") return waitForSquadRun(command, String(action.squadRunId));
-  if (action.kind === "task-ci") return waitForTaskCi(command, request);
   if (action.kind === "runtime-sessions-await") return waitForRuntimeSessions(command, writeActivity);
   if (action.kind === "runtime-status") {
     const { wait: _wait, noStream: _noStream, ...readAction } = action,

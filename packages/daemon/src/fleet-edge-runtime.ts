@@ -17,7 +17,6 @@ import path from "node:path";
 import {
   assertTransitionDocumentReady,
   entitySlug,
-  normalizeRelativeDocumentPath,
   readSettingsFacet,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
@@ -51,12 +50,7 @@ import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
-import {
-  livingDeliverableProtocol,
-  prBodyDeliveryProtocol,
-  runtimeMissionName,
-  taskQueryGuidance,
-} from "./runtime-spawn-mission.ts";
+import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -189,6 +183,9 @@ export function openFleetEdgeRuntime(input: {
       nodeId: request.nodeId,
       credential,
       repoId: request.repoId,
+      ...(readFleetEdgeConfig(request.workspaceRoot)?.humanClientId
+        ? { humanClientId: readFleetEdgeConfig(request.workspaceRoot)!.humanClientId }
+        : {}),
     },
     runtimeReadTimeoutMs = readFleetEdgeConfig(request.workspaceRoot)?.waitTimeoutMs,
     runtimeReadPeer: FleetPeerOptions = {
@@ -334,8 +331,7 @@ export function openFleetEdgeRuntime(input: {
           planPath = path.join(packageRoot, "task_plan.md"),
           // Causal context, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
-          { causalContext, profileId, worktree } = runtimeContext,
-          livingProtocol = livingDeliverableProtocol(profileId, current.task?.taskClass);
+          { causalContext, profileId, worktree } = runtimeContext;
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -345,8 +341,7 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
-        const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId),
-          prProtocol = prBodyDeliveryProtocol(prBodyPath);
+        const { planContract } = mirroredPlanContract(packageRoot, taskId);
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         // A re-dispatched worker answers the latest owner return: the mirrored managed
         // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the
@@ -398,11 +393,14 @@ export function openFleetEdgeRuntime(input: {
               })()
             : null,
           missionAfterPackage = [
-            ...(ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
-            taskQueryGuidance(taskId),
-            ...(livingProtocol === null ? [] : [livingProtocol]),
-            ...(prProtocol === null ? [] : [prProtocol]),
-            ...(causalContext === null ? [] : [causalContext]),
+            ...taskMissionSections(
+              taskId,
+              causalContext,
+              profileId,
+              current.task?.taskClass,
+              ownerReturnBody,
+              review !== undefined,
+            ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
         return {
@@ -416,14 +414,10 @@ export function openFleetEdgeRuntime(input: {
           packageRoot,
           profileId,
           taskClass: current.task!.taskClass,
-          prBodyPath,
           ownerReturnBody,
+          planBody: plan,
           mission: (reachedPackageRoot) =>
-            [
-              `Your task package is ${reachedPackageRoot}.\n` +
-                "Read task_plan.md in that package and complete the task.",
-              ...missionAfterPackage,
-            ].join("\n\n"),
+            [taskPlanSection(plan, reachedPackageRoot), ...missionAfterPackage].join("\n\n"),
           causalContext,
           worktree,
         };
@@ -649,6 +643,11 @@ export function openFleetEdgeRuntime(input: {
     ): Promise<JsonObject> => {
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
         return readReplica(method, action);
+      if (method === "repo.schedule.run" && action.kind === "runtime-session-read") {
+        if (typeof action.runtimeSessionId !== "string" || !action.runtimeSessionId)
+          throw edgeRuntimeError("runtime_read_invalid", "Schedule runtime read requires a session id.");
+        return readReplica("repo.agentRuntime.sessions.read", { runtimeSessionId: action.runtimeSessionId });
+      }
       const readBinding = await input.readBinding();
       if (
         method === "repo.schedule.run" &&
@@ -994,13 +993,7 @@ function mirroredPlanContract(packageRoot: string, taskId: string) {
       "runtime_task_package_unavailable",
       `Task ${taskId} plan scaffold is not resolvable from the mirrored package; run ha daemon fleet edge sync, then retry.`,
     );
-  const prBodyDescriptor = Array.isArray(descriptor)
-    ? descriptor.find((row) => row?.slot === "task.pr-body" && typeof row.path === "string")
-    : undefined;
-  return {
-    planContract: contract,
-    prBodyPath: prBodyDescriptor ? normalizeRelativeDocumentPath(prBodyDescriptor.path) : null,
-  };
+  return { planContract: contract };
 }
 
 function edgeRuntimeError(code: string, message: string): Error {

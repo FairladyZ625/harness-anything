@@ -142,10 +142,15 @@ test(
         assert.equal(result.outcome, "applied", JSON.stringify(result));
         assert.equal(boundExecution(result.dispatchId), executionId);
         reviewers.push(String(result.runtimeSessionId));
+        assert.doesNotMatch(
+          launchedPrompts.at(-1)!,
+          /# Living Deliverable Protocol|推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u,
+          "edge reviewer dispatches carry no worker delivery protocols",
+        );
       }
       if (iteration === 1) {
-        // A promptless edge dispatch derives its mission from the mirrored package: the managed
-        // owner return of the finished iteration rides verbatim, mirroring the local paths.
+        // A promptless reviewer derives its mission from the same mirrored package, but the
+        // prior owner return belongs only to the implementation action.
         const derived = await runtime.run("repo.agentRuntime.spawn", {
           taskId: created.taskId,
           role: "reviewer",
@@ -155,9 +160,13 @@ test(
         });
         assert.equal(derived.outcome, "applied", JSON.stringify(derived));
         const mission = launchedPrompts.at(-1)!;
-        assert.match(mission, /# Owner rework instruction/u);
-        assert.match(mission, /# Owner return for iteration 0/u);
-        assert.match(mission, /Revise the delivery\./u);
+        assert.doesNotMatch(mission, /# Owner rework instruction/u);
+        assert.doesNotMatch(mission, /# Owner return for iteration 0/u);
+        assert.doesNotMatch(mission, /Revise the delivery\./u);
+        assert.doesNotMatch(
+          mission,
+          /# Living Deliverable Protocol|推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u,
+        );
         assert.doesNotMatch(launchedPrompts[0]!, /# Owner rework instruction/u);
       }
       if (iteration > 0) {
@@ -174,9 +183,7 @@ test(
           taskId: created.taskId,
           executionId,
           return: true,
-          workerMode: "fresh",
-          followUp: "Revise the delivery.",
-          runtimeInstanceId: "missing-return-worker",
+          workerMode: "none",
           reason: "Revise the delivery.",
         });
         assert.equal(returned.outcome, "applied", JSON.stringify(returned));

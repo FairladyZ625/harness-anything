@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   reduceTaskEvent,
   rematerializeTaskDocuments,
+  submissionDigest,
   taskCompletionNext,
   type TaskMetadataV1,
 } from "../../src/index.ts";
@@ -16,7 +17,6 @@ const context = {
   closeout: "ready" as const,
   closeoutPath: "tasks/task-1/closeout.md",
   eligibleDirtyPaths: [],
-  producesFactCount: 1,
 };
 
 test("completion next is one pure judgment across lifecycle and unavailable-input fixtures", () => {
@@ -163,7 +163,7 @@ const codeDocRequirement = {
     appliesTo: "code" as const,
     witness: { kind: "internal" as const, adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
   },
-  ciRequirement = {
+  retiredCiRequirement = {
     gateId: "ci",
     appliesTo: "code" as const,
     witness: {
@@ -180,15 +180,24 @@ const codeDocRequirement = {
       },
     },
   };
-const gatedAt = (gates: readonly (typeof ciRequirement | typeof codeDocRequirement)[], count: number) =>
+const gatedAt = (gates: readonly (typeof retiredCiRequirement | typeof codeDocRequirement)[], count: number) =>
   lifecycleFixture({ gates, complete: false })
     .events.slice(0, count)
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 
-test("an empty delivery cut skips code/doc reconciliation and still requires CI", () => {
-  const result = taskCompletionNext(gatedAt([codeDocRequirement, ciRequirement], 6), context);
-  assert.equal(result.blocker?.code, "ci_missing");
-  assert.doesNotMatch(result.next!.action, /Identify the delivery paths|code-doc reconcile/);
+test("an empty delivery cut skips code/doc reconciliation", () => {
+  const result = taskCompletionNext(gatedAt([codeDocRequirement], 6), context);
+  assert.equal(result.blocker, null);
+  assert.equal(result.next, null);
+});
+
+test("a frozen CI gate reads configured merge evidence instead of an observation", () => {
+  const snapshot = gatedAt([retiredCiRequirement], 6),
+    delivery = { required: true, targetBranch: "main", platform: "github" as const };
+  const unmerged = taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: false } });
+  assert.equal(unmerged.blocker?.code, "delivery_missing");
+  assert.match(unmerged.next!.action, /node tools\/pr-merge\.mjs <PR-number-or-url>/u);
+  assert.equal(taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: true } }).blocker, null);
 });
 
 test("a nonempty delivery cut still requires a code/doc witness", () => {
@@ -207,16 +216,9 @@ test("a nonempty delivery cut still requires a code/doc witness", () => {
   assert.equal(result.next!.action, "ha task code-doc reconcile task-1 --path 'src/delivery.ts'");
 });
 
-test("missing facts guide an observable change while a recorded fact clears the blocker", () => {
-  const snapshot = at(6),
-    missing = taskCompletionNext(snapshot, { ...context, producesFactCount: 0 });
-  assert.equal(missing.blocker?.code, "fact_missing");
-  assert.match(missing.next!.action, /ha fact record --task task-1/);
-  assert.match(missing.next!.action, /--statement "<what changed and why it matters>"/);
-  assert.match(missing.next!.action, /--source "<evidence path or observation>" --confidence high/);
-  assert.match(missing.next!.reason, /observable change.*evidence/);
-  assert.match(missing.next!.reason, /execution recaps and test counts in closeout Verification/);
-  assert.equal(taskCompletionNext(snapshot, context).blocker, null);
+test("completion has no fact quota: a task with zero recorded facts still clears every blocker", () => {
+  // dec_BB2BCE9F995CD3A126E2918734 CH4 removed the per-task fact gate; facts are on-demand.
+  assert.equal(taskCompletionNext(at(6), context).blocker, null);
 });
 
 test("a contract that declares no closeout starts completion with its migration", () => {
@@ -229,31 +231,6 @@ test("a contract that declares no closeout starts completion with its migration"
   const done = at(fixture.events.length);
   assert.equal(done.task?.status, "done");
   assert.equal(taskCompletionNext(done, undeclared).blocker, null);
-});
-
-test("a profile that lifted the fact gate completes without facts; the gate stays on by default", () => {
-  const snapshot = at(6),
-    lightweight = {
-      ...context,
-      producesFactCount: 0,
-      closeoutGates: { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
-    };
-  assert.equal(taskCompletionNext(snapshot, lightweight).blocker, null);
-  // Repository ceremony profiles cannot relax it: only the task-bound declaration did.
-  const repositoryRelaxed = {
-    ...lightweight,
-    closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
-  };
-  assert.equal(taskCompletionNext(snapshot, repositoryRelaxed).blocker?.code, "fact_missing");
-});
-
-test("missing CI witness precedes independent review and requests canonical observation", () => {
-  const result = taskCompletionNext(gatedAt([ciRequirement], 6), context);
-  assert.equal(result.blocker?.code, "ci_missing");
-  assert.equal(
-    result.next?.action,
-    "Wait for the center CI observer to import the workflow witness; ha task ci task-1 reports its progress.",
-  );
 });
 
 // Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.
@@ -288,20 +265,21 @@ test("a recorded changes_requested review guides the owner's return instead of a
 });
 
 // Q1-R1-004: review-consent selects a sole approved candidate itself; only a choice needs its id.
-test("a changes request on the current cut comes before missing CI evidence", () => {
-  const reviewed = gatedAt([ciRequirement], 5),
+test("a changes request on the current cut comes before missing merge evidence", () => {
+  const reviewed = gatedAt([retiredCiRequirement], 6),
     changesRequested = {
       ...reviewed,
       reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],
     },
-    result = taskCompletionNext(changesRequested, context);
+    delivery = { required: true, merged: false, targetBranch: "main", platform: "github" as const },
+    result = taskCompletionNext(changesRequested, { ...context, delivery });
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
     "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
   );
-  // Without the changes request the missing CI witness still leads.
-  assert.equal(taskCompletionNext(reviewed, context).blocker?.code, "ci_missing");
+  // Without the changes request, the old frozen CI gate is interpreted through merge evidence.
+  assert.equal(taskCompletionNext(reviewed, { ...context, delivery }).blocker?.code, "delivery_missing");
 });
 
 test("consent guidance relies on automatic selection for one candidate and names each of several", () => {
@@ -323,6 +301,43 @@ test("consent guidance relies on automatic selection for one candidate and names
     "ha task review-consent task-1 --review-id review-execution or ha task review-consent task-1 --review-id review-additional",
   );
   assert.match(index(multiple), /--review-id review-execution or .*--review-id review-additional`/u);
+});
+
+// The completion gate reads the same dispositions review-consent recorded: a changes_requested
+// review the owner disposed at consent no longer blocks completion.
+test("a consent-disposed changes_requested review no longer blocks completion", () => {
+  const consented = at(6),
+    late = { ...consented.reviews[0]!, reviewId: "review-late", verdict: "changes_requested" as const },
+    execution = consented.executions[0]!,
+    withLate = { ...consented, reviews: [...consented.reviews, late] },
+    disposed = {
+      ...withLate,
+      reviewDispositions: [
+        {
+          schema: "review-disposition/v1",
+          dispositionId: "disposition-consent-1",
+          taskId: "task-1",
+          executionId: "execution-1",
+          iteration: consented.task!.iteration,
+          submissionDigest: submissionDigest(execution.submission!),
+          disposedReviewIds: ["review-late"],
+          rationale: "owner accepts the approved assessment",
+          actor: consented.consents[0]!.actor,
+          source: consented.consents[0]!.source,
+          disposedAt: consented.consents[0]!.consentedAt,
+        },
+      ],
+    };
+  assert.equal(taskCompletionNext(withLate, context).blocker?.code, "review_missing");
+  assert.equal(taskCompletionNext(disposed, context).blocker, null);
+  const index = rematerializeTaskDocuments({
+    snapshot: disposed,
+    packagePath: "tasks/task-1",
+    paths: ["tasks/task-1/INDEX.md"],
+    currentDocuments: [],
+  })[0]!.body;
+  assert.match(index, /ha task complete task-1/u);
+  assert.doesNotMatch(index, /adjudicate task-1 --return/u);
 });
 
 test("an undisposed changes request prevents an approved review from reaching consent", () => {
@@ -368,7 +383,7 @@ test("a missing executor blocks only while an independent review is still owed",
         actor: { ...execution.actor, executor: null },
       })),
     }),
-    reviewLifted = { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false };
+    reviewLifted = { review: false, consent: false, factDisposition: false, codeDoc: false };
   // A recorded review already judged independence, so the chain moves on to the remaining gates.
   assert.notEqual(taskCompletionNext(withoutExecutor(at(6)), context).blocker?.code, "executor_missing");
   // With the review gate lifted no reviewer independence is judged at all.
@@ -397,12 +412,11 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
       })[0]!.body,
     strict = {
       ...context,
-      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
     },
     lightweight = {
       ...context,
-      producesFactCount: 0,
-      closeoutGates: { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
     };
   assert.match(index(submitted, strict), /ha task adjudicate task-1 --forward --note-file <path>/u);
   assert.match(index(submitted, lightweight), /ha task complete task-1/u);

@@ -1,3 +1,4 @@
+import { guiArtifactCacheRoot, guiDaemonUserRoot } from "./gui-daemon-target.ts";
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { registerProjectWindowIpc } from "./project-window-ipc.ts";
 import {
@@ -28,11 +29,7 @@ import {
 } from "./local-composition-root.ts";
 import { registerConnectionAdminIpc } from "./connection-admin-ipc.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
-import {
-  daemonUserRoot,
-  resolveLocalDaemonTarget,
-  resolveLocalDaemonTargetFromRepos,
-} from "@harness-anything/daemon/client";
+import { resolveLocalDaemonTarget, resolveLocalDaemonTargetFromRepos } from "@harness-anything/daemon/client";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
@@ -58,6 +55,12 @@ import {
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 import { DESKTOP_FIRST_RUN_UPDATED_CHANNEL, type DesktopSetupFailure } from "../api/first-run-contract.ts";
 import { desktopRuntimePaths, desktopFirstRunReport, runDesktopSetup } from "./desktop-first-run.ts";
+import { registerUpdaterIpc } from "./update-service.ts";
+// electron-updater is CommonJS: a named import breaks direct source launches under Node ESM
+// type stripping ("Named export 'autoUpdater' not found"); default-import and destructure.
+import electronUpdater from "electron-updater";
+
+const { autoUpdater } = electronUpdater;
 
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
@@ -312,7 +315,7 @@ export async function startGuiApp(): Promise<void> {
     ipcMain,
     {
       registeredRoot: (repoId) => {
-        const repo = readDaemonRegistry({ userRoot: daemonUserRoot() }).repos.find((row) => row.repoId === repoId);
+        const repo = readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos.find((row) => row.repoId === repoId);
         return repo?.mode === "remote-proxy" ? null : (repo?.canonicalRoot ?? null);
       },
       openPath: (root) => shell.openPath(root),
@@ -338,13 +341,14 @@ export async function startGuiApp(): Promise<void> {
       canonicalRootOf: (repoId) => {
         const target = resolveLocalDaemonTargetFromRepos(
           { rootDir, repoIdOverride: repoId },
-          readDaemonRegistry({ userRoot: daemonUserRoot() }).repos,
+          readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos,
         );
         if (target.repoId !== repoId) throw new Error(`Repository ${repoId} is not registered and enabled.`);
         return target.canonicalRoot;
       },
       repoModeOf: (repoId) =>
-        readDaemonRegistry({ userRoot: daemonUserRoot() }).repos.find((repo) => repo.repoId === repoId)?.mode ?? null,
+        readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos.find((repo) => repo.repoId === repoId)?.mode ??
+        null,
       readDocument: async (repoId, taskId, artifactPath) => {
         const result = await requestRepoScopedRpc(rootDir, repoId, "repo.tasks.document.read", {
           repo: { repoId },
@@ -376,7 +380,7 @@ export async function startGuiApp(): Promise<void> {
           repositoryPath: typeof record.repositoryPath === "string" ? record.repositoryPath : null,
         };
       },
-      artifactCacheRoot: () => path.join(daemonUserRoot(), "artifact-cache"),
+      artifactCacheRoot: () => guiArtifactCacheRoot(),
       openPath: (absolutePath) => shell.openPath(absolutePath),
     },
     trustPolicy,
@@ -413,6 +417,8 @@ export async function startGuiApp(): Promise<void> {
   registerLocalDocIpc(ipcMain, { homeDir: () => homedir() }, trustPolicy);
   registerProjectWindowIpc(ipcMain, projectWindows, trustPolicy);
   projectWindows.newWindow(null);
+  const updaterWindow = BrowserWindow.getAllWindows()[0];
+  if (updaterWindow) registerUpdaterIpc(ipcMain, updaterWindow, trustPolicy, autoUpdater, app.getVersion());
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });

@@ -115,7 +115,10 @@ export default {
     await page.getByTestId("task-detail-view").waitFor();
     await shot("project-switch-restore-forward-again");
 
-    // ⑥ 重启模拟:清掉会话存储再 reload,位置仍从 localStorage 恢复。
+    // ⑥ 重启模拟:窗口关闭时 pagehide 把本窗会话栈交接给 localStorage(PR #3686),
+    // 重开的新窗口 sessionStorage 为空、从 localStorage 恢复。按这个真实顺序模拟:
+    // 先触发交接,再清会话存储 —— 直接清掉 sessionStorage 再 reload 不是重启。
+    await page.evaluate(() => globalThis.dispatchEvent(new Event("pagehide")));
     await page.evaluate(() => globalThis.sessionStorage.clear());
     await page.reload();
     await bridgeReady(page);

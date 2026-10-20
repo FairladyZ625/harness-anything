@@ -141,7 +141,7 @@ it("shows fresh, stale and unavailable on the mounted repository and preserves t
   expect(container.textContent).toBe("");
 });
 
-it("labels an accepted running Squad as a last report with its accepted time and revision", () => {
+it("labels an accepted running Squad as a last report, never as live state or a run revision", () => {
   const html = renderToStaticMarkup(
     createElement(SquadRunList, {
       runs: [{ ...squadRunSummaryRow, phase: "workers_running", runningCount: 2 }],
@@ -154,8 +154,11 @@ it("labels an accepted running Squad as a last report with its accepted time and
       onSelectRun: () => undefined,
     }),
   );
-  expect(html).toContain("Last reported");
-  expect(html).toContain("revision 3");
+  // 第一层小队状态是聚合的「在编」;run 行仍把 phase 说成「最后报告」,不冒充实时。
+  expect(html).toContain("Active");
+  expect(html).toContain("Last reported: Workers running");
   expect(html).toContain("2026");
+  // revision 与机器短码撤到详情,列表只留 phase + mission + 相对时间。
+  expect(html).not.toContain("revision 3");
   expect(html).not.toContain("box-shadow");
 });

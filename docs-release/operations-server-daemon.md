@@ -167,8 +167,12 @@ login:
 ```bash
 ha task push <task-id>        # publish the task branch through the daemon-held credential
 ha task pr <task-id>          # create the pull request (--update edits the existing one)
-ha task ci <task-id> --wait   # read the branch's CI; blocks until a verdict
 ```
+
+Workers wait for checks with `ha task pr <task-id> --wait-ci` and read only its
+one-line verdict (exit 0 green, 1 failed, 2 timeout; a head whose checks are not
+registered yet waits under the same budget and is never read as green). On a
+failure, inspect it with `gh run view <run-id> --log-failed`.
 
 Every bound worker gets `ha` from the CLI bin directory belonging to the
 running daemon's installation, with its dispatched repository root and daemon
@@ -267,11 +271,10 @@ value, and a retry command. Use these state rules when recovering:
 | `invalid_transition` from `task start`  | The current round already has an active execution                | Run `ha task start <task-id>` without `--execution-id` to reuse it.                                                                                                  |
 | `lease_required`                        | Submitter does not hold the execution lease                      | Run `ha task start <task-id>`, then retry submit as the holder.                                                                                                      |
 | `lease_not_found`                       | Runtime settlement already released the lease                    | Run `ha task start <task-id>` without a new execution id, then retry submit.                                                                                         |
-| `runtime_credential_unavailable` from `ha task pr` / `ha task ci` | The dispatch's runtime instance has no configured GitHub credential, or the native vault cannot resolve it | The operator binds the credential ([Hosted Git credentials](hosted-credentials.md)); the worker records the error text, marks CI unverified, and reports. |
+| `runtime_credential_unavailable` from `ha task pr` | The dispatch's runtime instance has no configured hosting credential, or the native vault cannot resolve it | The operator binds the credential ([Hosted Git credentials](hosted-credentials.md)). |
 | `runtime_credential_unavailable` from provider key commands | The native credential vault is unavailable (for example a locked Linux keyring) | Follow the headless keyring setup in [Provider API keys](provider-credentials.md#linux-without-a-desktop). |
 | `delivery_publish_failed` from `ha task push` | The task branch push was refused or rejected (another branch checked out, missing or foreign git identity, lost compare-and-swap cut, network) | Read the reason in the receipt, fix the named cause locally, then retry `ha task push <task-id>`. |
-| `task_ci_read_failed`                   | The CI read through the GitHub CLI failed                        | Retry `ha task ci <task-id>`; if it persists, check the credential's repository access and permissions ([Hosted Git credentials](hosted-credentials.md)). |
-| `unsupported_command` naming `task push` / `task pr` / `task ci` | The CLI or daemon on that machine predates these commands | Upgrade the CLI and daemon, then retry; until then record CI as unverified in the closeout with the error text. |
+| `unsupported_command` naming `task push` / `task pr` | The CLI or daemon on that machine predates these commands | Upgrade the CLI and daemon, then retry. |
 
 ## Registry v2 hard cut
 
@@ -297,23 +300,21 @@ ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-For edge synchronization, bind the Fleet listener to the LAN address and include that address in the certificate SAN. The daemon validates the certificate SAN before opening the listener; bind failures such as an occupied, unavailable, or permission-denied address are returned with their error code:
+For edge synchronization, set the Fleet listener to a reachable address and include its hostname in the certificate SAN. Use `listener-set`; the daemon validates the SAN before opening the listener and reports bind failures such as an occupied, unavailable, or permission-denied address:
 
 ```bash
-ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 9443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections, which resume only after the edge trusts the new certificate and runs `ha daemon fleet edge sync` again.
+Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections until they trust the new listener certificate.
 
-The supported edge path is an invitation link. A signed-in center administrator creates one, and the edge owner consumes it once; the link carries the center URL and certificate pin, never a machine credential:
+The supported new-edge path is a one-time invitation. In the center GUI, open **Settings → Repositories and Connections → Center**, invite the person, select one or more repositories and permission groups, then deliver the resulting `harness-edge://join/...` link separately. The pending invitation can be revoked there and expires after 72 hours. The edge owner runs:
 
 ```bash
-ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
-ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
-ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+ha edge join '<invite-link>'
 ```
 
-The edge command must use the certificate authority (and `--servername` when the certificate name differs from the DNS name). TLS hostname verification rejects a certificate that does not cover the requested server name. A closed port fails the connection; an expired link, wrong signed-in person, or changed pin is rejected by join admission. Credentials are written by the local daemon and are not placed in the invitation URL.
+The join command signs in to the center's device-login service, validates the link's SPKI pin before sending either the invitation token or login access token, and completes the first sync for every selected repository. A changed repository or permission-group snapshot, an expired or revoked invitation, a mismatched login person, or a changed certificate key is rejected. The machine credential is written locally by the edge daemon; it is never returned by a status query or command receipt.
 
 ### Install, upgrade, and development rescue
 

@@ -389,8 +389,10 @@ function pickAcpMode(requested: string, available: readonly string[]): string | 
   return null;
 }
 
-// ACP session updates report consumption as used/context size; observeRuntimeMetrics maps
-// those neutral names onto the counters alongside token-named usage fields.
+// ACP session updates report context-window occupancy as used/context size (the protocol's
+// session-usage RFD, not billing usage); the mapping rides the frame so the settled usage
+// record keeps the provider's only consumption signal as raw provenance — it never feeds
+// the token counters.
 function acpUsage(update: Record<string, unknown>): Record<string, unknown> {
   const usage: Record<string, unknown> = {};
   if (typeof update.used === "number") usage.used = update.used;

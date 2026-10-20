@@ -3,11 +3,12 @@ import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
 import type { DaemonHost } from "../daemon-host.ts";
-import type { DaemonRequestLogEntry } from "../request-log.ts";
+import { agentActorForLog, type DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actionForDaemonMethod,
+  commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
   isDaemonGuiActionMethod,
@@ -28,6 +29,7 @@ import {
   isRepoGuiReadCall,
   isRuntimeInstanceAuthCall,
   isRuntimeInstanceCall,
+  isProviderCall,
   isTerminalActionCall,
   daemonStopRefusal,
   daemonStoppingRefusal,
@@ -104,6 +106,9 @@ export function createJsonRpcProtocolServer(options: {
   };
   options.authContext.connectionSignal?.addEventListener("abort", releaseHello);
   let executionCredential: string | undefined;
+  // The CLI dedicates one connection per invocation and names the command in hello; GUI and fleet
+  // connections declare none, so their traffic stays keyed by action kind or transport method.
+  let invokingCommand: string | null = null;
   // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
   // built by the reply() below, so one hook there observes the whole request surface.
   const connectionId = options.connectionId ?? randomUUID();
@@ -168,8 +173,9 @@ export function createJsonRpcProtocolServer(options: {
         resultOk(result),
         resultErrorCode(result),
         resultErrorDetail(result),
-        observed.command,
+        invokingCommand ?? observedCommand(method, observed.command),
         observed.wait,
+        observed.executor,
       );
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
@@ -200,6 +206,7 @@ export function createJsonRpcProtocolServer(options: {
         Object.assign(options.authContext, {
           sessionEnvironment: params.sessionEnvironment,
         });
+      invokingCommand = params.invokingCommand ?? null;
       executionCredential = params.executionCredential;
       Reflect.deleteProperty(options.authContext, "executionPrincipal");
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
@@ -438,6 +445,16 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, await options.host.runtimeInstance(method, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
+      }
+    }
+    if (isProviderCall(call)) {
+      try {
+        return reply(
+          call.method,
+          await options.host.decisionProvider(call.method, call.params.payload, options.authContext),
+        );
+      } catch (error) {
+        return reply(call.method, protocolFailure(call.method, error));
       }
     }
     if (isRuntimeInstanceAuthCall(call)) {
@@ -887,7 +904,7 @@ export function createJsonRpcProtocolServer(options: {
       daemonRequestLogEntry({
         method,
         repoId: observed.repoId,
-        command: observed.command,
+        command: invokingCommand ?? observedCommand(method, observed.command),
         connectionId,
         auth: options.authContext,
         executor: observed.executor,
@@ -897,6 +914,13 @@ export function createJsonRpcProtocolServer(options: {
         serviceMs,
       }),
     );
+  }
+  // Command attribution in one place: the caller's own CLI declaration wins (it is exact even for
+  // alias commands); an action-resolved kind follows; a request that resolved no action is keyed by
+  // its sole owning CLI command when one exists (repo.agenda.read → agenda), else by method.
+  function observedCommand(method: string | null, actionCommand: string): string {
+    if (method === null || actionCommand !== method) return actionCommand;
+    return commandIdForDaemonMethod(method) ?? method;
   }
   // Daemon-scoped counterpart: every request including hello and pre-dispatch rejections gets one
   // line, so connection-level forensics never depends on repo binding.
@@ -910,6 +934,7 @@ export function createJsonRpcProtocolServer(options: {
     detail: string | null,
     command = method,
     wait = false,
+    executor: DaemonRequestLogEntry["executor"] = null,
   ): void {
     if (!options.recordTraffic) return;
     options.recordTraffic({
@@ -928,6 +953,7 @@ export function createJsonRpcProtocolServer(options: {
       detail,
       command,
       wait,
+      actor: agentActorForLog(executor, options.authContext.sessionEnvironment),
     });
   }
 }

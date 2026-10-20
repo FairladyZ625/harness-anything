@@ -62,11 +62,11 @@ CI workflow、阈值与预算、required checks、凭据与宿主服务、删除
 
 写明证据粒度与 reviewer 必须拒收的条件；修复缺陷时再写明阴性对照或变异检查。这里描述如何证明，`Verification` 描述什么必须为真。
 
-在收口前闭合回环：至少用 `ha fact record --task <task-id> ...` 记录一条观察，并把回执保存在 Execution outputs 中。Fact 是 decision 的 evidence 输入，因此在接受或 reckon 该 decision 前，用 `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` 把它挂到对应主张上。如果 proposal 还没有 fact evidence，`ha decision propose` 仍会成功，但回执会指向这两个命令。
+只在观察到值得留存的现场、或某个 decision 需要证据时才记 fact：`ha fact record --task <task-id> ...`，回执保存在 Execution outputs 中。Fact 是 decision 的 evidence 输入，因此在接受或 reckon 该 decision 前，用 `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` 把它挂到对应主张上。如果 proposal 还没有 fact evidence，`ha decision propose` 仍会成功，但回执会指向这两个命令。
 
 ## Verification
 
 - **停止点 = 受影响测试全绿 + 本地 commit + 推送任务分支 + 该交付 SHA 的 GitHub CI 全绿。** 本地运行 `node tools/run-manifest-gates.mjs --changed origin/main` 与定向测试；完整门矩阵由 GitHub CI 负责。点名本任务改动面需要的具体测试文件并贴出真实 runner 输出；`npm run check:ci` 只用于刻意复现某个 CI 失败，不是停止点。
 - 剩余定向集合固定为：①受影响的 integration 文件经 `node tools/run-node-tests.mjs --file <path>` 运行；②对改动的每个错误码、消息文本、协议字段名执行 `git grep`，找出其它包里的消费者测试并跑绿。
 - 列出本任务额外需要的 review 与人工验收条件。
-- 默认完成契约下至少记录一条 fact：`code-doc-reconciliation` 会以 `fact_missing` 拒绝没有 fact 的完成请求；交付通过 Execution outputs、review、closeout 与全部适用 completion gate 验证。
+- fact 按需记录——观察到值得留存的现场或某个 decision 需要证据时才记，不是完成配额；交付通过 Execution outputs、review、closeout 与全部适用 completion gate 验证。

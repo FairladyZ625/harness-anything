@@ -23,7 +23,12 @@ import { runtimeInstanceCatalogQuery, runtimeInstanceCatalogQueryKey } from "../
 import type { RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { squadRunsClient } from "../../squad-run-client.ts";
-import { sessionDelegation, type SessionGroupBy, type SessionStatus } from "../../sessions-model.ts";
+import {
+  daemonSessionGroupBy,
+  sessionDelegation,
+  type SessionGroupBy,
+  type SessionStatus,
+} from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => (value instanceof Error ? value.message : String(value));
@@ -209,10 +214,13 @@ export function useSessionsWorkspace(
 ) {
   // 状态筛选进 query key:漏了它切筛选会命中旧结果的缓存,页面看起来没反应。
   const statusKey = [...list.status].sort().join(",");
+  // 「工作」不是 daemon 的 groupBy:读面仍按 task 取组,前端用常驻工作索引归桶。
+  // key 也用 task,work 与 task 两个视图共享同一次读与同一份缓存。
+  const groupBy = daemonSessionGroupBy(list.groupBy);
   const groups = useQuery({
     queryKey: [
       ...runtimeQueryKeys.sessionGroupsAll(repoId),
-      list.groupBy,
+      groupBy,
       list.range,
       list.query,
       statusKey,
@@ -220,7 +228,7 @@ export function useSessionsWorkspace(
     ],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
-        groupBy: list.groupBy,
+        groupBy,
         since: list.taskId === undefined ? list.since : "1970-01-01T00:00:00.000Z",
         ...(list.taskId === undefined ? (list.query === "" ? {} : { query: list.query }) : { query: list.taskId }),
         ...(list.status.length === 0 ? {} : { status: list.status }),
@@ -441,9 +449,9 @@ export function useRelatedDispatches(
     });
   const matchesRelated = (row: { readonly agentId?: string; readonly squadId?: string }): boolean =>
     related === null ? false : related.kind === "agent" ? row.agentId === related.id : row.squadId === related.id;
-  const dockRows: readonly RuntimeDockRow[] = relatedDispatches
-    .flatMap((query) => query.data?.dispatches ?? [])
-    .filter(matchesRelated)
+  // 原始派工行留给会话页钻入:同一批行再按任务组成轮次,不在视图里重发 task.dispatches。
+  const dispatchRows = relatedDispatches.flatMap((query) => query.data?.dispatches ?? []).filter(matchesRelated);
+  const dockRows: readonly RuntimeDockRow[] = [...dispatchRows]
     .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
     .map((row) => ({
       runtimeSessionId: row.runtimeSessionId,
@@ -462,7 +470,22 @@ export function useRelatedDispatches(
       dispatchId: row.dispatchId,
       delegation: sessionDelegation(row),
     }));
-  return { dockRows };
+  // 会话页钻入复用同一条读:任务组头 + 已取回的派工行(按任务组成轮次),不写第三份同形读。
+  const groups = relatedGroups.data?.groups ?? [],
+    totals = relatedGroups.data?.totals ?? { groups: 0, sessions: 0 };
+  return {
+    dockRows,
+    dispatchRows,
+    groups,
+    totals,
+    truncated: relatedGroups.data?.truncated ?? false,
+    pending: relatedGroups.isPending,
+    error: relatedGroups.isError
+      ? relatedGroups.error instanceof Error
+        ? relatedGroups.error.message
+        : String(relatedGroups.error)
+      : null,
+  };
 }
 
 // Provider 入口:实例目录 + auth 探测 + 实例读写。live 计数取 overview 的 session

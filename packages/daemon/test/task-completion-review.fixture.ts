@@ -338,9 +338,7 @@ export async function fixture(
       taskId,
       executionId,
       return: true,
-      workerMode: "fresh",
-      followUp: reason,
-      runtimeInstanceId: "missing-return-worker",
+      workerMode: "none",
       reason,
       ...(reviewId === undefined ? {} : { reviewId }),
     });

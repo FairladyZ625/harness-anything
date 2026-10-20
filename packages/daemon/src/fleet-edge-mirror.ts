@@ -208,13 +208,21 @@ export function scanFleetMirrorWorktree(
 ): FleetMirrorScan {
   const root = materializedRoot(workspaceRoot),
     markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
-    materializedEntries: ReadonlySet<string> = existsSync(markerPath)
-      ? new Set<string>(
-          Object.keys(
-            (JSON.parse(readFileSync(markerPath, "utf8")) as { entries?: Record<string, string> }).entries ?? {},
-          ),
-        )
-      : new Set(view.entries.keys()),
+    markerExists = existsSync(markerPath),
+    marker: {
+      readonly revision?: number | null;
+      readonly generation?: number;
+      readonly entries?: Record<string, string>;
+    } = markerExists ? JSON.parse(readFileSync(markerPath, "utf8")) : {},
+    hasMaterializationBaseline =
+      marker.revision !== null &&
+      marker.revision !== undefined &&
+      marker.entries !== undefined &&
+      (marker.generation === undefined || marker.generation === view.ledgerGeneration),
+    hasMarkerWithoutBaseline = markerExists && !hasMaterializationBaseline,
+    materializedEntries: ReadonlySet<string> = hasMaterializationBaseline
+      ? new Set(Object.keys(marker.entries ?? {}))
+      : new Set(hasMarkerWithoutBaseline ? view.entries.keys() : (selection ?? [])),
     wanted = selection ? new Set(selection) : null,
     changes: FleetMirrorDirtyFile[] = [],
     cleanPaths: string[] = [],
@@ -265,6 +273,7 @@ export function scanFleetMirrorWorktree(
       continue;
     }
     if (base && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) cleanPaths.push(logical);
+    else if (hasMarkerWithoutBaseline && base) cleanPaths.push(logical);
     else
       changes.push({
         path: logical,
@@ -320,25 +329,33 @@ export function applyFleetMirrorCut(
   const markerLayout = resolveHarnessLayout(workspaceRoot).localRoot;
   const markerPath = path.join(markerLayout, "fleet-materialized.json");
   const markerExists = existsSync(markerPath);
+  const marker: {
+    readonly revision?: number | null;
+    readonly generation?: number;
+    readonly entries?: Record<string, string>;
+  } = markerExists ? JSON.parse(readFileSync(markerPath, "utf8")) : {};
   const previous: {
     readonly revision: number | null;
     readonly generation?: number;
     readonly entries: Record<string, string>;
-  } = markerExists ? JSON.parse(readFileSync(markerPath, "utf8")) : { revision: null, entries: {} };
+  } = {
+    revision: marker.revision ?? null,
+    ...(marker.generation === undefined ? {} : { generation: marker.generation }),
+    entries: marker.entries ?? {},
+  };
   const view = locateFleetMirrorView(viewRoot, repoId, context.viewId, {
     ...(markerExists && previous.revision !== null && context.changedPaths ? { entryPaths: context.changedPaths } : {}),
   });
   if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
+  const hasMaterializationBaseline =
+    markerExists &&
+    previous.revision !== null &&
+    marker.entries !== undefined &&
+    (previous.generation === undefined || previous.generation === view.ledgerGeneration);
   const root = materializedRoot(workspaceRoot),
     entries = { ...previous.entries },
     dirtyPaths: string[] = [];
-  const fullMaterialize =
-    !markerExists ||
-    previous.revision === null ||
-    previous.generation === undefined ||
-    previous.generation !== view.ledgerGeneration ||
-    context.changedPaths === undefined;
-  const selected = fullMaterialize ? null : new Set(context.changedPaths);
+  const selected = hasMaterializationBaseline && context.changedPaths ? new Set(context.changedPaths) : null;
   mkdirSync(root, { recursive: true });
   for (const [logical, blob] of view.entries) {
     if (selected && !selected.has(logical)) continue;
@@ -351,7 +368,7 @@ export function applyFleetMirrorCut(
         entries[logical] = blob.sha256;
         continue;
       }
-      if (local !== previous.entries[logical]) {
+      if (hasMaterializationBaseline && local !== previous.entries[logical]) {
         dirtyPaths.push(logical);
         continue;
       }

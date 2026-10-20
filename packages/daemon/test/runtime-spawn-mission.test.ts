@@ -4,21 +4,26 @@ import test from "node:test";
 import {
   assembleScheduledMission,
   assembleTaskMission,
+  assembleUnboundPrompt,
   explicitPromptMission,
   livingDeliverableProtocol,
+  taskPlanSection,
+  taskPrPublicationNote,
   taskQueryGuidance,
 } from "../src/runtime-spawn-mission.ts";
 
 const daemonRoute = { userRoot: "/tmp/ha/user", daemonId: "default", endpoint: "/tmp/ha/user/daemon.sock" };
 
-test("task-bound explicit prompts carry the lookup guidance and the Living Deliverable Protocol", () => {
+test("task-bound explicit prompts carry the lookup guidance, living protocol and PR note", () => {
   const mission = explicitPromptMission("task_x", null, "Finish the leaf task.", "baseline"),
     guidanceAt = mission.indexOf(taskQueryGuidance("task_x")),
     protocolAt = mission.indexOf(livingDeliverableProtocol("baseline")!),
+    noteAt = mission.indexOf(taskPrPublicationNote),
     promptAt = mission.indexOf("Finish the leaf task.");
   assert.ok(guidanceAt >= 0, "lookup guidance rides the task-bound mission");
   assert.ok(protocolAt > guidanceAt, "the living deliverable protocol follows the guidance");
-  assert.ok(promptAt > protocolAt, "the caller text stays last");
+  assert.ok(noteAt > protocolAt, "the PR publication note follows the living protocol");
+  assert.ok(promptAt > noteAt, "the caller text stays last");
   assert.ok(mission.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 });
 
@@ -86,8 +91,12 @@ test("the task mission wrapper still seals preconditions around the mission", ()
   assert.match(mission, /# Assigned Mission\nDo the work\./u);
 });
 
-test("the guidance points at the injected <task-context> block and the protocol delegates to template comments", () => {
-  assert.match(taskQueryGuidance("task_x"), /已注入的 <task-context>/u);
+test("the guidance says the inlined plan and task-context need no lookup until they run short", () => {
+  const guidance = taskQueryGuidance("task_x");
+  assert.match(guidance, /task_plan\.md 全文与 <task-context> 已注入上面的 mission，不必再读文件/u);
+  assert.match(guidance, /ha task read-set task_x/u, "the read-set escape hatch stays named");
+  assert.match(guidance, /ha task show task_x/u);
+  assert.match(guidance, /资料不足[\s\S]*owner/u);
   const protocol = livingDeliverableProtocol("baseline")!;
   assert.match(protocol, /# Living Deliverable Protocol/u);
   assert.match(protocol, /artifacts\/explainer\.html/u);
@@ -101,29 +110,73 @@ test("the guidance points at the injected <task-context> block and the protocol 
   assert.match(protocol, /closeout 时冻结/u);
 });
 
-test("PR body protocol follows the document slot, including lightweight explicit dispatch", () => {
-  const mission = explicitPromptMission("task_x", null, "Go.", "lightweight", "artifacts/pr-body.md");
-  assert.match(mission, /# PR Body Delivery Protocol/u);
-  assert.match(mission, /Architectural Justification/u);
-  assert.match(mission, /cost-budget\.mjs/u);
-  assert.match(mission, /production-delta\.mjs/u);
-  assert.match(mission, /check-pr-body-bilingual\.mjs --file/u);
-  assert.match(mission, /自动冻结/u);
-  // Delivery and base anchors stay machine-derived: a hand-copied SHA goes stale the moment
-  // a commit is appended and re-submitted (PR #3546 rejection).
-  assert.match(mission, /从冻结的 submission 记录派生/u);
-  assert.match(mission, /execution 的 Commit 字段/u);
-  assert.match(mission, /不要把任何 SHA 手抄进 closeout 或 PR 正文/u);
-  assert.doesNotMatch(mission, /Artifact-Anchor/u);
-  assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);
+test("the task plan rides the mission verbatim ahead of the guidance and the caller text", () => {
+  const plan = "# Plan title\n\n## Brief\n\nShip the fixture lifecycle.\n",
+    mission = explicitPromptMission("task_x", null, "Go.", "baseline", undefined, null, false, plan),
+    planAt = mission.indexOf("Ship the fixture lifecycle."),
+    guidanceAt = mission.indexOf(taskQueryGuidance("task_x"));
+  assert.ok(mission.startsWith("本任务的 task_plan.md 全文如下"), "the plan opens the mission");
+  assert.ok(mission.includes(plan.trim()), "the plan body rides verbatim, not summarized");
+  assert.ok(planAt >= 0 && guidanceAt > planAt, "the inlined plan precedes the lookup guidance");
+  assert.ok(mission.endsWith("Go."), "explicit caller text stays last");
   assert.doesNotMatch(
-    explicitPromptMission(null, null, "Go.", "baseline", "artifacts/pr-body.md"),
-    /PR Body Delivery/u,
+    explicitPromptMission("task_x", null, "Go.", "baseline"),
+    /task_plan\.md 全文如下/u,
+    "a dispatch with no plan body inlines no plan section",
   );
 });
 
+test("taskPlanSection names the package root once and carries the body trimmed and verbatim", () => {
+  const body = "# Title\n\n## Goal\n\nDo it.\n\n\n";
+  const opening = taskPlanSection(body, "/repo/harness/tasks/task_x-pkg");
+  assert.ok(opening.startsWith("Your task package is /repo/harness/tasks/task_x-pkg.\n"));
+  assert.match(opening, /本任务的 task_plan\.md 全文如下（已内嵌，不必再读文件），按其完成本任务：\n\n# Title/u);
+  assert.ok(opening.endsWith("Do it."), "trailing whitespace is trimmed, content is not");
+  assert.doesNotMatch(opening, /Read task_plan\.md/u, "the file-read instruction is gone");
+  assert.match(taskPlanSection(body), /^本任务的 task_plan\.md 全文如下/u, "package root is optional");
+});
+
+test("PR publication rides one sentence and no repository-specific body protocol", () => {
+  for (const profileId of ["baseline", "lightweight"] as const) {
+    const mission = explicitPromptMission("task_x", null, "Go.", profileId);
+    assert.match(mission, /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
+    assert.doesNotMatch(mission, /# PR Body Delivery Protocol/u);
+    assert.doesNotMatch(mission, /pull_request_template\.md|Production-Delta|check-pr-body|task\.pr-body/u);
+  }
+  assert.doesNotMatch(
+    explicitPromptMission(null, null, "Go.", "baseline"),
+    /ha task pr/u,
+    "unbound prompts carry no publication note",
+  );
+});
+
+test("reviewer task-bound missions keep the guidance and Reviewer Role but omit both worker delivery contracts", () => {
+  const reviewerMission = explicitPromptMission(
+      "task_x",
+      null,
+      "Review the submitted cut.",
+      "baseline",
+      undefined,
+      "Fix the implementation first.",
+      true,
+    ),
+    reviewerPrompt = assembleUnboundPrompt(reviewerMission, "reviewer");
+  assert.match(reviewerPrompt, /# Reviewer Role/u, "the reviewer role contract still rides the dispatch");
+  assert.match(reviewerMission, /# 台账查询引导/u, "the lookup guidance is not reviewer-specific");
+  assert.doesNotMatch(reviewerMission, /# Living Deliverable Protocol/u);
+  assert.doesNotMatch(reviewerMission, /explainer\.html/u);
+  assert.doesNotMatch(reviewerMission, /ha task pr/u);
+  assert.doesNotMatch(reviewerMission, /# Owner rework instruction|Fix the implementation first./u);
+  assert.doesNotMatch(reviewerMission, /ha task push/u, "reviewers never publish the task branch");
+  assert.ok(reviewerMission.endsWith("Review the submitted cut."), "explicit caller text stays intact");
+
+  const workerPrompt = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Do the work.", "baseline"));
+  assert.match(workerPrompt, /# Living Deliverable Protocol/u, "worker dispatches keep the living protocol");
+  assert.match(workerPrompt, /ha task pr/u, "worker dispatches keep the PR publication note");
+});
+
 test("work missions omit the task maintenance protocol because work explainers are derived", () => {
-  const mission = explicitPromptMission("task_work", null, "Inspect work.", "baseline", null, "work");
+  const mission = explicitPromptMission("task_work", null, "Inspect work.", "baseline", "work");
   assert.doesNotMatch(mission, /# Work Page Maintenance Protocol/u);
   assert.doesNotMatch(mission, /ha task progress append task_work/u);
   assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
@@ -132,7 +185,7 @@ test("work missions omit the task maintenance protocol because work explainers a
 
 test("a re-dispatched explicit mission carries the owner return verbatim before the caller text", () => {
   const returnBody = "# Owner return for iteration 0\n\n## Rework instruction\n\nFix the frozen-gate short circuit.",
-    mission = explicitPromptMission("task_x", null, "Continue task task_x.", "baseline", null, undefined, returnBody),
+    mission = explicitPromptMission("task_x", null, "Continue task task_x.", "baseline", undefined, returnBody),
     returnAt = mission.indexOf("# Owner rework instruction");
   assert.ok(returnAt >= 0, "the managed return body rides the mission");
   assert.ok(
@@ -143,7 +196,7 @@ test("a re-dispatched explicit mission carries the owner return verbatim before 
   assert.ok(mission.endsWith("Continue task task_x."), "explicit caller text stays intact");
   assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# Owner rework instruction/u);
   assert.doesNotMatch(
-    explicitPromptMission(null, null, "Go.", "baseline", null, undefined, returnBody),
+    explicitPromptMission(null, null, "Go.", "baseline", undefined, returnBody),
     /# Owner rework instruction/u,
     "unbound prompts carry no rework record",
   );

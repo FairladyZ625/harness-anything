@@ -99,7 +99,7 @@ export function Popover({
             data-popover-ancestors={chain.join(" ")}
             style={{ top: position.top, left: position.left }}
             className={[
-              "glass fixed z-50 max-h-[var(--long-content-cap)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded",
+              "glass glass-overlay fixed z-50 max-h-[var(--long-content-cap)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded",
               "p-2 ui-meta shadow-2xl",
               panelClassName,
             ].join(" ")}

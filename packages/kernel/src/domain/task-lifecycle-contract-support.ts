@@ -8,7 +8,13 @@ import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { completionGateIds, currentSubmittedExecutions, gateResults } from "./closeout-readiness.ts";
+import {
+  completionGateIds,
+  currentSubmittedExecutions,
+  gateResults,
+  isRetiredCiRequirement,
+} from "./closeout-readiness.ts";
+import type { CompletionDeliveryStatus } from "./closeout-readiness.ts";
 import type {
   CompleteTaskProof,
   TaskLifecycleCommand,
@@ -132,15 +138,19 @@ export function takeEdge(
 export function canonicalGateReceipts(
   snapshot: TaskLifecycleSnapshot,
   current: ExecutionV1,
+  delivery?: CompletionDeliveryStatus,
 ): CompleteTaskProof["gateReceipts"] {
   if (!current.submission) return [];
   const commitSha = current.submission.commitSha;
   const passed = new Set(
-    gateResults(snapshot, undefined, current.executionId, current.submission, current.iteration)
+    gateResults(snapshot, undefined, current.executionId, current.submission, current.iteration, delivery)
       .filter(({ status }) => status === "passed" || status === "waived")
       .map(({ gateId }) => gateId),
   );
   return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).flatMap((gateId) => {
+    const requirement = current.submission?.completionContract.gates.find((candidate) => candidate.gateId === gateId);
+    // Retired CI is explained by merge evidence at read time; it has no ledger receipt to reference.
+    if (isRetiredCiRequirement(gateId, requirement)) return [];
     if (!passed.has(gateId)) return [];
     const codeDoc =
       gateId === "code-doc-reconciliation"
@@ -179,8 +189,20 @@ export function canonicalGateReceipts(
   });
 }
 
-export function requiredGateWitnessCount(snapshot: TaskLifecycleSnapshot, current: ExecutionV1): number {
-  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).length;
+export function requiredGateWitnessCount(
+  snapshot: TaskLifecycleSnapshot,
+  current: ExecutionV1,
+  delivery?: CompletionDeliveryStatus,
+): number {
+  const gates = completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission);
+  return delivery
+    ? gates.filter((gateId) => {
+        const requirement = current.submission?.completionContract.gates.find(
+          (candidate) => candidate.gateId === gateId,
+        );
+        return !isRetiredCiRequirement(gateId, requirement);
+      }).length
+    : gates.length;
 }
 export { reviewDigest } from "./review.ts";
 export function canonicalDocumentPaths(value: unknown): value is readonly string[] {

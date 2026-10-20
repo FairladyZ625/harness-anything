@@ -2,12 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fetchCiObservations } from "../src/ci-observation-actions.ts";
-import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
-import { hostingProviderFromRemote } from "../src/hosting-provider.ts";
+import { hostingChecksFromGitHub, hostingProviderFromRemote, readHostingChecks } from "../src/hosting-provider.ts";
 
 test("detects GitHub HTTPS and SSH remotes", () => {
   assert.deepEqual(hostingProviderFromRemote("https://github.com/acme/project.git"), {
@@ -21,7 +19,6 @@ test("detects GitHub HTTPS and SSH remotes", () => {
     repository: "acme/project",
   });
 });
-
 test("detects a known provider when the repository has no authored settings file", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-hosting-no-settings-"));
   try {
@@ -61,101 +58,239 @@ test("explicit declaration resolves an unknown host and malformed remotes fail c
   assert.throws(() => hostingProviderFromRemote("not-a-remote"), /hosting\.provider/u);
 });
 
-test("GitLab observer selects the newest pipeline for its delivery branch and retains redacted failed trace", async (t) => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-gitlab-observer-")),
-    originalFetch = globalThis.fetch;
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-    rmSync(root, { recursive: true, force: true });
-  });
-  mkdirSync(path.join(root, "harness"));
-  writeFileSync(
-    path.join(root, "harness", "harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  execFileSync("git", ["-C", root, "init", "--quiet"]);
-  execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.com/group/project.git"]);
-  const calls: string[] = [];
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    calls.push(url);
-    assert.equal(new Headers(init?.headers).get("PRIVATE-TOKEN"), "gitlab-secret");
-    if (url.includes("/pipelines?"))
-      return Response.json([
-        { id: 20, status: "failed", ref: "main", sha: "a".repeat(40), created_at: "2026-10-12T00:00:00Z" },
-        { id: 19, status: "success", ref: "main", sha: "a".repeat(40), created_at: "2026-10-11T00:00:00Z" },
-      ]);
-    if (url.includes("/pipelines/20/jobs"))
-      return Response.json([{ id: 200, name: "integration", status: "failed", web_url: "https://gitlab.com/job/200" }]);
-    if (url.includes("/jobs/200/trace")) return new Response("failed test\ngitlab-secret\n", { status: 200 });
-    throw new Error(`Unexpected GitLab request ${url}`);
-  }) as typeof fetch;
-  const result = await fetchCiObservations(
-    {
-      rootDir: root,
-      settings: { read: () => ({ ci: { workflows: ["ci"] } }) },
-      cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
-      input: {
-        prepareDaemonGitEnvironment: async (_id, provider) =>
-          provider === "gitlab" ? { GITLAB_TOKEN: "gitlab-secret" } : null,
+const pullUrl = "https://github.com/acme/project/pull/7";
+
+test("github check rollup maps completed, pending, skipped, and status contexts", () => {
+  const snapshot = hostingChecksFromGitHub({
+    url: pullUrl,
+    headRefOid: "abc123",
+    statusCheckRollup: [
+      {
+        __typename: "CheckRun",
+        name: "gate",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        detailsUrl: `${pullUrl}/checks`,
       },
-    } as never,
-    { kind: "ci-observe-pull", instanceId: "instance-gitlab", limit: 1 } as never,
-  );
-  assert.deepEqual(
-    result.runs.map(({ databaseId }) => databaseId),
-    [20],
-  );
-  assert.equal(result.runs[0]!.provider, "gitlab-pipeline");
-  assert.equal(
-    result.runs[0]!.jobs[0]!.artifact.detail.diagnostics[0] &&
-      JSON.stringify(result.runs[0]!.jobs[0]!.artifact.detail.diagnostics[0]).includes("[REDACTED]"),
-    true,
-  );
-  assert.deepEqual(result.runs[0]!.jobs[0]!.artifact.detail.diagnostics[0], {
-    kind: "ci-failure-excerpt",
-    excerpt: "failed test\n[REDACTED]\n",
+      { __typename: "CheckRun", name: "shard", status: "IN_PROGRESS", conclusion: null, detailsUrl: null },
+      { __typename: "CheckRun", name: "queued", status: "QUEUED", conclusion: null, detailsUrl: null },
+      { __typename: "CheckRun", name: "matrix-skip", status: "COMPLETED", conclusion: "SKIPPED", detailsUrl: null },
+      { __typename: "CheckRun", name: "neutral", status: "COMPLETED", conclusion: "NEUTRAL", detailsUrl: null },
+      {
+        __typename: "CheckRun",
+        name: "timed-job",
+        status: "COMPLETED",
+        conclusion: "TIMED_OUT",
+        detailsUrl: "https://example.test/job",
+      },
+      { __typename: "StatusContext", context: "commit-status", state: "SUCCESS", targetUrl: null },
+      { __typename: "StatusContext", context: "pending-status", state: "PENDING", targetUrl: null },
+      { __typename: "StatusContext", context: "broken-status", state: "FAILURE", targetUrl: "https://example.test/ci" },
+      { __typename: "SomethingNew", name: "mystery" },
+    ],
   });
-  assert.equal(
-    calls.some((url) => url.includes("/jobs/200/trace")),
-    true,
+  assert.equal(snapshot.subjectUrl, pullUrl);
+  assert.equal(snapshot.headSha, "abc123");
+  const stateOf = (name: string) => snapshot.checks.find((check) => check.name === name)?.state;
+  assert.equal(stateOf("gate"), "passed");
+  assert.equal(stateOf("shard"), "pending");
+  assert.equal(stateOf("queued"), "pending");
+  assert.equal(stateOf("matrix-skip"), "skipped");
+  assert.equal(stateOf("neutral"), "skipped");
+  assert.deepEqual(
+    snapshot.checks.find((check) => check.name === "timed-job"),
+    { name: "timed-job", state: "failed", url: "https://example.test/job" },
+  );
+  assert.equal(stateOf("commit-status"), "passed");
+  assert.equal(stateOf("pending-status"), "pending");
+  assert.equal(stateOf("broken-status"), "failed");
+  // An unknown rollup entry claims no verdict: it waits, it never fakes green.
+  assert.equal(stateOf("mystery"), "pending");
+});
+
+test("an unregistered GitHub rollup folds to the empty not-ready snapshot", () => {
+  // The wait reads an empty check list as "checks not registered yet" — never as green — so the
+  // fold's empty output for an empty, null, or absent rollup is the not-ready signal itself.
+  for (const payload of [
+    { url: pullUrl, headRefOid: "abc123", statusCheckRollup: [] },
+    { url: pullUrl, headRefOid: "abc123", statusCheckRollup: null },
+    { url: pullUrl, headRefOid: "abc123" },
+  ]) {
+    const snapshot = hostingChecksFromGitHub(payload);
+    assert.equal(snapshot.subjectUrl, pullUrl);
+    assert.equal(snapshot.headSha, "abc123");
+    assert.deepEqual(snapshot.checks, []);
+  }
+});
+
+test("github checks read through gh and classify a missing pull request", async () => {
+  let args: readonly string[] = [];
+  const snapshot = await readHostingChecks(
+    hostingProviderFromRemote("https://github.com/acme/project.git"),
+    {
+      branch: "task-x",
+      env: { GH_TOKEN: "opaque-github-secret" },
+      cwd: "/fixture/center",
+    },
+    {
+      runProvider: async (received, env) => {
+        args = received;
+        assert.equal(env.GH_TOKEN, "opaque-github-secret");
+        return JSON.stringify({ url: pullUrl, headRefOid: "def456", statusCheckRollup: [] });
+      },
+    },
+  );
+  assert.deepEqual(args.slice(0, 4), ["pr", "view", "task-x", "--json"]);
+  assert.match(String(args[4]), /statusCheckRollup/u);
+  assert.equal(snapshot.headSha, "def456");
+  await assert.rejects(
+    readHostingChecks(
+      hostingProviderFromRemote("https://github.com/acme/project.git"),
+      {
+        branch: "task-x",
+        env: {},
+        cwd: "/fixture/center",
+      },
+      {
+        runProvider: async () => {
+          throw new Error("no pull requests found for branch task-x");
+        },
+      },
+    ),
+    (error: Error & { code?: string }) =>
+      error.code === "ci_pull_request_missing" && error.message.includes("no pull requests found"),
   );
 });
 
-test("GitLab CI schedule does not invoke the GitHub workflow API", async (t) => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-gitlab-schedule-observer-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  execFileSync("git", ["-C", root, "init", "-q"]);
-  execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.cjsys.cn/group/project.git"]);
-  writeFileSync(
-    path.join(root, "harness.yaml"),
-    "schema: harness-anything/v1\nsettings:\n  hosting:\n    provider: gitlab\n    host: gitlab.cjsys.cn\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
+type FakeGitLabResponse = { readonly status: number; readonly body: unknown; readonly nextPage: string | null };
+
+test("gitlab checks read the merge request pipeline jobs across pages", async () => {
   const calls: string[] = [],
-    cell = {
-      rootDir: root,
-      settings: { read: () => ({ ci: { workflows: ["ci"] } }) },
-      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-      projection: { list: () => ({ rows: [] }) },
-      projectionReady: Promise.resolve(),
-      now: () => new Date().toISOString(),
-      input: {
-        prepareDaemonGitEnvironment: async () => ({ GITLAB_TOKEN: "gitlab-secret" }),
+    mergeRequest = {
+      iid: 12,
+      sha: "gitlab-head",
+      web_url: "https://git.example.test/group/project/-/merge_requests/12",
+      project_id: 88,
+      head_pipeline: {
+        id: 4021,
+        status: "running",
+        web_url: "https://git.example.test/group/project/-/pipelines/4021",
       },
-    } as never;
-  const result = await reconcileCiOccurrence({
-    cell,
-    schedule: {
-      status: { ciObserve: null, activeRun: null },
-    } as never,
-    requests: () => [],
-    accept: async () => ({ outcome: "no_changes", revision: 0 }) as never,
-    hostingProvider: "gitlab",
-    gh: async (command, args) => {
-      calls.push(`${command} ${args.join(" ")}`);
-      throw new Error("GitHub API must not be called for GitLab");
+    };
+  const fetchJson = async (url: string): Promise<FakeGitLabResponse> => {
+    calls.push(url);
+    if (url.includes("/merge_requests?")) return { status: 200, body: [mergeRequest], nextPage: null };
+    if (url.includes("/pipelines/4021/jobs?") && url.includes("page=2"))
+      return {
+        status: 200,
+        nextPage: null,
+        body: [{ name: "docs", status: "manual", web_url: null, allow_failure: false }],
+      };
+    if (url.includes("/pipelines/4021/jobs?"))
+      return {
+        status: 200,
+        nextPage: "2",
+        body: [
+          { name: "unit", status: "success", web_url: "https://git.example.test/jobs/1", allow_failure: false },
+          {
+            name: "integration-shard",
+            status: "failed",
+            web_url: "https://git.example.test/jobs/2",
+            allow_failure: false,
+          },
+          { name: "flaky", status: "failed", web_url: null, allow_failure: true },
+          { name: "lint", status: "running", web_url: null, allow_failure: false },
+        ],
+      };
+    throw new Error(`unexpected gitlab call ${url}`);
+  };
+  const snapshot = await readHostingChecks(
+    hostingProviderFromRemote("git@git.example.test:group/project.git", {
+      provider: "gitlab",
+      host: "git.example.test",
+    }),
+    { branch: "task-x", env: { GITLAB_TOKEN: "opaque-gitlab-secret" }, cwd: "/fixture/center" },
+    { fetchJson },
+  );
+  assert.equal(calls[0]?.includes(encodeURIComponent("group/project")), true);
+  assert.equal(calls[0]?.includes("source_branch=task-x"), true);
+  assert.equal(calls[0]?.includes("state=opened"), true);
+  assert.equal(snapshot.subjectUrl, mergeRequest.web_url);
+  assert.equal(snapshot.headSha, "gitlab-head");
+  const stateOf = (name: string) => snapshot.checks.find((check) => check.name === name)?.state;
+  assert.equal(stateOf("unit"), "passed");
+  assert.deepEqual(
+    snapshot.checks.find((check) => check.name === "integration-shard"),
+    {
+      name: "integration-shard",
+      state: "failed",
+      url: "https://git.example.test/jobs/2",
     },
+  );
+  assert.equal(stateOf("flaky"), "skipped");
+  assert.equal(stateOf("lint"), "pending");
+  assert.equal(stateOf("docs"), "skipped");
+});
+
+test("gitlab checks report a pipeline-less merge request as pending and fail clearly on gaps", async () => {
+  const fetchJson = async (url: string): Promise<FakeGitLabResponse> =>
+    url.includes("/merge_requests?")
+      ? {
+          status: 200,
+          nextPage: null,
+          body: [
+            {
+              iid: 13,
+              sha: "no-pipeline",
+              web_url: "https://git.example.test/group/project/-/merge_requests/13",
+              project_id: 88,
+              head_pipeline: null,
+            },
+          ],
+        }
+      : await Promise.reject(new Error("no jobs call expected"));
+  const snapshot = await readHostingChecks(
+    hostingProviderFromRemote("git@git.example.test:group/project.git", {
+      provider: "gitlab",
+      host: "git.example.test",
+    }),
+    { branch: "task-x", env: { GITLAB_TOKEN: "tokenless-probe" }, cwd: "/fixture/center" },
+    { fetchJson },
+  );
+  assert.deepEqual(snapshot.checks, []);
+  const provider = hostingProviderFromRemote("git@git.example.test:group/project.git", {
+    provider: "gitlab",
+    host: "git.example.test",
   });
-  assert.equal(result.outcome, "succeeded");
-  assert.equal(calls.length, 0);
+  await assert.rejects(
+    readHostingChecks(
+      provider,
+      { branch: "task-x", env: { GITLAB_TOKEN: "tokenless-probe" }, cwd: "/fixture/center" },
+      {
+        fetchJson: async () => ({ status: 200, nextPage: null, body: [] }),
+      },
+    ),
+    (error: Error & { code?: string }) => error.code === "ci_pull_request_missing",
+  );
+  await assert.rejects(
+    readHostingChecks(
+      provider,
+      { branch: "task-x", env: { GITLAB_TOKEN: "tokenless-probe" }, cwd: "/fixture/center" },
+      {
+        fetchJson: async () => ({ status: 401, nextPage: null, body: { message: "401 Unauthorized" } }),
+      },
+    ),
+    (error: Error & { code?: string }) => error.code === "hosting_checks_unavailable" && error.message.includes("401"),
+  );
+  await assert.rejects(
+    readHostingChecks(
+      provider,
+      { branch: "task-x", env: {}, cwd: "/fixture/center" },
+      {
+        fetchJson: async () => ({ status: 200, nextPage: null, body: [] }),
+      },
+    ),
+    (error: Error & { code?: string }) =>
+      error.code === "hosting_checks_unavailable" && error.message.includes("No GitLab token"),
+  );
 });

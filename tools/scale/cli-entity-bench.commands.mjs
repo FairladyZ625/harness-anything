@@ -422,7 +422,6 @@ export const commandTable = [
   ["runtime-instance-github-credential-unset", "writes a GitHub credential reference"],
   ["people-delegate", "needs a live runtime session token"],
   ["people-revoke-delegation", "needs a live runtime session token"],
-  ["ci-observe-pull", "network: shells out to gh against GitHub"],
   ["daemon-fleet-center-start", "network: opens a TLS fleet listener"],
   ["daemon-fleet-edge-sync", "network: syncs against a fleet center"],
   ["daemon-connection-add", "remote daemon connection topology"],

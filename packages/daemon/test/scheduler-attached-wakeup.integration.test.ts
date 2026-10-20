@@ -37,7 +37,7 @@ test("A: registry attached recovery wakes a skipped due builtin without refreshi
       occurredAt: "2026-08-27T10:00:00.000Z",
       spec: {
         trigger: { kind: "interval", everyMs, anchorAt: "2026-08-27T10:00:00.000Z" },
-        target: { kind: "builtin", builtinId: "ci-observe" },
+        target: { kind: "builtin", builtinId: "ledger-backup" },
         mission: "Wakeup probe",
       },
     });
@@ -235,7 +235,7 @@ for (const rejectMissed of [false, true])
           occurredAt: anchor,
           spec: {
             trigger: { kind: "interval", everyMs, anchorAt: anchor },
-            target: { kind: "builtin", builtinId: "ci-observe" },
+            target: { kind: "builtin", builtinId: "ledger-backup" },
             mission: "Mixed missed settlement probe",
           },
         }),

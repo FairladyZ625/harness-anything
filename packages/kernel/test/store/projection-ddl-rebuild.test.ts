@@ -105,7 +105,6 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
       assert.equal(projection.readRuntimeDispatch("missing"), null);
       assert.deepEqual(projection.readRuntimeDispatches(), []);
       assert.deepEqual(projection.readRuntimeSessionEvents("missing", 0, 10), []);
-      projection.readCiRunObservations(10);
       assert.deepEqual(projection.readScheduleEvents("missing").events, []);
       assert.deepEqual(projection.readScheduleEvents().events, []);
       assert.deepEqual(projection.readScheduleOutputEvents(["missing"]), []);
@@ -120,7 +119,6 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
         ["runtime_dispatch_requested' AND json_extract", ["missing"], "event_index_runtime_session"],
         ["runtime_dispatch_requested' ORDER BY", [], "event_index_runtime_dispatches"],
         ["WHERE workspace_revision > ? AND json_extract", [0, "missing", 10], "event_index_runtime_session"],
-        ["ci-run-observation/v3", [10], "event_index_ci_observations"],
         ["'schedule-event/v1' AND json_extract", ["missing"], "event_index_schedule_entity"],
         ["'schedule-event/v1' ORDER BY", [], "event_index_schedule_events"],
         ["actor.executor.id", ["runtime-session:missing"], "event_index_actor_executor"],
@@ -335,43 +333,3 @@ function initRepo(rootDir: string): void {
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
-
-test("opening a current projection adds CI expression indexes without rebuilding its rows", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "ci-index-open", "F-C01DB01D");
-    const first = makeTaskProjection({ rootDir, eventStore });
-    first.catchUp();
-    first.close();
-    const db = new DatabaseSync(projectionPath);
-    const before = db.prepare("SELECT count(*) AS n FROM event_index").get();
-    db.exec("DROP INDEX ci_observation_family_members_v2; DROP INDEX ci_observation_window_order_v2");
-    db.exec("CREATE INDEX ci_observation_family_members ON event_index(workspace_revision)");
-    db.exec("CREATE INDEX ci_observation_window_order ON event_index(workspace_revision)");
-    db.close();
-    const reopened = makeTaskProjection({ rootDir, eventStore });
-    reopened.readCiRunObservations(1, undefined, { familyWindow: 1 });
-    reopened.close();
-    const inspected = new DatabaseSync(projectionPath);
-    try {
-      assert.deepEqual(inspected.prepare("SELECT count(*) AS n FROM event_index").get(), before);
-      assert.equal(
-        inspected
-          .prepare(
-            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND name IN ('ci_observation_family_members_v2', 'ci_observation_window_order_v2')",
-          )
-          .get()!.n,
-        2,
-      );
-      assert.equal(
-        inspected
-          .prepare(
-            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND name IN ('ci_observation_family_members', 'ci_observation_window_order')",
-          )
-          .get()!.n,
-        0,
-      );
-    } finally {
-      inspected.close();
-    }
-  });
-});

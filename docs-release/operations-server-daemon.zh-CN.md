@@ -150,8 +150,11 @@ worker 在其中提交，并经 daemon 代办的命令发布，绝不使用本�
 ```bash
 ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
 ha task pr <task-id>          # 创建 pull request（--update 更新已有）
-ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
 ```
+
+Worker 用 `ha task pr <task-id> --wait-ci` 等待检查并只读它的一行结论（退出 0 绿 /
+1 红 / 2 超时）；checks 尚未注册时按等待计，绝不读作绿。失败时再用
+`gh run view <run-id> --log-failed` 查看日志。
 
 每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
 派工仓库 root 与 daemon 路由。中心与边缘 daemon 使用同一路径，不使用固定 canonical
@@ -230,11 +233,10 @@ NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
 | `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                          |
 | `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                               |
 | `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                                   |
-| `ha task pr` / `ha task ci` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定 GitHub 凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）；worker 记下报错原文，把 CI 标为 unverified 并上报。 |
+| `ha task pr` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定托管凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
 | provider key 命令的 `runtime_credential_unavailable` | 原生凭据库不可用（例如 Linux keyring 未解锁） | 按 [Provider API keys](provider-credentials.md#linux-without-a-desktop) 的无桌面 keyring 设置处理。 |
 | `ha task push` 的 `delivery_publish_failed` | 任务分支推送被拒绝或被远端拒绝（检出在别的分支、git 身份缺失或非本仓身份、CAS 切点丢失、网络） | 读回执里的原因，在本地修正点名的问题后重试 `ha task push <task-id>`。 |
-| `task_ci_read_failed`                 | 经 GitHub CLI 的 CI 读取失败                          | 重试 `ha task ci <task-id>`；仍失败则检查凭据的仓库访问与权限（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
-| 点名 `task push` / `task pr` / `task ci` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试；在此之前在 closeout 里把 CI 记为 unverified 并附报错原文。 |
+| 点名 `task push` / `task pr` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试。 |
 
 ## registry v2 硬切
 
@@ -258,23 +260,21 @@ ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-边缘同步服务把 Fleet listener 绑定到局域网地址，并把该地址加入证书 SAN。daemon 在打开 listener 前校验证书 SAN；地址已占用、不可用或权限不足时，回执会返回对应错误码：
+边缘同步服务需要将 Fleet listener 设为可达地址，并确保其证书 SAN 覆盖公开主机名。使用 `listener-set`；daemon 会在打开 listener 前校验证书 SAN，地址占用、不可用或权限不足等绑定失败会返回对应错误码：
 
 ```bash
-ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 9443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，edge 信任新证书并再次运行 `ha daemon fleet edge sync` 后才会恢复。
+每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，直到它们信任新的 listener 证书。
 
-受支持的 edge 路径是邀请链接。中心管理员登录后创建链接，edge 所有人登录并消费一次；链接只携带中心 URL 与证书 pin，不携带机器凭据：
+新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付 `harness-edge://join/...` 链接。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
 
 ```bash
-ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
-ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
-ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+ha edge join '<邀请链接>'
 ```
 
-edge 命令必须使用证书 CA；证书名与 DNS 名不同时加 `--servername`。证书未覆盖请求的 server name 时，TLS 主机名校验会拒绝连接；端口关闭会导致连接失败；链接过期、登录人不匹配或 pin 改变会由加入准入拒绝。凭据由本机 daemon 写入，不放进邀请 URL。
+加入命令登录中心的设备登录服务，并在发送加入令牌或登录令牌前验证链接中的 SPKI pin；随后为每个所选仓库完成首次同步。仓库或权限组快照已改变、邀请过期或撤销、登录人不匹配、中心证书密钥改变时，加入都会被拒绝。机器凭据由 edge daemon 写在本机，状态查询和命令回执都不返回凭据。
 
 ### 安装、升级与开发救援
 

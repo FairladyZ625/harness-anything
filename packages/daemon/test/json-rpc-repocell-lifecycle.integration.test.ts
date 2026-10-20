@@ -7,14 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
-import {
-  makeTaskEventReader,
-  makeTaskEventStore,
-  makeTaskProjection,
-  readDaemonRegistry,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection, readDaemonRegistry } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { reviewDigest } from "@harness-anything/kernel";
@@ -94,7 +87,7 @@ test("task create dry-run validates the exact package without event, revision, c
 
 test("RepoCell completion preserves the frozen snapshot until explicit preset upgrade", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-cell-")), source = path.join(rootDir, "source/upgrade-task"), taskId = "task-upgrade-cell", binding = repoWriteBinding; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  const packageBody = (version: string) => JSON.stringify({ schema: "preset-manifest/v3", id: "upgrade-task", title: "Upgrade Task", vertical: "software/coding", version, kind: "template-content", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: ["ci", "code-doc-reconciliation"], templateSelections: [] }], defaultProfile: "baseline" });
+  const packageBody = (version: string) => JSON.stringify({ schema: "preset-manifest/v3", id: "upgrade-task", title: "Upgrade Task", vertical: "software/coding", version, kind: "template-content", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: ["code-doc-reconciliation"], templateSelections: [] }], defaultProfile: "baseline" });
   try {
     initRepo(rootDir); mkdirSync(source, { recursive: true }); writeFileSync(path.join(source, "preset.json"), packageBody("3.1.0")); writeFileSync(path.join(source, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Upgrade fixture.\nwhenToUse: Test upgrade.\n---\n# Upgrade\n"); cell = await openRepoCell({ repoId: workspaceId("preset-upgrade-cell"), rootDir: canonicalRoot(rootDir), ownerId: "preset-upgrade-daemon" }); const installed = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(installed.outcome, "applied"); assert.equal(installed.acceptance, null); const created = await cell.run({ kind: "task-create", taskId, title: "Upgrade Cell", presetId: "upgrade-task" }, binding) as Record<string, unknown>, previousDigest = String(created.presetDigest); const createdVisible = await waitForAcceptedReceipt(cell, created as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0")); const reinstalled = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(reinstalled.outcome, "applied"); assert.equal(reinstalled.acceptance, null);
     const blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding);
@@ -396,7 +389,8 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
   const hosts = await Promise.all(["one", "two"].map((daemonId) => openDaemonHost({ daemonId, userRoot: path.join(parent, daemonId) })));
   try { const results = await Promise.allSettled(hosts.map((host) => host.bootstrap({ rootDir, repoId: "fresh", personId: "owner", displayName: "Owner" }, auth)));
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
-    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
+    // dec_4C06F7F902E91C4210020A9E75/CH2 retires the builtin CI observer schedule.
+    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore
@@ -492,9 +486,7 @@ async function prepareReadyCompletion(
   taskId: string,
   executionId: string,
   title: string,
-  publishObservation = true,
-  observationCommitSha?: string,
-): Promise<string> {
+): Promise<void> {
   const binding = repoWriteBinding;
   const created = await cell.run({ kind: "task-create", taskId, title }, binding);
   const createdVisible = await waitForAcceptedReceipt(cell, created, binding);
@@ -559,119 +551,30 @@ async function prepareReadyCompletion(
     binding,
   );
   assert.equal((await waitForAcceptedReceipt(cell, consented, binding)).wait?.state, "satisfied");
-  if (!publishObservation && !observationCommitSha) return "";
-  const ciReceipt = await publishCiObservation(
-    repoId,
-    rootDir,
-    executionId,
-    observationCommitSha ?? commitSha,
-    `run-${taskId}`,
-  );
-  return ciReceipt;
+  await markMerged(cell, rootDir, repoId, taskId, executionId, commitSha, binding);
 }
-async function publishCiObservation(
-  repoId: string,
+async function markMerged(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
   rootDir: string,
+  repoId: string,
+  taskId: string,
   executionId: string,
   commitSha: string,
-  runId: string,
-): Promise<string> {
-  const stateRoot = path.join(rootDir, ".harness", "fixture-writer-epochs"),
-    authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" }),
-    lease = authority.current(repoId);
-  assert.ok(lease, "the isolated repo cell owns a current writer epoch");
-  const store = makeTaskEventStore({
-      repoId,
-      rootDir,
-      writerFence: () => ({
-        schema: "harness-writer-epoch-fence/v1",
-        stateRoot,
-        repoId,
-        holderId: lease.holderId,
-        epoch: lease.epoch,
-      }),
-    }),
-    projection = makeTaskProjection({ rootDir, eventStore: store }),
-    databaseId = Number.parseInt(createHash("sha256").update(runId).digest("hex").slice(0, 8), 16) + 1,
-    observedRunId = `${databaseId}.1`;
-  try {
-    const cell = {
-      rootDir,
-      settings: { read: () => ({ ci: { workflows: ["rewrite-ci", "rebuild-gates"] } }) },
-      store,
-      projection,
-      now: () => "2026-09-09T00:00:00.000Z",
-      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-    } as unknown as Parameters<typeof ingestCiObservations>[0];
-    const fetched = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 1 }, async (_command, args) => {
-      if (args[1] === "list")
-        return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
-      if (args[1] === "view")
-        return JSON.stringify({
-          workflowName: "rewrite-ci",
-          headSha: commitSha,
-          headBranch: "main",
-          status: "completed",
-          conclusion: "success",
-          attempt: 1,
-          event: "push",
-        });
-      if (args[0] === "api" && args.some((arg) => arg.includes("/artifacts")))
-        return JSON.stringify([{ artifacts: [] }]);
-      if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ total_count: 0, jobs: [] }]);
-      if (args[0] === "api")
-        return JSON.stringify({
-          run_attempt: 1,
-          head_sha: commitSha,
-          head_branch: "main",
-          conclusion: "success",
-          event: "push",
-          path: ".github/workflows/rewrite-ci.yml",
-          workflow_id: 1,
-          name: "rewrite-ci",
-          repository: { full_name: "fixture/repo" },
-        });
-      assert.equal(args[1], "download");
-      return "";
-    });
-    const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);
-    // The importer publishes the workflow verdict and its authoritative attempt inventory.
-    assert.equal(JSON.parse(receipt.evidence).imported, 2);
-    const event = store
-      .read()
-      .events.find(
-        (candidate) => candidate.type === "ci_run_observed" && candidate.payload.run.runId === observedRunId,
-      );
-    assert.ok(event && event.type === "ci_run_observed");
-    assert.equal(event.payload.verification?.conclusion, "success");
-    assert.ok(
-      store
-        .read()
-        .events.some(
-          (candidate) =>
-            candidate.type === "execution_submitted" && candidate.payload.execution.executionId === executionId,
-        ),
+  binding = repoWriteBinding,
+): Promise<void> {
+  const submitted = makeTaskEventReader({ repoId, rootDir })
+    .read()
+    .events.find(
+      (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
     );
-    const eventRefs = JSON.parse(receipt.evidence).eventRefs;
-    const inventory = store
-      .read()
-      .events.find(
-        (candidate) =>
-          candidate.type === "ci_run_observed" &&
-          candidate.schema === "ci-run-observation/v4" &&
-          candidate.payload.scope === "attempt" &&
-          candidate.payload.run.runId === observedRunId,
-      );
-    assert.ok(inventory && inventory.type === "ci_run_observed" && inventory.schema === "ci-run-observation/v4");
-    assert.deepEqual(inventory.payload.attemptInventory, { jobs: [], missingArtifactJobIds: [] });
-    assert.deepEqual(eventRefs, [`event:${event.opId}`, `event:${inventory.opId}`]);
-    await store.drain();
-    return eventRefs[0];
-  } finally {
-    projection.close();
-    await store.drain();
-    authority.close();
-  }
+  assert.ok(submitted && submitted.type === "execution_submitted");
+  assert.equal(submitted.payload.execution.submission?.commitSha, commitSha);
+  git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
+  const annotated = await cell.run(
+    { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${commitSha}` },
+    binding,
+  );
+  assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();

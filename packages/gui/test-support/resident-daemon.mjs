@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
@@ -18,6 +19,7 @@ export async function startGuiResidentDaemonFixture({
   beforeRestart,
   afterRestart,
   runtimeInstance,
+  decisionProviderCredentials = false,
 } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix));
   const rootDir = path.join(parent, "repo"),
@@ -35,6 +37,21 @@ export async function startGuiResidentDaemonFixture({
     : undefined;
   let realm;
   let daemon;
+  const runtimeCredentialPort = decisionProviderCredentials
+    ? (() => {
+        const credentials = new Map();
+        return {
+          issue: () => `credential:v1:${randomUUID().replaceAll("-", "")}`,
+          store: async (reference, secret) => void credentials.set(reference, secret),
+          resolve: async (reference) => {
+            const secret = credentials.get(reference);
+            if (!secret) throw new Error("fixture credential is unavailable");
+            return secret;
+          },
+          remove: async (reference) => void credentials.delete(reference),
+        };
+      })()
+    : undefined;
   try {
     realm = await serveKeycloak();
     realm.keycloak.account("person-gui");
@@ -57,7 +74,12 @@ export async function startGuiResidentDaemonFixture({
   const ambientExecutionCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
   delete process.env.HARNESS_EXECUTION_CREDENTIAL;
   try {
-    daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
+    daemon = await startDaemon({
+      daemonId,
+      userRoot,
+      runtimeDiscover,
+      ...(runtimeCredentialPort ? { runtimeCredentialPort } : {}),
+    });
   } catch (error) {
     try {
       await realm.close();
@@ -76,7 +98,12 @@ export async function startGuiResidentDaemonFixture({
     const originalTmpdir = process.env.TMPDIR;
     process.env.TMPDIR = "/tmp";
     try {
-      daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
+      daemon = await startDaemon({
+        daemonId,
+        userRoot,
+        runtimeDiscover,
+        ...(runtimeCredentialPort ? { runtimeCredentialPort } : {}),
+      });
       return daemon.endpoint;
     } finally {
       if (originalTmpdir === undefined) delete process.env.TMPDIR;

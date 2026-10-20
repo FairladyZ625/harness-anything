@@ -383,8 +383,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.equal(
       String((submitted.next as readonly { readonly command: string }[])[0]?.command),
-      `ha fact record --task ${taskId} --statement "<what changed and why it matters>"` +
-        ` --source "<evidence path or observation>" --confidence high`,
+      `ha task complete ${taskId}`,
     );
     return;
     assert.equal(
@@ -446,9 +445,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
             taskId,
             executionId: priorExecutionId,
             return: true,
-            workerMode: "fresh",
-            followUp: "Revise the delivery.",
-            runtimeInstanceId: "missing-return-worker",
+            workerMode: "none",
             reviewId: "review-prior-changes",
             reason: "Return prior bare-invocation cut.",
           },
@@ -1057,6 +1054,13 @@ test("review binding permits independent runtimes but still rejects the executio
     assert.ok(submittedCut.payload.execution.submission?.deliverables.includes("README.md"));
     const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
+    const deliveryCommit = git(workerRoot, "rev-parse", "HEAD");
+    git(rootDir, "update-ref", "refs/remotes/origin/main", deliveryCommit);
+    const annotated = await cell.run(
+      { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${deliveryCommit}` },
+      operator,
+    );
+    assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),

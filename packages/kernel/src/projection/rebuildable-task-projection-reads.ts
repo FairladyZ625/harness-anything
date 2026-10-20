@@ -7,6 +7,7 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import {
   listTaskRowsNarrow,
   readTaskPresentationStatus,
+  taskCompletedAtSql,
   taskCreatedAtSql,
   type TaskProjectionListQuery,
 } from "./task-query-projection.ts";
@@ -20,10 +21,15 @@ import type {
 } from "./projection-reads.ts";
 import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
-import { readSnapshot, readSnapshots } from "./rebuildable-task-projection-runtime.ts";
+import {
+  readSnapshot,
+  readSnapshotForTaskEventReduction,
+  readSnapshots,
+} from "./rebuildable-task-projection-runtime.ts";
 import {
   prepareQuery,
   queryPreparedRows,
+  queryRows,
   readProjectionCut,
   readStateDigest,
   transaction,
@@ -37,6 +43,7 @@ const UNPARAMETERIZED_LIST_SQL = [
   "COALESCE(task_generation.generation, 'v1') AS generation,",
   "task_snapshot.workspace_revision AS workspace_revision,",
   `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
+  `${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at,`,
   "task_snapshot.updated_at AS updated_at FROM task_snapshot",
   "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
   "ORDER BY task_snapshot.task_id",
@@ -75,6 +82,7 @@ export function listProjection(
           readonly generation: "v0" | "v1";
           readonly workspace_revision: number;
           readonly created_at: string | null;
+          readonly completed_at: string | null;
           readonly updated_at: string;
         }>(
           prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
@@ -94,6 +102,7 @@ export function listProjection(
           generation: row.generation,
           workspaceRevision: row.workspace_revision,
           createdAt: row.created_at,
+          completedAt: row.completed_at,
           updatedAt: row.updated_at,
           snapshot: snapshots.get(row.task_id)!,
         })),
@@ -128,6 +137,7 @@ export function readTaskListAtCut(
       generation: row.generation,
       workspaceRevision: row.workspace_revision,
       createdAt: row.created_at,
+      completedAt: row.completed_at,
       updatedAt: row.updated_at,
       snapshot: query.presentationStatus
         ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
@@ -197,12 +207,7 @@ export function readProjection(
     return {
       status: cut.status,
       snapshot: presentationStatus ? presentSnapshot(snapshot, readTaskPresentationStatus(db, taskId)) : snapshot,
-      packagePath:
-        (
-          prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
-            /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
-          ).get(taskId) as { readonly package_path: string } | undefined
-        )?.package_path ?? null,
+      packagePath: readTaskPackagePath(db, taskId),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
       warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
@@ -213,6 +218,50 @@ export function readProjection(
       },
     };
   });
+}
+
+function readTaskPackagePath(db: DatabaseSync, taskId: string): string | null {
+  return (
+    (
+      prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
+        /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
+      ).get(taskId) as { readonly package_path: string } | undefined
+    )?.package_path ?? null
+  );
+}
+
+export function readForTaskContractMigration(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+  taskId: string,
+  limit: number,
+  now: () => string,
+): TaskProjectionRead {
+  const existed = localRuntimeStateFileSystem.exists(projectionPath);
+  return withDatabase(projectionPath, readHead, (db) => {
+    const cut = readProjectionCut(db, readHead),
+      snapshot = readSnapshotForTaskEventReduction(db, taskId, now());
+    return {
+      status: cut.status,
+      snapshot,
+      packagePath: readTaskPackagePath(db, taskId),
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+      warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
+      catchUp: { maxItems: limit, reducedItems: 0, sqliteTransactions: 0 },
+    };
+  });
+}
+
+export function readTaskIdsForTaskContractMigration(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+): readonly string[] {
+  return withDatabase(projectionPath, readHead, (db) =>
+    queryRows<{ readonly task_id: string }>(db, "SELECT task_id FROM task_snapshot ORDER BY task_id").map(
+      ({ task_id }) => task_id,
+    ),
+  );
 }
 
 export function presentSnapshot(

@@ -38,6 +38,11 @@ export interface CloseoutProjectionAvailability {
   readonly codeDocWitnesses: "known" | "unknown";
   readonly gateWitnesses: "known" | "unknown";
 }
+export interface CompletionDeliveryStatus {
+  readonly required: boolean;
+  readonly merged: boolean | null;
+  readonly targetBranch: string;
+}
 export interface CloseoutSnapshot {
   readonly task: {
     readonly status: string;
@@ -67,6 +72,7 @@ export function closeoutReadiness(
   snapshot: CloseoutSnapshot,
   availability?: CloseoutProjectionAvailability,
   effectiveGates?: Readonly<Record<CloseoutGate, boolean>>,
+  delivery?: CompletionDeliveryStatus,
 ): CloseoutAssessment {
   const task = snapshot.task;
   if (!task) return { readiness: "missing", blocker: "execution", gates: [] };
@@ -78,9 +84,9 @@ export function closeoutReadiness(
       return {
         readiness: "incomplete",
         blocker: "execution",
-        gates: gateResults(snapshot, availability),
+        gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
       };
-    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission, cut?.iteration),
+    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission, cut?.iteration, delivery),
       missing = gates.some(({ status }) => !gateSatisfied(status));
     return {
       readiness: missing ? "incomplete" : "passed",
@@ -93,13 +99,31 @@ export function closeoutReadiness(
   // (review/consent lifted) completes straight off its submitted cut, exactly as it did before
   // the corridor existed; a reviewing profile must be forwarded to in_review first.
   if (task.status === "submitted" && effectiveGates?.review !== false)
-    return { readiness: "incomplete", blocker: "review", gates: gateResults(snapshot, availability) };
+    return {
+      readiness: "incomplete",
+      blocker: "review",
+      gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
+    };
   if (task.status !== "in_review" && task.status !== "submitted")
-    return { readiness: "not_required", gates: gateResults(snapshot, availability) };
+    return {
+      readiness: "not_required",
+      gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
+    };
   const execution = cut?.state === "submitted" ? cut : undefined;
   if (!execution?.submission)
-    return { readiness: "missing", blocker: "execution", gates: gateResults(snapshot, availability) };
-  const gates = gateResults(snapshot, availability, execution.executionId, execution.submission, execution.iteration);
+    return {
+      readiness: "missing",
+      blocker: "execution",
+      gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
+    };
+  const gates = gateResults(
+    snapshot,
+    availability,
+    execution.executionId,
+    execution.submission,
+    execution.iteration,
+    delivery,
+  );
   if (
     (availability && Object.values(availability).includes("unknown")) ||
     gates.some(({ status }) => status === "unknown")
@@ -167,6 +191,7 @@ export function gateResults(
   executionId?: string,
   submission?: SubmissionV1 | null,
   iteration?: number,
+  delivery?: CompletionDeliveryStatus,
 ): readonly CloseoutGateResult[] {
   const submitted = executionId
       ? (snapshot.executions ?? []).find((value) => value.executionId === executionId && value.iteration === iteration)
@@ -199,6 +224,18 @@ export function gateResults(
       );
     if (!applies)
       return gateResult(gateId, "not_applicable", "the gate's declared scope has no delivery part in this cut");
+    // dec_4C06F7F902E91C4210020A9E75 retires ledger CI witnesses. Historical frozen CI
+    // requirements are interpreted only through repository delivery policy and merge evidence.
+    if (isRetiredCiRequirement(gateId, requirement))
+      return delivery === undefined
+        ? gateResult(gateId, "unknown", "repository delivery configuration is unavailable")
+        : delivery.required
+          ? delivery.merged === null
+            ? gateResult(gateId, "unknown", `unable to verify delivery merge on origin/${delivery.targetBranch}`)
+            : delivery.merged
+              ? gateResult(gateId, "passed", `delivery merge is on origin/${delivery.targetBranch}`)
+              : gateResult(gateId, "missing", `delivery merge is not on origin/${delivery.targetBranch}`)
+          : gateResult(gateId, "not_applicable", "the repository does not require code delivery to be merged");
     const codeDoc = gateId === CODE_DOC_GATE_ID,
       commitSha = cut?.commitSha,
       known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
@@ -225,6 +262,12 @@ export function gateResults(
     );
     return gateResult(gateId, judged.status, judged.detail);
   });
+}
+
+export function isRetiredCiRequirement(gateId: string, requirement: FrozenGateRequirement | undefined): boolean {
+  return (
+    gateId === "ci" || requirement?.witness.kind === "github-actions" || requirement?.witness.kind === "gitlab-pipeline"
+  );
 }
 
 /** The cut's latest automated witness when it is a fail bound to the current submission — what an override may name. */

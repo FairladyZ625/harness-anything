@@ -2,7 +2,7 @@ import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from 
 import type { WorkIndexRead } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
-import { ciQueryKeys, eventsQueryKeys } from "./overview-data.ts";
+import { eventsQueryKeys } from "./overview-data.ts";
 import { runtimeQueryKeys } from "./agent-runtime-client.ts";
 import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS } from "./query-pacing.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
@@ -31,6 +31,7 @@ export const taskQueryKeys = {
   activeSlice: (repoId: string) => ["tasks", repoId, "active-slice"] as const,
   wip: (repoId: string) => ["tasks", repoId, "wip"] as const,
   works: (repoId: string) => ["tasks", repoId, "works"] as const,
+  briefs: (repoId: string) => ["tasks", repoId, "briefs"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
 };
@@ -264,8 +265,6 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.squadRunsAll(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.squadRunDetailAll(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.relatedDispatchesAll(repoId), refetchType: "active" }),
-    // 总览的 CI 观察窗与最近变化一页也是台账派生读(CI run 观察与实体事件都是 canonical 事件)。
-    queryClient.invalidateQueries({ queryKey: ciQueryKeys.observatory(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: eventsQueryKeys.recent(repoId), refetchType: "active" }),
     // 产物投影(repo.artifacts.list)同样由台账切面派生:总览速览架与产物页共用的这条
     // 缓存随 cut 失效,两处都不需要自己的轮询。

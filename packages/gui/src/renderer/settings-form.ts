@@ -5,8 +5,8 @@
  * 在表单。分组与逐项解释同样从契约投影(group/effect/defaultValue),不在这里另写一份
  * 分组表。这与 entity-attribute-form 同型:判定与渲染分开,判定才是测得动的纯模块。
  *
- * 目录驱动的选择器(vertical/preset/profile/scaffold/reviewer/workflows)是契约之外的 GUI 特有
- * 联动,标成 catalog-select / catalog-multi-select 由视图注入目录选项与级联;排除项是「本表单
+ * 目录驱动的选择器(vertical/preset/profile/scaffold/reviewer)是契约之外的 GUI 特有
+ * 联动,标成 catalog-select 由视图注入目录选项与级联;排除项是「本表单
  * 不渲染哪些字段」的 UI 裁决,不是字段清单的复制品——locale 归语言 tab 即时提交,
  * expectedVersion/idempotencyKey 由 mutation 层机械填充。认不出的字段类型不进表单:摆一个
  * 猜出来的控件,人填的值会在中心被拒,那比不摆更糟。
@@ -50,7 +50,6 @@ export type SettingsFieldWidget =
   | "role-selectors"
   | "enum-select"
   | "catalog-select"
-  | "catalog-multi-select"
   | "string-list"
   | "toggle"
   | "number"
@@ -87,9 +86,6 @@ export const CATALOG_SELECT_FIELDS: ReadonlySet<string> = new Set([
   "repositoryScaffold",
 ]);
 
-/** 目录多选的字段:CI 工作流(取值面 = .github/workflows 的 *.yml 基名,空集合合法)。 */
-export const CATALOG_MULTI_SELECT_FIELDS: ReadonlySet<string> = new Set(["ciWorkflows"]);
-
 // gatesFromDocument 是一次性导入命令(经 ingress 从 authored harness.yaml 铸造 gates),
 // 不是持久设置——settings read 的 values 永远没有它,渲染成开关会永远显示"关"。它归
 // 门映射编辑区的导入按钮,不进字段行。gatesDraft(json-object-array)认不出类型,自然豁免。
@@ -123,8 +119,6 @@ export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): re
       return [settingsFieldRow(descriptor, "role-selectors", null)];
     if (CATALOG_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string")
       return [settingsFieldRow(descriptor, "catalog-select", null)];
-    if (CATALOG_MULTI_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string-array")
-      return [settingsFieldRow(descriptor, "catalog-multi-select", null)];
     if (descriptor.enum && descriptor.type === "string")
       return [settingsFieldRow(descriptor, "enum-select", [...descriptor.enum])];
     switch (descriptor.type) {

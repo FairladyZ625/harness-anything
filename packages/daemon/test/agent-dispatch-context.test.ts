@@ -22,7 +22,8 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 function assertScopedGuidance(prompt: string, taskId: string): void {
   assert.doesNotMatch(prompt, /ha (?:graph|work show|task create)/u);
   assert.match(prompt, new RegExp(`ha task read-set ${taskId}`, "u"));
-  assert.match(prompt, /已注入的 <task-context>/u);
+  assert.match(prompt, /task_plan\.md 全文与 <task-context> 已注入上面的 mission，不必再读文件/u);
+  assert.doesNotMatch(prompt, /Read task_plan\.md in that package/u, "the plan is inlined, not assigned as a read");
   assert.match(prompt, /# Living Deliverable Protocol/u);
   assert.match(prompt, /资料不足[\s\S]*owner/u);
   for (const role of ["implementation", "reviewer"] as const) {
@@ -286,13 +287,21 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       block,
       new RegExp(`<claims ref="decision/${decisionId}">C1 94% of dispatches skip read-set\\.</claims>`, "u"),
     );
+    // dec_BB2BCE9F995CD3A126E2918734 CH4: the injected fact names the commit and time it was
+    // recorded against (fixture-resolved, so matched loosely after the evidence source).
     assert.match(
       block,
-      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)<\/fact>/u,
+      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts; recorded [0-9TZ:.-]+ @ [0-9a-f]{8}\)<\/fact>/u,
     );
+    assert.match(block, /^<task-context>\n<note>fact 是历史观察，涉及代码时以现场为准。<\/note>\n/u);
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
     assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
     assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");
+    assert.match(
+      prompt!,
+      /Exercise the fixture's task lifecycle through canonical repository commands\./u,
+      "the plan body rides the mission verbatim instead of a read instruction",
+    );
     assert.match(
       prompt!,
       /# Living Deliverable Protocol/u,
@@ -315,6 +324,11 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
     const explicitBlock = causalBlock(prompt!);
     assert.ok(explicitBlock !== null, "explicit-prompt dispatch lost the causal block");
+    assert.match(
+      prompt!,
+      /Exercise the fixture's task lifecycle through canonical repository commands\./u,
+      "an explicit prompt carries the inlined plan too",
+    );
     assertScopedGuidance(prompt!, "task_ctx_explicit");
     assert.ok(prompt!.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 
@@ -392,7 +406,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     );
     assert.equal(explainerDispatch.outcome, "applied", JSON.stringify(explainerDispatch));
     assert.match(prompt!, /# Living Deliverable Protocol/u);
-    assert.match(prompt!, /# PR Body Delivery Protocol/u);
+    assert.match(prompt!, /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
     assert.match(prompt!, /实时说明页/u, "the protocol names the owner-facing live page");
     assert.match(prompt!, /#now[\s\S]*#timeline/u, "mission names the fixed living sections");
     const litePackage = await createTask(cell, root, {
@@ -419,7 +433,11 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.match(prompt!, /# 台账查询引导/u, "lightweight keeps the lookup guidance");
     assert.doesNotMatch(prompt!, /# Living Deliverable Protocol/u, "lightweight owes no living deliverable");
     assert.doesNotMatch(prompt!, /explainer\.html/u);
-    assert.match(prompt!, /# PR Body Delivery Protocol/u, "lightweight repository-diff still owes a PR body");
+    assert.match(
+      prompt!,
+      /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u,
+      "lightweight owes no explainer but still owes the PR publication note",
+    );
     const preview = await cell.spawnRuntime(
       {
         runtimeInstanceId: definition.instanceId,
@@ -431,7 +449,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       },
       binding,
     );
-    assert.match(String(preview.mission), /# PR Body Delivery Protocol/u);
+    assert.match(String(preview.mission), /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });
@@ -698,7 +716,18 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
       Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
       `causal block is ${Buffer.byteLength(block, "utf8")} bytes`,
     );
-    assert.match(block, /…/u);
+    assert.match(
+      block,
+      /^<task-context truncated="yes">/u,
+      "an over-budget neighborhood marks the root truncated instead of field-cutting",
+    );
+    assert.doesNotMatch(block, /…/u, "no field inside the kept entries is truncated anymore");
+    assert.match(
+      block,
+      new RegExp(`${"承重裁决理由与证据陈述".repeat(60)} — ${"理由".repeat(90)}`, "u"),
+      "the kept chosen clause rides at full length",
+    );
+    assert.match(block, /<omitted>[^<]*F-CJKBAAA0[^<]*F-CJKAAAA0[^<]*<\/omitted>/u, "shed refs are named");
     assert.match(block, new RegExp(decisionIds[0]!.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {
     await cell?.close();

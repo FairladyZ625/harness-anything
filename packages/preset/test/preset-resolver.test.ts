@@ -3,17 +3,10 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import {
-  createCanonicalPresetResolver,
-  installPresetPackage,
-} from "../src/index.ts";
+import { createCanonicalPresetResolver, installPresetPackage } from "../src/index.ts";
 import { decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
-import {
-  makeFixture,
-  write,
-  writePackage,
-} from "./preset-resolver.fixtures.ts";
+import { makeFixture, write, writePackage } from "./preset-resolver.fixtures.ts";
 test("canonical resolver decodes one complete bundled package into a content-addressed snapshot", async () => {
   const fixture = makeFixture();
   try {
@@ -33,16 +26,35 @@ test("canonical resolver decodes one complete bundled package into a content-add
     if (!result.ok) return;
     assert.equal(result.snapshot.schema, "preset-snapshot/v1");
     assert.equal(result.snapshot.identity.layer, "bundled");
-    assert.deepEqual(result.snapshot.profile.completionGateIds, [
-      "ci",
-      "code-doc-reconciliation",
-    ]);
+    assert.deepEqual(result.snapshot.profile.completionGateIds, ["code-doc-reconciliation"]);
     assert.deepEqual(
       result.snapshot.templates.map((entry) => entry.path),
       ["task_plan.md", "closeout.md", "artifacts/.gitkeep"],
     );
     assert.match(result.snapshot.digest, /^sha256:[0-9a-f]{64}$/u);
     assert.equal(result.package, null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("new standard coding tasks do not inherit a hosted CI completion gate", async () => {
+  const fixture = makeFixture();
+  try {
+    const resolver = createCanonicalPresetResolver({
+      bundledRoot: fixture.bundledRoot,
+      userRoot: fixture.userRoot,
+      assetsRoot: fixture.assetsRoot,
+    });
+    const result = await resolver.resolve({
+      presetId: "standard-task",
+      verticalId: "software/coding",
+      profileId: "baseline",
+      locale: "en-US",
+      purpose: "task-create",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.snapshot.profile.completionGateIds.includes("ci"), false);
   } finally {
     fixture.cleanup();
   }
@@ -65,10 +77,7 @@ test("resolver distinguishes unavailable verticals from unavailable presets", as
     assert.equal(missingVertical.ok, false);
     if (!missingVertical.ok) {
       assert.equal(missingVertical.error.code, "missing_vertical");
-      assert.match(
-        missingVertical.error.hint,
-        /Available vertical ids: software\/coding\./u,
-      );
+      assert.match(missingVertical.error.hint, /Available vertical ids: software\/coding\./u);
     }
 
     const missingPreset = await resolver.resolve({
@@ -78,8 +87,7 @@ test("resolver distinguishes unavailable verticals from unavailable presets", as
       purpose: "inspect",
     });
     assert.equal(missingPreset.ok, false);
-    if (!missingPreset.ok)
-      assert.equal(missingPreset.error.code, "preset_not_found");
+    if (!missingPreset.ok) assert.equal(missingPreset.error.code, "preset_not_found");
   } finally {
     fixture.cleanup();
   }
@@ -107,10 +115,7 @@ test("resolver rejects a production-installed preset outside the canonical verti
     assert.equal(result.ok, false);
     if (!result.ok) {
       assert.equal(result.error.code, "missing_vertical");
-      assert.match(
-        result.error.hint,
-        /Available vertical ids: software\/coding\./u,
-      );
+      assert.match(result.error.hint, /Available vertical ids: software\/coding\./u);
     }
   } finally {
     fixture.cleanup();
@@ -122,10 +127,7 @@ test("an invalid user package shadows the bundled package without fallback", asy
   try {
     const digest = "d".repeat(64),
       objectRoot = path.join(fixture.userRoot, "preset-objects", digest);
-    write(
-      path.join(objectRoot, "preset.json"),
-      JSON.stringify({ schema: "preset-manifest/v3" }),
-    );
+    write(path.join(objectRoot, "preset.json"), JSON.stringify({ schema: "preset-manifest/v3" }));
     write(
       path.join(fixture.userRoot, "active/standard-task.json"),
       JSON.stringify({
@@ -165,10 +167,7 @@ test("an invalid user package shadows the bundled package without fallback", asy
         },
       ],
     );
-    assert.match(
-      listed[0]?.nextAction ?? "",
-      /repair.*shadow_invalid.*ha preset list/iu,
-    );
+    assert.match(listed[0]?.nextAction ?? "", /repair.*shadow_invalid.*ha preset list/iu);
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error.code, "shadow_invalid");
   } finally {
@@ -179,10 +178,7 @@ test("an invalid user package shadows the bundled package without fallback", asy
 test(
   "a symbolic-link active pointer blocks the bundled package",
   {
-    skip:
-      process.platform === "win32"
-        ? "requires POSIX file-symbolic-link semantics"
-        : false,
+    skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false,
   },
   async () => {
     const fixture = makeFixture();
@@ -217,10 +213,7 @@ test(
 test(
   "a symbolic-link pointer blocks the same preset id in every vertical",
   {
-    skip:
-      process.platform === "win32"
-        ? "requires POSIX file-symbolic-link semantics"
-        : false,
+    skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false,
   },
   async () => {
     const fixture = makeFixture();
@@ -228,10 +221,7 @@ test(
       writePackage(fixture.bundledRoot, "other-task", {
         vertical: "other/vertical",
       });
-      write(
-        path.join(path.dirname(fixture.userRoot), "outside-pointer.json"),
-        "{}",
-      );
+      write(path.join(path.dirname(fixture.userRoot), "outside-pointer.json"), "{}");
       mkdirSync(path.join(fixture.userRoot, "active"), { recursive: true });
       symlinkSync(
         path.join(path.dirname(fixture.userRoot), "outside-pointer.json"),
@@ -289,13 +279,9 @@ test("a symbolic-link active inventory root fails closed", async () => {
           source: path.join(fixture.bundledRoot, "standard-task"),
           userRoot: fixture.userRoot,
         }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "invalid_install_root",
+      (error: unknown) => (error as { code?: string }).code === "invalid_install_root",
     );
-    assert.equal(
-      existsSync(path.join(outsideActive, "standard-task.json")),
-      false,
-    );
+    assert.equal(existsSync(path.join(outsideActive, "standard-task.json")), false);
   } finally {
     fixture.cleanup();
   }
@@ -337,37 +323,23 @@ test("an invalid pointer preserves its declared vertical and blocks that bundled
 test(
   "package decoder rejects symlinks and missing PRESET or script files",
   {
-    skip:
-      process.platform === "win32"
-        ? "requires POSIX file-symbolic-link semantics"
-        : false,
+    skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false,
   },
   () => {
     const fixture = makeFixture();
     try {
       const complete = path.join(fixture.bundledRoot, "standard-task"),
-        missingDocument = path.join(
-          path.dirname(fixture.bundledRoot),
-          "missing-document",
-        ),
-        missingScript = path.join(
-          path.dirname(fixture.bundledRoot),
-          "missing-script",
-        );
+        missingDocument = path.join(path.dirname(fixture.bundledRoot), "missing-document"),
+        missingScript = path.join(path.dirname(fixture.bundledRoot), "missing-script");
       symlinkSync("preset.json", path.join(complete, "manifest-link.json"));
       assert.throws(
         () => decodePresetPackageV3(complete),
-        (error: unknown) =>
-          (error as { code?: string }).code === "symlink_forbidden",
+        (error: unknown) => (error as { code?: string }).code === "symlink_forbidden",
       );
-      write(
-        path.join(missingDocument, "preset.json"),
-        JSON.stringify({ schema: "preset-manifest/v3" }),
-      );
+      write(path.join(missingDocument, "preset.json"), JSON.stringify({ schema: "preset-manifest/v3" }));
       assert.throws(
         () => decodePresetPackageV3(missingDocument),
-        (error: unknown) =>
-          (error as { code?: string }).code === "missing_preset_document",
+        (error: unknown) => (error as { code?: string }).code === "missing_preset_document",
       );
       write(
         path.join(missingScript, "preset.json"),
@@ -409,8 +381,7 @@ test(
       );
       assert.throws(
         () => decodePresetPackageV3(missingScript),
-        (error: unknown) =>
-          (error as { code?: string }).code === "missing_script",
+        (error: unknown) => (error as { code?: string }).code === "missing_script",
       );
     } finally {
       fixture.cleanup();

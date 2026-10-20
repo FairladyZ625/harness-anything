@@ -1,7 +1,9 @@
 // harness-test-tier: integration
 import test from "node:test";
 import type { Socket } from "node:net";
+import { randomBytes } from "node:crypto";
 import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { perUserSocketRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { createRuntimeCallbackRelay } from "@harness-anything/daemon/internal/runtime-callback-relay";
 import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
@@ -346,10 +348,10 @@ test("repo-admin backup routes through the injected runtime callback relay", asy
   process.env.TMPDIR = "/tmp";
   const fixture = setup(),
     repoId = "relay-admin",
-    dispatchId = "dispatch_0123456789abcdef01234567",
+    dispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
     canonicalRoot = realpathSync.native(fixture.root),
     endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
-    relayPath = path.join(canonicalRoot, ".harness", `r-${dispatchId.slice("dispatch_".length)}.sock`),
+    relayPath = path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`),
     workerHome = path.join(fixture.parent, "worker", "home"),
     backupDir = path.join(fixture.root, "tmp", "relay-backup"),
     {
@@ -367,7 +369,6 @@ test("repo-admin backup routes through the injected runtime callback relay", asy
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
   mkdirSync(workerHome, { recursive: true });
   const relay = createRuntimeCallbackRelay({
-    rootDir: canonicalRoot,
     dispatchId,
     route: { userRoot: fixture.userRoot, daemonId: "default", endpoint },
     relayPath,
@@ -1104,6 +1105,19 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       executionId,
       "--review-id",
       reviewId,
+    ]).outcome,
+    "applied",
+  );
+  git(fixture.root, "update-ref", "refs/remotes/origin/main", deliveryCommit);
+  assert.equal(
+    run(fixture.root, fixture.userRoot, [
+      "task",
+      "annotate",
+      taskId,
+      "--execution-id",
+      executionId,
+      "--note",
+      `merge_commit_sha:${deliveryCommit}`,
     ]).outcome,
     "applied",
   );

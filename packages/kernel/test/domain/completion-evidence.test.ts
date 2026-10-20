@@ -8,7 +8,7 @@ import {
   type ExecutionV1,
 } from "../../src/index.ts";
 
-import { completionSnapshot, emptyCompletionContract } from "./completion.fixtures.ts";
+import { completionSnapshot, emptyCompletionContract, retiredHostedCiSource } from "./completion.fixtures.ts";
 
 const execution = {
   gateRuns: [],
@@ -112,7 +112,7 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
             appliesTo: "code" as const,
             witness: {
               adapterId: "github-actions" as const,
-              ...completionSnapshot.completion.sources["github-actions"],
+              ...retiredHostedCiSource,
               adapterOptions: {
                 workflows: ["rewrite-ci"],
                 branch: "main",
@@ -183,9 +183,15 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   );
   // A mixed commit+artifact cut carries both scopes: code gates apply to the commit and the
   // artifact-scoped gate still applies to the anchors.
-  const commitResults = gateResults(snapshot, undefined, artifactExecution.executionId, hybrid, 0);
+  const commitResults = gateResults(snapshot, undefined, artifactExecution.executionId, hybrid, 0, {
+    required: true,
+    merged: true,
+    targetBranch: "main",
+    platform: "github",
+  });
   assert.equal(commitResults.length, 3);
-  assert.ok(commitResults.every((gate) => gate.status === "missing"));
+  assert.equal(commitResults.find((gate) => gate.gateId === "ci")?.status, "passed");
+  assert.ok(commitResults.filter((gate) => gate.gateId !== "ci").every((gate) => gate.status === "missing"));
 });
 
 test("unconverted historical evidence cannot enter current admission or infer gate requirements", async () => {

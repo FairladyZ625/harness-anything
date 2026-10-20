@@ -2,6 +2,7 @@ import { completionGenerationFixtures, convertFrozenCompletionSample } from "./c
 import { readOnlyGenerationOneFixtures } from "./canonical-event-generations.mjs";
 import { decodeLegacyEventBytes } from "../../packages/kernel/src/store/legacy-generation-source.ts";
 import { validateCurrentCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
+import { validateRetiredCiRunObservationEvent } from "../../packages/kernel/src/domain/ci-run-observation-retired-event.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ import {
   isDecisionEvent,
   isDocEvent,
   parseCanonicalEvent,
-  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
 } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { decisionWritePlan } from "../../packages/kernel/src/domain/decision-event.ts";
 import {
@@ -346,7 +347,10 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
     projection.readStateDigest();
     projection.close();
     for (const event of fixture.events) {
-      head = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` };
+      head = {
+        revision: event.workspaceRevision,
+        eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+      };
       positionFixtureProjection(projectionPath, event.workspaceRevision);
       try {
         projection.apply(event, fixtureWritePlan(event));
@@ -443,7 +447,7 @@ function main() {
     ...validateCanonicalFixtureChanges(rootDir, base),
     ...validateFrozenCanonicalEvents(rootDir, canonicalEventSchemas, parseCanonicalEvent),
     ...validateFrozenCanonicalEvents(rootDir, [
-      { schema: "ci-run-observation/v1", validate: validateCurrentCanonicalEvent },
+      { schema: "ci-run-observation/v1", validate: validateRetiredCiRunObservationEvent },
     ]),
     ...daemon.errors,
   ];

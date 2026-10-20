@@ -9,7 +9,7 @@ import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.t
 import { launchNative } from "../src/runtime-spawn-process.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
 
-test("provider environment excludes host Git and SSH credentials", () => {
+test("restricted provider environment excludes host Git and SSH credentials", () => {
   const source: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: "/operator/home",
@@ -34,7 +34,7 @@ test("provider environment excludes host Git and SSH credentials", () => {
     GIT_CONFIG_VALUE_0: "osxkeychain",
   };
 
-  const environment = runtimeWorkerProviderEnvironment(source, process.platform);
+  const environment = runtimeWorkerProviderEnvironment(source, process.platform, "restricted");
   assert.equal(environment.HOME, source.HOME);
   assert.equal(environment.CODEX_HOME, source.CODEX_HOME);
   assert.equal(environment.OPENAI_API_KEY, source.OPENAI_API_KEY);
@@ -62,6 +62,20 @@ test("provider environment excludes host Git and SSH credentials", () => {
   assert.match(environment.GIT_SSH_COMMAND ?? "", /BatchMode=yes/u);
   assert.match(environment.GIT_SSH_COMMAND ?? "", /IdentityAgent=none/u);
   assert.equal(environment.GIT_TERMINAL_PROMPT, "0");
+});
+
+test("full provider environment inherits operator hosting credentials", () => {
+  const source: NodeJS.ProcessEnv = {
+    GH_TOKEN: "github-token",
+    GITLAB_TOKEN: "gitlab-token",
+    GIT_ASKPASS: "/operator/askpass",
+    SSH_AUTH_SOCK: "/operator/agent.sock",
+  };
+  const environment = runtimeWorkerProviderEnvironment(source, process.platform);
+  assert.equal(environment.GH_TOKEN, source.GH_TOKEN);
+  assert.equal(environment.GITLAB_TOKEN, source.GITLAB_TOKEN);
+  assert.equal(environment.GIT_ASKPASS, source.GIT_ASKPASS);
+  assert.equal(environment.SSH_AUTH_SOCK, source.SSH_AUTH_SOCK);
 });
 
 test(
@@ -99,7 +113,7 @@ test(
       assert.equal(beforeLog.agent, "/operator/agent.sock");
       assert.equal(beforeLog.args.includes("IdentityAgent=none"), false);
 
-      const environment = runtimeWorkerProviderEnvironment(baseEnvironment);
+      const environment = runtimeWorkerProviderEnvironment(baseEnvironment, process.platform, "restricted");
       environment.GIT_SSH_COMMAND = environment.GIT_SSH_COMMAND?.replace(/^ssh/u, sshStub);
       const after = spawnSync("git", ["ls-remote", "ssh://git@example.invalid/repo"], {
         env: environment,

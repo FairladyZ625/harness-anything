@@ -1,8 +1,5 @@
 import path from "node:path";
-import { settleImportedGithubActionsClaims } from "./task-witness-action.ts";
 import { type WriteReceiptDraft } from "@harness-anything/kernel";
-import { ingestCiObservations, preparedCiObservation, type CiObservationFetch } from "./ci-observation-actions.ts";
-import type { ScheduleV1 } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
@@ -10,10 +7,10 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { currentCutReviewForReturn, explicitExecutionId } from "./repo-cell-execution-selection.ts";
 import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
-import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
+import { pushTaskWorkerBranch, workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
-import { createTaskPullRequest } from "./runtime-task-pr.ts";
+import { createTaskPullRequest, waitTaskPullRequestChecks } from "./runtime-task-pr.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 
 type QueuedPublication = ((
@@ -34,7 +31,6 @@ export function readBeforeWriteQueue(
   context: RepoCellApiContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-  refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceiptDraft>,
 ): Promise<QueuedPublication> | null {
   const baseline =
     action.kind === "task-start" && typeof action.taskId === "string"
@@ -64,23 +60,6 @@ export function readBeforeWriteQueue(
       (sourceResolution) => (action, binding) =>
         context.executeAction({ ...action, [artifactImportSourceResolution]: sourceResolution }, binding),
     );
-  if (action.kind === "ci-observe-pull") {
-    const fetched = (action as RepoTaskAction & { readonly [preparedCiObservation]?: CiObservationFetch })[
-      preparedCiObservation
-    ];
-    if (fetched)
-      return Promise.resolve((action, binding) => {
-        const schedule = context.projection.getEntity("schedule", String(action.scheduleId))?.value as
-          | ScheduleV1
-          | undefined;
-        if (!schedule?.status.activeRun || schedule.status.activeRun.claimFence !== action.claimFence)
-          throw context.cellCodedError("schedule_claim_stale", "CI occurrence claim is no longer current.");
-        const receipt = ingestCiObservations(context.extracted, binding, fetched);
-        settleImportedGithubActionsClaims(context.extracted, binding);
-        return receipt;
-      });
-    return refreshCi(action, binding).then((receipt) => () => receipt);
-  }
   if (action.kind === "task-push") {
     const taskId = typeof action.taskId === "string" ? action.taskId : null;
     if (taskId === null) throw context.cellCodedError("invalid_command", "Task branch push requires a task id.");
@@ -124,19 +103,31 @@ export function readBeforeWriteQueue(
         });
         if (!pushed.attempted || !pushed.ok)
           throw context.cellCodedError(
-            "delivery_publish_failed",
+            workerPushFailureCode(pushed),
             pushed.attempted ? pushed.detail : `Task branch push refused: ${pushed.reason}.`,
           );
+        // `next` rides the receipt the same way the lifecycle settlement receipts carry it: as a
+        // draft extension outside the kernel receipt schema.
         return context.withHumanSummary({
           outcome: "applied",
           opId: `task-push:${taskId}:${pushed.pushedCommit}`,
           revision: context.store.readHead()?.revision ?? 0,
           evidence: `Worker branch pushed: ${pushed.branch} @ ${pushed.pushedCommit}.`,
-        });
+          next: [
+            {
+              command: `ha task pr ${taskId}`,
+              reason: "publish the pushed branch as the task's pull request",
+            },
+          ],
+        } as WriteReceiptDraft);
       };
     })();
   }
   if (action.kind === "task-pr") {
+    // --wait-ci parks this request for the whole CI run: the poll loop runs here, outside the write
+    // queue, and the queued turn only publishes the terminal receipt.
+    if (action.waitCi === true)
+      return waitTaskPullRequestChecks(context, action, binding).then((verdict) => async () => verdict);
     return (async () => {
       return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
         return createTaskPullRequest(context, _action, _binding);

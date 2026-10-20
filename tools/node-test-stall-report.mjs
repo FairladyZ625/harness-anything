@@ -1,5 +1,3 @@
-import { appendFileSync } from "node:fs";
-import path from "node:path";
 // Preloaded into every test child. A stalled test file names itself through the watchdog, but the
 // watchdog can only say which test entered and never returned -- not what it is waiting for, and on
 // a remote Windows runner there is no way to attach a debugger and ask. Node already knows: the
@@ -24,12 +22,6 @@ if (Number.isInteger(delayMs) && delayMs > 0) {
     // unrelated processes that happened to stall at the same moment.
     const who = `pid=${process.pid} thread=${threadLabel()}`;
     const handles = Array.isArray(report.libuv) ? report.libuv.filter(isWaitWorthy) : [];
-    const destination = process.env.HARNESS_CI_NODE_TEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
-    if (destination)
-      appendFileSync(
-        path.join(destination, `stall-${process.pid}-${threadId}.jsonl`),
-        `${JSON.stringify({ kind: "diagnostic", file: process.argv[1], pid: process.pid, thread: threadLabel(), elapsedMs: delayMs, report: { libuv: handles, workers: (report.workers ?? []).map((worker) => ({ threadId: worker.threadId, libuv: (worker.libuv ?? []).filter(isWaitWorthy) })) } })}\n`,
-      );
     console.error(
       `[stall-report] ${process.argv[1] ?? "test child"} ${who} still running after ${delayMs}ms; ${handles.length} active handle(s)`,
     );

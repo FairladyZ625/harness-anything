@@ -57,6 +57,10 @@ const config = {
     version: cliPackage.version,
     main: "packages/gui/dist-electron/electron-main.js",
   },
+  publish: {
+    provider: "generic",
+    url: "https://harness-update.qianbaner.top/${channel}/",
+  },
   files: [
     "package.json",
     "packages/gui/package.json",

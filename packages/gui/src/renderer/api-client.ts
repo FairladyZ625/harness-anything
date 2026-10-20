@@ -13,7 +13,6 @@ import type {
   AgendaAwaitsRow,
   AgendaAttentionItem,
   AgendaRegionWeights,
-  CiObservatoryRead,
   ContractVersion,
   FactAnchorRow,
   RelationFactRow,
@@ -32,6 +31,7 @@ import type {
   TaskSnapshotInvalidRow,
   TaskWipRead,
   WorkIndexRead,
+  WorkBriefsRead,
   TaskCompletionRead,
   WorkspaceSummaryRead,
   WorkspaceScopeRead,
@@ -309,23 +309,15 @@ export const harnessClient = {
       throw new Error(localErrorHint(result, "Work index bridge returned an invalid result."));
     return result;
   },
+  /** `repo.works.briefs.read`:每工作根的状态桶、分句与抽屉行,daemon 侧唯一推导。 */
+  async getWorkBriefs(payload: RepoScope): Promise<WorkBriefsRead> {
+    const result = await invoke("repo.works.briefs.read", payload, "getWorkBriefs");
+    if (!result || result.schema !== "daemon.work-briefs/v1" || result.ok !== true || !Array.isArray(result.briefs))
+      throw new Error(localErrorHint(result, "Work briefs bridge returned an invalid result."));
+    return result;
+  },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
     return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
-  },
-  /** main 分支 CI 观察窗(dec_B3D40712 CH1 的 CI 区域只在这份读红时出现);window 有界 1..100。 */
-  async getCiObservatory(
-    payload: RepoScope & { readonly window?: number; readonly fetchDetails?: boolean },
-  ): Promise<CiObservatoryRead> {
-    const result = await invoke("repo.ci.observatory.read", payload, "getCiObservatory");
-    if (
-      !result ||
-      result.schema !== "daemon.ci-observatory/v1" ||
-      result.ok !== true ||
-      (result.status !== "ready" && result.status !== "pending") ||
-      !Array.isArray(result.runs)
-    )
-      throw new Error(localErrorHint(result, "CI observatory bridge returned an invalid result."));
-    return result;
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
     return readSettingsResult(await invoke("repo.settings.read", payload, "getSettings"));
@@ -1020,6 +1012,9 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
     !isRendererRecord(value) ||
     typeof value.taskId !== "string" ||
     (value.createdAt !== null && typeof value.createdAt !== "string") ||
+    // 老 daemon 下发的行没有 completedAt 字段(undefined):按「无完成时间」放行,
+    // 不让整个任务列表读失败(GUI 是 attach-only,新 GUI 会挂到旧构建 daemon)。
+    (value.completedAt != null && typeof value.completedAt !== "string") ||
     typeof value.updatedAt !== "string" ||
     (value.generation !== "v0" && value.generation !== "v1") ||
     !isRendererRecord(value.snapshot)

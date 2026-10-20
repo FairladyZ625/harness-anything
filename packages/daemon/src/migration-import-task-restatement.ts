@@ -123,7 +123,7 @@ export function compileRestatedTaskContract(input: {
 
 /**
  * Appends the document descriptors a fresh compile of the task's own preset declares that this
- * contract predates. Slots like task.explainer and task.pr-body are added by the package compiler,
+ * contract predates. Slots like task.explainer are added by the package compiler,
  * not by the preset definition, so a contract frozen before such a slot existed still carries a
  * current preset snapshot digest; the backfill restates only the documents array and leaves every
  * descriptor the contract already declares byte-for-byte untouched.

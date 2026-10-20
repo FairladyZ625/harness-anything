@@ -447,6 +447,7 @@ test("an active Schedule records the next tick as single-flight missed", async (
     nodeId: "local",
     claimFence: "claim-active",
     attemptIndex: 0,
+    runtimeSessionId: "runtime-active",
   };
   const repo = fixtureRepo("single-flight", "local", [active]),
     scheduler = makeScheduleScheduler({
@@ -460,6 +461,53 @@ test("an active Schedule records the next tick as single-flight missed", async (
   assert.equal(repo.missed[0]?.reason, "single_flight");
   assert.equal(repo.missed[0]?.count, 1);
   assert.deepEqual(repo.fired, []);
+  assert.equal(repo.actions.includes("schedule-settle"), false);
+  assert.equal(active.status.activeRun?.claimFence, "claim-active");
+  scheduler.close();
+});
+
+test("an active Schedule settles its terminal Runtime before admitting the next occurrence", async () => {
+  const clock = fakeClock("2026-08-27T10:30:00.000Z"),
+    active = schedule("terminal-runtime");
+  active.status.activeRun = {
+    occurrenceId: "terminal-occurrence",
+    kind: "scheduled",
+    scheduledFor: "2026-08-27T10:00:00.000Z",
+    claimedAt: "2026-08-27T10:00:00.000Z",
+    nodeId: "local",
+    claimFence: "terminal-claim",
+    attemptIndex: 0,
+    dispatchId: "dispatch-terminal",
+    runtimeSessionId: "runtime-terminal",
+  };
+  const repo = fixtureRepo("terminal-runtime", "local", [active]);
+  repo.terminalRuntime = {
+    ok: true,
+    status: "ready",
+    session: {
+      runtimeSessionId: "runtime-terminal",
+      activity: { lastObservedAt: "2026-08-27T10:29:00.000Z", outcome: "stopped" },
+    },
+    result: null,
+    settlement: { outcome: "stopped", reason: "Runtime exited." },
+  };
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  await scheduler.start();
+  assert.equal(clock.liveTimers()[0]!.delayMs, 0);
+  clock.liveTimers()[0]!.callback();
+  await scheduler.refresh();
+  assert.ok(repo.actions.indexOf("schedule-settle") < repo.actions.indexOf("schedule-run-now"));
+  assert.deepEqual(repo.missed, []);
+  assert.deepEqual(repo.fired, ["terminal-runtime"]);
+  assert.equal(active.status.activeRun, null);
+  assert.equal(active.status.lastRun?.claimFence, "terminal-claim");
+  assert.equal(active.status.lastRun?.outcome, "unknown");
   scheduler.close();
 });
 
@@ -884,6 +932,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
     latchOnRejection: false,
     state: "attached" as "attached" | "unavailable",
     liveBuiltinClaims: new Set<string>(),
+    terminalRuntime: null as unknown,
     onFire: async (_scheduleId: string) => {},
     execute: async (action: Readonly<Record<string, unknown>>) => {
       actions.push(String(action.kind));
@@ -937,7 +986,15 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
         assert.ok(active);
         assert.equal(action.claimFence, active.claimFence);
         value.status.activeRun = null;
-        value.status.lastRun = { ...active, endedAt: String(action.endedAt), outcome: "unknown" };
+        value.status.lastRun = {
+          ...active,
+          endedAt: String(action.endedAt),
+          outcome: action.outcome as ScheduleV1["status"]["lastRun"] extends infer LastRun
+            ? LastRun extends { outcome: infer Outcome }
+              ? Outcome
+              : never
+            : never,
+        };
         return { outcome: "applied" };
       }
       assert.equal(action.kind, "schedule-run-now");
@@ -962,6 +1019,21 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
       recoveryMs: 0,
     }),
     run: fixture.execute,
+    read: async (method: string, payload: Readonly<Record<string, unknown>>) => {
+      assert.equal(method, "repo.agentRuntime.sessions.read");
+      return (
+        fixture.terminalRuntime ?? {
+          ok: true,
+          status: "ready",
+          session: {
+            runtimeSessionId: payload.runtimeSessionId,
+            activity: { lastObservedAt: "2026-08-27T10:30:00.000Z", outcome: null },
+          },
+          result: null,
+          settlement: null,
+        }
+      );
+    },
   } as unknown as RepoCell;
   return Object.assign(fixture, { cell });
 }
@@ -1005,8 +1077,8 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 
 test("reconciliation preserves a live builtin and recovers only an executor absent after restart", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
-    builtin = schedule("builtin-ci-observe");
-  builtin.spec.target = { kind: "builtin", builtinId: "ci-observe" };
+    builtin = schedule("legacy-unregistered-builtin");
+  builtin.spec.target = { kind: "builtin", builtinId: "retired-test-builtin" };
   builtin.status.activeRun = {
     occurrenceId: "interrupted",
     kind: "manual",

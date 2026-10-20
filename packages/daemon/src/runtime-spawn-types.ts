@@ -256,13 +256,13 @@ export interface RemoteRuntimePersistence {
     /** The mirrored task package on this node, and the mission that names it as the worker reaches it. */
     readonly packageRoot: string;
     readonly mission: (packageRoot: string) => string;
+    /** The mirrored task plan body the mission inlines; explicit-prompt assembly reuses it. */
+    readonly planBody: string | null;
     /** The task's frozen profile id from the center's serving cut; null when unset. Lightweight
      * tasks owe no living explainer page, so explicit-prompt remote dispatch gates the protocol on
      * this value exactly like the local paths do. */
     readonly profileId: string | null;
     readonly taskClass: string;
-    /** Package-relative PR body slot from the mirrored task contract; null when absent. */
-    readonly prBodyPath: string | null;
     /** The causal-context block the center assembled for this task at the serving
      * cut; null when the task has no causal neighborhood. The block is also
      * embedded in the mission so task-bound remote spawns carry it verbatim. */

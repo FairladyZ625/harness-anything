@@ -38,12 +38,10 @@ done  (终态——写入经由唯一写路径)
 `planned`/`active`/`blocked`/`cancelled`,进入 `in_review` 只能经 `ha task submit`,
 进入 `done` 只能经 `ha task complete`。门栈无法靠"直接改字段"绕过。
 
-## Fact 归属是 completion 门
+## Fact 是显式证据
 
-依据 `dec_22E7895EB4642798B70ADFAC79`，task 完成前必须至少有一条 active 的
-`task/<id> -> fact/F-<id>` `produces` 边,否则 completion readiness 报 `fact_missing`。
-Fact 仍是显式、append-only 的观察；submit 与 review 都不会自动生成 Fact。
-独立 fact 合法,但不满足 task 的完成门。
+Fact 是显式、append-only 的观察。submit 与 review 都不会自动生成 Fact；
+独立 fact 仍可作为其所描述的 decision 与 task 的证据。
 
 Fact 以单独的 `facts/F-<id>.md` 文档存储。交付证据仍属于 Execution 的 Submission packet,
 不能为了凑数量而复制进 Fact。
@@ -98,13 +96,12 @@ preset/profile 的 `completionGates`,执行 `completion-readiness.ts` 的确定�
 | `closeout_placeholder` | closeout 仍是脚手架 |
 | `review_missing` | 缺 approved Review |
 | `consent_missing` | 缺 review-consent 记录 |
-| `ci_missing` | 契约声明 `ci` 但无见证绿 run(`settings.ci.workflows`；由 `builtin-ci-observe` 自动采集) |
+| `delivery_missing` | 仓库设置要求代码交付已合入，但执行记录的合入 commit 不在配置的目标分支上；旧冻结 `ci` gate 也只读使用同一合入证据 |
 | `code_doc_missing` | 契约声明 `code-doc-reconciliation` 但缺已验证 witness(`ha task code-doc reconcile`) |
 | `gate_witness_missing` | 其他声明门的 canonical checker 见证缺失 |
 | `decision_lineage_missing` | 承重 decision 谱系未闭合 |
 | `lease_held` | 仍有未释放 lease |
 | `doc_sync_required` | 有待同步的撰写文档 |
-| `fact_missing` | 无 active `produces` fact 边 |
 | `fact_retirement_undeclared` | fact 退役未声明 |
 
 对于适用的 Execution,`ha task code-doc reconcile <task-id>` 会从唯一 submitted

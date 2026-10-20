@@ -40,12 +40,12 @@ export interface FleetCenterOptions {
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   /**
-   * One unauthenticated admission frame used only by edge join; the callback validates the human token. The
-   * admission names the repository the edge mirrors and its layout file, so a fresh edge needs nothing else.
+   * One unauthenticated admission frame used only by edge join; the callback validates the human token and
+   * the invitation's complete multi-repository permission snapshot.
    */
   readonly edgeJoin?: (input: {
+    readonly joinId: string;
     readonly inviteToken: string;
-    readonly nodeId: string;
     readonly accessToken?: string;
   }) => EdgeJoinAdmission | Promise<EdgeJoinAdmission>;
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
@@ -64,6 +64,7 @@ export interface FleetCenterOptions {
     frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
     peer: ReplicationPeer,
     signal: AbortSignal,
+    humanClientId?: string,
   ) => Promise<void>;
 }
 
@@ -149,9 +150,9 @@ export class FleetFault extends Error {
 }
 
 export interface EdgeJoinAdmission {
+  readonly joinId: string;
   readonly nodeId: string;
   readonly personId: string;
   readonly credential: string;
-  readonly repoId: string;
-  readonly harnessYaml: string;
+  readonly repositories: readonly { readonly repoId: string; readonly harnessYaml: string }[];
 }

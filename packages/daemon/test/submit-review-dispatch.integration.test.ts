@@ -76,6 +76,14 @@ async function runChildSlice(
     executionId: childExecutionId,
   })) as Record<string, unknown>;
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  execFileSync("git", ["-C", f.root, "update-ref", "refs/remotes/origin/main", delivery]);
+  const annotated = (await f.run({
+    kind: "task-annotate",
+    taskId: childTaskId,
+    executionId: childExecutionId,
+    note: `merge_commit_sha:${delivery}`,
+  })) as Record<string, unknown>;
+  assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
   return { created, packagePath };
 }
 
@@ -180,6 +188,11 @@ test(
       assert.equal(read.outcome, "applied", JSON.stringify(read));
       assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
       assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
+      assert.doesNotMatch(
+        f.launches[0]!.prompt,
+        /# Living Deliverable Protocol|推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u,
+        "reviewer dispatches carry no worker delivery protocols",
+      );
     } finally {
       await f.close();
     }
@@ -221,7 +234,7 @@ test(
       );
       assert.deepEqual(
         child.closeoutOverrides,
-        { review: false, consent: false, fact: false },
+        { review: false, consent: false },
         "the profile's closeout overrides freeze into the task",
       );
       const closeoutDescriptor = childContract(f.root, packagePath).documents.find(
@@ -329,7 +342,7 @@ test(
         { factless: true },
       );
       const docsLightweight = createdTask(f.events(), "task-docs-lightweight-child");
-      assert.deepEqual(docsLightweight.closeoutOverrides, { review: false, consent: false, fact: false });
+      assert.deepEqual(docsLightweight.closeoutOverrides, { review: false, consent: false });
       const docsCompleted = (await f.run({
         kind: "task-complete",
         taskId: "task-docs-lightweight-child",

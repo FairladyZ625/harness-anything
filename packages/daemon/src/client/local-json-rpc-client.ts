@@ -21,6 +21,8 @@ export interface LocalDaemonJsonRpcOptions {
   readonly repoIdOverride?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly sessionEnvironment?: DaemonSessionEnvironment;
+  /** CLI command id this connection's invocation serves; recorded by the daemon's request logs. */
+  readonly invokingCommand?: string;
 }
 
 export async function requestLocalDaemonJsonRpc(
@@ -44,6 +46,8 @@ export async function requestLocalDaemonJsonRpc(
     params,
     undefined,
     options.sessionEnvironment,
+    false,
+    options.invokingCommand,
   );
 }
 
@@ -56,6 +60,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
     readonly userRoot?: string;
     readonly daemonId?: string;
     readonly sessionEnvironment?: DaemonSessionEnvironment;
+    readonly invokingCommand?: string;
   },
   method: string,
   params: JsonObject,
@@ -70,6 +75,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
     responseTimeoutMs,
     target.sessionEnvironment,
     target.reportStaleBuild === true,
+    target.invokingCommand,
   );
 }
 
@@ -81,6 +87,7 @@ export async function requestDaemonJsonRpcAt(
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
   reportStaleBuild = false,
+  invokingCommand?: string,
 ): Promise<JsonObject> {
   return requestWithSocket(
     await connectSocket(socketPath, timeoutMs),
@@ -89,6 +96,7 @@ export async function requestDaemonJsonRpcAt(
     responseTimeoutMs,
     sessionEnvironment,
     reportStaleBuild,
+    invokingCommand,
   );
 }
 
@@ -97,6 +105,7 @@ export async function openDaemonJsonRpcClientAt(
   timeoutMs = 75,
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
+  invokingCommand?: string,
 ): Promise<JsonRpcLineClient> {
   const socket = await connectSocket(socketPath, timeoutMs),
     client = new JsonRpcLineClient(socket, socket);
@@ -109,6 +118,7 @@ export async function openDaemonJsonRpcClientAt(
         ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
           ? { sessionEnvironment: sessionEnvironment as JsonObject }
           : {}),
+        ...(invokingCommand ? { invokingCommand } : {}),
       },
       responseTimeoutMs,
     );
@@ -126,8 +136,15 @@ export async function openDaemonJsonRpcReaderAt(
   timeoutMs = 75,
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
+  invokingCommand?: string,
 ): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
-  const client = await openDaemonJsonRpcClientAt(socketPath, timeoutMs, responseTimeoutMs, sessionEnvironment);
+  const client = await openDaemonJsonRpcClientAt(
+    socketPath,
+    timeoutMs,
+    responseTimeoutMs,
+    sessionEnvironment,
+    invokingCommand,
+  );
   return { read: () => client.request(method, params, responseTimeoutMs), close: () => client.close() };
 }
 
@@ -242,6 +259,7 @@ async function requestWithSocket(
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
   reportStaleBuild = false,
+  invokingCommand?: string,
 ): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
   try {
@@ -254,6 +272,7 @@ async function requestWithSocket(
           ? { sessionEnvironment: sessionEnvironment as JsonObject }
           : {}),
         ...(reportStaleBuild ? { reportStaleBuild: true } : {}),
+        ...(invokingCommand ? { invokingCommand } : {}),
       },
       responseTimeoutMs,
     );

@@ -5,8 +5,6 @@
 # 预期行为：cargo 非零退出（编译错误、测试失败、lock 过期）= fail 并阻塞 complete。
 schema: harness-anything/v1
 settings:
-  ci:
-    workflows: []
   gates:
     cargo-test:
       appliesTo: code

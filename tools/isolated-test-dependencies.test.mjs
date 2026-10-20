@@ -52,6 +52,8 @@ function install(root, args) {
     );
     mkdirSync(path.join(root, "packages/local/node_modules"));
     writeFileSync(path.join(root, "packages/local/node_modules/nested"), "nested dependency");
+    mkdirSync(path.join(root, ".test-runtime/playwright/chromium-1234"), { recursive: true });
+    writeFileSync(path.join(root, ".test-runtime/playwright/chromium-1234/marker"), "runtime");
   }
   writeFileSync(path.join(root, "packages/local/output"), readFileSync(path.join(root, "packages/local/source")));
 }
@@ -115,13 +117,32 @@ test("failed installs surface unchanged and a later owner discards partial publi
       (error) => error === failure,
     );
     assert.equal(existsSync(path.join(cache, "current")), false);
+    mkdirSync(path.join(cache, "pending"), { recursive: true });
     writeFileSync(path.join(cache, "pending/stale"), "partial");
     prepareDependencies(root, cache, install);
     assert.equal(existsSync(path.join(cache, "pending")), false);
     assert.equal(existsSync(path.join(cache, "current/stale")), false);
   }));
 
-test("concurrent creators install once; a new lock replaces the retained generation", async () => {
+async function waitForFile(file, deadlineMs = 30000) {
+  const deadline = Date.now() + deadlineMs;
+  while (!existsSync(file)) {
+    if (Date.now() > deadline) throw new Error(`${file} did not appear within ${deadlineMs} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+function spawnCreator(cache, code, dir) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", code, dir, cache], {
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    child.on("error", reject);
+    child.on("close", resolve);
+  });
+}
+
+test("concurrent creators install independently; publication stays single-winner", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-cache-concurrent-"));
   try {
     const cache = path.join(root, "cache");
@@ -133,29 +154,80 @@ test("concurrent creators install once; a new lock replaces the retained generat
       writeFileSync(path.join(dir, "package-lock.json"), '{"packages":{"":{}}}');
       return dir;
     });
-    const code = `import {prepareDependencies} from ${JSON.stringify(module)}; import {mkdirSync,writeFileSync,appendFileSync} from 'node:fs'; import path from 'node:path'; prepareDependencies(process.argv[1],process.argv[2],(root,args)=>{appendFileSync(path.join(process.argv[2],'installs'),args[0]+'\\n'); mkdirSync(path.join(root,'node_modules')); writeFileSync(path.join(root,'node_modules/value'),'installed');});`;
-    const codes = await Promise.all(
-      workspaces.map(
-        (dir) =>
-          new Promise((resolve, reject) => {
-            const child = spawn(process.execPath, ["--input-type=module", "-e", code, dir, cache], {
-              stdio: ["ignore", "ignore", "inherit"],
-            });
-            child.on("error", reject);
-            child.on("close", resolve);
-          }),
-      ),
+    // Both children record the install and stop inside it until released, so
+    // both installs provably overlap before either can publish a generation.
+    const gatedCreator = (gate, release) =>
+      `import {prepareDependencies} from ${JSON.stringify(module)}; import {mkdirSync,writeFileSync,appendFileSync,existsSync} from 'node:fs'; import path from 'node:path'; prepareDependencies(process.argv[1],process.argv[2],(root,args)=>{appendFileSync(path.join(process.argv[2],'installs'),args[0]+'\\n'); appendFileSync(path.join(process.argv[2],${JSON.stringify(gate)}),''); const latch=new Int32Array(new SharedArrayBuffer(4)); const deadline=Date.now()+60000; while (!existsSync(path.join(process.argv[2],${JSON.stringify(release)})) && Date.now()<deadline) Atomics.wait(latch,0,0,25); mkdirSync(path.join(root,'node_modules')); writeFileSync(path.join(root,'node_modules/value'),'installed');});`;
+    const gates = [
+      ["gate-one", "release-one"],
+      ["gate-two", "release-two"],
+    ];
+    const exits = [];
+    const running = workspaces.map((dir, index) =>
+      spawnCreator(cache, gatedCreator(...gates[index]), dir).then((code) => exits.push(code)),
     );
-    assert.deepEqual(codes, [0, 0]);
-    assert.equal(readFileSync(path.join(cache, "installs"), "utf8"), "ci\n");
+    for (const [gate] of gates) await waitForFile(path.join(cache, gate));
+    for (const [, release] of gates) writeFileSync(path.join(cache, release), "");
+    await Promise.all(running);
+    assert.deepEqual(exits, [0, 0]);
+    assert.equal(readFileSync(path.join(cache, "installs"), "utf8"), "ci\nci\n");
     assert.equal(readFileSync(path.join(workspaces[1], "node_modules/value"), "utf8"), "installed");
     const third = path.join(root, "three");
     mkdirSync(third);
     writeFileSync(path.join(third, "package.json"), '{"name":"new-generation"}');
     writeFileSync(path.join(third, "package-lock.json"), '{"packages":{"":{}}}');
-    execFileSync(process.execPath, ["--input-type=module", "-e", code, third, cache]);
-    assert.equal(readFileSync(path.join(cache, "installs"), "utf8"), "ci\nci\n");
+    const plainCreator = `import {prepareDependencies} from ${JSON.stringify(module)}; import {mkdirSync,writeFileSync,appendFileSync} from 'node:fs'; import path from 'node:path'; prepareDependencies(process.argv[1],process.argv[2],(root,args)=>{appendFileSync(path.join(process.argv[2],'installs'),args[0]+'\\n'); mkdirSync(path.join(root,'node_modules')); writeFileSync(path.join(root,'node_modules/value'),'installed');});`;
+    assert.equal(await spawnCreator(cache, plainCreator, third), 0);
+    assert.equal(readFileSync(path.join(cache, "installs"), "utf8"), "ci\nci\nci\n");
     assert.equal(readFileSync(path.join(workspaces[0], "node_modules/value"), "utf8"), "installed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("warm preparation completes while a cold preparation is still installing", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-cache-parallel-"));
+  try {
+    const cache = path.join(root, "cache");
+    const module = new URL("./isolated-test-dependencies.mjs", import.meta.url).href;
+    const warm = path.join(root, "warm"),
+      cold = path.join(root, "cold");
+    for (const [dir, manifest] of [
+      [warm, '{"name":"warm"}'],
+      [cold, '{"name":"cold"}'],
+    ]) {
+      mkdirSync(dir);
+      writeFileSync(path.join(dir, "package.json"), manifest);
+      writeFileSync(path.join(dir, "package-lock.json"), '{"packages":{"":{}}}');
+    }
+    const install = (workspaceRoot) => {
+      mkdirSync(path.join(workspaceRoot, "node_modules"), { recursive: true });
+      writeFileSync(path.join(workspaceRoot, "node_modules/value"), "installed");
+      mkdirSync(path.join(workspaceRoot, ".test-runtime/playwright/chromium-1234"), { recursive: true });
+      writeFileSync(path.join(workspaceRoot, ".test-runtime/playwright/chromium-1234/marker"), "runtime");
+    };
+    prepareDependencies(warm, cache, install);
+    const warmKey = readFileSync(path.join(cache, "current/key"), "utf8");
+    // The cold preparation holds a different generation key and stops inside
+    // its install until released; the warm one must not wait behind it.
+    const coldCreator = `import {prepareDependencies} from ${JSON.stringify(module)}; import {mkdirSync,writeFileSync,appendFileSync,existsSync} from 'node:fs'; import path from 'node:path'; prepareDependencies(process.argv[1],process.argv[2],(root,args)=>{if (args[0] !== 'ci') return; appendFileSync(path.join(process.argv[2],'cold-entered'),''); const latch=new Int32Array(new SharedArrayBuffer(4)); const deadline=Date.now()+60000; while (!existsSync(path.join(process.argv[2],'cold-release')) && Date.now()<deadline) Atomics.wait(latch,0,0,25); mkdirSync(path.join(root,'node_modules')); writeFileSync(path.join(root,'node_modules/value'),'installed'); mkdirSync(path.join(root,'.test-runtime/playwright/chromium-1234'),{recursive:true}); writeFileSync(path.join(root,'.test-runtime/playwright/chromium-1234/downloaded'),'runtime'); appendFileSync(path.join(process.argv[2],'cold-exited'),'');});`;
+    const coldChild = spawnCreator(cache, coldCreator, cold);
+    await waitForFile(path.join(cache, "cold-entered"));
+    prepareDependencies(warm, cache, install);
+    assert.equal(
+      existsSync(path.join(cache, "cold-exited")),
+      false,
+      "warm preparation waited for the cold installation to finish",
+    );
+    writeFileSync(path.join(cache, "cold-release"), "");
+    assert.equal(await coldChild, 0);
+    assert.notEqual(readFileSync(path.join(cache, "current/key"), "utf8"), warmKey);
+    assert.equal(readFileSync(path.join(warm, "node_modules/value"), "utf8"), "installed");
+    assert.equal(readFileSync(path.join(warm, ".test-runtime/playwright/chromium-1234/marker"), "utf8"), "runtime");
+    assert.equal(
+      readFileSync(path.join(cache, "current/runtime/playwright/chromium-1234/downloaded"), "utf8"),
+      "runtime",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

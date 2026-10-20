@@ -12,6 +12,9 @@ import {
   readWorkerGitIdentity,
   squadWorkerBranchHasDelivery,
 } from "../src/runtime-worker-push.ts";
+import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
 test("squad delivery is witnessed only on a squad-cut branch, never on an ordinary branch with a similar name", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-squad-witness-"));
@@ -398,6 +401,7 @@ test("worker push records a single failure without retrying", async (context) =>
   assert.equal(result.ok, false);
   assert.equal(result.branch, "task_push_failure");
   assert.equal(result.head, git(worker, "rev-parse", "HEAD").trim());
+  assert.equal(result.code, undefined, "an ordinary transport failure carries no dedicated remediation code");
   assert.match(result.detail, /does not appear to be a git repository|No such file|not found/iu);
 });
 
@@ -498,6 +502,110 @@ test("the dispatch identity is scoped to its worktree for commits and rebases", 
     git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
     "person-worker|person-worker@users.noreply.github.com|person-worker|person-worker@users.noreply.github.com",
   );
+});
+
+test("a workflow-scope rejection reports the dedicated code and the CEO handoff push command", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-workflow-")),
+    bare = path.join(root, "remote.git"),
+    canonical = path.join(root, "project"),
+    worker = path.join(root, "worker"),
+    receivePack = path.join(root, "receive-pack");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_workflow_scope");
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  git(worker, "add", "change.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  // GitHub refuses a workflow-bearing push from a credential without the workflow scope; the stub
+  // receive-pack replays that refusal so the mapping sees real git-transport stderr.
+  writeFileSync(
+    receivePack,
+    "#!/bin/sh\n" +
+      "echo 'remote: error: GH006: refusing to allow an OAuth App to create or update workflow " +
+      "`.github/workflows/ci.yml` without `workflow` scope' >&2\nexit 1\n",
+    { mode: 0o755 },
+  );
+  git(canonical, "config", "remote.origin.receivepack", receivePack);
+
+  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_workflow_scope" });
+  assert.equal(result.attempted, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "push_workflow_scope_required");
+  const head = git(worker, "rev-parse", "HEAD").trim();
+  assert.match(
+    result.detail,
+    new RegExp(
+      "^GitHub rejected the push: the branch publishes \\.github/workflows changes and the hosted " +
+        "credential lacks the workflow scope\\. The CEO can publish it with local credentials: " +
+        `git -C ${worker} push --force-with-lease origin ${head}:refs/heads/task_workflow_scope\\. ` +
+        "Git said: .*refusing to allow an OAuth App to create or update workflow",
+      "u",
+    ),
+  );
+});
+
+test("the queued task-push receipt points the publisher at ha task pr", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-receipt-")),
+    bare = path.join(root, "remote.git");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  const worktree = path.join(canonical, ".worktrees", "task_push_receipt");
+  git(canonical, "worktree", "add", "--quiet", worktree, "-b", "task_push_receipt");
+  writeFileSync(path.join(worktree, "change.txt"), "worker\n");
+  git(worktree, "add", "change.txt");
+  git(worktree, "commit", "--quiet", "-m", "feat: worker change");
+
+  const cell = {
+    rootDir: canonical,
+    projection: {
+      read: () => ({
+        snapshot: {
+          task: { taskId: "task_push_receipt", taskClass: "standard", presetSnapshotDigest: "digest" },
+        },
+      }),
+      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
+    },
+    store: { readHead: () => ({ revision: 7 }) },
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    withHumanSummary: (receipt: unknown) => receipt,
+    input: {},
+  } as unknown as RepoCellApiContext;
+  const publication = await readBeforeWriteQueue(cell, { kind: "task-push", taskId: "task_push_receipt" }, {
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+  } satisfies RepoCellBinding);
+  assert.ok(publication, "task-push prepares its publication outside the write queue");
+  const receipt = (await publication({ kind: "task-push", taskId: "task_push_receipt" }, {
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+  } satisfies RepoCellBinding)) as {
+    readonly evidence: string;
+    readonly next: readonly { readonly command: string }[];
+  };
+  assert.match(receipt.evidence, /Worker branch pushed: task_push_receipt @/u);
+  assert.deepEqual(receipt.next, [
+    {
+      command: "ha task pr task_push_receipt",
+      reason: "publish the pushed branch as the task's pull request",
+    },
+  ]);
 });
 
 function git(root, ...args) {

@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
+import type { DecisionProviderRecord, RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import {
   isAvailableAgentEntityRow,
   isAvailableSquadEntityRow,
@@ -56,22 +56,29 @@ export function orderProviderRows(
 
 export function ProviderRail({
   instances,
+  decisionProviders = [],
   authProbeStates,
   selectedId,
+  selectedDecisionProviderId = null,
   liveByInstance,
   allowedInstanceIds,
   onSelect,
+  onSelectDecisionProvider,
   onNew,
 }: {
   readonly instances: readonly RuntimeInstanceSummary[];
+  readonly decisionProviders?: readonly DecisionProviderRecord[];
   readonly authProbeStates?: ReadonlyMap<string, RuntimeAuthProbeState>;
   readonly selectedId: string | null;
+  readonly selectedDecisionProviderId?: string | null;
   readonly liveByInstance: ReadonlyMap<string, number>;
   readonly onSelect: (instanceId: string) => void;
+  readonly onSelectDecisionProvider?: (providerId: string) => void;
   readonly onNew: () => void;
   readonly allowedInstanceIds?: readonly string[];
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(true),
+    [decisionsOpen, setDecisionsOpen] = useState(true);
   const ordered = orderProviderRows(instances, authProbeStates, allowedInstanceIds);
   return (
     <nav
@@ -140,6 +147,49 @@ export function ProviderRail({
                 }
                 relaxed
                 selected={selectedId === instance.instanceId}
+              />
+            </button>
+          );
+        })}
+      </Segment>
+      <Segment
+        segment="decisions"
+        title={t("decisionProvider.listTitle")}
+        sub={t("decisionProvider.listSubtitle")}
+        count={decisionProviders.length}
+        open={decisionsOpen}
+        onToggle={() => setDecisionsOpen(!decisionsOpen)}
+        emptyHint={<p className="px-3.5 py-2 ui-micro text-text-faint">{t("decisionProvider.empty")}</p>}
+      >
+        {decisionProviders.map((provider) => {
+          const failed = provider.probe.state === "failed",
+            probeTone = failed ? "bad" : provider.enabled ? "neutral" : "cancel",
+            probeLabel = !provider.enabled
+              ? t("decisionProvider.disabled")
+              : provider.probe.state === "ready"
+                ? t("decisionProvider.probeReady")
+                : failed
+                  ? t("decisionProvider.probeFailed", { code: provider.probe.code })
+                  : t("decisionProvider.probeUnknown");
+          return (
+            <button
+              type="button"
+              key={provider.providerId}
+              data-testid={`rail-decision-provider-${provider.providerId}`}
+              aria-current={selectedDecisionProviderId === provider.providerId || undefined}
+              className="w-full text-left"
+              onClick={() => onSelectDecisionProvider?.(provider.providerId)}
+            >
+              <DenseRow
+                title={<span className="min-w-0 truncate font-medium">{provider.name}</span>}
+                reason={
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <StatusTag tone={probeTone} label={probeLabel} />
+                    <span className="min-w-0 truncate font-mono">{provider.model}</span>
+                  </span>
+                }
+                relaxed
+                selected={selectedDecisionProviderId === provider.providerId}
               />
             </button>
           );

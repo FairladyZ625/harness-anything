@@ -569,7 +569,7 @@ function observeDispatchProcess(
             exitCode: null,
             signal: null,
           });
-          removeRuntimeCallbackRelay(rootDir, dispatchId);
+          removeRuntimeCallbackRelay(dispatchId);
           emitExit(null, reason);
         }
         return;
@@ -622,13 +622,13 @@ function observeDispatchProcess(
     },
     terminate: () => {
       terminateRuntimePid(pid);
-      removeRuntimeCallbackRelay(rootDir, dispatchId);
+      removeRuntimeCallbackRelay(dispatchId);
     },
     terminateTree: async () => {
       try {
         await terminateRuntimeTree(rootDir, dispatchId, pid);
       } finally {
-        removeRuntimeCallbackRelay(rootDir, dispatchId);
+        removeRuntimeCallbackRelay(dispatchId);
       }
     },
     release: () => {

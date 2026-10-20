@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { DaemonRegistryRepo } from "@harness-anything/kernel";
@@ -68,11 +68,12 @@ export function resolveLocalDaemonEndpoint(input: {
     return expected;
   }
   const endpoint = endpointIdentity(injected);
-  // An explicitly injected POSIX socket may live in a different directory. Its basename
+  // An explicitly injected POSIX socket may live in a different directory. In relay mode the
+  // endpoint must be this user's per-dispatch callback relay; otherwise its basename
   // carries the hash of the sealed (userRoot, daemonId) pair.
   const accepted =
     env.HARNESS_DAEMON_RELAY === "1"
-      ? input.canonicalRoot !== undefined && isWorkspaceRelayEndpoint(endpoint, input.canonicalRoot)
+      ? isDispatchRelayEndpoint(endpoint)
       : process.platform !== "win32"
         ? path.basename(endpoint) === path.basename(expected)
         : endpoint === expected;
@@ -161,29 +162,25 @@ export async function readRegisteredRepos(
 function localDaemonTargetHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
-function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
-  const root = path.resolve(rootDir),
-    relative = path.relative(root, path.resolve(endpoint)),
-    parts = relative.split(path.sep);
-  if (parts.length !== 2 || parts[0] !== ".harness" || !/^r-[a-f0-9]{24}\.sock$/u.test(parts[1] ?? "")) return false;
-  let current = root;
-  for (const part of parts) {
-    current = path.join(current, part);
-    // Node 24 realpath's cache reads the shared numeric stat buffer. A socket there
-    // can stop later workspace symlink resolution early; BigInt stats use a separate buffer.
-    const info = lstatSync(current, { throwIfNoEntry: false, bigint: true });
-    if (info?.isSymbolicLink()) return false;
-  }
-  return true;
+/** An injected relay endpoint is accepted only at the per-dispatch location under this user's
+ * socket root: the directory is owner-only (0700, ownership-checked at creation) and the name
+ * carries the dispatch id, so any other socket — another user's, another dispatch's, or an
+ * arbitrary one — fails the shape. The sandboxed worker cannot write there at all, so no
+ * per-component symlink walk is needed to keep the endpoint from being redirected. */
+function isDispatchRelayEndpoint(endpoint: string): boolean {
+  const resolved = path.resolve(endpoint);
+  return path.dirname(resolved) === perUserSocketRoot() && /^r-[a-f0-9]{24}\.sock$/u.test(path.basename(resolved));
+}
+
+export function perUserSocketRoot(uid = process.getuid?.() ?? 0): string {
+  // Socket endpoints live here rather than under TMPDIR or a repository path: both have
+  // unbounded length and macOS caps a unix-socket address at 104 bytes.
+  return path.join("/tmp", `harness-anything-${uid}`);
 }
 
 export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.() ?? 0): string {
   // TMPDIR can exceed the Unix socket path limit and differ between clients and the daemon.
-  return path.join(
-    "/tmp",
-    `harness-anything-${uid}`,
-    `daemon-${uid}-${daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-")}.sock`,
-  );
+  return path.join(perUserSocketRoot(uid), `daemon-${uid}-${daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-")}.sock`);
 }
 
 /** Remote secrets use the existing user-managed loopback tunnel, never a bare remote TCP host. */

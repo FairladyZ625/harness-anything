@@ -84,14 +84,14 @@ test("manifest gate runner selects gates declared in the PR-body workflow", () =
     gates: [
       {
         id: "pr-body-lint",
-        command: "node tools/check-pr-body-bilingual.mjs --env PR_BODY",
+        command: "node tools/check-pr-body.mjs --env PR_BODY",
         executionSurfaces: { prBody: { pullRequestJobs: ["pr-body-lint"] } },
       },
     ],
   };
   const options = parseManifestGateArgs(["--workflow-job", "pr-body-lint"]);
   assert.deepEqual(buildManifestGatePlan(manifest, options), [
-    { id: "pr-body-lint", command: "node tools/check-pr-body-bilingual.mjs --env PR_BODY" },
+    { id: "pr-body-lint", command: "node tools/check-pr-body.mjs --env PR_BODY" },
   ]);
 });
 

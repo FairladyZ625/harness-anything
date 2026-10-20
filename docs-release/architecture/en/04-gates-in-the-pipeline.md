@@ -51,13 +51,11 @@ A terminal status like `done` is never a status you can set directly:
 `ha task complete`. The gate stack cannot be bypassed by "just setting the
 field."
 
-## Fact ownership is a completion gate
+## Facts are explicit evidence
 
-Under `dec_22E7895EB4642798B70ADFAC79`, a task must have at least one active
-`task/<id> -> fact/F-<id>` `produces` edge before completion, or readiness
-reports `fact_missing`. A Fact is still an explicit, append-only observation;
-submit and review do not synthesize one. Standalone facts are valid, but they
-do not satisfy a task's completion gate.
+A Fact is an explicit, append-only observation. Submit and review do not
+synthesize one, and standalone facts remain valid evidence for the decisions
+and tasks they describe.
 
 Facts are stored as individual `facts/F-<id>.md` documents. Delivery evidence
 still belongs to the Execution's Submission packet rather than being copied
@@ -125,13 +123,12 @@ current blocker codes:
 | `closeout_placeholder` | the closeout is still scaffolding |
 | `review_missing` | no approved Review |
 | `consent_missing` | no review-consent record |
-| `ci_missing` | the contract declares `ci` but no witnessed green run (`settings.ci.workflows`; collected automatically by `builtin-ci-observe`) |
+| `delivery_missing` | repository settings require merged code delivery, but its recorded merge commit is absent from the configured target branch; legacy frozen `ci` gates use the same read-only merge evidence |
 | `code_doc_missing` | the contract declares `code-doc-reconciliation` but no verified witness (`ha task code-doc reconcile`) |
 | `gate_witness_missing` | a canonical checker witness for another declared gate is missing |
 | `decision_lineage_missing` | the load-bearing decision lineage is not closed |
 | `lease_held` | a lease is still held |
 | `doc_sync_required` | authored documents are pending sync |
-| `fact_missing` | no active `produces` fact edge |
 | `fact_retirement_undeclared` | a fact retirement was not declared |
 
 For an applicable execution, `ha task code-doc reconcile <task-id>` derives the

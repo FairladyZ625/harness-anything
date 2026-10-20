@@ -265,7 +265,7 @@ test("profile precedence is explicit action, then projected settings", () => {
       {
         id: "baseline",
         title: "Baseline",
-        completionGates: ["ci"],
+        completionGates: ["code-doc-reconciliation"],
         templateSelections: [],
       },
       {
@@ -306,7 +306,7 @@ test("profile precedence is explicit action, then projected settings", () => {
   }
 });
 
-test("default settings resolve the standard task without the ci gate; configured workflows restore it", () => {
+test("default settings resolve the standard task without hosted CI completion sources", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-ci-gate-"));
   try {
     const compile = (settings: Parameters<typeof compileRepoTaskPackage>[0]["settings"]) =>
@@ -318,9 +318,7 @@ test("default settings resolve the standard task without the ci gate; configured
       }).snapshot;
     const witnessless = compile(INITIAL_SETTINGS_V1);
     assert.deepEqual(witnessless.profile.completionGateIds, ["code-doc-reconciliation"]);
-    const witnessed = compile({ ...INITIAL_SETTINGS_V1, ci: { workflows: ["rewrite-ci"] } });
-    assert.deepEqual(witnessed.profile.completionGateIds, ["ci", "code-doc-reconciliation"]);
-    assert.notEqual(witnessless.digest, witnessed.digest);
+    assert.equal(Object.hasOwn(witnessless.completion.sources, "github-actions"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -1,9 +1,5 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import {
   canonicalGateReceipts,
@@ -20,12 +16,14 @@ import {
   type FrozenGateRequirement,
 } from "@harness-anything/kernel";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
-import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import {
+  completionSnapshot,
+  emptyCompletionContract,
+  retiredHostedCiSource,
+} from "../../kernel/test/domain/completion.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
-import { strandedDelivery } from "../src/repo-cell-ci-evidence.ts";
-import { fetchCiObservations } from "../src/ci-observation-actions.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
@@ -34,13 +32,6 @@ import { prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
-
-function git(root: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", root, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
-  }).trim();
-}
 
 const commandRequirement = (gateId = "lint"): FrozenGateRequirement => ({
   gateId,
@@ -76,7 +67,7 @@ const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
   witness: {
-    ...completionSnapshot.completion.sources["github-actions"],
+    ...retiredHostedCiSource,
     adapterId: "github-actions",
     adapterOptions: {
       workflows: ["rewrite-ci"],
@@ -87,38 +78,6 @@ const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
     },
   },
 });
-
-function submittedExecution(
-  commitSha: string,
-  requirements: readonly FrozenGateRequirement[],
-  overrides: Record<string, unknown> = {},
-): Snapshot["executions"][number] {
-  return {
-    schema: "execution/v1",
-    executionId: "execution",
-    taskId: "task",
-    nodeId: "implementation",
-    iteration: 0,
-    state: "submitted",
-    actor,
-    claimedAt: "2026-09-12T00:00:00.000Z",
-    submittedAt: "2026-09-12T00:01:00.000Z",
-    closedAt: null,
-    gateRuns: [],
-    submission: {
-      completionClaim: "Done",
-      commitSha,
-      deliverables: [],
-      outputs: [],
-      verificationNotes: ["Tests passed"],
-      knownGaps: [],
-      residualRisks: [],
-      evidenceRefs: [],
-      completionContract: { ...emptyCompletionContract, gates: [...requirements] },
-      ...overrides,
-    },
-  } as Snapshot["executions"][number];
-}
 
 function cellStub(rootDir: string, execution: Snapshot["executions"][number]) {
   const read = {
@@ -184,52 +143,6 @@ test(
     await assert.rejects(runProcessExitAsync("ha-no-such-binary-9f8e7d", []), { code: "ENOENT" });
   },
 );
-
-test("a delivery is stranded only when no run on the frozen CI branch can ever cover it", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-stranded-"));
-  try {
-    git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Test");
-    git(root, "config", "user.email", "test@example.com");
-    writeFileSync(path.join(root, "file.txt"), "base\n");
-    git(root, "add", "file.txt");
-    git(root, "commit", "-qm", "base");
-    git(root, "checkout", "-qb", "delivery");
-    writeFileSync(path.join(root, "delivered.txt"), "delivered\n");
-    git(root, "add", "delivered.txt");
-    git(root, "commit", "-qm", "delivery");
-    const cutSha = git(root, "rev-parse", "HEAD"),
-      stranded = (sha: string, requirement = githubRequirement()) =>
-        strandedDelivery(root, submittedExecution(sha, [requirement]).submission);
-    git(root, "checkout", "-q", "main");
-
-    assert.equal(stranded(cutSha), false, "no origin/main to judge against");
-    git(root, "update-ref", "refs/remotes/origin/main", "main");
-    assert.equal(stranded(cutSha), false, "an unmerged fork may still land");
-    writeFileSync(path.join(root, "file.txt"), "main moved\n");
-    git(root, "commit", "-qam", "main moves on");
-    git(root, "cherry-pick", cutSha);
-    git(root, "update-ref", "refs/remotes/origin/main", "main");
-    assert.equal(stranded(cutSha), true, "its change landed under another SHA");
-    assert.equal(stranded(cutSha, commandRequirement()), false, "no github-actions gate is frozen");
-    assert.equal(stranded("f".repeat(40)), true, "the commit is gone from the repository");
-    git(root, "merge", "-qm", "merge delivery", cutSha);
-    git(root, "update-ref", "refs/remotes/origin/main", "main");
-    assert.equal(stranded(cutSha), false, "the commit itself reached main");
-
-    const observed = submittedExecution("f".repeat(40), [githubRequirement()]),
-      cell = Object.assign(cellStub(root, observed), {
-        settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
-      });
-    await assert.rejects(
-      fetchCiObservations(cell, { kind: "ci-observe-pull", taskId: "task" }, async () => "[]"),
-      (error: Error & { code?: string }) =>
-        error.code === "ci_witness_not_found" && /adjudicate task --return --review-id/u.test(error.message),
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 // -- canonical write admission ------------------------------------------------
 
@@ -786,7 +699,6 @@ test("dual control needs the automated pass and a human signoff, kept as separat
     closeout: "ready",
     closeoutPath: "tasks/task/closeout.md",
     eligibleDirtyPaths: [],
-    producesFactCount: 1,
   })[0];
   assert.equal(blocker?.gate, "lint");
   assert.match(blocker?.next.action ?? "", /ha task attest task --gate lint --result pass$/u);

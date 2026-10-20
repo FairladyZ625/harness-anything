@@ -6,6 +6,7 @@ import {
   daemonGuiActionMethods,
   daemonGuiInvokeFacets,
   daemonStreamFacets,
+  providerMethods,
   runtimeInstanceAuthMethods,
   runtimeInstanceMethods,
 } from "./daemon-protocol-gui-actions.ts";
@@ -72,8 +73,9 @@ export const accessAdminOperations = Object.freeze([
   "node-register",
   "node-unregister",
   "edge-join-create",
-  "edge-join-consume",
   "edge-join-status",
+  "edge-join-list",
+  "edge-join-revoke",
   "device-list",
   "device-rename",
   "device-pause",
@@ -103,6 +105,9 @@ export const daemonProtocolMethods = Object.freeze([
       sessionEnvironment: "json?",
       executionCredential: "string?",
       reportStaleBuild: "boolean?",
+      // The CLI dedicates one connection per invocation; it names the command that connection
+      // serves so the request logs can key traffic by CLI command instead of transport method.
+      invokingCommand: "string?",
     }),
   },
   {
@@ -179,6 +184,9 @@ export const daemonProtocolMethods = Object.freeze([
       displayName: "string?",
       password: "string?",
       personId: "string?",
+      repoIds: "array?",
+      groupIds: "array?",
+      nodeLabel: "string?",
       operationId: "string?",
       groupId: "string?",
       teamId: "string?",
@@ -201,13 +209,8 @@ export const daemonProtocolMethods = Object.freeze([
       systemName: "string?",
       platform: "string?",
       credentialFile: "string?",
-      centerUrl: "string?",
-      spkiSha256: "string?",
-      ttlMs: "number?",
-      inviteId: "string?",
+      joinId: "string?",
       link: "string?",
-      loginPersonId: "string?",
-      observedSpkiSha256: "string?",
       workspaceRoot: "string?",
     }),
   },
@@ -363,7 +366,7 @@ export const daemonProtocolMethods = Object.freeze([
 ] as const);
 
 /* Runtime instance method descriptors live in the browser-safe protocol graph. */
-export { daemonGuiInvokeFacets, runtimeInstanceAuthMethods, runtimeInstanceMethods };
+export { daemonGuiInvokeFacets, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
 
 export const fleetProtocolMethods = Object.freeze([
   {
@@ -481,6 +484,7 @@ export const fleetProtocolMethods = Object.freeze([
 export const allDaemonProtocolMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
+  ...providerMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
   ...presetMethods,
@@ -584,6 +588,7 @@ type DaemonRpcParamOverrides = {
     readonly executionCredential?: string;
     /** A receipt-rendering caller asks the daemon to begin its cooperative build drain. */
     readonly reportStaleBuild?: boolean;
+    readonly invokingCommand?: string;
   };
   readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
   readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
@@ -716,6 +721,7 @@ export default Object.freeze({
     "W5-GUI-S3",
     "Runtime-Instances-S1",
     "Runtime-Instances-S3",
+    "Decision-Provider",
     "Fleet-Wiring",
     "B2-S1",
     "G6-A",
@@ -748,6 +754,7 @@ export default Object.freeze({
   methods: Object.freeze([
     ...daemonProtocolMethods,
     ...runtimeInstanceMethods,
+    ...providerMethods,
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
     ...daemonGuiReadMethods,
@@ -776,6 +783,7 @@ export {
   actionForDaemonMethod,
   commandClassForAction,
   commandDescriptorForAction,
+  commandIdForDaemonMethod,
   daemonProtocolCommands,
   resolveThinCliCommand,
   thinCliCommands,
@@ -866,7 +874,6 @@ export {
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
-  DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,

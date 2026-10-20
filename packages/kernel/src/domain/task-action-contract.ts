@@ -622,7 +622,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-review-transitions/consent.validate",
         "invalid_proof",
-        "Owner consent selects an approved review of the current submission and pins review, content, and submission digests; every changes_requested review of that submission must be named in --dispose with a --rationale.",
+        "Consent selects an approved review or an owner-disposed changes_requested review of the current submission and pins review, content, and submission digests; owner override requires the task owner's principal and a rationale for every disposed review.",
       ),
     ]),
     concurrency: taskConcurrency(
@@ -802,6 +802,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       field("repairTaskContractBody"),
       field("repairPresetId"),
       field("repairTaskClass"),
+      field("removeRetiredFactCloseoutOverride", "boolean"),
     ]),
     "contract_current",
     "Each selected legacy Task has one deterministic task-contract/v1 backfill or repair.",

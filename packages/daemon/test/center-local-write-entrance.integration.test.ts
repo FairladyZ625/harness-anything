@@ -170,7 +170,7 @@ test("the authorized Schedule creator and an operator write a remote-center cell
       settingsPath,
       writeRepositorySettingsFacet(settingsBody, {
         ...readSettingsFacet(settingsBody),
-        ci: { workflows: ["center-ci"] },
+        delivery: { requireMerged: false, targetBranch: "main" },
       }),
     );
     cell = await openRepoCell({
@@ -220,7 +220,7 @@ test("the authorized Schedule creator and an operator write a remote-center cell
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
 
     const settings = (await cell.run(
-      { kind: "settings-update", ciWorkflows: ["center-gates"], idempotencyKey: "center-settings" },
+      { kind: "settings-update", deliveryTargetBranch: "release", idempotencyKey: "center-settings" },
       operator,
     )) as Receipt;
     assert.equal(settings.outcome, "applied", JSON.stringify(settings));

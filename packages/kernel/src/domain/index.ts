@@ -1,6 +1,28 @@
 export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-envelope.ts";
+export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
+export type {
+  AdvisoryDecision,
+  DecisionOption,
+  DecisionPortFailureCode,
+  DecisionProviderMetadata,
+  DecisionProviderProbe,
+  DecisionProviderRecord,
+  DecisionQuestion,
+  DecisionRequest,
+  DecisionUsage,
+} from "./decision-provider.ts";
+export {
+  decisionWhenMatches,
+  decisionPointBindingDigest,
+  type DecisionEventName,
+  type DecisionInputField,
+  type DecisionReadSurface,
+  type DecisionQuestionDeclaration,
+  type DecisionPointDeclaration,
+} from "./decision-point.ts";
+export { decisionEventDescriptor } from "./decision-event-catalog.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   validateEntityActionExplainRequest,
@@ -47,6 +69,7 @@ export type { DomainStatus } from "./lifecycle-status.ts";
 
 export {
   type CloseoutSnapshot,
+  type CompletionDeliveryStatus,
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,
@@ -54,21 +77,15 @@ export {
   judgeGateWitnesses,
   waivableAutomatedFail,
   currentSubmittedExecutions,
+  isRetiredCiRequirement,
 } from "./closeout-readiness.ts";
 export {
   completionEvidenceBasis,
-  completionEvidenceResults,
   judgeCompletionEvidence,
   OVERRIDE_RATIONALE_MIN_LENGTH,
   validOverrideRationale,
 } from "./completion-evidence.ts";
-export type {
-  CompletionEvidenceBasis,
-  CompletionEvidenceJudgment,
-  CompletionEvidenceProvenance,
-  CompletionEvidenceResult,
-  CompletionEvidenceV1,
-} from "./completion-evidence.ts";
+export type { CompletionEvidenceJudgment, CompletionEvidenceV1 } from "./completion-evidence.ts";
 export { blockingOf, dispatchPrerequisitesOf, stackedDeliveryBaseline } from "./task-blocking.ts";
 export type { BlockingLabel } from "./task-blocking.ts";
 
@@ -268,12 +285,12 @@ export {
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   localSettings,
+  migrateRetiredSettingsCandidate,
   parseLocalSettings,
   readGateSettings,
   readSettingsFacet,
   repositorySettings,
   serializeLocalSettings,
-  settingValuePattern,
   validateRepositorySettings,
   validateSettingsV1,
   writeGatesFacet,
@@ -386,19 +403,9 @@ export type {
   ArtifactLocator,
   ArtifactSourceIdentityInput,
 } from "./artifact-entity.ts";
-export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 
 export { type ExecutionDelegationRecord } from "./execution-delegation.ts";
 
 export { parseDelegatedExecutionToken } from "./delegated-execution-token.ts";
 
 export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";
-
-export type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
-
-export { ciDetailMeasurement, validDiagnosticTest } from "./ci-run-observation-v4.ts";
-export type { CiDetailRef, CiRunDetail, CiObservationRead, CiObservationIdentity } from "./ci-run-observation-v4.ts";
-
-export type { CiObserveProgress } from "./schedule-ci-progress.ts";
-
-export { ciRunWindow, ciRerunStatistics } from "./ci-rerun-statistics.ts";

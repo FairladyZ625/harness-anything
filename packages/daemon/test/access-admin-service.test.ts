@@ -1,23 +1,36 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import test, { type TestContext } from "node:test";
-import { actionDeclarations } from "@harness-anything/kernel";
+import { actionDeclarations, disableDaemonRepo, unbindDaemonRepo } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
-import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
+import { managedRbacReceiptJournal, managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
-async function fixture(t: TestContext) {
+async function fixture(
+  t: TestContext,
+  ports: {
+    readonly now?: () => number;
+    readonly wrapFetch?: (inner: typeof fetch) => typeof fetch;
+  } = {},
+) {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
-    oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
-    admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
+    fetchPort = ports.wrapFetch?.(keycloak.fetch) ?? keycloak.fetch,
+    oidc = new OidcSessionService(user.root, { fetch: fetchPort, ...(ports.now ? { now: ports.now } : {}) }),
+    admin = new AccessAdminService(oidc, user.root, { fetch: fetchPort }),
     config = { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" };
   t.after(user.cleanup);
   await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("center-token");
@@ -58,6 +71,76 @@ async function fixture(t: TestContext) {
         })
       ).outcome,
   };
+}
+
+/** Two registered repositories, a bound fleet center, and the edge permission groups every invitation test needs. */
+async function edgeJoinCenter(t: TestContext, base: Awaited<ReturnType<typeof fixture>>) {
+  const work = mkdtempSync(path.join(tmpdir(), "ha-edge-invitation-")),
+    certificate = path.join(work, "center.crt"),
+    key = path.join(work, "center.key");
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      key,
+      "-out",
+      certificate,
+      "-subj",
+      "/CN=127.0.0.1",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  for (const repoId of ["repo-a", "repo-b"]) {
+    const canonicalRoot = path.join(work, repoId);
+    mkdirSync(path.join(canonicalRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(canonicalRoot, "harness", "harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings: {}\n",
+    );
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: canonicalRoot });
+    execFileSync("git", ["add", "harness/harness.yaml"], { cwd: canonicalRoot });
+    execFileSync(
+      "git",
+      ["-c", "user.name=Edge invite test", "-c", "user.email=edge-invite@example.invalid", "commit", "-qm", "seed"],
+      { cwd: canonicalRoot },
+    );
+    registerBootstrappedDaemonRepo({ canonicalRoot, repoId, userRoot: base.root, createConvenienceLinks: false });
+  }
+  saveFleetCenterConfig(base.root, "default", {
+    bind: "127.0.0.1",
+    port: 8443,
+    repoId: "repo-a",
+    keyPath: key,
+    certPath: certificate,
+    stateRoot: path.join(work, "fleet-state"),
+    quotaBytes: 1024 * 1024,
+  });
+  base.keycloak.account("person-admin");
+  await base.run({
+    operation: "group-create",
+    groupId: "edge-source",
+    displayName: "Edge source",
+    scopes: [],
+    composites: ["viewer"],
+  });
+  await base.run({
+    operation: "group-create",
+    groupId: "edge-selected",
+    displayName: "Edge selected",
+    scopes: [],
+    composites: ["edge-source"],
+  });
+  return base;
 }
 
 test("a group granted on repository A allows there and denies on repository B", async (t) => {
@@ -688,4 +771,185 @@ test("host-level actions answer to the fleet grant of the signed-in person, neve
   assert.deepEqual([decision.policyRef, decision.outcome], ["keycloak-policy@1", "allowed"]);
   assert.deepEqual([...new Set(requests)], ["@fleet#runtime-instance-create"]);
   await assert.rejects(attempt(), { code: "authentication_required" });
+});
+
+test("edge invitations grant each selected repository and reject inherited permission drift or revocation", async (t) => {
+  const { keycloak, admin, run, signIn, journal } = await edgeJoinCenter(t, await fixture(t));
+  const issued = await run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      username: "edge-operator",
+      email: "edge@example.invalid",
+      displayName: "Edge Operator",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["edge-selected"],
+      nodeLabel: "edge-test",
+    }),
+    issuedLink = issued.link;
+  assert.equal(typeof issuedLink, "string", "CLI and GUI receive the encoded invitation link");
+  assert.match(String(issuedLink), /^harness-edge:\/\/join\/[A-Za-z0-9_-]+$/u);
+  const link = JSON.parse(
+    Buffer.from(String(issuedLink).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+  ) as {
+    readonly joinId: string;
+    readonly token?: string;
+    readonly repoIds: readonly string[];
+    readonly loginClientId: string;
+  };
+  assert.ok(link.token);
+  assert.deepEqual([issued.ok, issued.state, link.repoIds], [true, "pending", ["repo-a", "repo-b"]]);
+  assert.equal(
+    JSON.stringify(journal()).includes(link.token),
+    false,
+    "the writer journal stores no plaintext invite token",
+  );
+  const grants = (await run({ operation: "grant-list" })).grants as {
+    readonly personId: string;
+    readonly groupId: string;
+    readonly resource: string;
+  }[];
+  assert.deepEqual(
+    grants.filter((grant) => grant.personId === "person-invited").map((grant) => [grant.groupId, grant.resource]),
+    [
+      ["edge-selected", "repo-a"],
+      ["edge-selected", "repo-b"],
+    ],
+  );
+
+  const source = (
+    (await run({ operation: "group-list" })).groups as { readonly id: string; readonly version: string }[]
+  ).find((group) => group.id === "edge-source")!;
+  await run({
+    operation: "group-update",
+    groupId: source.id,
+    displayName: "Edge source",
+    scopes: [],
+    composites: ["contributor"],
+    expectedVersion: source.version,
+  });
+  keycloak.interactiveSession("person-invited", "edge-device", keycloakUrl, "invited-token", link.loginClientId);
+  const nodeCount = keycloak.nodeClients.size;
+  await assert.rejects(
+    admin.admitEdgeJoin({ joinId: link.joinId, inviteToken: link.token, accessToken: "invited-token" }),
+    { code: "permission_snapshot_changed" },
+  );
+  assert.equal(keycloak.nodeClients.size, nodeCount, "permission drift fails before minting an edge credential");
+  assert.deepEqual(
+    (await admin.run({ operation: "edge-join-status", joinId: link.joinId })).state,
+    "pending",
+    "a refused admission leaves the invite available for a fresh decision",
+  );
+
+  const second = await run({
+    operation: "edge-join-create",
+    personId: "person-invited",
+    username: "edge-operator-2",
+    email: "edge@example.invalid",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["edge-selected"],
+  });
+  const revoked = await run({ operation: "edge-join-revoke", joinId: String(second.joinId) });
+  assert.deepEqual(
+    revoked,
+    { ok: true, joinId: String(second.joinId), state: "revoked" },
+    "revoke answers with the join's identity and state only",
+  );
+  assert.equal(typeof second.link, "string", "a second CLI invitation also returns a string link");
+  const revokedToken = JSON.parse(
+    Buffer.from(String(second.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+  ).token as string;
+  await assert.rejects(
+    admin.admitEdgeJoin({ joinId: String(second.joinId), inviteToken: revokedToken, accessToken: "invited-token" }),
+    { code: "join_revoked" },
+  );
+  signIn("person-admin");
+});
+
+test(
+  "edge-join-create renews a lapsing administrator session inside the write queue",
+  { timeout: 10_000 },
+  async (t) => {
+    const clock = { now: Date.now() },
+      { keycloak, run, root } = await edgeJoinCenter(
+        t,
+        await fixture(t, {
+          now: () => clock.now,
+          // Each Keycloak round trip advances the test clock, pulling the invite into the renewal margin.
+          wrapFetch: (inner) =>
+            (async (input, init) => {
+              clock.now += 1_000;
+              return inner(input, init);
+            }) as typeof fetch,
+        }),
+      ),
+      adminUser = [...keycloak.users.values()].find(
+        (user) => user.attributes.harness_person_id?.[0] === "person-admin",
+      )!;
+    // The renewal's fresh token carries the administrator's realm role.
+    keycloak.realmRoles.set("access-admin", {
+      id: "role-access-admin",
+      name: "access-admin",
+      composites: new Set(),
+      members: new Set([adminUser.id]),
+    });
+    // 30.5s of access-token life: the entry role check does not renew; the invite's first round trips do.
+    managedRbacSessionStore(root).write(
+      JSON.stringify({
+        schema: "harness-oidc-session/v2",
+        accessToken: "token-person-admin",
+        refreshToken: "token-person-admin",
+        subject: "person-admin",
+        personId: "person-admin",
+        expiresAt: clock.now + 30_500,
+        sessionExpiresAt: clock.now + 21_600_000,
+        roles: ["access-admin"],
+      }),
+    );
+    const issued = await run({
+      operation: "edge-join-create",
+      personId: "person-newcomer",
+      username: "newcomer",
+      email: "newcomer@example.invalid",
+      displayName: "New Comer",
+      repoIds: ["repo-a"],
+      groupIds: ["edge-selected"],
+    });
+    assert.equal(issued.ok, true);
+    assert.equal(
+      [...keycloak.users.values()].some((user) => user.attributes.harness_person_id?.[0] === "person-newcomer"),
+      true,
+      "the lapsing session still invited the new operator",
+    );
+  },
+);
+
+test("an invitation is refused at consume when its repository was disabled or removed after issuance", async (t) => {
+  const { keycloak, admin, run, root } = await edgeJoinCenter(t, await fixture(t)),
+    issued = await run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      username: "edge-operator",
+      email: "edge@example.invalid",
+      displayName: "Edge Operator",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["edge-selected"],
+    }),
+    link = JSON.parse(
+      Buffer.from(String(issued.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+    ) as {
+      readonly joinId: string;
+      readonly token?: string;
+      readonly loginClientId: string;
+    };
+  assert.ok(link.token);
+  keycloak.interactiveSession("person-invited", "edge-device", keycloakUrl, "invited-token", link.loginClientId);
+  const nodeCount = keycloak.nodeClients.size,
+    admit = () => admin.admitEdgeJoin({ joinId: link.joinId, inviteToken: link.token!, accessToken: "invited-token" });
+  disableDaemonRepo("repo-b", { userRoot: root });
+  await assert.rejects(admit(), { code: "repo_namespace_unknown" }, "a disabled repository refuses the consume");
+  unbindDaemonRepo("repo-b", { userRoot: root });
+  await assert.rejects(admit(), { code: "repo_namespace_unknown" }, "a removed repository refuses the consume");
+  assert.equal(keycloak.nodeClients.size, nodeCount, "no edge node is minted for a refused repository check");
+  assert.equal((await run({ operation: "edge-join-status", joinId: link.joinId })).state, "pending");
 });

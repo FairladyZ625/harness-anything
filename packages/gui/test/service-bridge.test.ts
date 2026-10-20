@@ -331,13 +331,17 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       defaultVertical: "software/coding",
       defaultPreset: "standard-task",
       defaultProfile: "baseline",
+      // dec_522BA3AABB6D06201E9A8B0D33/CH1: full credential inheritance is the default policy.
+      workerPermissions: {
+        mode: "full",
+      },
       reviewIndependence: "execution",
       decisionReviewRequirement: "off",
       reviewReturnBudget: 3,
       restoreDrillRetention: 3,
       locale: "en-US",
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-      ci: { workflows: [] },
+      delivery: { requireMerged: true, targetBranch: "main" },
       gates: [],
       agenda: { pinLimit: 30 },
       overview: { watchedActivityDays: 3 },

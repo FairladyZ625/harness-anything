@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,7 +16,12 @@ import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/
 import { startBaseBackup } from "../src/fleet/basebackup.ts";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
-import { fleetMirrorTaskPaths, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import {
+  applyFleetMirrorCut,
+  fleetMirrorTaskPaths,
+  locateFleetMirrorView,
+  scanFleetMirrorWorktree,
+} from "../src/fleet-edge-mirror.ts";
 
 interface Fixture {
   readonly root: string;
@@ -186,4 +191,39 @@ test("dispatched task-package lookup keeps SQL row access independent of unrelat
     largeRead.rows - smallRead.rows <= 2,
     `package lookup grew with unrelated documents: ${smallRead.rows} -> ${largeRead.rows}`,
   );
+});
+
+test("legacy materialization marker without a base does not classify center differences as local edits", async (t) => {
+  const fixture = await makeFixture(1);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  const localPath = path.join(fixture.workspaceRoot, "harness/tasks/task-scale/artifacts/doc-0.md");
+  mkdirSync(path.dirname(localPath), { recursive: true });
+  writeFileSync(localPath, "legacy local bytes\n");
+  const localOnlyPath = path.join(fixture.workspaceRoot, "harness/tasks/task-scale/artifacts/local-only.md");
+  writeFileSync(localOnlyPath, "edge-only bytes\n");
+  mkdirSync(path.join(fixture.workspaceRoot, ".harness"), { recursive: true });
+  writeFileSync(path.join(fixture.workspaceRoot, ".harness/fleet-materialized.json"), JSON.stringify({ revision: 1 }));
+  const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId, fixture.nodeId);
+  assert.ok(view);
+  const scan = scanFleetMirrorWorktree(view, fixture.workspaceRoot);
+  t.diagnostic(
+    JSON.stringify({ changes: scan.changes.map(({ path: logical }) => logical), cleanPaths: scan.cleanPaths }),
+  );
+  assert.deepEqual(
+    scan.changes.map(({ path: logical }) => logical),
+    ["tasks/task-scale/artifacts/local-only.md"],
+  );
+  assert.deepEqual(scan.cleanPaths, ["tasks/task-scale/artifacts/doc-0.md"]);
+  const applied = applyFleetMirrorCut(fixture.viewRoot, fixture.repoId, fixture.workspaceRoot, "pull");
+  assert.deepEqual(applied.dirtyPaths, []);
+  assert.equal(readFileSync(localPath, "utf8"), "# document 0\n");
+});
+
+test("an unmarked worktree does not report unmaterialized center documents as deletions", async (t) => {
+  const fixture = await makeFixture(1);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId, fixture.nodeId);
+  assert.ok(view);
+  const scan = scanFleetMirrorWorktree(view, fixture.workspaceRoot);
+  assert.deepEqual(scan.deletedPaths, []);
 });

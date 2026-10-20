@@ -1,9 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { zstdCompressSync } from "node:zlib";
 import { attachActiveRuntime, createActiveRuntime } from "../src/runtime-spawn-active.ts";
 import { observeResumeProcess } from "../src/runtime-spawn-process.ts";
 import {
@@ -25,6 +26,7 @@ import {
   parseZcodeFrame,
 } from "../src/runtime-spawn-provider-frames.ts";
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
+import { publishExit } from "../src/runtime-spawn-settlement.ts";
 
 function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
@@ -875,6 +877,513 @@ test("an adopted session settles usage recovered from the persisted provider str
     assert.equal(settled?.usageUnavailable, false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a usage dialect with only context occupancy settles unavailable instead of reported zeros", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-context-occupancy-"));
+  try {
+    const dispatchId = "dispatch_0123456789abcdef55555555";
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: "deepseek-harness",
+      startedAt: "2026-10-19T03:25:06.717Z",
+    });
+    // Frames as runtime-worker-acp persists them (trimmed from a real deepseek-harness
+    // session, dispatch_3360193ce5356e273a499ad8): usage_update carries only the context
+    // occupancy, and the prompt result carries no usage record at all.
+    const runtime = active("deepseek-harness", { release: () => undefined } as never, {
+      dispatchId,
+      instanceId: "deepseek-harness",
+      stream: writer,
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaaaaaaaaaaaaaaaaaaaaaaa" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      squadId: null,
+      delegatedBy: null,
+      decisionReviewTarget: null,
+      providerSessionId: "deepseek-session",
+      finalText: "Review complete.",
+      providerOutcome: "succeeded",
+    });
+    await consumeProviderLine(
+      context(),
+      runtime,
+      JSON.stringify({
+        sessionId: "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+        type: "acp.update",
+        update: { sessionUpdate: "usage_update", used: 27997, size: 1048576 },
+        usage: { used: 27997, context_size: 1048576 },
+      }),
+    );
+    await consumeProviderLine(
+      context(),
+      runtime,
+      JSON.stringify({
+        sessionId: "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+        type: "acp.result",
+        stopReason: "end_turn",
+        finalText: "Review complete.",
+      }),
+    );
+    assert.deepEqual(
+      { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
+      { input: 0, cacheRead: 0, output: 0 },
+    );
+    runtime.toolCallCount = 85;
+    await publishExit(
+      {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-19T03:30:55.396Z",
+          stream: { publish: () => undefined },
+        },
+        resultMediaType: "text/plain",
+        runtimeResultText: () => "Review complete.",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as never,
+      runtime,
+      0,
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    t.diagnostic(`settled runtime_metrics=${JSON.stringify(settled)}`);
+    assert.deepEqual(
+      {
+        inputTokens: settled?.inputTokens,
+        cacheReadTokens: settled?.cacheReadTokens,
+        outputTokens: settled?.outputTokens,
+        totalTokens: settled?.totalTokens,
+        toolCallCount: settled?.toolCallCount,
+        usageUnavailable: settled?.usageUnavailable,
+        raw: settled?.raw,
+      },
+      {
+        inputTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        toolCallCount: 85,
+        usageUnavailable: true,
+        raw: { used: 27997, context_size: 1048576 },
+      },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// Live shape (dispatch_3360193ce5356e273a499ad8, session e96a1c92): dsh appends one
+// independently decodable zstd frame per committed batch, usage rides
+// assistant/message and assistant/chunk rows keyed by (turn, step), and the
+// session_projcache JSON is a checkpoint that can lag the transcript by whole steps
+// when the process exits before the fire-and-forget write-back.
+function writeDeepSeekTranscript(providerHome: string, sessionId: string, batches: readonly string[]): string {
+  const sessionDir = path.join(providerHome, "sessions", "--fixture-project--", sessionId);
+  mkdirSync(sessionDir, { recursive: true });
+  const logPath = path.join(sessionDir, "session.v4.jsonl.zstd");
+  writeFileSync(logPath, Buffer.concat(batches.map((batch) => zstdCompressSync(Buffer.from(batch)))));
+  return logPath;
+}
+
+function jsonl(rows: readonly unknown[]): string {
+  return `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+}
+
+test("DeepSeek Harness settlement folds the complete transcript total, ahead of its stale projection checkpoint", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-")),
+    providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-"));
+  try {
+    const dispatchId = "dispatch_123456789abcdef055555555",
+      sessionId = "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+      writer = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+        instanceId: "deepseek-harness",
+        startedAt: "2026-10-19T03:25:06.717Z",
+      }),
+      // Batch 1 is the projection checkpoint's cut: step 1 reports an early chunk
+      // sample that the finalized message replaces, a packed delta row advances the
+      // seq sequence without usage, and step 2 settles.
+      firstBatch = jsonl([
+        { type: "session", version: 4, id: sessionId, createdAt: 1792404073447, cwd: "/fixture", delegationDepth: 0 },
+        { type: "permission/preset", seq: 0, time: 1, data: {} },
+        {
+          type: "assistant/chunk",
+          seq: 1,
+          time: 2,
+          data: {
+            turn: 1,
+            step: 1,
+            chunk: {
+              type: "usage",
+              usage: { inputTokens: 100000, outputTokens: 50000, cacheReadTokens: 6000000, cacheWriteTokens: 0 },
+            },
+          },
+        },
+        {
+          type: "assistant/message",
+          seq: 2,
+          time: 3,
+          data: {
+            turn: 1,
+            step: 1,
+            usage: { inputTokens: 130611, outputTokens: 54932, cacheReadTokens: 6464320, cacheWriteTokens: 0 },
+          },
+        },
+        {
+          type: "text-chunks",
+          seq0: 3,
+          time0: 4,
+          data: { turn: 1, step: 2, index: 0, dt: [1, 1], texts: ["a", "b", "c"] },
+        },
+        {
+          type: "assistant/message",
+          seq: 6,
+          time: 5,
+          data: {
+            turn: 1,
+            step: 2,
+            usage: { inputTokens: 1961, outputTokens: 602, cacheReadTokens: 200000, cacheWriteTokens: 0 },
+          },
+        },
+      ]),
+      // Batch 2 holds the two steps the checkpoint missed (the process exited 154ms
+      // after acp.result, before the projection's write-back).
+      secondBatch = jsonl([
+        {
+          type: "assistant/message",
+          seq: 7,
+          time: 6,
+          data: {
+            turn: 1,
+            step: 65,
+            usage: { inputTokens: 1961, outputTokens: 602, cacheReadTokens: 191232, cacheWriteTokens: 0 },
+          },
+        },
+        {
+          type: "assistant/message",
+          seq: 8,
+          time: 7,
+          data: {
+            turn: 1,
+            step: 66,
+            usage: { inputTokens: 228, outputTokens: 1080, cacheReadTokens: 193664, cacheWriteTokens: 0 },
+          },
+        },
+      ]);
+    writeDeepSeekTranscript(providerHome, sessionId, [firstBatch, secondBatch]);
+    const projectionPath = path.join(providerHome, "storages", "session_projcache", "sessions", `${sessionId}.json`);
+    mkdirSync(path.dirname(projectionPath), { recursive: true });
+    writeFileSync(
+      projectionPath,
+      JSON.stringify({
+        version: 1,
+        record: {
+          rows: {
+            tokenUsage: {
+              ver: 2,
+              seq: 590,
+              val: {
+                totals: {
+                  uncachedInputTokens: 132572,
+                  outputTokens: 55534,
+                  cacheReadTokens: 6664320,
+                  cacheWriteTokens: 0,
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    const runtime = active("deepseek-harness", { release: () => undefined } as never, {
+      dispatchId,
+      instanceId: "deepseek-harness",
+      resolvedProviderDirectory: providerHome,
+      stream: writer,
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaaaaaaaaaaaaaaaaaaaaaaa" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      squadId: null,
+      delegatedBy: null,
+      decisionReviewTarget: null,
+      providerSessionId: sessionId,
+      finalText: "Review complete.",
+      providerOutcome: "succeeded",
+    });
+    runtime.providerUsageEmpty = true;
+    await consumeProviderChunk(context(), runtime, "", true);
+    assert.equal(runtime.usageReported, true);
+    assert.deepEqual(
+      {
+        inputTokens: runtime.inputTokens,
+        cacheReadTokens: runtime.cacheReadTokens,
+        outputTokens: runtime.outputTokens,
+      },
+      // The transcript folds to the review's measured session total: uncached
+      // 134761 + cache read 7049216, not the checkpoint's 6796892/6852426.
+      { inputTokens: 7183977, cacheReadTokens: 7049216, outputTokens: 57216 },
+    );
+    assert.deepEqual(runtime.rawUsage, {
+      input_tokens: 134761,
+      cacheReadTokens: 7049216,
+      cacheWriteTokens: 0,
+      output_tokens: 57216,
+    });
+    runtime.toolCallCount = 85;
+    await publishExit(
+      {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-19T03:30:55.396Z",
+          stream: { publish: () => undefined },
+        },
+        resultMediaType: "text/plain",
+        runtimeResultText: () => "Review complete.",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as never,
+      runtime,
+      0,
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    t.diagnostic(`settled runtime_metrics=${JSON.stringify(settled)}`);
+    assert.deepEqual(
+      {
+        inputTokens: settled?.inputTokens,
+        cacheReadTokens: settled?.cacheReadTokens,
+        outputTokens: settled?.outputTokens,
+        totalTokens: settled?.totalTokens,
+        usageUnavailable: settled?.usageUnavailable,
+      },
+      {
+        inputTokens: 7183977,
+        cacheReadTokens: 7049216,
+        outputTokens: 57216,
+        totalTokens: 7241193,
+        usageUnavailable: false,
+      },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(providerHome, { recursive: true, force: true });
+  }
+});
+
+test("DeepSeek Harness settlement folds up to a torn final frame and no further", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-torn-")),
+    providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-torn-"));
+  try {
+    const sessionId = "b5f4b8e2-1d3c-4a9e-9f2b-6c7d8e9f0a1b",
+      committed = jsonl([
+        { type: "session", version: 4, id: sessionId, createdAt: 1, cwd: "/fixture", delegationDepth: 0 },
+        {
+          type: "assistant/message",
+          seq: 0,
+          time: 1,
+          data: {
+            turn: 1,
+            step: 1,
+            usage: { inputTokens: 1000, outputTokens: 40, cacheReadTokens: 600, cacheWriteTokens: 0 },
+          },
+        },
+      ]),
+      // The second batch never finished writing: only its frame prefix is on disk,
+      // and its usage row must not reach the settlement.
+      tornBatch = jsonl([
+        {
+          type: "assistant/message",
+          seq: 1,
+          time: 2,
+          data: {
+            turn: 1,
+            step: 2,
+            usage: { inputTokens: 5000, outputTokens: 60, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          },
+        },
+      ]),
+      logPath = writeDeepSeekTranscript(providerHome, sessionId, [committed]);
+    writeFileSync(
+      logPath,
+      Buffer.concat([readFileSync(logPath), zstdCompressSync(Buffer.from(tornBatch)).subarray(0, 9)]),
+    );
+    const runtime = active("deepseek-harness", {} as never, {
+      resolvedProviderDirectory: providerHome,
+      providerSessionId: sessionId,
+    });
+    runtime.providerUsageEmpty = true;
+    await consumeProviderChunk(context(), runtime, "", true);
+    assert.equal(runtime.usageReported, true);
+    assert.deepEqual(
+      { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
+      { input: 1600, cacheRead: 600, output: 40 },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(providerHome, { recursive: true, force: true });
+  }
+});
+
+test("context-occupancy updates do not suppress real usage frames of the same session", async () => {
+  const runtime = active("deepseek-harness");
+  await consumeProviderLine(
+    context(),
+    runtime,
+    JSON.stringify({
+      type: "acp.update",
+      update: { sessionUpdate: "usage_update", used: 27997, size: 1048576 },
+      usage: { used: 27997, context_size: 1048576 },
+    }),
+  );
+  await consumeProviderLine(
+    context(),
+    runtime,
+    JSON.stringify({
+      type: "acp.update",
+      update: { sessionUpdate: "usage_update" },
+      usage: { prompt_tokens: 60, prompt_cache_hit_tokens: 40, completion_tokens: 3 },
+    }),
+  );
+  assert.equal(runtime.usageReported, true);
+  assert.deepEqual(
+    { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
+    { input: 100, cacheRead: 40, output: 3 },
+  );
+});
+
+test("DeepSeek Harness settlement stays unavailable when only the projection checkpoint exists", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-missing-")),
+    providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-missing-"));
+  try {
+    const dispatchId = "dispatch_223456789abcdef055555555",
+      sessionId = "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+      writer = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+        instanceId: "deepseek-harness",
+        startedAt: "2026-10-19T03:25:06.717Z",
+      }),
+      // Only the checkpoint survives (the transcript was rotated away); its totals
+      // are a possibly stale lower bound, never a bill, so nothing is settled.
+      projectionPath = path.join(providerHome, "storages", "session_projcache", "sessions", `${sessionId}.json`);
+    mkdirSync(path.dirname(projectionPath), { recursive: true });
+    writeFileSync(
+      projectionPath,
+      JSON.stringify({
+        version: 1,
+        record: {
+          rows: {
+            tokenUsage: {
+              ver: 2,
+              seq: 590,
+              val: {
+                totals: {
+                  uncachedInputTokens: 132572,
+                  outputTokens: 55534,
+                  cacheReadTokens: 6664320,
+                  cacheWriteTokens: 0,
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    const runtime = active("deepseek-harness", { release: () => undefined } as never, {
+      dispatchId,
+      instanceId: "deepseek-harness",
+      resolvedProviderDirectory: providerHome,
+      stream: writer,
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaaaaaaaaaaaaaaaaaaaaaaa" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      squadId: null,
+      delegatedBy: null,
+      decisionReviewTarget: null,
+      providerSessionId: sessionId,
+      finalText: "Review complete.",
+      providerOutcome: "succeeded",
+    });
+    runtime.providerUsageEmpty = true;
+    await consumeProviderLine(
+      context(),
+      runtime,
+      JSON.stringify({
+        sessionId,
+        type: "acp.update",
+        update: { sessionUpdate: "usage_update", used: 27997, size: 1048576 },
+        usage: { used: 27997, context_size: 1048576 },
+      }),
+    );
+    await consumeProviderChunk(context(), runtime, "", true);
+    runtime.toolCallCount = 85;
+    await publishExit(
+      {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-19T03:30:55.396Z",
+          stream: { publish: () => undefined },
+        },
+        resultMediaType: "text/plain",
+        runtimeResultText: () => "Review complete.",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as never,
+      runtime,
+      0,
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    t.diagnostic(`settled runtime_metrics=${JSON.stringify(settled)}`);
+    assert.equal(settled?.usageUnavailable, true);
+    assert.deepEqual(
+      {
+        inputTokens: settled?.inputTokens,
+        cacheReadTokens: settled?.cacheReadTokens,
+        outputTokens: settled?.outputTokens,
+      },
+      { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(providerHome, { recursive: true, force: true });
   }
 });
 

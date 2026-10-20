@@ -1,3 +1,4 @@
+import { builtinModules } from "node:module";
 import { defineConfig } from "vite";
 
 // Both npm and desktop distributions run this compiled main entry. Workspace
@@ -15,7 +16,10 @@ export default defineConfig({
     target: "node20",
     minify: false,
     rollupOptions: {
-      external: ["electron", /^node:/u, /^@harness-anything\//u],
+      // Bundled CommonJS dependencies (electron-updater -> fs-extra) require bare
+      // builtins such as "fs"; without these they resolve to an empty browser stub.
+      platform: "node",
+      external: ["electron", ...builtinModules, /^node:/u, /^@harness-anything\//u],
     },
   },
 });

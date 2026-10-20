@@ -18,7 +18,13 @@
   "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance": {
    "task": "task_1103403e13bb17aa06cc3ebb10",
    "errors": "runtime_instance_disabled, runtime_instance_not_found, runtime_installation_not_found, runtime_credential_unavailable, runtime_subscription_required, runtime_auth_in_progress, runtime_auth_probe_failed, invalid_runtime_model",
-   "reason": "Only automatic declaration selection consumes named pre-launch unavailability to try the next local candidate. Installation and login state can change after configuration writes; explicit instance and resume requests preserve the original error. Owner iteration-4 inventory authorization, 2026-10-09."
+   "reason": "Only automatic declaration selection consumes named pre-launch unavailability to try the next local candidate. Installation and login state can change after configuration writes; explicit instance and resume requests preserve the original error. Owner iteration-4 inventory authorization, 2026-10-09.",
+  "packages/daemon/src/runtime-task-pr.ts#waitTaskPullRequestChecks": {
+   "task": "task_304b2182cddabb68f2f5fadfed",
+   "decision": null,
+   "errors": "transient hosting-provider read failures after the first successful snapshot",
+   "reason": "ha task pr --wait-ci is the single daemon-side CI wait loop (owner-approved direction, 2026-10-19): it polls the provider port on a fixed interval until the PR head's checks settle or a constant budget expires. A mid-wait read failure is recorded into the terminal timeout receipt's last-read-error line instead of failing the wait; the first read and any ci_pull_request_missing rethrow. Coordinator-authorized entry, 2026-10-19."
+  }
   }
  },
  "entries": {
@@ -30,6 +36,7 @@
    "packages/cli/src/cli-runtime-wait.ts#waitForStreamedRuntime",
    "packages/cli/src/cli/gui-launch.ts#guiElectronRuntime",
    "packages/cli/src/cli/gui-launch.ts#resolveGuiPackageRoot",
+   "packages/cli/src/cli/gui-launch.ts#uninstalledLockfileDependency",
    "packages/cli/src/cli/receipt-render-registry.ts#parseEvidence",
    "packages/cli/src/cli/thin-command-schedule.ts#renderScheduleList",
    "packages/cli/src/cli/thin-command-schedule.ts#renderScheduleRuns",
@@ -57,7 +64,6 @@
    "packages/daemon/src/artifacts-gui-read.ts#walkArtifactTree",
    "packages/daemon/src/bin.ts#<module>",
    "packages/daemon/src/build-identity.ts#resolveStamp",
-   "packages/daemon/src/ci-observation-actions.ts#downloadCiArtifacts",
    "packages/daemon/src/client/local-json-rpc-client.ts#onLine",
    "packages/daemon/src/client/local-json-rpc-shutdown.ts#requestDaemonShutdownAt",
    "packages/daemon/src/client/local-json-rpc-stream.ts#connect",
@@ -66,6 +72,7 @@
    "packages/daemon/src/conn-log.ts#closeHandle",
    "packages/daemon/src/conn-log.ts#pruneOldDays",
    "packages/daemon/src/conn-log.ts#renameIfExists",
+   "packages/daemon/src/conn-log.ts#shiftDayGenerations",
    "packages/daemon/src/conn-log.ts#writeLine",
    "packages/daemon/src/contained-path.ts#resolveContainedPath",
    "packages/daemon/src/daemon-host-open.ts#attach",
@@ -78,6 +85,8 @@
    "packages/daemon/src/daemon-singleton.ts#processAlive",
    "packages/daemon/src/daemon-singleton.ts#readPidFile",
    "packages/daemon/src/daemon-singleton.ts#releaseIfHeld",
+      "packages/daemon/src/decision-point-executor.ts#settle",
+   "packages/daemon/src/runtime-task-pr.ts#waitTaskPullRequestChecks",
    "packages/daemon/src/decision-surface-actions.ts#jsonEqual",
    "packages/daemon/src/decision-surface-actions.ts#jsonObject",
    "packages/daemon/src/decision-surface-actions.ts#unquoteDecisionScalar",
@@ -145,7 +154,6 @@
    "packages/daemon/src/repo-bootstrap.ts#optionalGitText",
    "packages/daemon/src/repo-bootstrap.ts#previousRepositoryPaths",
    "packages/daemon/src/repo-cell-action-parse.ts#tryParseJsonObject",
-   "packages/daemon/src/repo-cell-ci-evidence.ts#targetBranchHead",
    "packages/daemon/src/repo-cell-evidence.ts#decodeEvidencePayload",
    "packages/daemon/src/repo-cell-lock.ts#acquireWorkspaceLock",
    "packages/daemon/src/repo-cell-lock.ts#close",
@@ -160,6 +168,8 @@
    "packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker",
    "packages/daemon/src/request-log.ts#closeSink",
    "packages/daemon/src/request-log.ts#commandClassOrNull",
+   "packages/daemon/src/request-log.ts#pruneAgedFiles",
+   "packages/daemon/src/request-log.ts#renameIfExists",
    "packages/daemon/src/request-log.ts#rotate",
    "packages/daemon/src/request-log.ts#writeRequestLogLine",
    "packages/daemon/src/runtime-orchestration.ts#orchestrateRuntimeBatch",
@@ -174,6 +184,7 @@
    "packages/daemon/src/runtime-spawn-process.ts#signalRuntimeTargets",
    "packages/daemon/src/runtime-spawn-process.ts#terminateRuntimePid",
    "packages/daemon/src/runtime-spawn-process.ts#terminateRuntimeTree",
+   "packages/daemon/src/runtime-spawn-deepseek-session.ts#deepSeekSessionUsageTotals",
    "packages/daemon/src/runtime-spawn-provider-frames.ts#isStructuredSuccessResult",
    "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeProviderLine",
    "packages/daemon/src/runtime-spawn-settlement.ts#publishExit",
@@ -187,7 +198,7 @@
    "packages/daemon/src/schedule-scheduler.ts#evaluationPlan",
    "packages/daemon/src/schedule-scheduler.ts#tick",
    "packages/daemon/src/squad-coordinator.ts#continueLeader",
-   "packages/daemon/src/task-ci-read.ts#readTaskCi",
+   "packages/daemon/src/squad-coordinator.ts#settleEndedAssignments",
    "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
    "packages/daemon/src/task-index-query.ts#decodeCursor",
    "packages/daemon/src/task-review-dispatch.ts#dispatchTaskReview",

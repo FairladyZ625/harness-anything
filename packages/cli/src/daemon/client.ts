@@ -130,6 +130,15 @@ function repoScopedDaemonEndpoint(
   });
 }
 
+// The autostart spawns the daemon from the invoking root as its cwd, so edge join prepares that
+// workspace root before the first request. The write itself lives in the daemon-side client
+// module — the thin CLI performs no local writes — and rides the lazy autostart import seam.
+async function prepareEdgeJoinWorkspace(command: ThinCommand, params: JsonObject): Promise<void> {
+  if (params.operation !== "edge-join") return;
+  const { ensureDaemonSpawnRoot } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
+  ensureDaemonSpawnRoot(command.rootDir);
+}
+
 export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
@@ -154,6 +163,7 @@ export async function runCommandThroughDaemon(
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
       params = bootstrapParams(command.action, socketPath);
+    await prepareEdgeJoinWorkspace(command, params);
     const request = (paramsOverride?: JsonObject) =>
       withAutostart(
         () =>
@@ -164,6 +174,7 @@ export async function runCommandThroughDaemon(
               userRoot,
               daemonId,
               socketPath,
+              invokingCommand: command.id,
             },
             command.action.kind === "rbac-bootstrap" ? "daemon.rbac.manage" : "daemon.repo.bootstrap",
             command.action.kind === "rbac-bootstrap"
@@ -185,7 +196,7 @@ export async function runCommandThroughDaemon(
       return receipt;
     return awaitDeviceLogin(receipt, request, onPhase);
   }
-  if (command.method.startsWith("daemon.runtimeInstance.")) {
+  if (command.method.startsWith("daemon.runtimeInstance.") || command.method.startsWith("daemon.provider.")) {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...inputPayload } = command.action,
@@ -196,7 +207,7 @@ export async function runCommandThroughDaemon(
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath },
+          { userRoot, daemonId, socketPath, invokingCommand: command.id },
           command.method,
           { payload: payload as JsonObject },
           75,
@@ -226,7 +237,7 @@ export async function runCommandThroughDaemon(
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath },
+          { userRoot, daemonId, socketPath, invokingCommand: command.id },
           "daemon.fleet.task.run",
           { payload: fleetTask as JsonObject },
           75,
@@ -245,7 +256,7 @@ export async function runCommandThroughDaemon(
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath },
+          { userRoot, daemonId, socketPath, invokingCommand: command.id },
           fleetDoc.method,
           { payload: fleetDoc.payload as JsonObject },
           75,
@@ -258,6 +269,7 @@ export async function runCommandThroughDaemon(
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
+    invokingCommand: command.id,
   };
   const requestParams = daemonRequestParams(command, target.repoId, env);
   const request = () =>
@@ -506,11 +518,16 @@ export async function streamRuntimeThroughDaemon(
     payload: { runtimeSessionId, afterCursor: "stream:0" },
     onValue,
     timeoutMs: 2_000,
+    invokingCommand: command.id,
     ...(onClosed ? { onClosed } : {}),
   });
 }
 async function openLocalDaemonReader(
-  target: { readonly socketPath: string; readonly sessionEnvironment?: DaemonSessionEnvironment },
+  target: {
+    readonly socketPath: string;
+    readonly sessionEnvironment?: DaemonSessionEnvironment;
+    readonly invokingCommand?: string;
+  },
   method: string,
   params: JsonObject,
   connectTimeoutMs = 75,
@@ -524,6 +541,7 @@ async function openLocalDaemonReader(
     connectTimeoutMs,
     responseTimeoutMs,
     target.sessionEnvironment,
+    target.invokingCommand,
   );
 }
 // The sign-in relay stays lazy for the same reason the autostart seam does: the thin dist static

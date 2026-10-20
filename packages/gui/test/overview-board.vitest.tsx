@@ -892,12 +892,12 @@ describe("总览:系统状态弱化与异常提升", () => {
     expect(textOf(topbar)).toContain("daemon 正常");
     expect(textOf(topbar)).not.toContain("main CI 绿");
     expect(textOf(topbar)).toContain("进行中 2");
-    expect(topbar.querySelector('[data-testid="overview-ci-alert"]')).not.toBeNull();
+    expect(topbar.querySelector('[data-testid="overview-ci-alert"]')).toBeNull();
     unmount();
     vi.stubGlobal("harness", previous);
   });
 
-  it("daemon 无响应与投影落后升成显眼状态点;CI 红可点开失败名单", async () => {
+  it("daemon 无响应与投影落后升成显眼状态点", async () => {
     const restore = (globalThis as { harness?: unknown }).harness;
     vi.stubGlobal("harness", {
       request: (method: string) =>
@@ -970,17 +970,12 @@ describe("总览:系统状态弱化与异常提升", () => {
         projection: { lag: 3, status: "ready" },
       },
     });
-    await flushUntil(() => textOf(container.querySelector('[data-testid="overview-ci-alert"]')).includes("失败观察 1"));
+    await flushUntil(() => textOf(container.querySelector('[data-testid="overview-topbar"]')).includes("投影落后 3"));
     const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
     expect(textOf(topbar)).toContain("daemon 无响应");
     expect(textOf(topbar)).toContain("投影落后 3");
-    expect(textOf(topbar)).toContain("窗口中 main 失败观察 1");
     // 正常小字被异常替代,不再同时出现。
     expect(textOf(topbar)).not.toContain("daemon 正常");
-    act(() => (container.querySelector('[data-testid="overview-ci-alert"]') as HTMLButtonElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    expect(textOf(dialog)).toContain("integration-shard-6");
     unmount();
     vi.stubGlobal("harness", restore);
   });

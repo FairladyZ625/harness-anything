@@ -33,6 +33,8 @@ export interface TaskProjectionListRow {
   readonly generation: "v0" | "v1";
   readonly workspaceRevision: number;
   readonly createdAt: string | null;
+  /** OccurredAt of the canonical transition that first entered done, if any. */
+  readonly completedAt: string | null;
   readonly updatedAt: string;
   readonly snapshot: TaskLifecycleSnapshot;
 }

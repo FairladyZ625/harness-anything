@@ -1,5 +1,6 @@
 import { relationTypes } from "./entity-relation.ts";
 import type { VerticalCompletionDeclaration } from "./completion-source.ts";
+import type { VerticalDecisionDeclarations } from "./decision-point.ts";
 
 /**
  * Pure decoded shape of a vertical definition. The domain consumes these values only after the
@@ -153,6 +154,7 @@ export interface VerticalDefinition {
   readonly id: string;
   readonly title: string;
   readonly version: string;
+  readonly decisions?: VerticalDecisionDeclarations;
   readonly entityFieldExtensions?: readonly VerticalEntityFieldExtension[];
   readonly entityKinds: readonly VerticalEntityKindDeclaration[];
   readonly contractEntityKinds: readonly string[];

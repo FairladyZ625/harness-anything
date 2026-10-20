@@ -6,8 +6,10 @@ import type { TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
+import { myAsksViewEntry } from "./views/my-asks/my-asks-view-entry.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
+import { todayViewEntry } from "./views/today/today-view-entry.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -36,7 +38,6 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
-import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
@@ -51,6 +52,7 @@ import {
 import { useAgendaQuery } from "./agenda-data.ts";
 import { useOverviewArtifacts } from "./overview-data.ts";
 import {
+  FULL_TRIADIC_PROJECTION_VIEWS,
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
   useRuntimePlaneQuery,
@@ -75,11 +77,9 @@ import { TerminalRoute } from "./views/TerminalRoute.tsx";
 import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
-import { useViewHistory } from "./navigation/useViewHistory.ts";
-import { useLocationRestore } from "./navigation/useLocationRestore.ts";
-import { initialLocation } from "./navigation/viewHistoryStorage.ts";
+import { useAppLocation } from "./navigation/useAppLocation.ts";
+import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
-import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { workspaceTitleIndex } from "./model/workspace-readable.ts";
@@ -97,19 +97,6 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
-/**
- * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
- * 只有这些视图挂载时才读完整投影;
- * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
- */
-const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
-  "workspace",
-  "graph",
-  "decisionPool",
-  "decisionDetail",
-  "factDetail",
-  "freshness",
-]);
 
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
@@ -194,12 +181,8 @@ function AppShell() {
   // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
   // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
   // 它在三元读取之前解析:读哪个切面由「现在挂载的是哪个界面」决定。
-  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } = useViewHistory(
-    projectId,
-    initialLocation(),
-  );
-  // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
-  useLocationRestore(location, document.body);
+  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } =
+    useAppLocation(projectId);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
   useOverviewArtifacts(activeRepoId);
@@ -253,7 +236,8 @@ function AppShell() {
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   // 窗口标题「项目名 — Harness Anything」:Dock/任务栏/⌘` 切窗口可辨认。
   useProjectWindowTitle(activeRepo?.displayName ?? null);
-  // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂载时读。
+  // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂统一
+  // 节奏常量自持轮询(见 collaboration-data.ts:半数事实是 daemon 级状态,cut 覆盖不到)。
   const fleetOverview = useFleetOverview(activeRepoId, view === "collaboration");
   const project = adaptRepoProject(
     projectId,
@@ -390,21 +374,17 @@ function AppShell() {
   });
 
   // 切仓策略(业主 2026-10-11:切回项目直接回到它上次停留的位置):useViewHistory
-  // 切仓时自己重读目标仓的栈,栈顶即上次位置、跨重启保留;显式目标(管理页活动
-  // 链接/跨仓实体导航)经 pending intent 在重读落地后推栈。
   const { openProject, goto } = useProjectSwitch({
     projectId,
     navigate,
     switchProject: setActiveRepoId,
     leaveProject: async () => {
-      // 终端页(若挂载)随切仓卸载,卸载清理自会停流并 detach 全部附件。
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
-
-  // 重构区路由(dec_C612E69B):重构页暂由 App 级状态承载,不进全局历史栈;
-  // 从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
+  // 重构区路由(dec_C612E69B):重构页(今天/你交代的事)暂由 App 级状态承载,不进
+  // 全局历史栈;从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
   const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
 
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
@@ -606,12 +586,26 @@ function AppShell() {
                 renderTaskDetail(selected, {
                   // 详情的局部返回与全局后退是同一能力:弹栈回上一位置(业主
                   // 2026-10-11)。原地清 selectedId 会在栈里留下与上一条目相同的
-                  // 幻影条目,按侧键后退看起来毫无反应。
                   onBack: back,
                   fromViewLabel: navLabel(view),
                 })
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
+              ) : redesignView !== null ? (
+                redesignView === "myAsks" ? (
+                  myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
+                ) : (
+                  todayViewEntry(
+                    projectId,
+                    agendaQuery.data,
+                    agendaQuery.error instanceof Error ? agendaQuery.error.message : null,
+                    taskTitles,
+                    tasksQuery.data?.rows ?? [],
+                    navigateToEntity,
+                    openTaskDetail,
+                    gotoNav,
+                  )
+                )
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}
@@ -917,6 +911,7 @@ function AppShell() {
                 <SessionsView
                   repoId={projectId}
                   relations={edgeRelations}
+                  works={works}
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
                   // 窄容器返回键走全局弹栈;栈底(孤立深链条目)无处可退时原地清引用回列表。
@@ -1022,7 +1017,7 @@ function AppShell() {
         {edgeSurfaceMounted &&
         !triadicQuery.graphAvailable &&
         (activeEdges.hasNextPage || activeEdges.relationState === "error") ? (
-          <aside className="glass fixed bottom-4 left-4 z-50 rounded p-3" role="status">
+          <aside className="glass glass-overlay fixed bottom-4 left-4 z-50 rounded p-3" role="status">
             <span>{activeEdges.relationState === "error" ? "关系读取失败。" : "当前关系尚未全部加载。"}</span>
             {activeEdges.hasNextPage ? (
               <button disabled={activeEdges.isFetching} onClick={() => void activeEdges.fetchNextPage()}>

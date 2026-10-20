@@ -7,6 +7,7 @@ import { RepoModeBadge } from "../../components/RepoModeBadge.tsx";
 import { buildConnectionTree, connectionNodeId, type TreeSelection } from "./connectionTree.ts";
 import { AddLocalRepositoryPanel } from "./AddLocalRepositoryPanel.tsx";
 import { ConnectionDetailPanel } from "./ConnectionDetailPanel.tsx";
+import { EdgeInvitePanel } from "./EdgeInvitePanel.tsx";
 import { RepoDetailPanel } from "./RepoDetailPanel.tsx";
 
 /**
@@ -158,7 +159,19 @@ export function RepositoriesAndConnectionsView({
               return (
                 <AddLocalRepositoryPanel repos={node.repos} onOpenProject={onOpenProject} activeRepoId={activeRepoId} />
               );
-            if (node.nodeId === "center") return <CenterConnectionPanel connections={connections} repos={node.repos} />;
+            if (node.nodeId === "center")
+              return (
+                <CenterConnectionPanel
+                  connections={connections}
+                  repos={node.repos}
+                  invitationRepos={repos.filter(
+                    (repo) =>
+                      repo.registrationState === "enabled" &&
+                      repo.canonicalRoot !== null &&
+                      repo.mode !== "remote-proxy",
+                  )}
+                />
+              );
             return (
               <ConnectionDetailPanel
                 mode="edit"
@@ -175,43 +188,53 @@ export function RepositoriesAndConnectionsView({
   );
 }
 
-/** 中心连接占位(设计稿 §3.2:只读展示既有 fleet 配置摘要 + CLI 提示,无 CRUD)。 */
+/**
+ * 中心连接面板(设计稿 §3.2):只读展示既有 fleet 配置摘要 + CLI 提示,无 CRUD;
+ * 中心摘要下复用 daemon access-admin typed 方法签发、查询和撤销多仓邀请。
+ */
 function CenterConnectionPanel({
   connections,
   repos,
+  invitationRepos,
 }: {
   readonly connections: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly displayName: string }>;
   readonly repos: readonly SystemRepoRow[];
+  readonly invitationRepos: readonly SystemRepoRow[];
 }) {
   const centers = connections.filter((connection) => connection.kind === "fleet-center");
   return (
-    <section data-testid="center-connection-panel" className="rounded-lg border border-border bg-surface">
-      <div className="border-b border-border px-3 py-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
-        {t("views.repositories.centerConnection")}
-      </div>
-      <div className="px-3 py-2 ui-meta text-text-muted">{t("views.repositories.centerPlaceholderSummary")}</div>
-      <dl className="grid gap-2 px-3 pb-2">
-        <div>
-          <dt className="font-mono ui-micro uppercase text-text-faint">{t("views.repositories.centerConnections")}</dt>
-          <dd className="font-mono ui-meta text-text-muted">
-            {centers.length === 0
-              ? t("views.repositories.centerNone")
-              : centers.map((connection) => connection.displayName).join(", ")}
-          </dd>
+    <div className="flex flex-col gap-3">
+      <section data-testid="center-connection-panel" className="rounded-lg border border-border bg-surface">
+        <div className="border-b border-border px-3 py-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
+          {t("views.repositories.centerConnection")}
         </div>
-        <div>
-          <dt className="font-mono ui-micro uppercase text-text-faint">{t("views.repositories.centerRepos")}</dt>
-          <dd className="font-mono ui-meta text-text-muted">
-            {repos.length === 0
-              ? t("views.repositories.centerNone")
-              : repos.map((repo) => `${repo.repoId} (${repo.mode})`).join(", ")}
-          </dd>
-        </div>
-      </dl>
-      <pre className="overflow-x-auto border-t border-border px-3 py-2 font-mono ui-micro text-text-faint">
-        {t("views.repositories.centerCliHint")}
-      </pre>
-    </section>
+        <div className="px-3 py-2 ui-meta text-text-muted">{t("views.repositories.centerPlaceholderSummary")}</div>
+        <dl className="grid gap-2 px-3 pb-2">
+          <div>
+            <dt className="font-mono ui-micro uppercase text-text-faint">
+              {t("views.repositories.centerConnections")}
+            </dt>
+            <dd className="font-mono ui-meta text-text-muted">
+              {centers.length === 0
+                ? t("views.repositories.centerNone")
+                : centers.map((connection) => connection.displayName).join(", ")}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-mono ui-micro uppercase text-text-faint">{t("views.repositories.centerRepos")}</dt>
+            <dd className="font-mono ui-meta text-text-muted">
+              {repos.length === 0
+                ? t("views.repositories.centerNone")
+                : repos.map((repo) => `${repo.repoId} (${repo.mode})`).join(", ")}
+            </dd>
+          </div>
+        </dl>
+        <pre className="overflow-x-auto border-t border-border px-3 py-2 font-mono ui-micro text-text-faint">
+          {t("views.repositories.centerCliHint")}
+        </pre>
+      </section>
+      <EdgeInvitePanel repos={invitationRepos} />
+    </div>
   );
 }
 

@@ -5,7 +5,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
-import { livingDeliverableProtocol, taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import {
+  livingDeliverableProtocol,
+  taskPlanSection,
+  taskPrPublicationNote,
+  taskQueryGuidance,
+} from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {
@@ -71,7 +76,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nbound prompt`,
+    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
   });
   assert.ok(
     assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
@@ -171,10 +176,10 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   ]);
   assert.equal(outsider.status, 1);
   assert.equal(outsider.receipt.code, "squad_member_not_found");
-  // Runtime type is a default-instance selection hint, not an admission condition: an
-  // opencode-typed agent dispatches on a codex instance when the operator names it.
+  // An explicit instance pin must still serve the target Agent's declaration; a foreign
+  // runtime kind cannot be borrowed by naming the instance directly.
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const crossKind = runStopped([
+  const crossKind = runMaybe(root, env, [
     "agent",
     "run",
     "fable",
@@ -188,8 +193,8 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     taskId,
     "--no-stream",
   ]);
-  const crossKindDispatchId = String((crossKind.spawn as Record<string, unknown>).dispatchId);
-  assert.match(crossKindDispatchId, /^dispatch_/u, JSON.stringify(crossKind));
+  assert.equal(crossKind.status, 1, JSON.stringify(crossKind));
+  assert.equal(crossKind.receipt.code, "agent_runtime_unavailable", JSON.stringify(crossKind));
 });
 
 test("Runtime report is archived after the worker submits its execution", async (context) => {
@@ -553,6 +558,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   const { parent, root, env, userRoot, daemonId } = fixture;
   installIdentities(parent, root, env);
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");
+  const stopGuidance =
+    `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
+    `Reopen the execution to re-dispatch with: ha task start ${taskId}`;
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
   const pathLikeMission = runMaybe(root, env, [
@@ -611,7 +619,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
-      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nexisting mission`,
+      `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
+        `${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
+        stopGuidance,
     ),
   );
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
@@ -648,7 +658,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     readdirSync(path.join(artifactRoot, "missions")).sort(),
     ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
   );
-  assert.equal(reusedReport, `final:${reusedMission}`);
+  assert.equal(reusedReport, `final:${reusedMission}${stopGuidance}`);
   assertTaskMissionPrompt(reusedMission, {
     repoId: "runtime-cli",
     taskId,
@@ -658,19 +668,19 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     daemonId,
     runtimeSessionId: String(reused.receipt.runtimeSessionId),
     mission:
-      `Your task package is ${path.join(realpathSync(root), "harness", packagePath)}.\n` +
-      "Read task_plan.md in that package and complete the task.\n\n" +
+      `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
       `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
-      "# Mission: existing-mission\n\nexisting mission",
+      `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath),
     derivedMission =
-      `Your task package is ${taskPackage}.\n` +
-      `Read task_plan.md in that package and complete the task.\n\n` +
+      `${taskPlanSection(realizedPlan("mission"), taskPackage)}\n\n` +
       taskQueryGuidance(taskId) +
       "\n\n" +
-      livingDeliverableProtocol("baseline")!;
+      livingDeliverableProtocol("baseline")! +
+      "\n\n" +
+      taskPrPublicationNote;
   // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
   const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.receipt.result as Record<string, unknown>).text);
@@ -678,7 +688,8 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     derivedText,
     /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
   );
-  assertTaskMissionPrompt(derivedText.slice("final:".length), {
+  assert.ok(derivedText.endsWith(stopGuidance), "an unsubmitted exit must carry its continuation entry");
+  assertTaskMissionPrompt(derivedText.slice("final:".length, -stopGuidance.length), {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(root),

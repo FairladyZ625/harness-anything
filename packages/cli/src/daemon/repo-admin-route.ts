@@ -28,7 +28,7 @@ export function runRepoAdminCommand(input: {
       repoId: input.env.HARNESS_DAEMON_REPO_ID,
       canonicalRoot: input.env.HARNESS_CANONICAL_ROOT ?? input.command.rootDir,
     }),
-    target = { userRoot, daemonId, socketPath },
+    target = { userRoot, daemonId, socketPath, invokingCommand: input.command.id },
     { kind: _kind, ...actionParams } = input.command.action,
     params =
       input.command.method === "daemon.repo.backup" || input.command.method === "daemon.repo.restoreDrill"
@@ -42,4 +42,9 @@ export function runRepoAdminCommand(input: {
   );
 }
 
-type RepoAdminTarget = { readonly userRoot: string; readonly daemonId: string; readonly socketPath: string };
+type RepoAdminTarget = {
+  readonly userRoot: string;
+  readonly daemonId: string;
+  readonly socketPath: string;
+  readonly invokingCommand?: string;
+};

@@ -215,6 +215,66 @@ export async function reacquireSquadTaskLease(input: {
     );
 }
 
+/** One ended Squad assignment to close: its task, the runtime that ran it, and why it settles now. */
+export interface SquadChildSettlement {
+  readonly taskId: string;
+  readonly runtimeSessionId: string | null;
+  readonly reason: string;
+  /**
+   * Present for in-run stage settlement, where the run owner's business-action scope admits
+   * the writes; omitted at run end, where a terminal run must not carry squad business actions.
+   */
+  readonly squadRunId?: string;
+}
+
+/**
+ * Closes one ended Squad assignment: release any lease still held on it, then force-cancel the
+ * task so its execution worktable slot leaves at stage end instead of squad convergence.
+ * Idempotent per task status — a task already in a terminal status is already settled.
+ */
+export async function settleSquadChildAssignment(
+  cell: RepoCellActionContext,
+  child: SquadChildSettlement,
+  binding: RepoCellBinding,
+  authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => Promise<RepoCellBinding>,
+): Promise<void> {
+  const snapshot = cell.projection.read(child.taskId).snapshot;
+  if (!snapshot.task || isTerminalStatus(snapshot.task.status)) return;
+  const scope = child.squadRunId === undefined ? {} : { squadRunId: child.squadRunId };
+  if (snapshot.lease) {
+    const release = {
+      kind: "task-release",
+      taskId: child.taskId,
+      executionId: snapshot.lease.executionId,
+      reason: child.reason,
+      ...scope,
+      ...(child.runtimeSessionId
+        ? { terminalExecutionId: snapshot.lease.executionId, terminalRuntimeSessionId: child.runtimeSessionId }
+        : {}),
+    };
+    const released = cell.taskSurfaceWrite(
+      release,
+      await authorize(release, binding, `squad-settle:${child.taskId}:${snapshot.lease.version}:release`),
+    );
+    if (released.outcome !== "applied")
+      throw cell.cellCodedError(released.code ?? "squad_child_release_failed", JSON.stringify(released));
+  }
+  const cancel = {
+    kind: "task-transition",
+    taskId: child.taskId,
+    status: "cancelled",
+    force: true,
+    reason: child.reason,
+    ...scope,
+  };
+  const cancelled = await cell.lifecycleAction(
+    cancel,
+    await authorize(cancel, binding, `squad-settle:${child.taskId}:cancel`),
+  );
+  if (cancelled.outcome !== "applied")
+    throw cell.cellCodedError(cancelled.code ?? "squad_child_closeout_failed", JSON.stringify(cancelled));
+}
+
 /** Both local and fleet observations settle here, inside the center's existing serial queue. */
 export async function appendSquadRunObservation(
   cell: RepoCellActionContext,
@@ -271,28 +331,12 @@ export async function appendSquadRunObservation(
     if (!child) continue;
     if (attempt.taskId !== null && attempt.taskId !== child.taskId)
       throw cell.cellCodedError("execution_scope_mismatch", "Squad child must match its accepted assignment key.");
-    const snapshot = cell.projection.read(child.taskId).snapshot;
-    if (isTerminalStatus(snapshot.task!.status)) continue;
-    if (snapshot.lease) {
-      const release = {
-        kind: "task-release",
-        taskId: child.taskId,
-        reason,
-        ...(attempt.runtimeSessionId
-          ? {
-              terminalExecutionId: snapshot.lease.executionId,
-              terminalRuntimeSessionId: attempt.runtimeSessionId,
-            }
-          : {}),
-      };
-      const released = cell.taskSurfaceWrite(release, await authorize(release));
-      if (released.outcome !== "applied")
-        throw cell.cellCodedError(released.code ?? "squad_child_release_failed", JSON.stringify(released));
-    }
-    const cancel = { kind: "task-transition", taskId: child.taskId, status: "cancelled", force: true, reason };
-    const cancelled = await cell.lifecycleAction(cancel, await authorize(cancel));
-    if (cancelled.outcome !== "applied")
-      throw cell.cellCodedError(cancelled.code ?? "squad_child_closeout_failed", JSON.stringify(cancelled));
+    await settleSquadChildAssignment(
+      cell,
+      { taskId: child.taskId, runtimeSessionId: attempt.runtimeSessionId, reason },
+      binding,
+      (action, _holder, _actionId) => authorize(action),
+    );
   }
   return appendAuxiliaryRuntimeIngress(cell, action, binding);
 }

@@ -94,7 +94,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
     // dec_F01770FD0DCF72683B7C4C7A47: each request presents this device owner's user session.
-    readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+    readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string; humanClientId?: string }) => {
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
       if (!node.accessToken || !options.verifyHuman)
@@ -104,6 +104,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           transportKind: "fleet-tls",
           nodePrincipal: { nodeId: node.nodeId, personId },
           humanAccessToken: node.accessToken,
+          ...(node.humanClientId ? { humanClientId: node.humanClientId } : {}),
         });
       } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
@@ -228,10 +229,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     frame: import("./protocol.ts").ReplicationFrame & { readonly type: "replica.start" },
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
+    humanClientId?: string,
   ) => {
     let readerProfile: { personId: string; nodeId: string };
     try {
-      ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
+      ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken, humanClientId));
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
@@ -413,11 +415,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!upload) throw new FleetFault("upload_unknown", "Upload metadata is missing.");
       return path.join(safeLocal(upload.repoId, "fleet-uploads"), `${uploadId}.part`);
     };
-  const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
+  const admitReplica = async (nodeId: string, repoId: string, accessToken?: string, humanClientId?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken),
-      auth = await readerAuth(a),
+      auth = await readerAuth({ ...a, humanClientId }),
       owner = await options.nodeOwner(nodeId);
     if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
     const replica = options.host.replica(a.repoId),
@@ -435,6 +437,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     _clientGone: () => boolean = () => false,
     connectionSignal: AbortSignal,
     _progress: (frame: FleetFrameV1) => Promise<void>,
+    humanClientId?: string,
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.device.sessions.revoke/v1") {
       if (!(await options.nodeOwner(nodeId)))
@@ -462,7 +465,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.repo.metadata.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        principal = await readerAuth(a),
+        principal = await readerAuth({ ...a, humanClientId }),
         baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
         actionAllowed =
           frame.actionKind === undefined

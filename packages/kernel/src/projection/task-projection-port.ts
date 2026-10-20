@@ -108,6 +108,9 @@ export interface TaskProjection {
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
   readonly read: (taskId: string, presentationStatus?: boolean) => TaskProjectionRead;
+  /** Migration-only access to the aggregate before TaskV2 validation. Normal reads must use `read`. */
+  readonly readForTaskContractMigration: (taskId: string) => TaskProjectionRead;
+  readonly readTaskIdsForTaskContractMigration: () => readonly string[];
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
   readonly readTaskIndex: (
     query?: TaskProjectionListQuery,
@@ -226,16 +229,6 @@ export interface TaskProjection {
   }) => readonly CanonicalEventV1[];
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   readonly readSettingsEvent: () => SettingsEventV1 | null;
-  readonly readCiRunObservations: (
-    limit: number,
-    beforeRevision?: number,
-    selection?: { readonly familyWindow: number },
-  ) => {
-    readonly status: "ready" | "pending";
-    readonly events: readonly import("../domain/ci-run-observation-v4.ts").CiObservationRead[];
-    readonly watermark: number;
-    readonly sourceRevision: number;
-  };
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   readonly admitFact: (event: FactEventV1) => void;

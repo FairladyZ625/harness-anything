@@ -1,8 +1,8 @@
 import myDevices from "./scenarios/my-devices.mjs";
-import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
 import providerProjectAccess from "./scenarios/provider-project-access.mjs";
+import decisionsProvider from "./scenarios/decisions-provider.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
@@ -31,6 +31,7 @@ import artifactsHtmlPreview from "./scenarios/artifacts-html-preview.mjs";
 import artifactsRawPreview from "./scenarios/artifacts-raw-preview.mjs";
 import artifactsSpreadsheetPreview from "./scenarios/artifacts-spreadsheet-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
+import edgeInvite from "./scenarios/edge-invite.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
 import sessionsGrouping from "./scenarios/sessions-grouping.mjs";
@@ -51,15 +52,18 @@ import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
 import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
 import previewDrawerSingle from "./scenarios/preview-drawer-single.mjs";
+import overlayGlass from "./scenarios/overlay-glass.mjs";
+import redesignMyAsks from "./scenarios/redesign-my-asks.mjs";
+import redesignToday from "./scenarios/redesign-today.mjs";
 
 export const catalog = [
   taskReturnChoice,
   myDevices,
-  ciObservations,
   edgeReadFreshness,
   runtimeHandoff,
   agentRuntimeEffort,
   providerProjectAccess,
+  decisionsProvider,
   accountLogin,
   deviceLoginApproval,
   taskAssignment,
@@ -70,6 +74,8 @@ export const catalog = [
   shellNavigation,
   navigationHistory,
   previewDrawerSingle,
+  overlayGlass,
+  redesignMyAsks,
   projectSwitchRestore,
   projectWindows,
   overview,
@@ -86,6 +92,7 @@ export const catalog = [
   artifactsRawPreview,
   artifactsSpreadsheetPreview,
   settings,
+  edgeInvite,
   declaredEntityKinds,
   systemDaemonLogs,
   sessionsGrouping,
@@ -106,6 +113,7 @@ export const catalog = [
   taskDetailExplainerDefault,
   tokenUsageCosts,
   graphSpotlightCards,
+  redesignToday,
 ];
 
 export function selectScenarios({ lane, ids }) {

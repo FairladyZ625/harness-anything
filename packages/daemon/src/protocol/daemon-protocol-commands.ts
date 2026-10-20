@@ -15,11 +15,11 @@ import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-dec
 import { docFactProtocolCommands } from "./daemon-protocol-commands-doc-fact.ts";
 import { eventProtocolCommands } from "./daemon-protocol-commands-event.ts";
 import { runtimeConfigProtocolCommands } from "./daemon-protocol-commands-runtime-config.ts";
+import { providerProtocolCommands } from "./daemon-protocol-commands-provider.ts";
 import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon-protocol-commands-runtime-fleet.ts";
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
-import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
 import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
@@ -93,7 +93,7 @@ const settingsWriteTopology = {
             format: "import the settings.gates block declared in harness.yaml",
             // One-shot gates import: it shares the gates presentation group rather than trailing
             // with the mechanical --expected-version/--idempotency-key inputs.
-            group: "ci-gates",
+            group: "hosting-gates",
           },
         ),
         cliInput(
@@ -159,12 +159,12 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...decisionRelationProtocolCommands,
   ...relationProtocolCommands,
   ...runtimeConfigProtocolCommands,
+  ...providerProtocolCommands,
   ...runtimeFleetProtocolCommands,
   ...scheduleProtocolCommands,
   ...settingsProtocolCommands,
   ...eventProtocolCommands,
   ...peopleProtocolCommands,
-  ...ciObservationProtocolCommands,
 ] as const);
 
 export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands] as const);
@@ -172,6 +172,25 @@ export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolComma
 export const thinCliCommands = Object.freeze(
   daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
 );
+
+// Derived from the command registry, never a hand-copied list: a method owned by exactly one CLI
+// command names that command for request attribution (repo.agenda.read → agenda). Methods shared
+// by several commands stay method-keyed — only the caller's own declaration can disambiguate them.
+const commandIdBySoleMethod = (() => {
+  const owners = new Map<string, string[]>();
+  for (const command of daemonProtocolCommands) {
+    if ("internal" in command && command.internal) continue;
+    if (!("method" in command) || !command.method) continue;
+    owners.set(command.method, [...(owners.get(command.method) ?? []), command.id]);
+  }
+  return new Map(
+    [...owners.entries()].flatMap(([method, ids]) => (ids.length === 1 ? [[method, ids[0]!] as const] : [])),
+  );
+})();
+
+export function commandIdForDaemonMethod(method: string): string | null {
+  return commandIdBySoleMethod.get(method) ?? null;
+}
 
 export function resolveThinCliCommand(args: readonly string[]): (typeof daemonProtocolCommands)[number] | undefined {
   const matches = daemonProtocolCommands.filter(

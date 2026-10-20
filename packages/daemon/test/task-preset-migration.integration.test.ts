@@ -29,7 +29,7 @@ test("explicit preset migration atomically freezes contract, gates and auditable
       original = before.events.find((event) => event.schema === "task-bootstrap-event/v1")!;
     assert.equal(original.schema, "task-bootstrap-event/v1");
     if (original.schema !== "task-bootstrap-event/v1") throw new Error("missing bootstrap");
-    assert.deepEqual(original.payload.task.completionGateIds, ["ci", "code-doc-reconciliation"]);
+    assert.deepEqual(original.payload.task.completionGateIds, ["code-doc-reconciliation"]);
     const preview = await cell.run({ ...action, mode: "dry-run" }, binding);
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
     assert.equal(reader.read().revision, before.revision);

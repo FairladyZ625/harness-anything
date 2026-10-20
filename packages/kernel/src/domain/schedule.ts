@@ -1,4 +1,3 @@
-import { validCiObserveProgress, type CiObserveProgress } from "./schedule-ci-progress.ts";
 import { CronExpressionParser } from "cron-parser";
 import type { EntityDocumentJsonSchema, EntityJsonObjectSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
@@ -124,7 +123,6 @@ export interface ScheduleLastRunV1 {
 }
 
 export interface ScheduleRunViewV1 {
-  readonly ciObserve?: CiObserveProgress;
   readonly automaticEvaluatedThrough: string;
   readonly activeRun: ScheduleActiveRunV1 | null;
   readonly lastRun: ScheduleLastRunV1 | null;
@@ -221,7 +219,6 @@ export const SCHEDULE_V1_SCHEMA: EntityDocumentJsonSchema<ScheduleV1> = {
     status: {
       type: "object",
       properties: {
-        ciObserve: { type: "object", properties: {}, required: [], additionalProperties: true },
         automaticEvaluatedThrough: { type: "string", minLength: 1 },
         activeRun: { type: "object", properties: {}, required: [], additionalProperties: true, "x-nullable": true },
         lastRun: { type: "object", properties: {}, required: [], additionalProperties: true, "x-nullable": true },
@@ -508,18 +505,9 @@ function validRunView(value: unknown, allowUnknownFields: boolean): value is Sch
     !isRecord(value) ||
     !hasContractFields(
       value,
-      [
-        "automaticEvaluatedThrough",
-        "activeRun",
-        "lastRun",
-        "missedCount",
-        "lastMissedAt",
-        "lastMissedReason",
-        ...(value.ciObserve === undefined ? [] : ["ciObserve"]),
-      ],
+      ["automaticEvaluatedThrough", "activeRun", "lastRun", "missedCount", "lastMissedAt", "lastMissedReason"],
       allowUnknownFields,
     ) ||
-    (value.ciObserve !== undefined && !validCiObserveProgress(value.ciObserve)) ||
     !timestamp(value.automaticEvaluatedThrough) ||
     !Number.isSafeInteger(value.missedCount) ||
     Number(value.missedCount) < 0 ||

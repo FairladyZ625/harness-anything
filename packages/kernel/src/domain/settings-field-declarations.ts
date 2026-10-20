@@ -44,12 +44,24 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
     title: "Dispatch roles",
   },
   {
+    id: "worker-permissions",
+    title: "Worker permissions",
+  },
+  {
     id: "review-closeout",
     title: "Review and closeout",
   },
   {
-    id: "ci-gates",
-    title: "CI and completion gates",
+    id: "decisions",
+    title: "Decision points",
+  },
+  {
+    id: "delivery",
+    title: "Code delivery",
+  },
+  {
+    id: "hosting-gates",
+    title: "Hosting details and local gates",
   },
   {
     id: "capacity-agenda",
@@ -135,7 +147,6 @@ export const DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS = 30_000;
 export const DEFAULT_GUI_CONNECT_TIMEOUT_MS = 2_000;
 /** The GUI default answer deadline: 200ms, 2s and 10s all failed live before 30s held (泽宇 2026-09-01/02). */
 export const DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_000;
-export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
 
@@ -233,6 +244,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     }),
   ),
   defineSettingsField({
+    path: ["workerPermissions", "mode"],
+    ownership: repository,
+    valueKind: "enum",
+    defaultValue: "full",
+    allowedValues: ["full", "restricted"],
+    description: "Whether workers inherit the operator's hosting and Git credentials.",
+    effect: "Full inherits the operator's credentials; restricted removes Git credentials from the worker environment.",
+    group: "worker-permissions",
+    action: { field: "workerPermissionsMode", type: "string" },
+    cli: { name: "--worker-permissions-mode", kind: "single", enum: ["full", "restricted"] },
+  }),
+  defineSettingsField({
     path: ["reviewIndependence"],
     ownership: repository,
     valueKind: "enum",
@@ -267,6 +290,39 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "review-closeout",
     action: { field: "reviewReturnBudget", type: "number" },
     cli: { name: "--review-return-budget", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
+    path: ["decisions", "provider"],
+    ownership: repository,
+    valueKind: "string",
+    defaultValue: undefined,
+    optional: true,
+    pattern: settingValuePattern,
+    description: "Decisions provider used by enabled advisory decision points.",
+    effect: "Only the named provider may receive enabled decision-point inputs; unset keeps all points dormant.",
+    group: "decisions",
+    action: { field: "decisionsProvider", type: "string" },
+    cli: { name: "--decisions-provider", kind: "single" },
+  }),
+  defineSettingsField({
+    path: ["decisions", "enabledPoints"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: undefined,
+    optional: true,
+    pattern: "^[A-Za-z0-9][A-Za-z0-9/_.-]*@[0-9a-f]{12}$",
+    uniqueItems: true,
+    description: "Advisory decision points enabled with their accepted binding digest prefix.",
+    effect: "Only points whose declaration digest still matches this binding are evaluated after settlement.",
+    group: "decisions",
+    action: { field: "decisionsEnabledPoints", type: "string-array" },
+    cli: {
+      name: "--decisions-enabled-point",
+      kind: "repeated",
+      regex: "^[A-Za-z0-9][A-Za-z0-9/_.-]*@[0-9a-f]{12}$",
+      format: "point id plus binding digest prefix",
+    },
+    yamlStyle: "inline",
   }),
   defineSettingsField({
     path: ["locale"],
@@ -343,6 +399,33 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     cli: singleSettingCli("--repository-scaffold"),
   }),
   defineSettingsField({
+    path: ["delivery", "requireMerged"],
+    ownership: repository,
+    valueKind: "boolean",
+    defaultValue: true,
+    description: "Whether code task completion requires delivery to be merged into the target branch.",
+    effect: "Code submissions stay incomplete until their recorded merge commit is on the configured target branch.",
+    group: "delivery",
+    action: { field: "deliveryRequireMerged", type: "boolean" },
+    cli: { name: "--delivery-require-merged", kind: "single", enum: ["true", "false"] },
+  }),
+  defineSettingsField({
+    path: ["delivery", "targetBranch"],
+    ownership: repository,
+    valueKind: "string",
+    defaultValue: "main",
+    pattern: "^(?!.*(?:\\.\\.|//|\\.$|/$))[A-Za-z0-9][A-Za-z0-9._/-]*$",
+    description: "Target branch code tasks must reach before completion.",
+    effect: "The merge annotation is accepted only when its commit is an ancestor of this branch.",
+    group: "delivery",
+    action: { field: "deliveryTargetBranch", type: "string" },
+    cli: {
+      name: "--delivery-target-branch",
+      kind: "single",
+      regex: "^(?!.*(?:\\.\\.|//|\\.$|/$))[A-Za-z0-9][A-Za-z0-9._/-]*$",
+    },
+  }),
+  defineSettingsField({
     path: ["hosting", "provider"],
     ownership: repository,
     valueKind: "enum",
@@ -351,8 +434,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     allowedValues: ["github", "gitlab"],
     description:
       "Hosting provider for repositories whose remote host does not identify GitHub or GitLab automatically.",
-    effect: "Selects the provider adapter used for task push and CI reads.",
-    group: "ci-gates",
+    effect: "Selects the provider adapter used for task delivery operations.",
+    group: "hosting-gates",
     action: { field: "hostingProvider", type: "string" },
   }),
   defineSettingsField({
@@ -364,38 +447,17 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     pattern: "^[a-zA-Z0-9.-]+(?::[0-9]+)?$",
     description: "Host name for the GitHub or GitLab instance used by this repository.",
     effect: "Combines with hosting.provider to identify self-hosted GitLab instances.",
-    group: "ci-gates",
+    group: "hosting-gates",
     action: { field: "hostingHost", type: "string" },
-  }),
-  defineSettingsField({
-    path: ["ci", "workflows"],
-    ownership: repository,
-    valueKind: "string-array",
-    defaultValue: DEFAULT_CI_WORKFLOWS,
-    pattern: settingValuePattern,
-    forbiddenPattern: "\\.ya?ml$",
-    uniqueItems: true,
-    description: "CI workflows whose runs count as proof that a task's code passed CI.",
-    effect: "Only runs of these workflows count; with none selected, tasks are not checked against CI.",
-    group: "ci-gates",
-    action: { field: "ciWorkflows", type: "string-array" },
-    cli: {
-      name: "--ci-workflows",
-      kind: "repeated",
-      regex: settingValuePattern,
-      format: "workflow names, or none to stop checking CI (the default)",
-    },
-    noneMeansEmpty: true,
-    yamlStyle: "inline",
   }),
   defineSettingsField({
     path: ["gates"],
     ownership: repository,
     valueKind: "gate-mappings",
     defaultValue: Object.freeze([] as readonly GateWitnessMappingV1[]),
-    description: "Canonical gate-to-witness mappings imported from the authored document.",
-    effect: "Each completion gate is attested by its mapped witness adapter; none disables that gate.",
-    group: "ci-gates",
+    description: "Local command or manual mappings for generic completion gates.",
+    effect: "Each generic completion gate uses its declared local witness; none disables that gate.",
+    group: "hosting-gates",
     action: { field: "gates", type: "json-object-array", internal: true },
   }),
   defineSettingsField({

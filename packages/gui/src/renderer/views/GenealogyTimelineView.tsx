@@ -208,7 +208,7 @@ export function GenealogyTimelineView({
           )}
 
           {/* 边类图例:贴边玻璃(§2.6 周边控件),不遮挡主体内容。 */}
-          <div className="glass pointer-events-none absolute bottom-3 left-3 z-10 flex flex-col gap-1 rounded-sm px-3 py-2">
+          <div className="glass glass-overlay pointer-events-none absolute bottom-3 left-3 z-10 flex flex-col gap-1 rounded-sm px-3 py-2">
             <span className="font-mono ui-micro text-text-faint">DAG 拓扑 · 谱系深度排序 · 同日自动折簇</span>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => {

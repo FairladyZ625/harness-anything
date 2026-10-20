@@ -20,6 +20,7 @@ import {
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import {
+  isLinkedWorktree,
   noWorktreeSetup,
   readWorktreeSetupSucceeded,
   runWorktreeSetup,
@@ -617,6 +618,32 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
         rmSync(fixture.base, { recursive: true, force: true });
       }
     });
+});
+
+test("a residue directory a late writer left at a reclaimed path reads as reclaimed, not a worktree", async (t) => {
+  const fixture = repositoryFixture(t);
+  try {
+    const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd;
+    assert.equal(isLinkedWorktree(cwd), true, "a fresh checkout is a linked worktree");
+    let task = boundTask("active");
+    task = boundTask("cancelled");
+    await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, {});
+    assert.equal(existsSync(cwd), false, "the reclaim removed the worktree");
+    // What a writer from an earlier run recreates at the dead path: a Node compile cache under
+    // node_modules — a directory with no `.git`, so not a worktree whatever its name suggests.
+    const residue = path.join(cwd, "node_modules", ".cache", "harness-node-compile", "v24-arm64");
+    mkdirSync(residue, { recursive: true });
+    writeFileSync(path.join(residue, "cache-blob"), "cache\n");
+    assert.equal(isLinkedWorktree(cwd), false);
+    // The task read takes the residue as already reclaimed instead of failing on the missing `.git`.
+    assert.deepEqual(taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null), {
+      kind: "worktree",
+      ...binding,
+      state: "reclaimed",
+    });
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
 });
 
 test("a worktree retained at close is reclaimed by a later close on this node once it is clean", async (t) => {

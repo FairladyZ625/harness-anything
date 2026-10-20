@@ -7,8 +7,8 @@
  *      它推进 cut(watermark + sourceRevision),cut 前进由 invalidateLedgerDependents
  *      扇出到所有台账派生读——派生读因此既不需要自己的计时器,也不需要自己的聚焦
  *      重取:聚焦时探针先读,cut 变了派生读才跟着读。
- *   2. daemon 级读面(system status / connections status):台账 cut 覆盖不到,各自的
- *      低频计时器是唯一周期刷新来源,保留;聚焦不重读。
+ *   2. daemon 级读面(system status / connections status / fleet overview):台账 cut
+ *      覆盖不到,各自的低频计时器是唯一周期刷新来源,保留;聚焦不重读。
  *   3. agenda 续读:未读完的游标窗口靠它拉完,读完即停,不是周期轮询。
  */
 export const QUERY_PACING_MS = {
@@ -18,8 +18,14 @@ export const QUERY_PACING_MS = {
   systemStatus: 10_000,
   /** connections status:admin 面,cut 覆盖不到,自持低频轮询。 */
   connectionStatus: 30_000,
+  /** 边缘邀请状态:签发后等边缘消费的观察窗,比连接面密、与台账探针同档;全部终态即停。 */
+  edgeJoinStatus: 10_000,
   /** Token 消耗聚合读:数据在派工流里,runtime_metrics 增长不推进台账 cut,自持低频轮询。 */
   tokenUsage: 10_000,
+  /** 协作页舰队概览:半数事实(副本通道 lag/ack/delivery、daemon 事实)是 daemon 级状态,
+   *  台账安静期也在走——不能只挂台账 cut 扇出,自持低频轮询保证停在页面上时数据在动
+   *  (task_89085c1d5e532a54933b9bf444:此前挂载只读一次,页面冻结)。 */
+  fleetOverview: 10_000,
   /** agenda 未读完游标的续读节奏(读完即停,不是周期轮询)。 */
   agendaCatchUp: 5_000,
 } as const;

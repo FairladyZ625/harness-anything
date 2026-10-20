@@ -22,6 +22,11 @@ export const DAEMON_WORK_INDEX_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "ok", "status", "works", "watermark", "sourceRevision", "warnings"]),
 });
 
+export const DAEMON_WORK_BRIEFS_SCHEMA = Object.freeze({
+  id: "daemon.work-briefs/v1",
+  required: Object.freeze(["schema", "ok", "status", "briefs", "watermark", "sourceRevision", "warnings"]),
+});
+
 export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({
   id: "daemon.settings-read/v1",
   required: Object.freeze(["schema", "ok", "settings"]),
@@ -59,10 +64,6 @@ export const DAEMON_ENTITY_LOCATOR_READ_SCHEMA = Object.freeze({
 export const DAEMON_ENTITY_CONTENT_READ_SCHEMA = Object.freeze({
   id: "entity-content-read/v1",
   required: Object.freeze(["schema", "ok", "outcome", "entityRef", "path", "repositoryPath", "content", "entries"]),
-});
-
-export const DAEMON_CI_OBSERVATORY_SCHEMA = Object.freeze({
-  id: "daemon.ci-observatory/v1",
 });
 
 export const DAEMON_OBSERVE_TAIL_SCHEMA = Object.freeze({

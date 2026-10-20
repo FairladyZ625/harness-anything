@@ -20,6 +20,8 @@ import type { makeWarmingSettlement } from "./daemon-host-errors.ts";
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
 import type { WriterEpochFenceDescriptor, WriterEpochLease } from "./writer-epoch.ts";
+import type { openDecisionProviderService } from "./decision-provider.ts";
+import type { openDecisionPointExecutor } from "./decision-point-executor.ts";
 
 export interface DaemonPoint extends JsonObject {
   readonly daemonId: string;
@@ -84,6 +86,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly openCell: NonNullable<DaemonHostOpenInput["openCell"]>;
   readonly writerEpochFence: (repoId: string, rootDir?: string) => WriterEpochFenceDescriptor;
   readonly runtimePorts: DaemonRuntimePorts;
+  readonly decisionPointExecutorFor: (repoId: string, rootDir: string) => ReturnType<typeof openDecisionPointExecutor>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
@@ -120,6 +123,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
 export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionContext {
   readonly remoteProxy: RemoteProxyManager;
   readonly runtimePorts: DaemonRuntimePorts;
+  readonly decisionPointExecutorFor: DaemonHostRegistryContext["decisionPointExecutorFor"];
   readonly markWarming: DaemonHostRegistryContext["markWarming"];
   readonly warmingStatus: DaemonHostRegistryContext["warmingStatus"];
   readonly latchUnavailable: DaemonHostRegistryContext["latchUnavailable"];
@@ -165,6 +169,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
   readonly instances: ReturnType<typeof openRuntimeInstanceStore>;
+  readonly decisionProviders: ReturnType<typeof openDecisionProviderService>;
   readonly requiredText: typeof import("./daemon-host-status.ts").requiredText;
   readonly refreshRegistry: () => Promise<void>;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */

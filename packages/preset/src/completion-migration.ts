@@ -4,18 +4,13 @@ import { isPresetResolutionRecord as record } from "./preset-resolver-common.ts"
 // Frozen conversion of software-coding-standard, not the installed version's evolving defaults.
 const standardCompletion = {
   sources: {
-    "github-actions": {
-      kind: "github-actions",
-      predicateType: "harness/ci/v1",
-      resultSchema: { type: "object", additionalProperties: false },
-    },
     "manual-attest": {
       kind: "manual",
       predicateType: "harness/attestation/v1",
       resultSchema: { type: "object", additionalProperties: false },
     },
   },
-  gates: { ci: { source: "github-actions", appliesTo: "code" } },
+  gates: {},
   closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: true },
 };
 
@@ -56,6 +51,8 @@ export function convertCompletionManifest(value: unknown) {
         checkerProfile !== "software-coding-standard"
       )
         throw new Error(`No completion migration mapping for checkerProfile ${String(checkerProfile)}.`);
+      if (value.vertical === "software/coding" && Array.isArray(current.completionGates))
+        current.completionGates = current.completionGates.filter((gate) => gate !== "ci");
       return current;
     }),
   };

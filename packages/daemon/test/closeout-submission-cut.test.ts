@@ -89,7 +89,7 @@ function derive(
   rootDir: string,
   summary: string,
   missingPath?: string,
-  gates: readonly string[] = ["ci"],
+  gates: readonly string[] = ["lint"],
   store: Parameters<typeof deriveCloseoutSubmission>[0]["store"] = {} as Parameters<
     typeof deriveCloseoutSubmission
   >[0]["store"],
@@ -177,16 +177,11 @@ function derive(
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
       settings: {
         readRepository: () => ({
-          ci: { workflows: ["rewrite-ci"] },
           gates: [
             {
-              gateId: "ci",
-              adapter: "github-actions",
+              gateId: "lint",
+              adapter: "research/check",
               appliesTo: "code",
-              branch: "main",
-              event: "push",
-              coverage: "exact",
-              selection: "newest",
             },
           ],
         }),
@@ -217,7 +212,7 @@ test("explicit structured commit derives mixed deletion evidence without a dispa
   rmSync(path.join(root, "src/old.ts"));
   put(root, "src/live.ts", "export const liveValue = 2;\n");
   const sha = commit(root),
-    packet = derive(root, "Delivered the implementation.", undefined, ["ci"], undefined, undefined, sha);
+    packet = derive(root, "Delivered the implementation.", undefined, ["lint"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
@@ -233,7 +228,7 @@ test("repository delivery automatically freezes accepted report without a Summar
       root,
       "Delivered the implementation and report.",
       undefined,
-      ["ci", "code-doc-reconciliation"],
+      ["lint", "code-doc-reconciliation"],
       store,
       undefined,
       sha,
@@ -251,7 +246,7 @@ test("pure deletion cut has no surviving anchor paths and keeps the deletion lis
   const { root } = fixture(t);
   rmSync(path.join(root, "src/old.ts"));
   const sha = commit(root),
-    packet = derive(root, "Delivered the deletion.", undefined, ["ci"], undefined, undefined, sha);
+    packet = derive(root, "Delivered the deletion.", undefined, ["lint"], undefined, undefined, sha);
   assert.deepEqual(packet.deliverables, []);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
 });
@@ -261,7 +256,7 @@ test("rename cut anchors the surviving target path", (t) => {
   git(root, "config", "diff.renames", "true");
   renameSync(path.join(root, "src/old.ts"), path.join(root, "src/renamed.ts"));
   const sha = commit(root),
-    packet = derive(root, "Delivered the rename.", undefined, ["ci"], undefined, undefined, sha);
+    packet = derive(root, "Delivered the rename.", undefined, ["lint"], undefined, undefined, sha);
   assert.deepEqual(packet.deliverables, ["src/renamed.ts"]);
   assert.deepEqual(packet.outputs, []);
 });
@@ -274,7 +269,7 @@ test("task worktree HEAD is the delivery commit without a runtime dispatch", (t)
   const sha = commit(worktree),
     old = git(root, "rev-parse", "HEAD");
   assert.equal(
-    derive(root, `Completed the bound task worktree; prior cut was ${old}.`, undefined, ["ci"]).commitSha,
+    derive(root, `Completed the bound task worktree; prior cut was ${old}.`, undefined, ["lint"]).commitSha,
     sha,
   );
 });
@@ -291,7 +286,7 @@ test("a rebase may advance the bound delivery commit without rewriting closeout 
   git(worktree, "rebase", "main");
   const afterRebase = git(worktree, "rev-parse", "HEAD");
   assert.notEqual(afterRebase, beforeRebase);
-  const submission = derive(root, closeout, undefined, ["ci"]);
+  const submission = derive(root, closeout, undefined, ["lint"]);
   assert.equal(submission.commitSha, afterRebase);
   assert.equal(submission.completionClaim, closeout);
 });
@@ -314,7 +309,7 @@ test("missing dispatch requires an explicit structured delivery commit", (t) => 
   const sha = commit(root);
   assert.throws(() => derive(root, "Completed the live path."), { code: "invalid_submission" });
   assert.equal(
-    derive(root, `Earlier cuts: ${base} and ${"f".repeat(40)}.`, undefined, ["ci"], undefined, undefined, sha)
+    derive(root, `Earlier cuts: ${base} and ${"f".repeat(40)}.`, undefined, ["lint"], undefined, undefined, sha)
       .commitSha,
     sha,
   );
@@ -334,14 +329,14 @@ test("an old dispatch cwd in another checkout never stands in for the bound work
   });
   put(root, "src/live.ts", "export const liveValue = 5;\n");
   const sha = commit(root);
-  assert.equal(derive(root, "Completed.", undefined, ["ci"], undefined, undefined, sha).commitSha, sha);
+  assert.equal(derive(root, "Completed.", undefined, ["lint"], undefined, undefined, sha).commitSha, sha);
 });
 
 test("a plain directory at the bound worktree path never lends the canonical HEAD", (t) => {
   const { root } = fixture(t);
   // A leftover ordinary directory at .worktrees/task-1: rev-parse there walks up to the canonical checkout.
   put(root, ".worktrees/task-1/leftover.txt", "not a worktree\n");
-  assert.throws(() => derive(root, "Completed the live path.", undefined, ["ci"]), {
+  assert.throws(() => derive(root, "Completed the live path.", undefined, ["lint"]), {
     code: "invalid_submission",
     message: /No readable bound worktree HEAD exists; rerun with --commit/u,
   });
@@ -353,7 +348,7 @@ test("explicit delivery commit must match a bound worktree HEAD and reports both
   git(root, "worktree", "add", "-qb", "task-1", worktree);
   put(worktree, "src/live.ts", "export const liveValue = 3;\n");
   const head = commit(worktree);
-  assert.throws(() => derive(root, "Complete.", undefined, ["ci"], undefined, undefined, base), {
+  assert.throws(() => derive(root, "Complete.", undefined, ["lint"], undefined, undefined, base), {
     code: "invalid_submission",
     message: new RegExp(`${base}.*${head}`, "u"),
   });
@@ -381,7 +376,7 @@ test("shared public and authored Git root keeps a code delivery on its public cu
   const { root } = fixture(t, true);
   put(root, "src/live.ts", "export const liveValue = 4;\n");
   const sha = commit(root),
-    packet = derive(root, "Delivered the implementation.", undefined, ["ci"], undefined, undefined, sha);
+    packet = derive(root, "Delivered the implementation.", undefined, ["lint"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
 });
@@ -396,7 +391,7 @@ test("unpublished bound worktree HEAD preserves every branch commit before main"
   commit(worktree);
   put(worktree, "src/second.ts", "second\n");
   const head = commit(worktree),
-    packet = derive(root, "Worktree delivery.", undefined, ["ci"]);
+    packet = derive(root, "Worktree delivery.", undefined, ["lint"]);
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
   assert.equal(packet.commitSha, head);
 });
@@ -412,19 +407,19 @@ test("removed dispatch worktree resolves an explicit delivery cut in the canonic
   const merged = git(root, "rev-parse", "HEAD");
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   git(root, "worktree", "remove", cwd);
-  assert.equal(derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged).commitSha, merged);
-  assert.deepEqual(derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged).deliverables, [
+  assert.equal(derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged).commitSha, merged);
+  assert.deepEqual(derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged).deliverables, [
     "src/delivery.ts",
   ]);
   assert.throws(() => derive(root, "Delivery complete."), /No readable bound worktree HEAD/u);
   assert.throws(
-    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, "f".repeat(40)),
+    () => derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, "f".repeat(40)),
     /not in any local clone/u,
   );
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
   assert.equal(
-    derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, unpublished).commitSha,
+    derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, unpublished).commitSha,
     unpublished,
   );
 });
@@ -457,7 +452,7 @@ test("a structured commit differing from the bound HEAD is rejected", (t) => {
   put(worker, "src/unrelated.ts", "unrelated\n");
   commit(worker);
   assert.throws(
-    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged),
+    () => derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged),
     /does not match bound worktree HEAD/u,
   );
 });
@@ -495,7 +490,7 @@ test("a task-package-artifact task freezes accepted artifacts with a non-empty g
     root,
     `Audited unrelated PR ${"f".repeat(40)}.`,
     undefined,
-    ["ci", "code-doc-reconciliation"],
+    ["lint", "code-doc-reconciliation"],
     artifactStore().store as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
     undefined,
     undefined,
@@ -613,7 +608,7 @@ test("a root-commit delivery on an unborn repository diffs against the empty tre
   git(root, "config", "user.email", "harness@example.test");
   put(root, "src/first.ts", "export const first = 1;\n");
   const sha = commit(root);
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, { kind: "empty-tree" }, sha);
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, { kind: "empty-tree" }, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/first.ts"]);
 });
@@ -624,7 +619,7 @@ test("a multi-commit delivery lists every path changed since the frozen baseline
   commit(root);
   put(root, "src/second.ts", "second\n");
   const sha = commit(root);
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, undefined, sha);
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
 });
@@ -636,7 +631,7 @@ test("an execution started before the baseline froze keeps the comparison cut in
   put(root, "src/live.ts", "export const liveValue = 9;\n");
   const sha = commit(root);
   // The pre-freeze rule compares against the merge base with origin/main, so both commits are delivered.
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, null, sha);
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, null, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/earlier.ts", "src/live.ts"]);
 });
@@ -655,7 +650,7 @@ test("a frozen baseline unreadable in an unanchored repository fails closed", (t
         root,
         `Delivered ${sha}.`,
         undefined,
-        ["ci"],
+        ["lint"],
         undefined,
         { kind: "commit", commitSha: "f".repeat(40) },
         sha,
@@ -678,7 +673,7 @@ test("a repository without a remote anchors its cut on the local default branch,
   commit(root);
   const started = { kind: "commit" as const, commitSha: base };
   assert.deepEqual(
-    derive(root, "Delivered the worker cut.", undefined, ["ci"], undefined, started, delivery).deliverables,
+    derive(root, "Delivered the worker cut.", undefined, ["lint"], undefined, started, delivery).deliverables,
     ["src/delivery.ts"],
   );
   // Delivered straight onto main after more ledger writes: the cut is that commit's own change.
@@ -688,7 +683,7 @@ test("a repository without a remote anchors its cut on the local default branch,
   const direct = commit(root);
   git(root, "worktree", "remove", worker);
   assert.deepEqual(
-    derive(root, "Delivered the direct cut.", undefined, ["ci"], undefined, started, direct).deliverables,
+    derive(root, "Delivered the direct cut.", undefined, ["lint"], undefined, started, direct).deliverables,
     ["src/direct.ts"],
   );
 });
@@ -702,7 +697,7 @@ test("the comparison cut follows the delivery fork point, not the project HEAD a
     root,
     `Delivered ${sha}.`,
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: base },
     sha,
@@ -740,7 +735,7 @@ test("a cut merged after sibling PRs reports only its own files, never the start
     root,
     "Delivery complete.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: base },
     merged,
@@ -757,7 +752,7 @@ test("a cut named after main passed it reports its own files, never a reverse di
     root,
     "Delivery complete.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: later },
     merged,
@@ -780,7 +775,7 @@ test("one commit derives one manifest whatever start observation the execution f
         root,
         "Delivery complete.",
         undefined,
-        ["ci"],
+        ["lint"],
         undefined,
         deliveryBaseline,
         merged,
@@ -800,7 +795,7 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
     root,
     "Delivered artifact:artifacts/report.md@7.",
     undefined,
-    ["ci"],
+    ["lint"],
     artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
     { kind: "commit", commitSha: merged },
     undefined,
@@ -817,7 +812,7 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
       root,
       "Delivered artifact:artifacts/report.md@7.",
       undefined,
-      ["ci"],
+      ["lint"],
       artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
       null,
       undefined,
@@ -828,7 +823,7 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
     ).deliverables,
     [],
   );
-  const closeoutOnly = derive(root, "Completed ledger coordination.", undefined, ["ci"], undefined, {
+  const closeoutOnly = derive(root, "Completed ledger coordination.", undefined, ["lint"], undefined, {
     kind: "commit",
     commitSha: merged,
   });
@@ -847,7 +842,7 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
     root,
     "Re-delivered.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: merged },
     undefined,
@@ -861,7 +856,7 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
     root,
     "Prior cut named an old main commit.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: merged },
     undefined,
@@ -875,7 +870,7 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
     root,
     "Foreign prior cut.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: merged },
     undefined,
@@ -909,7 +904,7 @@ function foreignMerge(t: TestContext) {
 
 test("a stale worktree HEAD behind the frozen baseline claims no foreign merge files", (t) => {
   const { root, later } = foreignMerge(t);
-  const packet = derive(root, "Review-only round with no repository work.", undefined, ["ci"], undefined, {
+  const packet = derive(root, "Review-only round with no repository work.", undefined, ["lint"], undefined, {
     kind: "commit",
     commitSha: later,
   });
@@ -924,7 +919,7 @@ test("a prior cut that only recorded the stale merge inherits nothing on resubmi
     root,
     "Second review round.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: later },
     undefined,
@@ -946,7 +941,7 @@ test("a restarted delivery whose own branch merged keeps its manifest under an a
     root,
     "Re-delivered after restart.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     { kind: "commit", commitSha: later },
     undefined,
@@ -1071,7 +1066,7 @@ test("stacked delivery uses its approved baseline for merged files and deletions
     root,
     "Integrated delivery.",
     undefined,
-    ["ci"],
+    ["lint"],
     undefined,
     {
       kind: "commit",
@@ -1088,7 +1083,7 @@ test("stacked delivery uses its approved baseline for merged files and deletions
       root,
       "Ordinary delivery.",
       undefined,
-      ["ci"],
+      ["lint"],
       undefined,
       {
         kind: "commit",

@@ -354,6 +354,7 @@ type DaemonGuiReadDataMap = {
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
   readonly "repo.tasks.wip": DaemonTaskWipResult;
   readonly "repo.works.index": ReturnType<typeof import("../work-read.ts").workIndexFromProjection>;
+  readonly "repo.works.briefs.read": import("../work-briefs-read.ts").WorkBriefsReadResult;
   readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.entity.kinds.read": EntityKindCatalogV1;
@@ -366,7 +367,6 @@ type DaemonGuiReadDataMap = {
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
   readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
-  readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.workspace.scope.read": import("../workspace-scope-read.ts").WorkspaceScopeRead;
   readonly "repo.agenda.read": DaemonAgendaResult;
@@ -448,6 +448,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
   readonly "repo.tasks.wip": Readonly<Record<string, never>>;
   readonly "repo.works.index": Readonly<Record<string, never>>;
+  readonly "repo.works.briefs.read": Readonly<Record<string, never>>;
   readonly "repo.projection.read": DaemonUseCaseProjectionPayload;
   readonly "repo.entity.actions.explain": {
     readonly schema: "entity-action-explain-request/v1";
@@ -466,7 +467,6 @@ export type DaemonGuiReadPayloadMap = {
     readonly path?: string;
   };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
-  readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.workspace.scope.read": {
     readonly rootTaskId: string;
@@ -839,8 +839,9 @@ export type DaemonWorkspaceSummaryResult = {
 
 /**
  * Where a task works (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4): its worktree binding with what the answering node's
- * filesystem shows of it (dec_BBA713052997C3EF5F5D3DD952; a node that never ran the task reads "bound"), or, for a
- * task that does not change repository files, its own task package directory. Paths are repository-relative.
+ * filesystem shows of it (dec_BBA713052997C3EF5F5D3DD952; a node that never ran the task reads "bound"; residue a
+ * late writer left at a reclaimed path is not a worktree and reads as reclaimed), or, for a task that does not
+ * change repository files, its own task package directory. Paths are repository-relative.
  */
 export type TaskWorkspaceView =
   | {

@@ -109,14 +109,22 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
 
 test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async (t) => {
   const { service, requests, root } = fixture(1_000, {}, t);
+  writeFileSync(path.join(root, "rbac", "listener.pem"), "public listener certificate");
   writeFileSync(
     path.join(root, "rbac", "config.json"),
     JSON.stringify({
       url: "http://127.0.0.1:8080",
       realm: "harness",
-      listener: { hostname: "center.example.test", port: 8443 },
+      listener: {
+        hostname: "center.example.test",
+        port: 8443,
+        certificateFile: path.join(root, "rbac", "listener.pem"),
+        certificateKeyFile: path.join(root, "rbac", "listener-key.pem"),
+        address: "127.0.0.1",
+      },
     }),
   );
+  assert.equal(service.discovery("node-one")?.certificate, "public listener certificate");
   const begun = await service.begin("http://127.0.0.1:43123/callback"),
     authorizationUrl = new URL(String(begun.authorizationUrl));
   assert.equal(authorizationUrl.origin, "https://center.example.test:8443");
@@ -128,15 +136,23 @@ test("under a listener the browser signs in at its hostname while the daemon kee
 
 test("an invitation names the listener other machines can reach, not the center's loopback", async (t) => {
   const { service, root } = fixture(1_000, {}, t);
+  writeFileSync(path.join(root, "rbac", "listener.pem"), "public listener certificate");
   writeFileSync(
     path.join(root, "rbac", "config.json"),
     JSON.stringify({
       url: "http://127.0.0.1:8080",
       realm: "harness",
-      listener: { hostname: "center.example.test", port: 8443 },
+      listener: {
+        hostname: "center.example.test",
+        port: 8443,
+        certificateFile: path.join(root, "rbac", "listener.pem"),
+        certificateKeyFile: path.join(root, "rbac", "listener-key.pem"),
+      },
     }),
   );
-  assert.equal((await service.interactiveAuthority()).url, "https://center.example.test:8443");
+  const invitation = await service.interactiveAuthority();
+  assert.equal(invitation.url, "https://center.example.test:8443");
+  assert.equal(invitation.certificate, "public listener certificate");
 });
 
 test("a session in use outlives its access token without signing in again", async (t) => {
@@ -362,6 +378,61 @@ test("first administrator closes after one success and access-admin can invite",
     }),
     { ok: true, invited: true, personId: "person-alice" },
   );
+});
+
+test("an invitation inside the OIDC write queue renews a lapsing session in place", { timeout: 10_000 }, async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-inwriter-")),
+    rbac = path.join(root, "rbac");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(rbac, { recursive: true });
+  writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
+  writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
+  let refreshes = 0;
+  const adminJwt = `x.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
+    service = new OidcSessionService(root, {
+      fetch: (async (input, init) => {
+        const url = String(input),
+          method = init?.method ?? "GET";
+        if (url.endsWith("/protocol/openid-connect/token")) {
+          const form = init?.body as URLSearchParams;
+          if (form.get("grant_type") === "refresh_token") {
+            refreshes += 1;
+            return Response.json({
+              access_token: adminJwt,
+              refresh_token: form.get("refresh_token"),
+              expires_in: 3_600,
+              refresh_expires_in: 21_600,
+            });
+          }
+          return Response.json({ access_token: "center-token" });
+        }
+        if (url.endsWith("/users") && method === "POST")
+          return new Response(null, { status: 201, headers: { location: `${url}/user-invited` } });
+        if (url.endsWith("/execute-actions-email")) return new Response(null, { status: 204 });
+        return new Response(null, { status: 204 });
+      }) as typeof fetch,
+    });
+  // The stored session sits inside the 30s renewal margin, so its next use must renew before authorizing.
+  managedRbacSessionStore(root).write(
+    JSON.stringify({
+      schema: "harness-oidc-session/v2",
+      accessToken: "stale-admin-token",
+      refreshToken: "stale-admin-token",
+      subject: "admin-subject",
+      personId: "person-admin",
+      expiresAt: Date.now() + 10_000,
+      sessionExpiresAt: Date.now() + 3_600_000,
+      roles: ["access-admin"],
+    }),
+  );
+  const invitation = await service.serialize(() =>
+    service.invite(
+      { username: "alice", email: "alice@example.invalid", displayName: "Alice", personId: "person-alice" },
+      true,
+    ),
+  );
+  assert.deepEqual(invitation, { ok: true, invited: true, personId: "person-alice" });
+  assert.equal(refreshes, 1, "the lapsing session renewed once in place, never queued behind the caller");
 });
 
 const remoteAuthority: OidcLoginAuthority = {

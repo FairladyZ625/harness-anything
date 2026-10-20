@@ -13,6 +13,11 @@ export interface AccessAdminRequest {
   readonly composites?: readonly unknown[];
   readonly expectedVersion?: string;
   readonly personId?: string;
+  readonly username?: string;
+  readonly email?: string;
+  readonly repoIds?: readonly unknown[];
+  readonly groupIds?: readonly unknown[];
+  readonly nodeLabel?: string;
   readonly resource?: string;
   readonly sessionLifetimeSeconds?: number;
   readonly teamId?: string;
@@ -21,13 +26,7 @@ export interface AccessAdminRequest {
   readonly systemName?: string;
   readonly platform?: string;
   readonly credentialFile?: string;
-  readonly centerUrl?: string;
-  readonly spkiSha256?: string;
-  readonly ttlMs?: number;
-  readonly inviteId?: string;
-  readonly link?: string;
-  readonly loginPersonId?: string;
-  readonly observedSpkiSha256?: string;
+  readonly joinId?: string;
   readonly requestId?: string;
   readonly requestVersion?: number;
   readonly decision?: "approve" | "reject";
@@ -38,5 +37,6 @@ export interface AccessAdminPorts {
   readonly fetch: typeof fetch;
   readonly now: () => string;
   readonly journal: ReturnType<typeof managedRbacReceiptJournal>;
+  readonly daemonId?: string;
   readonly onNodeRemoved?: (nodeId: string) => void;
 }

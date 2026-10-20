@@ -202,7 +202,7 @@ export function taskShowFromProjection(
           rootSetting.threshold,
         )
       : null,
-    completion = readTaskCompletion(projection, taskId),
+    completion = readTaskCompletion(projection, taskId, rootDir),
     workspace = taskWorkspaceView(
       rootDir,
       task,

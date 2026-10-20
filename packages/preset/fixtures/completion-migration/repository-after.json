@@ -11,10 +11,7 @@
         "extends": "task",
         "field": "taskClass",
         "kind": "enum-facet",
-        "values": [
-          "milestone",
-          "epic"
-        ],
+        "values": ["milestone", "epic"],
         "default": null,
         "mutability": "amendable",
         "projection": {
@@ -62,9 +59,7 @@
         "store": {
           "pathTemplate": "entities/architecture-decision-records/{id}.json"
         },
-        "locatorKinds": [
-          "repository-path"
-        ],
+        "locatorKinds": ["repository-path"],
         "relations": [
           {
             "type": "relates",
@@ -97,10 +92,7 @@
         "store": {
           "pathTemplate": "entities/external-issues/{id}.json"
         },
-        "locatorKinds": [
-          "url",
-          "external-key"
-        ],
+        "locatorKinds": ["url", "external-key"],
         "relations": [
           {
             "type": "relates",
@@ -133,9 +125,7 @@
         "store": {
           "pathTemplate": "entities/research/{id}.json"
         },
-        "locatorKinds": [
-          "repository-path"
-        ],
+        "locatorKinds": ["repository-path"],
         "relations": [
           {
             "type": "relates",
@@ -159,11 +149,7 @@
         "revision": 65820
       }
     ],
-    "contractEntityKinds": [
-      "task",
-      "decision",
-      "fact"
-    ],
+    "contractEntityKinds": ["task", "decision", "fact"],
     "packageScaffolds": [
       {
         "entityKind": "task",
@@ -372,40 +358,28 @@
         "id": "vertical:software-coding:architecture-init",
         "type": "script",
         "command": "scripts/architecture-init.mjs",
-        "reads": [
-          "{{outputRoot}}/architecture/**"
-        ],
-        "writes": [
-          "{{outputRoot}}/architecture/**"
-        ],
+        "reads": ["{{outputRoot}}/architecture/**"],
+        "writes": ["{{outputRoot}}/architecture/**"],
         "inputs": {},
         "metadata": {
           "description": "Materialize the opt-in repository architecture manifest and LikeC4 scaffold without overwriting authored content.",
           "purpose": "scaffold",
           "contractVersion": "script-entry/v1",
-          "produces": [
-            "{{outputRoot}}/architecture/**"
-          ]
+          "produces": ["{{outputRoot}}/architecture/**"]
         }
       },
       {
         "id": "vertical:software-coding:architecture-snapshot",
         "type": "script",
         "command": "scripts/architecture-snapshot.mjs",
-        "reads": [
-          "{{paths.contextRoot}}/architecture/**"
-        ],
-        "writes": [
-          "{{outputRoot}}/artifacts/architecture/**"
-        ],
+        "reads": ["{{paths.contextRoot}}/architecture/**"],
+        "writes": ["{{outputRoot}}/artifacts/architecture/**"],
         "inputs": {},
         "metadata": {
           "description": "Run declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.",
           "purpose": "generate",
           "contractVersion": "script-entry/v1",
-          "produces": [
-            "{{outputRoot}}/artifacts/architecture/**"
-          ]
+          "produces": ["{{outputRoot}}/artifacts/architecture/**"]
         }
       },
       {
@@ -426,11 +400,7 @@
         "id": "vertical:software-coding:decision-conformance",
         "type": "script",
         "command": "scripts/decision-conformance-check.mjs",
-        "reads": [
-          "{{paths.tasksRoot}}/**",
-          "{{paths.decisionsRoot}}/**",
-          "{{paths.sessionsRoot}}/**"
-        ],
+        "reads": ["{{paths.tasksRoot}}/**", "{{paths.decisionsRoot}}/**", "{{paths.sessionsRoot}}/**"],
         "writes": [],
         "inputs": {},
         "metadata": {
@@ -463,14 +433,6 @@
     ],
     "completion": {
       "sources": {
-        "github-actions": {
-          "kind": "github-actions",
-          "predicateType": "harness/ci/v1",
-          "resultSchema": {
-            "type": "object",
-            "additionalProperties": false
-          }
-        },
         "manual-attest": {
           "kind": "manual",
           "predicateType": "harness/attestation/v1",
@@ -480,12 +442,7 @@
           }
         }
       },
-      "gates": {
-        "ci": {
-          "source": "github-actions",
-          "appliesTo": "code"
-        }
-      },
+      "gates": {},
       "closeoutDefaults": {
         "review": false,
         "consent": false,

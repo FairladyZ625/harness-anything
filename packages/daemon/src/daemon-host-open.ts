@@ -86,7 +86,7 @@ import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
-import { openRuntimeProviderHealthStore } from "./runtime-provider-health.ts";
+import { openDaemonRuntimePorts } from "./daemon-runtime-ports.ts";
 import { causeClassOf, latchReprobeThrottleMs, openRepoCell, type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
@@ -96,6 +96,8 @@ import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-h
 import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
+import { openDecisionProviderService } from "./decision-provider.ts";
+import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -182,16 +184,25 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       resolveCredential: vault.resolve,
     }),
     instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
-    runtimePorts = {
-      runtimeInstances: instances.listPublic,
-      runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
-      prepareRuntimeLaunch: instances.prepareLaunch,
-      reclaimRuntimeTempDirectory: instances.reclaimRuntimeTempDirectory,
-      reclaimSettledRuntimeTempDirectories: instances.reclaimSettledRuntimeTempDirectories,
-      prepareDaemonGitEnvironment: instances.prepareDaemonGitEnvironment,
-    },
+    decisionProviders = openDecisionProviderService({
+      userRoot: input.userRoot,
+      vault,
+      isCredentialInUse: (reference) =>
+        instanceStore
+          .list()
+          .some(
+            (config) =>
+              (config.auth.mode === "api-key" && config.auth.credentialRef === reference) ||
+              Object.values(config.hostingCredentialRefs ?? {}).includes(reference),
+          ),
+    }),
+    runtimePorts = openDaemonRuntimePorts({ userRoot: input.userRoot, instances }),
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),
+    decisionPointExecutorFor = openDecisionPointExecutorFactory({
+      providers: { list: decisionProviders.list, port: decisionProviders.port },
+      now,
+    }),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
@@ -209,7 +220,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const repo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId);
       // The lease database allocates epochs above the accepting ledger's enforced fence floor. Init
       // takes its lease before the registry row exists, so the caller passes the root it will write.
-      const lease = daemonWriterEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir));
+      // An edge's local ledger is a center-owned mirror; it cannot establish that edge's epoch floor.
+      const observedLedgerEpoch =
+        repo?.mode === "remote-edge" ? 0 : readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir);
+      const lease = daemonWriterEpoch.acquire(repoId, observedLedgerEpoch);
       daemonWriterLeases.set(repoId, lease);
       return lease;
     },
@@ -387,6 +401,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   let initialAttachments: Promise<void> | null = null,
+    initialAttachmentsSettled = false,
+    replicaSyncStartQueued = false,
     closing = false;
   // An unavailable row reports no writer generation or queue: the cell that would own them
   // never opened, so a zero would be a fabricated measurement rather than an unknown.
@@ -481,6 +497,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     openCell,
     writerEpochFence,
     runtimePorts,
+    decisionPointExecutorFor,
     runtimeDaemonRoute,
     keycloakCenter,
     keycloakSession,
@@ -646,6 +663,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     unavailable,
     input,
     runtimePorts,
+    decisionPointExecutorFor,
     failedConfigureVerify,
     hostCodedError,
     binding: hostBinding,
@@ -693,6 +711,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     scheduleScheduler,
     edgeRuntimeFor,
     instances,
+    decisionProviders,
     requiredText,
     point,
     controls,
@@ -730,6 +749,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // A node removal settles in the access-admin queue; the fleet center owns the node's
   // live TLS sessions, so the settled cut is handed from one to the other here.
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
+    daemonId: input.daemonId,
     onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
   });
   accessAdminRef.current = accessAdmin;
@@ -875,6 +895,20 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
   };
   const startReplicaSyncs = (): void => {
+    // A registry refresh can arrive while the initial attach fan-out is still opening cells. Starting
+    // a remote-edge stream here races the cell's publication boundary and exposes sync failures
+    // before the host reports attachment. Defer that refresh until the same initial barrier used by
+    // attachmentsSettled(); calls made after startup remain immediate.
+    if (initialAttachments && !initialAttachmentsSettled) {
+      if (!replicaSyncStartQueued) {
+        replicaSyncStartQueued = true;
+        void initialAttachments.then(() => {
+          replicaSyncStartQueued = false;
+          startReplicaSyncs();
+        });
+      }
+      return;
+    }
     const registered = readDaemonRegistry({ userRoot: input.userRoot }).repos,
       activeRemoteEdges = new Set<string>();
     for (const repo of registered) {
@@ -904,6 +938,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ...(config.servername ? { servername: config.servername } : {}),
         nodeId: config.nodeId,
         credential: config.credential,
+        ...(config.humanClientId ? { humanClientId: config.humanClientId } : {}),
         repoId: config.repoId,
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
@@ -969,8 +1004,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             verifyHuman: (auth) => oidc.bind(auth),
             edgeJoin: (input) =>
               accessAdmin.admitEdgeJoin({
+                joinId: input.joinId,
                 inviteToken: input.inviteToken,
-                nodeId: input.nodeId,
                 accessToken: input.accessToken ?? "",
               }),
           },
@@ -1038,6 +1073,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   }
   function startInitialAttachments(): Promise<void> {
     return startInitialAttachmentsImpl(extracted).then(() => {
+      initialAttachmentsSettled = true;
       startReplicaSyncs();
       return scheduleScheduler.start();
     });

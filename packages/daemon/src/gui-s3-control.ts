@@ -306,6 +306,7 @@ export function validateAgentDispatchPreview(value: unknown): readonly string[] 
       command: "string",
       dispatchId: "string",
       runtimeSessionId: "string",
+      effort: "null-string",
       prompt: "string",
       mission: "string",
     },
@@ -479,7 +480,6 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       verticals: "array",
       templates: "array",
       scaffolds: "object",
-      ciWorkflows: "array",
       bundledAgents: "array",
       settingsFields: "array",
       settingsGroups: "array",
@@ -625,7 +625,6 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
     if (!stringArray(value.scaffolds.task) || !stringArray(value.scaffolds.repository))
       errors.push("catalog scaffold paths are invalid");
   }
-  if (!stringArray(value.ciWorkflows)) errors.push("catalog workflow names are invalid");
   if (!stringArray(value.bundledAgents)) errors.push("catalog bundled agent ids are invalid");
   for (const row of Array.isArray(value.adapters) ? value.adapters : []) {
     errors.push(

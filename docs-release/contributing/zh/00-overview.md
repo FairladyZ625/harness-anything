@@ -1,7 +1,7 @@
 # 贡献概览
 
 Harness Anything 的公开贡献经过普通 git review、GitHub required CI 和
-maintainer 控制的合入路径。合格贡献需要范围清楚、证据可复现、PR 双语正文完整，且
+maintainer 控制的合入路径。合格贡献需要范围清楚、证据可复现、PR 正文完整，且
 公开 diff 不包含私有或机器本地上下文。
 
 ## 流程权威

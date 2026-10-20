@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import {
+  validateAgentDispatchPreview,
   validateCatalogPreset,
   validateCatalogRereadReceipt,
   validateCatalogSnapshot,
@@ -39,7 +40,6 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
     values: {
       defaultVertical: settings.defaultVertical,
       reviewIndependence: settings.reviewIndependence,
-      ciWorkflows: [],
       closeoutProfile: "standard",
     },
     revision: 7,
@@ -69,6 +69,20 @@ test("GUI S3 contracts reject unknown and secret-like fields recursively", () =>
   assert.notDeepEqual(validateSystemStatus({ ok: true, token: "x" }), []);
   assert.notDeepEqual(validateCatalogSnapshot({ ok: true, nested: { apiToken: "x" } }), []);
   assert.notDeepEqual(validateRuntimeSpawnReceipt({ schema: "command-receipt/v2", ok: true, token: "x" }), []);
+});
+
+test("an agent dispatch preview carrying effort passes its validator", () => {
+  const preview = {
+    schema: "agent-dispatch-preview/v1",
+    ok: true,
+    command: "runtime-spawn",
+    dispatchId: "dispatch_x",
+    runtimeSessionId: "runtime_x",
+    prompt: "prompt",
+    mission: "mission",
+  };
+  assert.deepEqual(validateAgentDispatchPreview({ ...preview, effort: "high" }), []);
+  assert.deepEqual(validateAgentDispatchPreview({ ...preview, effort: null }), []);
 });
 
 test("a produced terminal op_rejected receipt passes its validator", () => {

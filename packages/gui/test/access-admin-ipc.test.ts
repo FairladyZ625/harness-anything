@@ -30,6 +30,14 @@ function fixture() {
     {
       daemonRequest: async (params) => {
         sent.push(params);
+        if (params.operation === "edge-join-create")
+          return {
+            ok: true,
+            joinId: "invite-1",
+            state: "pending",
+            expiresAt: "2026-10-21T00:00:00.000Z",
+            link: "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJpbnZpdGUtMSJ9",
+          };
         return { ok: true };
       },
       operationId: () => `operation-${++sequence}`,
@@ -74,6 +82,17 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.requestPermission({ groupId: "viewer", resource: "repo-a" });
   await api.decidePermissionRequest({ requestId: "request-1", requestVersion: 1, decision: "reject" });
   await api.withdrawPermissionRequest({ requestId: "request-1", requestVersion: 1 });
+  await api.issueEdgeJoin({
+    personId: "person-gui",
+    username: "edge.operator",
+    email: "edge@example.test",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["contributor"],
+  });
+  await api.edgeJoinStatus({ joinId: "invite-1" });
+  await api.edgeJoinList();
+  await api.revokeEdgeJoin({ joinId: "invite-1" });
   const baselineSent = sent.filter(({ operation }) => !operation.startsWith("permission-request-"));
   assert.deepEqual(baselineSent, [
     { operation: "group-list" },
@@ -125,6 +144,19 @@ test("every preload method reaches the daemon as one operation the protocol cont
     { operation: "device-resume", ...device, operationId: "operation-14" },
     { operation: "device-remove", ...device, operationId: "operation-15" },
     { operation: "device-logout-all", expectedVersion: "list-v2", operationId: "operation-16" },
+    // The center signs and journals the invitation; renderer supplies the person, multi-repo and group selection.
+    {
+      operation: "edge-join-create",
+      personId: "person-gui",
+      username: "edge.operator",
+      email: "edge@example.test",
+      displayName: "Edge Operator",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["contributor"],
+    },
+    { operation: "edge-join-status", joinId: "invite-1" },
+    { operation: "edge-join-list" },
+    { operation: "edge-join-revoke", joinId: "invite-1" },
   ]);
   assert.equal(Object.keys(api).length, sent.length, "the test covers every method the page can call");
 
@@ -159,6 +191,33 @@ test("a request outside the typed contract is refused before it reaches the daem
       { operation: "session-lifetime-set", sessionLifetimeSeconds: 1.5, expectedVersion: "1" },
       /requires sessionLifetimeSeconds/u,
     ],
+    [
+      {
+        operation: "edge-join-create",
+        personId: "p",
+        username: "u",
+        email: "e",
+        displayName: "P",
+        repoIds: [],
+        groupIds: [],
+        nodeId: "manual",
+      },
+      /does not take nodeId/u,
+    ],
+    [{ operation: "edge-join-status", joinId: " " }, /requires joinId/u],
+    [
+      {
+        operation: "edge-join-create",
+        personId: "p",
+        username: "u",
+        email: "e",
+        displayName: "P",
+        repoIds: [],
+        groupIds: [],
+        centerUrl: "u",
+      },
+      /does not take centerUrl/u,
+    ],
   ] as const)
     await assert.rejects(invoke(input), refusal);
   await assert.rejects(
@@ -186,6 +245,49 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
     await handler(event, { operation: "group-delete", groupId: "release", expectedVersion: "a" }),
     conflict,
   );
+  // An invitation refusal is a refusal too: it crosses unchanged, nothing is encoded onto it.
+  assert.deepEqual(
+    await handler(event, {
+      operation: "edge-join-create",
+      personId: "p",
+      username: "u",
+      email: "e",
+      displayName: "P",
+      repoIds: ["repo-a"],
+      groupIds: ["viewer"],
+    }),
+    conflict,
+  );
+});
+
+test("edge-join-create passes the daemon's pasteable string link to the renderer once", async () => {
+  const daemonLink = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJpbnZpdGUtOSJ9";
+  let handler!: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>;
+  registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
+    daemonRequest: async () => ({
+      ok: true,
+      link: daemonLink,
+      joinId: "invite-9",
+      state: "pending",
+      expiresAt: "2026-10-21T00:00:00.000Z",
+    }),
+    operationId: () => "operation",
+  });
+  const reply = (await handler(event, {
+    operation: "edge-join-create",
+    personId: "person-gui",
+    username: "edge.operator",
+    email: "edge@example.test",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["contributor"],
+  })) as Record<string, unknown>;
+  assert.equal(typeof reply.link, "string");
+  assert.equal(reply.link, daemonLink);
+  assert.equal(reply.inviteLink, undefined, "the main process does not re-encode the daemon's link");
+  assert.equal(reply.joinId, "invite-9");
+  assert.equal(reply.state, "pending");
+  assert.equal(reply.expiresAt, "2026-10-21T00:00:00.000Z");
 });
 
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),

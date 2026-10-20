@@ -2,7 +2,6 @@
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -155,9 +154,11 @@ test(
     assert.equal((await fixture.status()).leaderTurns.length, 2);
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
-    // The leader carries the same daemon-held delivery loop as the worker role.
-    assert.match(leader.prompt, /ha task push <task-id>/u);
-    assert.match(leader.prompt, /ha task pr <task-id>/u);
+    // The leader carries the commander delivery contract for the CEO, not the worker delivery
+    // loop; the framework's one-line PR note may ride the task-bound mission, but the worker's
+    // exact publication loop never does.
+    assert.match(leader.prompt, /delivery contract with the CEO/u);
+    assert.doesNotMatch(leader.prompt, /ha task push <task-id>|ha task pr <task-id>|task delivery commands/u);
     assert.match(leader.prompt, /Do not merge/u);
     await fixture.cell.settlePendingMaterialization("before public integration");
     git(fixture.root, "checkout", "-qb", "codex/mission-delivery");
@@ -173,7 +174,6 @@ test(
     git(fixture.root, "push", "origin", "codex/mission-delivery");
     assert.equal(git(bare, "rev-parse", "refs/heads/codex/mission-delivery"), git(fixture.root, "rev-parse", "HEAD"));
     assert.equal(git(bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-"), "");
-    verifyPrCommand(fixture.parent);
     fixture.finish(
       leader.dispatchId,
       JSON.stringify({
@@ -378,6 +378,74 @@ test("failed child wakes the leader with the failure after its sibling settles",
   assertChildrenClosed(fixture, running.workerAttempts);
 });
 
+test(
+  "ended stage assignments release their WIP slot before the next stage admits a worker",
+  { timeout: 90_000 },
+  async (t) => {
+    // The limit fits the active parent plus one running assignment; a still-active
+    // ended-stage assignment would exhaust it and reject the next stage's worker.
+    const fixture = await openFixture(t, "stage-wip-release", false, 2);
+    const counted = async () =>
+      ((await fixture.cell.read("repo.tasks.wip", {}, binding)).counted as Array<{ taskId: string }>)
+        .map((row) => row.taskId)
+        .sort();
+    const dispatchStage = (turn: { dispatchId: string }, to: string, owned: string[]) =>
+      fixture.finish(
+        turn.dispatchId,
+        JSON.stringify({
+          schema: "runtime-batch/v1",
+          dispatches: [{ to, prompt: realizedTaskPlan(`stage ${to}`), ownedPaths: owned }],
+        }),
+      );
+    await dispatchStage((await fixture.status()).leaderTurns[0], "one", ["a.txt"]);
+    const stageOne = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 1 && state.workerAttempts[0].runtimeSessionId !== null,
+    );
+    const first = stageOne.workerAttempts[0];
+    assert.ok(first.taskId);
+    assert.equal(fixture.task(first.taskId!).snapshot.task?.status, "active");
+    assert.deepEqual(await counted(), [fixture.taskId, first.taskId!].sort());
+    fixture.finish(first.dispatchId!, "stage one delivered");
+    const secondTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
+    const settledFirst = fixture.task(first.taskId!);
+    assert.equal(settledFirst.snapshot.task?.status, "cancelled", "ended stage assignment must leave the worktable");
+    assert.equal(settledFirst.snapshot.lease, null);
+    assert.deepEqual(await counted(), [fixture.taskId]);
+    await dispatchStage(secondTurn.leaderTurns[1], "two", ["b.txt"]);
+    const stageTwo = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 2 && state.workerAttempts[1].runtimeSessionId !== null,
+    );
+    const second = stageTwo.workerAttempts[1];
+    assert.ok(second.taskId);
+    assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "active");
+    assert.deepEqual(await counted(), [fixture.taskId, second.taskId!].sort());
+    fixture.finish(second.dispatchId!, "stage two delivered");
+    const thirdTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 3);
+    assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "cancelled");
+    assert.deepEqual(await counted(), [fixture.taskId]);
+    await dispatchStage(thirdTurn.leaderTurns[2], "one", ["a.txt"]);
+    const stageThree = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 3 && state.workerAttempts[2].runtimeSessionId !== null,
+    );
+    const third = stageThree.workerAttempts[2];
+    assert.ok(third.taskId);
+    assert.deepEqual(await counted(), [fixture.taskId, third.taskId!].sort());
+    fixture.finish(third.dispatchId!, "stage three delivered");
+    const finalTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 4);
+    fixture.finish(
+      finalTurn.leaderTurns[3].dispatchId,
+      JSON.stringify({
+        schema: "squad-decision/v1",
+        action: "converged",
+        report: "# Stages\n\nThree sequential stages each released their assignment slot.",
+      }),
+    );
+    await fixture.waitStatus((state) => state.status === "converged");
+    assertChildrenClosed(fixture, stageThree.workerAttempts);
+    assert.deepEqual(await counted(), [fixture.taskId]);
+  },
+);
+
 test("overlapping worker declarations reject the second child before execution", { timeout: 30_000 }, async (t) => {
   const fixture = await openFixture(t, "overlap");
   await fixture.plan(["src/"], ["SRC/a.txt"]);
@@ -440,7 +508,12 @@ test(
   },
 );
 
-async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: string, runtimeCaller = false) {
+async function openFixture(
+  t: { after(fn: () => Promise<void>): void },
+  slug: string,
+  runtimeCaller = false,
+  wipLimit?: number,
+) {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-squad-e2e-${slug}-`)),
     root = path.join(parent, "repo"),
     repoId = workspaceId(`squad-e2e-${slug}`),
@@ -457,7 +530,8 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
   mkdirSync(path.join(root, "harness"));
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: docs-task\n  defaultProfile: baseline\n",
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: docs-task\n  defaultProfile: baseline\n" +
+      (wipLimit === undefined ? "" : `  tasks:\n    wipLimit: ${wipLimit}\n`),
   );
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
   git(root, "add", ".gitignore");
@@ -743,74 +817,4 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
       assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);
     },
   };
-}
-
-function verifyPrCommand(root: string) {
-  const template = readFileSync(new URL("../../../.github/pull_request_template.md", import.meta.url), "utf8"),
-    bodyPath = path.join(root, "pr-body.md"),
-    script = path.join(root, "gh-stub.cjs"),
-    receipt = path.join(root, "pr-command.json");
-  const sections: Record<string, string> = {
-    Summary: "Integrate the two child commits after inspecting the delivered files and ownership finding.",
-    "Architectural Justification": "Use the existing squad coordinator and independent child tasks. No new scheduler.",
-    "What Changed": "The integration branch contains src/a.txt, docs/b.txt, and the reported outside.txt finding.",
-    "Gate Harvest / 门收割": "Deleted-Production-Paths: none\nDeleted-Gates-Fixtures: none",
-    "Machine-Readable Declarations": "This isolated fixture changes no dependencies or event schema.",
-    "Optional Evidence Claims": "This is a local command protocol observation, not a GitHub CI claim.",
-    "Task And Scope": "Task: isolated squad fixture. Branch: codex/mission-delivery. Scope: the child commits.",
-    "Version Impact": "No version change: isolated fixture delivery only.",
-    "Governance Declaration":
-      "Protected surface touched: no. Break-glass: no. Test artifacts stay in the temporary repository.",
-    Verification:
-      "Both children submitted through task-submit. File contents were inspected; the bare remote ref equals integration HEAD.",
-    "Per-Write Cost": "Not applicable: this fixture PR contains document files only.",
-    "Review Evidence": "Assigned fixture-reviewer. Reviewer approval and GitHub CI remain unverified.",
-    "Residual Risk": "outside.txt is an ownership finding requiring integration review. No real GitHub PR is created.",
-    References: "Evidence: child submission events, ownership report, and the captured local PR command receipt.",
-    概要: "检查两个子任务提交与所有权发现后，将其合流到集成分支。",
-    架构辩护: "复用现有小队协调器和独立子任务，没有新增调度器。",
-    改动内容: "集成分支包含 src/a.txt、docs/b.txt 以及已报告的 outside.txt 越界文件。",
-    "门收割 / Gate Harvest": "本演练没有删除生产路径或门。",
-    机读声明说明: "演练不修改依赖或事件 schema。",
-    任务与范围: "任务为隔离小队演练，分支 codex/mission-delivery，范围为两个子任务提交。",
-    版本影响: "只交付隔离夹具，不修改版本。",
-    治理声明: "没有修改 protected surface，也没有 break-glass。产物仅存临时仓库。",
-    验证: "两个子任务真实调用 task-submit；核验交付文件和 bare remote 的集成 HEAD。",
-    单次写入成本: "不适用：本演练 PR 只有文档文件。",
-    审查证据: "已传入 fixture-reviewer 参数。实际评审批准与 GitHub CI 均为 unverified。",
-    残余风险: "outside.txt 的越界发现需要集成审查。本测试没有创建真实 GitHub PR。",
-    关联材料: "证据为子任务提交事件、所有权报告与本地 PR 命令回执。",
-    "PR Gate Checklist / PR 门禁清单":
-      "Local integration and command arguments checked. Real CI and reviewer approval unverified.\n本地集成与命令参数已核验，真实 CI 和评审批准未验证。",
-  };
-  const body = [...template.matchAll(/^(#{1,3}) (.+)$/gmu)]
-    .map(([, level, heading]) => {
-      if (heading === "English" || heading === "中文") return `${level} ${heading}\n`;
-      assert.ok(sections[heading], `fixture must fill template section ${heading}`);
-      return `${level} ${heading}\n\n${sections[heading]}\n`;
-    })
-    .join("\n")
-    .replace("# 中文", "---\n\n# 中文");
-  writeFileSync(bodyPath, body);
-  writeFileSync(
-    script,
-    `const fs = require('node:fs'); const args = process.argv.slice(2);\nif(args[0] !== 'pr' || args[1] !== 'create' || !args.includes('--reviewer')) process.exit(2);\nconst body = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');\nif(!body.includes('# English') || !body.includes('# 中文') || !body.includes('## Verification')) process.exit(3);\nfs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({args, body}));\n`,
-  );
-  assert.throws(() => execFileSync(process.execPath, [script, "pr", "create", "--body-file", bodyPath]));
-  execFileSync(process.execPath, [
-    script,
-    "pr",
-    "create",
-    "--head",
-    "codex/mission-delivery",
-    "--title",
-    "Integrate squad delivery",
-    "--body-file",
-    bodyPath,
-    "--reviewer",
-    "fixture-reviewer",
-  ]);
-  const captured = JSON.parse(readFileSync(receipt, "utf8"));
-  assert.deepEqual(captured.args.slice(0, 4), ["pr", "create", "--head", "codex/mission-delivery"]);
-  assert.equal(captured.body, readFileSync(bodyPath, "utf8"));
 }

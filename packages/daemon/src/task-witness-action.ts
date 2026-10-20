@@ -1,17 +1,16 @@
 import { createHash } from "node:crypto";
-import { githubActionsWitnessEvidence, submittedGithubActionsRequirement } from "./repo-cell-ci-evidence.ts";
 import {
   claimGateRun,
   compileGateRunChange,
   currentGateRun,
   settleGateRun,
+  isRetiredCiRequirement,
   type CompletionEvidenceV1,
   type GateRun,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { cellErrorCode } from "./repo-cell-errors.ts";
 
 /** An in-process source invocation, never supplied by a transport or execution credential. */
 export const centerWitnessAction = Symbol("centerWitnessAction");
@@ -45,6 +44,11 @@ export function runTaskWitnessAction(
     requirement = execution.submission.completionContract.gates.find((gate) => gate.gateId === gateId);
   if (!requirement || requirement.witness.kind === "internal" || requirement.witness.kind === "manual")
     throw cell.cellCodedError("invalid_command", "The frozen gate has no automated source run.");
+  if (isRetiredCiRequirement(gateId, requirement))
+    throw cell.cellCodedError(
+      "invalid_transition",
+      "The CI witness is retired; merge the delivery into its configured target branch.",
+    );
   const opId = cell.operationId(action, binding, cell.input.repoId, snapshot.revision),
     workspaceRevision = (cell.store.readHead()?.revision ?? 0) + 1,
     occurredAt = cell.now();
@@ -74,16 +78,12 @@ export function runTaskWitnessAction(
         : {}),
     });
     if (run.runId === prior?.runId)
-      return (
-        (requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline"
-          ? settleGithubActionsClaim(cell, taskId, binding)
-          : null) ?? {
-          outcome: "no_changes",
-          opId,
-          revision: snapshot.revision,
-          evidence: JSON.stringify({ run: prior }),
-        }
-      );
+      return {
+        outcome: "no_changes",
+        opId,
+        revision: snapshot.revision,
+        evidence: JSON.stringify({ run: prior }),
+      };
     operation = "claim";
   } else if (action.kind === "task-witness-settle") {
     if (action.evidence !== undefined) {
@@ -156,95 +156,5 @@ export function runTaskWitnessAction(
     publication,
     cell.receiptProof(compiled.event, publication),
   );
-  return operation === "claim" &&
-    (requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline")
-    ? (settleGithubActionsClaim(cell, taskId, binding) ?? receipt)
-    : receipt;
-}
-
-/** Runs within the caller's center writer turn, after any claim has been published. */
-function settleGithubActionsClaim(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  binding: RepoCellBinding,
-): WriteReceiptDraft | null {
-  const read = cell.projection.read(taskId),
-    target = submittedGithubActionsRequirement(read.snapshot);
-  if (!target || target.execution.schema !== "execution/v1") return null;
-  const evidence = githubActionsWitnessEvidence(cell, target.requirement, target.execution);
-  if (!evidence) return null;
-  const run = currentGateRun(target.execution, target.requirement.gateId)!;
-  return cell.publishGateWitness(
-    taskId,
-    target.execution.executionId,
-    read.snapshot,
-    read.packagePath,
-    { ...binding, actor: run.actor },
-    evidence,
-  );
-}
-
-/** CI imports already hold the center writer; reconcile their durable submitted demands there. */
-export function settleImportedGithubActionsClaims(cell: RepoCellOperationalContext, binding: RepoCellBinding): void {
-  for (const status of ["submitted", "in_review"] as const) {
-    for (const { taskId, snapshot } of cell.projection.list({ status }).rows) {
-      const target = submittedGithubActionsRequirement(snapshot);
-      if (!target || target.execution.schema !== "execution/v1") continue;
-      const current = currentGateRun(target.execution, target.requirement.gateId),
-        latest = githubActionsWitnessEvidence(cell, target.requirement, target.execution, true);
-      // A completed source run is terminal for its provider attempt, but a later settled
-      // attempt of the same GitHub run is a new source result. Advance the source claim once
-      // so the normal witness publication path can bind the latest verdict.
-      if (
-        current &&
-        current.state === "completed" &&
-        latest &&
-        latest.diagnostic !== current.diagnostic &&
-        (target.requirement.witness.kind === "github-actions" || target.requirement.witness.kind === "gitlab-pipeline")
-      ) {
-        runTaskWitnessAction(
-          cell,
-          {
-            kind: "task-witness-rerun",
-            taskId,
-            executionId: target.execution.executionId,
-            gateId: target.requirement.gateId,
-            runId: current.runId,
-            reason: `CI provider attempt advanced: ${latest.diagnostic}`,
-            [centerWitnessAction]: true,
-          },
-          {
-            ...binding,
-            actor: {
-              principal: snapshot.task!.createdBy.principal,
-              executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
-            },
-          },
-        );
-        continue;
-      }
-      try {
-        runTaskWitnessAction(
-          cell,
-          {
-            kind: "task-witness-claim",
-            taskId,
-            executionId: target.execution.executionId,
-            gateId: target.requirement.gateId,
-            [centerWitnessAction]: true,
-          },
-          {
-            ...binding,
-            actor: {
-              principal: snapshot.task!.createdBy.principal,
-              executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
-            },
-          },
-        );
-      } catch (error) {
-        if (cellErrorCode(error) === "gate_run_stale") continue;
-        throw error;
-      }
-    }
-  }
+  return receipt;
 }

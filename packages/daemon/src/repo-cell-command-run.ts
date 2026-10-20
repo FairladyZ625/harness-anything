@@ -34,11 +34,10 @@ import {
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
-import { importSubmittedCutCiWitness } from "./repo-cell-ci-refresh.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { readTaskCi } from "./task-ci-read.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
+import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
 function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
   if (context.state !== "attached" || getExecutableEntityAction(action.kind)?.target.kind !== "schedule") return false;
@@ -48,12 +47,75 @@ function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAct
   return inspected?.valid === true && inspected.schedule.spec.target.kind === "builtin";
 }
 
+function failAction(
+  context: RepoCellApiContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  error: unknown,
+  authorizationDecision?: AuthorizationDecision,
+): WriteReceipt {
+  if (context.fatalCellError(error)) context.latchWith(error);
+  const contract = getExecutableEntityAction(action.kind),
+    receipt = context.failed(
+      context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
+      error,
+      contract,
+      contract ? action : undefined,
+    );
+  const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
+  return authorizationDecision
+    ? withAuthorizationDecision(
+        result,
+        authorizationDecision,
+        result.unmetCriteria ?? [],
+        result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
+      )
+    : (result as WriteReceipt);
+}
+
+// Task write actions address an existing task, so a unique prefix gets the read faces' git-style
+// resolution at runner ingress — before executor-claim binding and opId derivation. Missing and
+// ambiguous ids stay unresolved until authorization succeeds, so rejected callers cannot use
+// lookup errors to learn whether a task id exists. `task-create` is excluded: its taskId names
+// the task to create. A lagging cut stays the action's own pending case.
+function resolveTaskWriteTarget(
+  context: RepoCellApiContext,
+  action: RepoTaskAction,
+  options: { deferInvalidTarget?: boolean } = {},
+): { action: RepoTaskAction; resolved: boolean } {
+  const contract = getExecutableEntityAction(action.kind);
+  if (action.kind === "task-create" || contract?.target.kind !== "task" || !contract.execution)
+    return { action, resolved: true };
+  const field = contract.execution.targetIdField ?? "taskId",
+    requested = action[field];
+  if (typeof requested !== "string" || requested === "") return { action, resolved: true };
+  const read =
+    action.kind === "task-contract-migrate"
+      ? context.projection.readForTaskContractMigration(requested)
+      : context.projection.read(requested);
+  if (read.snapshot.task) return { action, resolved: true };
+  if (read.watermark < read.sourceRevision) return { action, resolved: false };
+  const prefixed = resolveUniquePrefix(
+    requested,
+    action.kind === "task-contract-migrate"
+      ? context.projection.readTaskIdsForTaskContractMigration()
+      : context.projection.readTaskIndex().rows.map(({ taskId }) => taskId),
+  );
+  if (prefixed.matched) return { action: { ...action, [field]: prefixed.id } as RepoTaskAction, resolved: true };
+  if (options.deferInvalidTarget) return { action, resolved: false };
+  if (prefixed.candidates.length > 1)
+    throw context.cellCodedError(
+      "task_ambiguous_id",
+      `Task id ${requested} is a prefix of ${String(prefixed.candidates.length)} task ids ` +
+        `(${candidateSample(prefixed.candidates)}). Use a longer prefix or the full id.`,
+    );
+  throw context.cellCodedError("entity_not_found", `Task ${requested} does not exist.`);
+}
+
 /** The RepoCell command pipeline: recovery admission, the executor claim, and the queued
  * publication interval that authorizes, executes, and settles one command at the writer cut. */
 export function makeRepoCellCommandRunner(
-  context: RepoCellApiContext & {
-    readonly refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
-  },
+  context: RepoCellApiContext,
 ): (
   action: RepoTaskAction,
   binding: RepoCellBinding,
@@ -64,6 +126,7 @@ export function makeRepoCellCommandRunner(
     action: RepoTaskAction,
     binding: RepoCellBinding,
     signal?: AbortSignal,
+    resolveTargetAfterAuthorization = false,
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
@@ -169,39 +232,16 @@ export function makeRepoCellCommandRunner(
       );
     }
     if (claimsRecovery) settlingRecovery = action.kind;
-    const failAction = (error: unknown, authorizationDecision?: AuthorizationDecision): WriteReceipt => {
-      if (context.fatalCellError(error)) context.latchWith(error);
-      const contract = getExecutableEntityAction(action.kind),
-        receipt = context.failed(
-          context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
-          error,
-          contract,
-          contract ? action : undefined,
-        );
-      const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
-      return authorizationDecision
-        ? withAuthorizationDecision(
-            result,
-            authorizationDecision,
-            result.unmetCriteria ?? [],
-            result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
-          )
-        : (result as WriteReceipt);
-    };
     if (command.commandClass === "repo-read")
       return Promise.resolve()
         .then(async () => {
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
           if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          return context.withHumanSummary(
-            await (action.kind === "task-ci"
-              ? readTaskCi(context, action, binding)
-              : context.executeAction(action, binding)),
-          );
+          return context.withHumanSummary(await context.executeAction(action, binding));
         })
         .then((receipt) => receipt as WriteReceipt)
-        .catch((error) => failAction(error));
+        .catch((error) => failAction(context, action, binding, error));
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
       ingest?: (authorizationDecision?: AuthorizationDecision) => void,
@@ -256,6 +296,17 @@ export function makeRepoCellCommandRunner(
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        if (resolveTargetAfterAuthorization) {
+          try {
+            action = resolveTaskWriteTarget(context, action).action;
+          } catch (error) {
+            // A target lookup rejection is still a durable queued outcome: record it and wake
+            // replicas through the same path as action-level no-event rejections.
+            const receipt = recordRejection(failAction(context, action, binding, error, queuedDecision));
+            context.replica.kick();
+            return receipt;
+          }
+        }
         requireSquadBusinessAction(context.projection, action, binding);
         // Ingested reads are their own accepted commands, recorded before the execution interval
         // opens: a failed execution must never adopt one of them as its accepted outcome.
@@ -290,7 +341,7 @@ export function makeRepoCellCommandRunner(
           return receipt;
         } catch (error) {
           if (isSquadControlCommand(action.kind))
-            return squadControlRejected(action.kind, failAction(error, queuedDecision));
+            return squadControlRejected(action.kind, failAction(context, action, binding, error, queuedDecision));
           // A coded rejection is this command's own determinate verdict, even after an earlier step
           // (one of several ingested runs, a facade's witness) was accepted as its own command.
           const code = cellErrorCode(error);
@@ -301,7 +352,7 @@ export function makeRepoCellCommandRunner(
             !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
           )
             throw error;
-          return recordRejection(failAction(error, queuedDecision));
+          return recordRejection(failAction(context, action, binding, error, queuedDecision));
         } finally {
           context.activeWriterEpochFence = null;
           context.activeWriterEpochFenceDescriptor = null;
@@ -312,7 +363,7 @@ export function makeRepoCellCommandRunner(
         () => undefined,
       );
       return pending
-        .catch((error) => failAction(error, queuedDecision))
+        .catch((error) => failAction(context, action, binding, error, queuedDecision))
         .then(async (receipt) => {
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);
@@ -356,13 +407,14 @@ export function makeRepoCellCommandRunner(
                 execution,
               ),
             ),
-          async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined),
+          async (error) =>
+            failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
     const externalRead: ReturnType<typeof readBeforeWriteQueue> =
       action.kind === "task-complete" && typeof action.taskId === "string"
         ? authorizeAtCurrentCut()!.then(async (authorization) => {
             const warnings =
-              authorization.outcome === "allowed"
+              authorization.outcome === "allowed" && context.projection.read(action.taskId as string).snapshot.task
                 ? await runCompletionSources(context, action.taskId as string, binding)
                 : [];
             return async (nextAction, nextBinding) => {
@@ -370,7 +422,7 @@ export function makeRepoCellCommandRunner(
               return warnings.length ? { ...receipt, warnings: [...(receipt.warnings ?? []), ...warnings] } : receipt;
             };
           })
-        : readBeforeWriteQueue(context, action, binding, context.refreshCi);
+        : readBeforeWriteQueue(context, action, binding);
     if (externalRead)
       return externalRead
         .then((publish) =>
@@ -382,21 +434,23 @@ export function makeRepoCellCommandRunner(
                 publish.ingest!(authorizationDecision ? { ...binding, authorizationDecision } : binding)),
           ),
         )
-        .catch(async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined));
+        .catch(async (error) =>
+          failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
+        );
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
   };
   return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
-    const receipt = await run(action, binding, signal);
-    const forwardSettled =
-      action.kind === "task-adjudicate" &&
-      action.forward === true &&
-      typeof action.taskId === "string" &&
-      !isSquadControlCommand(action.kind) &&
-      "outcome" in receipt &&
-      (receipt.outcome === "applied" ||
-        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"));
+    let resolution: ReturnType<typeof resolveTaskWriteTarget>;
+    try {
+      resolution = resolveTaskWriteTarget(context, action, { deferInvalidTarget: true });
+    } catch (error) {
+      const rejected = failAction(context, action, binding, error);
+      return rejected;
+    }
+    action = resolution.action;
+    const receipt = await run(action, binding, signal, !resolution.resolved);
     if (
       (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
       typeof action.taskId === "string" &&
@@ -413,28 +467,6 @@ export function makeRepoCellCommandRunner(
       );
       if (warnings.length)
         return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings] };
-    }
-    if (forwardSettled) {
-      // The forwarded cut's CI witness imports through the same refreshCi the manual pull uses,
-      // after the durable forward and its review dispatch settled: no human has to remember the
-      // pull, and the reviewer reads the cut's real CI state instead of not_started. A failed
-      // import lands as a warning — the center cadence and the manual pull remain the recovery.
-      const imported = await importSubmittedCutCiWitness({
-        context,
-        refreshCi: context.refreshCi,
-        taskId: action.taskId as string,
-        binding,
-      });
-      if (imported?.receipt)
-        return {
-          ...receipt,
-          steps: [
-            ...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []),
-            imported.receipt as unknown as WriteReceipt,
-          ],
-        };
-      if (imported?.warning)
-        return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), imported.warning] };
     }
     return receipt;
   };

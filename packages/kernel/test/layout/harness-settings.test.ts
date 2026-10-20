@@ -71,36 +71,6 @@ test("the schedule admission window is read from the facet and refuses a sub-sec
   assert.throws(() => readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 999\n"));
 });
 
-test("CI workflows default to the witnessing opt-out and accept configured workflow basenames", () => {
-  assert.deepEqual(readSettingsFacet(body).ci.workflows, []);
-  assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: [ci]\n`).ci.workflows, ["ci"]);
-});
-
-test("CI workflows read an explicit empty list as the CI-witnessing opt-out", () => {
-  assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: []\n`).ci.workflows, []);
-});
-
-test("CI workflows fail closed on duplicate, extension-bearing, or block arrays", () => {
-  for (const workflows of ["[ci, ci]", "[ci.yml]", "", "\n      - ci"]) {
-    const configured = `${body}\n  ci:\n    workflows: ${workflows}\n`;
-    assert.throws(() => readSettingsFacet(configured), /settings\.ci\.workflows/u);
-  }
-});
-
-test("the repository facet writer inserts, replaces, and leaves default CI workflows unmaterialized", () => {
-  const defaultCi = writeRepositorySettingsFacet(body, readSettingsFacet(body));
-  assert.doesNotMatch(defaultCi, /^  ci:/mu);
-  const inserted = writeRepositorySettingsFacet(body, { ...readSettingsFacet(body), ci: { workflows: ["ci"] } });
-  assert.match(inserted, /^  ci:\n    workflows: \[ci\]$/mu);
-  assert.deepEqual(readSettingsFacet(inserted).ci.workflows, ["ci"]);
-  const cleared = writeRepositorySettingsFacet(inserted, { ...readSettingsFacet(inserted), ci: { workflows: [] } });
-  assert.match(cleared, /^  ci:\n    workflows: \[\]$/mu);
-  assert.deepEqual(readSettingsFacet(cleared).ci.workflows, []);
-  const replaced = writeRepositorySettingsFacet(`${body}\n  ci:\n    workflows: [legacy]\n`, readSettingsFacet(body));
-  assert.doesNotMatch(replaced, /legacy/u);
-  assert.deepEqual(readSettingsFacet(replaced).ci.workflows, []);
-});
-
 test("worktree setup steps round-trip as a block list and default to none", () => {
   assert.deepEqual(readSettingsFacet(body).worktree.setup, []);
   const steps = ["node-modules", "run: uv sync --frozen, then more"],

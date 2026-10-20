@@ -1,7 +1,7 @@
-import { mkdir, open, rename, rm, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
-import { daemonLogDefaultKeptFiles, daemonLogDefaultMaxBytes } from "./lifecycle-log.ts";
+import { daemonLogDefaultMaxBytes } from "./lifecycle-log.ts";
 // Classification lives here rather than at the dispatch point: the schema registry names the
 // protocol server as a writer, so schema-closure imports it without node_modules and it must stay
 // clear of anything that reaches into the kernel.
@@ -16,6 +16,8 @@ export const DAEMON_REQUEST_LOG_SCHEMA = Object.freeze({ id: "daemon-request-log
 
 const requestLogDirName = "requests";
 const requestLogFileName = "requests.jsonl";
+const defaultKeptDays = 7;
+const dayMs = 86_400_000;
 
 export interface DaemonRequestLogEntry {
   readonly method: string;
@@ -43,6 +45,8 @@ export interface DaemonRequestLogRecord {
   readonly ownerUid: number | null;
   readonly principalId: string | null;
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
+  /** The resolved caller identity: the action-declared executor, else the connection's session actor. */
+  readonly actor: string | null;
   readonly method: string;
   readonly command: string | null;
   readonly wait: boolean;
@@ -58,6 +62,20 @@ export interface DaemonRequestLogRecord {
   readonly durationMs: number;
 }
 
+// The one resolution of "which agent made this request": write-family actions declare the executor
+// in their payload, and every CLI connection names its session actor in hello (HARNESS_ACTOR,
+// "agent:<id>"). Both derive from the same environment, so they never disagree; a person at a
+// terminal and the GUI declare neither, which is exactly the agent/person distinction the logs need.
+export function agentActorForLog(
+  executor: { readonly kind: "agent"; readonly id: string } | null,
+  sessionEnvironment: { readonly HARNESS_ACTOR?: string } | undefined,
+): string | null {
+  if (executor) return executor.id;
+  const declared = sessionEnvironment?.HARNESS_ACTOR;
+  if (!declared) return null;
+  return /^agent:/u.test(declared) ? declared.slice("agent:".length) : declared;
+}
+
 export interface DaemonRequestLog {
   readonly record: (entry: DaemonRequestLogEntry) => void;
   readonly settle: () => Promise<void>;
@@ -67,7 +85,7 @@ export interface DaemonRequestLogOptions {
   // Repo-scoped by construction: a request that binds no repository has no local root to file under.
   readonly resolveRootDir: (repoId: string) => string | undefined;
   readonly maxBytes?: number;
-  readonly keptFiles?: number;
+  readonly keptDays?: number;
   readonly now?: () => Date;
   readonly onFailure?: (error: unknown) => void;
   readonly openFile?: typeof open;
@@ -79,7 +97,7 @@ export function daemonRequestLogPath(rootDir: string): string {
 
 export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRequestLog {
   const maxBytes = options.maxBytes ?? daemonLogDefaultMaxBytes;
-  const keptFiles = options.keptFiles ?? daemonLogDefaultKeptFiles;
+  const keptDays = options.keptDays ?? defaultKeptDays;
   const now = options.now ?? (() => new Date());
   const openFile = options.openFile ?? open;
   // resolveHarnessLayout walks the filesystem for harness.yaml; hold the resolved path per repo so
@@ -118,8 +136,13 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
       let sink = sinks.get(logPath);
       if (!sink) sink = await openSink(logPath);
       if (sink.bytes + Buffer.byteLength(line) > maxBytes) {
+        // Shift the generation chain and keep writing to the live file. Retention is age-based,
+        // so rotation itself never deletes: the old count ceiling dropped the oldest files on
+        // every rotation, capping retention at ~1.5 days of canonical traffic and deleting live
+        // records within it.
         await closeSink(logPath, sink);
-        await rotate(logPath, keptFiles);
+        await rotate(logPath);
+        await pruneAgedFiles(logPath);
         sink = await openSink(logPath);
       }
       sink.bytes += (await sink.handle.write(line, null, "utf8")).bytesWritten;
@@ -151,6 +174,50 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
     }
   }
 
+  // Shift generations without deleting: the live file keeps receiving records and readers follow
+  // it as the newest; deletion happens only through age-based pruning below.
+  async function rotate(logPath: string): Promise<void> {
+    const directory = path.dirname(logPath),
+      base = path.basename(logPath),
+      pattern = new RegExp(`^${escapeRegExp(base)}\\.(\\d+)$`, "u");
+    let names: string[];
+    try {
+      names = await readdir(directory);
+    } catch (error) {
+      consumeKnownError(error);
+      return;
+    }
+    const highest = names.reduce((max, name) => Math.max(max, Number(pattern.exec(name)?.[1] ?? 0)), 0);
+    for (let index = highest; index >= 1; index -= 1)
+      await renameIfExists(path.join(directory, `${base}.${index}`), path.join(directory, `${base}.${index + 1}`));
+    await renameIfExists(logPath, `${logPath}.1`);
+  }
+
+  // A file's last write time is its honest age: generations are size-rolled, not day-stamped, so
+  // the modification clock — not a file count — decides what falls outside the retention window.
+  async function pruneAgedFiles(logPath: string): Promise<void> {
+    const directory = path.dirname(logPath),
+      base = path.basename(logPath),
+      pattern = new RegExp(`^${escapeRegExp(base)}(?:\\.\\d+)?$`, "u"),
+      cutoff = now().getTime() - keptDays * dayMs;
+    let names: string[];
+    try {
+      names = await readdir(directory);
+    } catch (error) {
+      consumeKnownError(error);
+      return;
+    }
+    for (const name of names) {
+      if (!pattern.test(name)) continue;
+      try {
+        const age = (await stat(path.join(directory, name))).mtimeMs;
+        if (age < cutoff) await rm(path.join(directory, name), { force: true });
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
+  }
+
   function resolveLogPath(repoId: string): string | undefined {
     const cached = logPaths.get(repoId);
     if (cached) return cached;
@@ -174,6 +241,7 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     // where it is genuinely known and leave it null rather than guessing.
     principalId: entry.auth.nodePrincipal?.personId ?? null,
     executor: entry.executor,
+    actor: agentActorForLog(entry.executor, entry.auth.sessionEnvironment),
     method: entry.method,
     command: entry.command,
     wait: entry.wait === true,
@@ -201,25 +269,18 @@ function commandClassOrNull(command: string): string | null {
   }
 }
 
-async function rotate(logPath: string, keptFiles: number): Promise<void> {
-  if (keptFiles < 1) {
-    await rm(logPath, { force: true });
-    return;
-  }
-  await rm(`${logPath}.${keptFiles}`, { force: true });
-  for (let index = keptFiles - 1; index >= 1; index -= 1) {
-    try {
-      await rename(`${logPath}.${index}`, `${logPath}.${index + 1}`);
-    } catch (error) {
-      consumeKnownError(error);
-      if (!isMissingFile(error)) throw error;
-    }
-  }
-  await rename(logPath, `${logPath}.1`);
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-function isMissingFile(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+function renameIfExists(from: string, to: string): Promise<void> {
+  return rename(from, to).catch((error: unknown) => {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      consumeKnownError(error);
+      return;
+    }
+    throw error;
+  });
 }
 
 function defaultFailureReporter(error: unknown): void {

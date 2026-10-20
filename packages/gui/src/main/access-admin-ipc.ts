@@ -50,6 +50,20 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "effective-permissions": { personId: "text", resource: "text" },
   "receipt-reconcile": { operationId: "text" },
   "session-lifetime-set": { sessionLifetimeSeconds: "seconds", expectedVersion: "text" },
+  // The center typed join method owns invite, repository grants, snapshots, and the one-time link.
+  "edge-join-create": {
+    username: "text",
+    email: "text",
+    displayName: "text",
+    personId: "text",
+    repoIds: "names",
+    groupIds: "names",
+    nodeLabel: "optional-text",
+    platform: "optional-text",
+  },
+  "edge-join-status": { joinId: "text" },
+  "edge-join-list": {},
+  "edge-join-revoke": { joinId: "text" },
 };
 
 /** Operations that change Keycloak; the main process names each one so a lost receipt can be reconciled. */
@@ -88,7 +102,8 @@ export function registerAccessAdminIpc(
 ): void {
   registrar.handle(ACCESS_ADMIN_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return ports.daemonRequest(accessAdminParams(input, ports.operationId));
+    const params = accessAdminParams(input, ports.operationId);
+    return await ports.daemonRequest(params);
   });
 }
 

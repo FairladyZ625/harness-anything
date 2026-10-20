@@ -215,12 +215,7 @@ export type {
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export {
-  executionAnnotationKinds,
-  isNativeCommitSha,
-  isNativeExecution,
-  submissionDigest,
-} from "./domain/execution.ts";
+export { executionAnnotationKinds, isNativeExecution, submissionDigest } from "./domain/execution.ts";
 export {
   CODE_DOC_GATE_ID,
   gateAppliesTo,
@@ -271,6 +266,7 @@ export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts"
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { VerticalCompletionDeclaration } from "./domain/completion-source.ts";
 export { VerticalCompletionDeclarationSchema } from "./schemas/completion-source.ts";
+export { migrateRetiredSettingsCandidate } from "./domain/settings.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {
   decodeVerticalDefinition,

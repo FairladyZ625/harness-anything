@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { nav } from "./helpers.mjs";
+import { groupSessionsByTask, nav } from "./helpers.mjs";
 import {
   DELIVERY_TASK,
   STALLED_TASK,
@@ -39,6 +39,7 @@ export default {
     );
 
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
+    await groupSessionsByTask(page);
     const deliveryGroup = page.getByTestId(`session-group-${DELIVERY_TASK}`),
       stalledGroup = page.getByTestId(`session-group-${STALLED_TASK}`);
     await deliveryGroup.waitFor();

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { perUserSocketRoot } from "../src/client/local-daemon-target.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
@@ -207,7 +208,8 @@ for (const distinctNode of [false, true])
         });
         assert.equal(a.outcome, "applied", JSON.stringify(a));
         sessionTasks.set(String(a.runtimeSessionId), fixture.subject.taskId);
-        const relay = path.join(workspaceRoot, ".harness", `r-${String(a.dispatchId).slice("dispatch_".length)}.sock`);
+        const relay = path.join(perUserSocketRoot(), `r-${String(a.dispatchId).slice("dispatch_".length)}.sock`);
+        mkdirSync(path.dirname(relay), { recursive: true, mode: 0o700 });
         writeFileSync(relay, "owner callback");
         const other = distinctNode ? open(second) : first;
         try {

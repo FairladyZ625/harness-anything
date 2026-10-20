@@ -1,7 +1,7 @@
 version: 2
 updates:
   # Version-update pull requests are switched off (limit 0). They cost two manual
-  # repairs this bot cannot perform — a bilingual governance PR body, and a lock
+  # repairs this bot cannot perform — a governance PR body declaration, and a lock
   # normalization, because dependabot writes an exact version into package.json but a
   # caret range into the lock's workspace spec, which the dependency-policy gate rejects.
   # The security half is already covered harder elsewhere: `npm audit --audit-level=high`

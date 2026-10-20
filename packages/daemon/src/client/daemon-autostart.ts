@@ -30,6 +30,7 @@ export const autostartFailureCodes = [
   "daemon_start_noncanonical_checkout",
   "daemon_start_runtime_forbidden",
   "daemon_spawn_not_found",
+  "daemon_spawn_root_missing",
   "daemon_spawn_permission",
   "daemon_start_failed",
   "daemon_bind_timeout",
@@ -143,6 +144,9 @@ export async function ensureLocalDaemonRunning(input: {
 }): Promise<DaemonAutostartResult> {
   const readyTimeoutMs = input.readyTimeoutMs ?? 10_000,
     probeIntervalMs = input.probeIntervalMs ?? 50;
+  // Only the default spawn path spawns from the invoking checkout; remembering the cwd it chose
+  // lets classifySpawnFailure tell a missing workspace root from a missing launcher binary.
+  let spawnCwd: string | undefined;
   const probe = input.probe ?? daemonSocketProbe,
     spawnDetached =
       input.spawnDetached ??
@@ -174,15 +178,15 @@ export async function ensureLocalDaemonRunning(input: {
           for (const step of daemonServiceCommands(scheduled).load) await runDaemonServiceCommand(step);
           return;
         }
-        return unit
-          ? startDaemonServiceUnit(unit)
-          : startDetachedProcessChecked(
-              launch.command,
-              launch.args,
-              launch.env,
-              daemonLaunchOutputPath(launch),
-              daemonCheckoutRoot(input.invokingRoot),
-            );
+        if (unit) return startDaemonServiceUnit(unit);
+        spawnCwd = daemonCheckoutRoot(input.invokingRoot);
+        return startDetachedProcessChecked(
+          launch.command,
+          launch.args,
+          launch.env,
+          daemonLaunchOutputPath(launch),
+          spawnCwd,
+        );
       });
   // A freshly started daemon can die between binding its socket and finishing
   // startup; confirm readiness with a second probe before declaring success.
@@ -242,7 +246,7 @@ export async function ensureLocalDaemonRunning(input: {
       await delay(probeIntervalMs);
     }
   } catch (error) {
-    return { ok: false, attempts: spawned ? 1 : 0, ...classifySpawnFailure(error, launched) };
+    return { ok: false, attempts: spawned ? 1 : 0, ...classifySpawnFailure(error, launched, spawnCwd) };
   } finally {
     flight?.release();
   }
@@ -352,6 +356,7 @@ export { daemonSocketProbe };
 function classifySpawnFailure(
   error: unknown,
   launch: DaemonLaunchSpec | null,
+  spawnCwd?: string,
 ): { readonly code: DaemonAutostartFailureCode; readonly hint: string } {
   const code =
     typeof error === "object" &&
@@ -362,13 +367,23 @@ function classifySpawnFailure(
       : null;
   const detail = error instanceof Error ? error.message : String(error),
     command = launch ? `${launch.command} ${launch.args.join(" ")}` : "the daemon launcher";
-  if (code === "ENOENT")
+  if (code === "ENOENT") {
+    // Node raises ENOENT for a missing spawn cwd exactly like a missing binary; the cwd is the
+    // fact this spawn site can still check, so a missing workspace root is its own failure.
+    if (spawnCwd && !existsSync(spawnCwd))
+      return {
+        code: "daemon_spawn_root_missing",
+        hint: `Starting the daemon failed because its spawn working directory does not exist: ${
+          spawnCwd
+        }. The daemon spawns from the workspace root (--root); create it or pass an existing one. Command: ${command}.`,
+      };
     return {
       code: "daemon_spawn_not_found",
       hint: `Starting the daemon failed because the launcher binary was not found (ENOENT): ${
         detail
       }. Command: ${command}.`,
     };
+  }
   if (code === "EACCES" || code === "EPERM")
     return {
       code: "daemon_spawn_permission",
@@ -409,6 +424,11 @@ export function daemonCheckoutRoot(rootDir: string): string {
     if (parent === current) return canonicalPath(rootDir);
     current = parent;
   }
+}
+// One-command workspace preparation (edge join) needs the spawn cwd to exist before the first
+// spawn; callers decide which root qualifies, this only makes it real.
+export function ensureDaemonSpawnRoot(invokingRoot: string): void {
+  mkdirSync(invokingRoot, { recursive: true });
 }
 function sameGitRepository(left: string, right: string): boolean {
   const leftCommon = gitCommonDirectory(left),

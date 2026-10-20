@@ -1,4 +1,3 @@
-import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -16,9 +15,6 @@ import {
   runtimeExecutionActor,
 } from "./runtime-execution-credential.ts";
 import { assertWriterEpochFenceDescriptor } from "./writer-epoch.ts";
-import { reconcileCiOccurrence } from "./ci-observe-importer.ts";
-import { preparedCiObservation } from "./ci-observation-actions.ts";
-import { makeCiRefreshQueue } from "./repo-cell-ci-refresh.ts";
 import { executeBuiltinScheduleOccurrence, type BuiltinExecutorCell } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
@@ -99,7 +95,7 @@ import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.t
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
-import { readCiObservatory } from "./ci-observatory-read.ts";
+import { workBriefsFromProjection } from "./work-briefs-read.ts";
 import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { makeRecoveryProbe } from "./recovery-state.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
@@ -192,18 +188,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
-  // CI observation occurrences are abortable at cell close: a center round can run for many
-  // minutes and resumes from its durable checkpoint, so close kills its provider subprocesses
-  // instead of waiting the round out. Ledger backup occurrences take no abort — their run is
-  // bounded by storage.backupExecutionLimitMs — and keep the full close wait.
-  const builtinAborts = new Map<string, AbortController>();
-  const ciRefreshQueue = makeCiRefreshQueue({
-    context: apiContext,
-    builtinRuns: () => builtinRuns,
-    run: (action, binding) => run(action, binding),
-    runCommand: (action, binding) => runCommand(action, binding),
-  });
-  const context = Object.assign(apiContext, { refreshCi: ciRefreshQueue.refreshCi });
+  const context = apiContext;
   const bindExecutorClaimAtWriterCut = (action: RepoTaskAction, binding: RepoCellBinding) => {
     if (action.executor == null || !(durablePolicyActions as readonly string[]).includes(action.kind))
       return {
@@ -311,14 +296,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       }
     | undefined;
   const readHandlers = {
-    "repo.ci.observatory.read": (payload: Readonly<Record<string, unknown>>) =>
-      readCiObservatory({
-        includeDetails: payload.fetchDetails === true,
-        readContentBlob: context.store.readContentBlob,
-        rootDir: context.rootDir,
-        projection: context.projection,
-        ...(payload.window === undefined ? {} : { window: Number(payload.window) }),
-      }),
     // settings 原样返回(含 locale);values 为 kernel 拍平的动作值面(键 = 契约字段)。
     // revision 是与写路径同源的乐观并发令牌;lastChanged 只作归因展示。
     "repo.settings.read": () =>
@@ -331,6 +308,15 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       queryRead().guiTasks(taskListQueryFromPayload(payload, context.cellCodedError)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
     "repo.works.index": () => workIndexFromProjection(context.projection),
+    // 读者的 person id 只来自读绑定(agent 议程读同源),payload 永远不携带身份。
+    "repo.works.briefs.read": (_payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
+      const principalId = binding?.actor.principal.personId;
+      return workBriefsFromProjection({
+        projection: context.projection,
+        ...(principalId === undefined ? {} : { principalId }),
+        agendaPage: (query) => queryRead().agenda({ ...query, ...(principalId === undefined ? {} : { principalId }) }),
+      });
+    },
     "repo.workspace.summary.read": () => workspaceSummaryFromProjection(context.projection),
     "repo.workspace.scope.read": (payload) =>
       workspaceScopeFromProjection(context.projection, {
@@ -429,7 +415,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       }).read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.completion.read": (payload) =>
-      readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
+      readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId"), context.rootDir),
     "repo.tasks.runtimeContext.read": (payload) =>
       readTaskRuntimeContext(context.rootDir, context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),
@@ -671,8 +657,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       rootDir: context.rootDir,
       projection: context.projection,
       readPinnedEntities: context.projection.listPinnedEntities,
-      store: context.store,
-      judgments: repoCellTaskQueryJudgmentsFor(context.projection),
+      judgments: repoCellTaskQueryJudgmentsFor(context.projection, context.rootDir),
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   // The runtime publication turn verifies any executor claim before it authorizes and executes.
@@ -865,61 +850,10 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     if (running) return action.scheduledFor === undefined ? running : Promise.resolve(receipt);
     const writerFence = binding.withWriterEpochFence ?? context.activeWriterEpochFence,
       writerDescriptor = binding.writerEpochFence ?? context.activeWriterEpochFenceDescriptor;
-    const abort = schedule.spec.target.builtinId === "ci-observe" ? new AbortController() : null;
     const executorCell: BuiltinExecutorCell = {
       rootDir: context.rootDir,
       now: context.now,
       backupExecutionLimitMs: context.settings.read().storage.backupExecutionLimitMs,
-      signal: abort?.signal,
-      observeCi: async (schedule) => {
-        const result = await reconcileCiOccurrence({
-          cell: context.extracted,
-          schedule,
-          requests: ciRefreshQueue.requests,
-          signal: abort?.signal,
-          accept: async (fetched) => {
-            const receipt = await run(
-              {
-                kind: "ci-observe-pull",
-                scheduleId: schedule.scheduleId,
-                claimFence: active.claimFence,
-                [preparedCiObservation]: fetched,
-              },
-              {
-                ...(await context.onlineBinding(binding)),
-                withWriterEpochFence: writerFence ?? undefined,
-                writerEpochFence: writerDescriptor ?? undefined,
-              },
-            );
-            if (isSquadControlResult(receipt))
-              throw context.cellCodedError("invalid_command", "CI acceptance requires a write receipt.");
-            // Publishing the requested witness answers the pull that started this occurrence.
-            if (fetched.witness) ciRefreshQueue.answer(fetched.witness.taskId, receipt);
-            return receipt;
-          },
-        });
-        if (result.outcome !== "succeeded") return result;
-        for (const candidate of mergedCloseoutCandidates(context.extracted)) {
-          if (!candidate.consented || candidate.ci !== "pass") continue;
-          const completed = await run(
-            { kind: "task-complete", taskId: candidate.taskId },
-            {
-              ...(await context.onlineBinding(binding)),
-              withWriterEpochFence: writerFence ?? undefined,
-              writerEpochFence: writerDescriptor ?? undefined,
-            },
-          );
-          if (isSquadControlResult(completed))
-            throw context.cellCodedError("invalid_command", "CI closeout requires a write receipt.");
-          if (completed.outcome !== "applied" && completed.outcome !== "no_changes")
-            return {
-              ...result,
-              outcome: "failed",
-              detail: `CI closeout ${candidate.taskId}: ${completed.code ?? completed.outcome}: ${completed.rejectionExplanation ?? completed.evidence ?? ""}`,
-            };
-        }
-        return result;
-      },
       runSnapshot: <T>(work: () => T | PromiseLike<T>): Promise<T> => {
         context.queueDepth += 1;
         const snapshot = chainRepoCellWrite(context.tail, async () => {
@@ -972,10 +906,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       )
       .finally(() => {
         builtinRuns.delete(active.claimFence);
-        if (abort) builtinAborts.delete(active.claimFence);
       });
     builtinRuns.set(active.claimFence, pending);
-    if (abort) builtinAborts.set(active.claimFence, abort);
     if (schedule.spec.target.builtinId === "ledger-backup")
       builtinTail = pending.then(
         () => undefined,
@@ -1058,11 +990,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     },
     close: async () => {
       if (context.state === "closed") return;
-      // Aborting a running CI observation kills its provider subprocesses through the provider
-      // port; the occurrence then records an interrupted failure before close returns. The drain
-      // below only waits out those subprocess exits, the settlement write, and any ledger-backup
-      // run (never aborted above).
-      for (const abort of builtinAborts.values()) abort.abort();
       // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
       // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer
       // issues.

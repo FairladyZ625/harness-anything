@@ -74,7 +74,7 @@ export async function runTaskCommandWithDocs(
     const current = await cell.service.read(taskId),
       decision = taskCompletionNext(
         current.snapshot,
-        readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
+        readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir),
         typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
       );
     if (decision.blocker && decision.blocker.code !== "closeout_placeholder")
@@ -247,7 +247,7 @@ export async function runTaskCommandWithDocs(
   const current = await cell.service.read(taskId);
   let completionExecutionId: string | null = null;
   if (taskAction.kind === "task-complete" && taskAction.resolvedBy === undefined) {
-    const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
+    const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir),
       body = bodyOverrides.get(context.closeoutPath),
       assessment =
         body === undefined
@@ -587,7 +587,7 @@ export function prepareTaskSurfaceWriteAt(
       packagePath: current.packagePath,
       currentDocuments: documents,
       completionContext: {
-        ...readCompletionContext(cell.projection, taskId, next, current.status),
+        ...readCompletionContext(cell.projection, taskId, next, current.status, cell.rootDir),
         hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     });

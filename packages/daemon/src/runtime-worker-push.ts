@@ -31,12 +31,21 @@ export type WorkerPushResult =
       readonly head: string | null;
       readonly pushedCommit: string | null;
       readonly detail: string;
+      /** Set only for rejections with a dedicated remediation path, not for ordinary push failures. */
+      readonly code?: "push_workflow_scope_required";
     };
 
 export type WorkerGitIdentity = {
   readonly name: string;
   readonly email: string;
 };
+
+/** The thrown error code for a failed push: the dedicated remediation code when one applies. */
+export function workerPushFailureCode(
+  pushed: WorkerPushResult,
+): "push_workflow_scope_required" | "delivery_publish_failed" {
+  return (pushed.attempted && !pushed.ok ? pushed.code : undefined) ?? "delivery_publish_failed";
+}
 
 export function workerGitIdentityForPerson(personId: string): WorkerGitIdentity {
   return { name: personId, email: `${personId}@users.noreply.github.com` };
@@ -195,13 +204,34 @@ export async function pushWorkerBranch(input: {
   } catch (error) {
     // execFile marks the child killed only when it enforced the timeout itself.
     const timedOut = typeof error === "object" && error !== null && "killed" in error && error.killed === true;
+    if (timedOut)
+      return {
+        attempted: true,
+        ok: false,
+        branch,
+        head,
+        pushedCommit,
+        detail: `git push timed out after ${timeoutMs} ms`,
+      };
+    // The hosted credential is managed by the CEO, so a workflow-scope rejection has no worker-side
+    // remedy: name the handoff push a CEO with local credentials can run instead of the raw refusal.
+    const detail = errorDetail(error);
     return {
       attempted: true,
       ok: false,
       branch,
       head,
       pushedCommit,
-      detail: timedOut ? `git push timed out after ${timeoutMs} ms` : errorDetail(error),
+      ...(detail.includes("refusing to allow") && detail.includes("workflow")
+        ? {
+            code: "push_workflow_scope_required" as const,
+            detail:
+              "GitHub rejected the push: the branch publishes .github/workflows changes and the hosted " +
+              "credential lacks the workflow scope. The CEO can publish it with local credentials: " +
+              `git -C ${input.cwd} push --force-with-lease origin ${pushedCommit}:refs/heads/${branch}. ` +
+              `Git said: ${detail}`,
+          }
+        : { detail }),
     };
   }
 }

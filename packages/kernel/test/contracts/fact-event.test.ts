@@ -11,6 +11,7 @@ import {
   deriveRelationId,
   parseCanonicalEvent,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
 } from "../../src/index.ts";
 import {
   assertDecisionJudgmentConsent,
@@ -57,6 +58,23 @@ const draft: FactEventDraftV1 = {
     currentFacts: [],
   }).event;
 
+test("an observed Fact names the commit it was observed against in its managed document", () => {
+  const commit = "a".repeat(40),
+    anchored = compileFactWrite({
+      event: {
+        ...draft,
+        payload: {
+          ...draft.payload,
+          observedCommit: commit,
+        },
+      },
+    });
+  assert.match(anchored.body, new RegExp(`- Observed commit: ${commit}`));
+  assert.deepEqual(validateFactEvent(anchored.event), []);
+  // Facts recorded before dec_BB2BCE9F CH4 carry no anchor and render unchanged.
+  assert.doesNotMatch(compileFactWrite({ event: draft }).body, /Observed commit/u);
+});
+
 test("Fact event reader ignores unknown fields while the current writer stays strict", () => {
   assert.deepEqual(validateFactEvent(event), []);
   assert.deepEqual(Schema.decodeUnknownSync(FactEventSchema)(event), event);
@@ -82,6 +100,8 @@ test("Fact event reader ignores unknown fields while the current writer stays st
     { ...event, occurredAt: "not-a-timestamp" },
     { ...event, payload: { ...event.payload, statement: "   " } },
     { ...event, payload: { ...event.payload, observedAt: "not-a-timestamp" } },
+    { ...event, payload: { ...event.payload, observedCommit: "abc" } },
+    { ...event, payload: { ...event.payload, observedCommit: 42 } },
     { ...event, payload: { ...event.payload, domainTypes: [" bug "] } },
     { ...event, payload: { ...event.payload, domainTypes: ["x".repeat(65)] } },
     {
@@ -240,7 +260,7 @@ const decisionDraft: DecisionEventDraftV1 = {
 test("Decision event reader ignores additions while the current writer requires its exact authored mutation claim", () => {
   assert.deepEqual(validateDecisionEvent(decision.event), []);
   assert.deepEqual(Schema.decodeUnknownSync(DecisionEventSchema)(decision.event), decision.event);
-  assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(decision.event)), decision.event);
+  assert.deepEqual(parseCanonicalEvent(serializePersistedCanonicalEvent(decision.event)), decision.event);
   for (const future of [
     { ...decision.event, unexpected: true },
     {

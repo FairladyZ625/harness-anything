@@ -173,7 +173,6 @@ export function stubBridge(
         verticals: [],
         templates: [],
         scaffolds: { task: [], repository: [] },
-        ciWorkflows: [],
         bundledAgents: [],
         adapters: [
           {
@@ -438,7 +437,6 @@ export function stubCrudBridge(
         verticals: [],
         templates: [],
         scaffolds: { task: [], repository: [] },
-        ciWorkflows: [],
         bundledAgents: [],
         adapters: [],
       })),

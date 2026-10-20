@@ -77,6 +77,36 @@ test("override is scoped to named reviews, a non-empty rationale, and the curren
   assert.deepEqual(evaluate([{ ...disposition("review-a", "review-b"), submissionDigest: digestY }]).length, 2);
 });
 
+test("a changes_requested review can be selected only when that review is disposed with a rationale", () => {
+  const changes = rejected("review-owner-override"),
+    evaluate = (dispositions: readonly ReviewDispositionRecord[]) =>
+      reviewConsentConflicts({
+        selectedReview: changes,
+        allowSelectedChangesRequested: true,
+        reviews: [changes],
+        dispositions,
+        currentSubmissionDigest: digestX,
+      });
+  assert.deepEqual(evaluate([disposition(changes.reviewId)]), []);
+  assert.equal(
+    reviewConsentConflicts({
+      selectedReview: changes,
+      reviews: [changes],
+      dispositions: [disposition(changes.reviewId)],
+      currentSubmissionDigest: digestX,
+    }).length,
+    1,
+  );
+  assert.deepEqual(
+    evaluate([]).map((value) => value.reviewId),
+    [changes.reviewId],
+  );
+  assert.deepEqual(
+    evaluate([{ ...disposition(changes.reviewId), rationale: " " }]).map((value) => value.reviewId),
+    [changes.reviewId],
+  );
+});
+
 test("a changes_requested review arriving after an override remains blocking", () => {
   const conflicts = reviewConsentConflicts({
     selectedReview: approved(),

@@ -256,6 +256,33 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       squadStore.close();
     }
 
+    // The Squad's leader and worker both name this Agent, and historical dispatches count too: deletion
+    // must name the real references and the retire route instead of collapsing to an invalid_store.
+    const referencedDelete = await cell.run(
+      {
+        kind: "agent-delete",
+        agentId: declaration.id,
+        expectedVersion: updated.revision,
+        reason: "Delete an Agent the test Squad still references.",
+        idempotencyKey: "agent-action-delete-referenced",
+      },
+      binding,
+    );
+    assert.equal(referencedDelete.outcome, "op_rejected", JSON.stringify(referencedDelete));
+    assert.equal(referencedDelete.code, "agent_referenced");
+    assert.equal(
+      referencedDelete.rejectionExplanation,
+      "Agent unified-agent is still referenced (squad: 2). " +
+        "Retire it with `ha agent retire unified-agent --successor <agent-id>` instead.",
+    );
+    assert.deepEqual(referencedDelete.unmetCriteria, [
+      {
+        ref: "agent/no-references",
+        failureCode: "agent_referenced",
+        explain: "The Agent has no active dispatches, Squads, Schedules, or Relations at the canonical cut.",
+      },
+    ]);
+
     const deleteSquad = {
         kind: "squad-delete",
         squadId: "unified-squad",

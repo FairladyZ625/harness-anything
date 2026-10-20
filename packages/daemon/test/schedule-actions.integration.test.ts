@@ -826,13 +826,30 @@ test(
           localAuth,
         );
       assert.equal(centerLocal.outcome, "op_rejected");
-      const claimed = JSON.stringify(
-        await workspaces[winner]!.runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId }),
-      );
+      const claimedReceipt = await workspaces[winner]!.runtime.run("repo.schedule.run", {
+          kind: "schedule-show",
+          scheduleId,
+        }),
+        claimed = JSON.stringify(claimedReceipt);
       assert.match(claimed, new RegExp(`"nodeId":"${workspaces[winner]!.subject.nodeId}"`, "u"), claimed);
       assert.doesNotMatch(claimed, /self-reported/u);
       const winnerEdge = workspaces[winner]!,
-        claim = raced[winner]!;
+        claim = raced[winner]!,
+        activeRuntimeSessionId = (
+          claimedReceipt.schedule as {
+            readonly status?: { readonly activeRun?: { readonly runtimeSessionId?: unknown } };
+          }
+        ).status?.activeRun?.runtimeSessionId;
+      assert.equal(typeof activeRuntimeSessionId, "string");
+      const edgeRuntimeSession = await winnerEdge.runtime.run("repo.schedule.run", {
+        kind: "runtime-session-read",
+        runtimeSessionId: activeRuntimeSessionId,
+      });
+      assert.equal(
+        (edgeRuntimeSession.session as { readonly runtimeSessionId?: unknown }).runtimeSessionId,
+        activeRuntimeSessionId,
+      );
+      assert.equal(edgeRuntimeSession.settlement, null);
       const wrongNodeSettlement = await workspaces[loser]!.runtime.run("repo.schedule.run", {
         kind: "schedule-settle",
         scheduleId,

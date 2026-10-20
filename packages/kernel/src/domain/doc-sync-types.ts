@@ -4,7 +4,11 @@ import type { PortableDocumentPath } from "../layout/portable-path.ts";
 import type { EntityEventV1, LegacyAgentEntityEventV1 } from "./entity-event.ts";
 import type { EntityPinEventV1 } from "./entity-pin-event.ts";
 import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
-import type { CiRunObservationEventV2, CiRunObservationEventV3 } from "./ci-run-observation-event.ts";
+import type {
+  CiRunObservationEventV1,
+  CiRunObservationEventV2,
+  CiRunObservationEventV3,
+} from "./ci-run-observation-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import type { LeaseV1 } from "./execution.ts";
@@ -199,13 +203,17 @@ export type CanonicalEventV1 =
   | DecisionEventV1
   | RelationEventV1
   | MigrationImportEventV1
-  | LedgerLayoutMigrationEventV1
+  | LedgerLayoutMigrationEventV1;
+
+/** Canonical events plus retired envelopes that remain readable in append-only history. */
+export type PersistedCanonicalEventV1 =
+  | CanonicalEventV1
+  | LegacyAgentEntityEventV1
+  | RetiredPeopleEventV1
+  | CiRunObservationEventV1
   | CiRunObservationEventV2
   | CiRunObservationEventV3
   | CiRunObservationEventV4;
-
-/** Canonical events plus retired envelopes that remain readable in append-only history. */
-export type PersistedCanonicalEventV1 = CanonicalEventV1 | LegacyAgentEntityEventV1 | RetiredPeopleEventV1;
 
 export interface DocumentState {
   readonly path: PortableDocumentPath;
