@@ -1,5 +1,6 @@
 export const squadObservationFixture = {
   executionId: "execution-squad",
+  subject: { kind: "task" as const, taskId: "task-bound", executionId: "execution-squad" },
   iteration: 1,
   currentIteration: 2,
   runRevision: 3,
@@ -24,7 +25,6 @@ export const squadRunSummaryRow = {
   ...squadObservationFixture,
   squadRunId: "squad_" + "c".repeat(18),
   squadId: "core-squad",
-  taskId: "task-bound",
   mission: "Probe the orchestration flow",
   phase: "converged" as const,
   leaderTurnCount: 2,
@@ -48,7 +48,6 @@ export const squadRunDetailFixture = {
     ...squadObservationFixture,
     squadRunId: squadRunSummaryRow.squadRunId,
     squadId: "core-squad",
-    taskId: "task-bound",
     mission: "Probe the orchestration flow",
     phase: "converged" as const,
     error: null,
