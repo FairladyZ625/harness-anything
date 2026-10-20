@@ -176,7 +176,11 @@ test("offline settings conversion drops retired CI fields while preserving local
     } as unknown as SettingsEventV1,
     migration = eventShapeMigrations["settings-ci-migrate"],
     cut = {} as EventShapeCut;
-  assert.notDeepEqual(validateCurrentSettingsEvent(historical), []);
+  assert.deepEqual(
+    validateCurrentSettingsEvent(historical),
+    [],
+    "registered retired settings remain readable before the attach migration rewrites their event shape",
+  );
   const rewritten = migration.rewrite(historical, cut);
   assert.ok(rewritten);
   assert.deepEqual(validateCurrentSettingsEvent(rewritten.event), []);
