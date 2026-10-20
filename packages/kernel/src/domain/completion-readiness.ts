@@ -362,10 +362,9 @@ function evaluateCompletion(
       "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
   if (context.delivery?.required && submission.commitSha !== null && !context.delivery.merged) {
-    const hasMergeAnnotation =
-      Boolean(context.delivery.mergeSha) ||
-      (execution?.schema === "execution/v1" &&
-        execution.annotations?.some((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note)) === true);
+    // The daemon's readCompletionDeliveryStatus is the one parser of merge_commit_sha annotations;
+    // this judgment only reads the mergeSha it already extracted into delivery status.
+    const hasMergeAnnotation = Boolean(context.delivery.mergeSha);
     if (context.delivery.merged === null && hasMergeAnnotation)
       return one(
         "delivery_missing",
