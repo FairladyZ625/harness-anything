@@ -51,11 +51,12 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "receipt-reconcile": { operationId: "text" },
   "session-lifetime-set": { sessionLifetimeSeconds: "seconds", expectedVersion: "text" },
   // The center typed join method owns invite, repository grants, snapshots, and the one-time link.
+  // Username, email, and displayName create a new member; the daemon requires them only for one.
   "edge-join-create": {
-    username: "text",
-    email: "text",
-    displayName: "text",
     personId: "text",
+    username: "optional-text",
+    email: "optional-text",
+    displayName: "optional-text",
     repoIds: "names",
     groupIds: "names",
     nodeLabel: "optional-text",

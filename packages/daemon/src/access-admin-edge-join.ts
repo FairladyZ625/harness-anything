@@ -46,9 +46,6 @@ export class EdgeJoinAdminService {
 
   async create(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
     const personId = text(request.personId, "personId"),
-      username = text(request.username, "username"),
-      email = text(request.email, "email"),
-      displayName = text(request.displayName, "displayName"),
       repoIds = uniqueSorted(names(request.repoIds, "repoIds") ?? []),
       groupIds = uniqueSorted(names(request.groupIds, "groupIds") ?? []),
       nodeLabel = request.nodeLabel?.trim() || undefined,
@@ -86,7 +83,16 @@ export class EdgeJoinAdminService {
 
     if (!(await session.adapter.findUserId(session.token, personId)))
       // Already inside the edge-join-create write queue; invite renews the session in place.
-      await this.#oidc.invite({ username, email, displayName, personId }, true);
+      // Username, email, and displayName are new-user fields: an existing member needs none.
+      await this.#oidc.invite(
+        {
+          personId,
+          username: newUserField(request.username, "username", personId),
+          email: newUserField(request.email, "email", personId),
+          displayName: newUserField(request.displayName, "displayName", personId),
+        },
+        true,
+      );
     const userId = await requiredUserId(session.adapter, session.token, personId),
       grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
     for (const repoId of repoIds) {
@@ -209,4 +215,14 @@ export class EdgeJoinAdminService {
 
 function edgeJoinPermissionVersion(groupId: string, effectiveScopes: readonly string[]): string {
   return sha256Text(stableStringify({ groupId, effectiveScopes: uniqueSorted(effectiveScopes) }));
+}
+
+/** An invitation for an unknown person creates the account, so the new-user fields become required there. */
+function newUserField(value: string | undefined, field: string, personId: string): string {
+  if (typeof value !== "string" || value.trim() === "")
+    throw coded(
+      "access_request_invalid",
+      `Person ${personId} is not a member yet; inviting a new member requires a ${field}.`,
+    );
+  return value;
 }

@@ -2,7 +2,14 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
-import { fetchEdgeJoinGroups, fetchEdgeJoinList, issueEdgeJoin, revokeEdgeJoin } from "../../edge-invite-client.ts";
+import {
+  fetchEdgeInvitePeople,
+  fetchEdgeJoinGroups,
+  fetchEdgeJoinList,
+  issueEdgeJoin,
+  revokeEdgeJoin,
+  type EdgeInvitePerson,
+} from "../../edge-invite-client.ts";
 import type { EdgeJoinIssued } from "../../../api/access-admin-contract.ts";
 import { CopyContextButton } from "../../components/CopyContextButton.tsx";
 import { Row } from "../../components/ui/widgets.tsx";
@@ -16,10 +23,18 @@ const INPUT_CLASS = [
   "font-mono ui-meta text-text",
 ].join(" ");
 const statusTone = { pending: "wait", consumed: "done", expired: "bad", revoked: "bad" } as const;
+/** Sentinel select value for inviting someone who is not a member yet. */
+const NEW_MEMBER = "__new__";
 
+/**
+ * The invite form addresses a person from the grant-list members read. An existing member is picked
+ * (their id comes along, never typed); a new member is created by the same daemon write, so their
+ * member id is derived from the username they type.
+ */
 export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly repoId: string }[] }) {
   const queryClient = useQueryClient(),
-    [personId, setPersonId] = useState(""),
+    [selected, setSelected] = useState(""),
+    [search, setSearch] = useState(""),
     [username, setUsername] = useState(""),
     [email, setEmail] = useState(""),
     [displayName, setDisplayName] = useState(""),
@@ -29,6 +44,7 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly
     [issued, setIssued] = useState<EdgeJoinIssued | null>(null),
     [feedback, setFeedback] = useState<string | null>(null);
   const groupQuery = useQuery({ queryKey: ["edge-join", "groups"], queryFn: fetchEdgeJoinGroups }),
+    peopleQuery = useQuery({ queryKey: ["edge-join", "people"], queryFn: fetchEdgeInvitePeople }),
     joinsQuery = useQuery({
       queryKey: ["edge-join", "list"],
       queryFn: fetchEdgeJoinList,
@@ -39,42 +55,80 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly
       mutationFn: issueEdgeJoin,
       onSuccess: async (result) => {
         setIssued(result);
-        setPersonId("");
+        setSelected("");
+        setSearch("");
         setUsername("");
         setEmail("");
         setDisplayName("");
         setNodeLabel("");
-        await queryClient.invalidateQueries({ queryKey: ["edge-join", "list"] });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["edge-join", "list"] }),
+          queryClient.invalidateQueries({ queryKey: ["edge-join", "people"] }),
+        ]);
       },
     }),
     revoke = useMutation({
       mutationFn: revokeEdgeJoin,
       onSuccess: async () => await queryClient.invalidateQueries({ queryKey: ["edge-join", "list"] }),
     });
-  const groups = groupQuery.data?.groups ?? [];
+  const groups = groupQuery.data?.groups ?? [],
+    people = peopleQuery.data?.people ?? [],
+    selectedPerson = people.find((person) => person.personId === selected),
+    matches = people.filter((person) =>
+      `${person.username} ${person.personId}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+    ),
+    // The picked member stays selectable even when the search no longer matches them.
+    options =
+      selectedPerson && !matches.some((person) => person.personId === selectedPerson.personId)
+        ? [...matches, selectedPerson]
+        : matches,
+    newPersonId = username.trim();
   const submit = () => {
     setFeedback(null);
-    if (
-      !personId.trim() ||
-      !username.trim() ||
-      !email.trim() ||
-      !displayName.trim() ||
-      selectedRepoIds.length === 0 ||
-      selectedGroupIds.length === 0
-    ) {
+    if (selected === "") {
+      setFeedback(t("views.repositories.invitePersonRequired"));
+      return;
+    }
+    if (selectedRepoIds.length === 0 || selectedGroupIds.length === 0) {
       setFeedback(t("views.repositories.inviteFieldsRequired"));
       return;
     }
+    if (selected === NEW_MEMBER) {
+      const newUsername = username.trim(),
+        newEmail = email.trim(),
+        newDisplayName = displayName.trim();
+      if (!newUsername || !newEmail || !newDisplayName) {
+        setFeedback(t("views.repositories.inviteFieldsRequired"));
+        return;
+      }
+      if (people.some((person) => person.personId === newUsername || person.username === newUsername)) {
+        setFeedback(t("views.repositories.inviteMemberExists", { username: newUsername }));
+        return;
+      }
+      issue.mutate({
+        personId: newUsername,
+        username: newUsername,
+        email: newEmail,
+        displayName: newDisplayName,
+        repoIds: selectedRepoIds,
+        groupIds: selectedGroupIds,
+        ...(nodeLabel.trim() ? { nodeLabel: nodeLabel.trim() } : {}),
+      });
+      return;
+    }
+    if (!selectedPerson) {
+      setFeedback(t("views.repositories.invitePersonRequired"));
+      return;
+    }
     issue.mutate({
-      personId: personId.trim(),
-      username: username.trim(),
-      email: email.trim(),
-      displayName: displayName.trim(),
+      personId: selectedPerson.personId,
       repoIds: selectedRepoIds,
       groupIds: selectedGroupIds,
       ...(nodeLabel.trim() ? { nodeLabel: nodeLabel.trim() } : {}),
     });
   };
+  const personLabel = (person: EdgeInvitePerson) =>
+    person.username === person.personId ? person.personId : `${person.username} (${person.personId})`;
 
   return (
     <Section
@@ -88,40 +142,87 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly
       }
     >
       <div className="flex flex-col gap-2">
-        <Row label={t("views.repositories.invitePersonIdLabel")}>
-          <input
-            data-testid="edge-invite-person-id"
-            aria-label={t("views.repositories.invitePersonIdLabel")}
-            className={INPUT_CLASS}
-            value={personId}
-            onChange={(event) => setPersonId(event.target.value)}
-          />
+        <Row label={t("views.repositories.invitePersonLabel")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              data-testid="edge-invite-person-search"
+              aria-label={t("views.repositories.invitePersonSearch")}
+              placeholder={t("views.repositories.invitePersonSearch")}
+              className={INPUT_CLASS}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <select
+              data-testid="edge-invite-person-select"
+              aria-label={t("views.repositories.invitePersonLabel")}
+              className={INPUT_CLASS}
+              value={selected}
+              onChange={(event) => setSelected(event.currentTarget.value)}
+            >
+              <option value="">{t("views.repositories.invitePersonPlaceholder")}</option>
+              <option value={NEW_MEMBER}>{t("views.repositories.invitePersonNew")}</option>
+              {options.map((person) => (
+                <option key={person.personId} value={person.personId}>
+                  {personLabel(person)}
+                </option>
+              ))}
+            </select>
+          </div>
         </Row>
-        <Row label={t("views.repositories.inviteUsernameLabel")}>
-          <input
-            data-testid="edge-invite-username"
-            className={INPUT_CLASS}
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-          />
-        </Row>
-        <Row label={t("views.repositories.inviteEmailLabel")}>
-          <input
-            data-testid="edge-invite-email"
-            className={INPUT_CLASS}
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </Row>
-        <Row label={t("views.repositories.inviteDisplayNameLabel")}>
-          <input
-            data-testid="edge-invite-display-name"
-            className={INPUT_CLASS}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </Row>
+        {peopleQuery.isLoading ? (
+          <p className="ui-meta text-text-faint">{t("views.repositories.invitePeopleLoading")}</p>
+        ) : null}
+        {peopleQuery.isError ? (
+          <p role="alert" className="ui-meta text-status-blocked">
+            {String(peopleQuery.error)}
+          </p>
+        ) : null}
+        {!peopleQuery.isLoading && !peopleQuery.isError && people.length === 0 ? (
+          <p className="ui-meta text-text-faint">{t("views.repositories.invitePeopleEmpty")}</p>
+        ) : null}
+        {selectedPerson ? (
+          <Row label={t("views.repositories.invitePersonIdLabel")}>
+            <p data-testid="edge-invite-person-summary" className="font-mono ui-meta text-text">
+              {personLabel(selectedPerson)}
+            </p>
+          </Row>
+        ) : null}
+        {selected === NEW_MEMBER ? (
+          <>
+            <Row label={t("views.repositories.inviteUsernameLabel")}>
+              <input
+                data-testid="edge-invite-username"
+                className={INPUT_CLASS}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </Row>
+            <Row label={t("views.repositories.inviteEmailLabel")}>
+              <input
+                data-testid="edge-invite-email"
+                className={INPUT_CLASS}
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </Row>
+            <Row label={t("views.repositories.inviteDisplayNameLabel")}>
+              <input
+                data-testid="edge-invite-display-name"
+                className={INPUT_CLASS}
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </Row>
+            <Row label={t("views.repositories.invitePersonIdLabel")}>
+              <p data-testid="edge-invite-new-person-id" className="font-mono ui-meta text-text">
+                {newPersonId === ""
+                  ? t("views.repositories.inviteNewPersonEmpty")
+                  : t("views.repositories.inviteNewPersonHint", { personId: newPersonId })}
+              </p>
+            </Row>
+          </>
+        ) : null}
         <Row label={t("views.repositories.inviteNodeLabelLabel")}>
           <input
             data-testid="edge-invite-node-label"

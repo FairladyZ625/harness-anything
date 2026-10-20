@@ -82,14 +82,9 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.requestPermission({ groupId: "viewer", resource: "repo-a" });
   await api.decidePermissionRequest({ requestId: "request-1", requestVersion: 1, decision: "reject" });
   await api.withdrawPermissionRequest({ requestId: "request-1", requestVersion: 1 });
-  await api.issueEdgeJoin({
-    personId: "person-gui",
-    username: "edge.operator",
-    email: "edge@example.test",
-    displayName: "Edge Operator",
-    repoIds: ["repo-a", "repo-b"],
-    groupIds: ["contributor"],
-  });
+  // The member picker invites an existing person by identity alone; the new-user fields stay
+  // with the renderer until a new member is created (the link test below carries that shape).
+  await api.issueEdgeJoin({ personId: "person-gui", repoIds: ["repo-a", "repo-b"], groupIds: ["contributor"] });
   await api.edgeJoinStatus({ joinId: "invite-1" });
   await api.edgeJoinList();
   await api.revokeEdgeJoin({ joinId: "invite-1" });
@@ -144,16 +139,8 @@ test("every preload method reaches the daemon as one operation the protocol cont
     { operation: "device-resume", ...device, operationId: "operation-14" },
     { operation: "device-remove", ...device, operationId: "operation-15" },
     { operation: "device-logout-all", expectedVersion: "list-v2", operationId: "operation-16" },
-    // The center signs and journals the invitation; renderer supplies the person, multi-repo and group selection.
-    {
-      operation: "edge-join-create",
-      personId: "person-gui",
-      username: "edge.operator",
-      email: "edge@example.test",
-      displayName: "Edge Operator",
-      repoIds: ["repo-a", "repo-b"],
-      groupIds: ["contributor"],
-    },
+    // The center signs and journals the invitation; an existing member arrives by identity only.
+    { operation: "edge-join-create", personId: "person-gui", repoIds: ["repo-a", "repo-b"], groupIds: ["contributor"] },
     { operation: "edge-join-status", joinId: "invite-1" },
     { operation: "edge-join-list" },
     { operation: "edge-join-revoke", joinId: "invite-1" },
