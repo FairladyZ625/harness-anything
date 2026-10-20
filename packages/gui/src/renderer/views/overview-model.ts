@@ -129,7 +129,7 @@ export interface DecisionRow {
   readonly score: number;
 }
 
-const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind =>
+export const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind =>
   kind === "awaiting-you" || kind === "decision";
 
 export function decisionRows(agenda: AgendaSuccess | undefined): readonly DecisionRow[] {
@@ -587,14 +587,32 @@ export function agentLanesOf(input: {
       const round = group.latestRound,
         running = GROUP_RUNNING.has(round.status),
         inWindow = Date.parse(round.startedAt) >= input.nowMs - AGENT_LANES_WINDOW_MS;
-      if (running || inWindow)
+      if (running || inWindow) {
+        const awaitingRow = group.taskId !== undefined ? input.awaits.get(group.taskId) : undefined;
+        const isAwaiting = round.status === "blocked" || group.latestStatus === "blocked" || awaitingRow !== undefined;
+        const blockId = round.dispatchId ?? round.runtimeSessionId;
         tasks.push({
-          id: round.dispatchId ?? round.runtimeSessionId,
+          id: blockId,
           label: group.taskId === undefined ? group.label : (input.taskTitles.get(group.taskId) ?? group.label),
           startAt: Date.parse(round.startedAt),
           endAt: running ? null : Date.parse(group.latestActivityAt),
           status: LANE_ACTIVITY_OF_ROUND[round.status],
+          ...(isAwaiting
+            ? {
+                awaiting: {
+                  question: awaitingRow?.question ?? round.reason ?? input.awaitingFallbackQuestion,
+                },
+              }
+            : {}),
         });
+        if (group.taskId !== undefined) {
+          blockOf.set(blockId, {
+            taskId: group.taskId,
+            runtimeSessionId: round.runtimeSessionId,
+            awaiting: awaitingRow !== undefined,
+          });
+        }
+      }
     }
     if (tasks.length > 0) lanes.push({ agentId, role: group.label, tasks });
   }

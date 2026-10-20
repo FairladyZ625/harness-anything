@@ -95,16 +95,32 @@ export function useOverviewAgentGroups(repoId: string | null) {
   return q;
 }
 
-/** 读成员页的活跃 agent(超窗截断,截断即泳道少画,不猜)。 */
+/** 读成员页的活跃 agent(超窗截断,截断即泳道少画,不猜)。纳入在跑或挂待批/阻塞(awaits/blocked)的 agent。 */
 export function activeAgentIdsOf(
   groups: readonly AgentRuntimeSessionGroupDto[],
+  hasAwaits?: ReadonlyMap<string, unknown> | ReadonlySet<string> | ((group: AgentRuntimeSessionGroupDto) => boolean),
 ): readonly { readonly agentId: string; readonly runningCount: number }[] {
+  const isAwaitingOrBlocked = (group: AgentRuntimeSessionGroupDto): boolean => {
+    if (group.latestStatus === "blocked" || group.latestRound?.status === "blocked") return true;
+    if (hasAwaits === undefined) return false;
+    if (typeof hasAwaits === "function") return hasAwaits(group);
+    if (group.taskId !== undefined) {
+      return hasAwaits instanceof Set ? hasAwaits.has(group.taskId) : hasAwaits.has(group.taskId);
+    }
+    return false;
+  };
+
   return groups
-    .filter((group) => group.runningCount > 0 && group.agentId !== undefined)
-    .sort(
-      (left, right) =>
-        right.runningCount - left.runningCount || right.latestActivityAt.localeCompare(left.latestActivityAt),
-    )
+    .filter((group) => group.agentId !== undefined && (group.runningCount > 0 || isAwaitingOrBlocked(group)))
+    .sort((left, right) => {
+      const leftAwaiting = isAwaitingOrBlocked(left);
+      const rightAwaiting = isAwaitingOrBlocked(right);
+      return (
+        Number(rightAwaiting) - Number(leftAwaiting) ||
+        right.runningCount - left.runningCount ||
+        right.latestActivityAt.localeCompare(left.latestActivityAt)
+      );
+    })
     .slice(0, AGENT_LANES_ACTIVE_AGENTS)
     .map((group) => ({ agentId: group.agentId!, runningCount: group.runningCount }));
 }

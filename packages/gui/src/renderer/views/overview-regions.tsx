@@ -22,6 +22,7 @@ import { formatRelative, formatTime } from "../model/time.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
 import { STEP_META } from "./workspace/WorkOverview.tsx";
 import {
+  isDecisionKind,
   type AttentionSource,
   type DecisionRow,
   type FollowUpKind,
@@ -314,7 +315,8 @@ export function OverviewWorksBody({
             return count > 0 ? [`${STATUS_META[status].label} ${count}`] : [];
           }),
           blockers = attentionOf(work.taskId),
-          mine = blockers.filter(({ item }) => item.region === "mine").length,
+          mine = blockers.filter(({ item }) => item.region === "mine" && isDecisionKind(item.kind)).length,
+          otherMine = blockers.filter(({ item }) => item.region === "mine" && !isDecisionKind(item.kind)).length,
           handlers = handlersOf(entry),
           recent = recentOf(work.taskId),
           // 悬停给完整明细(视觉基线 v2:主文字收束,原始信息悬停可见):子任务/未完成/最近。
@@ -370,9 +372,15 @@ export function OverviewWorksBody({
               </span>
             ) : null,
             mine > 0 ? (
-              // Needs you 计数走 Orca 独立橙(与顶部决策带同一语义色):卡在等人,不是失败。
+              // Needs you 计数走 Orca 独立橙(与顶部决策带同一语义色):卡在等业主拍板。
               <span key="mine" className="shrink-0 font-semibold" style={{ color: "var(--color-agent-question)" }}>
                 {t("views.overviewView.worksMine", { count: String(mine) })}
+              </span>
+            ) : null,
+            otherMine > 0 ? (
+              // 其余项(返工/已答复/裁决/审计发现)保持中性色,属于机器或后续跟进,不冒充 Needs you。
+              <span key="other-mine" className="shrink-0 text-text-muted">
+                {t("views.overviewView.worksOtherMine", { count: String(otherMine) })}
               </span>
             ) : null,
           ].filter((part) => part !== null);
@@ -451,6 +459,7 @@ export type DrillTabKey = "wip" | "review" | "followups" | "pinned";
 export function OverviewDrillBody({
   wipOccupancy,
   wipFull,
+  wipError,
   lanes,
   handoffs,
   lanesLoading,
@@ -467,6 +476,8 @@ export function OverviewDrillBody({
   /** 占用/上限(快照未到给「…/—」);WIP 是常驻观察面,tab 恒在。 */
   readonly wipOccupancy: string;
   readonly wipFull: boolean;
+  /** WIP 读面失败的可读信息。 */
+  readonly wipError: string | null;
   /** AgentLanes 的当前泳道数据(agentLanesOf 的产物,块内已并入 CacheTimer)。 */
   readonly lanes: readonly AgentLane[];
   readonly handoffs: readonly AgentHandoff[];
@@ -539,28 +550,39 @@ export function OverviewDrillBody({
         )}
       </div>
       <div data-testid="overview-drill-list" className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "wip" &&
-          (lanesError !== null ? (
-            <Notice tone="bad" variant="strip" testId="overview-drill-lanes-error">
-              {t("views.overviewView.drillLanesError")}
-              {lanesError}
-            </Notice>
-          ) : lanes.length === 0 ? (
-            <div data-testid="overview-drill-wip-empty" className="px-3.5 py-2">
-              <Empty>
-                {lanesLoading ? t("views.overviewView.drillLanesLoading") : t("views.overviewView.drillLanesEmpty")}
-              </Empty>
-            </div>
-          ) : (
-            <div data-testid="overview-drill-lanes" className="px-3 pb-3 pt-2">
-              <AgentLanes
-                lanes={lanes}
-                handoffs={handoffs}
-                onResolveAwaiting={onResolveAwaiting}
-                testId="overview-agent-lanes"
-              />
-            </div>
-          ))}
+        {tab === "wip" && (
+          <>
+            {wipError !== null && (
+              <Notice tone="bad" variant="strip" testId="overview-drill-wip-error">
+                {t("views.overviewView.drillWipError")}
+                {wipError}
+              </Notice>
+            )}
+            {lanesError !== null ? (
+              <Notice tone="bad" variant="strip" testId="overview-drill-lanes-error">
+                {t("views.overviewView.drillLanesError")}
+                {lanesError}
+              </Notice>
+            ) : lanes.length === 0 ? (
+              wipError === null && (
+                <div data-testid="overview-drill-wip-empty" className="px-3.5 py-2">
+                  <Empty>
+                    {lanesLoading ? t("views.overviewView.drillLanesLoading") : t("views.overviewView.drillLanesEmpty")}
+                  </Empty>
+                </div>
+              )
+            ) : (
+              <div data-testid="overview-drill-lanes" className="px-3 pb-3 pt-2">
+                <AgentLanes
+                  lanes={lanes}
+                  handoffs={handoffs}
+                  onResolveAwaiting={onResolveAwaiting}
+                  testId="overview-agent-lanes"
+                />
+              </div>
+            )}
+          </>
+        )}
         {tab === "followups" &&
           (followUps.length === 0 ? (
             <div data-testid="overview-drill-followups-empty" className="px-3.5 py-2">
