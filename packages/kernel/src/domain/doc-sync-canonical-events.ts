@@ -14,6 +14,10 @@ import {
   validateCurrentLedgerLayoutMigrationEvent,
   validateLedgerLayoutMigrationEvent,
 } from "./ledger-layout-migration-event.ts";
+import {
+  validateCurrentEventShapeMigrationEvent,
+  validateEventShapeMigrationEvent,
+} from "./event-shape-migration-event.ts";
 import { validateCurrentMigrationImportEvent, validateMigrationImportEvent } from "./migration-import-event.ts";
 import {
   validateCurrentPresetSnapshotUpgradeEvent,
@@ -135,6 +139,11 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     schema: "ledger-layout-event/v1",
     validate: validateLedgerLayoutMigrationEvent,
     validateCurrent: validateCurrentLedgerLayoutMigrationEvent,
+  },
+  {
+    schema: "event-shape-migration/v1",
+    validate: validateEventShapeMigrationEvent,
+    validateCurrent: validateCurrentEventShapeMigrationEvent,
   },
 ] as const);
 

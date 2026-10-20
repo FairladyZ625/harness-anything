@@ -1,4 +1,4 @@
-import { RETIRED_SETTINGS_PATHS } from "../domain/settings.ts";
+import { withoutRetiredSettings } from "../domain/event-shape-migration-event.ts";
 import { historicalCompletionRequirements } from "./offline-completion-contract.ts";
 import { effectiveCloseoutGates } from "../domain/settings-closeout.ts";
 import { tmpdir } from "node:os";
@@ -624,25 +624,8 @@ const settingsCiMigration: EventShapeMigrationSpec = {
   rewrite: (event) => {
     if (!isSettingsEvent(event)) return null;
     const before = event.payload.settings,
-      after = structuredClone(before) as unknown as Record<string, unknown>;
-    let changed = false;
-    for (const [parent, key] of RETIRED_SETTINGS_PATHS) {
-      const group = after[parent];
-      if (!isRecord(group) || !Object.hasOwn(group, key)) continue;
-      delete (group as Record<string, unknown>)[key];
-      if (!Object.keys(group).length) delete after[parent];
-      changed = true;
-    }
-    if (Array.isArray(after.gates)) {
-      const gates = after.gates.filter(
-        (gate) => !isRecord(gate) || !["github-actions", "gitlab-pipeline"].includes(String(gate.adapter)),
-      );
-      if (gates.length !== after.gates.length) {
-        after.gates = gates;
-        changed = true;
-      }
-    }
-    return changed
+      after = withoutRetiredSettings(before);
+    return after !== before
       ? {
           event: { ...event, payload: { ...event.payload, settings: after } } as CanonicalEventV1,
           category: "retired CI settings dropped",

@@ -5,7 +5,6 @@ import {
 import {
   completionMigrationCommand,
   generationMigrationCommand,
-  settingsMigrationCommand,
 } from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
@@ -20,7 +19,6 @@ export type ThinHelpCatalogEntry = {
 export const clientLocalCommands = [
   generationMigrationCommand,
   completionMigrationCommand,
-  settingsMigrationCommand,
   {
     id: "backup-retention",
     path: ["backup", "retention"],

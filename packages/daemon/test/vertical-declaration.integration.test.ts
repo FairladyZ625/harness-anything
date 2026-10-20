@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
-import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
+import { readCanonicalVerticalDeclaration, runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
 import { resolveVerticalKindCommandAction } from "../src/vertical-kind-command-action.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -124,6 +124,33 @@ test("declaration read round-trips every materialized kind field through unchang
       };
     assert.equal(read.declarationRevision, materialized.revision);
     assert.deepEqual(read.declaration, materialized.definition);
+    const retiredSource = {
+      ...materialized,
+      definition: {
+        ...materialized.definition,
+        completion: {
+          ...materialized.definition.completion,
+          sources: {
+            ...materialized.definition.completion.sources,
+            ci: {
+              kind: "github-actions",
+              predicateType: "ci/v1",
+              resultSchema: { type: "object" },
+            },
+          },
+          gates: {
+            ...materialized.definition.completion.gates,
+            ci: { source: "ci", appliesTo: "code" },
+          },
+        },
+      },
+    };
+    const normalizedHistorical = readCanonicalVerticalDeclaration({
+      readDocument: () => ({ document: { body: JSON.stringify(retiredSource) } }),
+    });
+    assert.ok(normalizedHistorical);
+    assert.equal(Object.hasOwn(normalizedHistorical.definition.completion.sources, "ci"), false);
+    assert.equal(Object.hasOwn(normalizedHistorical.definition.completion.gates, "ci"), false);
     const declaration = read.declaration.entityKinds.find(({ entityType }) => entityType === "artifact");
     assert.ok(declaration);
     const receipt = await cell.run(

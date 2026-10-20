@@ -6,6 +6,7 @@ import {
   configureLedgerMaintenance,
   consumeKnownError,
   activateEmptyCanonicalGeneration,
+  applyAttachMigrations,
   installLedgerCommitGuard,
   makeTaskEventStore,
   makeTaskProjection,
@@ -153,6 +154,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
   });
   try {
+    // Historical shape upgrades are accepted through the same fenced writer as every other
+    // canonical event. Projection opening is deliberately after this step so a cold rebuild
+    // never observes an unregistered retired field.
+    if (context.mode !== "remote-edge") applyAttachMigrations({ store, now: context.now });
     context.input.onOpenProgress?.({
       phase: "recovering",
       applied: null,

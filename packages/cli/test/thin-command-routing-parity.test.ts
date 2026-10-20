@@ -540,13 +540,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: [
-      "migrate-completion",
-      "migrate-import",
-      "migrate-ledger",
-      "migrate-settings",
-      "vertical-declaration-migrate",
-    ],
+    migrate: ["migrate-completion", "migrate-import", "migrate-ledger", "vertical-declaration-migrate"],
     preset: [
       "preset-audit",
       "preset-check",

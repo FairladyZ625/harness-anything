@@ -1,8 +1,19 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { compileSettingsChangedEvent, validateSettingsEvent } from "../../src/domain/settings-event.ts";
+import {
+  parseCanonicalEvent,
+  serializeCanonicalEventUnchecked,
+  type PersistedCanonicalEventV1,
+} from "../../src/domain/doc-sync.contract.ts";
+import {
+  assertSettingsEventInputs,
+  compileSettingsChangedEvent,
+  settingsEventWritePlan,
+  validateSettingsEvent,
+} from "../../src/domain/settings-event.ts";
 import { requireEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
 import { interpretEntityValue } from "../../src/domain/entity-kind-projection.ts";
 import { dropRetiredSettingsWalFlush } from "../../src/domain/settings-history.ts";
@@ -109,6 +120,88 @@ test("a harness.yaml still carrying the retired walFlush block reads without it 
   const candidate = writeRepositorySettingsFacet(authored, { ...read, reviewReturnBudget: 5 });
   assert.equal(readSettingsFacet(candidate).reviewReturnBudget, 5);
   assert.equal(candidate.replace("  reviewReturnBudget: 5\n", ""), authored.replace("  locale: en-US\n", ""));
+});
+
+test("retired CI settings documents and copied settings events normalize at their read boundaries", () => {
+  const retiredBody = readFileSync(
+      new URL("../../fixtures/settings-migration/retired-settings-before.yaml", import.meta.url),
+      "utf8",
+    ),
+    settings = readSettingsFacet(retiredBody),
+    candidate = writeRepositorySettingsFacet(retiredBody, { ...settings, reviewReturnBudget: 5 }),
+    currentBody = writeRepositorySettingsFacet(original, { ...settings, reviewReturnBudget: 5 }),
+    current = compileSettingsChangedEvent({
+      settings,
+      baseDocumentBody: original,
+      candidateDocumentBody: currentBody,
+      eventId: "event-retired-settings-copy",
+      opId: "op-retired-settings-copy",
+      workspaceRevision: 1,
+      actor: { principal: { personId: "person-settings" }, executor: null },
+      source: "local",
+      occurredAt: "2026-08-27T01:00:00.000Z",
+    }),
+    retiredGate = {
+      gateId: "ci",
+      adapter: "github-actions",
+      branch: "main",
+      event: "push",
+      coverage: "descendant",
+      selection: "newest",
+    },
+    copied = {
+      ...current.event,
+      payload: {
+        ...current.event.payload,
+        settings: {
+          ...current.event.payload.settings,
+          workerPermissions: {
+            ...current.event.payload.settings.workerPermissions,
+            ciRead: true,
+            artifactRead: true,
+            push: true,
+            pullRequest: true,
+            merge: true,
+            repositorySettings: true,
+            gitlab: true,
+          },
+          delivery: { ...current.event.payload.settings.delivery, platform: "github" },
+          ci: { workflows: ["rewrite-ci"] },
+          gates: [...current.event.payload.settings.gates, retiredGate],
+        },
+        harnessDocumentClaim: {
+          ...current.event.payload.harnessDocumentClaim,
+          sha256: sha256Text(retiredBody),
+          size: Buffer.byteLength(retiredBody),
+        },
+      },
+    };
+
+  assert.equal(settings.workerPermissions.mode, "restricted");
+  assert.equal(settings.delivery.targetBranch, "release/stable");
+  assert.deepEqual(
+    settings.gates.map(({ gateId }) => gateId),
+    ["human-review"],
+  );
+  assert.equal(readSettingsFacet(candidate).reviewReturnBudget, 5);
+  for (const retiredField of ["ciRead", "artifactRead", "pullRequest", "merge", "workflows", "github-actions"])
+    assert.equal(candidate.includes(retiredField), false, retiredField);
+  assert.match(candidate, /targetBranch: release\/stable/u);
+  assert.match(candidate, /human-review:/u);
+
+  assert.deepEqual(validateSettingsEvent(copied), []);
+  assert.doesNotThrow(
+    () => parseCanonicalEvent(serializeCanonicalEventUnchecked(copied as unknown as PersistedCanonicalEventV1)),
+    "edge copy readers must accept the retired settings envelope",
+  );
+  assertSettingsEventInputs(copied, settingsEventWritePlan(copied), [
+    {
+      sha256: copied.payload.harnessDocumentClaim.sha256,
+      size: copied.payload.harnessDocumentClaim.size,
+      mediaType: "application/yaml",
+      body: retiredBody,
+    },
+  ]);
 });
 
 test("settings_changed carries the singleton snapshot, parent CAS, YAML claim, and exact write plan", () => {

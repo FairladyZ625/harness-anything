@@ -27,6 +27,7 @@ export type {
 export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-lease.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations } from "../store/event-shape-migration.ts";
+export { applyAttachMigrations } from "../store/attach-migrations.ts";
 export {
   migrateEventsToSqlite,
   openSqliteEventStore,

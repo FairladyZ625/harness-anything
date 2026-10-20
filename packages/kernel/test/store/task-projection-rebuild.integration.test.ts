@@ -5,6 +5,13 @@ import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "nod
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { compileSettingsChangedEvent } from "../../src/domain/settings-event.ts";
+import { readSettingsFacet, repositorySettings, writeRepositorySettingsFacet } from "../../src/domain/settings.ts";
+import { compileScheduleDefinitionEvent } from "../../src/domain/schedule-event.ts";
+import { createScheduleV1 } from "../../src/domain/schedule.ts";
+import { compileVerticalDeclarationEvent } from "../../src/domain/vertical-declaration.ts";
+import { decodeVerticalDefinition } from "../../src/schemas/vertical-definition.ts";
+import { normalizeHistoricalVerticalDocument } from "../../src/projection/historical-event-normalization.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { withQueryOnlyDatabaseSession } from "../../src/projection/rebuildable-task-projection-database.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
@@ -13,10 +20,16 @@ import {
   type CanonicalEventStore,
   type CanonicalWriteBundle,
 } from "../../src/store/task-event-store.ts";
+import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts";
+import { openReplicaStore } from "../../src/store/replica-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { freezeDeclaredWritePlan } from "../../src/domain/write-chain.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
+import {
+  serializeCanonicalEventUnchecked,
+  type PersistedCanonicalEventV1,
+} from "../../src/domain/doc-sync.contract.ts";
 import {
   DOC_CODEC_ID,
   DOC_POLICY_ID,
@@ -34,8 +47,237 @@ import {
 } from "../../src/domain/migration-import-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+
+test("cold rebuild reads a real ledger containing all four retired event shapes", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "retired-shapes-cold-rebuild", rootDir }),
+      task = lifecycleFixture().events[0]!,
+      retiredSettingsBody = readFileSync(
+        new URL("../../fixtures/settings-migration/retired-settings-before.yaml", import.meta.url),
+        "utf8",
+      ),
+      retiredSettingsHash = sha256Text(retiredSettingsBody);
+    eventStore.append({ event: task, plan: taskLifecycleWritePlan(task), blobs: [] });
+
+    const schedule = createScheduleV1({
+        scheduleId: "schedule-retired-ci-observe",
+        name: "Retired CI Observe",
+        mode: "detect",
+        spec: {
+          trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-10-20T00:00:00.000Z" },
+          target: { kind: "agent", agentId: "codex" },
+          mission: "Exercise historical schedule replay.",
+        },
+        actor: { principal: { personId: "fixture" }, executor: null },
+        occurredAt: "2026-10-20T00:00:00.000Z",
+      }),
+      scheduleBundle = compileScheduleDefinitionEvent({
+        type: "schedule_created",
+        schedule,
+        eventId: "event-retired-schedule",
+        opId: "retired-schedule",
+        workspaceRevision: 2,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: "2026-10-20T00:00:00.000Z",
+      });
+    eventStore.append(scheduleBundle);
+
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), retiredSettingsBody);
+    const settings = repositorySettings(readSettingsFacet(retiredSettingsBody)),
+      settingsBundle = compileSettingsChangedEvent({
+        settings,
+        baseDocumentBody: retiredSettingsBody,
+        candidateDocumentBody: writeRepositorySettingsFacet(retiredSettingsBody, settings),
+        eventId: "event-retired-settings",
+        opId: "retired-settings",
+        workspaceRevision: 3,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: "2026-10-20T00:00:00.000Z",
+      });
+    eventStore.append(settingsBundle);
+
+    const verticalDefinition = decodeVerticalDefinition(
+        JSON.parse(
+          readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
+        ),
+      ),
+      retiredVerticalDefinition = {
+        ...verticalDefinition,
+        completion: {
+          ...verticalDefinition.completion,
+          sources: {
+            ci: { kind: "github-actions", predicateType: "ci/succeeded", resultSchema: {} },
+          },
+          gates: { ci: { source: "ci", appliesTo: "code" } },
+        },
+      },
+      verticalBundle = compileVerticalDeclarationEvent({
+        type: "vertical_declared",
+        definition: retiredVerticalDefinition,
+        eventId: "event-retired-vertical",
+        opId: "retired-vertical",
+        workspaceRevision: 4,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: "2026-10-20T00:00:00.000Z",
+      });
+    eventStore.append(verticalBundle);
+    await eventStore.settlePendingMaterialization();
+
+    const ledger = new DatabaseSync(sqliteLedgerPath(rootDir));
+    const retiredEventBytes = new Map<number, string>();
+    const rewrite = (revision: number, change: (event: Record<string, unknown>) => void) => {
+      const row = ledger.prepare("SELECT event_json FROM event WHERE revision = ?").get(revision) as {
+          readonly event_json: string;
+        },
+        event = JSON.parse(row.event_json) as Record<string, unknown>;
+      change(event);
+      const bytes = serializeCanonicalEventUnchecked(event as unknown as PersistedCanonicalEventV1);
+      retiredEventBytes.set(revision, bytes);
+      ledger
+        .prepare("UPDATE event SET event_json = ?, digest = ? WHERE revision = ?")
+        .run(bytes, `sha256:${sha256Text(bytes)}`, revision);
+    };
+    rewrite(1, (event) => {
+      const payload = event.payload as { task: Record<string, unknown> };
+      payload.task.closeoutOverrides = { fact: false };
+    });
+    rewrite(2, (event) => {
+      const payload = event.payload as { schedule: { status: Record<string, unknown> } };
+      payload.schedule.status.ciObserve = { workflow: "rewrite-ci" };
+    });
+    rewrite(3, (event) => {
+      const payload = event.payload as {
+          settings: Record<string, unknown>;
+          harnessDocumentClaim: Record<string, unknown>;
+        },
+        settingsValue = payload.settings;
+      settingsValue.workerPermissions = {
+        ...(settingsValue.workerPermissions as Record<string, unknown>),
+        ciRead: true,
+        artifactRead: true,
+        pullRequest: true,
+        merge: true,
+        repositorySettings: true,
+        gitlab: true,
+      };
+      settingsValue.delivery = { ...(settingsValue.delivery as Record<string, unknown>), platform: "github" };
+      settingsValue.ci = { workflows: ["rewrite-ci"] };
+      settingsValue.gates = [
+        ...(settingsValue.gates as readonly Record<string, unknown>[]),
+        {
+          gateId: "ci",
+          adapter: "github-actions",
+          branch: "main",
+          event: "push",
+          coverage: "descendant",
+          selection: "newest",
+        },
+      ];
+      payload.harnessDocumentClaim.sha256 = retiredSettingsHash;
+      payload.harnessDocumentClaim.size = Buffer.byteLength(retiredSettingsBody);
+    });
+    const objectRoot = path.join(path.dirname(sqliteLedgerPath(rootDir)), "objects", "sha256"),
+      retiredSettingsObject = path.join(objectRoot, retiredSettingsHash.slice(0, 2), retiredSettingsHash.slice(2));
+    mkdirSync(path.dirname(retiredSettingsObject), { recursive: true });
+    writeFileSync(retiredSettingsObject, retiredSettingsBody);
+    ledger.close();
+
+    const projection = makeTaskProjection({
+      rootDir,
+      eventStore,
+      projectionPath: path.join(rootDir, ".harness/cache/retired-cold.sqlite"),
+    });
+    assert.equal(projection.rebuild().watermark, 4);
+    const taskSnapshot = projection.read(task.taskId).snapshot.task,
+      scheduleEntity = projection.getEntity("schedule", schedule.scheduleId),
+      settingsEntity = projection.getEntity("settings", "repository"),
+      settingsDocument = projection.readDocument("harness.yaml").document,
+      verticalDocument = projection.readDocument("vertical.json").document;
+    assert.ok(taskSnapshot);
+    assert.equal(JSON.stringify(taskSnapshot).includes('"fact"'), false);
+    assert.ok(scheduleEntity);
+    assert.equal(Object.hasOwn(scheduleEntity.value.status as object, "ciObserve"), false);
+    assert.ok(settingsEntity);
+    assert.equal(JSON.stringify(settingsEntity.value).includes("ciRead"), false);
+    assert.ok(settingsDocument);
+    assert.equal(repositorySettings(readSettingsFacet(settingsDocument.body)).delivery.targetBranch, "release/stable");
+    assert.ok(verticalDocument);
+    const normalizedVertical = normalizeHistoricalVerticalDocument(JSON.parse(verticalDocument.body)) as {
+      readonly definition: { readonly completion: { readonly sources: Readonly<Record<string, unknown>> } };
+    };
+    assert.deepEqual(normalizedVertical.definition.completion.sources, {});
+    assert.equal(eventStore.readContentBlob(retiredSettingsHash)?.byteLength, Buffer.byteLength(retiredSettingsBody));
+    assert.equal(eventStore.readContentBlob(verticalBundle.blobs[0].sha256)?.byteLength, verticalBundle.blobs[0].size);
+    assert.equal(eventStore.read().events[0]?.schema, "task-event/v1");
+    projection.close();
+
+    const replicaRoot = path.join(rootDir, "edge-replica");
+    mkdirSync(replicaRoot, { recursive: true });
+    initRepo(replicaRoot);
+    const replicaRepoId = "retired-settings-edge-copy",
+      replicaSeed = makeTaskEventStore({ repoId: replicaRepoId, rootDir: replicaRoot });
+    await replicaSeed.drain();
+    const replica = openReplicaStore({ databasePath: sqliteLedgerPath(replicaRoot), repoId: replicaRepoId }),
+      replicaStart = replica.position(),
+      copiedEvents = eventStore.read().events.slice(0, 3),
+      copiedEventRows = copiedEvents.map((copiedEvent, index) => {
+        const revision = index + 1,
+          eventJson = retiredEventBytes.get(revision)!;
+        return {
+          revision,
+          opId: copiedEvent.opId,
+          eventJson,
+          occurredAt: copiedEvent.occurredAt,
+          recordedAt: "2026-10-20T00:00:01.000Z",
+          digest: `sha256:${sha256Text(eventJson)}`,
+        };
+      });
+    replica.apply(
+      {
+        position: { ...replicaStart, sequence: replicaStart.sequence + 1, revision: copiedEventRows.length },
+        events: copiedEventRows,
+        outcome: null,
+        writer: null,
+      },
+      [
+        ...scheduleBundle.blobs,
+        {
+          sha256: retiredSettingsHash,
+          size: Buffer.byteLength(retiredSettingsBody),
+          mediaType: "application/yaml",
+          body: retiredSettingsBody,
+        },
+      ],
+    );
+    replica.close();
+    const replicaReader = makeTaskEventReader({ rootDir: replicaRoot, repoId: replicaRepoId }),
+      replicaProjection = makeTaskProjection({
+        rootDir: replicaRoot,
+        eventStore: replicaReader,
+        projectionPath: path.join(replicaRoot, ".harness/cache/retired-settings-edge.sqlite"),
+      });
+    assert.equal(replicaProjection.rebuild().watermark, 3);
+    assert.equal(
+      JSON.stringify(replicaProjection.getEntity("settings", "repository")?.value).includes("ciRead"),
+      false,
+    );
+    assert.equal(
+      repositorySettings(readSettingsFacet(replicaProjection.readDocument("harness.yaml").document!.body)).delivery
+        .targetBranch,
+      "release/stable",
+    );
+    replicaProjection.close();
+    await replicaReader.drain();
+  });
+});
 test("task/doc reducers share one SQLite transaction and L2 rebuild restores exact document bytes", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);

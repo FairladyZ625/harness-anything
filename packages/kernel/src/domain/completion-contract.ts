@@ -236,7 +236,7 @@ export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1
   return mappings.flatMap(({ gateId, adapter, ...options }) => {
     if (adapter === "none" && Object.keys(options).length) return [`settings.gates.${gateId}: none carries no options`];
     if (adapter === "github-actions" || adapter === "gitlab-pipeline")
-      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; run ha migrate settings --help`];
+      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; attach migrates this field`];
     if (gateId === CODE_DOC_GATE_ID && adapter !== "none")
       return [`settings.gates.${CODE_DOC_GATE_ID} is internal; map it only to none`];
     return [];
@@ -259,6 +259,16 @@ export function resolveCompletionContract(
   for (const gateId of new Set(declaredGateIds)) {
     const mapping = settings.gates.find((candidate) => candidate.gateId === gateId),
       declared = declaration.gates[gateId];
+    // `ci` was the hosted completion gate retired by the vertical migration. Existing task
+    // snapshots can still carry that profile id, but a new submission must never recreate its
+    // hosted witness. Historical submissions are converted separately by offline replay.
+    if (
+      gateId === "ci" &&
+      mapping?.adapter !== "github-actions" &&
+      mapping?.adapter !== "gitlab-pipeline" &&
+      (declared === undefined || declared.source === "github-actions" || declared.source === "gitlab-pipeline")
+    )
+      continue;
     if (mapping?.adapter === "github-actions" || mapping?.adapter === "gitlab-pipeline")
       return { ok: false, message: "Hosted CI completion witnesses are retired." };
     if (mapping?.adapter === "none") continue;

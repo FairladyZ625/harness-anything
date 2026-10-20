@@ -20,7 +20,6 @@ export const generationMigrationCommand = {
     { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
   ],
 } as const;
-
 export const completionMigrationCommand = {
   id: "migrate-completion",
   path: ["migrate", "completion"],
@@ -29,20 +28,6 @@ export const completionMigrationCommand = {
   summary: "Convert retired checkerProfile declarations and installed preset packages once, preserving the source.",
   help: "    For an installed pin, use its preset-objects/<digest> directory as --source and a new directory as --destination. Activate with ha preset install --source <candidate-directory> through the target repository writer.\n    Declaration candidates must be reviewed and accepted with ha doc sync --submit --path harness/vertical.json.\n    Historical ledger/snapshot conversion uses ha migrate ledger --help; this command does not rewrite accepted history.",
   helpCommand: "ha migrate completion --help",
-  inputs: [
-    { name: "--source", kind: "single", required: true, error: { code: "missing_field" } },
-    { name: "--mode", kind: "single", required: true, enum: ["dry-run", "convert"], error: { code: "invalid_field" } },
-    { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
-  ],
-} as const;
-
-export const settingsMigrationCommand = {
-  id: "migrate-settings",
-  path: ["migrate", "settings"],
-  usage: "ha migrate settings --source <harness.yaml> --mode <dry-run|convert> [--destination <new-file>]",
-  summary: "Remove retired ledger-side CI witness settings into a new candidate file, preserving the source.",
-  help: "    Convert requires --destination to name a file that does not exist. Review the candidate and replace the source explicitly when ready.",
-  helpCommand: "ha migrate settings --help",
   inputs: [
     { name: "--source", kind: "single", required: true, error: { code: "missing_field" } },
     { name: "--mode", kind: "single", required: true, enum: ["dry-run", "convert"], error: { code: "invalid_field" } },

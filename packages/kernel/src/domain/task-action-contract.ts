@@ -802,7 +802,6 @@ export const declarations: readonly Declaration[] = Object.freeze([
       field("repairTaskContractBody"),
       field("repairPresetId"),
       field("repairTaskClass"),
-      field("removeRetiredFactCloseoutOverride", "boolean"),
     ]),
     "contract_current",
     "Each selected legacy Task has one deterministic task-contract/v1 backfill or repair.",

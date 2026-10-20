@@ -40,6 +40,7 @@ export { isVerticalDeclarationEvent } from "./vertical-declaration.ts";
 export { isDecisionEvent } from "./decision-event.ts";
 export { isFactEvent } from "./fact-event.ts";
 export { isLedgerLayoutMigrationEvent } from "./ledger-layout-migration-event.ts";
+export { isEventShapeMigrationEvent } from "./event-shape-migration-event.ts";
 export { isMigrationImportEvent } from "./migration-import-event.ts";
 export { isRelationEvent } from "./relation-event.ts";
 export { isPresetSnapshotUpgradeEvent } from "./preset-snapshot-upgrade-event.ts";

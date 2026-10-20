@@ -1,81 +1,68 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { readSettingsFacet } from "@harness-anything/kernel";
+import {
+  applyAttachMigrations,
+  normalizeHistoricalVerticalDocument,
+  type CanonicalEventStore,
+} from "@harness-anything/kernel";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types";
 
-const cli = fileURLToPath(new URL("../../cli/src/index.ts", import.meta.url)),
-  oldSample = readFileSync(
-    new URL("../../kernel/fixtures/settings-migration/retired-settings-before.yaml", import.meta.url),
-    "utf8",
-  );
-
-function invoke(...args: string[]) {
-  const result = spawnSync(process.execPath, [cli, "migrate", "settings", ...args, "--json"], { encoding: "utf8" });
-  assert.equal(result.signal, null, result.stderr);
-  assert.ok(result.stdout.trim(), result.stderr);
-  return { status: result.status, receipt: JSON.parse(result.stdout.trim()) as Record<string, unknown> };
+function event(schema: string, payload: unknown, opId: string): PersistedCanonicalEventV1 {
+  return {
+    schema,
+    eventId: `event-${opId}`,
+    workspaceRevision: 1,
+    opId,
+    type: schema === "settings-event/v1" ? "settings_changed" : "vertical_declaration_changed",
+    actor: { principal: { personId: "fixture" }, executor: null },
+    source: "local",
+    occurredAt: "2026-10-20T00:00:00.000Z",
+    payload,
+  } as unknown as PersistedCanonicalEventV1;
 }
 
-test("settings migration rejects the retired sample, preserves its source, and writes a reader-valid candidate", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-migration-"));
-  try {
-    const source = path.join(root, "harness.yaml"),
-      candidate = path.join(root, "candidate.yaml");
-    writeFileSync(source, oldSample);
-    assert.throws(() => readSettingsFacet(oldSample), /not declared/u);
+function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
+  const events = [...initial];
+  const store = {
+    readHead: () =>
+      events.length === 0
+        ? null
+        : { revision: events.length, opId: events.at(-1)!.opId, eventDigest: `sha256:${"0".repeat(64)}` },
+    queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+    append: ({ event: next }: { readonly event: PersistedCanonicalEventV1 }) => {
+      events.push(next);
+      return {};
+    },
+  } as unknown as CanonicalEventStore;
+  return { store, events };
+}
 
-    const dryRun = invoke("--source", source, "--mode", "dry-run", "--destination", candidate);
-    assert.equal(dryRun.status, 0, JSON.stringify(dryRun));
-    assert.deepEqual(dryRun.receipt.removedPaths, [
-      "workerPermissions.ciRead",
-      "workerPermissions.artifactRead",
-      "workerPermissions.push",
-      "workerPermissions.pullRequest",
-      "workerPermissions.merge",
-      "workerPermissions.repositorySettings",
-      "workerPermissions.gitlab",
-      "delivery.platform",
-      "ci.workflows",
-      "gates.ci",
-    ]);
-    assert.equal(readFileSync(source, "utf8"), oldSample);
-    assert.throws(() => readFileSync(candidate, "utf8"), { code: "ENOENT" });
-
-    const converted = invoke("--source", source, "--mode", "convert", "--destination", candidate);
-    assert.equal(converted.status, 0, JSON.stringify(converted));
-    assert.equal(readFileSync(source, "utf8"), oldSample);
-    const current = readSettingsFacet(readFileSync(candidate, "utf8"));
-    assert.equal(current.workerPermissions.mode, "restricted");
-    assert.equal(current.delivery.requireMerged, true);
-    assert.equal(current.delivery.targetBranch, "release/stable");
-    assert.deepEqual(current.gates, [{ gateId: "human-review", adapter: "manual-attest" }]);
-    const exists = invoke("--source", source, "--mode", "convert", "--destination", candidate);
-    assert.equal(exists.status, 1);
-    assert.match(JSON.stringify(exists.receipt), /EEXIST/u);
-    assert.equal(readFileSync(source, "utf8"), oldSample);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test("attach applies retired settings migration without a manual command and is idempotent", () => {
+  const { store, events } = fakeStore([
+    event(
+      "settings-event/v1",
+      { settings: { ci: { workflows: ["retired"] }, gates: [{ adapter: "github-actions" }] } },
+      "old-settings",
+    ),
+  ]);
+  assert.deepEqual(applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" }).applied, ["settings.ci"]);
+  assert.equal(events.length, 2);
+  assert.deepEqual(applyAttachMigrations({ store }).applied, []);
+  assert.equal(events.length, 2);
 });
 
-test("settings conversion requires a distinct new destination", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-migration-destination-"));
-  try {
-    const source = path.join(root, "harness.yaml");
-    writeFileSync(source, oldSample);
-    const missing = invoke("--source", source, "--mode", "convert");
-    assert.equal(missing.status, 1);
-    assert.match(JSON.stringify(missing.receipt), /convert requires --destination/u);
-    const same = invoke("--source", source, "--mode", "convert", "--destination", source);
-    assert.equal(same.status, 1);
-    assert.match(JSON.stringify(same.receipt), /must differ from --source/u);
-    assert.equal(readFileSync(source, "utf8"), oldSample);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test("historical vertical declarations remain readable after hosted CI retirement", () => {
+  assert.deepEqual(
+    normalizeHistoricalVerticalDocument({
+      schema: "repository-vertical-declaration/v1",
+      definition: {
+        completion: {
+          sources: { ci: { kind: "github-actions" } },
+          gates: { ci: { source: "ci" } },
+        },
+      },
+    }),
+    { schema: "repository-vertical-declaration/v1", definition: { completion: { sources: {}, gates: {} } } },
+  );
 });

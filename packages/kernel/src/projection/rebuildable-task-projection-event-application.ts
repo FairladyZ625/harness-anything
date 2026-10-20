@@ -3,10 +3,12 @@ import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import {
+  normalizeHistoricalEvent,
+  normalizeHistoricalPresetSnapshot,
+  normalizeHistoricalScheduleValue,
   hasRetiredFactCloseoutOverride,
-  normalizeRetiredFactCloseoutOverride,
   withoutRetiredFactCloseoutOverride,
-} from "./retired-task-event-normalization.ts";
+} from "./historical-event-normalization.ts";
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { parse as parseYaml } from "yaml";
@@ -30,6 +32,7 @@ import { serializeCanonicalEventUnchecked } from "../domain/doc-sync-canonical-e
 import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { isEntityPinEvent } from "../domain/entity-pin-event.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
+import { isEventShapeMigrationEvent } from "../domain/event-shape-migration-event.ts";
 import { currentTaskForWrite } from "../domain/task.ts";
 import {
   isAgentRuntimeEvent,
@@ -145,8 +148,7 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
-  const hadRetiredFactCloseoutOverride = hasRetiredFactCloseoutOverride(event);
-  if (hadRetiredFactCloseoutOverride) event = normalizeRetiredFactCloseoutOverride(event);
+  event = normalizeHistoricalEvent(event);
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
   projectArtifactEntityState(db, event);
@@ -178,6 +180,16 @@ export function applyEvent(
     return;
   }
   if (isLedgerLayoutMigrationEvent(event)) {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    return;
+  }
+  if (isEventShapeMigrationEvent(event)) {
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -360,7 +372,7 @@ export function applyEvent(
       }
       let value: unknown;
       try {
-        value = JSON.parse(body);
+        value = normalizeHistoricalScheduleValue(JSON.parse(body));
       } catch {
         throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
       }
@@ -609,15 +621,19 @@ export function applyEvent(
       contractBytes.byteLength !== event.payload.taskContractClaim.size
     )
       throw new Error(`preset snapshot upgrade basis mismatch for ${event.taskId}`);
-    const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
+    const snapshot = normalizeHistoricalPresetSnapshot(
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
+      ) as {
+        readonly identity: { readonly id: string };
+        readonly profile: Record<string, unknown>;
+        readonly digest: string;
+      },
       changedPreset = current.task.metadata?.presetId !== snapshot.identity.id,
       // The task-bound closeout override set tracks the profile declaration on upgrade; a profile
       // that no longer declares one drops the field entirely rather than freezing a stale value.
       baseTask = { ...currentTaskForWrite(current.task) },
       declaredCloseoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides,
-      closeoutOverrides = hadRetiredFactCloseoutOverride
-        ? withoutRetiredFactCloseoutOverride(declaredCloseoutOverrides)
-        : declaredCloseoutOverrides,
+      closeoutOverrides = withoutRetiredFactCloseoutOverride(declaredCloseoutOverrides),
       archiveOnComplete = (snapshot.profile as { readonly archiveOnComplete?: unknown }).archiveOnComplete;
     if (closeoutOverrides !== undefined && !isValidCloseoutOverrides(closeoutOverrides))
       throw new Error(`preset snapshot upgrade declared invalid closeoutOverrides for ${event.taskId}`);
@@ -693,7 +709,7 @@ export function applyEvent(
     if (!snapshotBytes || snapshotBytes.byteLength !== event.payload.presetSnapshotClaim.size)
       throw new Error(`preset snapshot blob ${event.payload.presetSnapshotClaim.sha256} is unavailable`);
     const snapshotBody = new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes),
-      snapshot = JSON.parse(snapshotBody);
+      snapshot = normalizeHistoricalPresetSnapshot(JSON.parse(snapshotBody));
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",

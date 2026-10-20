@@ -15,6 +15,10 @@ import {
   assertLedgerLayoutMigrationWritePlan,
   isLedgerLayoutMigrationEvent,
 } from "../domain/ledger-layout-migration-event.ts";
+import {
+  assertEventShapeMigrationWritePlan,
+  isEventShapeMigrationEvent,
+} from "../domain/event-shape-migration-event.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { assertEntityUpsertWritePlan, isEntityEvent } from "../domain/entity-event.ts";
 import { assertScheduleEventWritePlan, isScheduleEvent } from "../domain/schedule-event.ts";
@@ -127,6 +131,7 @@ export function makeTaskProjection(options: {
       if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan);
       if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan);
       if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan);
+      if (isEventShapeMigrationEvent(event)) assertEventShapeMigrationWritePlan(event, plan);
       return withDatabase(projectionPath, readHead, (db) =>
         reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
       );

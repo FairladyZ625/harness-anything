@@ -15,6 +15,10 @@ import {
   assertLedgerLayoutMigrationWritePlan,
   isLedgerLayoutMigrationEvent,
 } from "../domain/ledger-layout-migration-event.ts";
+import {
+  assertEventShapeMigrationWritePlan,
+  isEventShapeMigrationEvent,
+} from "../domain/event-shape-migration-event.ts";
 import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
 import { assertEntityDocumentEventWritePlan, isEntityDocumentEvent } from "../domain/entity-document-event.ts";
@@ -176,6 +180,15 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "ledger layout migration plan must exactly declare event, head, and layout projection targets",
+      );
+    }
+  if (isEventShapeMigrationEvent(event))
+    try {
+      assertEventShapeMigrationWritePlan(event, plan);
+    } catch {
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "event-shape migration plan must exactly declare event, head, and migration projection targets",
       );
     }
   const required: WriteTarget[] = [

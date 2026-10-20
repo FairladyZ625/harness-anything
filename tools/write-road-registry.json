@@ -105,7 +105,6 @@
     "packages/daemon/src/managed-rbac-service.ts",
     "packages/daemon/src/migration-import-oracle-rebuild.ts",
     "packages/daemon/src/observe-jsonl-tail.ts",
-    "packages/daemon/src/offline-storage.ts",
     "packages/daemon/src/repo-bootstrap.ts",
     "packages/daemon/src/repo-cache-purge.ts",
     "packages/daemon/src/repo-cell-errors.ts",

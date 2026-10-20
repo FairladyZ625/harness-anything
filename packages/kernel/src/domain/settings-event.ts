@@ -23,6 +23,7 @@ import {
   type WriteSource,
   type WriteTarget,
 } from "./write-chain.contract.ts";
+import { withoutRetiredSettings } from "./event-shape-migration-event.ts";
 
 export const SETTINGS_FACET_POLICY_ID = "settings-facet/v1";
 
@@ -142,9 +143,11 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
     !isRecord(value.scaffolds)
   )
     return false;
-  if (!allowUnknownFields) return validateRepositorySettings(value).length === 0;
-  if (!validLegacySnapshotShape(value)) return false;
-  return validateRepositorySettings(repositorySettings(value as unknown as RepositorySettingsV1)).length === 0;
+  const normalized = withoutRetiredSettings(value);
+  if (!isRecord(normalized)) return false;
+  if (!allowUnknownFields) return validateRepositorySettings(normalized).length === 0;
+  if (!validLegacySnapshotShape(normalized)) return false;
+  return validateRepositorySettings(repositorySettings(normalized as unknown as RepositorySettingsV1)).length === 0;
 }
 
 function validLegacySnapshotShape(value: Readonly<Record<string, unknown>>): boolean {
@@ -206,7 +209,7 @@ export function assertSettingsEventInputs(
   if (!blob) throw new Error("settings harness.yaml blob must be exact");
   if (
     stableStringify(repositorySettings(readSettingsFacet(blob.body))) !==
-    stableStringify(repositorySettings(event.payload.settings))
+    stableStringify(repositorySettings(withoutRetiredSettings(event.payload.settings) as RepositorySettingsV1))
   )
     throw new Error("settings harness.yaml blob must contain the exact settings facet");
 }

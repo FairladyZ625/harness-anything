@@ -186,35 +186,10 @@ export const RETIRED_SETTINGS_PATHS = Object.freeze([
   ["workerPermissions", "gitlab"],
   ["delivery", "platform"],
   ["ci", "workflows"],
+  ["gates", "ci"],
 ] as const);
 
-/** Create a validated candidate without changing the source settings document. */
-export function migrateRetiredSettingsCandidate(body: string): {
-  readonly candidate: string;
-  readonly removedPaths: readonly string[];
-} {
-  const document = parseAuthoredDocument(body),
-    authored = authoredSettings(document),
-    removedPaths: string[] = [];
-  for (const path of RETIRED_SETTINGS_PATHS) {
-    if (valueAtPath(authored, path) === undefined) continue;
-    deleteDocumentPath(document, path);
-    removedPaths.push(path.join("."));
-  }
-  const gates = valueAtPath(authored, ["gates"]);
-  if (gates && typeof gates === "object" && !Array.isArray(gates)) {
-    for (const [gateId, value] of Object.entries(gates)) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      const adapter = (value as Readonly<Record<string, unknown>>).adapter;
-      if (adapter !== "github-actions" && adapter !== "gitlab-pipeline") continue;
-      deleteDocumentPath(document, ["gates", gateId]);
-      removedPaths.push(`gates.${gateId}`);
-    }
-  }
-  const candidate = stringifyAuthoredDocument(document, body);
-  readSettingsFacet(candidate);
-  return { candidate, removedPaths };
-}
+export const RETIRED_SETTINGS_GATE_ADAPTERS = Object.freeze(["github-actions", "gitlab-pipeline"] as const);
 
 type SettingsRecord = Record<string, unknown>;
 
@@ -262,9 +237,9 @@ export function createSettingsDeclarationRuntime(
     cliInputFields,
     repositoryActionFields,
     localOnlyActionFields,
-    read: (body: string) => readDeclaredSettings(body, declarations),
+    read: (body: string) => readDeclaredSettings(normalizeRetiredSettingsDocument(body), declarations),
     writeRepository: (body: string, settings: Readonly<SettingsRecord>) =>
-      writeDeclaredRepositorySettings(body, settings, declarations),
+      writeDeclaredRepositorySettings(normalizeRetiredSettingsDocument(body), settings, declarations),
     applyRepositoryAction: (current: Readonly<SettingsRecord>, action: Readonly<Record<string, unknown>>) =>
       applyDeclaredRepositoryAction(current, action, repositoryDeclarations),
     applyLocalAction: (current: Readonly<SettingsRecord>, action: Readonly<Record<string, unknown>>) =>
@@ -428,7 +403,7 @@ function withGateMappingIssues(errors: readonly string[], value: unknown): reado
  * `    ci:` followed by six-space `appliesTo:`/`adapter:`/adapter option lines.
  */
 export function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
-  const settings = authoredSettings(body);
+  const settings = authoredSettings(normalizeRetiredSettingsDocument(body));
   return readGateMappings(settings.gates);
 }
 
@@ -768,7 +743,7 @@ function deleteValueAtPath(target: SettingsRecord, path: readonly string[]): voi
  * canonical key order so the read-back is byte-equal to the entity value.
  */
 export function writeGatesFacet(body: string, gates: readonly GateWitnessMappingV1[]): string {
-  const document = parseAuthoredDocument(body);
+  const document = parseAuthoredDocument(normalizeRetiredSettingsDocument(body));
   if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
   ensureSettingsMap(document);
   if (gates.length) document.setIn(["settings", "gates"], gateMappingsValue(gates));
@@ -840,7 +815,7 @@ function assertDeclaredNestedKeys(
         throw new SettingsDeclarationError(
           `settings.${path.join(".")} field ${key} is not declared` +
             (RETIRED_SETTINGS_PATHS.some((retired) => retired.join(".") === [...path, key].join("."))
-              ? "; run ha migrate settings --help to convert retired CI settings."
+              ? "; attach migrates retired CI settings before reads are served."
               : ""),
         );
   }
@@ -855,6 +830,31 @@ function deleteDocumentPath(document: ReturnType<typeof parseDocument>, path: re
       parent = document.getIn(parentPath, true);
     if (isMap(parent) && parent.items.length === 0) document.deleteIn(parentPath);
   }
+}
+
+/** Strip only the repository settings paths retired by the registered Settings CI migration. */
+function normalizeRetiredSettingsDocument(body: string): string {
+  const document = parseAuthoredDocument(body);
+  let changed = false;
+  for (const path of RETIRED_SETTINGS_PATHS) {
+    if (!document.hasIn(["settings", ...path])) continue;
+    deleteDocumentPath(document, path);
+    changed = true;
+  }
+  const gates = authoredSettings(document).gates;
+  if (gates && typeof gates === "object" && !Array.isArray(gates))
+    for (const [gateId, mapping] of Object.entries(gates))
+      if (
+        mapping &&
+        typeof mapping === "object" &&
+        RETIRED_SETTINGS_GATE_ADAPTERS.includes(
+          String((mapping as Readonly<SettingsRecord>).adapter) as (typeof RETIRED_SETTINGS_GATE_ADAPTERS)[number],
+        )
+      ) {
+        document.deleteIn(["settings", "gates", gateId]);
+        changed = true;
+      }
+  return changed ? stringifyAuthoredDocument(document, body) : body;
 }
 
 function stringifyAuthoredDocument(document: ReturnType<typeof parseDocument>, original: string): string {
