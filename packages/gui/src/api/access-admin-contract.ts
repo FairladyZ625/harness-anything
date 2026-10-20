@@ -193,12 +193,15 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
       readonly expectedVersion: string;
     }
   | {
-      /** Creates the invited Keycloak user, multi-repository grants and one-time pinned link on the daemon writer. */
+      /**
+       * Creates the invited Keycloak user, multi-repository grants and one-time pinned link on the daemon
+       * writer. Username, email, and displayName create a new member; an existing person is invited without them.
+       */
       readonly operation: "edge-join-create";
-      readonly username: string;
-      readonly email: string;
-      readonly displayName: string;
       readonly personId: string;
+      readonly username?: string;
+      readonly email?: string;
+      readonly displayName?: string;
       readonly repoIds: readonly string[];
       readonly groupIds: readonly string[];
       readonly nodeLabel?: string;
@@ -279,10 +282,11 @@ export interface AccessAdminApi {
     readonly expectedVersion: string;
   }) => Reply<AccessReceipt>;
   readonly issueEdgeJoin: (input: {
-    readonly username: string;
-    readonly email: string;
-    readonly displayName: string;
     readonly personId: string;
+    /** New-member fields; the daemon ignores them when the person already exists. */
+    readonly username?: string;
+    readonly email?: string;
+    readonly displayName?: string;
     readonly repoIds: readonly string[];
     readonly groupIds: readonly string[];
     readonly nodeLabel?: string;

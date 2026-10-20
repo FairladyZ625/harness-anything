@@ -7,14 +7,15 @@ import { keycloakRealm, keycloakUrl } from "../../../packages/daemon/test/keyclo
 
 /**
  * Settings → Repos & connections issues a multi-repository invitation through access-admin.
- * The one-time link is inspected in memory only; screenshots cover its sanitized audit row.
+ * The invite form picks a member from the grant list or creates one in place; the one-time link is
+ * inspected in memory only, and screenshots cover its sanitized audit row.
  */
 export default {
   id: "edge-invite",
   feature: "settings",
   lane: "isolated",
   description:
-    "Issue a multi-repository edge invitation with a permission group, hide its one-time link, inspect the audit row, and revoke it.",
+    "Create an invited member from the picker, issue a multi-repository edge invitation with a permission group, hide its one-time link, inspect the audit row, and revoke it.",
   async run({ page, app, fixture, shot }) {
     const keyPath = path.join(fixture.userRoot, "edge-invite-key.pem"),
       certPath = path.join(fixture.userRoot, "edge-invite-cert.pem");
@@ -63,12 +64,17 @@ export default {
     await page.getByTestId("connection-node-center").click();
     await page.getByTestId("center-connection-panel").waitFor();
 
-    await page.getByTestId("edge-invite-person-id").fill("person-edge-invite");
+    await page.getByTestId("edge-invite-person-select").waitFor();
+    await shot("edge-invite-picker");
+    // The realm starts without this person, so the picker creates the member in the same form.
+    await page.getByTestId("edge-invite-person-select").selectOption("__new__");
     await page.getByTestId("edge-invite-username").fill("edge.operator");
     await page.getByTestId("edge-invite-email").fill("edge-invite@example.test");
     await page.getByTestId("edge-invite-display-name").fill("Edge Operator");
+    assert.match(await page.getByTestId("edge-invite-new-person-id").innerText(), /edge\.operator/u);
     await page.getByTestId(`edge-invite-repo-${fixture.repoId}`).check();
     await page.getByTestId("edge-invite-group-contributor").check();
+    await shot("edge-invite-new-member");
     await page.getByTestId("edge-invite-issue").click();
 
     const issued = page.getByTestId("edge-invite-issued");
@@ -90,10 +96,16 @@ export default {
 
     await page.getByTestId("edge-invite-done").click();
     const audit = page.getByTestId("edge-invite-list");
-    await audit.getByText("person-edge-invite").waitFor();
+    await audit.getByText("edge.operator").waitFor();
     await audit.getByText(fixture.repoId).waitFor();
     await audit.getByText("contributor").waitFor();
     assert.equal((await page.locator("body").innerText()).includes(linkText), false, "Done removes the one-time link");
+    // The member read refreshed after the invitation, so the created member is now pickable by identity.
+    const createdMember = page.getByTestId("edge-invite-person-select").locator('option[value="edge.operator"]');
+    await createdMember.waitFor({ state: "attached" });
+    await page.getByTestId("edge-invite-person-select").selectOption("edge.operator");
+    assert.match(await page.getByTestId("edge-invite-person-summary").innerText(), /edge\.operator/u);
+    await shot("edge-invite-existing-member");
     await shot("edge-invite-pending-audit");
 
     await page.locator('[data-testid^="edge-invite-revoke-"]').click();

@@ -28,6 +28,10 @@ const GROUPS = [
     version: "contributor-v1",
   },
 ] as const;
+const PEOPLE = [
+  { personId: "person-gui", username: "edge.operator" },
+  { personId: "person-owner", username: "owner" },
+] as const;
 
 function issuedReply(joinId = "join-1") {
   return {
@@ -70,22 +74,35 @@ afterEach(() => {
 
 interface Harness {
   readonly container: HTMLElement;
+  readonly grants: ReturnType<typeof vi.fn>;
   readonly issue: ReturnType<typeof vi.fn>;
   readonly list: ReturnType<typeof vi.fn>;
   readonly revoke: ReturnType<typeof vi.fn>;
 }
 
-async function mountPanel(options: { readonly issueResult?: unknown; readonly listResults?: readonly unknown[] } = {}) {
+async function mountPanel(
+  options: {
+    readonly issueResult?: unknown;
+    readonly listResults?: readonly unknown[];
+    readonly people?: readonly unknown[];
+    readonly peopleError?: string;
+  } = {},
+) {
   const listQueue = [...(options.listResults ?? [{ ok: true, joins: [join()] }])],
     issue =
       options.issueResult === undefined ? vi.fn(async () => issuedReply()) : vi.fn(async () => options.issueResult),
     list = vi.fn(async () => (listQueue.length > 1 ? listQueue.shift()! : listQueue[0])),
-    revoke = vi.fn(async () => ({ ok: true, joinId: "join-1", state: "revoked" }));
+    revoke = vi.fn(async () => ({ ok: true, joinId: "join-1", state: "revoked" })),
+    grants = vi.fn(async () => {
+      if (options.peopleError) throw new Error(options.peopleError);
+      return { ok: true, people: options.people ?? PEOPLE, grants: [] };
+    });
   vi.stubGlobal("window", {
     setTimeout: (handler: TimerHandler, ms?: number) => globalThis.setTimeout(handler, ms),
     harness: {
       access: {
         groups: async () => ({ ok: true, groups: GROUPS, actions: [] }),
+        grants,
         issueEdgeJoin: issue,
         edgeJoinList: list,
         revokeEdgeJoin: revoke,
@@ -101,7 +118,7 @@ async function mountPanel(options: { readonly issueResult?: unknown; readonly li
     root.render(createElement(QueryClientProvider, { client }, createElement(EdgeInvitePanel, { repos: REPOS })));
   });
   await settle();
-  return { container, issue, list, revoke } satisfies Harness;
+  return { container, grants, issue, list, revoke } satisfies Harness;
 }
 
 let flushMacrotask: () => Promise<void> = async () => {
@@ -125,6 +142,15 @@ async function fill(container: HTMLElement, testId: string, value: string): Prom
   });
 }
 
+async function pick(container: HTMLElement, testId: string, value: string): Promise<void> {
+  const select = container.querySelector<HTMLSelectElement>(`[data-testid="${testId}"]`);
+  expect(select, `${testId} not rendered`).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select!, value);
+    select!.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 async function check(container: HTMLElement, testId: string): Promise<void> {
   const input = container.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
   expect(input, `${testId} not rendered`).not.toBeNull();
@@ -140,30 +166,55 @@ async function click(container: HTMLElement, testId: string): Promise<void> {
   await settle();
 }
 
-async function fillInvite(container: HTMLElement): Promise<void> {
-  await fill(container, "edge-invite-person-id", "person-gui");
-  await fill(container, "edge-invite-username", "edge.operator");
-  await fill(container, "edge-invite-email", "edge@example.test");
-  await fill(container, "edge-invite-display-name", "Edge Operator");
+function memberOptionValues(container: HTMLElement): string[] {
+  return [...container.querySelectorAll<HTMLSelectElement>('[data-testid="edge-invite-person-select"] option')].map(
+    (option) => option.value,
+  );
+}
+
+/** Invite an existing member: pick them from the list; no identity is typed by hand. */
+async function pickExistingMember(container: HTMLElement, personId = "person-gui"): Promise<void> {
+  await pick(container, "edge-invite-person-select", personId);
+  await check(container, "edge-invite-repo-repo-a");
+  await check(container, "edge-invite-repo-repo-b");
+  await check(container, "edge-invite-group-contributor");
   await fill(container, "edge-invite-node-label", "edge-boston");
+}
+
+/** Invite someone who is not a member yet: the form creates them with a derived member id. */
+async function fillNewMember(
+  container: HTMLElement,
+  fields: { readonly username: string; readonly email: string; readonly displayName: string },
+): Promise<void> {
+  await pick(container, "edge-invite-person-select", "__new__");
+  await fill(container, "edge-invite-username", fields.username);
+  await fill(container, "edge-invite-email", fields.email);
+  await fill(container, "edge-invite-display-name", fields.displayName);
   await check(container, "edge-invite-repo-repo-a");
   await check(container, "edge-invite-repo-repo-b");
   await check(container, "edge-invite-group-contributor");
 }
 
 describe("EdgeInvitePanel", () => {
-  it("loads effective permission groups and issues one multi-repository invitation", async () => {
-    const { container, issue, list } = await mountPanel();
-    expect(container.textContent).toContain("Contributor");
-    expect(container.textContent).toContain("repo-a");
-    expect(container.textContent).toContain("repo-b");
-    await fillInvite(container);
+  it("picks an existing member from a searchable list and issues without any hand-typed identity", async () => {
+    const { container, issue, list, grants } = await mountPanel();
+    expect(grants).toHaveBeenCalledTimes(1);
+    expect(memberOptionValues(container)).toEqual(["", "__new__", "person-gui", "person-owner"]);
+    // Searching narrows the member options by username and person id.
+    await fill(container, "edge-invite-person-search", "operator");
+    expect(memberOptionValues(container)).toEqual(["", "__new__", "person-gui"]);
+    await pickExistingMember(container);
+    // A picked member stays selectable even when the search no longer matches them.
+    await fill(container, "edge-invite-person-search", "owner");
+    expect(memberOptionValues(container)).toEqual(["", "__new__", "person-owner", "person-gui"]);
+    // The person id is shown, never typed: no person-id input exists at all.
+    expect(container.querySelector('[data-testid="edge-invite-person-id"]')).toBeNull();
+    expect(container.querySelector('[data-testid="edge-invite-person-summary"]')?.textContent).toContain(
+      "edge.operator (person-gui)",
+    );
     await click(container, "edge-invite-issue");
     expect(issue).toHaveBeenCalledWith({
       personId: "person-gui",
-      username: "edge.operator",
-      email: "edge@example.test",
-      displayName: "Edge Operator",
       repoIds: ["repo-a", "repo-b"],
       groupIds: ["contributor"],
       nodeLabel: "edge-boston",
@@ -174,9 +225,84 @@ describe("EdgeInvitePanel", () => {
     expect(container.textContent).toContain("Pending");
   });
 
+  it("creates a new member in the same form with the derived member id shown", async () => {
+    const { container, issue } = await mountPanel();
+    await fillNewMember(container, {
+      username: "edge.boston",
+      email: "boston@example.test",
+      displayName: "Edge Boston",
+    });
+    expect(container.querySelector('[data-testid="edge-invite-new-person-id"]')?.textContent).toContain("edge.boston");
+    await fill(container, "edge-invite-node-label", "edge-boston");
+    await click(container, "edge-invite-issue");
+    expect(issue).toHaveBeenCalledWith({
+      personId: "edge.boston",
+      username: "edge.boston",
+      email: "boston@example.test",
+      displayName: "Edge Boston",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["contributor"],
+      nodeLabel: "edge-boston",
+    });
+    expect(container.querySelector('[data-testid="edge-invite-issued"]')?.textContent).toContain(LINK);
+  });
+
+  it("refuses a new member whose username would take an existing member's id", async () => {
+    const { container, issue } = await mountPanel();
+    await fillNewMember(container, {
+      username: "person-gui",
+      email: "twin@example.test",
+      displayName: "Twin",
+    });
+    await click(container, "edge-invite-issue");
+    expect(issue).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("already identifies an existing member");
+    expect(container.querySelector('[data-testid="edge-invite-issued"]')).toBeNull();
+  });
+
+  it("refuses a new member whose username is already another member's username", async () => {
+    const { container, issue } = await mountPanel();
+    // The existing member's person id differs from their username; Keycloak still owns the name.
+    await fillNewMember(container, {
+      username: "owner",
+      email: "twin@example.test",
+      displayName: "Twin",
+    });
+    await click(container, "edge-invite-issue");
+    expect(issue).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("already identifies an existing member");
+    expect(container.querySelector('[data-testid="edge-invite-issued"]')).toBeNull();
+  });
+
+  it("shows a failed members read instead of claiming the center has no members", async () => {
+    const { container } = await mountPanel({ peopleError: "members are unavailable" });
+    expect(container.textContent).toContain("members are unavailable");
+    expect(container.textContent).not.toContain("No members yet");
+  });
+
+  it("offers only the new-member path when the center has no members yet", async () => {
+    const { container, issue } = await mountPanel({ people: [] });
+    expect(container.textContent).toContain("No members yet");
+    expect(memberOptionValues(container)).toEqual(["", "__new__"]);
+    await fillNewMember(container, {
+      username: "first.member",
+      email: "first@example.test",
+      displayName: "First Member",
+    });
+    await click(container, "edge-invite-issue");
+    expect(issue).toHaveBeenCalledWith({
+      personId: "first.member",
+      username: "first.member",
+      email: "first@example.test",
+      displayName: "First Member",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["contributor"],
+    });
+  });
+
   it("hides the one-time link on Done while retaining sanitized audit facts", async () => {
     const { container } = await mountPanel();
-    await fillInvite(container);
+    await pickExistingMember(container);
     await click(container, "edge-invite-issue");
     expect(container.textContent).toContain(LINK);
     await click(container, "edge-invite-done");
@@ -227,7 +353,7 @@ describe("EdgeInvitePanel", () => {
     expect(revoke).toHaveBeenCalledWith({ joinId: "join-1" });
   });
 
-  it("surfaces daemon refusal and requires person, repository, and group selections", async () => {
+  it("surfaces daemon refusal and requires a member, repository, and group selections", async () => {
     const refused = await mountPanel({
       issueResult: {
         ok: false,
@@ -237,8 +363,8 @@ describe("EdgeInvitePanel", () => {
     });
     await click(refused.container, "edge-invite-issue");
     expect(refused.issue).not.toHaveBeenCalled();
-    expect(refused.container.textContent).toContain("at least one repository");
-    await fillInvite(refused.container);
+    expect(refused.container.textContent).toContain("Pick an existing member");
+    await pickExistingMember(refused.container);
     await click(refused.container, "edge-invite-issue");
     expect(refused.container.textContent).toContain("Sign in as an access administrator.");
     expect(refused.container.textContent).not.toContain(LINK);
@@ -252,7 +378,7 @@ describe("EdgeInvitePanel", () => {
     });
     try {
       const { container } = await mountPanel();
-      await fillInvite(container);
+      await pickExistingMember(container);
       await click(container, "edge-invite-issue");
       await click(container, "edge-invite-copy");
       expect(writes).toEqual([LINK]);

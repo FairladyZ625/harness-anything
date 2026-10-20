@@ -41,15 +41,12 @@ const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, i
 function validateEdgeJoinBootstrap(f: SuccessfulFlags, json: boolean): ThinParseResult | undefined {
   const operation = f.one.get("--operation");
   if (operation === "edge-join-create") {
-    const required = ["--username", "--email", "--display-name", "--person-id"];
-    if (
-      required.some((flag) => !f.one.get(flag)) ||
-      !f.many.get("--join-repo")?.length ||
-      !f.many.get("--join-group")?.length
-    )
+    // The daemon decides whether username, email, and display name are needed: only a person
+    // who is not a member yet creates an account, and the daemon alone knows the difference.
+    if (!f.one.get("--person-id") || !f.many.get("--join-repo")?.length || !f.many.get("--join-group")?.length)
       return rejected(
         "missing_field",
-        "Edge invitations require --username, --email, --display-name, --person-id, and at least one --join-repo and --join-group.",
+        "Edge invitations require --person-id and at least one --join-repo and --join-group.",
         json,
       );
   }

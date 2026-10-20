@@ -866,6 +866,39 @@ test("edge invitations grant each selected repository and reject inherited permi
   signIn("person-admin");
 });
 
+test("an existing member is invited without new-user fields; an unknown person still needs them", async (t) => {
+  const { keycloak, run } = await edgeJoinCenter(t, await fixture(t));
+  const first = await run({
+    operation: "edge-join-create",
+    personId: "person-invited",
+    username: "edge-operator",
+    email: "edge@example.invalid",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a"],
+    groupIds: ["edge-selected"],
+  });
+  assert.equal(first.ok, true);
+  // The member already carries the account: the invitation addresses them by identity and grants only.
+  const renewed = await run({
+    operation: "edge-join-create",
+    personId: "person-invited",
+    repoIds: ["repo-b"],
+    groupIds: ["edge-selected"],
+  });
+  assert.equal(renewed.ok, true);
+  assert.notEqual(String(renewed.joinId), String(first.joinId));
+  // A person the center does not know would create an account, so each new-user field is required.
+  await assert.rejects(
+    run({ operation: "edge-join-create", personId: "person-new", repoIds: ["repo-a"], groupIds: ["edge-selected"] }),
+    { code: "access_request_invalid" },
+  );
+  assert.equal(
+    [...keycloak.users.values()].some((user) => user.attributes.harness_person_id?.[0] === "person-new"),
+    false,
+    "no account is created for the refused invitation",
+  );
+});
+
 test(
   "edge-join-create renews a lapsing administrator session inside the write queue",
   { timeout: 10_000 },

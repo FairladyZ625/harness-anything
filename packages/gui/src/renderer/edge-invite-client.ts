@@ -7,12 +7,16 @@ import type {
 import { guiHostBridge } from "./gui-transport.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 
+/** An invited member: picked from the existing people, or created with the new-member fields. */
+export type EdgeInvitePerson = { readonly personId: string; readonly username: string };
+
 /** Invitation create, status, list, and revoke all use the center typed access-admin channel. */
 type CreateJoinInput = {
-  readonly username: string;
-  readonly email: string;
-  readonly displayName: string;
   readonly personId: string;
+  /** New-member fields; the daemon requires them only when the person does not exist yet. */
+  readonly username?: string;
+  readonly email?: string;
+  readonly displayName?: string;
   readonly repoIds: readonly string[];
   readonly groupIds: readonly string[];
   readonly nodeLabel?: string;
@@ -20,6 +24,7 @@ type CreateJoinInput = {
 };
 type AccessBridge = {
   readonly groups: () => Promise<unknown>;
+  readonly grants: () => Promise<unknown>;
   readonly issueEdgeJoin: (input: CreateJoinInput) => Promise<unknown>;
   readonly edgeJoinStatus: (input: { readonly joinId: string }) => Promise<unknown>;
   readonly edgeJoinList: () => Promise<unknown>;
@@ -53,6 +58,25 @@ export async function fetchEdgeJoinGroups(): Promise<{ readonly groups: readonly
     return group as unknown as AccessPolicyGroup;
   });
   return { groups };
+}
+
+/** The people a grant can address, through the same grant-list read the members page uses. */
+export async function fetchEdgeInvitePeople(): Promise<{ readonly people: readonly EdgeInvitePerson[] }> {
+  const value = await accessBridge().grants();
+  if (!isRendererRecord(value) || value.ok !== true || !Array.isArray(value.people))
+    throw rendererReadError(value, "Edge join members returned an invalid result.");
+  const people = value.people.map((person) => {
+    if (
+      !isRendererRecord(person) ||
+      typeof person.personId !== "string" ||
+      typeof person.username !== "string" ||
+      person.personId === "" ||
+      person.username === ""
+    )
+      throw rendererReadError(person, "Edge join members returned an invalid person.");
+    return person as unknown as EdgeInvitePerson;
+  });
+  return { people };
 }
 
 export function readIssued(value: unknown): EdgeJoinIssued {

@@ -165,6 +165,35 @@ test("ha bootstrap exposes edge invitation, status, list, and revoke operations 
     assert.deepEqual(created.command.action.repoIds, ["repo-a", "repo-b"]);
     assert.deepEqual(created.command.action.groupIds, ["contributor"]);
   }
+  // An existing member is invited by identity alone; the daemon demands new-user fields only for
+  // a person it does not know yet, so the CLI no longer decides that for it.
+  const renewed = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "edge-join-create",
+      "--person-id",
+      "person-edge",
+      "--join-repo",
+      "repo-a",
+      "--join-group",
+      "contributor",
+    ],
+    "/repo",
+  );
+  assert.equal(renewed.ok, true);
+  if (renewed.ok)
+    assert.deepEqual(renewed.command.action, {
+      kind: "rbac-bootstrap",
+      operation: "edge-join-create",
+      personId: "person-edge",
+      repoIds: ["repo-a"],
+      groupIds: ["contributor"],
+    });
+  assert.equal(
+    parseThinCommand(["bootstrap", "--operation", "edge-join-create", "--join-repo", "repo-a"], "/repo").ok,
+    false,
+  );
   const listed = parseThinCommand(["bootstrap", "--operation", "edge-join-list"], "/repo");
   assert.equal(listed.ok, true);
   if (listed.ok) assert.equal(listed.command.action.operation, "edge-join-list");
