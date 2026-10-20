@@ -3,6 +3,7 @@ import {
   thinCliCommands,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import {
+  agentDeclarationMigrationCommand,
   completionMigrationCommand,
   generationMigrationCommand,
 } from "@harness-anything/daemon/internal/offline-storage-command";
@@ -19,6 +20,7 @@ export type ThinHelpCatalogEntry = {
 export const clientLocalCommands = [
   generationMigrationCommand,
   completionMigrationCommand,
+  agentDeclarationMigrationCommand,
   {
     id: "backup-retention",
     path: ["backup", "retention"],
