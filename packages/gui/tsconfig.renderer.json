@@ -31,6 +31,7 @@
     "src/api/app-command-contract.ts",
     "src/api/artifact-open-contract.ts",
     "src/api/connection-admin-contract.ts",
+    "src/api/edge-join-entry-contract.ts",
     "src/api/first-run-contract.ts",
     "src/api/html-artifact-policy.ts",
     "src/api/local-doc-contract.ts",

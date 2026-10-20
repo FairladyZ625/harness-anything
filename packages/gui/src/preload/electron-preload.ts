@@ -23,6 +23,7 @@ import {
 } from "./allowlist.ts";
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
 import { accessAdminPreloadApi } from "./access-admin-preload.ts";
+import { edgeJoinEntryPreloadApi } from "./edge-join-entry-preload.ts";
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
 import {
   FIRST_RUN_BOOTSTRAP_CHANNEL,
@@ -177,6 +178,13 @@ const exposedHarnessApi = {
   } satisfies AppCommandApi,
   // 账号与访问控制页:策略组、授权与回执,见 preload/access-admin-preload.ts。
   access: accessAdminPreloadApi(invoke),
+  // 边缘节点加入向导(task_0499bcc75d0f):join/poll/progress 与协议激活推送,主进程收窄见
+  // main/edge-join-entry-ipc.ts。
+  edgeJoin: edgeJoinEntryPreloadApi(invoke, (channel, listener) => {
+    const subscription = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
+    ipcRenderer.on(channel, subscription);
+    return () => ipcRenderer.removeListener(channel, subscription);
+  }),
   capabilities: preloadApiCapabilities,
   updates: {
     check: () => invoke(UPDATE_CHECK_CHANNEL, null),

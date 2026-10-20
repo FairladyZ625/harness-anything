@@ -28,7 +28,7 @@ import {
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { joinFleetEdge } from "./fleet/edge-join-client.ts";
+import { createEdgeJoinProgressTap, joinFleetEdge } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
@@ -762,7 +762,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       error: error instanceof Error ? error.message : String(error),
     }),
   );
-  const parkedWaitController = new AbortController();
+  const parkedWaitController = new AbortController(),
+    edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
     remoteProxy,
     home,
@@ -779,6 +780,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     manageRbac: (request, auth) => {
       localOnly(auth);
       return (async () => {
+        if (request.operation === "edge-join-progress")
+          return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
         if (request.operation === "edge-join")
           return joinFleetEdge(
             {
@@ -791,6 +794,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
+              onProgress: edgeJoinProgress.record,
             },
           );
         if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));

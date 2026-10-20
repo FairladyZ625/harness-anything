@@ -20,10 +20,13 @@ export function RepositoriesAndConnectionsView({
   repos,
   activeRepoId,
   onOpenProject,
+  onJoinCenter,
 }: {
   readonly repos: readonly SystemRepoRow[];
   readonly activeRepoId: string | null;
   readonly onOpenProject: (repoId: string) => void;
+  /** 打开「加入中心」向导;本机连接空状态的入口(task_0499bcc75d0f)。 */
+  readonly onJoinCenter: () => void;
 }) {
   const connectionsQuery = useConnectionsQuery();
   const [selection, setSelection] = useState<TreeSelection>({ kind: "connection", id: "local" });
@@ -157,7 +160,12 @@ export function RepositoriesAndConnectionsView({
             if (!node) return null;
             if (node.nodeId === "local")
               return (
-                <AddLocalRepositoryPanel repos={node.repos} onOpenProject={onOpenProject} activeRepoId={activeRepoId} />
+                <AddLocalRepositoryPanel
+                  repos={node.repos}
+                  onOpenProject={onOpenProject}
+                  activeRepoId={activeRepoId}
+                  onJoinCenter={onJoinCenter}
+                />
               );
             if (node.nodeId === "center")
               return (

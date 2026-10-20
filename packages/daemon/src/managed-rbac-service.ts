@@ -54,6 +54,7 @@ type ManagedRbacOperation =
   | "login-poll"
   | "device-approval"
   | "edge-join"
+  | "edge-join-progress"
   | "session"
   | "logout"
   | "bootstrap-status"

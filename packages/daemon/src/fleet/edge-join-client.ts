@@ -13,6 +13,39 @@ import { requestFleetEdgeJoinPinned } from "./peer.ts";
 
 const defaultQuotaBytes = 1024 * 1024 * 1024;
 
+/** One repository's stage inside a running join; observation only, it never steers the join. */
+export interface EdgeJoinRepositoryProgress {
+  readonly repoId: string;
+  readonly phase: "workspace" | "register" | "sync" | "synced" | "failed";
+}
+
+/** The phases of the one join a daemon is currently running, for a read-only viewer poll. */
+export interface EdgeJoinProgressSnapshot {
+  readonly joinId: string;
+  readonly repositories: readonly EdgeJoinRepositoryProgress[];
+}
+
+/**
+ * Keeps the running join's per-repository phases in memory so a reader can paint progress while
+ * `joinFleetEdge` is still awaiting register/sync. Transient: never persisted, never steers a join.
+ */
+export function createEdgeJoinProgressTap(): {
+  readonly record: (event: { readonly joinId: string; readonly repository: EdgeJoinRepositoryProgress }) => void;
+  readonly read: () => EdgeJoinProgressSnapshot | { readonly repositories: readonly [] };
+} {
+  let snapshot: { joinId: string; repositories: EdgeJoinRepositoryProgress[] } | undefined;
+  return {
+    record: ({ joinId, repository }) => {
+      const current = snapshot?.joinId === joinId ? snapshot.repositories : [];
+      snapshot = {
+        joinId,
+        repositories: [...current.filter((row) => row.repoId !== repository.repoId), repository],
+      };
+    },
+    read: () => snapshot ?? { repositories: [] },
+  };
+}
+
 export interface EdgeJoinClientPorts {
   /** The person signed in on this daemon, if any. */
   readonly session: () => Promise<
@@ -23,6 +56,11 @@ export interface EdgeJoinClientPorts {
   readonly sync: (payload: JsonObject) => Promise<Record<string, unknown>>;
   readonly join?: typeof requestFleetEdgeJoinPinned;
   readonly homeDir?: string;
+  /** Receives each repository's phase as the join loop advances, so a viewer can show progress. */
+  readonly onProgress?: (progress: {
+    readonly joinId: string;
+    readonly repository: EdgeJoinRepositoryProgress;
+  }) => void;
 }
 
 export async function joinFleetEdge(
@@ -63,11 +101,16 @@ export async function joinFleetEdge(
 
   for (const repository of admitted.repositories) {
     const root = edgeWorkspaceRoot(repository.repoId, request.workspaceRoot, ports.homeDir ?? homedir()),
-      caPath = path.join(root, "fleet-center-ca.pem");
+      caPath = path.join(root, "fleet-center-ca.pem"),
+      report = (phase: EdgeJoinRepositoryProgress["phase"]) =>
+        ports.onProgress?.({ joinId: admitted.joinId, repository: { repoId: repository.repoId, phase } });
+    report("workspace");
     await prepareWorkspace(root, repository.harnessYaml);
     // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
     writeFileDurably(caPath, certificate);
+    report("register");
     await ports.register(root, repository.repoId);
+    report("sync");
     const synced = await ports.sync({
       repoId: repository.repoId,
       workspaceRoot: root,
@@ -82,6 +125,7 @@ export async function joinFleetEdge(
       quotaBytes: defaultQuotaBytes,
       timeoutMs: 60_000,
     });
+    report(synced.ok !== false ? "synced" : "failed");
     repositories.push({
       repoId: repository.repoId,
       workspaceRoot: root,

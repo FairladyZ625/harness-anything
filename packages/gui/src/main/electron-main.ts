@@ -19,6 +19,8 @@ import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLoginWebviewSecurity } from "./login-webview-security.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
+import { EDGE_JOIN_LINK_CHANNEL } from "../api/edge-join-entry-contract.ts";
+import { edgeJoinLinkFromArgv, registerEdgeJoinEntryIpc } from "./edge-join-entry-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
 import {
@@ -77,6 +79,46 @@ delete process.env.HARNESS_EXECUTION_CREDENTIAL;
 // Automated Electron runs render normally but never claim the user's desktop.
 const backgroundTest = app.commandLine.hasSwitch("headless");
 if (backgroundTest && process.platform === "darwin") app.setActivationPolicy("accessory");
+
+// harness-edge:// 协议激活(task_0499bcc75d0f):点击邀请链接唤起本 app,把链接交给加入向导。
+// 冷启动时窗口可能尚未加载完,先暂存,任一窗口 did-finish-load 后送达;注册在 whenReady 之前,
+// macOS 冷启动的 open-url 才不会丢。打包态才注册协议,dev 运行不接管系统的协议绑定。
+let pendingEdgeJoinLink: string | null = null;
+function deliverEdgeJoinLink(link: string): void {
+  const loaded = BrowserWindow.getAllWindows().filter(
+    (window) => !window.isDestroyed() && !window.webContents.isLoading(),
+  );
+  if (loaded.length === 0) {
+    pendingEdgeJoinLink = link;
+    return;
+  }
+  for (const window of loaded) window.webContents.send(EDGE_JOIN_LINK_CHANNEL, { link });
+}
+
+app.on("web-contents-created", (_event, contents) => {
+  // A top-level BrowserWindow's webContents reports type "window"; webviews/background pages must not receive it.
+  if (contents.getType() !== "window") return;
+  contents.once("did-finish-load", () => {
+    if (pendingEdgeJoinLink === null || contents.isDestroyed()) return;
+    contents.send(EDGE_JOIN_LINK_CHANNEL, { link: pendingEdgeJoinLink });
+    pendingEdgeJoinLink = null;
+  });
+});
+app.on("open-url", (event, url) => {
+  const link = edgeJoinLinkFromArgv([url]);
+  if (link === null) return;
+  event.preventDefault();
+  deliverEdgeJoinLink(link);
+});
+// Windows/Linux 把协议激活作为「第二个实例」的命令行参数送达(进程已存在时不再开新窗);
+// 锁按 user-data-dir 隔离,测试/e2e 的独立 profile 不会与用户正在用的实例互抢。
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) app.quit();
+else
+  app.on("second-instance", (_event, argv) => {
+    const link = edgeJoinLinkFromArgv(argv);
+    if (link !== null) deliverEdgeJoinLink(link);
+  });
 
 /** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
 const loginWebviewSecurity = createLoginWebviewSecurity();
@@ -269,7 +311,11 @@ function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
 }
 
 export async function startGuiApp(): Promise<void> {
+  // A losing second instance still reaches whenReady; it must not build windows or services.
+  if (!singleInstanceLock) return;
   await app.whenReady();
+  // macOS 的协议绑定来自打包的 Info.plist;Windows/Linux 由运行时写注册表/桌面项。
+  if (app.isPackaged && process.platform !== "darwin") app.setAsDefaultProtocolClient("harness-edge");
   if (process.platform === "darwin") {
     // npm 通路跑的是通用 Electron bundle,Dock 瓦片默认是它的 electron.icns;
     // 运行期只有 app.dock.setIcon 换得动(task_e07b30fd 阶段一三探针实测)。
@@ -333,6 +379,12 @@ export async function startGuiApp(): Promise<void> {
   registerAccessAdminIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     operationId: randomUUID,
+  });
+  // 边缘节点加入向导(task_0499bcc75d0f):只调用 daemon 既有 edge join,主进程收窄见
+  // main/edge-join-entry-ipc.ts;「在浏览器打开」只开 daemon 返回的登录页。
+  registerEdgeJoinEntryIpc(ipcMain, trustPolicy, {
+    daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
+    openExternal: (url) => shell.openExternal(url),
   });
   // 「在默认浏览器打开」(task_7e713fee;W3 扩 remote-proxy 物化副本):主进程收窄见 artifact-open-ipc.ts。
   registerArtifactOpenIpc(
@@ -417,6 +469,9 @@ export async function startGuiApp(): Promise<void> {
   registerLocalDocIpc(ipcMain, { homeDir: () => homedir() }, trustPolicy);
   registerProjectWindowIpc(ipcMain, projectWindows, trustPolicy);
   projectWindows.newWindow(null);
+  // Windows/Linux 协议激活在冷启动参数里;窗口已建,直接送达(macOS 冷启动走 open-url 暂存路径)。
+  const argvLink = edgeJoinLinkFromArgv(process.argv);
+  if (argvLink !== null) deliverEdgeJoinLink(argvLink);
   const updaterWindow = BrowserWindow.getAllWindows()[0];
   if (updaterWindow) registerUpdaterIpc(ipcMain, updaterWindow, trustPolicy, autoUpdater, app.getVersion());
   app.on("activate", () => {

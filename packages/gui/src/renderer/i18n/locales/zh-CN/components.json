@@ -11,6 +11,7 @@
   "components.appSidebar.localMode": "本地模式",
   "components.appSidebar.localMode2": "本地模式",
   "components.appSidebar.localModeNotSynchronizedV2MultiTerminal": "本地模式 · 未同步（V2：多端同步）",
+  "components.appSidebar.joinCenter": "加入中心",
   "components.appSidebar.manageAll": "管理全部",
   "components.appSidebar.noTaskRowsFromLocalBridge": "本地任务桥暂无任务记录",
   "components.appSidebar.pinnedWorkTitle": "置顶工作",

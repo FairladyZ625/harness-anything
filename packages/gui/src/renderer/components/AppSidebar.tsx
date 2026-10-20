@@ -40,6 +40,8 @@ export interface AppSidebarProps {
   /** 在独立窗口打开项目(一个项目一个窗口);浏览器壳无此能力时为 null,入口隐藏。 */
   readonly onOpenProjectInNewWindow: ((repoId: string) => void) | null;
   readonly onOpenProjectManager: () => void;
+  /** 打开「加入中心」向导;项目切换器底部的入口。 */
+  readonly onJoinCenter: () => void;
   /** 置顶的 repoId(与项目管理页同一条顺序,App 唯一实例下传)。 */
   readonly pinnedRepoIds: ReadonlyArray<string>;
   readonly onToggleProjectPin: (repoId: string) => void;
@@ -81,6 +83,7 @@ export function AppSidebar({
   onOpenProject,
   onOpenProjectInNewWindow,
   onOpenProjectManager,
+  onJoinCenter,
   pinnedRepoIds,
   onToggleProjectPin,
   onNavigate,
@@ -173,6 +176,7 @@ export function AppSidebar({
           <div className="relative">
             <button
               ref={projectSwitcherAnchor}
+              data-testid="project-switcher"
               onClick={onProjectSwitcherToggle}
               title={t("components.appSidebar.quicklySwitchProjects")}
               className={`glass-sub flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm
@@ -203,6 +207,7 @@ export function AppSidebar({
               onOpenProject={onOpenProject}
               onOpenProjectInNewWindow={onOpenProjectInNewWindow}
               onOpenProjectManager={onOpenProjectManager}
+              onJoinCenter={onJoinCenter}
             />
           </div>
         </div>

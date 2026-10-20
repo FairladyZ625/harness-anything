@@ -618,6 +618,7 @@ const VIEW_RENDERERS = {
       pinnedRepoIds: [],
       onToggleProjectPin: noop,
       onOpenProject: noop,
+      onJoinCenter: noop,
     }),
   overview: () =>
     createElement(OverviewView, {

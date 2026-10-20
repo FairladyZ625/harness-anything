@@ -97,11 +97,14 @@ export function SettingsView({
   repoId,
   repos,
   onOpenProject,
+  onJoinCenter,
 }: {
   /** 当前仓;无仓(首次运行的空态)时为 null,仓库设置页停用、仓库与连接页照常可用。 */
   readonly repoId: string | null;
   readonly repos: readonly SystemRepoRow[];
   readonly onOpenProject: (repoId: string) => void;
+  /** 打开「加入中心」向导;本机连接空状态的入口(task_0499bcc75d0f)。 */
+  readonly onJoinCenter: () => void;
 }) {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
   const { preference: motionPreference, setPreference: setMotionPreference } = useMotionPreference();
@@ -125,7 +128,14 @@ export function SettingsView({
   const renderActivePanel = () => {
     switch (activeTab) {
       case "repositories":
-        return <RepositoriesAndConnectionsView repos={repos} activeRepoId={repoId} onOpenProject={onOpenProject} />;
+        return (
+          <RepositoriesAndConnectionsView
+            repos={repos}
+            activeRepoId={repoId}
+            onOpenProject={onOpenProject}
+            onJoinCenter={onJoinCenter}
+          />
+        );
       case "repository":
         return <RepositorySettingsPanel repoId={repoId} onLocaleLoaded={setLocale} />;
       case "appearance":
