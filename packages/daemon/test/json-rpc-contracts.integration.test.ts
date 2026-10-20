@@ -299,6 +299,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.entity.update", { entityKind: "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94", entityId: "ADR-abc", expectedVersion: 7, title: "Updated", locator: "harness/adr/ADR-0002.md", contentVersion: "git:abc", attributes: { region: "north", fiscalYear: 2026 } }],
     ["repo.entity.archive", { entityKind: "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94", entityId: "ADR-abc", expectedVersion: 8, reason: "Superseded" }],
     ["repo.entity.delete", { entityKind: "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94", entityId: "ADR-abc", expectedVersion: 8, reason: "Retired with its content" }],
+    ["repo.entity.unpin", { entityRef: "decision/dec_A" }],
     ["repo.receipt.show", { opId: "op_A" }],
     ["repo.settings.update", { defaultPreset: "strict-task", locale: "zh-CN", idempotencyKey: "settings-once" }],
     ["repo.gui.catalog.reread", {}],
