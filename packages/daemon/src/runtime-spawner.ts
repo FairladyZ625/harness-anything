@@ -42,7 +42,6 @@ import {
   assembleScheduledMission,
   assembleTaskMission,
   dispatchMissionForPermission,
-  dispatchMissionForWorkerPermissions,
   decisionReviewTarget as parseDecisionReviewTarget,
   prepareRuntimeInstance,
   runtimeMissionName,
@@ -439,10 +438,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     })
                   : mission,
             readOnlyDispatch = effectivePermissionMode === "read-only",
-            dispatchMission = dispatchMissionForWorkerPermissions(
-              dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
-              input.readSettings?.(),
-            ),
+            dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
             assembledPrompt = agent
               ? assembleAgentPrompt(
                   role === "reviewer" ? { ...agent, role } : agent,

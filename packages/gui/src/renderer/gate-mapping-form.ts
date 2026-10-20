@@ -16,10 +16,6 @@ export interface GateMappingDraft {
   readonly gateId: string;
   readonly adapter: string;
   readonly appliesTo?: string;
-  readonly branch?: string;
-  readonly event?: string;
-  readonly coverage?: string;
-  readonly selection?: string;
   readonly mandatorySignoff?: boolean;
   readonly allowOverride?: boolean;
 }
@@ -32,8 +28,6 @@ export type GateMappingIssue =
   | "adapterFieldMissing"
   | "adapterFieldUnexpected"
   | "governanceNotAllowed"
-  | "coverageInvalid"
-  | "selectionInvalid"
   | "internalGateAdapter";
 
 export interface GateMappingRowIssue {
@@ -80,12 +74,6 @@ export function gateMappingRowIssues(
       (!descriptor.governableAdapters.includes(adapter) || mandatorySignoff === false || allowOverride === false)
     )
       issues.push({ row, issue: "governanceNotAllowed" });
-    if (expected.includes("coverage")) {
-      if (options.coverage !== undefined && options.coverage !== "exact" && options.coverage !== "descendant")
-        issues.push({ row, issue: "coverageInvalid" });
-      if (options.selection !== undefined && options.selection !== "newest")
-        issues.push({ row, issue: "selectionInvalid" });
-    }
     if (gateId === descriptor.internalGateId && adapter !== "none") issues.push({ row, issue: "internalGateAdapter" });
   });
   return issues;

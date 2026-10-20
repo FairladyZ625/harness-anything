@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,8 +25,7 @@ const owner = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
   "admin",
 ) as const;
-const githubCiMapping =
-  "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";
+const localMapping = "  gates:\n    signoff:\n      appliesTo: code\n      adapter: manual-attest\n";
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
@@ -40,8 +39,22 @@ async function submittedTask(name: string, gates: string) {
   git(rootDir, "config", "user.email", "repo-cell@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/harness.yaml"), `settings:\n  ci:\n    workflows: [rewrite-ci]\n${gates}`);
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), `settings:\n${gates}`);
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: name });
+  const { defaultAssets, defaultBundled } = await import("@harness-anything/preset/internal/preset-resolver-common");
+  const source = path.join(rootDir, "source/preset");
+  cpSync(defaultAssets, source, { recursive: true });
+  cpSync(path.join(defaultBundled, "standard-task"), source, { recursive: true });
+  const manifestPath = path.join(source, "preset.json"),
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.profiles[0].completionGates = ["signoff", "code-doc-reconciliation"];
+  manifest.completion = {
+    sources: {},
+    gates: { signoff: { source: "manual-attest", appliesTo: "code" } },
+    closeoutDefaults: { codeDoc: true },
+  };
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  assert.equal((await cell.run({ kind: "preset-install", packageSource: source }, owner)).outcome, "applied");
   const created = (await cell.run({ kind: "task-create", taskId, title: "Contract freeze" }, worker)) as Record<
     string,
     unknown
@@ -123,7 +136,7 @@ function git(rootDir: string, ...args: readonly string[]): string {
 }
 
 test("submit freezes the resolved gate contract into the cut; later harness.yaml edits never reach it", async () => {
-  const fixture = await submittedTask("contract-freeze", githubCiMapping),
+  const fixture = await submittedTask("contract-freeze", localMapping),
     { rootDir, repoId, taskId, executionId, packagePath, cell } = fixture,
     // dec_5EC2631352B17EE2BF4979E37E: the declaration and defaults are frozen, not inferred on reads.
     frozen: FrozenCompletionContract = {
@@ -135,20 +148,14 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
       closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
       gates: [
         {
-          gateId: "ci",
+          gateId: "signoff",
           appliesTo: "code",
           witness: {
-            kind: "github-actions",
-            predicateType: "harness/ci/v1",
+            kind: "manual",
+            predicateType: "harness/attestation/v1",
             resultSchema: { type: "object", additionalProperties: false },
-            adapterId: "github-actions",
-            adapterOptions: {
-              workflows: ["rewrite-ci"],
-              branch: "main",
-              event: "push",
-              coverage: "descendant",
-              selection: "newest",
-            },
+            adapterId: "manual-attest",
+            adapterOptions: {},
           },
         },
         {
@@ -167,23 +174,19 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
     assert.deepEqual(validateDaemonTaskSnapshotList(listed), []);
 
     const edited = await cell.run(
-      { kind: "settings-update", ciWorkflows: ["rebuild-gates"], idempotencyKey: "contract-freeze-ci" },
+      { kind: "settings-update", deliveryTargetBranch: "release/stable", idempotencyKey: "contract-freeze-ci" },
       owner,
     );
     assert.equal(edited.outcome, "applied", JSON.stringify(edited));
     const settings = (await cell.read("repo.settings.read")) as {
-      readonly settings: { readonly ci: unknown; readonly gates: unknown };
+      readonly settings: { readonly delivery: { readonly targetBranch: string }; readonly gates: unknown };
     };
-    assert.deepEqual(settings.settings.ci, { workflows: ["rebuild-gates"] });
+    assert.equal(settings.settings.delivery.targetBranch, "release/stable");
     assert.deepEqual(settings.settings.gates, [
       {
-        gateId: "ci",
-        adapter: "github-actions",
+        gateId: "signoff",
+        adapter: "manual-attest",
         appliesTo: "code",
-        branch: "main",
-        event: "push",
-        coverage: "descendant",
-        selection: "newest",
       },
     ]);
 
@@ -204,7 +207,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
 test("an override naming an undeclared source stops submit before any cut is recorded", async () => {
   const { rootDir, repoId, taskId, executionId, cell } = await submittedTask(
     "contract-unmapped",
-    githubCiMapping.replace("adapter: github-actions", "adapter: research/missing"),
+    localMapping.replace("adapter: manual-attest", "adapter: research/missing"),
   );
   try {
     const rejected = await submitOverTransport(cell, repoId, { taskId, executionId });
@@ -221,7 +224,7 @@ test("an override naming an undeclared source stops submit before any cut is rec
 test("declaring settings.gates after bootstrap unblocks submit through the settings write path", async () => {
   const { rootDir, repoId, taskId, executionId, cell } = await submittedTask(
     "contract-late-gates",
-    githubCiMapping.replace("adapter: github-actions", "adapter: research/missing"),
+    localMapping.replace("adapter: manual-attest", "adapter: research/missing"),
   );
   try {
     const rejected = await submitOverTransport(cell, repoId, { taskId, executionId });
@@ -233,7 +236,7 @@ test("declaring settings.gates after bootstrap unblocks submit through the setti
     const configPath = path.join(rootDir, "harness/harness.yaml");
     writeFileSync(
       configPath,
-      readFileSync(configPath, "utf8").replace("adapter: research/missing", "adapter: github-actions"),
+      readFileSync(configPath, "utf8").replace("adapter: research/missing", "adapter: manual-attest"),
     );
     const imported = await cell.run(
       { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "late-gates-import" },
@@ -245,15 +248,15 @@ test("declaring settings.gates after bootstrap unblocks submit through the setti
     };
     assert.deepEqual(
       settings.settings.gates.map((gate) => gate.gateId),
-      ["ci"],
+      ["signoff"],
     );
 
     const submitted = await submitOverTransport(cell, repoId, { taskId, executionId });
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const contracts = submittedContracts(rootDir, repoId);
     assert.equal(contracts.length, 1);
-    assert.equal(contracts[0]?.gates[0]?.gateId, "ci");
-    assert.equal(contracts[0]?.gates[0]?.witness.adapterId, "github-actions");
+    assert.equal(contracts[0]?.gates[0]?.gateId, "signoff");
+    assert.equal(contracts[0]?.gates[0]?.witness.adapterId, "manual-attest");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -267,7 +270,7 @@ test("the frozen vertical declaration supplies the source when the repository ha
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const contracts = submittedContracts(rootDir, repoId);
     assert.equal(contracts.length, 1);
-    assert.equal(contracts[0]!.gates[0]!.witness.adapterId, "github-actions");
+    assert.equal(contracts[0]!.gates[0]!.witness.adapterId, "manual-attest");
     assert.equal(contracts[0]!.closeoutGates.codeDoc, true);
   } finally {
     await cell.close();

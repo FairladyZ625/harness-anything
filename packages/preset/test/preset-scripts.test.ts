@@ -238,7 +238,7 @@ function makeFixture(scripts: Readonly<Record<string, string>> = {}) {
         {
           id: "baseline",
           title: "Baseline",
-          completionGates: ["ci", "code-doc-reconciliation"],
+          completionGates: [],
           templateSelections: [],
         },
       ],

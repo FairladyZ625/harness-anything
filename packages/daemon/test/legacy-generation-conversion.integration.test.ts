@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import { emptyCompletionContract, retiredHostedCiSource } from "../../kernel/test/domain/completion.fixtures.ts";
 import {
   makeOfflineCompletionChain,
   makeSqliteTaskEventStore,
@@ -368,6 +368,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
         { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
         { name: "settings-roles", count: 0, firstRevision: null, lastRevision: null },
+        { name: "settings-ci", count: 0, firstRevision: null, lastRevision: null },
       ],
     );
     assert.equal(first.migratedEvents, 1);
@@ -1400,7 +1401,7 @@ test("generation 1 pre-freeze gate evidence keeps provenance as historical accep
               gateId: "ci",
               appliesTo: "code",
               witness: {
-                ...completionSnapshot.completion.sources["github-actions"],
+                ...retiredHostedCiSource,
                 adapterId: "github-actions",
                 adapterOptions: {
                   workflows: ["rewrite-ci"],

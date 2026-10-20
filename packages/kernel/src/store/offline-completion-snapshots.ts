@@ -25,14 +25,10 @@ export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uin
     gates: Record<string, VerticalCompletionDeclaration["gates"][string]> = {};
   for (const gateId of original.profile.completionGateIds) {
     if (gateId === "code-doc-reconciliation") continue;
-    if (gateId !== "ci")
-      throw new Error(`historical snapshot ${claim.digest} has no accepted declaration for gate ${gateId}`);
-    sources["github-actions"] = {
-      kind: "github-actions",
-      predicateType: "harness/ci/v1",
-      resultSchema: { type: "object", additionalProperties: false },
-    };
-    gates[gateId] = { source: "github-actions", appliesTo: "code" };
+    // Retired from live contracts. Keep the historical gate id in its profile snapshot, while
+    // leaving the converted declaration free of a hosted source and execution mapping.
+    if (gateId === "ci") continue;
+    throw new Error(`historical snapshot ${claim.digest} has no accepted declaration for gate ${gateId}`);
   }
   const completion: VerticalCompletionDeclaration = {
       sources,

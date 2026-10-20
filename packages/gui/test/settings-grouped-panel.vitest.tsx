@@ -6,7 +6,7 @@
 // ③高级组默认折叠、可展开,搜索时自动展开;④当前值 ≠ 默认值时出现「已修改」标记,
 // 恢复默认把草稿拨回默认值并随提交带出;⑤roles 按角色键粒度标记与恢复;
 // ⑥页内搜索按名称/说明/后果过滤;⑦「只有你本人能保存」的提示常驻;
-// ⑧枚举取值旁有人话解释;⑨门映射编辑面归 CI 与门组。
+// ⑧枚举取值旁有人话解释;⑨门映射编辑面归托管配置与本地门组。
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createElement } from "react";
@@ -48,7 +48,6 @@ const SETTINGS_VALUES = {
   reviewReturnBudget: 3,
   taskScaffold: "governance/task-scaffold.json",
   repositoryScaffold: "governance/repository-scaffold.json",
-  ciWorkflows: [],
   closeoutProfile: "standard",
   closeoutReview: false,
   closeoutConsent: false,
@@ -103,7 +102,6 @@ const SNAPSHOT = {
   ],
   templates: [],
   scaffolds: { task: ["governance/task-scaffold.json"], repository: ["governance/repository-scaffold.json"] },
-  ciWorkflows: ["gui-release"],
   bundledAgents: ["closeout-reviewer"],
   adapters: [],
   gateMappings: {
@@ -236,7 +234,7 @@ describe("设置页按用途分组并逐项解释", () => {
       "评审与收口",
       "判断点",
       "交付",
-      "CI 与完成门",
+      "托管配置与本地门",
       "容量与议程",
       "任务工作区",
       "定时任务",
@@ -263,7 +261,6 @@ describe("设置页按用途分组并逐项解释", () => {
     expect(note("settings-reviewReturnBudget-default")).toBe("默认值：3");
     expect(note("settings-reviewIndependence-default")).toBe("默认值：execution");
     expect(note("settings-closeoutReview-default")).toBe("默认值：关闭");
-    expect(note("settings-ciWorkflows-default")).toBe("默认值：无");
     expect(note("settings-roles-defaultWorker-default")).toBe("默认值：未设置");
   });
 
@@ -370,7 +367,7 @@ describe("设置页按用途分组并逐项解释", () => {
     expect(input(container, "settings-restoreDrillRetention-input").value).toBe("3");
   });
 
-  it("「只有业主本人能保存」提示常驻,枚举取值带旁注人话,门映射编辑面在 CI 组", async () => {
+  it("「只有业主本人能保存」提示常驻,枚举取值带旁注人话,门映射编辑面在 托管平台组", async () => {
     const container = await mountView();
     expect(container.textContent).toContain("只有你本人能保存修改");
     const options = [

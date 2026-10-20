@@ -3,6 +3,7 @@ import type { ContractValidationIssue } from "./task.ts";
 import type {
   CompletionGateDeclaration,
   VerticalCompletionDeclaration,
+  RetiredHostedCiWitnessDefinition,
   WitnessSourceDefinition,
 } from "./completion-source.ts";
 
@@ -31,16 +32,10 @@ export type FrozenGateWitness =
       readonly adapterOptions: Readonly<Record<string, never>>;
       readonly acceptedDefinition: Readonly<Record<string, unknown>> | null;
     }
-  | ({ readonly adapterId: string } & Exclude<
-      WitnessSourceDefinition,
-      { readonly kind: "github-actions" | "gitlab-pipeline" }
-    > & {
+  | ({ readonly adapterId: string } & WitnessSourceDefinition & {
         readonly adapterOptions: Readonly<Record<string, never>>;
       })
-  | ({ readonly adapterId: string } & Extract<WitnessSourceDefinition, { readonly kind: "github-actions" }> & {
-        readonly adapterOptions: GithubWitnessOptions;
-      })
-  | ({ readonly adapterId: string } & Extract<WitnessSourceDefinition, { readonly kind: "gitlab-pipeline" }> & {
+  | ({ readonly adapterId: string } & RetiredHostedCiWitnessDefinition & {
         readonly adapterOptions: GithubWitnessOptions;
       })
   | {
@@ -111,8 +106,6 @@ function validSource(value: Record<string, unknown>, fields = hasOnlyFields): bo
   const common = ["kind", "predicateType", "resultSchema"];
   if (!isNonEmptyString(value.predicateType) || !isRecord(value.resultSchema)) return false;
   switch (value.kind) {
-    case "github-actions":
-    case "gitlab-pipeline":
     case "manual":
       return fields(value, common);
     case "command":
@@ -132,6 +125,15 @@ function validSource(value: Record<string, unknown>, fields = hasOnlyFields): bo
     default:
       return false;
   }
+}
+function validFrozenSource(value: Record<string, unknown>, fields = hasOnlyFields): boolean {
+  if (value.kind === "github-actions" || value.kind === "gitlab-pipeline")
+    return (
+      isNonEmptyString(value.predicateType) &&
+      isRecord(value.resultSchema) &&
+      fields(value, ["kind", "predicateType", "resultSchema"])
+    );
+  return validSource(value, fields);
 }
 export function validateFrozenCompletionContract(
   value: unknown,
@@ -204,7 +206,7 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, histori
       fields(definition, ["kind"]) &&
       fields(adapterOptions, [])
     );
-  if (value.gateId === CODE_DOC_GATE_ID || !validSource(definition, fields)) return false;
+  if (value.gateId === CODE_DOC_GATE_ID || !validFrozenSource(definition, fields)) return false;
   if (definition.kind === "manual" && (value.mandatorySignoff || value.allowOverride)) return false;
   if (
     definition.kind === "github-actions" || definition.kind === "gitlab-pipeline"
@@ -233,6 +235,8 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, histori
 export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1[]): readonly string[] {
   return mappings.flatMap(({ gateId, adapter, ...options }) => {
     if (adapter === "none" && Object.keys(options).length) return [`settings.gates.${gateId}: none carries no options`];
+    if (adapter === "github-actions" || adapter === "gitlab-pipeline")
+      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; run ha migrate settings --help`];
     if (gateId === CODE_DOC_GATE_ID && adapter !== "none")
       return [`settings.gates.${CODE_DOC_GATE_ID} is internal; map it only to none`];
     return [];
@@ -245,7 +249,6 @@ export function resolveCompletionContract(
   declaredGateIds: readonly string[],
   settings: {
     readonly gates: readonly GateWitnessMappingV1[];
-    readonly ci: { readonly workflows: readonly string[] };
     readonly closeout?: CloseoutSettingsV1;
   },
   frozen: { readonly digest: string; readonly completion: VerticalCompletionDeclaration },
@@ -256,6 +259,8 @@ export function resolveCompletionContract(
   for (const gateId of new Set(declaredGateIds)) {
     const mapping = settings.gates.find((candidate) => candidate.gateId === gateId),
       declared = declaration.gates[gateId];
+    if (mapping?.adapter === "github-actions" || mapping?.adapter === "gitlab-pipeline")
+      return { ok: false, message: "Hosted CI completion witnesses are retired." };
     if (mapping?.adapter === "none") continue;
     if (gateId === CODE_DOC_GATE_ID) {
       gates.push({
@@ -275,29 +280,12 @@ export function resolveCompletionContract(
       allowOverride = mapping?.allowOverride ?? declared?.allowOverride;
     if (source.kind === "manual" && (mandatorySignoff || allowOverride))
       return { ok: false, message: `Gate ${gateId}: manual sources already require human testimony.` };
-    let witness: FrozenGateWitness;
-    if (source.kind === "github-actions" || source.kind === "gitlab-pipeline") {
-      const options = {
-        workflows: settings.ci.workflows,
-        branch: mapping?.branch ?? "main",
-        event: mapping?.event ?? "push",
-        coverage: mapping?.coverage ?? "descendant",
-        selection: mapping?.selection ?? "newest",
-      };
-      if (!validGithubOptions(options))
-        return {
-          ok: false,
-          message: `Gate ${gateId} requires registered workflows and valid hosted CI execution options.`,
-        };
-      witness = { adapterId: sourceId, ...source, adapterOptions: options };
-    } else {
-      if (
-        mapping &&
-        [mapping.branch, mapping.event, mapping.coverage, mapping.selection].some((item) => item !== undefined)
-      )
-        return { ok: false, message: `Gate ${gateId}: hosted CI options cannot configure ${source.kind}.` };
-      witness = { adapterId: sourceId, ...source, adapterOptions: {} };
-    }
+    if (
+      mapping &&
+      [mapping.branch, mapping.event, mapping.coverage, mapping.selection].some((item) => item !== undefined)
+    )
+      return { ok: false, message: `Gate ${gateId}: hosted CI options cannot configure ${source.kind}.` };
+    const witness: FrozenGateWitness = { adapterId: sourceId, ...source, adapterOptions: {} };
     gates.push({
       gateId,
       appliesTo,

@@ -310,7 +310,7 @@ test("settle submits against its frozen snapshot after an installed preset chang
           {
             id: "baseline",
             title: "Baseline",
-            completionGates: ["ci", "code-doc-reconciliation"],
+            completionGates: ["code-doc-reconciliation"],
             templateSelections: [],
           },
         ],

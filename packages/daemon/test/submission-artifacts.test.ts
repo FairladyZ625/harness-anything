@@ -8,7 +8,7 @@ import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";
 
 const repositorySettingsStub = {
-  readRepository: () => ({ gates: [], ci: { workflows: [] } }),
+  readRepository: () => ({ gates: [] }),
 } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["settings"];
 const packagePath = "tasks/task-artifact",
   path = `${packagePath}/artifacts/report.md`,

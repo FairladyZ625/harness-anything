@@ -66,7 +66,7 @@ test("GUI catalog carries the settings field contract derived from the kernel si
   );
   // 修复前的漂移四字段必须在契约面里。
   const names = new Set(snapshot.settingsFields.map(({ field }) => field));
-  for (const expected of ["roles", "reviewIndependence", "reviewReturnBudget", "ciWorkflows"])
+  for (const expected of ["roles", "reviewIndependence", "reviewReturnBudget"])
     assert.ok(names.has(expected), `${expected} missing from snapshot settingsFields`);
 });
 
@@ -153,12 +153,6 @@ test("GUI catalog carries the settings selector value faces: preset profiles and
       path.join(root, "harness/governance/nested/archive/repository-scaffold.json"),
       JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [], addDocument: [] }),
     );
-    // CI 工作流取值面:仓库 .github/workflows 下的 *.yml 基名(不带后缀);.yaml 与
-    // pattern 非法名不进面。
-    write(path.join(root, ".github/workflows/gui-release.yml"), "name: probe\non: push\n");
-    write(path.join(root, ".github/workflows/issue-intake.yml"), "name: probe\non: push\n");
-    write(path.join(root, ".github/workflows/yaml-only.yaml"), "name: probe\non: push\n");
-    write(path.join(root, ".github/workflows/bad name.yml"), "name: probe\non: push\n");
     const catalog = openGuiCatalog({
         repoId: "catalog-settings-faces",
         rootDir: root,
@@ -180,7 +174,7 @@ test("GUI catalog carries the settings selector value faces: preset profiles and
       task: ["governance/task-scaffold.json"],
       repository: ["governance/repository-scaffold.json"],
     });
-    assert.deepEqual(snapshot.ciWorkflows, ["gui-release", "issue-intake"]);
+    assert.equal(Object.hasOwn(snapshot, "ciWorkflows"), false);
     // 验收人取值面的 bundled 层:真实 bundled 资产,默认值 closeout-reviewer 必须在面里。
     assert.ok(snapshot.bundledAgents.includes("closeout-reviewer"));
     // 阴性对照:闭形状必须拒掉缺 profiles / 缺 scaffolds / 形状错的 scaffolds 与两个新集合。
@@ -193,12 +187,6 @@ test("GUI catalog carries the settings selector value faces: preset profiles and
     const badScaffolds = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
     (badScaffolds.scaffolds as Record<string, unknown>).task = ["", 3];
     assert.ok(validateCatalogSnapshot(badScaffolds).some((error) => error.includes("scaffold paths")));
-    const withoutWorkflows = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
-    delete withoutWorkflows.ciWorkflows;
-    assert.ok(validateCatalogSnapshot(withoutWorkflows).some((error) => error.includes("ciWorkflows")));
-    const badWorkflows = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
-    (badWorkflows as { ciWorkflows: unknown[] }).ciWorkflows = ["gui-release.yml", 3];
-    assert.ok(validateCatalogSnapshot(badWorkflows).some((error) => error.includes("workflow names")));
     const withoutBundled = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
     delete withoutBundled.bundledAgents;
     assert.ok(validateCatalogSnapshot(withoutBundled).some((error) => error.includes("bundledAgents")));

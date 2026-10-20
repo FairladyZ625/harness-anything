@@ -125,7 +125,6 @@ export function readCompletionDeliveryStatus(
         ? null
         : localGitObjectRefStore.isAncestor(rootDir, mergeSha, targetRef),
     targetBranch: delivery.targetBranch,
-    platform: delivery.platform,
   };
 }
 

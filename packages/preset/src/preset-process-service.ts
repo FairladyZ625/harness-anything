@@ -185,7 +185,6 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
             return createRuntime({
               repoRoot: options.rootDir,
               userRoot: options.userRoot,
-              ciWorkflows: defaults.ciWorkflows,
             }).resolveInternal({
               presetId: input.presetId,
               entrypoint: input.entrypoint,

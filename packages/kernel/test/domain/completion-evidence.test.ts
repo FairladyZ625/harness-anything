@@ -8,7 +8,7 @@ import {
   type ExecutionV1,
 } from "../../src/index.ts";
 
-import { completionSnapshot, emptyCompletionContract } from "./completion.fixtures.ts";
+import { completionSnapshot, emptyCompletionContract, retiredHostedCiSource } from "./completion.fixtures.ts";
 
 const execution = {
   gateRuns: [],
@@ -112,7 +112,7 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
             appliesTo: "code" as const,
             witness: {
               adapterId: "github-actions" as const,
-              ...completionSnapshot.completion.sources["github-actions"],
+              ...retiredHostedCiSource,
               adapterOptions: {
                 workflows: ["rewrite-ci"],
                 branch: "main",
