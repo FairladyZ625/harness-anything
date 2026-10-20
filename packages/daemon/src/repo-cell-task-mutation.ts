@@ -38,8 +38,10 @@ export function taskMutation(
   readonly releasedLease?: NonNullable<Snapshot["lease"]>;
   readonly authorizationDecision?: AuthorizationDecision;
 } {
-  const reason =
-      typeof action.reason === "string" && action.reason.trim()
+  const forceTakeover = action.kind === "task-release" && action.forceTakeover === true,
+    reason = forceTakeover
+      ? `Owner forced takeover: ${cell.requiredCellText(action.reason, "reason")}`
+      : typeof action.reason === "string" && action.reason.trim()
         ? action.reason.trim()
         : "Authenticated holder released the lease.",
     activeLease = snapshot.lease,
@@ -85,13 +87,14 @@ export function taskMutation(
         optionalReleaseText(action.reason) !== null,
       ownerRecovery =
         isSamePerson(task.createdBy, binding.actor) &&
-        (activeLease.phase === "orphaned" || terminalRuntimeBinding !== null);
+        (activeLease.phase === "orphaned" || terminalRuntimeBinding !== null),
+      ownerForcedTakeover = forceTakeover && isSamePerson(task.createdBy, binding.actor);
     if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError(
         "authorization_missing",
         "Release criteria require the center AuthorizationPort decision.",
       );
-    if (!sameHolder && !samePrincipalRecovery && !sessionHandoff && !ownerRecovery)
+    if (!sameHolder && !samePrincipalRecovery && !sessionHandoff && !ownerRecovery && !ownerForcedTakeover)
       throw cell.cellCodedError(
         "lease_conflict",
         [

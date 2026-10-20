@@ -52,12 +52,24 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-release",
     phase: "W3",
     path: ["task", "release", "<task-id>"],
-    summary: "Release the authenticated holder lease and preserve the Execution audit trail.",
+    summary:
+      "Release the authenticated holder lease; the task creator can force takeover after a failed dispatch with an explicit reason.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--reason", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--reason",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { requiredWhen: { field: "forceTakeover", values: ["true"] } },
+      ),
+      cliInput(
+        "--force-takeover",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        { description: "Let the task creator release a held worker lease and take over the execution." },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
