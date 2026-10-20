@@ -10,7 +10,7 @@ export default {
   feature: "board",
   lane: "isolated",
   description:
-    "Returning a submitted task requires explicit worker mode and feedback, and cancellation writes nothing.",
+    "A closeout delivery diff can be annotated and batched into the return prompt; an empty return still requires feedback.",
   async run({ page, fixture, shot, app }) {
     const taskId = "task-gui-smoke";
     let deliveryCommitSha = null;
@@ -82,7 +82,25 @@ export default {
     const diff = page.locator('[data-testid="annotate-diff"]:visible').first();
     await diff.waitFor();
     await diff.scrollIntoViewIfNeeded();
+    await page.getByTestId("annotate-add-new-1").click();
+    const comment = "Keep the delivery diff and add a regression assertion.";
+    await page.getByTestId("annotate-composer-text").fill(comment);
+    await page.getByTestId("annotate-composer-save").click();
+    assert.equal(await page.getByTestId("annotate-pending-count").first().innerText(), "1");
     await shot("task-closeout-diff-review");
+    await page.getByTestId("annotate-send").first().click();
+    const annotatedDialog = page.getByTestId("task-return-dialog");
+    await annotatedDialog.waitFor();
+    const annotatedFeedback = annotatedDialog.locator("textarea");
+    assert.match(await annotatedFeedback.inputValue(), /delivery-review\.txt:1-1/u);
+    assert.ok((await annotatedFeedback.inputValue()).includes(comment));
+    await annotatedFeedback.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await shot("task-closeout-return-prompt");
+    await annotatedDialog.getByRole("button", { name: "取消", exact: true }).click();
+    await annotatedDialog.waitFor({ state: "hidden" });
+
     await page.getByTestId("task-triage-return").click();
     const dialog = page.getByTestId("task-return-dialog");
     await dialog.waitFor();

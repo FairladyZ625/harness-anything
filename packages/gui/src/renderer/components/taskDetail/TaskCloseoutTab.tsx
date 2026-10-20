@@ -24,7 +24,8 @@ import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
 import { ReadError, Timestamp } from "./TaskDetailSections.tsx";
 
-const asideClass = "grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
+const asideClass =
+  "grid content-start gap-7 border-t border-border pt-6 @[1100px]:border-t-0 @[1100px]:border-l @[1100px]:pt-0 @[1100px]:pl-6";
 
 /** recordRef(execution/<id> 等)→ 收口记录行的 DOM 锚点:斜杠转连字符,getElementById 直取。 */
 export function closeoutRecordDomId(recordRef: string): string {
@@ -113,12 +114,12 @@ export function TaskCloseoutTab({
     return () => cancelAnimationFrame(frame);
   }, [focusedRecordRef, completion.isPending]);
   return (
-    <section data-testid="task-closeout-tab">
+    <section data-testid="task-closeout-tab" className="@container min-w-0">
       <span data-testid="task-delivery-diff-count" className="sr-only" aria-hidden="true">
         {diffFiles?.length ?? 0}
       </span>
       <Section title={t("components.taskCloseout.sectionTitle")} note={t("components.taskCloseout.sectionNote")}>
-        <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-8 @[1100px]:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-8">
             <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
               <CloseoutBadge value={task.closeoutReadiness} />
