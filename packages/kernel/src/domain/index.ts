@@ -22,7 +22,7 @@ export {
   type DecisionQuestionDeclaration,
   type DecisionPointDeclaration,
 } from "./decision-point.ts";
-export { decisionEventDescriptor } from "./decision-event-catalog.ts";
+export { decisionEventDescriptor, decisionReadSurfaces } from "./decision-event-catalog.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   validateEntityActionExplainRequest,

@@ -1,5 +1,4 @@
 /** Browser-safe public contracts. Runtime, persistence and hashing stay behind index.ts. */
-export { decisionReadSurfaces } from "./domain/decision-event-catalog.ts";
 export { validateFrozenCompletionContract } from "./domain/completion-contract.ts";
 export { validCompletionEvidenceOverride } from "./domain/completion-evidence-override.ts";
 export { relationStates } from "./domain/entity-relation.ts";
