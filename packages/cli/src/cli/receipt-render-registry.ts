@@ -221,31 +221,54 @@ function workspaceLine(workspace: Record<string, unknown>, setup: unknown): stri
 }
 
 function renderSettingsRead(receipt: Record<string, unknown>): string {
-  const lastChanged = receipt.lastChanged,
-    settings = isRecord(receipt.settings) ? receipt.settings : null,
-    worktree = settings !== null && isRecord(settings.worktree) ? settings.worktree : null,
-    setup = Array.isArray(worktree?.setup) ? worktree.setup.map(String) : [],
-    runtime = settings !== null && isRecord(settings.runtime) ? settings.runtime : null,
-    allowedInstances =
-      runtime !== null && Array.isArray(runtime.allowedInstances) ? runtime.allowedInstances.map(String) : undefined;
+  const settings = isRecord(receipt.settings) ? receipt.settings : null,
+    nested =
+      settings === null
+        ? []
+        : Object.entries(settings).flatMap(([key, value]) =>
+            isRecord(value) ? nestedSettingsLines(value, [key]) : [],
+          ),
+    lastChanged = receipt.lastChanged;
   return [
     renderSuccessfulReceipt(receipt),
-    `worktree.setup: ${setup.length ? setup.join("; ") : "none"}`,
-    // Unset and empty are both total rejections (PR #3512), but they repair differently: unset
-    // wants ha init, empty wants an explicit allow.
-    `runtime.allowedInstances: ${
-      allowedInstances === undefined
-        ? "not set — every dispatch is rejected (run ha init or ha settings update --runtime-allowed-instance <id>)"
-        : allowedInstances.length
-          ? allowedInstances.join("; ")
-          : "none — every dispatch is rejected (allow with ha settings update --runtime-allowed-instance <id>)"
-    }`,
+    ...nested,
+    // The allowlist keeps a named line even when the expansion emitted none for it.
+    ...(nested.some((line) => line.startsWith("runtime.allowedInstances:")) ? [] : [allowedInstancesLine(undefined)]),
     lastChanged === "initial"
       ? "lastChanged=initial"
       : isRecord(lastChanged)
         ? `lastChanged=${String(lastChanged.occurredAt)} by=${String(lastChanged.actor)} revision=${String(lastChanged.revision)}`
         : "lastChanged=unavailable",
   ].join("\n");
+}
+
+/** One `a.b.c: value` line per set nested settings field, in the settings object's key order.
+ * Top-level scalars stay on the summary line and top-level structured arrays (the gate witness
+ * mappings) are not leaf fields, so only nested objects expand. */
+function nestedSettingsLines(node: Record<string, unknown>, prefix: readonly string[]): readonly string[] {
+  return Object.entries(node).flatMap(([key, value]) => {
+    const path = [...prefix, key];
+    if (isRecord(value)) return nestedSettingsLines(value, path);
+    if (path.join(".") === "runtime.allowedInstances") return [allowedInstancesLine(value)];
+    return [`${path.join(".")}: ${nestedSettingsValueText(value)}`];
+  });
+}
+
+function nestedSettingsValueText(value: unknown): string {
+  return Array.isArray(value) ? (value.length ? value.map(String).join("; ") : "none") : String(value);
+}
+
+/** Unset and empty are both total rejections (PR #3512), but they repair differently: unset
+ * wants ha init, empty wants an explicit allow. */
+function allowedInstancesLine(value: unknown): string {
+  const allowedInstances = Array.isArray(value) ? value.map(String) : undefined;
+  return `runtime.allowedInstances: ${
+    allowedInstances === undefined
+      ? "not set — every dispatch is rejected (run ha init or ha settings update --runtime-allowed-instance <id>)"
+      : allowedInstances.length
+        ? allowedInstances.join("; ")
+        : "none — every dispatch is rejected (allow with ha settings update --runtime-allowed-instance <id>)"
+  }`;
 }
 
 function renderDecisionPropose(receipt: Record<string, unknown>): string {
