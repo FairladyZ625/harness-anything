@@ -2,7 +2,7 @@
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/disp
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { eventually } from "./schedule-actions.fixtures.ts";
 
 const binding = withPolicyGroup(
   {
@@ -218,6 +219,84 @@ test(
   },
 );
 
+test(
+  "a remediation Schedule runs a Squad under its occurrence claim and reclaims its worktree",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await openFixture(t, "scheduled-squad"),
+      scheduleId = "schedule-squad-e2e",
+      initialProviderCount = fixture.providers.length;
+    const created = await fixture.cell.run(
+      {
+        kind: "schedule-create",
+        scheduleId,
+        name: "Scheduled Squad",
+        mode: "remediate",
+        everyMs: 300_000,
+        squadId: "squad",
+        mission: "Inspect the scheduled Squad path and converge.",
+        idempotencyKey: "create-scheduled-squad",
+      },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const started = await fixture.cell.run(
+      { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-scheduled-squad" },
+      binding,
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    const state = [...latestSquadStates(fixture.root).values()].find(
+      (candidate) => candidate.subject.kind === "schedule-occurrence" && candidate.subject.scheduleId === scheduleId,
+    );
+    assert.ok(state, "the schedule claim creates a persisted Squad state");
+    assert.equal(state.subject.kind, "schedule-occurrence");
+    assert.equal(state.scheduleRuntime?.mode, "remediate");
+    const scheduleRuntime = state.scheduleRuntime;
+    assert.ok(scheduleRuntime?.worktree, "remediate occurrence worktree is retained with the run state");
+    const occurrenceCwd = scheduleRuntime.worktree.cwd;
+    assert.equal(existsSync(occurrenceCwd), true);
+    const activeSchedule = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
+      readonly schedule: { readonly status: { readonly activeRun: { readonly claimFence: string } | null } };
+    };
+    assert.equal(activeSchedule.schedule.status.activeRun?.claimFence, state.subject.claimFence);
+    const duplicate = await fixture.cell.run(
+      { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-scheduled-squad-again" },
+      binding,
+    );
+    assert.equal(duplicate.code, "schedule_single_flight_active");
+    assert.equal(
+      fixture.providers.length,
+      initialProviderCount + 1,
+      "the active occurrence owns one initial leader dispatch",
+    );
+    fixture.finish(
+      state.leaderTurns[0]!.dispatchId,
+      JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "Schedule Squad converged." }),
+    );
+    assert.equal(
+      await eventually(() => latestSquadStates(fixture.root).get(state.squadRunId)?.phase === "converged"),
+      true,
+      "the scheduled Squad reaches a terminal converged state",
+    );
+    assert.equal(
+      await eventually(async () => {
+        const receipt = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
+          readonly schedule: {
+            readonly status: {
+              readonly activeRun: unknown;
+              readonly lastRun: { readonly outcome: string } | null;
+            };
+          };
+        };
+        return receipt.schedule.status.activeRun === null && receipt.schedule.status.lastRun?.outcome === "succeeded";
+      }),
+      true,
+      "the Squad terminal state settles its occurrence claim",
+    );
+    assert.equal(existsSync(occurrenceCwd), false, "settlement reclaims the remediation occurrence worktree");
+  },
+);
+
 for (const restart of [false, true])
   test(
     `targeted task publishes while same-squad child stays local (restart=${restart})`,
@@ -230,7 +309,7 @@ for (const restart of [false, true])
         (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
       );
       const child = running.workerAttempts[0],
-        taskId = "task-direct-targeted",
+        taskId = "task_direct-targeted",
         created = await fixture.cell.run(
           {
             kind: "task-create",
@@ -288,7 +367,7 @@ for (const restart of [false, true])
         "child delivery",
       );
       const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
-      assert.match(report, /Worker branch pushed at settlement: task-direct-targeted @/u);
+      assert.match(report, new RegExp(`Worker branch pushed at settlement: ${taskId} @`, "u"));
       assert.equal(
         git(fixture.bare, "for-each-ref", "--format=%(objectname)", `refs/heads/${taskId}`),
         git(cwd, "rev-parse", "HEAD"),

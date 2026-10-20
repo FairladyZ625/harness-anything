@@ -403,6 +403,7 @@
   "agentRuntime.sessionsGroupsTruncated": "已列前 {count} 组(命中更多),缩小检索范围。",
   "agentRuntime.sessionsGroupsTruncatedOne": "已列前 {count} 组(命中更多),缩小检索范围。",
   "agentRuntime.sessionsTaskDetail": "Task 详情",
+  "agentRuntime.sessionsScheduleOccurrence": "定时触发",
   "agentRuntime.sessionsTaskDecision": "Decision {ref}",
   "agentRuntime.sessionsTaskDecisionLabel": "该任务 Decision",
   "agentRuntime.sessionsOpenSession": "会话",

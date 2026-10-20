@@ -49,6 +49,7 @@ export function makeFleetSquadCoordinator(input: {
   };
   const coordinator = makeSquadCoordinator({
     rootDir: request.workspaceRoot,
+    now: () => new Date().toISOString(),
     query,
     readResult: input.readResult,
     readWorktreeSetup: input.readWorktreeSetup,
@@ -69,12 +70,18 @@ export function makeFleetSquadCoordinator(input: {
       });
       await input.sync();
     },
+    // Fleet control starts task-subject runs only; a schedule-occurrence run never reaches this edge.
+    settleScheduleOccurrence: async () => {
+      throw new Error("The fleet Squad coordinator does not settle schedule occurrences.");
+    },
     reacquireTaskLease: async (taskId, binding, parent) => {
       await input.sync();
       await reacquireSquadTaskLease({
         taskId,
         binding,
-        ...(parent?.taskId === taskId ? { executionId: parent.executionId } : {}),
+        ...(parent && parent.subject.kind === "task" && parent.subject.taskId === taskId
+          ? { executionId: parent.subject.executionId }
+          : {}),
         snapshot: query((projection) => projection.read(taskId).snapshot),
         start: async (executionId) =>
           command({
@@ -124,8 +131,11 @@ export function makeFleetSquadCoordinator(input: {
       await input.sync();
     },
     createChildTask: async (child) => {
+      // Fleet control runs task subjects only: a parentless child never reaches this coordinator.
+      const parentTaskId = child.parentTaskId;
+      if (parentTaskId === null) throw new Error("A fleet Squad run cannot create parentless children.");
       const parentPlan = query((projection) => {
-        const parent = projection.read(child.parentTaskId);
+        const parent = projection.read(parentTaskId);
         return parent.packagePath
           ? (projection.readDocument(`${parent.packagePath}/task_plan.md`).document?.body ?? null)
           : null;
@@ -133,7 +143,7 @@ export function makeFleetSquadCoordinator(input: {
       const receipt = await command({
         kind: "task-create",
         squadRunId: child.squadRunId,
-        parentTaskId: child.parentTaskId,
+        parentTaskId,
         title: `Squad assignment for ${child.workerId}`,
         idempotencyKey: child.key,
         surfaces: child.ownedPaths,
@@ -166,6 +176,8 @@ export function makeFleetSquadCoordinator(input: {
         await input.sync();
         return result;
       },
+      spawnScheduled: (payload, scheduled, binding, onPrepared) =>
+        input.spawner.spawnScheduledCoordinated(payload, scheduled, binding, onPrepared),
       cancel: (payload, binding) => input.spawner.cancel(payload, binding),
     }),
   });

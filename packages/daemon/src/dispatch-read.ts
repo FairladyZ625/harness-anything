@@ -310,6 +310,35 @@ export function readSessionGroupDispatches(input: {
   );
 }
 
+/**
+ * One run's dispatch rows read by identity instead of by task: each named dispatch plus the
+ * fallback successors it spawned, so a task-less run (a schedule-occurrence Squad) joins exactly
+ * its own dispatch history. Terminates on the visited-rows set; fallback chains are linear.
+ */
+export function readDispatchRowsByIds(input: {
+  readonly projection: DispatchQueries & Pick<TaskProjectionQueries, "readRuntimeDispatchById" | "readRuntimeSession">;
+  readonly rootDir?: string;
+  readonly dispatchIds: readonly string[];
+}): readonly TaskDispatchRow[] {
+  const rows = new Map<string, TaskDispatchRow>(),
+    queue = [...input.dispatchIds];
+  while (queue.length > 0) {
+    const dispatchId = queue.shift()!;
+    if (rows.has(dispatchId)) continue;
+    const event = input.projection.readRuntimeDispatchById(dispatchId)?.event;
+    if (!event) continue;
+    const row = canonicalDispatchRow(
+      input.projection,
+      event,
+      input.projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+      input.rootDir,
+    );
+    rows.set(dispatchId, row);
+    if (row.nextDispatchId) queue.push(row.nextDispatchId);
+  }
+  return [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
 export function readRuntimeAttemptChain(
   runtimeSessionId: string,
   projection: DispatchQueries & Pick<TaskProjectionQueries, "readRuntimeDispatchesBySession" | "readRuntimeSession">,

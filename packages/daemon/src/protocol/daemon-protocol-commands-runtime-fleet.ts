@@ -397,7 +397,7 @@ export const scheduleProtocolCommands = Object.freeze([
     id: "schedule-create",
     phase: "Schedule-S3",
     path: ["schedule", "create", "<schedule-id>"],
-    summary: "Create an interval or cron Schedule using one Agent’s ordered runtime declarations.",
+    summary: "Create an interval or cron Schedule using one Agent's or Squad's declarations.",
     method: "repo.task.run",
     positional: "scheduleId",
     inputs: [
@@ -422,7 +422,10 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--timezone", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--agent", "single", true, {
+      cliInput("--agent", "single", false, {
+        code: "missing_field",
+      }),
+      cliInput("--squad", "single", false, {
         code: "missing_field",
       }),
       cliInput("--mission", "single", false, {

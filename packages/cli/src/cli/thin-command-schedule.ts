@@ -116,13 +116,17 @@ export function parseSchedule(
     missionFile = flags.one.get("--mission-file"),
     every = flags.one.get("--every"),
     cronExpression = flags.one.get("--cron"),
-    timezone = flags.one.get("--timezone");
+    timezone = flags.one.get("--timezone"),
+    agentId = flags.one.get("--agent"),
+    squadId = flags.one.get("--squad");
   if (Boolean(mission) === Boolean(missionFile))
     return rejected("missing_field", "Use exactly one of --mission <text> or --mission-file <path>.", json);
   if (Boolean(every) === Boolean(cronExpression))
     return rejected("missing_field", "Use exactly one of --every <duration> or --cron <expression>.", json);
   if (cronExpression && !timezone) return rejected("missing_field", "Add --timezone <IANA-zone> with --cron.", json);
   if (!cronExpression && timezone) return rejected("invalid_field", "Use --timezone only with --cron.", json);
+  if (Boolean(agentId) === Boolean(squadId))
+    return rejected("missing_field", "Use exactly one of --agent <agent-id> or --squad <squad-id>.", json);
   const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
   if (everyMs === null)
     return rejected(
@@ -136,7 +140,7 @@ export function parseSchedule(
     name: flags.one.get("--name"),
     mode: flags.one.get("--mode"),
     ...(everyMs === undefined ? { cronExpression, timezone } : { everyMs }),
-    agentId: flags.one.get("--agent"),
+    ...(agentId ? { agentId } : { squadId }),
     ...(mission ? { mission } : { missionFile }),
     ...optionalFlags(flags.one, [["--effort", "reasoningEffort"]]),
     ...(flags.booleans.has("--fast") ? { fast: true } : {}),

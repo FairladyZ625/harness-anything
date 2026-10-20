@@ -101,12 +101,13 @@ const createDefinitionFields = Object.freeze([
   field("name", "string", true),
   field("mode", "string", true, ["detect", "remediate"]),
   ...definitionFields.filter(({ field }) => !["name", "mode", "agentId", "mission"].includes(field)),
+  field("squadId"),
   // Internal-only seeding surface: no CLI flag, packet field, or GUI action exposes these,
   // so a built-in target can only originate from the daemon's deterministic seed.
   field("builtinId", "string"),
   field("systemPresetId", "string"),
   field("unconfiguredAgent", "boolean"),
-  field("agentId", "string", true),
+  field("agentId"),
   field("mission", "string", true),
 ]);
 const noLease = Object.freeze({ authority: "not-applicable" });
@@ -556,15 +557,19 @@ function claimOccurrence(
       `Schedule ${schedule.scheduleId} already has active occurrence ${schedule.status.activeRun.occurrenceId}.`,
     );
   const assignment = typeof input.source === "object" && input.source.kind === "node" ? input.source : null;
-  if (schedule.spec.target.kind === "squad")
-    reject(
-      "schedule_target_unavailable",
-      `Schedule ${schedule.scheduleId} target ${schedule.spec.target.kind} is declared but has no dispatch route.`,
-    );
   if (schedule.spec.target.kind === "builtin" && assignment !== null)
     reject(
       "schedule_builtin_local_only",
       `Built-in Schedule ${schedule.scheduleId} executes on the node holding its canonical cell; ` +
+        `an edge assignment cannot claim its occurrence.`,
+    );
+  // A scheduled Squad run rides its occurrence claim through the local Squad coordinator; the
+  // fleet edge coordinator still admits task-leased runs only, so an edge assignment claiming a
+  // squad occurrence would strand the claim with no dispatch route.
+  if (schedule.spec.target.kind === "squad" && assignment !== null)
+    reject(
+      "schedule_squad_local_only",
+      `Schedule ${schedule.scheduleId} targets a Squad, which executes on the node holding its canonical cell; ` +
         `an edge assignment cannot claim its occurrence.`,
     );
   const scheduledFor = typeof action.scheduledFor === "string" ? action.scheduledFor : input.occurredAt,
@@ -780,6 +785,16 @@ function assertUpdatableDefinitionFields(
       );
     return;
   }
+  if (target?.kind === "squad") {
+    const forbidden = ["agentId", "squadId", "reasoningEffort", "fast"].filter((field) => Object.hasOwn(action, field));
+    if (forbidden.length)
+      reject(
+        "schedule_squad_definition_fixed",
+        `A squad Schedule keeps its executor squad; only name, mode, trigger, and mission can ` +
+          `change (unsupported: ${forbidden.join(", ")}).`,
+      );
+    return;
+  }
   const retention = ["keepDays", "keepMonthly"].filter((field) => Object.hasOwn(action, field));
   if (retention.length)
     reject(
@@ -796,12 +811,17 @@ function scheduleTriggerFromCreate(action: Readonly<Record<string, unknown>>, oc
     : { kind: "cron", expression: String(action.cronExpression), timezone: String(action.timezone) };
 }
 
-/** Create is agent-shaped on every public surface; `builtinId` is the daemon seed's own lane. */
+/** Create is agent- or squad-shaped on every public surface; `builtinId` is the daemon seed's own lane. */
 function scheduleTargetFromCreate(action: Readonly<Record<string, unknown>>): ScheduleV1["spec"]["target"] {
   if (action.unconfiguredAgent === true) {
     if (!action.systemPresetId || Object.hasOwn(action, "agentId"))
       reject("invalid_command", "An unconfigured agent target is reserved for a system preset seed.");
     return { kind: "agent-unconfigured" };
+  }
+  if (action.squadId !== undefined) {
+    if (Object.hasOwn(action, "agentId") || Object.hasOwn(action, "reasoningEffort") || Object.hasOwn(action, "fast"))
+      reject("invalid_command", "A squad Schedule target cannot combine agent target fields.");
+    return { kind: "squad", squadId: text(action.squadId, "squadId") };
   }
   if (action.builtinId === undefined)
     return {

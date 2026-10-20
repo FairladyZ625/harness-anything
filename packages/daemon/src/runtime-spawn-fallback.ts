@@ -429,3 +429,22 @@ export function scheduleFallbackContinuation(args: {
   );
   timer.unref();
 }
+
+/** Reconnects a persisted fallback stream to the spawner's single launch entry point. */
+export function reconcileFallback(args: {
+  readonly input: RuntimeSpawnerInput;
+  readonly publishRuntimeEvent: RuntimeSpawnerContext["publishRuntimeEvent"];
+  readonly closed: () => boolean;
+  readonly launch: (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    fallback: RuntimeFallbackAttempt,
+    schedule: TrustedScheduleRuntime | undefined,
+    handoffFromRuntimeSessionId: string | undefined,
+    publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
+    onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
+  ) => Promise<unknown>;
+  readonly stream: ReturnType<typeof readDispatchStream>;
+}): void {
+  scheduleFallbackContinuation(args);
+}

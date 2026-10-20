@@ -3,6 +3,7 @@ import type { CanonicalSquadRun } from "../domain/squad-run.ts";
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import type { SquadRunProjectionRow } from "./task-projection-port.ts";
+import { normalizeHistoricalSquadRunState } from "./historical-event-normalization.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 
 export function readSquadRun(db: DatabaseSync, squadRunId: string): SquadRunProjectionRow | null {
@@ -37,7 +38,7 @@ function insertSquadRun(db: DatabaseSync, row: SquadRunProjectionRow): void {
 }
 
 function projectionRow(row: Readonly<Record<string, unknown>>): SquadRunProjectionRow {
-  const state = JSON.parse(String(row.state_json)) as unknown;
+  const state = normalizeHistoricalSquadRunState(JSON.parse(String(row.state_json))) as unknown;
   if (state === null || typeof state !== "object" || Array.isArray(state))
     throw new Error(`squad run projection mismatch for ${String(row.squad_run_id)}`);
   return {

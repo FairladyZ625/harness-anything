@@ -43,6 +43,19 @@ function hasRetiredScheduleCiObserve(event: PersistedCanonicalEventV1): boolean 
   );
 }
 
+function hasFlatSquadRunIdentity(event: PersistedCanonicalEventV1): boolean {
+  if (event.schema !== "agent-runtime-event/v1") return false;
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload)) return false;
+  const identity =
+    event.type === "runtime_dispatch_requested"
+      ? payload.squadRun
+      : event.type === "runtime_squad_run_observed"
+        ? payload
+        : null;
+  return isRecord(identity) && identity.subject === undefined && typeof identity.taskId === "string";
+}
+
 function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   if (event.schema !== "settings-event/v1") return false;
   const payload = (event as { readonly payload?: unknown }).payload;
@@ -84,6 +97,11 @@ function hasRetiredVerticalHostedCi(
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
   { name: "closeout-overrides.fact", fields: ["Task.closeoutOverrides.fact"], matches: taskHasRetiredFact },
   { name: "schedule.ciObserve", fields: ["Schedule.status.ciObserve"], matches: hasRetiredScheduleCiObserve },
+  {
+    name: "squad-run.subject",
+    fields: ["SquadRun.taskId+executionId"],
+    matches: hasFlatSquadRunIdentity,
+  },
   {
     name: "settings.ci",
     fields: ["Settings.gates.ci", "Settings.ci.workflows"],

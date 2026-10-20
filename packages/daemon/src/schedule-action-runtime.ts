@@ -22,7 +22,7 @@ import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { RuntimeAttemptTerminal, TrustedScheduleSpawn } from "./runtime-spawn.ts";
+import type { RuntimeAttemptTerminal, TrustedScheduleRuntime, TrustedScheduleSpawn } from "./runtime-spawn.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { readReckoningSignals } from "./reckoning-signals.ts";
@@ -222,6 +222,26 @@ async function dispatchClaimedReceipt(
         throw cell.cellCodedError("invalid_runtime_receipt", "Scheduled runtime returned an invalid receipt.");
       return receipt;
     },
+    startSquad: async (claimed) => {
+      const receipt = await cell.squadCoordinator.startScheduled(
+        {
+          squadId: claimed.squadId,
+          subject: {
+            kind: "schedule-occurrence",
+            scheduleId: claimed.scheduleId,
+            occurrenceId: claimed.occurrenceId,
+            claimFence: claimed.claimFence,
+          },
+          schedule: claimed.schedule,
+          mission: claimed.mission,
+          cwd: claimed.cwd,
+        },
+        binding,
+      );
+      if (!isScheduleSpawnWriteReceipt(receipt))
+        throw cell.cellCodedError("invalid_runtime_receipt", "Scheduled Squad run returned an invalid receipt.");
+      return receipt;
+    },
     linkDispatch: (linked) => runInternal({ kind: "schedule-dispatch-link", ...linked }, binding),
     settleFailure: (failed) => runInternal({ kind: "schedule-settle", ...failed }, binding),
   });
@@ -406,6 +426,17 @@ export async function dispatchClaimedSchedule<
   readonly idempotencyKey: string;
   readonly now: () => string;
   readonly spawn: (scheduled: TrustedScheduleSpawn) => Promise<TSpawnReceipt>;
+  /** The squad dispatch route: the claimed occurrence starts a Squad run riding its claim. */
+  readonly startSquad?: (claimed: {
+    readonly scheduleId: string;
+    readonly occurrenceId: string;
+    readonly claimFence: string;
+    readonly mode: "detect" | "remediate";
+    readonly schedule: TrustedScheduleRuntime;
+    readonly mission: string;
+    readonly squadId: string;
+    readonly cwd: string;
+  }) => Promise<TSpawnReceipt>;
   readonly linkDispatch: (linked: {
     readonly scheduleId: string;
     readonly claimFence: string;
@@ -425,6 +456,46 @@ export async function dispatchClaimedSchedule<
   const active = input.schedule.status.activeRun;
   if (!active) throw new Error(`Schedule ${input.schedule.scheduleId} has no claimed occurrence to dispatch.`);
   const target = input.schedule.spec.target;
+  if (target.kind === "squad" && input.startSquad) {
+    let spawned: TSpawnReceipt;
+    try {
+      spawned = await input.startSquad({
+        scheduleId: input.schedule.scheduleId,
+        occurrenceId: active.occurrenceId,
+        claimFence: active.claimFence,
+        mode: input.schedule.mode,
+        schedule: input.workspace.runtime,
+        mission: input.schedule.spec.mission,
+        squadId: target.squadId,
+        cwd: input.workspace.cwd,
+      });
+    } catch (error) {
+      const cleanup = await settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
+      const receipt = await input.settleFailure({
+        scheduleId: input.schedule.scheduleId,
+        claimFence: active.claimFence,
+        outcome: "failed",
+        endedAt: input.now(),
+        detail: [error instanceof Error ? error.message : String(error), cleanup.detail].filter(Boolean).join(" "),
+        idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
+      });
+      return { kind: "spawn-failed", error, receipt } as const;
+    }
+    if (spawned.outcome !== "applied") {
+      await settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
+      return { kind: "spawn-unapplied", receipt: spawned } as const;
+    }
+    const dispatchId = String(spawned.dispatchId),
+      runtimeSessionId = String(spawned.runtimeSessionId),
+      receipt = await input.linkDispatch({
+        scheduleId: input.schedule.scheduleId,
+        claimFence: active.claimFence,
+        dispatchId,
+        runtimeSessionId,
+        idempotencyKey: `${input.idempotencyKey}:dispatch`,
+      });
+    return { kind: "linked", receipt, dispatchId, runtimeSessionId } as const;
+  }
   if (target.kind !== "agent") {
     const receipt = await input.settleFailure({
       scheduleId: input.schedule.scheduleId,

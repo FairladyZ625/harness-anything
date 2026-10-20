@@ -297,6 +297,7 @@ export async function openRepoCellProxy(
       knownTaskIds: Set<string> | null = null;
     const squadCoordinator = {
         start: unsupportedWrite,
+        startScheduled: unsupportedWrite,
         cancel: unsupportedWrite,
         reconcile: unsupportedWrite,
         flushPublications: unsupportedWrite,
@@ -310,6 +311,7 @@ export async function openRepoCellProxy(
         spawnHandoff: unsupportedWrite,
         spawnCoordinated: unsupportedWrite,
         spawnScheduled: unsupportedWrite,
+        spawnScheduledCoordinated: unsupportedWrite,
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,

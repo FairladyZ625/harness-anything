@@ -85,7 +85,8 @@ function markdownH2Sections(body: string): Map<string, string> {
 export async function createSquadChild(
   cell: RepoCellActionContext,
   child: {
-    readonly parentTaskId: string;
+    /** A task-subject run's parent task; null on a schedule-occurrence run, whose children are parentless. */
+    readonly parentTaskId: string | null;
     readonly squadRunId: string;
     readonly key: string;
     readonly workerId: string;
@@ -95,15 +96,19 @@ export async function createSquadChild(
   binding: RepoCellBinding,
   authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => Promise<RepoCellBinding>,
 ): Promise<string> {
-  const parent = cell.projection.read(child.parentTaskId),
-    parentPlan = parent.packagePath
-      ? (cell.projection.readDocument(`${parent.packagePath}/task_plan.md`).document?.body ?? null)
-      : null;
+  const parentPlan = child.parentTaskId
+    ? (() => {
+        const parent = cell.projection.read(child.parentTaskId!);
+        return parent.packagePath
+          ? (cell.projection.readDocument(`${parent.packagePath}/task_plan.md`).document?.body ?? null)
+          : null;
+      })()
+    : null;
   const action = {
       kind: "task-create",
       squadRunId: child.squadRunId,
       title: `Squad assignment for ${child.workerId}`,
-      parentTaskId: child.parentTaskId,
+      ...(child.parentTaskId ? { parentTaskId: child.parentTaskId } : {}),
       idempotencyKey: child.key,
       surfaces: child.ownedPaths,
       plan: deriveSquadChildPlan(parentPlan, child.prompt),
@@ -122,7 +127,7 @@ export async function createSquadChild(
 export async function publishSquadChildDocument(
   cell: RepoCellActionContext,
   document: {
-    readonly parentTaskId: string;
+    readonly parentTaskId: string | null;
     readonly squadRunId: string;
     readonly taskId: string;
     readonly path: string;
@@ -134,7 +139,7 @@ export async function publishSquadChildDocument(
   const projected = cell.projection.readDocument(document.path).document;
   if (projected?.body === document.body) return;
   const lease =
-      runtimeSessionIdFromActor(binding.actor) === null
+      runtimeSessionIdFromActor(binding.actor) === null || document.parentTaskId === null
         ? null
         : cell.projection.currentLease(document.parentTaskId, cell.now()),
     sha256 = sha256Text(document.body),
