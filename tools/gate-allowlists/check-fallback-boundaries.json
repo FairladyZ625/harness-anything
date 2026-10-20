@@ -2,8 +2,14 @@
  "schema": "harness-anything/gate-allowlist/v1",
  "gateId": "check-fallback-boundaries",
  "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
- "rationales": {
-  "packages/daemon/src/fleet/replica-sync.ts#confirm": {
+  "rationales": {
+   "packages/daemon/src/task-review-dispatch.ts#dispatchSchemaMigrationReview": {
+    "task": "task_95e4e53e388b83bcb2bb7f68ed",
+    "decision": null,
+    "errors": "runtime spawn launch failures after durable authorization",
+    "reason": "The schema-migration review lane mirrors spawnCutReviewDispatch's one-answer failure shape: a launch failure lands as the lane's own failed step with the idempotent ha task dispatch-review retry lane; the durable forward/amend write is never undone and the primary cut-review dispatch is never disturbed. Same consumeKnownError contract as the two sibling entries in this file."
+   },
+   "packages/daemon/src/fleet/replica-sync.ts#confirm": {
    "task": "task_aceaabaedfedcf9cb062ccf883",
    "decision": "dec_9284BD6119D453EEECEED62450",
    "errors": "any onConfirmed failure (edge runtime reconcile)",
@@ -201,6 +207,7 @@
    "packages/daemon/src/squad-coordinator.ts#settleEndedAssignments",
    "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
    "packages/daemon/src/task-index-query.ts#decodeCursor",
+   "packages/daemon/src/task-review-dispatch.ts#dispatchSchemaMigrationReview",
    "packages/daemon/src/task-review-dispatch.ts#dispatchTaskReview",
    "packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch",
    "packages/daemon/src/task-witness-runner.ts#runCompletionSources",
