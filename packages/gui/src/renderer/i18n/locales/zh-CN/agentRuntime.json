@@ -755,5 +755,7 @@
   "agentRuntime.squadRunLastReport": "最后报告",
   "agentRuntime.daemonTransientRetry": "中心正在换版/暂不可用，请稍后重试。",
   "agentRuntime.loadMoreSessions": "加载更多会话",
-  "agentRuntime.loadingMoreSessions": "正在加载更多会话…"
+  "agentRuntime.loadingMoreSessions": "正在加载更多会话…",
+  "agentRuntime.copyThinking": "复制思考过程",
+  "agentRuntime.copyThinkingTip": "复制完整思考原文"
 }

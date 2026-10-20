@@ -21,6 +21,10 @@ import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
 import { CompletedDivider } from "../primitives/CompletedDivider.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
+import { CacheTimer } from "../agent-ui/CacheTimer.tsx";
+import { ContextMeter, type ContextSegment } from "../agent-ui/ContextMeter.tsx";
+import { computePromptCacheTtlState } from "../../model/smart-attention.ts";
+import { sessionGroupAttention } from "../../sessions-model.ts";
 import type { DecisionReviewRound } from "../../model/decision-review.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
 import { dispatchStatusText, VerdictBadge } from "../decisionReview/parts.tsx";
@@ -77,6 +81,9 @@ export function SessionGroupList({
   workExpandedKeys,
   onToggleWork,
   railHeader,
+  sessionTouches,
+  attentionRefs,
+  nowMs,
 }: {
   readonly groups: readonly SessionGroup[];
   readonly pending?: boolean;
@@ -101,6 +108,9 @@ export function SessionGroupList({
   readonly onToggleWork?: (key: string) => void;
   /** 列表顶部常驻条(钻入面包屑);随列表滚动吸顶。 */
   readonly railHeader?: ReactNode;
+  readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly attentionRefs?: ReadonlySet<string>;
+  readonly nowMs?: number;
 }) {
   const scrollRef = useRef<HTMLElement | null>(null);
   // 工作层把「工作头 + 已展开工作的任务组」摊平成同一份虚拟行;任务组仍是原来的
@@ -192,6 +202,9 @@ export function SessionGroupList({
                     onOpenTask={onOpenTask}
                     onSelectEntity={onSelectEntity}
                     onDrill={onDrill}
+                    sessionTouches={sessionTouches}
+                    attentionRefs={attentionRefs}
+                    nowMs={nowMs}
                   />
                 )}
               </div>
@@ -297,6 +310,9 @@ const GroupSection = memo(function GroupSection({
   onOpenTask,
   onSelectEntity,
   onDrill,
+  sessionTouches,
+  attentionRefs,
+  nowMs = Date.now(),
 }: {
   readonly group: SessionGroup;
   /** 工作层子行:缩进 + 连续细竖线,和工作头形成父子关系。 */
@@ -312,6 +328,9 @@ const GroupSection = memo(function GroupSection({
   readonly onOpenTask: (taskId: string) => void;
   readonly onSelectEntity: (ref: string) => void;
   readonly onDrill: ((target: SessionDrillTarget) => void) | undefined;
+  readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly attentionRefs?: ReadonlySet<string>;
+  readonly nowMs?: number;
 }) {
   const decisionGroup = group.kind === "decision" && group.decisionId !== undefined,
     expandable = (group.kind === "task" && group.taskId !== undefined) || decisionGroup,
@@ -331,10 +350,19 @@ const GroupSection = memo(function GroupSection({
     group.kind === "unattributed"
       ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
       : (decisionRows?.title ?? group.label);
+  const groupTouch = group.latestRound?.runtimeSessionId
+    ? (sessionTouches?.get(group.latestRound.runtimeSessionId) ?? null)
+    : null;
+  const groupAttention = sessionGroupAttention(
+    group,
+    attentionRefs ?? new Set(),
+    groupTouch !== null ? [groupTouch] : [],
+    nowMs,
+  );
   const headerBody = (
     <DenseRow
       index={expandable ? (open ? "▾" : "▸") : drill !== null ? "›" : undefined}
-      tag={<SessionStatusTag status={group.latestStatus} />}
+      tag={<SessionStatusTag status={group.latestStatus} needsYou={groupAttention.needsYou} />}
       title={<span className="font-semibold">{headerLabel}</span>}
       hoverTitle={group.kind === "unattributed" ? undefined : headerLabel}
       reason={[
@@ -351,6 +379,15 @@ const GroupSection = memo(function GroupSection({
       ]
         .filter(Boolean)
         .join(" · ")}
+      action={
+        groupAttention.cacheTtl != null ? (
+          <CacheTimer
+            state={groupAttention.cacheTtl.kind}
+            remainingMs={groupAttention.cacheTtl.remainingMs}
+            testId={`group-cache-timer-${group.key}`}
+          />
+        ) : undefined
+      }
       relaxed
     />
   );
@@ -390,6 +427,9 @@ const GroupSection = memo(function GroupSection({
           decisionId={group.decisionId}
           rows={decisionRows}
           selectedId={selectedId}
+          sessionTouches={sessionTouches}
+          attentionRefs={attentionRefs}
+          nowMs={nowMs}
           onSelectEntity={onSelectEntity}
         />
       )}
@@ -413,6 +453,9 @@ const GroupSection = memo(function GroupSection({
                 key={row.dispatchId}
                 row={row}
                 selected={selectedId === row.runtimeSessionId}
+                sessionTouches={sessionTouches}
+                attentionRefs={attentionRefs}
+                nowMs={nowMs}
                 onSelectSession={onSelectSession}
               />
             ))}
@@ -423,6 +466,9 @@ const GroupSection = memo(function GroupSection({
                 key={row.runtimeSessionId}
                 row={row}
                 selected={selectedId === row.runtimeSessionId}
+                sessionTouches={sessionTouches}
+                attentionRefs={attentionRefs}
+                nowMs={nowMs}
                 onSelectSession={onSelectSession}
               />
             ))}
@@ -438,6 +484,9 @@ const GroupSection = memo(function GroupSection({
                     key={row.dispatchId}
                     row={row}
                     selected={selectedId === row.runtimeSessionId}
+                    sessionTouches={sessionTouches}
+                    attentionRefs={attentionRefs}
+                    nowMs={nowMs}
                     onSelectSession={onSelectSession}
                   />
                 ))}
@@ -448,6 +497,9 @@ const GroupSection = memo(function GroupSection({
                     key={row.runtimeSessionId}
                     row={row}
                     selected={selectedId === row.runtimeSessionId}
+                    sessionTouches={sessionTouches}
+                    attentionRefs={attentionRefs}
+                    nowMs={nowMs}
                     onSelectSession={onSelectSession}
                   />
                 ))}
@@ -517,25 +569,39 @@ function roundMatchesQuery(row: SessionRound, terms: readonly string[]): boolean
 function RoundRow({
   row,
   selected,
+  sessionTouches,
+  attentionRefs,
+  nowMs = Date.now(),
   onSelectSession,
 }: {
   readonly row: SessionRound;
   readonly selected: boolean;
+  readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly attentionRefs?: ReadonlySet<string>;
+  readonly nowMs?: number;
   readonly onSelectSession: (runtimeSessionId: string) => void;
 }) {
   const meta = [row.agentName, row.classification, row.nextAction, row.delegation].filter(Boolean).join(" · ");
+  const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
+  const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
+  const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
+  const segments: readonly ContextSegment[] = [
+    { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 },
+  ];
+
   return (
     <button
       type="button"
-      className="w-full text-left hover:bg-text/5"
+      className={`w-full text-left hover:bg-text/5 ${needsYou ? "border-l-2 border-agent-question" : ""}`}
       data-testid={`rail-session-${row.runtimeSessionId}`}
+      data-needs-you={needsYou ? "true" : undefined}
       aria-current={selected}
       onClick={() => onSelectSession(row.runtimeSessionId)}
     >
       <DenseRow
         tag={
           <span data-testid={`runtime-outcome-${row.runtimeSessionId}`}>
-            <SessionStatusTag status={row.status} />
+            <SessionStatusTag status={row.status} needsYou={needsYou} />
           </span>
         }
         title={t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex })}
@@ -543,6 +609,24 @@ function RoundRow({
           meta === "" ? undefined : <span data-testid={`runtime-classification-${row.runtimeSessionId}`}>{meta}</span>
         }
         time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+        action={
+          <div className="flex items-center gap-1.5" data-testid={`session-card-meters-${row.runtimeSessionId}`}>
+            {cacheTtl != null && (
+              <CacheTimer
+                state={cacheTtl.kind}
+                remainingMs={cacheTtl.remainingMs}
+                testId={`session-card-cache-timer-${row.runtimeSessionId}`}
+              />
+            )}
+            <div className="w-20 shrink-0">
+              <ContextMeter
+                segments={segments}
+                limitTokens={200_000}
+                testId={`session-card-context-meter-${row.runtimeSessionId}`}
+              />
+            </div>
+          </div>
+        }
         hoverTitle={[meta, row.runtimeSessionId].filter(Boolean).join(" · ")}
         selected={selected}
       />
@@ -553,25 +637,57 @@ function RoundRow({
 function OrphanRow({
   row,
   selected,
+  sessionTouches,
+  attentionRefs,
+  nowMs = Date.now(),
   onSelectSession,
 }: {
   readonly row: SessionOrphan;
   readonly selected: boolean;
+  readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly attentionRefs?: ReadonlySet<string>;
+  readonly nowMs?: number;
   readonly onSelectSession: (runtimeSessionId: string) => void;
 }) {
+  const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
+  const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
+  const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
+  const segments: readonly ContextSegment[] = [
+    { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 },
+  ];
+
   return (
     <button
       type="button"
-      className="w-full text-left hover:bg-text/5"
+      className={`w-full text-left hover:bg-text/5 ${needsYou ? "border-l-2 border-agent-question" : ""}`}
       data-testid={`rail-session-${row.runtimeSessionId}`}
+      data-needs-you={needsYou ? "true" : undefined}
       aria-current={selected}
       onClick={() => onSelectSession(row.runtimeSessionId)}
     >
       <DenseRow
-        tag={<SessionStatusTag status={row.status} />}
+        tag={<SessionStatusTag status={row.status} needsYou={needsYou} />}
         title={row.instanceId}
         reason={t("agentRuntime.sessionsNoDispatch", { count: 1 })}
         time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+        action={
+          <div className="flex items-center gap-1.5" data-testid={`session-card-meters-${row.runtimeSessionId}`}>
+            {cacheTtl != null && (
+              <CacheTimer
+                state={cacheTtl.kind}
+                remainingMs={cacheTtl.remainingMs}
+                testId={`session-card-cache-timer-${row.runtimeSessionId}`}
+              />
+            )}
+            <div className="w-20 shrink-0">
+              <ContextMeter
+                segments={segments}
+                limitTokens={200_000}
+                testId={`session-card-context-meter-${row.runtimeSessionId}`}
+              />
+            </div>
+          </div>
+        }
         selected={selected}
       />
     </button>
@@ -596,7 +712,16 @@ const statusTones: Record<SessionStatus, StatusTone> = {
   stopped: "neutral",
   blocked: "bad",
 };
-function SessionStatusTag({ status }: { readonly status: SessionStatus }) {
+function SessionStatusTag({
+  status,
+  needsYou = false,
+}: {
+  readonly status: SessionStatus;
+  readonly needsYou?: boolean;
+}) {
+  if (needsYou) {
+    return <StatusTag tone="agent-question" label={t("agentRuntime.smartClassNeedsYou")} />;
+  }
   return <StatusTag tone={statusTones[status]} label={t(sessionStatusKey[status] as never)} />;
 }
 
@@ -606,34 +731,71 @@ function DecisionGroupBody({
   decisionId,
   rows,
   selectedId,
+  sessionTouches,
+  attentionRefs,
+  nowMs = Date.now(),
   onSelectEntity,
 }: {
   readonly decisionId: string;
   readonly rows: DecisionGroupRows | undefined;
   readonly selectedId: string | null;
+  readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly attentionRefs?: ReadonlySet<string>;
+  readonly nowMs?: number;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const completed = rows?.rounds?.filter((round) => round.dispatch.status === "succeeded") ?? [];
-  const renderRound = (round: DecisionReviewRound) => (
-    <button
-      type="button"
-      className="w-full text-left hover:bg-text/5"
-      onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
-      key={round.dispatch.dispatchId}
-      data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
-      aria-current={selectedId === round.dispatch.runtimeSessionId}
-    >
-      <DenseRow
-        tag={<SessionStatusTag status={round.dispatch.status} />}
-        title={shortRef(round.dispatch.runtimeSessionId, 18)}
-        hoverTitle={round.dispatch.runtimeSessionId}
-        reason={
-          round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
-        }
-        selected={selectedId === round.dispatch.runtimeSessionId}
-      />
-    </button>
-  );
+  const renderRound = (round: DecisionReviewRound) => {
+    const needsYou = attentionRefs?.has(`decision/${decisionId}`) ?? false;
+    const touch = sessionTouches?.get(round.dispatch.runtimeSessionId) ?? null;
+    const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
+    const segments: readonly ContextSegment[] = [
+      { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 },
+    ];
+
+    return (
+      <button
+        type="button"
+        className={`w-full text-left hover:bg-text/5 ${needsYou ? "border-l-2 border-agent-question" : ""}`}
+        onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
+        key={round.dispatch.dispatchId}
+        data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
+        data-needs-you={needsYou ? "true" : undefined}
+        aria-current={selectedId === round.dispatch.runtimeSessionId}
+      >
+        <DenseRow
+          tag={<SessionStatusTag status={round.dispatch.status} needsYou={needsYou} />}
+          title={shortRef(round.dispatch.runtimeSessionId, 18)}
+          hoverTitle={round.dispatch.runtimeSessionId}
+          reason={
+            round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
+          }
+          action={
+            <div
+              className="flex items-center gap-1.5"
+              data-testid={`session-card-meters-${round.dispatch.runtimeSessionId}`}
+            >
+              {cacheTtl != null && (
+                <CacheTimer
+                  state={cacheTtl.kind}
+                  remainingMs={cacheTtl.remainingMs}
+                  testId={`session-card-cache-timer-${round.dispatch.runtimeSessionId}`}
+                />
+              )}
+              <div className="w-20 shrink-0">
+                <ContextMeter
+                  segments={segments}
+                  limitTokens={200_000}
+                  testId={`session-card-context-meter-${round.dispatch.runtimeSessionId}`}
+                />
+              </div>
+            </div>
+          }
+          selected={selectedId === round.dispatch.runtimeSessionId}
+        />
+      </button>
+    );
+  };
   return (
     <div
       id={`session-group-body-${decisionId}`}

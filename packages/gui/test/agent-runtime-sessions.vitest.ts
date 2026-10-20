@@ -296,9 +296,42 @@ describe("session transcript replay", () => {
     expect(turns[0]?.items.map((item) => item.type)).toEqual(["thinking", "tool_call", "tool_result"]);
     expect(turns[1]?.items.map((item) => item.type)).toEqual(["thinking", "text"]);
     expect(markup.match(/data-testid="session-transcript-turn"/gu)).toHaveLength(2);
-    expect(markup).toContain("Tool call");
-    expect(markup).toContain("Tool result");
+    expect(markup).toContain("Read");
+    expect(markup).toContain('data-testid="toolcall-card"');
     expect(markup).toContain("Task complete.");
+    expect(markup).not.toContain("<pre");
+  });
+
+  it("renders consecutive tool calls in a ToolCallGroup", () => {
+    const recordsWithMultipleTools = [
+      {
+        kind: "provider_event",
+        occurredAt: "2026-08-26T05:02:10.000Z",
+        event: {
+          type: "assistant",
+          message: {
+            id: "msg-multi-tool",
+            content: [
+              { type: "tool_use", id: "call_1", name: "read_file", input: { path: "a.ts" } },
+              { type: "tool_use", id: "call_2", name: "read_file", input: { path: "b.ts" } },
+            ],
+          },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-08-26T05:02:11.000Z",
+        event: { type: "result", tool_use_id: "call_1", result: "content a" },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-08-26T05:02:12.000Z",
+        event: { type: "result", tool_use_id: "call_2", result: "content b" },
+      },
+    ] as const;
+    const turns = sessionTranscriptTurns(recordsWithMultipleTools);
+    const markup = renderToStaticMarkup(createElement(SessionTranscriptTurns, { turns }));
+    expect(markup).toContain('data-testid="toolcall-group"');
   });
 
   it("completes earlier Claude turns and fails only the turn closed by an error result", () => {
