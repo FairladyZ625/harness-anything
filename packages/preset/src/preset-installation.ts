@@ -185,7 +185,10 @@ export function migrateCompletion(input: {
     decodePresetPackageV3(candidate);
     if (!input.dryRun) {
       if (!input.destination) throw new Error("Package conversion requires --destination <new-directory>.");
-      mkdirSync(input.destination);
+      // Node 24.22+ rejects cpSync into an existing directory even when it is empty and
+      // errorOnExist only intends to protect files. Refuse an occupied destination here,
+      // then let cpSync create it so the copy stays portable across Node 24 minors.
+      if (existsSync(input.destination)) throw new Error(`Migration destination already exists: ${input.destination}`);
       cpSync(candidate, input.destination, { recursive: true, errorOnExist: true, force: false });
     }
     return {
