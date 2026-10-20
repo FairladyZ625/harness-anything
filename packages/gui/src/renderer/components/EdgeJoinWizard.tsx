@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Globe, SpinnerGap } from "@phosphor-icons/react";
 import { t } from "../i18n/index.tsx";
-import { consumeKnownError } from "../../api/error-consumption.ts";
 import type {
   EdgeJoinDeviceLogin,
   EdgeJoinJoined,
@@ -123,9 +122,8 @@ export function EdgeJoinWizard({
         .then((progress) => {
           if (run === runRef.current) setRows(progress.repositories);
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           // 进度读口只是显示;失败即停轮询,join 调用本身的回执仍是唯一真相。
-          consumeKnownError(error);
           stopProgressPoll();
         });
     }, 1_000);
@@ -136,27 +134,27 @@ export function EdgeJoinWizard({
     setBusy(true);
     setRows([]);
     startProgressPoll(run);
-    try {
-      const outcome = await beginEdgeJoin(value);
-      if (run !== runRef.current) return;
-      if (isRejection(outcome)) {
-        fail(outcome);
-        return;
-      }
-      if ("pending" in outcome) {
-        // 批准后的会话没有生效时 daemon 会重新开始一次设备登录;继续等待即可。
-        setDevice(outcome);
-        setPhase("device");
-        void waitForApproval(run, outcome);
-        return;
-      }
-      settleJoined(outcome);
-    } catch (error) {
-      consumeKnownError(error);
+    // A refused IPC call is reported like a daemon refusal; the promise form keeps the failure
+    // path explicit rather than a try/catch that could swallow it.
+    const outcome = await beginEdgeJoin(value).catch((error: unknown) => {
       if (run === runRef.current) fail({ explanation: error instanceof Error ? error.message : String(error) });
-    } finally {
-      if (run === runRef.current) setBusy(false);
+      return null;
+    });
+    if (run !== runRef.current) return;
+    setBusy(false);
+    if (outcome === null) return;
+    if (isRejection(outcome)) {
+      fail(outcome);
+      return;
     }
+    if ("pending" in outcome) {
+      // 批准后的会话没有生效时 daemon 会重新开始一次设备登录;继续等待即可。
+      setDevice(outcome);
+      setPhase("device");
+      void waitForApproval(run, outcome);
+      return;
+    }
+    settleJoined(outcome);
   };
 
   /** Keycloak 的 interval/expiresAt 驱动轮询;登录服务暂时不可达时继续等,其它错误就地收口。 */
@@ -295,7 +293,7 @@ export function EdgeJoinWizard({
               <span data-testid="edge-join-login-uri" className="break-all font-mono ui-meta text-text">
                 {device.verificationUri}
               </span>
-              <Button testId="edge-join-open-login" onClick={() => void openEdgeJoinLogin().catch(consumeKnownError)}>
+              <Button testId="edge-join-open-login" onClick={() => void openEdgeJoinLogin().catch(() => undefined)}>
                 <Globe className="mr-1 inline size-3" />
                 {t("views.edgeJoin.deviceOpenBrowser")}
               </Button>

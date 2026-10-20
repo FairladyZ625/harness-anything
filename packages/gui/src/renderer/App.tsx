@@ -98,7 +98,6 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
-
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
   // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):本窗口若是「在新窗口打开」
