@@ -1,6 +1,6 @@
 import type { DaemonTaskDispatchesPayload } from "./protocol/daemon-protocol-gui-types.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
-import { decisionReadSurfaces } from "@harness-anything/kernel";
+import { decisionReadSurfaces } from "@harness-anything/kernel/browser";
 
 export function agendaQueryFromPayload(
   context: RepoCellApiContext,

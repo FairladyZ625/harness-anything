@@ -8,7 +8,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
-import { decisionReadSurfaces } from "@harness-anything/kernel";
+import { decisionReadSurfaces } from "@harness-anything/kernel/browser";
 
 // Real center projection + local-only annotations + authenticated edge JSON-RPC read.
 test(

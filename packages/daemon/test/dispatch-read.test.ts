@@ -5,12 +5,8 @@ import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  decisionReadSurfaces,
-  type AgentRuntimeEventV1,
-  type RuntimeSession,
-  type TaskProjection,
-} from "@harness-anything/kernel";
+import { type AgentRuntimeEventV1, type RuntimeSession, type TaskProjection } from "@harness-anything/kernel";
+import { decisionReadSurfaces } from "@harness-anything/kernel/browser";
 import {
   readRuntimeAttemptChain,
   readSessionGroupDispatches,

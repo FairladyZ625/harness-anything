@@ -1,5 +1,5 @@
 import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
-import { decisionReadSurfaces } from "@harness-anything/kernel";
+import { decisionReadSurfaces } from "@harness-anything/kernel/browser";
 import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
