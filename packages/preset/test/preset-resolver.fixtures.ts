@@ -28,7 +28,7 @@ export function makeFixture() {
         {
           id: "baseline",
           title: "Baseline",
-          completionGates: ["ci", "code-doc-reconciliation"],
+          completionGates: ["code-doc-reconciliation"],
           templateSelections: [],
         },
       ],
@@ -51,11 +51,7 @@ export function makeFixture() {
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
-export function writePackage(
-  root: string,
-  id: string,
-  extra: Record<string, unknown> = {},
-): void {
+export function writePackage(root: string, id: string, extra: Record<string, unknown> = {}): void {
   const identity = extra.kind === "agent" || extra.kind === "squad",
     taskShape = identity
       ? {}
@@ -91,10 +87,7 @@ export function writePackage(
     `---\nschema: preset-document/v1\ndescription: ${id}\nwhenToUse: Test ${id}.\n---\n# ${id}\n`,
   );
 }
-export function templateCatalog(
-  documents: readonly Record<string, unknown>[],
-  id = "fixture",
-) {
+export function templateCatalog(documents: readonly Record<string, unknown>[], id = "fixture") {
   return {
     schema: "template-catalog/v2",
     package: {

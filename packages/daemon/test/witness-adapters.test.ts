@@ -16,7 +16,11 @@ import {
   type FrozenGateRequirement,
 } from "@harness-anything/kernel";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
-import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import {
+  completionSnapshot,
+  emptyCompletionContract,
+  retiredHostedCiSource,
+} from "../../kernel/test/domain/completion.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
@@ -63,7 +67,7 @@ const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
   witness: {
-    ...completionSnapshot.completion.sources["github-actions"],
+    ...retiredHostedCiSource,
     adapterId: "github-actions",
     adapterOptions: {
       workflows: ["rewrite-ci"],

@@ -19,8 +19,6 @@ const owner = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
   "admin",
 ) as const;
-const githubCiMapping =
-  "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";
 
 const git = (rootDir: string, ...args: readonly string[]): string =>
   execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -68,10 +66,7 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
   git(rootDir, "config", "user.email", "repo-cell@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    `settings:\n  ci:\n    workflows: [rework-ci]\n${githubCiMapping}`,
-  );
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), `settings:\n`);
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: name });
   const reader = makeTaskEventReader({ repoId, rootDir });
   try {

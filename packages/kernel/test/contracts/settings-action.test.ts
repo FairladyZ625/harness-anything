@@ -41,8 +41,6 @@ test("Settings updates preserve unrelated authored YAML bytes", () => {
       "layout:",
       "  authoredRoot: harness",
       "settings:",
-      "  ci:",
-      "    workflows: [rewrite-ci]",
       '  defaultVertical: "software/coding"',
       "  defaultPreset: standard-task",
       "  defaultProfile: baseline",
@@ -90,10 +88,8 @@ test("Settings arrays are written in their declared YAML sequence styles", () =>
   const settings = repositorySettings(readSettingsFacet(documentBody)),
     written = writeRepositorySettingsFacet(documentBody, {
       ...settings,
-      ci: { workflows: ["ci", "nightly"] },
       worktree: { setup: ["node-modules", "run: npm run build"] },
     });
-  assert.match(written, /workflows: \[ci, nightly\]/u);
   assert.match(written, /setup:\n      - node-modules\n      - run: npm run build/u);
 });
 
@@ -311,33 +307,6 @@ test("Settings update hydrates the default when the projected event predates rev
   assert.equal(draft.result.bundle.event.payload.settings.reviewIndependence, "principal");
 });
 
-test("Settings update writes the repository CI workflow names through the canonical event", () => {
-  const draft = compile({ ciWorkflows: ["ci", "nightly"] });
-  assert.equal(draft.kind, "settings");
-  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
-  assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, ["ci", "nightly"]);
-  assert.equal(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows.join(","), "ci,nightly");
-  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
-});
-
-test("Settings update clears CI witnessing through an empty workflow list", () => {
-  const draft = compile({ ciWorkflows: [] }, witnessed());
-  assert.equal(draft.kind, "settings");
-  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
-  assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, []);
-  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows, []);
-  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
-});
-
-test("Settings update maps the CLI none sentinel to the CI-witnessing opt-out", () => {
-  const draft = compile({ ciWorkflows: ["none"] }, witnessed());
-  assert.equal(draft.kind, "settings");
-  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
-  assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, []);
-  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows, []);
-  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
-});
-
 test("Settings update persists closeout profile and individual overrides", () => {
   const draft = compile({ closeoutProfile: "strict", closeoutReview: false, closeoutCodeDoc: true });
   assert.equal(draft.kind, "settings");
@@ -355,13 +324,9 @@ test("Settings update persists closeout profile and individual overrides", () =>
 test("Settings update mints gate mappings into the entity and rewrites the authored gates facet", () => {
   const gates = [
       {
-        gateId: "ci",
-        adapter: "github-actions",
+        gateId: "lint",
+        adapter: "research/check",
         appliesTo: "code",
-        branch: "main",
-        event: "push",
-        coverage: "descendant",
-        selection: "newest",
       },
       { gateId: "code-doc-reconciliation", adapter: "none" },
     ],
@@ -370,7 +335,7 @@ test("Settings update mints gate mappings into the entity and rewrites the autho
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
   assert.deepEqual(draft.result.bundle.event.payload.settings.gates, gates);
   const body = draft.result.bundle.blobs[0].body;
-  assert.match(body, /  gates:\n    ci:\n      adapter: github-actions\n/u);
+  assert.match(body, /  gates:\n    lint:\n      adapter: research\/check\n/u);
   assert.match(body, /    code-doc-reconciliation: none\n/u);
   assert.deepEqual(readSettingsFacet(body).gates, gates);
   assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
@@ -462,16 +427,6 @@ test("Settings update rejects malformed gate mappings", () => {
   }
 });
 
-test("Settings update rejects malformed CI workflow name lists", () => {
-  for (const ciWorkflows of [["ci", "ci"], ["ci.yml"], ["ci.yaml"], [""]]) {
-    assert.throws(
-      () => compile({ ciWorkflows }),
-      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
-      JSON.stringify(ciWorkflows),
-    );
-  }
-});
-
 test("Settings expectedVersion rejects a stale edge update with a typed error", () => {
   assert.throws(
     () => compile({ reviewReturnBudget: 5, expectedVersion: 6 }),
@@ -531,6 +486,22 @@ test("settings update field surface has one source: the catalog input is the exp
   assert.ok(names.has("wipLimit"));
   assert.ok(names.has("rootThreshold"));
   assert.ok(names.has("worktreeSetup"));
+});
+
+test("retired CI and worker permission leaves are absent from the settings contract", () => {
+  const paths = SETTINGS_FIELD_DECLARATIONS.map(({ path }) => path.join("."));
+  for (const retired of [
+    "workerPermissions.ciRead",
+    "workerPermissions.artifactRead",
+    "workerPermissions.push",
+    "workerPermissions.pullRequest",
+    "workerPermissions.merge",
+    "workerPermissions.repositorySettings",
+    "workerPermissions.gitlab",
+    "delivery.platform",
+    "ci.workflows",
+  ])
+    assert.equal(paths.includes(retired), false, `${retired} must not be exposed as a setting`);
 });
 
 test("Settings update writes positive task WIP and root thresholds", () => {
@@ -598,7 +569,7 @@ test("Settings update rejects invalid or duplicate worktree setup steps", () => 
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
   const populated = repositorySettings(
     readSettingsFacet(
-      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  decisions:\n    provider: dp-openrouter-mercury\n    enabledPoints: [dispatch-stop-reason@0123456789ab]\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n`,
+      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  decisions:\n    provider: dp-openrouter-mercury\n    enabledPoints: [dispatch-stop-reason@0123456789ab]\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n`,
     ),
   );
   const values = repositorySettingsActionValues(populated),
@@ -625,17 +596,8 @@ test("repositorySettingsActionValues covers every repository field for a fully p
   );
 });
 
-/** Clearing is only a change for a repository that already witnesses CI runs. */
-function witnessed(): { readonly currentEntity: unknown; readonly currentDocumentBody: string } {
-  const body = `${documentBody}  ci:\n    workflows: [ci]\n`;
-  return { currentEntity: repositorySettings(readSettingsFacet(body)), currentDocumentBody: body };
-}
-
-/** A repository whose authored document already declares a github-actions mapping for `ci`. */
+/** A repository whose authored document already declares a local command mapping for `lint`. */
 function gatedFixture(): { readonly currentEntity: unknown; readonly currentDocumentBody: string } {
-  const body =
-    `${documentBody}  ci:\n    workflows: [ci]\n` +
-    "  gates:\n    ci:\n      adapter: github-actions\n      appliesTo: code\n      branch: main\n" +
-    "      event: push\n      coverage: descendant\n      selection: newest\n";
+  const body = `${documentBody}  gates:\n    lint:\n      adapter: research/check\n      appliesTo: code\n`;
   return { currentEntity: repositorySettings(readSettingsFacet(body)), currentDocumentBody: body };
 }

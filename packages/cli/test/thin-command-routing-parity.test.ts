@@ -204,16 +204,6 @@ test("an unknown command domain reports unknown with the available set instead o
   assert.match(logs[0] ?? "", /migrate ledger/u);
 });
 
-test("settings update projects repeatable CI workflow flags into the daemon Action", () => {
-  const parsed = parseThinCommand(["settings", "update", "--ci-workflows", "ci", "--ci-workflows", "nightly"]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.deepEqual(parsed.command.action, { kind: "settings-update", ciWorkflows: ["ci", "nightly"] });
-  // .yml suffixes pass the identifier regex here and are rejected by the kernel compiler.
-  const rejected = parseThinCommand(["settings", "update", "--ci-workflows", "bad name"]);
-  assert.equal(rejected.ok, false);
-});
-
 test("repo lifecycle commands validate cache and destructive purge inputs", () => {
   const backup = path.join(tmpdir(), `ha-purge-all-${process.pid}-${Date.now()}`);
   const unbind = parseThinCommand(["repo", "unbind", "canonical"]),
@@ -550,7 +540,13 @@ test("capabilities is an exact-set projection of the command contract", () => {
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: ["migrate-completion", "migrate-import", "migrate-ledger", "vertical-declaration-migrate"],
+    migrate: [
+      "migrate-completion",
+      "migrate-import",
+      "migrate-ledger",
+      "migrate-settings",
+      "vertical-declaration-migrate",
+    ],
     preset: [
       "preset-audit",
       "preset-check",

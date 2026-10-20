@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { completionSnapshot, emptyCompletionContract } from "../domain/completion.fixtures.ts";
+import { emptyCompletionContract, retiredHostedCiSource } from "../domain/completion.fixtures.ts";
 import test from "node:test";
 import { makeOfflineCompletionChain } from "../../src/store/offline-completion-chain.ts";
 import { claimGateRun } from "../../src/domain/gate-run.ts";
@@ -102,7 +102,7 @@ function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]
             gateId,
             appliesTo: "code" as const,
             witness: {
-              ...completionSnapshot.completion.sources["github-actions"],
+              ...retiredHostedCiSource,
               adapterId: "github-actions" as const,
               adapterOptions: {
                 workflows: ["rewrite-ci"],
@@ -455,7 +455,7 @@ function legacyCompletion() {
         gateId: "ci",
         appliesTo: "code" as const,
         witness: {
-          ...completionSnapshot.completion.sources["github-actions"],
+          ...retiredHostedCiSource,
           adapterId: "github-actions" as const,
           adapterOptions: {
             workflows: ["rewrite-ci"],
@@ -590,7 +590,7 @@ test("offline conversion freezes pre-freeze submissions before replaying histori
           gateId: "ci",
           appliesTo: "code" as const,
           witness: {
-            ...completionSnapshot.completion.sources["github-actions"],
+            ...retiredHostedCiSource,
             adapterId: "github-actions" as const,
             adapterOptions: {
               workflows: ["rewrite-ci"],
@@ -771,7 +771,7 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
       gateId: "ci",
       appliesTo: "code" as const,
       witness: {
-        ...completionSnapshot.completion.sources["github-actions"],
+        ...retiredHostedCiSource,
         adapterId: "github-actions" as const,
         adapterOptions: {
           workflows: ["rewrite-ci"],

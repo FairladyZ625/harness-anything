@@ -266,6 +266,7 @@ export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts"
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { VerticalCompletionDeclaration } from "./domain/completion-source.ts";
 export { VerticalCompletionDeclarationSchema } from "./schemas/completion-source.ts";
+export { migrateRetiredSettingsCandidate } from "./domain/settings.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {
   decodeVerticalDefinition,

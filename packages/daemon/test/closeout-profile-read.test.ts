@@ -214,7 +214,7 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
   const merge = git(root, "rev-parse", "HEAD"),
     shape = (outputShape: string) => ({
       getEntity: () => ({
-        value: { delivery: { ...INITIAL_SETTINGS_V1.delivery, targetBranch: "release", platform: "gitlab" } },
+        value: { delivery: { ...INITIAL_SETTINGS_V1.delivery, targetBranch: "release" } },
       }),
       readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape } } }),
     }),
@@ -224,7 +224,7 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
     code = codeDelivery(strictSubmitted, merge, merge);
 
   git(root, "update-ref", "refs/remotes/origin/release", merge);
-  assert.deepEqual(read(code), { required: true, merged: true, targetBranch: "release", platform: "gitlab" });
+  assert.deepEqual(read(code), { required: true, merged: true, targetBranch: "release" });
 
   git(root, "update-ref", "refs/remotes/origin/release", base);
   assert.equal(read(code).merged, false, "a known target that does not contain the merge commit is unmerged");

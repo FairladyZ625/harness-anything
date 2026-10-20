@@ -6,8 +6,6 @@
 # appliesTo: submission 对每个提交 cut 都生效，代码与 artifact 交付都可签。
 schema: harness-anything/v1
 settings:
-  ci:
-    workflows: []
   gates:
     code-doc-reconciliation: none
     owner-signoff:

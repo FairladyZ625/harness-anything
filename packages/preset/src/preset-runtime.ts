@@ -293,14 +293,7 @@ export function createRuntime(options: PresetResolverOptions): {
         profile: {
           id: profile.id,
           outputShape: leafManifest.outputShape,
-          // A repository that configures no CI witness workflows cannot satisfy the ci gate;
-          // resolution drops it so the effective gate set (and digest) stays honest.
-          completionGateIds:
-            options.ciWorkflows !== undefined && options.ciWorkflows.length === 0
-              ? profile.completionGates.filter(
-                  (gateId) => completion.sources[completion.gates[gateId]?.source ?? ""]?.kind !== "github-actions",
-                )
-              : profile.completionGates,
+          completionGateIds: profile.completionGates,
           ...(profile.closeoutOverrides === undefined ? {} : { closeoutOverrides: profile.closeoutOverrides }),
           ...(profile.archiveOnComplete === undefined ? {} : { archiveOnComplete: profile.archiveOnComplete }),
         },

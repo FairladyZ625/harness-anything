@@ -30,8 +30,6 @@ export interface PresetResolverOptions {
   readonly projectRoot?: string;
   /** Repository root for verticals/* asset discovery and the live pull request template. */
   readonly repoRoot?: string;
-  /** Repository settings.ci.workflows; an empty list drops the `ci` completion gate from the resolved profile. */
-  readonly ciWorkflows?: readonly string[];
 }
 
 export interface Candidate {

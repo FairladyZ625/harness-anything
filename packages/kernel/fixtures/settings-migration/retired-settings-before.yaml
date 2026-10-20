@@ -1,0 +1,26 @@
+schema: harness-anything/v1
+settings:
+  workerPermissions:
+    mode: restricted
+    ciRead: true
+    artifactRead: true
+    push: true
+    pullRequest: true
+    merge: true
+    repositorySettings: true
+    gitlab: true
+  delivery:
+    platform: github
+    requireMerged: true
+    targetBranch: release/stable
+  ci:
+    workflows: [rewrite-ci]
+  gates:
+    ci:
+      adapter: github-actions
+      branch: main
+      event: push
+      coverage: descendant
+      selection: newest
+    human-review:
+      adapter: manual-attest

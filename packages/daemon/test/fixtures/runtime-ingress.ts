@@ -38,10 +38,9 @@ export function initIngressRepo(root: string, _uid: number): void {
   git(root, "config", "user.email", "spawn@example.invalid");
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    // ci.workflows stays explicit: the ingress flows under test pull CI observations on submission.
     "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
-      "settings:\n  ci:\n    workflows: [rewrite-ci]\n" +
-      "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n" +
+      "settings:\n" +
+      "" +
       "  runtime:\n    allowedInstances:\n      - codex-review\n      - claude-provider\n      - codex-provider\n      - codex-read-only\n      - claude-resume\n      - codex-resume\n      - codex-cancel\n      - agy-provider\n      - claude-effort-provider\n      - codex-fast-provider\n",
   );
 

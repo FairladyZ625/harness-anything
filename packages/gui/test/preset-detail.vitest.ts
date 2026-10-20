@@ -80,7 +80,6 @@ function seedQueries(client: QueryClient): void {
     verticals: [],
     templates: [],
     scaffolds: { task: [], repository: [] },
-    ciWorkflows: [],
     bundledAgents: [],
     adapters: [],
   });

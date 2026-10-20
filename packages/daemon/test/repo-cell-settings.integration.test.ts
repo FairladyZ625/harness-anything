@@ -41,12 +41,12 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(read.outcome, "applied", JSON.stringify(read));
     const catalogSettings = (
         read as typeof read & {
-          readonly settings?: { readonly locale?: string; readonly ci?: { readonly workflows: readonly string[] } };
+          readonly settings?: Readonly<Record<string, unknown>>;
         }
       ).settings,
       initialRevision = read.revision!;
     assert.equal(catalogSettings?.locale, "en-US");
-    assert.deepEqual(catalogSettings?.ci?.workflows, ["ci"]);
+    assert.equal(Object.hasOwn(catalogSettings ?? {}, "ci"), false);
     // The seeded bootstrap settings_changed event is the only change so far, and its provenance
     // (fixture actor, not the reader) surfaces on the read receipt.
     assert.deepEqual(read.lastChanged, {
@@ -210,78 +210,6 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       /  walFlush:\n    adaptive: true\n    events: 256\n    bytes: 8388608\n    milliseconds: 2000\n/u,
     );
 
-    const ciApplied = await cell.run(
-      {
-        kind: "settings-update",
-        ciWorkflows: ["ci", "nightly"],
-        expectedVersion: budgetApplied.revision,
-        idempotencyKey: "ci-workflows-settings",
-      },
-      binding,
-    );
-    assert.equal(ciApplied.outcome, "applied", JSON.stringify(ciApplied));
-    const ciSettings = (await cell.read("repo.settings.read")) as {
-      readonly settings: { readonly ci: { readonly workflows: readonly string[] } };
-    };
-    assert.deepEqual(ciSettings.settings.ci.workflows, ["ci", "nightly"]);
-    const ciFlushed = await cell.run(
-      { kind: "receipt-show", opId: ciApplied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
-      binding,
-    );
-    assert.equal(ciFlushed.wait?.state, "satisfied", JSON.stringify(ciFlushed));
-    assert.match(readFileSync(configPath, "utf8"), /ci:\n    workflows: \[ci, nightly\]/u);
-
-    const ciCleared = await cell.run(
-      {
-        kind: "settings-update",
-        ciWorkflows: [],
-        expectedVersion: ciApplied.revision,
-        idempotencyKey: "ci-workflows-clear",
-      },
-      binding,
-    );
-    assert.equal(ciCleared.outcome, "applied", JSON.stringify(ciCleared));
-    const clearedSettings = (await cell.read("repo.settings.read")) as {
-      readonly settings: { readonly ci: { readonly workflows: readonly string[] } };
-    };
-    assert.deepEqual(clearedSettings.settings.ci.workflows, []);
-    const clearFlushed = await cell.run(
-      { kind: "receipt-show", opId: ciCleared.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
-      binding,
-    );
-    assert.equal(clearFlushed.wait?.state, "satisfied", JSON.stringify(clearFlushed));
-
-    const ciReconfigured = await cell.run(
-      {
-        kind: "settings-update",
-        ciWorkflows: ["ci"],
-        expectedVersion: ciCleared.revision,
-        idempotencyKey: "ci-workflows-reconfigure",
-      },
-      binding,
-    );
-    assert.equal(ciReconfigured.outcome, "applied", JSON.stringify(ciReconfigured));
-    const noneCleared = await cell.run(
-      {
-        kind: "settings-update",
-        ciWorkflows: ["none"],
-        expectedVersion: ciReconfigured.revision,
-        idempotencyKey: "ci-workflows-none",
-      },
-      binding,
-    );
-    assert.equal(noneCleared.outcome, "applied", JSON.stringify(noneCleared));
-    const noneSettings = (await cell.read("repo.settings.read")) as {
-      readonly settings: { readonly ci: { readonly workflows: readonly string[] } };
-    };
-    assert.deepEqual(noneSettings.settings.ci.workflows, []);
-    const noneFlushed = await cell.run(
-      { kind: "receipt-show", opId: noneCleared.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
-      binding,
-    );
-    assert.equal(noneFlushed.wait?.state, "satisfied", JSON.stringify(noneFlushed));
-    assert.match(readFileSync(configPath, "utf8"), /ci:\n    workflows: \[\]/u);
-
     const beforeLocalRevision = eventStore.readHead()!.revision,
       localApplied = await cell.run(
         { kind: "settings-update", locale: "zh-CN", idempotencyKey: "local-settings-update" },
@@ -319,9 +247,8 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
     // running the write path is how an already-initialized repository declares gates.
     writeFileSync(
       configPath,
-      `${readFileSync(configPath, "utf8")}  gates:\n    ci:\n      adapter: github-actions\n` +
-        "      appliesTo: code\n      branch: main\n      event: push\n      coverage: descendant\n" +
-        "      selection: newest\n    code-doc-reconciliation: none\n",
+      `${readFileSync(configPath, "utf8")}  gates:\n    lint:\n      adapter: research/check\n` +
+        "      appliesTo: code\n    code-doc-reconciliation: none\n",
     );
     const applied = await cell.run(
       { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "gates-import" },
@@ -331,24 +258,20 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
     const after = await cell.run({ kind: "settings-read" }, binding);
     assert.deepEqual((after as typeof after & { readonly settings?: { readonly gates?: unknown } }).settings?.gates, [
       {
-        gateId: "ci",
-        adapter: "github-actions",
+        gateId: "lint",
+        adapter: "research/check",
         appliesTo: "code",
-        branch: "main",
-        event: "push",
-        coverage: "descendant",
-        selection: "newest",
       },
       { gateId: "code-doc-reconciliation", adapter: "none" },
     ]);
     // The facet write is symmetric: the canonical writer renders the block it parsed.
     assert.match(
       readFileSync(configPath, "utf8"),
-      /  gates:\n    ci:\n      adapter: github-actions\n[\s\S]*    code-doc-reconciliation: none\n/u,
+      /  gates:\n    lint:\n      adapter: research\/check\n[\s\S]*    code-doc-reconciliation: none\n/u,
     );
 
     // An unreadable gates block is a typed rejection, never a partial write.
-    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}    lint: github-actions\n`);
+    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}    lint: research/check\n`);
     const rejected = await cell.run(
       { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "gates-import-bad" },
       binding,
@@ -385,13 +308,9 @@ test("settings update gatesDraft splices the declared facet into the authored do
     // provenance as --gates-from-document, with the facet bytes supplied instead of edited on disk.
     const gatesDraft = [
         {
-          gateId: "ci",
-          adapter: "github-actions",
+          gateId: "lint",
+          adapter: "research/check",
           appliesTo: "code",
-          branch: "main",
-          event: "push",
-          coverage: "descendant",
-          selection: "newest",
           mandatorySignoff: true,
         },
         { gateId: "code-doc-reconciliation", adapter: "none" },
@@ -410,7 +329,7 @@ test("settings update gatesDraft splices the declared facet into the authored do
     assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible));
     assert.match(
       readFileSync(configPath, "utf8"),
-      /  gates:\n    ci:\n      adapter: github-actions\n[\s\S]*mandatorySignoff: true\n[\s\S]*    code-doc-reconciliation: none\n/u,
+      /  gates:\n    lint:\n      adapter: research\/check\n[\s\S]*mandatorySignoff: true\n[\s\S]*    code-doc-reconciliation: none\n/u,
     );
 
     // An unchanged draft compiles to no-changes.
@@ -565,8 +484,6 @@ function initRepo(root: string): void {
       "    bytes: 8388608",
       "    milliseconds: 2000",
       "  locale: en-US",
-      "  ci:",
-      "    workflows: [ci]",
       "  scaffolds:",
       "    task: governance/task-scaffold.json",
       "    repository: governance/repository-scaffold.json",

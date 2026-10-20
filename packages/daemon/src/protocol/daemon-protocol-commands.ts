@@ -93,7 +93,7 @@ const settingsWriteTopology = {
             format: "import the settings.gates block declared in harness.yaml",
             // One-shot gates import: it shares the gates presentation group rather than trailing
             // with the mechanical --expected-version/--idempotency-key inputs.
-            group: "ci-gates",
+            group: "hosting-gates",
           },
         ),
         cliInput(

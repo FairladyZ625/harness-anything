@@ -80,7 +80,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       source: "local" as const,
     }, "contributor"), "maintainer");
   try {
-    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); await seedBuiltinSchedules({ cell, binding: repoWriteBinding }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
+    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); await seedBuiltinSchedules({ cell, binding: repoWriteBinding }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "work-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRow = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!,
       guiActive = (await cell.read("repo.tasks.completion.read", { taskId })).completionNext, eventsBefore = store().read().events,
@@ -122,11 +122,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       >;
     assert.deepEqual(
       { outcome: missingMerge.outcome, code: missingMerge.code, steps: missingMerge.steps },
-      { outcome: "op_rejected", code: "delivery_missing", steps: [] },
-    );
-    assert.equal(
-      (missingMerge.next as readonly { readonly action: string }[])[0]?.action,
-      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${taskId}.`,
+      { outcome: "op_rejected", code: "review_missing", steps: [] },
     );
     assert.deepEqual(store().read().events.slice(beforeMissingMerge), [], "an unmerged delivery returns guidance without writing a completion");
     assert.equal(
@@ -179,18 +175,12 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       (completed.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type),
       ["task_completed"],
     );
-    assert.deepEqual(completed.gateChecks, [
-      {
-        gate: "ci",
-        status: "pass",
-        witnessRef: (completed.gateChecks as { witnessRef: string }[])[0]!.witnessRef,
-      },
-      {
-        gate: "code-doc-reconciliation",
-        status: "pass",
-        witnessRef: (completed.gateChecks as { witnessRef: string }[])[1]!.witnessRef,
-      },
-    ]);
+    const completedGateChecks = completed.gateChecks as { readonly gate: string; readonly status: string; readonly witnessRef?: string }[];
+    assert.deepEqual(
+      completedGateChecks.map(({ gate, status }) => ({ gate, status })),
+      [{ gate: "code-doc-reconciliation", status: "pass" }],
+    );
+    assert.ok(completedGateChecks[0]?.witnessRef, "the retained local completion gate keeps its witness");
     assert.deepEqual(completed.next, []);
     assert.equal(readFileSync(path.join(rootDir, "harness", closeoutPath), "utf8").includes("All checks passed"), true);
     assert.equal(readFileSync(path.join(rootDir, "harness", artifactPath), "utf8").includes("Canonical flow"), true);
@@ -210,7 +200,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
 test("CompleteTask response loss settles by stable receipt and never publishes a second completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-unknown-")), taskId = "task-unknown-complete", executionId = "execution-unknown-complete", repoId = workspaceId("complete-unknown"); let armed = false, cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n"); /* CI witnessing is opt-in per repository */ cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
+    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n"); cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
     const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }

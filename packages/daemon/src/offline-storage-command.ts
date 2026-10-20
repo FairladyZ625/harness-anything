@@ -35,3 +35,17 @@ export const completionMigrationCommand = {
     { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
   ],
 } as const;
+
+export const settingsMigrationCommand = {
+  id: "migrate-settings",
+  path: ["migrate", "settings"],
+  usage: "ha migrate settings --source <harness.yaml> --mode <dry-run|convert> [--destination <new-file>]",
+  summary: "Remove retired ledger-side CI witness settings into a new candidate file, preserving the source.",
+  help: "    Convert requires --destination to name a file that does not exist. Review the candidate and replace the source explicitly when ready.",
+  helpCommand: "ha migrate settings --help",
+  inputs: [
+    { name: "--source", kind: "single", required: true, error: { code: "missing_field" } },
+    { name: "--mode", kind: "single", required: true, enum: ["dry-run", "convert"], error: { code: "invalid_field" } },
+    { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
+  ],
+} as const;

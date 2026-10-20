@@ -7,8 +7,6 @@
 # 代码门在此类 cut 上记 not_applicable，不阻塞。
 schema: harness-anything/v1
 settings:
-  ci:
-    workflows: []
   gates:
     review-signoff:
       appliesTo: artifacts

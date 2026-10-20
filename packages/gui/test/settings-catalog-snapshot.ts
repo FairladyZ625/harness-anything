@@ -26,17 +26,13 @@ export const settingsGroupsFace = () =>
 
 // Domain source declarations supply the catalog; source IDs are not a kernel enum.
 export const completionSources = {
-  "github-actions": { kind: "github-actions" },
   "research/check": { kind: "command" },
   "manual-attest": { kind: "manual" },
 };
 export const mappedSourceIds = Object.keys(completionSources);
 export const sourceFields = Object.fromEntries(
   Object.entries(completionSources)
-    .map(([id, source]) => [
-      id,
-      source.kind === "github-actions" ? ["appliesTo", "branch", "event", "coverage", "selection"] : ["appliesTo"],
-    ])
+    .map(([id]) => [id, ["appliesTo"]])
     .concat([["none", []]]),
 );
 export const governableSourceIds = Object.entries(completionSources)
