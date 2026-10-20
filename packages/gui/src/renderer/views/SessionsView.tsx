@@ -498,8 +498,12 @@ export function SessionsView({
   // 组列表的行回调用 useCallback 稳定:App 层台账探针每 ~2s 推进一次 cut 都会让本页
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
+  // 页内点选只换右侧详情:先记为已应用,聚焦 effect 就不会把分组压回 Task(那只给外部深链)。
   const selectSessionFromRail = useCallback(
-    (runtimeSessionId: string) => onSelectEntity(`session/${runtimeSessionId}`),
+    (runtimeSessionId: string) => {
+      appliedFocusRef.current = runtimeSessionId;
+      onSelectEntity(`session/${runtimeSessionId}`);
+    },
     [onSelectEntity],
   );
   const toggleGroup = useCallback((key: string) => {
@@ -870,7 +874,7 @@ export function SessionsView({
               row={selectedRow}
               siblings={siblings}
               squadNames={squadNames}
-              onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
+              onSelectSession={selectSessionFromRail}
               onOpenTask={onOpenTask}
               onSelectEntity={onSelectEntity}
             />

@@ -666,6 +666,28 @@ describe("runtime entry split (W6 IA)", () => {
     expect(calls.filter(([, query]) => query?.groupBy === "task").length).toBeGreaterThan(0);
   });
 
+  it("keeps the chosen grouping when a session is picked inside the page (owner 2026-10-20)", async () => {
+    await mountSessions(null, {}, undefined, sessionGroups, undefined, singleWork);
+    await flushEffects();
+    await act(async () => {
+      byTestId("session-work-toggle-work:task-work").click();
+    });
+    await flushEffects();
+    await act(async () => {
+      byTestId("session-group-toggle-task-bound").click();
+    });
+    await flushEffects();
+    await act(async () => {
+      byTestId("rail-session-runtime-sibling").click();
+    });
+    await flushEffects();
+    await flushEffects();
+
+    expect(byTestId("rail-session-runtime-sibling").getAttribute("aria-current")).toBe("true");
+    expect(byTestId("sessions-group-work").getAttribute("aria-pressed")).toBe("true");
+    expect(byTestId("session-work-work:task-work")).toBeTruthy();
+  });
+
   it("uses singular count copy in the sessions header when every count is one", async () => {
     await mountSessions(null, {}, undefined, { ...sessionGroups, totals: { groups: 1, sessions: 1 } });
     const counts = byTestId("sessions-counts").textContent ?? "";
