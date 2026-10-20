@@ -25,7 +25,7 @@ import {
   type AgentRuntimeSessionGroupStatus,
   type AgentRuntimeSessionResult,
 } from "./agent-runtime-contract.ts";
-import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
+import { buildAgentRuntimeSessionGroups, latestDispatchStartedAt } from "./agent-runtime-session-groups.ts";
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
@@ -220,9 +220,7 @@ export function makeAgentRuntimeReadModel(input: {
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
         sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
         windowedDispatchEvents = dispatchEvents.filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
-        dispatchStartedAt = new Map(
-          windowedDispatchEvents.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const),
-        ),
+        dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
         dispatches = input.readDispatches?.({ sessions, events: windowedDispatchEvents }) ?? [],
         taskIds = [
           ...new Set([

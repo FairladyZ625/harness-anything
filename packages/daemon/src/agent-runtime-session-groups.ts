@@ -33,6 +33,21 @@ interface AgentRuntimeSessionGroupsQuery {
   readonly limit: number;
 }
 
+/** The per-session newest dispatch start backing a member's fallback startedAt. Compared by
+ * time rather than last-write-wins: member pages arrive newest-first while the full-history
+ * event scan arrives oldest-first, and the map must not depend on either order. */
+export function latestDispatchStartedAt(
+  events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[],
+): ReadonlyMap<string, string> {
+  const startedAt = new Map<string, string>();
+  for (const event of events) {
+    const previous = startedAt.get(event.payload.runtimeSessionId);
+    if (previous === undefined || Date.parse(event.occurredAt) >= Date.parse(previous))
+      startedAt.set(event.payload.runtimeSessionId, event.occurredAt);
+  }
+  return startedAt;
+}
+
 export function buildAgentRuntimeSessionGroups(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly dispatches: readonly TaskDispatchRow[];
