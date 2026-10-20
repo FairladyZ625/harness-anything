@@ -524,5 +524,6 @@ it("tags agenda task rows only when their dispatch read has an advisory", async 
     repoId: "repo-advisory",
     taskIds: ["task_plain", "task_tagged"],
     limit: 500,
+    advisorySurface: "agenda",
   });
 });
