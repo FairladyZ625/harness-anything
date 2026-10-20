@@ -599,6 +599,13 @@ test("task dispatch batch wire contract keeps the single selector compatible and
     validateDaemonRpcCall({ method: "repo.task.dispatches", params: { repo: { repoId: "runtime-b" }, payload } });
   assert.deepEqual(call({ taskId: "task-a" }), []);
   assert.deepEqual(call({ taskIds: ["task-a", "task-b"], limit: 2 }), []);
+  assert.deepEqual(call({ agentId: "terra", limit: 50 }), []);
+  assert.deepEqual(call({ squadId: "squad-x", limit: 500 }), []);
+  assert.notDeepEqual(call({ agentId: "terra", squadId: "squad-x", limit: 50 }), []);
+  assert.notDeepEqual(call({ agentId: "terra" }), []);
+  assert.notDeepEqual(call({ agentId: "terra", limit: 0 }), []);
+  assert.notDeepEqual(call({ agentId: "terra", limit: 501 }), []);
+  assert.notDeepEqual(call({ agentId: "terra", limit: 50, taskId: "task-a" }), []);
   assert.notDeepEqual(call({ taskId: "task-a", taskIds: ["task-b"] }), []);
   assert.notDeepEqual(call({ taskIds: ["task-a", "task-a"] }), []);
   assert.notDeepEqual(call({ taskIds: [] }), []);

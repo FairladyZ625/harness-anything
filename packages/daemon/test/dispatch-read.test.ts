@@ -15,6 +15,8 @@ import {
   taskDispatchRowsSettled,
 } from "../src/dispatch-read.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
 import { validateDaemonTaskDispatches } from "../src/protocol/daemon-protocol.contract.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
@@ -569,4 +571,27 @@ test("member dispatch reads page an executor's newest rows with window groups an
   assert.equal(first.truncated, true);
   assert.deepEqual(validateDaemonTaskDispatches(page), []);
   assert.notDeepEqual(validateDaemonTaskDispatches({ ...page, totals: { groups: "many", sessions: 1326 } }), []);
+});
+
+test("member dispatch payloads accept one selector and a bounded limit at both boundaries", () => {
+  const context = {
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      requiredCellText: (value: unknown, field: string) => {
+        if (typeof value !== "string" || value === "")
+          throw Object.assign(new Error(`${field} must be non-empty text`), { code: "invalid_command" });
+        return value;
+      },
+    } as unknown as RepoCellApiContext,
+    parse = (payload: Readonly<Record<string, unknown>>) => taskDispatchesPayloadFromCell(context, payload);
+  assert.deepEqual(parse({ agentId: "terra", limit: 50 }), { agentId: "terra", limit: 50 });
+  assert.deepEqual(parse({ squadId: "squad-x", limit: 500 }), { squadId: "squad-x", limit: 500 });
+  for (const payload of [
+    { agentId: "terra", squadId: "squad-x", limit: 50 },
+    { agentId: "terra" },
+    { agentId: "terra", limit: 0 },
+    { agentId: "terra", limit: 501 },
+    { agentId: "terra", limit: 50, taskIds: ["task-a"] },
+    { agentId: "", limit: 50 },
+  ])
+    assert.throws(() => parse(payload), /must be non-empty text|Task dispatch member reads/);
 });
