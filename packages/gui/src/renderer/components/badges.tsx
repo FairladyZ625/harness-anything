@@ -101,6 +101,18 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
   return <StatusTag tone={meta.tone} icon={meta.icon} label={meta.label} />;
 }
 
+/** Agent attention is independent of the task lifecycle: asking must differ from working. */
+export function AgentStateBadge({ state }: { readonly state: "question" | "awaits" | "working" }) {
+  const working = state === "working";
+  return (
+    <StatusTag
+      tone={working ? "agent-working" : "agent-question"}
+      icon={working ? <CircleNotch weight="bold" /> : <ChatCircleDots weight="bold" />}
+      label={t(working ? "views.settingsView.systemRunning" : "components.awaitsAnswer.title")}
+    />
+  );
+}
+
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
 export function FreshnessTag({ freshness, lastKnownAt }: { freshness: Freshness; lastKnownAt: string }) {

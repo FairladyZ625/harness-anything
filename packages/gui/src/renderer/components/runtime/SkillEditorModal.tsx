@@ -160,8 +160,14 @@ export function SkillEditorModal({
               </span>
             )
           )}
-          <Button variant="primary" testId="skill-editor-save" disabled={saving || !dirty} onClick={() => void save()}>
-            {t(saving ? "agentRuntime.skillModal.saving" : "agentRuntime.skillModal.save")}
+          <Button
+            variant="primary"
+            testId="skill-editor-save"
+            loading={saving}
+            disabled={!dirty}
+            onClick={() => void save()}
+          >
+            {t("agentRuntime.skillModal.save")}
           </Button>
         </div>
       }

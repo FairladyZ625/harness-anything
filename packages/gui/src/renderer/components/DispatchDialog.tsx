@@ -165,16 +165,19 @@ export function DispatchDialog({
                 </span>
               )}
               <span className="flex-1" />
-              <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+              <Button variant="ghost" onClick={onCancel}>
+                {t("agentRuntime.cancel")}
+              </Button>
               <Button
                 testId="dispatch-preview-entry"
-                disabled={!ready || busy || previewing}
+                loading={previewing}
+                disabled={!ready || busy}
                 onClick={() => void runPreview()}
               >
-                {t(previewing ? "agentRuntime.previewing" : "agentRuntime.previewInjected")}
+                {t("agentRuntime.previewInjected")}
               </Button>
-              <Button variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
-                {busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}
+              <Button variant="primary" testId="dispatch-submit" loading={busy} disabled={!ready} onClick={submit}>
+                {t("agentRuntime.dispatchNow")}
               </Button>
             </div>
           </>

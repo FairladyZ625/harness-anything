@@ -120,11 +120,14 @@ export function NewRuntimeDialog({
             {installation?.installationId ?? t("agentRuntime.noWitnessedInstallation", { kind: form.kindId })}
           </Hint>
           <span className="flex-1" />
-          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button variant="ghost" onClick={onCancel}>
+            {t("agentRuntime.cancel")}
+          </Button>
           <Button
             variant="primary"
             testId="new-runtime-create"
-            disabled={busy || !ready}
+            loading={busy}
+            disabled={!ready}
             onClick={() =>
               onCreate(buildRuntimeInstanceCreatePayload({ ...form, installationId }, installationId, installation))
             }

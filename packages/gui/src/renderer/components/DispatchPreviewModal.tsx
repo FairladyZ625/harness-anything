@@ -39,7 +39,7 @@ export function DispatchPreviewModal({
             {t(copied ? "agentRuntime.previewCopied" : "agentRuntime.previewCopy")}
           </Button>
           <span className="flex-1" />
-          <Button variant="primary" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             {t("agentRuntime.previewClose")}
           </Button>
         </div>

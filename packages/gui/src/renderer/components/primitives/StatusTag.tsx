@@ -13,7 +13,16 @@ import { STATUS_META } from "../badges";
  * - `icon` 前置图标、`count` 尾部计数、`mono` 等宽小档(机器词/ID);
  * - `status` 给状态词(默认标签取 STATUS_META),`tone`+`label` 给状态词表之外的自定义标签。
  */
-export type StatusTone = "done" | "active" | "wait" | "plan" | "cancel" | "bad" | "neutral";
+export type StatusTone =
+  | "done"
+  | "active"
+  | "wait"
+  | "plan"
+  | "cancel"
+  | "bad"
+  | "neutral"
+  | "agent-question"
+  | "agent-working";
 
 /** tone → token:原语内部唯一的状态色来源,调用点不写状态色数值。 */
 export const TONE_COLOR: Record<StatusTone, string> = {
@@ -24,6 +33,8 @@ export const TONE_COLOR: Record<StatusTone, string> = {
   cancel: "var(--color-status-cancelled)",
   bad: "var(--color-status-blocked)",
   neutral: "var(--color-text-muted)",
+  "agent-question": "var(--color-agent-question)",
+  "agent-working": "var(--color-status-active)",
 };
 
 /** 状态词 → tone:分段条、区域竖线等所有按状态着色的原语共用这一份映射。 */
@@ -77,7 +88,7 @@ export function StatusTag({
       data-status-tone={resolvedTone}
       data-tip={tip}
       data-testid={testId}
-      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xs px-1.5 py-px font-semibold ui-meta ${mono ? "font-mono" : ""}${activeClass}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-px font-semibold ui-meta ${mono ? "font-mono" : ""}${activeClass}`}
       style={{ color, background: `color-mix(in oklch, ${color} 14%, transparent)` }}
     >
       {icon}

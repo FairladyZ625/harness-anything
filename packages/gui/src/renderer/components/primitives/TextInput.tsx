@@ -29,7 +29,7 @@ export function TextInput({
       autoComplete={type === "password" ? "off" : undefined}
       spellCheck={type === "password" ? false : undefined}
       onChange={(event) => onChange(event.target.value)}
-      className={`min-w-0 rounded border border-border-strong bg-surface px-2 py-1 ui-meta text-text outline-none focus-visible:border-accent disabled:opacity-50 ${mono ? "font-mono ui-micro" : ""}`}
+      className={`min-w-0 rounded-sm border border-border bg-surface px-2 py-1 ui-meta text-text outline-none transition-colors hover:border-border-strong focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 disabled:opacity-50 ${mono ? "font-mono ui-micro" : ""}`}
     />
   );
 }

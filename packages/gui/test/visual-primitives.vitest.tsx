@@ -21,7 +21,7 @@ import { PillFlow } from "../src/renderer/components/primitives/PillFlow";
 import { Tabs } from "../src/renderer/components/primitives/Tabs";
 import { FilterChips } from "../src/renderer/components/primitives/FilterChips";
 import { PageHeader } from "../src/renderer/components/primitives/PageHeader";
-import { CloseoutBadge, STATUS_META } from "../src/renderer/components/badges";
+import { AgentStateBadge, CloseoutBadge, STATUS_META } from "../src/renderer/components/badges";
 import { initialLocale, setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
@@ -81,6 +81,30 @@ function pressKey(key: string): void {
 }
 
 describe("StatusTag", () => {
+  it.each(["question", "awaits", "working"] as const)(
+    "maps Agent %s to question or existing active color tokens",
+    (state) => {
+      const localeAtImport = initialLocale();
+      try {
+        setActiveLocale("en-US");
+        const { container, root } = mount(createElement(AgentStateBadge, { state }));
+        const tag = container.querySelector("[data-status-tone]")!;
+        const tone = state === "working" ? "agent-working" : "agent-question";
+        expect(tag.getAttribute("data-status-tone")).toBe(tone);
+        expect(tag.getAttribute("style")).toContain(
+          state === "working" ? "var(--color-status-active)" : "var(--color-agent-question)",
+        );
+        expect(tag.textContent).toBe(state === "working" ? "Running" : "Awaiting your answer");
+        act(() => root.unmount());
+        setActiveLocale("zh-CN");
+        const zh = renderToStaticMarkup(createElement(AgentStateBadge, { state }));
+        expect(zh).toContain(state === "working" ? "运行中" : "等你答复");
+      } finally {
+        setActiveLocale(localeAtImport);
+      }
+    },
+  );
+
   it("状态词形态取 STATUS_META 的标签与状态色 token", () => {
     const { container, root } = mount(createElement(StatusTag, { status: "done" }));
     const tag = container.querySelector("span");

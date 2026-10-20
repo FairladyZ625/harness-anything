@@ -92,11 +92,14 @@ export function NewEntityDialog({
         <div className="flex items-center gap-2">
           <Hint>{t(kind === "agent" ? "agentRuntime.newAgentFooter" : "agentRuntime.newSquadFooter")}</Hint>
           <span className="flex-1" />
-          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button variant="ghost" onClick={onCancel}>
+            {t("agentRuntime.cancel")}
+          </Button>
           <Button
             variant="primary"
             testId={`new-${kind}-create`}
-            disabled={busy || !valid}
+            loading={busy}
+            disabled={!valid}
             onClick={() =>
               onCreate(
                 kind === "squad"
