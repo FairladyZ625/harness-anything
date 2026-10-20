@@ -229,6 +229,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-relation-canonical-direction": "packages/daemon/src/repo-cell.ts",
     "check-task-event-aggregate-entry": "packages/application/src/task-lifecycle-service.ts",
     "scan-forbidden-symbols": "packages/gui/src/main.ts",
+    "check-self-repo-path-literals": "packages/kernel/src/domain/gate-run.ts",
     "check-integrity-single-source": "packages/kernel/src/integrity/stable-hash.ts",
     "check-private-boundary": ".gitignore",
     "check-integration-test-shards": ".github/workflows/rewrite-ci.yml",

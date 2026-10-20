@@ -78,6 +78,7 @@
         "check-task-event-aggregate-entry",
         "canonical-event-compat",
         "scan-forbidden-symbols",
+        "check-self-repo-path-literals",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -129,6 +130,7 @@
         "check-task-event-aggregate-entry",
         "canonical-event-compat",
         "scan-forbidden-symbols",
+        "check-self-repo-path-literals",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -149,7 +151,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 43
+      "harnessLeafGateCount": 44
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2149,6 +2151,61 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/scan-forbidden-symbols.test.mjs"]
+      }
+    },
+    {
+      "id": "check-self-repo-path-literals",
+      "command": "npm run harness:check-self-repo-path-literals",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": ["packages/**","tools/check-self-repo-path-literals.mjs","tools/gate-allowlists/check-self-repo-path-literals.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "authoritySource": [
+        "harness/tasks/task_427b738002d4d6c9c42a4cf010-no-self-repo-paths-in-product/task_plan.md",
+        "packages/** product source"
+      ],
+      "consumerScope": ["repo-root-relative directory literals under packages/*/src product source"],
+      "githubContext": {
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-self-repo-path-literals.json",
+        "adrOrDecisionRequired": true,
+        "notes": "The forbidden directory list and each reviewed exception are externalized with ref+reason; an exception that no longer fires fails the gate as stale, and the loader reports the entry-count trend."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-self-repo-path-literals.mjs",
+          "package.json:scripts.harness:check-self-repo-path-literals",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-self-repo-path-literals"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["boundaries"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/check-self-repo-path-literals.test.mjs"]
       }
     },
     {
