@@ -10,10 +10,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { writeFileDurably } from "./durable-file.ts";
 import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-config.ts";
 import type {
   RuntimeAuthReadiness,
@@ -399,18 +399,10 @@ export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanc
             },
           },
     ],
-    directory = path.dirname(target),
-    temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+    directory = path.dirname(target);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
-  try {
-    writeFileSync(temp, `${JSON.stringify(patch, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temp, target);
-  } catch (error) {
-    rmSync(temp, { force: true });
-    throw error;
-  }
-  chmodSync(target, 0o600);
+  writeFileDurably(target, `${JSON.stringify(patch, null, 2)}\n`, 0o600);
 }
 
 export function tomlString(value: string): string {
