@@ -58,9 +58,9 @@ export function ThinkingState({
           <div className="flex items-center justify-between gap-2">
             <span className="font-mono ui-micro tabular-nums text-text-faint">{thinking.length} chars</span>
             <CopyContextButton
-              text={thinking}
-              labelKey="agentRuntime.copyThinking"
-              tip={t("agentRuntime.copyThinkingTip")}
+              buildText={() => thinking}
+              label={t("agentRuntime.copyThinking")}
+              title={t("agentRuntime.copyThinkingTip")}
             />
           </div>
           <div

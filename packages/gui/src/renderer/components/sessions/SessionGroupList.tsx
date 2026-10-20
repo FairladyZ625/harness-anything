@@ -312,7 +312,7 @@ const GroupSection = memo(function GroupSection({
   onDrill,
   sessionTouches,
   attentionRefs,
-  nowMs,
+  nowMs = Date.now(),
 }: {
   readonly group: SessionGroup;
   /** 工作层子行:缩进 + 连续细竖线,和工作头形成父子关系。 */

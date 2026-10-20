@@ -136,11 +136,14 @@ export function SessionsPanel({
 
 /** 会话消耗面板:该会话派工的输入/缓存读取/输出/总 Token、工具调用与 compaction 标记。 */
 function SessionMetricsCard({ metrics }: { readonly metrics: NonNullable<AgentRuntimeSessionDto["metrics"]> }) {
-  const segments: ContextSegment[] = [
-    { kind: "cache", label: t("agentRuntime.sessionMetricsCacheRead"), tokens: metrics.cacheReadTokens ?? 0 },
-    { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: metrics.inputTokens ?? 0 },
-    { kind: "output", label: t("agentRuntime.sessionMetricsOutput"), tokens: metrics.outputTokens ?? 0 },
-  ].filter((s) => s.tokens > 0);
+  // satisfies 保住 kind 的字面量窄化:.filter 会切断数组字面量的上下文类型,直接标注会把 kind 拓宽成 string。
+  const segments = (
+    [
+      { kind: "cache", label: t("agentRuntime.sessionMetricsCacheRead"), tokens: metrics.cacheReadTokens ?? 0 },
+      { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: metrics.inputTokens ?? 0 },
+      { kind: "output", label: t("agentRuntime.sessionMetricsOutput"), tokens: metrics.outputTokens ?? 0 },
+    ] satisfies ContextSegment[]
+  ).filter((s) => s.tokens > 0);
 
   return (
     <Card>

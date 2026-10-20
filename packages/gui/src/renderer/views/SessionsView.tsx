@@ -36,12 +36,11 @@ import {
   sortBySmartAttention,
   computePromptCacheTtlState,
   type SmartAttentionSignal,
-  type SmartAttentionStatus,
 } from "../model/smart-attention.ts";
 import { useOverviewSessionTouches } from "../overview-data.ts";
 import { useAgendaQuery } from "../agenda-data.ts";
-import type { RuntimeDockRow } from "../components/runtime/useRuntimeWorkspace.ts";
 import type { RelationEdge } from "../model/types.ts";
+import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import {
   epochMsOf,
   needsYouRefs,
@@ -379,6 +378,11 @@ export function SessionsView({
     return refs;
   }, [agenda.data?.awaitingYou, pendingDecisionIds, relations]);
 
+  // 注意力排序与倒计时共用一根秒针:nowMs=0 会让 Done 新鲜度窗口永久成立
+  // (0 - settledAt 恒小于窗口),旧完成组永远压在 Working 之上,排序必须用真实时钟。
+  // 秒针 effect 在下方,只在确有缓存触达证据时才走(与 OverviewView 同口径)。
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
   const groupSignal = useCallback(
     (g: SessionGroup): SmartAttentionSignal => {
       const needsYou = sessionGroupNeedsYou(g, attentionRefs);
@@ -396,9 +400,12 @@ export function SessionsView({
     [attentionRefs],
   );
 
-  const dockRowSignal = useCallback(
-    (row: RuntimeDockRow): SmartAttentionSignal => ({
-      status: row.status as SmartAttentionStatus,
+  // 钻入排序用 related.dispatchRows(dockRows 的原始行):它自带 dispatch 行的真实
+  // endedAt 与字面量 status 词表,不需要 dockRows 上的收窄断言。口径与
+  // sessionRoundAttention 相同(endedAt ?? startedAt)。
+  const dispatchRowSignal = useCallback(
+    (row: TaskDispatchProjectionRow): SmartAttentionSignal => ({
+      status: row.status,
       needsYou: attentionRefs.has(`task/${row.taskId}`),
       lastTurnActivityAt: epochMsOf(row.endedAt) ?? epochMsOf(row.startedAt),
       settledAt: epochMsOf(row.endedAt),
@@ -444,10 +451,10 @@ export function SessionsView({
     () => [...displayedRowsByGroup.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
     [displayedRowsByGroup],
   );
-  const sortedGroups = useMemo(() => sortBySmartAttention(groups, groupSignal, 0), [groups, groupSignal]);
+  const sortedGroups = useMemo(() => sortBySmartAttention(groups, groupSignal, nowMs), [groups, groupSignal, nowMs]);
   const sortedRelatedGroups = useMemo(
-    () => sortBySmartAttention(related.groups, groupSignal, 0),
-    [related.groups, groupSignal],
+    () => sortBySmartAttention(related.groups, groupSignal, nowMs),
+    [related.groups, groupSignal, nowMs],
   );
   const displayedGroups = drill === null ? sortedGroups : sortedRelatedGroups,
     displayedTruncated = drill === null ? truncated : related.truncated;
@@ -459,8 +466,9 @@ export function SessionsView({
   const defaultSessionId =
       sortedGroups.find((group) => group.latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
     // 钻入后先落该执行者「最新需要关注的会话」;若当前深链会话不在其列,不让右侧停
-    // 在别的执行者上。dockRows 按五级注意力排序。
-    drillDefaultSessionId = sortBySmartAttention(related.dockRows, dockRowSignal, 0)[0]?.runtimeSessionId ?? null,
+    // 在别的执行者上。派工行按五级注意力排序(dockRows 与其同源同序)。
+    drillDefaultSessionId =
+      sortBySmartAttention(related.dispatchRows, dispatchRowSignal, nowMs)[0]?.runtimeSessionId ?? null,
     focusedSessionVisible =
       focusedSessionId !== null &&
       (drill === null || related.dockRows.some((row) => row.runtimeSessionId === focusedSessionId)),
@@ -488,7 +496,8 @@ export function SessionsView({
       }
     }
     for (const row of allRows) {
-      const at = epochMsOf(row.endedAt) ?? epochMsOf(row.startedAt);
+      // orphan 行没有派工收口时刻,只有 startedAt;round 行与 sessionRoundAttention 同口径。
+      const at = (row.kind === "round" ? epochMsOf(row.endedAt) : null) ?? epochMsOf(row.startedAt);
       const isRecent = at !== null && now - at < 300_000;
       if (row.status === "running" || isRecent) {
         ids.add(row.runtimeSessionId);
@@ -499,7 +508,6 @@ export function SessionsView({
 
   const sessionTouches = useOverviewSessionTouches(repoId, touchSessionIds);
   const hasCacheTouches = useMemo(() => [...sessionTouches.values()].some((touch) => touch !== null), [sessionTouches]);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (!hasCacheTouches) return;
     const timer = setInterval(() => setNowMs(Date.now()), 1_000);
