@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import {
   fakeReplicationCenter,
   fleetReplicationFixture,
@@ -103,12 +104,14 @@ test(
     assert.equal(response.type, "replica.reject");
     if (response.type !== "replica.reject") return;
     assert.equal(response.code, "edge_upgrade_required");
-    assert.match(response.message, /86d1398|unknown/u);
+    const expectedBuild = daemonBuildStamp().commit?.slice(0, 7) ?? "unknown";
+    assert.equal(response.centerBuildCommit, daemonBuildStamp().commit);
+    assert.ok(response.message.includes(expectedBuild));
     assert.equal(response.taskEventShapeVersion, 2);
     const status = center.status().replicas.find((replica) => replica.nodeId === "edge-one");
     assert.equal(status?.connected, false);
     assert.equal(status?.syncFailure?.code, "edge_upgrade_required");
-    assert.match(status?.syncFailure?.message ?? "", /86d1398|unknown/u);
+    assert.ok(status?.syncFailure?.message.includes(expectedBuild));
   },
 );
 
