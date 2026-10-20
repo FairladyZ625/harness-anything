@@ -1051,39 +1051,8 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     unmount();
   });
 
-  it("置顶承诺 tab:可派在前,行上就地取消置顶接真实 pin 通道", () => {
-    const onUnpin = vi.fn();
-    const container = mount({
-      onUnpin,
-      agenda: agenda({
-        pinnedEntities: [
-          { ref: "task/task_pin_go", kind: "task", title: "可派的置顶承诺", status: "planned", pinnedAt: AT },
-          { ref: "task/task_pin_active", kind: "task", title: "在跑的置顶任务", status: "active", pinnedAt: AT },
-        ],
-        dispatchable: [
-          {
-            taskId: "task_pin_go",
-            title: "可派的置顶承诺",
-            work: null,
-            status: "planned",
-            pinned: true,
-            updatedAt: AT,
-            leaseExecutionId: null,
-            activeExecutionIds: [],
-            blockingAssessment: { state: "clear", blockers: [], warnings: [] },
-          },
-        ],
-      }),
-    });
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    expect(textOf(drill)).toContain("置顶承诺");
-    act(() => (drill.querySelector('[data-testid="overview-drill-pinned"]') as HTMLElement).click());
-    expect(drillRows(container)).toEqual(["task_pin_go", "task_pin_active"]);
-    const unpin = container.querySelector<HTMLButtonElement>('[data-testid="overview-unpin-task_pin_active"]')!;
-    act(() => unpin.click());
-    expect(onUnpin).toHaveBeenCalledWith("task_pin_active");
-    unmount();
-  });
+  // 置顶承诺 tab 的行与两条解 pin 通道(任务 pin / 实体级解 pin)的行为面在
+  // overview-pinned.vitest.tsx(拆分自本文件,复杂度门 1900 行 stage 上限)。
 
   it("全部工作/全部任务/会话入口收进区域页脚,接真实回调", () => {
     const onOpenWorks = vi.fn();

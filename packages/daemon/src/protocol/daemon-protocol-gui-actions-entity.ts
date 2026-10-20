@@ -91,6 +91,17 @@ export const entityImportGuiActions = Object.freeze([
     "/api/entities/delete",
     "repo-write",
   ),
+  // 置顶区的实体级取消置顶(task_9ba495de):与 repo.task.unpin 同一条 entity-unpin 写路
+  // (runEntityPinAction),GUI 只递 entityRef;非任务实体的 pin 仍走 CLI `ha pin <ref>`。
+  guiAction(
+    "entity.unpin",
+    "repo.entity.unpin",
+    "entity-unpin",
+    shape({ entityRef: "string" }),
+    "unpinEntity",
+    "/api/entities/unpin",
+    "repo-write",
+  ),
 ] as const);
 
 /** Agent/Squad 声明文档的写入面;两者共用 generic entity store 的同一条写路。 */

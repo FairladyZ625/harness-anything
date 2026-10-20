@@ -158,10 +158,14 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
       throw new Error("Preload getDecisions request is invalid.");
     if (method === "getTaskDispatches" && !validTaskDispatchesPayload(payload))
       throw new Error("Preload getTaskDispatches request is invalid.");
-    // Pin carries only the task identity: the pinned-only amend patch is pinned in the
+    // Pin carries only the target identity: the pinned-only amend patch is pinned in the
     // daemon contract's actionDefaults, so the renderer cannot widen this into a
-    // general amend through the preload boundary.
-    if (["pinTask", "unpinTask"].includes(method) && !exactStrings(payload, ["repoId", "taskId"]))
+    // general amend through the preload boundary. Entity unpin names the ref the same
+    // way; the local-EntityRef and existence checks stay in the daemon write boundary.
+    if (
+      (["pinTask", "unpinTask"].includes(method) && !exactStrings(payload, ["repoId", "taskId"])) ||
+      (method === "unpinEntity" && !exactStrings(payload, ["repoId", "entityRef"]))
+    )
       throw new Error(`Preload ${method} request is invalid.`);
   } else if (isPreloadPayloadRecord(payload) && Object.hasOwn(payload, "repoId")) {
     throw new Error(`Preload ${method} payload: repoId is not allowed.`);

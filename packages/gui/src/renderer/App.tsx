@@ -49,6 +49,7 @@ import {
   useTaskWipQuery,
   useWorkIndexQuery,
 } from "./task-data.ts";
+import { harnessClient } from "./api-client.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import { useOverviewArtifacts } from "./overview-data.ts";
 import {
@@ -210,6 +211,18 @@ function AppShell() {
       void taskActions.setTaskPin(task, pinned);
     },
     [taskActions.setTaskPin],
+  );
+  // 置顶区非任务实体的取消置顶(task_9ba495de):与 `ha unpin <ref>` 同一条 entity-unpin
+  // 写路;回执落定后直接扇出台账派生读(agenda/工作区摘要都消费 pin 投影),失败显式
+  // 记日志不吞——置顶区没有逐行反馈位可挂。
+  const handleUnpinEntity = useCallback(
+    (entityRef: string) => {
+      harnessClient
+        .unpinEntity({ repoId: projectId, entityRef })
+        .then(() => invalidateLedgerDependents(queryClient, projectId))
+        .catch((error: unknown) => console.error(`[unpinEntity] ${entityRef} failed:`, error));
+    },
+    [projectId, queryClient],
   );
   const feedbackOf = useCallback((taskId: string) => taskActions.feedback.get(taskId), [taskActions.feedback]);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
@@ -628,6 +641,7 @@ function AppShell() {
                     onOpenTasks={() => goto("board")}
                     onOpenCollaboration={() => goto("collaboration")}
                     onUnpin={(taskId) => handleSetPin({ taskId }, false)}
+                    onUnpinEntity={handleUnpinEntity}
                     // 总览页内层(产物二级页/放大层)走全局导航历史:开层推栈、层内换选中
                     // 原地改、关层弹栈(栈底恢复的孤立层条目原地收层)——与预览抽屉同一
                     // 条路径(业主 2026-10-11「有的页面能退能进,有的不能」)。

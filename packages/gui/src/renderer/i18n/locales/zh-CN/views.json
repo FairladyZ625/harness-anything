@@ -471,6 +471,7 @@
   "views.overviewView.actionAdjudicate": "去裁决",
   "views.overviewView.actionOpenCloseout": "打开收口",
   "views.overviewView.actionOpenDecision": "打开决策",
+  "views.overviewView.actionOpenDetail": "打开详情",
   "views.overviewView.actionOpenTask": "打开任务",
   "views.overviewView.actionOpenSessions": "查看会话",
   "views.overviewView.actionDispatch": "打开任务派工",

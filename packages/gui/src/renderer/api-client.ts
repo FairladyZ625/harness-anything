@@ -525,6 +525,9 @@ export const harnessClient = {
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
   },
+  async unpinEntity(payload: RepoScope & { readonly entityRef: string }): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.entity.unpin", payload, "unpinEntity"));
+  },
   /** 答复 awaits 的唯一 GUI 写通道:与 `ha relation unrelate` 同一条 relation-unrelate 动作,答复即 retire 理由。 */
   async retireRelation(
     payload: RepoScope & { readonly relationId: string; readonly reason: string; readonly expectedVersion: number },

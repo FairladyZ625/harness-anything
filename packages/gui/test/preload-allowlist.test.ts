@@ -193,7 +193,7 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  // 53 explicit actions plus the complete declaration read are the 54 editing-facing facets:
+  // 54 explicit actions plus the complete declaration read are the 55 editing-facing facets:
   // task adjudication (owner triage/verdict) and the owner's review consent joined as named
   // facets alongside complete; retireRelation answers an awaits ask in place
   // (dec_DF67F23066BAFE444190A191B5, task_ec805e49); Decision review responds, overrides,
@@ -201,19 +201,21 @@ test("preload exposes only the approved API methods", () => {
   // agent retire/delete and squad delete are named ingresses onto the CLI entity actions
   // (task_3c098ffe: GUI entity CRUD completion); steerAgentRuntime restores the steer facet for
   // W3-T1 AgentSteering's mid-run instruction write
-  // (dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4 — supersedes the 2026-10-14 no-consumer removal).
+  // (dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4 — supersedes the 2026-10-14 no-consumer removal);
+  // unpinEntity is the overview pinned region's entity-level unpin
+  // (task_9ba495de: same entity-unpin write path as `ha unpin <ref>`).
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
     "readVerticalDeclaration",
   ];
   // S8 CH2: assignTask and unassignTask.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: one dispatcher for export/claim/revoke.
-  assert.equal(editingFacets.length, 54);
+  assert.equal(editingFacets.length, 55);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets.
-  // The same single handoff dispatcher accounts for the approved 53 actions / 54 editing facets.
-  assert.equal(daemonGuiActionMethods.length, 53);
+  // The same single handoff dispatcher accounts for the approved 54 actions / 55 editing facets.
+  assert.equal(daemonGuiActionMethods.length, 54);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
     true,
@@ -230,6 +232,15 @@ test("preload exposes only the approved API methods", () => {
     assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "task-a", patches: [] }), /invalid/u);
     assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "" }), /invalid/u);
   }
+  // unpinEntity 是置顶区非任务实体的解 pin 通道(task_9ba495de):payload 只收 repoId+
+  // entityRef,与 `ha unpin <ref>` 同一条 entity-unpin 动作,ref 合法性由 daemon 写边界判。
+  assert.equal(assertPreloadPayload("unpinEntity", { repoId: "repo-a", entityRef: "decision/dec_1" }), true);
+  assert.throws(() => assertPreloadPayload("unpinEntity", { repoId: "repo-a", entityRef: "" }), /invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("unpinEntity", { repoId: "repo-a", entityRef: "decision/dec_1", taskId: "task-a" }),
+    /invalid/u,
+  );
+  assert.throws(() => assertPreloadPayload("unpinEntity", { entityRef: "decision/dec_1" }), /repoId/u);
   // retireRelation 是答复 awaits 的 GUI 写通道(`ha relation unrelate` 同一动作):payload 闭集由
   // daemon RPC 形状把守,多余字段(如改写 rationale)在 RPC 校验层就被拒。
   assert.deepEqual(
