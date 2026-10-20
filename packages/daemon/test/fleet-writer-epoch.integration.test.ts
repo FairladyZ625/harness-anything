@@ -4,6 +4,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
@@ -173,6 +174,14 @@ test("a fresh authority starts at epoch zero and ignores legacy epoch files", ()
       `${JSON.stringify({ repoId: "repo", holderId: "legacy", epoch: 41, version: 41, issuedAt: "legacy" })}\n`,
     );
     writeFileSync(path.join(root, "writer-epochs.lock"), "");
+    // The retired monolithic per-state-root database joins the legacy family: its rows never
+    // seed the per-repository databases, so epoch allocation again floors at the ledger lease.
+    const legacy = new DatabaseSync(path.join(root, "writer-epochs.sqlite"));
+    legacy.exec(
+      "PRAGMA journal_mode=WAL; CREATE TABLE writer_epochs (repo_id TEXT PRIMARY KEY, holder_id TEXT, epoch INTEGER, version INTEGER, issued_at TEXT)",
+    );
+    legacy.prepare("INSERT INTO writer_epochs VALUES ('repo', 'legacy', 42, 42, 'legacy')").run();
+    legacy.close();
     const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: "sqlite" }),
       lease = authority.acquire("repo");
     assert.equal(lease.epoch, 1);
@@ -318,6 +327,58 @@ test("retiring the current row preserves the historical epoch high watermark", (
     );
     replacement.close();
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append fences for distinct repositories do not contend on one shared write lock", async () => {
+  // Causal regression for the CI-only "database is locked" doc-submit rejection: every
+  // repository's append used to take its fence transaction on one writer-epochs.sqlite, so a
+  // repository could exhaust busy_timeout waiting behind unrelated repositories' appends.
+  // The holder child parks inside repo-a's fence section; repo-b's fence must still enter.
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-perrepo-")),
+    stateRoot = path.join(root, "state"),
+    heldFile = path.join(root, "section-held"),
+    releaseFile = path.join(root, "section-release");
+  const source = path.resolve("packages/daemon/src/writer-epoch.ts"),
+    holderSource = `
+      import { existsSync, writeFileSync } from "node:fs";
+      import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)};
+      const [stateRoot, heldFile, releaseFile] = process.argv.slice(1);
+      const authority = openPersistentWriterEpoch({ stateRoot, holderId: "holder-a" });
+      const lease = authority.acquire("repo-a");
+      authority.withAppendFence("repo-a", lease.epoch, lease.holderId, () => {
+        writeFileSync(heldFile, "held\\n");
+        const deadline = Date.now() + 30_000;
+        while (!existsSync(releaseFile) && Date.now() < deadline)
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+      });
+      authority.close();
+    `,
+    holder = spawn(process.execPath, ["--input-type=module", "-e", holderSource, stateRoot, heldFile, releaseFile], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  let holderErrors = "";
+  holder.stderr.setEncoding("utf8").on("data", (chunk) => {
+    holderErrors += chunk;
+  });
+  const holderExit = new Promise<number | null>((resolve) => holder.on("close", resolve));
+  try {
+    const heldDeadline = performance.now() + 15_000;
+    while (!existsSync(heldFile)) {
+      if (performance.now() > heldDeadline) throw new Error("holder never entered its append fence section");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const challenger = openPersistentWriterEpoch({ stateRoot, holderId: "challenger" }),
+      lease = challenger.acquire("repo-b");
+    assert.equal(
+      challenger.withAppendFence("repo-b", lease.epoch, lease.holderId, () => "repo-b append accepted"),
+      "repo-b append accepted",
+    );
+    challenger.close();
+  } finally {
+    writeFileSync(releaseFile, "release\n");
+    assert.equal(await holderExit, 0, `holder child failed: ${holderErrors}`);
     rmSync(root, { recursive: true, force: true });
   }
 });

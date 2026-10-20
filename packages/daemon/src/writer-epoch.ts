@@ -30,7 +30,6 @@ export interface PersistentWriterEpoch {
   readonly retireCurrent: (repoId: string) => void;
   readonly assert: (repoId: string, epoch: number, holderId?: string) => void;
   readonly withAppendFence: <T>(repoId: string, epoch: number, holderId: string, operation: () => T) => T;
-  readonly status: () => readonly WriterEpochLease[];
   readonly close: () => void;
 }
 export class WriterEpochError extends Error {
@@ -50,15 +49,18 @@ type EpochRow = {
   readonly issued_at: string;
 };
 
-export function openPersistentWriterEpoch(options: {
-  readonly stateRoot: string;
-  readonly holderId?: string;
-  readonly now?: () => string;
-}): PersistentWriterEpoch {
-  mkdirSync(options.stateRoot, { recursive: true });
-  const database = new DatabaseSync(path.join(options.stateRoot, "writer-epochs.sqlite")),
-    holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
-    now = options.now ?? (() => new Date().toISOString());
+/** One repository's epoch authority over its own database file. The append fence must exclude
+ *  only takeover of its repository, and SQLite locks are database-granular, so the fencing scope
+ *  is one repo: `stateRoot/writer-epochs/<repoId>.sqlite`. A shared database serialized every
+ *  repository's append behind one write lock; under load a queued fence could exhaust
+ *  busy_timeout and reject its write ("database is locked"). */
+function openRepoEpochAuthority(options: {
+  readonly databasePath: string;
+  readonly holderId: string;
+  readonly now: () => string;
+}) {
+  mkdirSync(path.dirname(options.databasePath), { recursive: true });
+  const database = new DatabaseSync(options.databasePath);
   database.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON");
   database.exec(`
     CREATE TABLE IF NOT EXISTS writer_epoch_history (
@@ -76,9 +78,6 @@ export function openPersistentWriterEpoch(options: {
   `);
   const selectCurrent = database.prepare(
       "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs WHERE repo_id=?",
-    ),
-    selectStatus = database.prepare(
-      "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs ORDER BY repo_id",
     ),
     selectFloor = database.prepare("SELECT MAX(epoch) AS floor FROM writer_epoch_history WHERE repo_id=?"),
     deleteCurrent = database.prepare("DELETE FROM writer_epochs WHERE repo_id=?"),
@@ -121,59 +120,56 @@ export function openPersistentWriterEpoch(options: {
           "Query the receipt or reacquire the writer epoch before retrying.",
       );
   };
-  const acquire = (repoId: string, observedLedgerEpoch = 0): WriterEpochLease => {
-    ensureOpen();
-    if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
-    if (!Number.isSafeInteger(observedLedgerEpoch) || observedLedgerEpoch < 0)
-      throw new WriterEpochError("writer_epoch_invalid", "Observed ledger epoch must be a nonnegative safe integer");
-    return withImmediateTransaction(() => {
-      const previous = readCurrent(repoId),
-        floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
-        epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
-        lease: WriterEpochLease = {
-          repoId,
-          holderId,
-          epoch,
-          version: Math.max(previous?.version ?? 0, floor) + 1,
-          issuedAt: now(),
-        };
-      if (!Number.isSafeInteger(epoch))
-        throw new WriterEpochError("writer_epoch_invalid", `writer epoch for ${repoId} exceeds the safe integer range`);
-      insertHistory.run(repoId, lease.epoch);
-      upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
-      return lease;
-    });
-  };
   return {
-    acquire,
-    current: (repoId) => {
+    acquire: (repoId: string, observedLedgerEpoch: number): WriterEpochLease => {
+      ensureOpen();
+      if (!Number.isSafeInteger(observedLedgerEpoch) || observedLedgerEpoch < 0)
+        throw new WriterEpochError("writer_epoch_invalid", "Observed ledger epoch must be a nonnegative safe integer");
+      return withImmediateTransaction(() => {
+        const previous = readCurrent(repoId),
+          floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
+          epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
+          lease: WriterEpochLease = {
+            repoId,
+            holderId: options.holderId,
+            epoch,
+            version: Math.max(previous?.version ?? 0, floor) + 1,
+            issuedAt: options.now(),
+          };
+        if (!Number.isSafeInteger(epoch))
+          throw new WriterEpochError(
+            "writer_epoch_invalid",
+            `writer epoch for ${repoId} exceeds the safe integer range`,
+          );
+        insertHistory.run(repoId, lease.epoch);
+        upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
+        return lease;
+      });
+    },
+    current: (repoId: string): WriterEpochLease | null => {
       ensureOpen();
       return readCurrent(repoId);
     },
-    highWatermark: (repoId) => {
+    highWatermark: (repoId: string): number => {
       ensureOpen();
       const current = readCurrent(repoId)?.epoch ?? 0,
         history = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0);
       return Math.max(current, history);
     },
-    retireCurrent: (repoId) => {
+    retireCurrent: (repoId: string): void => {
       withImmediateTransaction(() => {
         deleteCurrent.run(repoId);
       });
     },
-    assert: (repoId, epoch, expectedHolderId = holderId) => {
+    assert: (repoId: string, epoch: number, expectedHolderId: string): void => {
       ensureOpen();
       assertState(repoId, epoch, expectedHolderId);
     },
-    withAppendFence: (repoId, epoch, expectedHolderId, operation) =>
+    withAppendFence: <T>(repoId: string, epoch: number, expectedHolderId: string, operation: () => T): T =>
       withImmediateTransaction(() => {
         assertState(repoId, epoch, expectedHolderId);
         return operation();
       }),
-    status: () => {
-      ensureOpen();
-      return (selectStatus.all() as unknown as readonly EpochRow[]).map(leaseFromRow);
-    },
     close: () => {
       if (closed) return;
       closed = true;
@@ -182,8 +178,61 @@ export function openPersistentWriterEpoch(options: {
   };
 }
 
-// Descriptor checks reuse one handle per state root for the life of this thread. A repo writer
-// is one worker thread, so its epoch database opens once per writer, not once per check.
+const repoIdPattern = /^[a-z][a-z0-9-]{0,62}$/u;
+
+export function openPersistentWriterEpoch(options: {
+  readonly stateRoot: string;
+  readonly holderId?: string;
+  readonly now?: () => string;
+}): PersistentWriterEpoch {
+  mkdirSync(options.stateRoot, { recursive: true });
+  const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
+    now = options.now ?? (() => new Date().toISOString()),
+    authorities = new Map<string, ReturnType<typeof openRepoEpochAuthority>>();
+  let closed = false;
+  const ensureOpen = (): void => {
+    if (closed) throw new WriterEpochError("writer_epoch_invalid", "writer epoch authority is closed");
+  };
+  const authorityFor = (repoId: string): ReturnType<typeof openRepoEpochAuthority> => {
+    ensureOpen();
+    // The repository id becomes a path component of its epoch database.
+    if (!repoIdPattern.test(repoId))
+      throw new WriterEpochError("writer_epoch_invalid", `repoId ${repoId} is invalid for a writer epoch database`);
+    let authority = authorities.get(repoId);
+    if (!authority) {
+      authority = openRepoEpochAuthority({
+        databasePath: path.join(options.stateRoot, "writer-epochs", `${repoId}.sqlite`),
+        holderId,
+        now,
+      });
+      authorities.set(repoId, authority);
+    }
+    return authority;
+  };
+  return {
+    acquire: (repoId, observedLedgerEpoch = 0) => {
+      if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
+      return authorityFor(repoId).acquire(repoId, observedLedgerEpoch);
+    },
+    current: (repoId) => authorityFor(repoId).current(repoId),
+    highWatermark: (repoId) => authorityFor(repoId).highWatermark(repoId),
+    retireCurrent: (repoId) => authorityFor(repoId).retireCurrent(repoId),
+    assert: (repoId, epoch, expectedHolderId = holderId) =>
+      authorityFor(repoId).assert(repoId, epoch, expectedHolderId),
+    withAppendFence: (repoId, epoch, expectedHolderId, operation) =>
+      authorityFor(repoId).withAppendFence(repoId, epoch, expectedHolderId, operation),
+    close: () => {
+      if (closed) return;
+      closed = true;
+      for (const authority of authorities.values()) authority.close();
+      authorities.clear();
+    },
+  };
+}
+
+// Descriptor checks reuse one authority per state root for the life of this thread. A repo writer
+// is one worker thread serving one repository, so its epoch database opens once per writer, not
+// once per check; the authority itself keys databases per repository.
 const descriptorAuthorities = new Map<string, PersistentWriterEpoch>();
 
 function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): PersistentWriterEpoch {
