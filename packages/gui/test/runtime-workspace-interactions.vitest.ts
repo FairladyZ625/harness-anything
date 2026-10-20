@@ -719,7 +719,7 @@ describe("runtime entry split (W6 IA)", () => {
   });
 
   it("uses singular count copy in the drilled sessions header", async () => {
-    await mountSessions(null, {}, undefined, drilledGroups);
+    await mountSessions(null, {}, undefined, drilledGroups, undefined, undefined, { groups: 1, sessions: 1 });
     await click("session-group-drill-agent-terra");
     const counts = byTestId("sessions-counts").textContent ?? "";
     expect(counts).toContain("1 task group / 1 session · all sessions of terra");
@@ -728,7 +728,7 @@ describe("runtime entry split (W6 IA)", () => {
   });
 
   it("keeps plural count copy in the drilled sessions header above one", async () => {
-    await mountSessions(null, {}, undefined, drilledGroupsMany);
+    await mountSessions(null, {}, undefined, drilledGroupsMany, undefined, undefined, { groups: 2, sessions: 2 });
     await click("session-group-drill-agent-terra");
     const counts = byTestId("sessions-counts").textContent ?? "";
     expect(counts).toContain("2 task groups / 2 sessions · all sessions of terra");
@@ -1027,13 +1027,29 @@ describe("runtime entry split (W6 IA)", () => {
     // task-bound 的历史轮(terra sibling)与最新轮都在;相关会话按 agentId 精确读。
     expect(rows.some((text) => text.includes("terra sibling"))).toBe(true);
     expect(rows.filter((text) => text.includes("Bound task title")).length).toBe(2);
-    expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledWith(
-      "repo-a",
-      expect.objectContaining({ groupBy: "task", agentId: "terra" }),
-    );
+    // 读链是单次成员分页读:首屏一次请求,不再全历史 sessionGroups + 任务批量扇出。
     expect(harnessClient.getTaskDispatches).toHaveBeenCalledWith(
-      expect.objectContaining({ repoId: "repo-a", taskIds: ["task-bound"], limit: 500 }),
+      expect.objectContaining({ repoId: "repo-a", agentId: "terra", limit: 50 }),
     );
+    expect(
+      vi
+        .mocked(agentRuntimeClient.sessionGroups)
+        .mock.calls.some(([, query]) => query?.agentId !== undefined || query?.squadId !== undefined),
+    ).toBe(false);
+  });
+
+  it("grows the recent-sessions window on load-more instead of rereading full history", async () => {
+    await mountAgentSquad("agent/terra", {}, { groups: 800, sessions: 1326 });
+    expect(byTestId("agent-recent-sessions-more")).toBeTruthy();
+    await click("agent-recent-sessions-more");
+    await flushEffects();
+    // 「加载更多」只放大请求窗口:limit 50 → 100,仍是一次成员读。
+    expect(harnessClient.getTaskDispatches).toHaveBeenCalledWith(
+      expect.objectContaining({ repoId: "repo-a", agentId: "terra", limit: 100 }),
+    );
+    expect(
+      vi.mocked(harnessClient.getTaskDispatches).mock.calls.filter(([payload]) => "taskIds" in payload).length,
+    ).toBe(0);
   });
 
   it("keeps other agents' rounds and unattributed sessions out of the agent detail (G12 §4b/§4c)", async () => {
@@ -1361,6 +1377,7 @@ async function mountView(
     _repoId: string,
     _squadRunId: string,
   ) => Promise<Awaited<ReturnType<typeof squadRunsClient.read>>> = async () => squadRunDetailFixture,
+  memberTotals: { readonly groups: number; readonly sessions: number } = { groups: 1, sessions: 2 },
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   seedQueries(client);
@@ -1382,6 +1399,26 @@ async function mountView(
       : { ...sessionGroups, sessions: [] },
   );
   vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+    // 成员分页读:按 agentId/squadId 精确过滤派工行(新→旧),组视图与全量计数同给。
+    if ("agentId" in payload || "squadId" in payload) {
+      const member = "agentId" in payload ? payload.agentId : payload.squadId;
+      return {
+        ok: true,
+        status: "ready",
+        ...("agentId" in payload ? { agentId: member } : { squadId: member }),
+        dispatches: [boundDispatch, siblingDispatch, foreignDispatch]
+          .filter((row) => ("agentId" in payload ? row.agentId === member : row.squadId === member))
+          .sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
+        groups: sessionGroupsResult.groups.filter((group) => group.kind === "task"),
+        taskLabels: [{ taskId: "task-bound", title: "Bound task title" }],
+        totals: memberTotals,
+        truncated: memberTotals.sessions > 2,
+        outcome: "unknown",
+        exitCode: 1,
+        watermark: 1,
+        sourceRevision: 1,
+      } as never;
+    }
     const requested =
         "taskId" in payload ? [payload.taskId as string] : [...(payload as { readonly taskIds: string[] }).taskIds],
       dispatches = requested.includes("task-bound") ? [boundDispatch, siblingDispatch, foreignDispatch] : [];
@@ -1468,6 +1505,7 @@ async function mountSessions(
   sessionGroupsResult = sessionGroups,
   listSquadRuns?: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>>,
   works?: WorkIndex,
+  memberTotals?: { readonly groups: number; readonly sessions: number },
 ) {
   const element = createElement(RuntimeRefHarness, {
     initialRef: focusedEntityRef,
@@ -1491,11 +1529,12 @@ async function mountSessions(
         ...(works === undefined ? {} : { works }),
       }),
   });
-  return mountView(element, tailImpl, sessionGroupsResult, listSquadRuns);
+  return mountView(element, tailImpl, sessionGroupsResult, listSquadRuns, undefined, memberTotals);
 }
 async function mountAgentSquad(
   focusedEntityRef: string | null,
   handlers: { readonly onSelectEntity?: (ref: string) => void } = {},
+  memberTotals?: { readonly groups: number; readonly sessions: number },
 ) {
   const element = createElement(RuntimeRefHarness, {
     initialRef: focusedEntityRef,
@@ -1510,7 +1549,7 @@ async function mountAgentSquad(
         onBack,
       }),
   });
-  return mountView(element);
+  return mountView(element, undefined, undefined, undefined, undefined, memberTotals);
 }
 async function mountProviders(
   focusedEntityRef: string | null,

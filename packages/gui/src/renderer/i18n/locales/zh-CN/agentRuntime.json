@@ -745,5 +745,7 @@
   "agentRuntime.handoffResumed": "目标已恢复同一原生会话。",
   "agentRuntime.handoffEnable": "允许此 Codex 会话停稳后显式跨节点交接",
   "agentRuntime.squadRunLastReport": "最后报告",
-  "agentRuntime.daemonTransientRetry": "中心正在换版/暂不可用，请稍后重试。"
+  "agentRuntime.daemonTransientRetry": "中心正在换版/暂不可用，请稍后重试。",
+  "agentRuntime.loadMoreSessions": "加载更多会话",
+  "agentRuntime.loadingMoreSessions": "正在加载更多会话…"
 }

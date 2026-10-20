@@ -29,7 +29,12 @@ import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.t
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
-import { readRuntimeSessionActivityEvidence, type RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import {
+  latestEntityNames,
+  readRuntimeSessionActivityEvidence,
+  runtimeTaskLabels,
+  type RuntimeSessionActivityEvidence,
+} from "./dispatch-read.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
@@ -376,32 +381,6 @@ function historicalRuntimeKindId(
   const kindId = definition?.kindId ?? session.kindId;
   if (isRuntimeKindId(kindId)) return kindId;
   throw coded("invalid_result", `Runtime session ${session.runtimeSessionId} has an unsupported runtime kind.`);
-}
-
-// getEntity semantics over a full listing: the highest-revision row wins, and only its name
-// labels the entity — an unnamed newer row shadows an older named one, matching the point query.
-function latestEntityNames(
-  rows: readonly ReturnType<TaskProjection["listEntities"]>[number][],
-): ReadonlyMap<string, string> {
-  const latest = new Map<string, ReturnType<TaskProjection["listEntities"]>[number]>();
-  for (const row of rows) {
-    const known = latest.get(row.id);
-    if (known === undefined || row.workspaceRevision >= known.workspaceRevision) latest.set(row.id, row);
-  }
-  const names = new Map<string, string>();
-  for (const [id, row] of latest) {
-    const name = row.value.name;
-    if (typeof name === "string" && name) names.set(id, name);
-  }
-  return names;
-}
-
-function runtimeTaskLabels(projection: TaskProjection, taskIds: readonly string[]): ReadonlyMap<string, string> {
-  const result = new Map<string, string>();
-  for (let offset = 0; offset < taskIds.length; offset += 500)
-    for (const row of projection.readTaskRuntimeBatch({ taskIds: taskIds.slice(offset, offset + 500) }).rows)
-      result.set(row.taskId, row.title);
-  return result;
 }
 
 function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {

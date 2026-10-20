@@ -15,6 +15,7 @@ import {
   taskDispatchRowsSettled,
 } from "../src/dispatch-read.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
+import { validateDaemonTaskDispatches } from "../src/protocol/daemon-protocol.contract.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -467,4 +468,105 @@ test("stopped dispatch awaits must be active and written within its lease interv
     }),
   } as unknown as TaskProjection;
   assert.equal(readTaskDispatches({ projection: unchangedStatus, taskId }).dispatches[0]?.status, "stopped");
+});
+
+test("member dispatch reads page an executor's newest rows with window groups and full-history totals", () => {
+  const sessions = {
+      "runtime-terra-1": session("exited", "succeeded", {
+        runtimeSessionId: "runtime-terra-1",
+        taskBindings: [
+          { taskId: "task-a", executionId: "execution-dispatch_member_old", boundAt: "2026-08-23T00:00:00.000Z" },
+        ],
+      }),
+      "runtime-terra-2": session("exited", "failed", {
+        runtimeSessionId: "runtime-terra-2",
+        taskBindings: [
+          { taskId: "task-b", executionId: "execution-dispatch_member_new", boundAt: "2026-08-24T00:00:00.000Z" },
+        ],
+        lastObservedAt: "2026-08-24T00:00:00.000Z",
+      }),
+    } as Record<string, RuntimeSession>,
+    dispatchEvent = (dispatchId: string, runtimeSessionId: string, taskId: string, startedAt: string) =>
+      ({
+        schema: "agent-runtime-event/v1",
+        type: "runtime_dispatch_requested",
+        occurredAt: startedAt,
+        payload: {
+          dispatchId,
+          runtimeSessionId,
+          taskId,
+          executionId: `execution-${dispatchId}`,
+          instanceId: "instance-1",
+          agentId: "terra",
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          attemptGroupId: dispatchId,
+          attemptIndex: 0,
+          startedAt,
+        },
+      }) as unknown as Dispatch;
+  const older = dispatchEvent("dispatch_member_old", "runtime-terra-1", "task-a", "2026-08-23T00:00:00.000Z"),
+    newer = dispatchEvent("dispatch_member_new", "runtime-terra-2", "task-b", "2026-08-24T00:00:00.000Z"),
+    memberPage = { rows: [newer, older], truncated: true, totals: { groups: 7, sessions: 1326 } };
+  const projection = {
+    read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
+    readDocument: () => ({ document: null }),
+    readRuntimeSessionEvents: () => [],
+    readRuntimeDispatchByResumeSource: () => null,
+    readRuntimeDispatchesByAttemptGroup: () => [],
+    readLeaseIntervals: () => [],
+    readEventWitness: () => null,
+    readCanonicalEvents: () => ({ events: [] }),
+    readTaskRelationsBySources: () => ({ rows: [] }),
+    readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
+      status: "ready",
+      taskIds,
+      rows: taskIds.map((taskId) => ({
+        taskId,
+        packagePath: `tasks/${taskId}`,
+        sessions: [],
+        title: `Title ${taskId}`,
+      })),
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+    listEntities: () => [],
+    readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+    readRuntimeSession: (id: string) => sessions[id] ?? null,
+    readRuntimeDispatchesByMember: (query: {
+      readonly agentId?: string;
+      readonly squadId?: string;
+      readonly limit: number;
+    }) => {
+      assert.equal(query.agentId ?? query.squadId, "terra");
+      return query.limit === 1 ? { rows: [newer], truncated: true, totals: memberPage.totals } : memberPage;
+    },
+  } as unknown as TaskProjection;
+  const page = readTaskDispatches({ projection, agentId: "terra", limit: 2 });
+  assert.deepEqual(
+    page.dispatches.map((row) => row.dispatchId),
+    ["dispatch_member_new", "dispatch_member_old"],
+  );
+  assert.equal(page.dispatches[0]?.agentId, "terra");
+  assert.equal(page.dispatches[0]?.taskTitle ?? null, null);
+  assert.equal(page.truncated, true);
+  assert.deepEqual(page.totals, { groups: 7, sessions: 1326 });
+  assert.deepEqual(
+    page.groups.map((group) => [group.key, group.label, group.sessionCount]),
+    [
+      ["task-b", "Title task-b", 1],
+      ["task-a", "Title task-a", 1],
+    ],
+  );
+  assert.deepEqual(page.taskLabels, [
+    { taskId: "task-b", title: "Title task-b" },
+    { taskId: "task-a", title: "Title task-a" },
+  ]);
+  const first = readTaskDispatches({ projection, agentId: "terra", limit: 1 });
+  assert.deepEqual(
+    first.dispatches.map((row) => row.dispatchId),
+    ["dispatch_member_new"],
+  );
+  assert.equal(first.truncated, true);
+  assert.deepEqual(validateDaemonTaskDispatches(page), []);
+  assert.notDeepEqual(validateDaemonTaskDispatches({ ...page, totals: { groups: "many", sessions: 1326 } }), []);
 });

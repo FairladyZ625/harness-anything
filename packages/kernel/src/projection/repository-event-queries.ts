@@ -41,6 +41,23 @@ const RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL = RUNTIME_DISPATCHES_SQL.replace(
   "ORDER BY workspace_revision",
   "AND json_extract(event_json, '$.payload.taskId') = ? AND json_extract(event_json, '$.payload.executionId') = ? ORDER BY workspace_revision",
 );
+// The member page answers "an executor's newest dispatches" in one index scan: newest first,
+// bounded by the caller's limit, so a detail-page first screen never pays for total history.
+const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId") =>
+  [
+    RUNTIME_DISPATCHES_SQL.replace(
+      "ORDER BY workspace_revision",
+      `AND json_extract(event_json, '$.payload.${member}') = ? ORDER BY json_extract(event_json, '$.payload.startedAt') DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT ?`,
+    ),
+  ].join(" ");
+const RUNTIME_DISPATCH_MEMBER_TOTALS_SQL = (member: "agentId" | "squadId") =>
+  [
+    "SELECT COUNT(DISTINCT json_extract(event_json, '$.payload.taskId')) AS taskGroups,",
+    "COUNT(DISTINCT json_extract(event_json, '$.payload.runtimeSessionId')) AS sessions FROM event_index",
+    "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+    `AND json_extract(event_json, '$.payload.${member}') = ?`,
+  ].join(" ");
 const RUNTIME_DISPATCH_PAGE_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -89,6 +106,7 @@ export function repositoryEventQueries(
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
   | "readRuntimeDispatchPage"
+  | "readRuntimeDispatchesByMember"
   | "readRuntimeSessionEvents"
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
@@ -236,6 +254,33 @@ export function repositoryEventQueries(
           rows,
           done,
           nextCursor: !done && last?.startedAt ? { startedAt: last.startedAt, dispatchId: last.dispatchId } : null,
+        };
+      }),
+    readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>
+      withRead((db) => {
+        if ((agentId === undefined) === (squadId === undefined))
+          throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+          throw new Error("runtime dispatch member page requires a limit from 1 to 500");
+        const member: "agentId" | "squadId" = agentId === undefined ? "squadId" : "agentId",
+          value = agentId ?? squadId!,
+          raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member), value, limit + 1),
+          rows = raw
+            .slice(0, limit)
+            .map((row) => JSON.parse(String(row.event_json)))
+            .filter(
+              (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+                isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
+            )
+            .map(publicRuntimeDispatch),
+          totalsRow = queryRow(db, RUNTIME_DISPATCH_MEMBER_TOTALS_SQL(member), value);
+        return {
+          rows,
+          truncated: raw.length > limit,
+          totals: {
+            groups: Number(totalsRow?.taskGroups ?? 0),
+            sessions: Number(totalsRow?.sessions ?? 0),
+          },
         };
       }),
     readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) =>

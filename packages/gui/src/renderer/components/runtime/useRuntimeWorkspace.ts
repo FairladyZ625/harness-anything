@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
 import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, type EntitySaveResult } from "../../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
-import { harnessClient } from "../../api-client.ts";
+import { harnessClient, type TaskDispatchMemberRead } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import {
@@ -204,7 +204,6 @@ function useRuntimeChannel(repoId: string, refresh?: () => Promise<unknown>) {
 // (invalidateLedgerDependents)在几秒内把新状态带进挂载中的列表。
 const SESSION_GROUPS_PAGE_LIMIT = 1000;
 const SQUAD_RUNS_LIMIT = 1000;
-const RELATED_TASK_BATCH_LIMIT = 500;
 export function useSessionsWorkspace(
   repoId: string,
   list: {
@@ -502,53 +501,45 @@ export function useAgentSquadWorkspace(repoId: string) {
   };
 }
 
-/** 选中 agent/squad 的相关派工轮次(G12 §4a/§4b):sessionGroups 精确筛出该执行者的
- * 任务组,再分批读 task.dispatches,行内 agentId/squadId 用台账真实值(不盖戳);
- * 没有派工行的会话无执行者归属,天然不在其列。related 跟随视图的有效选择(含降级行,
- * 降级 id 命中的历史轮次照常返回),null 不发。 */
+/** 选中 agent/squad 的相关派工轮次(G12 §4a/§4b):一次成员分页读,daemon 返回该执行者
+ * 最近 N 条派工行(新→旧)与该窗口的任务组视图;首屏读取与该执行者的历史总量无关,
+ * 「加载更多」放大请求窗口,由 daemon 重新给全窗口的行与组。行内 agentId/squadId 用
+ * 台账真实值(不盖戳);没有派工行的会话无执行者归属,天然不在其列。related 跟随视图
+ * 的有效选择(含降级行,降级 id 命中的历史轮次照常返回),null 不发。 */
+const RELATED_SESSIONS_PAGE = 50;
+// daemon 成员读的 limit 上限(1..500):窗口到顶后不再放大,也不再把「还有更早」
+// 表达成可继续加载——这正是读端口的文档边界,与任务批量读同界。
+const RELATED_SESSIONS_WINDOW_MAX = 500;
 export function useRelatedDispatches(
   repoId: string,
   related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
 ) {
-  const relatedGroups = useQuery({
-    queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "related", related?.kind ?? "", related?.id ?? ""],
-    queryFn: () =>
-      agentRuntimeClient.sessionGroups(repoId, {
-        groupBy: "task",
-        since: "1970-01-01T00:00:00.000Z",
-        ...(related?.kind === "agent" ? { agentId: related.id } : {}),
-        ...(related?.kind === "squad" ? { squadId: related.id } : {}),
-        limit: SESSION_GROUPS_PAGE_LIMIT,
-      }),
+  const [windowRows, setWindowRows] = useState(RELATED_SESSIONS_PAGE);
+  // 换选中者回到第一页:窗口是本选择的读取参数,不跨选择延续。
+  const relatedKey = related === null ? "" : `${related.kind}:${related.id}`;
+  useEffect(() => {
+    setWindowRows(RELATED_SESSIONS_PAGE);
+  }, [relatedKey]);
+  const read = useQuery({
+    queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), relatedKey, windowRows],
+    queryFn: async (): Promise<TaskDispatchMemberRead> => {
+      if (related === null) throw new Error("Related dispatches require an agent or squad selection.");
+      return (await (related.kind === "agent"
+        ? harnessClient.getTaskDispatches({ repoId, agentId: related.id, limit: windowRows })
+        : harnessClient.getTaskDispatches({
+            repoId,
+            squadId: related.id,
+            limit: windowRows,
+          }))) as TaskDispatchMemberRead;
+    },
     enabled: related !== null,
     staleTime: 4_000,
+    // 放大窗口重读期间保留旧列表:首屏不清空,新窗口到达后原位替换。
+    placeholderData: (previous) => previous,
   });
-  const relatedTaskIds = [...new Set((relatedGroups.data?.groups ?? []).map((group) => group.taskId ?? ""))].filter(
-      (taskId): taskId is string => taskId !== "",
-    ),
-    relatedLabels = new Map(
-      (relatedGroups.data?.groups ?? []).flatMap((group) =>
-        group.taskId ? [[group.taskId, group.label] as const] : [],
-      ),
-    ),
-    relatedTaskBatches = Array.from(
-      { length: Math.ceil(relatedTaskIds.length / RELATED_TASK_BATCH_LIMIT) },
-      (_, index) => relatedTaskIds.slice(index * RELATED_TASK_BATCH_LIMIT, (index + 1) * RELATED_TASK_BATCH_LIMIT),
-    ),
-    relatedDispatches = useQueries({
-      queries: relatedTaskBatches.map((taskIds) => ({
-        queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), related?.kind ?? "", related?.id ?? "", taskIds],
-        queryFn: () => harnessClient.getTaskDispatches({ repoId, taskIds, limit: RELATED_TASK_BATCH_LIMIT }),
-        staleTime: 4_000,
-      })),
-    });
-  const matchesRelated = (row: { readonly agentId?: string; readonly squadId?: string }): boolean =>
-    related === null ? false : related.kind === "agent" ? row.agentId === related.id : row.squadId === related.id;
-  // 原始派工行留给会话页钻入:同一批行再按任务组成轮次,不在视图里重发 task.dispatches。
-  const dispatchRows = relatedDispatches.flatMap((query) => query.data?.dispatches ?? []).filter(matchesRelated);
-  const dockRows: readonly RuntimeDockRow[] = [...dispatchRows]
-    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
-    .map((row) => ({
+  const dispatchRows = read.data?.dispatches ?? [],
+    relatedLabels = new Map((read.data?.taskLabels ?? []).map((label) => [label.taskId, label.title])),
+    dockRows: readonly RuntimeDockRow[] = dispatchRows.map((row) => ({
       runtimeSessionId: row.runtimeSessionId,
       agentId: row.agentId ?? null,
       agentName: row.agentName ?? row.agentId ?? null,
@@ -564,22 +555,20 @@ export function useRelatedDispatches(
       liveness: null,
       dispatchId: row.dispatchId,
       delegation: sessionDelegation(row),
-    }));
-  // 会话页钻入复用同一条读:任务组头 + 已取回的派工行(按任务组成轮次),不写第三份同形读。
-  const groups = relatedGroups.data?.groups ?? [],
-    totals = relatedGroups.data?.totals ?? { groups: 0, sessions: 0 };
+    })),
+    truncated = read.data?.truncated ?? false;
   return {
     dockRows,
+    // 原始派工行留给会话页钻入:窗口内按任务组成轮次,不在视图里重发 task.dispatches。
     dispatchRows,
-    groups,
-    totals,
-    truncated: relatedGroups.data?.truncated ?? false,
-    pending: relatedGroups.isPending,
-    error: relatedGroups.isError
-      ? relatedGroups.error instanceof Error
-        ? relatedGroups.error.message
-        : String(relatedGroups.error)
-      : null,
+    groups: read.data?.groups ?? [],
+    totals: read.data?.totals ?? { groups: 0, sessions: 0 },
+    truncated,
+    hasMore: truncated && windowRows < RELATED_SESSIONS_WINDOW_MAX,
+    loadMore: () => setWindowRows((current) => Math.min(current + RELATED_SESSIONS_PAGE, RELATED_SESSIONS_WINDOW_MAX)),
+    loadingMore: read.isFetching && read.data !== undefined,
+    pending: read.isPending,
+    error: read.isError ? (read.error instanceof Error ? read.error.message : String(read.error)) : null,
   };
 }
 

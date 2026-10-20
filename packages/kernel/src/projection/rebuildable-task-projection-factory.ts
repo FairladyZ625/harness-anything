@@ -269,6 +269,7 @@ export function makeTaskProjectionReader(options: {
       readRuntimeDispatchesByAttemptGroup: taskQueries.readRuntimeDispatchesByAttemptGroup,
       readRuntimeDispatchesByDecision: taskQueries.readRuntimeDispatchesByDecision,
       readRuntimeDispatchPage: taskQueries.readRuntimeDispatchPage,
+      readRuntimeDispatchesByMember: taskQueries.readRuntimeDispatchesByMember,
       readRuntimeSessionEvents: taskQueries.readRuntimeSessionEvents,
       readCanonicalEvents: taskQueries.readCanonicalEvents,
       readScheduleEvents: taskQueries.readScheduleEvents,

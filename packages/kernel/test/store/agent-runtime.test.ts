@@ -638,6 +638,73 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
   });
 });
 
+test("runtime dispatch member page returns an executor's newest dispatches with full-history totals", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-member", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      requestedBase = witness("runtime_dispatch_requested");
+    // terra:三派工跨两任务(会话各异);另加 squad、他人与无归属派工作对照。
+    const memberDispatches = [
+      { dispatchId: "dispatch_terra_1", startedAt: "2026-09-01T00:00:00.000Z", taskId: "task-a", agentId: "terra" },
+      { dispatchId: "dispatch_terra_2", startedAt: "2026-09-02T00:00:00.000Z", taskId: "task-a", agentId: "terra" },
+      { dispatchId: "dispatch_terra_3", startedAt: "2026-09-03T00:00:00.000Z", taskId: "task-b", agentId: "terra" },
+    ];
+    const noise = [
+      { dispatchId: "dispatch_squad_1", startedAt: "2026-09-04T00:00:00.000Z", taskId: "task-c", squadId: "squad-x" },
+      { dispatchId: "dispatch_luna_1", startedAt: "2026-09-05T00:00:00.000Z", taskId: "task-a", agentId: "luna" },
+      { dispatchId: "dispatch_bare_1", startedAt: "2026-09-06T00:00:00.000Z" },
+    ];
+    let revision = 1;
+    for (const dispatch of [...memberDispatches, ...noise]) {
+      const event = eventFromProviderWitness(
+        {
+          ...requestedBase,
+          payload: {
+            ...requestedBase.payload,
+            dispatchId: dispatch.dispatchId,
+            runtimeSessionId: `runtime-member-${dispatch.dispatchId}`,
+            startedAt: dispatch.startedAt,
+            ...(dispatch.taskId === undefined
+              ? {}
+              : { taskId: dispatch.taskId, executionId: `exec-${dispatch.dispatchId}` }),
+            ...(dispatch.agentId === undefined ? {} : { agentId: dispatch.agentId, agentName: dispatch.agentId }),
+            ...(dispatch.squadId === undefined ? {} : { squadId: dispatch.squadId }),
+          },
+        },
+        envelope(revision),
+      )!;
+      store.append(bundle(event));
+      projection.apply(event);
+      revision += 1;
+    }
+    const firstTwo = projection.readRuntimeDispatchesByMember({ agentId: "terra", limit: 2 });
+    assert.deepEqual(
+      firstTwo.rows.map((row) => row.payload.dispatchId),
+      ["dispatch_terra_3", "dispatch_terra_2"],
+    );
+    assert.equal(firstTwo.truncated, true);
+    assert.deepEqual(firstTwo.totals, { groups: 2, sessions: 3 });
+    const all = projection.readRuntimeDispatchesByMember({ agentId: "terra", limit: 5 });
+    assert.equal(all.truncated, false);
+    assert.deepEqual(
+      all.rows.map((row) => row.payload.dispatchId),
+      ["dispatch_terra_3", "dispatch_terra_2", "dispatch_terra_1"],
+    );
+    assert.deepEqual(all.totals, { groups: 2, sessions: 3 });
+    const squad = projection.readRuntimeDispatchesByMember({ squadId: "squad-x", limit: 5 });
+    assert.deepEqual(
+      squad.rows.map((row) => row.payload.dispatchId),
+      ["dispatch_squad_1"],
+    );
+    assert.deepEqual(squad.totals, { groups: 1, sessions: 1 });
+    assert.throws(() => projection.readRuntimeDispatchesByMember({ agentId: "terra", limit: 5, squadId: "squad-x" }));
+    assert.throws(() => projection.readRuntimeDispatchesByMember({ limit: 5 }));
+    assert.throws(() => projection.readRuntimeDispatchesByMember({ agentId: "terra", limit: 0 }));
+    assert.throws(() => projection.readRuntimeDispatchesByMember({ agentId: "terra", limit: 501 }));
+  });
+});
+
 function witness(type: AgentRuntimeEventType | "heartbeat"): ProviderWitnessV1 {
   const value = claude.witnesses.find((candidate) => candidate.type === type);
   if (value === undefined) throw new Error(`missing ${type} witness`);

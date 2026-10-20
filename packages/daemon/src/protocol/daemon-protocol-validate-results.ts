@@ -352,8 +352,34 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "page",
         "watermark",
         "sourceRevision",
+      ]),
+    member =
+      nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&
+      Array.isArray(value.groups) &&
+      value.groups.every((group) => isJsonObject(group) && nonEmpty(group.key) && nonEmpty(group.kind)) &&
+      Array.isArray(value.taskLabels) &&
+      value.taskLabels.every(
+        (label) => isJsonObject(label) && nonEmpty(label.taskId) && typeof label.title === "string",
+      ) &&
+      isJsonObject(value.totals) &&
+      integer(value.totals.groups) &&
+      integer(value.totals.sessions) &&
+      typeof value.truncated === "boolean" &&
+      exactRecord(value, [
+        "ok",
+        "status",
+        ...(nonEmpty(value.agentId) ? ["agentId"] : ["squadId"]),
+        "dispatches",
+        "groups",
+        "taskLabels",
+        "totals",
+        "truncated",
+        "outcome",
+        "exitCode",
+        "watermark",
+        "sourceRevision",
       ]);
-  if (!single && !batch)
+  if (!single && !batch && !member)
     return [
       validationError(
         validationEntityId(value, ["taskId"], validationEntityId({ taskId: taskIds[0] }, ["taskId"], entityId)),

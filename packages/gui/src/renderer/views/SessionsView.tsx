@@ -806,6 +806,7 @@ export function SessionsView({
             pending={drill === null ? workspace.groups.isPending : related.pending}
             groups={displayedGroups}
             truncated={displayedTruncated}
+            onLoadMore={drill === null || !related.hasMore ? undefined : related.loadMore}
             expandedKeys={expandedGroups}
             rowsByGroup={displayedRowsByGroup}
             decisionRowsByGroup={decisionGroupRows}

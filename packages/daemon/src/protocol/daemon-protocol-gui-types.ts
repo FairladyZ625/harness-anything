@@ -27,6 +27,7 @@ export type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/k
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
+  AgentRuntimeSessionGroupDto,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
 import type {
@@ -693,19 +694,40 @@ export type DaemonDecisionListResult =
     };
 
 /** The CLI-compatible single read and GUI batch read share the same stable method and
- * schema ids. Exactly one selector is allowed; pagination applies only to taskIds. */
+ * schema ids. Exactly one selector is allowed; pagination applies only to taskIds. The
+ * member selector returns one executor's newest dispatches, bounded by the required limit. */
 export type DaemonTaskDispatchesPayload =
   | {
       readonly taskId: string;
       readonly taskIds?: never;
       readonly limit?: never;
       readonly cursor?: never;
+      readonly agentId?: never;
+      readonly squadId?: never;
     }
   | {
       readonly taskId?: never;
       readonly taskIds: readonly string[];
       readonly limit?: number;
       readonly cursor?: string;
+      readonly agentId?: never;
+      readonly squadId?: never;
+    }
+  | {
+      readonly taskId?: never;
+      readonly taskIds?: never;
+      readonly limit: number;
+      readonly cursor?: never;
+      readonly agentId: string;
+      readonly squadId?: never;
+    }
+  | {
+      readonly taskId?: never;
+      readonly taskIds?: never;
+      readonly limit: number;
+      readonly cursor?: never;
+      readonly agentId?: never;
+      readonly squadId: string;
     };
 
 export interface TaskPlacementSupplement {
@@ -773,6 +795,18 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
         readonly taskIds: readonly string[];
         readonly unavailableTaskIds: readonly string[];
         readonly page: ProjectionPage;
+      }
+    | {
+        /** The member selector: exactly one of agentId or squadId. */
+        readonly agentId?: string;
+        readonly squadId?: string;
+        /** Task-group view of exactly the returned rows, newest first. */
+        readonly groups: readonly AgentRuntimeSessionGroupDto[];
+        /** Titles for the returned rows' task ids. */
+        readonly taskLabels: readonly { readonly taskId: string; readonly title: string }[];
+        /** Full-history distinct task-group and session counts for the member. */
+        readonly totals: { readonly groups: number; readonly sessions: number };
+        readonly truncated: boolean;
       }
   );
 

@@ -89,6 +89,13 @@ export interface RuntimeDispatchPage {
   readonly nextCursor: { readonly startedAt: string; readonly dispatchId: string } | null;
   readonly done: boolean;
 }
+export interface RuntimeDispatchMemberRead {
+  /** The member's newest dispatch events first; bounded by the caller's limit. */
+  readonly rows: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  readonly truncated: boolean;
+  /** Full-history distinct counts for the member, independent of the page size. */
+  readonly totals: { readonly groups: number; readonly sessions: number };
+}
 
 export interface TaskProjection {
   readonly path: string;
@@ -177,6 +184,11 @@ export interface TaskProjection {
     readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
     readonly limit: number;
   }) => RuntimeDispatchPage;
+  readonly readRuntimeDispatchesByMember: (query: {
+    readonly agentId?: string;
+    readonly squadId?: string;
+    readonly limit: number;
+  }) => RuntimeDispatchMemberRead;
   readonly readRuntimeSessionEvents: (
     runtimeSessionIdValue: string,
     afterRevision: number,

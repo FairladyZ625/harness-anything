@@ -139,8 +139,8 @@ export function AgentSquadView({
         : fallback
       : fallback;
   // 相关派工轮次跟随有效选择(含降级行):结论行的「最近一次派工结果」不能因为
-  // 选择是派生的(非深链)就查不到。
-  const { dockRows } = useRelatedDispatches(
+  // 选择是派生的(非深链)就查不到。成员分页读只取最近一页,「加载更多」放大窗口。
+  const related = useRelatedDispatches(
     repoId,
     current !== null && (current.type === "agent" || current.type === "squad")
       ? { kind: current.type, id: current.id }
@@ -410,8 +410,11 @@ export function AgentSquadView({
                   busy={workspace.busy}
                   actionError={workspace.error}
                   conclusionRefs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
-                  lastDispatch={dockRows[0] ?? null}
-                  sessions={dockRows.filter((row) => row.agentId === current.id)}
+                  lastDispatch={related.dockRows[0] ?? null}
+                  sessions={related.dockRows}
+                  sessionsHasMore={related.hasMore}
+                  loadingMoreSessions={related.loadingMore}
+                  onMoreSessions={related.loadMore}
                   onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
                   onSave={(declaration) => void workspace.saveAgent(declaration)}
                   onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
@@ -420,7 +423,12 @@ export function AgentSquadView({
                   onFocusGraph={onFocusGraph}
                   onRetire={() => setDialog({ kind: "retire-agent", agentId: current.id })}
                   onDelete={() => setDialog({ kind: "delete-entity", entity: "agent", id: current.id })}
-                  deleteBlockedBy={agentDeleteBlockedBy(selectedAgent.id, squads, dockRows, settings.data?.values)}
+                  deleteBlockedBy={agentDeleteBlockedBy(
+                    selectedAgent.id,
+                    squads,
+                    related.dockRows,
+                    settings.data?.values,
+                  )}
                 />
               ) : (
                 <Empty>{t("agentRuntime.loading")}</Empty>
@@ -440,11 +448,14 @@ export function AgentSquadView({
           ) : selectedSquad !== null && isAvailableSquadEntityRow(selectedSquad) ? (
             squadDetail.data ? (
               <>
-                <SquadConclusion squad={selectedSquad} lastDispatch={dockRows[0] ?? null} />
+                <SquadConclusion squad={selectedSquad} lastDispatch={related.dockRows[0] ?? null} />
                 <SquadCockpit
                   squad={squadDetail.data}
-                  rows={dockRows.filter((row) => row.squadId === current.id)}
+                  rows={related.dockRows}
                   busy={workspace.busy}
+                  hasMore={related.hasMore}
+                  loadingMore={related.loadingMore}
+                  onLoadMore={related.loadMore}
                   onLaunch={() => void openSquadDispatch(current.id)}
                   onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
                 />
