@@ -14,6 +14,9 @@ import {
 import { LayoutGroup, motion } from "motion/react";
 import { ArrowCounterClockwise, ListPlus, PencilSimple, X } from "@phosphor-icons/react";
 import { formatDuration } from "../../model/time.ts";
+import { t, type MessageKey } from "../../i18n/index.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import { steerNoteLayoutId, type SteerNote } from "./AgentSteering.tsx";
 
 /**
@@ -26,6 +29,9 @@ import { steerNoteLayoutId, type SteerNote } from "./AgentSteering.tsx";
  * 拖拽只在 editing 态启用(任务书约束),排序算法 moveStepBefore 为纯函数导出供直证。
  * 计时器纪律:注入 nowMs 时不建 interval;未注入时仅 running 态存在执行中步骤才
  * 1s tick,卸载、切换 editing 或步骤收口即清理。
+ * 原语复用(CEO 返工裁定 F2/F3):状态词经 StatusTag(tone+label),按钮经
+ * primitives/Button,文案经 agentUi.* i18n;拖拽手柄是 dnd-kit 激活器而非命令按钮
+ * (attributes/listeners 必须原地展开,Button 不透传),保留原生 button 并在此说明。
  */
 
 export type PlanStepStatus = "pending" | "running" | "done" | "failed" | "skipped";
@@ -40,6 +46,7 @@ export interface PlanStep {
   readonly steerNotes?: readonly SteerNote[];
 }
 
+/** 步骤状态的非文字表面配色(左缘状态条)。 */
 const STEP_COLOR: Record<PlanStepStatus, string> = {
   pending: "var(--color-status-planned)",
   running: "var(--color-status-active)",
@@ -48,12 +55,22 @@ const STEP_COLOR: Record<PlanStepStatus, string> = {
   skipped: "var(--color-status-cancelled)",
 };
 
-const STEP_LABEL: Record<PlanStepStatus, string> = {
-  pending: "待执行",
-  running: "执行中",
-  done: "完成",
-  failed: "失败",
-  skipped: "跳过",
+/** 步骤状态词 → StatusTag tone(CEO 映射:pending→plan、skipped→cancel,其余同名族)。 */
+const STEP_TONE: Record<PlanStepStatus, StatusTone> = {
+  pending: "plan",
+  running: "active",
+  done: "done",
+  failed: "bad",
+  skipped: "cancel",
+};
+
+/** 步骤状态词的 i18n 键。 */
+const STEP_KEY: Record<PlanStepStatus, MessageKey> = {
+  pending: "agentUi.plan.status.pending",
+  running: "agentUi.plan.status.running",
+  done: "agentUi.plan.status.done",
+  failed: "agentUi.plan.status.failed",
+  skipped: "agentUi.plan.status.skipped",
 };
 
 /** 拖拽调序纯函数:把 draggedId 移到 beforeStepId 之前;beforeStepId="end" 移到末尾。 */
@@ -137,10 +154,12 @@ function StepRow({
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {editing && (
+          /* 拖拽手柄是 dnd-kit 激活器:attributes/listeners 必须原地展开到激活元素,
+             primitives/Button 不透传这组 props,故保留原生 button(CEO 裁定 F2 例外)。 */
           <button
             type="button"
-            aria-label={`拖拽调整 ${step.title} 顺序`}
-            title="拖拽调整顺序（或聚焦后按空格拾起、方向键移动、空格放下）"
+            aria-label={t("agentUi.plan.dragHandle", { title: step.title })}
+            title={t("agentUi.plan.dragHandleTip")}
             {...attributes}
             {...listeners}
             data-testid={testId !== undefined ? `${testId}-handle-${step.id}` : undefined}
@@ -162,24 +181,14 @@ function StepRow({
                 setRenaming(false);
               }
             }}
-            aria-label="步骤标题"
+            aria-label={t("agentUi.plan.stepTitle")}
             data-testid={testId !== undefined ? `${testId}-rename-${step.id}` : undefined}
             className="ui-control min-w-0 flex-1 rounded-sm border border-border-strong bg-surface px-1.5 ui-meta"
           />
         ) : (
-          <button
-            type="button"
-            onClick={() => editing && setRenaming(true)}
-            disabled={!editing}
-            title={editing ? "点击重命名" : undefined}
-            className="min-w-0 flex-1 truncate text-left ui-meta text-text disabled:cursor-default"
-          >
-            {step.title}
-          </button>
+          <span className="min-w-0 flex-1 truncate ui-meta text-text">{step.title}</span>
         )}
-        <span className="shrink-0 font-mono tabular-nums ui-micro" style={{ color }}>
-          {STEP_LABEL[step.status]}
-        </span>
+        <StatusTag tone={STEP_TONE[step.status]} label={t(STEP_KEY[step.status])} mono />
         {elapsedText !== null && (
           <span
             className="shrink-0 font-mono tabular-nums ui-micro text-text-muted"
@@ -189,40 +198,36 @@ function StepRow({
           </span>
         )}
         {step.status === "failed" && (
-          <button
-            type="button"
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() => onRetryFromStep(step.id)}
-            data-testid={testId !== undefined ? `${testId}-retry-${step.id}` : undefined}
-            className="ui-control inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 ui-micro"
-            style={{
-              color: "var(--color-danger)",
-              borderColor: "color-mix(in oklch, var(--color-danger) 40%, transparent)",
-            }}
+            testId={testId !== undefined ? `${testId}-retry-${step.id}` : undefined}
           >
             <ArrowCounterClockwise aria-hidden />
-            从此步重试
-          </button>
+            {t("agentUi.plan.retryFromStep")}
+          </Button>
         )}
         {editing && (
           <>
-            <button
-              type="button"
-              aria-label={`重命名 ${step.title}`}
+            <Button
+              variant="ghost"
+              size="sm"
+              ariaLabel={t("agentUi.plan.renameStep", { title: step.title })}
               onClick={() => setRenaming(true)}
-              data-testid={testId !== undefined ? `${testId}-edit-${step.id}` : undefined}
-              className="ui-control inline-flex size-5 shrink-0 items-center justify-center rounded-xs text-text-faint hover:text-text"
+              testId={testId !== undefined ? `${testId}-edit-${step.id}` : undefined}
             >
               <PencilSimple aria-hidden />
-            </button>
-            <button
-              type="button"
-              aria-label={`删除 ${step.title}`}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              ariaLabel={t("agentUi.plan.removeStep", { title: step.title })}
               onClick={() => onRemove(step.id)}
-              data-testid={testId !== undefined ? `${testId}-remove-${step.id}` : undefined}
-              className="ui-control inline-flex size-5 shrink-0 items-center justify-center rounded-xs text-text-faint hover:text-danger"
+              testId={testId !== undefined ? `${testId}-remove-${step.id}` : undefined}
             >
               <X aria-hidden />
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -362,15 +367,10 @@ export function AgentPlan({
         </DragOverlay>
       </DndContext>
       {editing && onAdd !== undefined && (
-        <button
-          type="button"
-          onClick={onAdd}
-          data-testid={testId !== undefined ? `${testId}-add` : undefined}
-          className="ui-control inline-flex w-max items-center gap-1.5 rounded-sm border border-border px-2 ui-micro text-text-muted hover:border-text-faint hover:text-text"
-        >
+        <Button variant="ghost" size="sm" onClick={onAdd} testId={testId !== undefined ? `${testId}-add` : undefined}>
           <ListPlus aria-hidden />
-          添加步骤
-        </button>
+          {t("agentUi.plan.addStep")}
+        </Button>
       )}
     </div>
   );

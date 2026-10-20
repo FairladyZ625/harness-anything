@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { LayoutGroup, motion } from "motion/react";
 import { ChatCircleDots, X } from "@phosphor-icons/react";
+import { t } from "../../i18n/index.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 /**
  * 运行中半路插话引流器(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Affect UI AgentSteering):
@@ -11,6 +13,7 @@ import { ChatCircleDots, X } from "@phosphor-icons/react";
  * 状态归调用方:组件只渲染 queued 纸条并回调 onEnqueue/onWithdraw/onInterrupt;
  * 「推进到下一步 → 纸条转 absorbed」的时机由调用方的响应式状态流驱动(W1-T1),
  * absorbed 纸条由 AgentPlan 渲染同一 layoutId,FLIP 过渡由 motion 完成。
+ * 原语复用(CEO 返工裁定 F2/F3):按钮经 primitives/Button,文案经 agentUi.* i18n。
  */
 
 /** 插话纸条:queued=待吸收队列;absorbed=已滑入目标步骤卡(AgentPlan 渲染)。 */
@@ -70,7 +73,7 @@ export function AgentSteering({
     <div data-testid={testId} className="flex min-w-0 flex-col gap-2">
       <form onSubmit={submit} className="flex min-w-0 flex-col gap-1.5">
         <label className="font-semibold ui-meta" htmlFor={testId !== undefined ? `${testId}-input` : "steer-input"}>
-          插话 / 纠偏纸条
+          {t("agentUi.steer.titleLabel")}
         </label>
         <div className="flex min-w-0 items-start gap-1.5">
           <textarea
@@ -78,7 +81,7 @@ export function AgentSteering({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             disabled={!running}
-            placeholder={running ? "追加指令或纠偏意见，Agent 推进到下一步时吸收" : "Agent 未在运行"}
+            placeholder={t(running ? "agentUi.steer.placeholderRunning" : "agentUi.steer.placeholderIdle")}
             rows={2}
             data-testid={testId !== undefined ? `${testId}-textarea` : undefined}
             className="min-w-0 flex-1 resize-y rounded-md border border-border-strong bg-surface px-2 py-1.5 ui-meta text-text disabled:opacity-45"
@@ -88,11 +91,11 @@ export function AgentSteering({
               value={targetStepId}
               onChange={(event) => setTargetStepId(event.target.value)}
               disabled={!running}
-              aria-label="目标步骤"
+              aria-label={t("agentUi.steer.targetLabel")}
               data-testid={testId !== undefined ? `${testId}-target` : undefined}
               className="ui-control max-w-36 shrink-0 rounded-md border border-border bg-surface-raised px-1.5 ui-micro"
             >
-              <option value="">下一步</option>
+              <option value="">{t("agentUi.steer.targetNext")}</option>
               {steps.map((step) => (
                 <option key={step.id} value={step.id}>
                   {step.title}
@@ -102,32 +105,29 @@ export function AgentSteering({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="sm"
             disabled={!running || draft.trim() === ""}
-            data-testid={testId !== undefined ? `${testId}-enqueue` : undefined}
-            className="ui-control rounded-md border border-transparent bg-accent px-2.5 font-semibold text-accent-fg disabled:cursor-not-allowed disabled:opacity-45"
+            testId={testId !== undefined ? `${testId}-enqueue` : undefined}
           >
-            <span className="inline-flex items-center gap-1.5">
-              <ChatCircleDots aria-hidden />
-              加入队列
-            </span>
-          </button>
+            <ChatCircleDots aria-hidden />
+            {t("agentUi.steer.enqueue")}
+          </Button>
           {onInterrupt !== undefined && (
-            <button
-              type="button"
+            <Button
               onClick={onInterrupt}
               disabled={!running}
-              data-testid={testId !== undefined ? `${testId}-interrupt` : undefined}
-              className="ui-control rounded-md border border-border-strong px-2.5 text-text hover:border-text-faint disabled:opacity-45"
+              testId={testId !== undefined ? `${testId}-interrupt` : undefined}
             >
-              立即中断
-            </button>
+              {t("agentUi.steer.interrupt")}
+            </Button>
           )}
         </div>
       </form>
       {queued.length > 0 && (
-        <ul className="flex min-w-0 flex-col gap-1" aria-label="待吸收队列">
+        <ul className="flex min-w-0 flex-col gap-1" aria-label={t("agentUi.steer.queueLabel")}>
           {queued.map((note) => (
             <li key={note.id}>
               <motion.div
@@ -137,22 +137,26 @@ export function AgentSteering({
               >
                 <span className="min-w-0 flex-1 whitespace-pre-wrap break-words ui-meta">{note.text}</span>
                 {onWithdraw !== undefined && (
-                  <button
-                    type="button"
-                    aria-label="撤回纸条"
-                    data-testid={testId !== undefined ? `${testId}-withdraw-${note.id}` : undefined}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    ariaLabel={t("agentUi.steer.withdraw")}
+                    testId={testId !== undefined ? `${testId}-withdraw-${note.id}` : undefined}
                     onClick={() => onWithdraw(note.id)}
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-xs text-text-faint hover:text-danger"
                   >
                     <X aria-hidden />
-                  </button>
+                  </Button>
                 )}
               </motion.div>
             </li>
           ))}
         </ul>
       )}
-      {queued.length === 0 && <p className="m-0 ui-micro text-text-faint">{running ? "队列为空" : "Agent 未在运行"}</p>}
+      {queued.length === 0 && (
+        <p className="m-0 ui-micro text-text-faint">
+          {t(running ? "agentUi.steer.queueEmpty" : "agentUi.steer.placeholderIdle")}
+        </p>
+      )}
     </div>
   );
 

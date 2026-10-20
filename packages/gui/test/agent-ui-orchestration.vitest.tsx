@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
-import { CACHE_EXPIRED_TIP, CacheTimer } from "../src/renderer/components/agent-ui/CacheTimer.tsx";
+import { CacheTimer } from "../src/renderer/components/agent-ui/CacheTimer.tsx";
 import { ContextMeter, type ContextSegment } from "../src/renderer/components/agent-ui/ContextMeter.tsx";
 import { AgentTree, rollupSubtree, type AgentTreeNode } from "../src/renderer/components/agent-ui/AgentTree.tsx";
 import { AgentLanes } from "../src/renderer/components/agent-ui/AgentLanes.tsx";
@@ -20,7 +20,7 @@ import { AgentPlan, moveStepBefore, type PlanStep } from "../src/renderer/compon
 import { AgentSteering, type SteerNote } from "../src/renderer/components/agent-ui/AgentSteering.tsx";
 import { compactTokens } from "../src/renderer/token-format.ts";
 import { formatDuration } from "../src/renderer/model/time.ts";
-import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { setActiveLocale, t } from "../src/renderer/i18n/core.ts";
 
 vi.mock("motion/react", async (original) => ({
   ...(await original<typeof import("motion/react")>()),
@@ -90,68 +90,49 @@ afterEach(() => {
 // CacheTimer:5 分钟 Prompt Cache TTL 三态与计时器纪律。
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// CacheTimer(CEO 返工裁定 F1 后):纯受控展示,只收模型层算好的 remainingMs + state,
+// 三态渲染各一条(不再有 TTL 常量、expiresAt 计算与 interval)。
+// ---------------------------------------------------------------------------
+
 describe("CacheTimer", () => {
-  it("renders null when the cache touch timestamp is unknown (never fabricate a countdown)", () => {
-    const container = mount(createElement(CacheTimer, { lastCacheTouchAt: null, nowMs: BASE }));
-    expect(container.querySelector("[data-cache-state]")).toBeNull();
+  it("normal renders the neutral mono countdown from the injected remainingMs", () => {
+    const container = mount(createElement(CacheTimer, { remainingMs: 200_000, state: "normal", testId: "ct-ok" }));
+    const el = container.querySelector('[data-testid="ct-ok"]')!;
+    expect(el.getAttribute("data-cache-state")).toBe("normal");
+    expect(el.textContent).toBe(formatDuration(200_000));
+    // 中性态无脉冲点。
+    expect(el.querySelector("span[class*='rounded-full']")).toBeNull();
+    expect(el.getAttribute("aria-label")).toBe(t("agentUi.cache.ariaRemaining", { duration: formatDuration(200_000) }));
   });
 
-  it("shows neutral countdown while over 60s, warning pulse under 60s, and expired icon with the 10x cost tooltip", () => {
-    const ok = mount(
-      createElement(CacheTimer, { lastCacheTouchAt: BASE - 100_000, ttlMs: 300_000, nowMs: BASE, testId: "ct-ok" }),
-    );
-    const okEl = ok.querySelector('[data-testid="ct-ok"]')!;
-    expect(okEl.getAttribute("data-cache-state")).toBe("ok");
-    // 剩余 200s:中性灰,无脉冲点。
-    expect(okEl.textContent).toBe(formatDuration(200_000));
-    expect(okEl.querySelector("span[class*='rounded-full']")).toBeNull();
-
-    const warn = mount(
-      createElement(CacheTimer, { lastCacheTouchAt: BASE - 260_000, ttlMs: 300_000, nowMs: BASE, testId: "ct-warn" }),
-    );
-    const warnEl = warn.querySelector('[data-testid="ct-warn"]')!;
-    expect(warnEl.getAttribute("data-cache-state")).toBe("warn");
-    expect(warnEl.textContent).toContain(formatDuration(40_000));
-    // 预警脉冲点:reduced-motion 下是静止的实心小圆点,无动画样式。
-    const dot = warnEl.querySelector("span[class*='rounded-full']")!;
+  it("warning renders the amber countdown with the pulse dot (static under reduced motion)", () => {
+    const container = mount(createElement(CacheTimer, { remainingMs: 40_000, state: "warning", testId: "ct-warn" }));
+    const el = container.querySelector('[data-testid="ct-warn"]')!;
+    expect(el.getAttribute("data-cache-state")).toBe("warning");
+    expect(el.textContent).toContain(formatDuration(40_000));
+    // 预警脉冲点:reduced-motion 探针下是静止的实心小圆点,无动画样式。
+    const dot = el.querySelector("span[class*='rounded-full']")!;
     expect(dot).not.toBeNull();
     expect(dot.getAttribute("style") ?? "").not.toContain("animation");
-
-    const expired = mount(
-      createElement(CacheTimer, { lastCacheTouchAt: BASE - 300_000, ttlMs: 300_000, nowMs: BASE, testId: "ct-dead" }),
-    );
-    const expiredEl = expired.querySelector('[data-testid="ct-dead"]')!;
-    expect(expiredEl.getAttribute("data-cache-state")).toBe("expired");
-    // 过期态:隐藏秒数,只留计时图标;成本对价写在 data-tip 与 sr-only 读屏文本。
-    expect(expiredEl.textContent).not.toMatch(/\d+s/u);
-    expect(expiredEl.getAttribute("data-tip")).toBe(CACHE_EXPIRED_TIP);
-    expect(CACHE_EXPIRED_TIP).toContain("10x");
-    expect(expiredEl.textContent).toContain("10x");
-    expect(expiredEl.querySelector("svg")).not.toBeNull();
   });
 
-  it("injecting nowMs schedules no timer at all", () => {
-    useFakeClock();
-    mount(createElement(CacheTimer, { lastCacheTouchAt: BASE - 100_000, nowMs: BASE }));
-    expect(vi.getTimerCount()).toBe(0);
+  it("expired hides the countdown and states the 10x cost in the tooltip and screen-reader text", () => {
+    const container = mount(createElement(CacheTimer, { remainingMs: -12_000, state: "expired", testId: "ct-dead" }));
+    const el = container.querySelector('[data-testid="ct-dead"]')!;
+    expect(el.getAttribute("data-cache-state")).toBe("expired");
+    // 过期态:隐藏秒数(含负数),只留计时图标;成本对价写在 data-tip 与 sr-only 读屏文本。
+    expect(el.textContent).not.toMatch(/-?\d+s/u);
+    const expiredTip = t("agentUi.cache.expiredTip");
+    expect(expiredTip).toContain("10x");
+    expect(el.getAttribute("data-tip")).toBe(expiredTip);
+    expect(el.textContent).toContain("10x");
+    expect(el.querySelector("svg")).not.toBeNull();
   });
 
-  it("ticks once per second without nowMs and clears the interval on expiry", () => {
+  it("is purely presentational: mounting any state schedules no timer", () => {
     useFakeClock();
-    const container = mount(createElement(CacheTimer, { lastCacheTouchAt: BASE - 100_000, testId: "ct-live" }));
-    expect(vi.getTimerCount()).toBe(1);
-    expect(container.querySelector('[data-testid="ct-live"]')!.textContent).toBe(formatDuration(200_000));
-
-    act(() => {
-      vi.advanceTimersByTime(1_000);
-    });
-    expect(container.querySelector('[data-testid="ct-live"]')!.textContent).toBe(formatDuration(199_000));
-
-    // 走到过期:状态翻转后 effect 清理 interval,不再有空转计时器。
-    act(() => {
-      vi.advanceTimersByTime(199_000);
-    });
-    expect(container.querySelector('[data-testid="ct-live"]')!.getAttribute("data-cache-state")).toBe("expired");
+    mount(createElement(CacheTimer, { remainingMs: 200_000, state: "normal" }));
     expect(vi.getTimerCount()).toBe(0);
   });
 });
@@ -685,5 +666,50 @@ describe("AgentSteering", () => {
     expect(container.querySelector('[data-testid="plan-step-s2"]')!.contains(noteInPlan)).toBe(true);
     // 队列空态提示。
     expect(container.querySelector('[data-testid="steer"]')!.textContent).toContain("队列为空");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// en-US 文案(CEO 返工裁定 F3):组件文案全部经 agentUi.* i18n,切到 en-US 后
+// 按钮、状态词与占位符同步换语言,不留字面中文。
+// ---------------------------------------------------------------------------
+
+describe("agentUi i18n (en-US)", () => {
+  it("renders buttons, status words and placeholders in en-US after the locale switch", () => {
+    setActiveLocale("en-US");
+    const steer = mount(
+      createElement(AgentSteering, {
+        notes: [],
+        running: true,
+        steps: [{ id: "s1", title: "Survey" }],
+        onEnqueue: () => {},
+        testId: "steer-en",
+      }),
+    );
+    expect(steer.querySelector('[data-testid="steer-en-enqueue"]')!.textContent).toContain("Add to queue");
+    expect(steer.querySelector<HTMLTextAreaElement>('[data-testid="steer-en-textarea"]')!.placeholder).toContain(
+      "absorbed when the agent advances",
+    );
+    expect(steer.querySelector('[data-testid="steer-en-target"] option[value=""]')!.textContent).toBe("Next step");
+
+    const tree = mount(
+      createElement(AgentTree, {
+        root: { id: "root", role: "CEO", status: "running", ownTokens: 10, children: [] },
+        testId: "tree-en",
+      }),
+    );
+    // 状态词经 StatusTag 渲染 en-US 词面。
+    expect(tree.querySelector('[data-testid="tree-en-row-root"]')!.textContent).toContain("Running");
+
+    const plan = mount(
+      createElement(AgentPlan, {
+        steps: [{ id: "s1", title: "Survey", status: "failed" }],
+        phase: "running",
+        nowMs: BASE,
+        onRetryFromStep: () => {},
+        testId: "plan-en",
+      }),
+    );
+    expect(plan.querySelector('[data-testid="plan-en-retry-s1"]')!.textContent).toContain("Retry from step");
   });
 });

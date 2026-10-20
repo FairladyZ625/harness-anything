@@ -1,4 +1,5 @@
 import { compactTokens, percentText } from "../../token-format.ts";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 上下文窗口填充水位条(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Affect UI ContextWindow):
@@ -63,8 +64,15 @@ export function ContextMeter({
         aria-valuemin={0}
         aria-valuemax={limitTokens}
         aria-valuenow={used}
-        aria-valuetext={`已用 ${compactTokens(used)} / ${compactTokens(limitTokens)} Token，${percentText(ratio)}${level === "danger" ? "，接近上限" : level === "warn" ? "，高水位" : ""}`}
-        aria-label="上下文窗口占用"
+        aria-valuetext={
+          t("agentUi.context.usedOf", {
+            used: compactTokens(used),
+            limit: compactTokens(limitTokens),
+            percent: percentText(ratio),
+          }) +
+          (level === "danger" ? t("agentUi.context.nearLimit") : level === "warn" ? t("agentUi.context.highWater") : "")
+        }
+        aria-label={t("agentUi.context.ariaLabel")}
         tabIndex={0}
         className="flex min-w-0 items-baseline justify-between gap-2 font-mono tabular-nums ui-micro"
       >
@@ -81,7 +89,11 @@ export function ContextMeter({
           {visible.map((segment) => (
             <div
               key={segment.kind}
-              data-tip={`${segment.label} ${compactTokens(segment.tokens)}（${percentText(limitTokens > 0 ? segment.tokens / limitTokens : 0)}）`}
+              data-tip={t("agentUi.context.segmentTip", {
+                label: segment.label,
+                tokens: compactTokens(segment.tokens),
+                percent: percentText(limitTokens > 0 ? segment.tokens / limitTokens : 0),
+              })}
               className="h-full min-w-[1px]"
               style={{
                 width: `${limitTokens > 0 ? (segment.tokens / limitTokens) * 100 : 0}%`,
@@ -97,7 +109,7 @@ export function ContextMeter({
             <span key={segment.kind} className="inline-flex items-center gap-1">
               <i
                 aria-hidden
-                className="inline-block size-2 shrink-0 rounded-[2px]"
+                className="inline-block size-2 shrink-0 rounded-xs"
                 style={{ background: SEGMENT_COLOR[segment.kind] }}
               />
               {segment.label} {compactTokens(segment.tokens)}

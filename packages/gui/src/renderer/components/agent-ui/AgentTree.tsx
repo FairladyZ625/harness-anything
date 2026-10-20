@@ -2,6 +2,9 @@ import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { formatDuration } from "../../model/time.ts";
 import { compactTokens } from "../../token-format.ts";
+import { t, type MessageKey } from "../../i18n/index.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 
 /**
  * CEO → Commander → Squad → Worker 血缘调用树(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 /
@@ -12,13 +15,26 @@ import { compactTokens } from "../../token-format.ts";
  * Σ(own) 聚合,多层嵌套(Work→Task→Squad→Worker)不重复计费——父节点值永远等于
  * 子树 own 之和,父节点自身的 own 只算在它那一行。
  *
- * 状态色:running=青蓝 active / awaiting=agent-question 橙(Orca:提问态与执行态
- * 严格分色) / done=绿 / failed=红 / idle=中性灰。纯展示组件,无计时器;实时状态由
- * 调用方响应式数据流驱动。
+ * 原语复用(CEO 返工裁定 F2):状态词由 StatusTag(tone+label)渲染,按钮由
+ * primitives/Button 渲染,文案经 agentUi.* i18n。treeitem 即焦点行本身(返工
+ * 裁定 F6):role/tabIndex/aria-expanded 同节点,子组作为其后代保 ARIA 归属。
+ * 纯展示组件,无计时器;实时状态由调用方响应式数据流驱动。
  */
 
-/** Agent 运行态五级词表:与 Orca 注意力模型同构,颜色语义映射见 ACTIVITY_COLOR。 */
+/** Agent 运行态五级词表:与 Orca 注意力模型同构;词面经 ACTIVITY_KEY 进 i18n,非文字表面用 ACTIVITY_COLOR。 */
 export type AgentActivity = "running" | "awaiting" | "done" | "failed" | "idle";
+
+/**
+ * 状态的非文字表面配色(泳道块描边/运行点等):awaiting 用 Orca 独立橙(agent-question,
+ * 与 wait tone 的琥珀同族但在块面上更醒目)。状态「词」一律走 StatusTag,不经此表。
+ */
+export const ACTIVITY_COLOR: Record<AgentActivity, string> = {
+  running: "var(--color-status-active)",
+  awaiting: "var(--color-agent-question)",
+  done: "var(--color-status-done)",
+  failed: "var(--color-danger)",
+  idle: "var(--color-text-muted)",
+};
 
 export interface AgentTreeNode {
   readonly id: string;
@@ -33,25 +49,26 @@ export interface AgentTreeNode {
   readonly children?: readonly AgentTreeNode[];
 }
 
-export const ACTIVITY_COLOR: Record<AgentActivity, string> = {
-  running: "var(--color-status-active)",
-  awaiting: "var(--color-agent-question)",
-  done: "var(--color-status-done)",
-  failed: "var(--color-danger)",
-  idle: "var(--color-text-muted)",
-};
-
-/** 状态词表的人话标签:AgentLanes 图例等同词汇表消费方共用,不另抄一份。 */
-export const ACTIVITY_LABEL: Record<AgentActivity, string> = {
-  running: "运行中",
-  awaiting: "待拍板",
-  done: "完成",
-  failed: "失败",
-  idle: "空闲",
-};
-
 /** 终态:done/failed 之后不再变化,子树全终态即可整枝折叠。 */
 const TERMINAL_ACTIVITY: ReadonlySet<AgentActivity> = new Set(["done", "failed"]);
+
+/** 状态词 → StatusTag tone(CEO 映射:running→active、awaiting→wait、done/failed/idle 同名族)。 */
+export const ACTIVITY_TONE: Record<AgentActivity, StatusTone> = {
+  running: "active",
+  awaiting: "wait",
+  done: "done",
+  failed: "bad",
+  idle: "neutral",
+};
+
+/** 状态词的 i18n 键:词面归 agentUi 命名空间,不建平行标签组件。 */
+export const ACTIVITY_KEY: Record<AgentActivity, MessageKey> = {
+  running: "agentUi.activity.running",
+  awaiting: "agentUi.activity.awaiting",
+  done: "agentUi.activity.done",
+  failed: "agentUi.activity.failed",
+  idle: "agentUi.activity.idle",
+};
 
 export interface AgentRollup {
   /** 子树 Token 累计(含自身 own,每个节点只计一次)。 */
@@ -77,10 +94,6 @@ export function rollupSubtree(node: AgentTreeNode): AgentRollup {
     descendants += 1 + childRollup.descendants;
   }
   return { tokens, durationMs, finished, descendants };
-}
-
-function activityBadge(status: AgentActivity): { readonly color: string; readonly label: string } {
-  return { color: ACTIVITY_COLOR[status], label: ACTIVITY_LABEL[status] };
 }
 
 export function AgentTree({
@@ -208,40 +221,38 @@ export function AgentTree({
     const rollup = rollupSubtree(node);
     const hasChildren = (node.children?.length ?? 0) > 0;
     const collapsed = collapsedIds.has(node.id);
-    const badge = activityBadge(node.status);
+    const rowId = testId !== undefined ? `${testId}-row-${node.id}` : undefined;
     return (
-      <div key={node.id} role="treeitem" aria-expanded={hasChildren ? !collapsed : undefined}>
+      <div key={node.id} style={{ marginLeft: level * 18 }} className="min-w-0">
         <div
+          role="treeitem"
+          aria-level={level + 1}
+          aria-expanded={hasChildren ? !collapsed : undefined}
           tabIndex={node.id === activeId ? 0 : -1}
           data-tree-id={node.id}
-          data-testid={testId !== undefined ? `${testId}-row-${node.id}` : undefined}
+          data-testid={rowId}
           className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 ui-meta"
-          style={{ marginLeft: level * 18 }}
           onFocus={() => setActiveId(node.id)}
         >
           {hasChildren ? (
-            <button
-              type="button"
-              aria-label={collapsed ? `展开 ${node.role}` : `折叠 ${node.role}`}
-              data-testid={testId !== undefined ? `${testId}-toggle-${node.id}` : undefined}
+            <Button
+              variant="ghost"
+              size="sm"
+              ariaLabel={t(collapsed ? "agentUi.tree.expand" : "agentUi.tree.collapse", { role: node.role })}
+              testId={testId !== undefined ? `${testId}-toggle-${node.id}` : undefined}
               onClick={() => toggle(node.id)}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded-xs text-text-faint hover:text-text"
             >
               {collapsed ? <CaretRight aria-hidden /> : <CaretDown aria-hidden />}
-            </button>
+            </Button>
           ) : (
             <span aria-hidden className="inline-block size-5 shrink-0" />
           )}
-          <span
-            aria-hidden
-            className="size-[6px] shrink-0 rounded-full"
-            style={{
-              background: badge.color,
-              boxShadow: `0 0 5px 1px color-mix(in oklch, ${badge.color} 50%, transparent)`,
-            }}
-          />
           <span className="min-w-0 shrink font-semibold">{node.role}</span>
-          <span className="shrink-0 ui-micro text-text-faint">{badge.label}</span>
+          <StatusTag
+            tone={ACTIVITY_TONE[node.status]}
+            label={t(ACTIVITY_KEY[node.status])}
+            testId={testId !== undefined ? `${testId}-status-${node.id}` : undefined}
+          />
           {node.model !== undefined && (
             <span className="min-w-0 shrink truncate font-mono ui-micro text-text-muted" title={node.model}>
               {node.model}
@@ -249,23 +260,27 @@ export function AgentTree({
           )}
           <span className="ml-auto flex shrink-0 items-center gap-2 font-mono tabular-nums ui-micro text-text-muted">
             {node.ownTokens !== undefined && (
-              <span title={`本节点 ${node.ownTokens} Token`}>{compactTokens(node.ownTokens)} tok</span>
+              <span title={t("agentUi.tree.ownTokensTip", { tokens: node.ownTokens })}>
+                {compactTokens(node.ownTokens)} tok
+              </span>
             )}
-            {node.ownDurationMs !== undefined && <span title="本节点耗时">{formatDuration(node.ownDurationMs)}</span>}
+            {node.ownDurationMs !== undefined && (
+              <span title={t("agentUi.tree.ownDurationTip")}>{formatDuration(node.ownDurationMs)}</span>
+            )}
             {hasChildren && (
               <span
-                data-tip={`子树累计:own 各计一次,含 ${rollup.descendants} 个后代`}
+                data-tip={t("agentUi.tree.rollupTip", { count: rollup.descendants })}
                 className="rounded-xs border border-border px-1 py-px"
                 style={{ color: rollup.finished ? "var(--color-text-faint)" : "var(--color-text)" }}
               >
                 Σ {compactTokens(rollup.tokens)} tok · {formatDuration(rollup.durationMs)}
-                {collapsed ? ` · ${rollup.descendants} 节点` : ""}
+                {collapsed ? ` · ${t("agentUi.tree.nodeCount", { count: rollup.descendants })}` : ""}
               </span>
             )}
           </span>
         </div>
         {hasChildren && !collapsed && (
-          <div role="group" className="border-l border-border" style={{ marginLeft: level * 18 + 9 }}>
+          <div role="group" className="ml-2.5 flex min-w-0 flex-col border-l border-border">
             {node.children!.map((child) => renderRow(child, level + 1))}
           </div>
         )}
@@ -277,27 +292,32 @@ export function AgentTree({
     <div data-testid={testId} className="flex min-w-0 flex-col gap-1">
       {(hasCollapsibleBranch || collapsedIds.size > 0) && (
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            data-testid={testId !== undefined ? `${testId}-collapse-finished` : undefined}
+          <Button
+            variant="ghost"
+            size="sm"
+            testId={testId !== undefined ? `${testId}-collapse-finished` : undefined}
             onClick={collapseFinished}
-            className="rounded-sm px-1.5 py-0.5 ui-micro text-text-muted hover:bg-surface hover:text-text"
           >
-            折叠已完成分支
-          </button>
+            {t("agentUi.tree.collapseFinished")}
+          </Button>
           {collapsedIds.size > 0 && (
-            <button
-              type="button"
-              data-testid={testId !== undefined ? `${testId}-expand-all` : undefined}
+            <Button
+              variant="ghost"
+              size="sm"
+              testId={testId !== undefined ? `${testId}-expand-all` : undefined}
               onClick={() => setCollapsedIds(new Set())}
-              className="rounded-sm px-1.5 py-0.5 ui-micro text-text-muted hover:bg-surface hover:text-text"
             >
-              展开全部
-            </button>
+              {t("agentUi.tree.expandAll")}
+            </Button>
           )}
         </div>
       )}
-      <div role="tree" aria-label={`${root.role} 血缘树`} onKeyDown={onKeyDown} className="flex min-w-0 flex-col">
+      <div
+        role="tree"
+        aria-label={t("agentUi.tree.treeLabel", { role: root.role })}
+        onKeyDown={onKeyDown}
+        className="flex min-w-0 flex-col"
+      >
         {renderRow(root, 0)}
       </div>
     </div>

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ChatCircleDots } from "@phosphor-icons/react";
 import { formatDuration } from "../../model/time.ts";
-import { ACTIVITY_COLOR, ACTIVITY_LABEL, type AgentActivity } from "./AgentTree.tsx";
+import { t } from "../../i18n/index.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
+import { ACTIVITY_COLOR, ACTIVITY_KEY, ACTIVITY_TONE, type AgentActivity } from "./AgentTree.tsx";
 
 /**
  * 多 Agent 实时水平时间线泳道(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Affect UI
@@ -15,6 +18,8 @@ import { ACTIVITY_COLOR, ACTIVITY_LABEL, type AgentActivity } from "./AgentTree.
  * 纵向按泳道固定行高,窗口缩放只拉伸曲线横向控制点,笔宽不受非均匀缩放影响。
  * 计时器纪律:注入 nowMs 时不建 interval;未注入时仅存在运行中任务块才 tick,
  * 卸载或全部收口即清理。
+ * 原语复用(CEO 返工裁定 F2/F3):状态词经 StatusTag(tone+label),按钮经
+ * primitives/Button,文案经 agentUi.* i18n;块面配色仍用 ACTIVITY_COLOR 非文字表面。
  */
 
 export interface AgentLaneTask {
@@ -106,7 +111,9 @@ export function AgentLanes({
         at,
         left: pct(at),
         label:
-          Math.abs(delta) < span / count / 2 ? "现在" : `${delta < 0 ? "−" : "+"}${formatDuration(Math.abs(delta))}`,
+          Math.abs(delta) < span / count / 2
+            ? t("agentUi.lanes.now")
+            : `${delta < 0 ? "−" : "+"}${formatDuration(Math.abs(delta))}`,
       };
     });
   }, [t0, span, now]);
@@ -203,7 +210,7 @@ export function AgentLanes({
                       vectorEffect="non-scaling-stroke"
                       style={{ pointerEvents: "stroke" }}
                     >
-                      <title>{connection.label ?? "派工 / 交接"}</title>
+                      <title>{connection.label ?? t("agentUi.lanes.handoff")}</title>
                     </path>
                   </g>
                 ))}
@@ -242,7 +249,13 @@ export function AgentLanes({
                         key={task.id}
                         tabIndex={0}
                         role="group"
-                        aria-label={`${lane.role}：${task.label}，${ACTIVITY_LABEL[task.status]}${task.awaiting !== undefined ? "，阻塞待拍板" : ""}`}
+                        aria-label={
+                          t("agentUi.lanes.blockAria", {
+                            agent: lane.role,
+                            task: task.label,
+                            status: t(ACTIVITY_KEY[task.status]),
+                          }) + (task.awaiting !== undefined ? t("agentUi.lanes.awaitingSuffix") : "")
+                        }
                         data-testid={testId !== undefined ? `${testId}-task-${task.id}` : undefined}
                         data-lane-status={task.status}
                         className="absolute flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border px-2"
@@ -269,21 +282,18 @@ export function AgentLanes({
                         )}
                         <span className="min-w-0 truncate ui-micro">{task.label}</span>
                         {task.awaiting !== undefined && (
-                          <button
-                            type="button"
-                            data-tip={task.awaiting.question}
-                            data-testid={testId !== undefined ? `${testId}-resolve-${task.id}` : undefined}
-                            onClick={onResolveAwaiting !== undefined ? () => onResolveAwaiting(task.id) : undefined}
-                            disabled={onResolveAwaiting === undefined}
-                            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-xs px-1 py-px font-semibold ui-micro"
-                            style={{
-                              color: "var(--color-agent-question-text)",
-                              background: "var(--color-agent-question-surface)",
-                            }}
-                          >
-                            <ChatCircleDots aria-hidden />
-                            待拍板
-                          </button>
+                          <span className="ml-auto inline-flex shrink-0">
+                            <Button
+                              size="sm"
+                              tip={task.awaiting.question}
+                              testId={testId !== undefined ? `${testId}-resolve-${task.id}` : undefined}
+                              onClick={onResolveAwaiting !== undefined ? () => onResolveAwaiting(task.id) : undefined}
+                              disabled={onResolveAwaiting === undefined}
+                            >
+                              <ChatCircleDots aria-hidden />
+                              {t("agentUi.lanes.awaiting")}
+                            </Button>
+                          </span>
                         )}
                       </div>
                     );
@@ -315,22 +325,15 @@ export function AgentLanes({
           </span>
         )}
         {(["running", "awaiting", "done", "failed", "idle"] as const).map((status) => (
-          <span key={status} className="inline-flex items-center gap-1">
-            <i
-              aria-hidden
-              className="inline-block size-2 rounded-[2px]"
-              style={{ background: ACTIVITY_COLOR[status] }}
-            />
-            {ACTIVITY_LABEL[status]}
-          </span>
+          <StatusTag key={status} tone={ACTIVITY_TONE[status]} label={t(ACTIVITY_KEY[status])} />
         ))}
         <span className="inline-flex items-center gap-1">
           <i aria-hidden className="inline-block h-px w-6 border-t border-dashed border-border-strong" />
-          派工 / 交接
+          {t("agentUi.lanes.handoff")}
         </span>
         <span className="inline-flex items-center gap-1">
           <i aria-hidden className="inline-block h-3 w-px bg-accent" />
-          现在
+          {t("agentUi.lanes.now")}
         </span>
       </div>
     </div>
