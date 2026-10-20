@@ -8,7 +8,6 @@ import {
   requireEntityStoreKindContract,
   retiredTaskClassRestatements,
   validateTaskV2,
-  type TaskV2,
   type TaskProjectionListQuery,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -210,7 +209,6 @@ export function migrateTaskContracts(
 ): WriteReceipt {
   if (action.toPresetId !== undefined) return migrateTaskPreset(cell, action, binding);
   const projectedTaskIds = cell.projection.readTaskIdsForTaskContractMigration(),
-    projectedTaskIdSet = new Set(projectedTaskIds),
     migratedTaskIds = new Set(
       cell.store
         .read()
@@ -226,23 +224,9 @@ export function migrateTaskContracts(
     contractRow = (taskId: string): ContractMigrationRow => {
       const current = taskContractMigrationRead(cell, taskId),
         originalTask = current.snapshot.task;
-      let task = originalTask;
+      const task = originalTask;
       if (!task) return { taskId, status: "manual", reason: "task_not_found" };
-      const cleanedTask = withoutRetiredFactCloseoutOverride(task);
-      if (cleanedTask) {
-        const validation = validateTaskV2(cleanedTask, true);
-        if (validation.length)
-          return {
-            taskId,
-            status: "manual",
-            reason: "task_invalid_after_retired_fact_override_removal",
-            detail: validation.map(({ code, message }) => `${code}: ${message}`).join("; "),
-          };
-        task = cleanedTask;
-        const sanitizedRead = { ...current, snapshot: { ...current.snapshot, task } };
-        migrationReads.set(taskId, sanitizedRead);
-        mergeContractRepair(repairs, taskId, { factOverrideRemoved: true, migrationRead: sanitizedRead });
-      } else migrationReads.set(taskId, current);
+      migrationReads.set(taskId, current);
       const validation = validateTaskV2(task, true);
       if (validation.length)
         return {
@@ -251,7 +235,7 @@ export function migrateTaskContracts(
           reason: "task_invalid_for_contract_migration",
           detail: validation.map(({ code, message }) => `${code}: ${message}`).join("; "),
         };
-      const migrationCell = taskContractMigrationCell(cell, taskId, migrationReads.get(taskId)!, projectedTaskIdSet);
+      const migrationCell = cell;
       if (migratedTaskIds.has(taskId) && current.packagePath) {
         const projected = migrationCell.projection.readDocument(`${current.packagePath}/task-contract.json`);
         if (!cell.projectionReady(projected))
@@ -342,16 +326,8 @@ export function migrateTaskContracts(
     },
     report: readonly ContractMigrationRow[] = [
       ...candidates.map((taskId) => {
-        const row = contractRow(taskId),
-          repair = repairs.get(taskId),
-          migrationRead = migrationReads.get(taskId),
-          taskCell = migrationRead ? taskContractMigrationCell(cell, taskId, migrationRead, projectedTaskIdSet) : cell,
-          factCleanupRow = repair?.factOverrideRemoved
-            ? row.status === "current"
-              ? { ...row, status: "repair", disposition: "retired-fact-closeout-override" }
-              : { ...row, retiredFactCloseoutOverrideRemoved: true }
-            : row;
-        return withRetiredTaskClass(taskCell, taskId, factCleanupRow);
+        const row = contractRow(taskId);
+        return withRetiredTaskClass(cell, taskId, row);
       }),
       // Worktrees live on the node that checked them out; a forwarded migrate leaves them to that node.
       ...(binding.source === "local"
@@ -393,17 +369,13 @@ export function migrateTaskContracts(
     outerOpId = cell.operationId(action, binding, cell.input.repoId, headRevision),
     prepared = backfills.map(({ taskId, taskClassAfter }, index) => {
       const repair = repairs.get(taskId) ?? null,
-        migrationRead = repair?.factOverrideRemoved
-          ? (repair.migrationRead ?? taskContractMigrationRead(cell, taskId))
-          : migrationReads.get(taskId),
-        taskCell = migrationRead ? taskContractMigrationCell(cell, taskId, migrationRead, projectedTaskIdSet) : cell;
+        taskCell = cell;
       return requirePrepared(
         prepareTaskSurfaceWriteAt(
           taskCell,
           {
             kind: "task-contract-migrate",
             taskId,
-            ...(repair?.factOverrideRemoved ? { removeRetiredFactCloseoutOverride: true } : {}),
             ...(repair?.digest ? { repairPresetSnapshotDigest: repair.digest } : {}),
             ...(repair ? { repairTaskContractBody: repair.body } : {}),
             ...(repair?.repair
@@ -443,8 +415,6 @@ type ContractMigrationRow = { readonly taskId: string; readonly status: string; 
 type ContractRepair = {
   readonly body?: string;
   readonly digest?: `sha256:${string}` | null;
-  readonly factOverrideRemoved?: boolean;
-  readonly migrationRead?: ReturnType<RepoCellOperationalContext["projection"]["readForTaskContractMigration"]>;
   readonly repair?: RestatedTaskContract["repair"];
 };
 
@@ -452,49 +422,11 @@ function mergeContractRepair(repairs: Map<string, ContractRepair>, taskId: strin
   repairs.set(taskId, { ...repairs.get(taskId), ...repair });
 }
 
-function withoutRetiredFactCloseoutOverride(task: TaskV2): TaskV2 | null {
-  const overrides = task.closeoutOverrides as Readonly<Record<string, unknown>> | undefined;
-  if (overrides === undefined || !Object.hasOwn(overrides, "fact")) return null;
-  const { fact: _retiredFact, ...currentOverrides } = overrides;
-  if (Object.keys(currentOverrides).length > 0)
-    return { ...task, closeoutOverrides: currentOverrides as TaskV2["closeoutOverrides"] };
-  const { closeoutOverrides: _emptyOverrides, ...withoutOverrides } = task;
-  return withoutOverrides;
-}
-
 function taskContractMigrationRead(cell: RepoCellOperationalContext, taskId: string) {
   const read = cell.projection.readForTaskContractMigration(taskId);
   if (!cell.projectionReady(read))
     throw cell.cellCodedError("content_not_ready", `Task ${taskId} projection is not ready for contract migration.`);
   return read;
-}
-
-function taskContractMigrationCell(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  migrationRead: NonNullable<ContractRepair["migrationRead"]>,
-  taskIds: ReadonlySet<string>,
-): RepoCellOperationalContext {
-  const context = Object.create(cell) as RepoCellOperationalContext,
-    projection = Object.create(cell.projection) as RepoCellOperationalContext["projection"];
-  Object.defineProperties(projection, {
-    read: {
-      value: (candidateId: string) => {
-        const candidate =
-            candidateId === taskId ? migrationRead : cell.projection.readForTaskContractMigration(candidateId),
-          task = candidate.snapshot.task,
-          cleanedTask = task ? withoutRetiredFactCloseoutOverride(task) : null;
-        return cleanedTask === null
-          ? candidate
-          : { ...candidate, snapshot: { ...candidate.snapshot, task: cleanedTask } };
-      },
-    },
-  });
-  Object.defineProperties(context, {
-    projection: { value: projection },
-    projectedTaskIds: { value: () => new Set(taskIds) },
-  });
-  return context;
 }
 
 /**

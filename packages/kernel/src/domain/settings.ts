@@ -188,34 +188,6 @@ export const RETIRED_SETTINGS_PATHS = Object.freeze([
   ["ci", "workflows"],
 ] as const);
 
-/** Create a validated candidate without changing the source settings document. */
-export function migrateRetiredSettingsCandidate(body: string): {
-  readonly candidate: string;
-  readonly removedPaths: readonly string[];
-} {
-  const document = parseAuthoredDocument(body),
-    authored = authoredSettings(document),
-    removedPaths: string[] = [];
-  for (const path of RETIRED_SETTINGS_PATHS) {
-    if (valueAtPath(authored, path) === undefined) continue;
-    deleteDocumentPath(document, path);
-    removedPaths.push(path.join("."));
-  }
-  const gates = valueAtPath(authored, ["gates"]);
-  if (gates && typeof gates === "object" && !Array.isArray(gates)) {
-    for (const [gateId, value] of Object.entries(gates)) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      const adapter = (value as Readonly<Record<string, unknown>>).adapter;
-      if (adapter !== "github-actions" && adapter !== "gitlab-pipeline") continue;
-      deleteDocumentPath(document, ["gates", gateId]);
-      removedPaths.push(`gates.${gateId}`);
-    }
-  }
-  const candidate = stringifyAuthoredDocument(document, body);
-  readSettingsFacet(candidate);
-  return { candidate, removedPaths };
-}
-
 type SettingsRecord = Record<string, unknown>;
 
 export class SettingsDeclarationError extends Error {
@@ -840,7 +812,7 @@ function assertDeclaredNestedKeys(
         throw new SettingsDeclarationError(
           `settings.${path.join(".")} field ${key} is not declared` +
             (RETIRED_SETTINGS_PATHS.some((retired) => retired.join(".") === [...path, key].join("."))
-              ? "; run ha migrate settings --help to convert retired CI settings."
+              ? "; attach migrates retired CI settings before reads are served."
               : ""),
         );
   }

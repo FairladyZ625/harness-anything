@@ -1,0 +1,125 @@
+// harness-test-tier: fast
+import assert from "node:assert/strict";
+import test from "node:test";
+import { applyAttachMigrations, attachMigrationRegistry } from "../../src/store/attach-migrations.ts";
+import { retiredPersistedSchemaFields } from "../../src/domain/event-shape-migration-event.ts";
+import {
+  normalizeHistoricalEvent,
+  normalizeHistoricalVerticalDocument,
+} from "../../src/projection/historical-event-normalization.ts";
+import type { CanonicalEventStore } from "../../src/store/task-event-store-types.ts";
+import type { PersistedCanonicalEventV1 } from "../../src/domain/doc-sync-types.ts";
+
+function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
+  const events = [...initial];
+  const store = {
+    read: () => ({ schema: "canonical-event-stream/v1" as const, revision: events.length, events }),
+    readHead: () =>
+      events.length === 0
+        ? null
+        : { revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) },
+    append: ({ event }: { event: PersistedCanonicalEventV1 }) => {
+      events.push(event);
+      return {};
+    },
+    queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+  } as unknown as CanonicalEventStore;
+  return { store, events };
+}
+
+const actor = { principal: { personId: "fixture" }, executor: null } as const;
+const envelope = (schema: string, payload: unknown, opId: string): PersistedCanonicalEventV1 =>
+  ({
+    schema,
+    eventId: `event-${opId}`,
+    workspaceRevision: 1,
+    opId,
+    type:
+      schema === "task-event/v1"
+        ? "task_created"
+        : schema === "schedule-event/v1"
+          ? "schedule_created"
+          : "settings_changed",
+    actor,
+    source: "local",
+    occurredAt: "2026-10-20T00:00:00.000Z",
+    ...(schema === "schedule-event/v1" ? { entity: { kind: "schedule", id: "schedule-old" } } : {}),
+    ...(schema === "settings-event/v1" ? { entity: { kind: "settings", id: "repository" } } : {}),
+    payload,
+  }) as unknown as PersistedCanonicalEventV1;
+
+test("attach migration registry covers each retired historical field and is idempotent", () => {
+  assert.deepEqual(
+    attachMigrationRegistry.map(({ name }) => name),
+    ["closeout-overrides.fact", "schedule.ciObserve", "settings.ci", "vertical.completion.sources"],
+  );
+  assert.deepEqual(
+    attachMigrationRegistry.flatMap(({ fields }) => fields).sort(),
+    [...retiredPersistedSchemaFields].sort(),
+  );
+  const { store, events } = fakeStore([
+    envelope("task-event/v1", { task: { closeoutOverrides: { fact: false } } }, "old-task"),
+    envelope("schedule-event/v1", { schedule: { status: { ciObserve: { workflow: "retired" } } } }, "old-schedule"),
+    envelope("settings-event/v1", { settings: { ci: { workflows: ["rewrite-ci"] } } }, "old-settings"),
+    envelope(
+      "vertical-declaration-event/v1",
+      { declaration: { definition: { completion: { sources: { ci: { kind: "github-actions" } } } } } },
+      "old-vertical",
+    ),
+  ]);
+  const first = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" });
+  assert.deepEqual(first.applied, [
+    "closeout-overrides.fact",
+    "schedule.ciObserve",
+    "settings.ci",
+    "vertical.completion.sources",
+  ]);
+  assert.equal(events.length, 8);
+  const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
+  assert.deepEqual(second.applied, []);
+  assert.equal(events.length, 8);
+});
+
+test("historical projection normalizes each registered retired field without changing claims", () => {
+  const task = normalizeHistoricalEvent(
+      envelope("task-event/v1", { task: { closeoutOverrides: { fact: false, review: true } } }, "task-normalize"),
+    ) as unknown as { readonly payload: { readonly task: { readonly closeoutOverrides?: unknown } } },
+    schedule = normalizeHistoricalEvent(
+      envelope(
+        "schedule-event/v1",
+        { schedule: { status: { ciObserve: { workflow: "retired" }, missedCount: 0 } } },
+        "schedule-normalize",
+      ),
+    ) as unknown as { readonly payload: { readonly schedule: { readonly status: Record<string, unknown> } } },
+    settings = normalizeHistoricalEvent(
+      envelope(
+        "settings-event/v1",
+        { settings: { ci: { workflows: ["retired"] }, gates: [{ adapter: "manual-attest" }] } },
+        "settings-normalize",
+      ),
+    ) as unknown as { readonly payload: { readonly settings: Record<string, unknown> } },
+    vertical = normalizeHistoricalEvent(
+      envelope(
+        "vertical-declaration-event/v1",
+        {
+          declaration: {
+            definition: {
+              completion: { sources: { ci: { kind: "github-actions" } }, gates: { ci: { source: "ci" } } },
+            },
+          },
+        },
+        "vertical-normalize",
+      ),
+    ) as unknown as { readonly payload: { readonly declaration: { readonly definition: Record<string, unknown> } } };
+  assert.deepEqual(task.payload.task.closeoutOverrides, { review: true });
+  assert.deepEqual(schedule.payload.schedule.status, { missedCount: 0 });
+  assert.deepEqual(settings.payload.settings, { gates: [{ adapter: "manual-attest" }] });
+  assert.deepEqual((vertical.payload.declaration.definition.completion as Record<string, unknown>).sources, {});
+  assert.deepEqual(
+    normalizeHistoricalVerticalDocument({
+      schema: "repository-vertical-declaration/v1",
+      definition: { completion: { sources: { ci: { kind: "github-actions" } }, gates: { ci: { source: "ci" } } } },
+    }),
+    { schema: "repository-vertical-declaration/v1", definition: { completion: { sources: {}, gates: {} } } },
+  );
+});

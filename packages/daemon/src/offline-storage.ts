@@ -1,8 +1,7 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   readOfflineLedgerEvents,
-  migrateRetiredSettingsCandidate,
   restoreLedgerBackup,
   resolveActiveGeneration,
   runCompletionGenerationConversion,
@@ -10,11 +9,7 @@ import {
 import { canonicalRoot } from "./protocol/daemon-protocol-identifiers.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
 import { openReplicationSlots } from "./fleet/replication-slot.ts";
-import {
-  completionMigrationCommand,
-  generationMigrationCommand,
-  settingsMigrationCommand,
-} from "./offline-storage-command.ts";
+import { completionMigrationCommand, generationMigrationCommand } from "./offline-storage-command.ts";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 
 export async function runOfflineStorageCommand(argv: readonly string[]): Promise<number> {
@@ -36,34 +31,6 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
           ...(flags.has("--destination") ? { destination: flags.get("--destination")! } : {}),
         });
       emitReceipt({ ok: true, schema: "completion-migration-receipt/v1", ...result });
-      return 0;
-    }
-    if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "settings") {
-      if (argv.includes("--help")) {
-        emitReceipt({ ok: true, usage: settingsMigrationCommand.usage, hint: settingsMigrationCommand.help });
-        return 0;
-      }
-      const flags = commandFlags(argv.slice(commandIndex + 2), settingsMigrationCommand),
-        source = path.resolve(flags.get("--source")!),
-        destination = flags.has("--destination") ? path.resolve(flags.get("--destination")!) : undefined,
-        mode = flags.get("--mode")!,
-        migrated = migrateRetiredSettingsCandidate(readFileSync(source, "utf8"));
-      if (mode === "convert") {
-        if (!destination) throw new Error("convert requires --destination <new-file>.");
-        if (destination === source)
-          throw new Error("--destination must differ from --source; the source is preserved.");
-        writeFileSync(destination, migrated.candidate, { encoding: "utf8", flag: "wx" });
-      }
-      emitReceipt({
-        ok: true,
-        schema: "settings-migration-receipt/v1",
-        mode,
-        source,
-        ...(destination ? { destination: mode === "convert" ? destination : null } : {}),
-        removedPaths: migrated.removedPaths,
-        changed: migrated.removedPaths.length > 0,
-        next: "Review the candidate, copy it to the authored harness.yaml, then run ha settings update as the repository principal. Historical Settings events require ha migrate ledger --help before reopening.",
-      });
       return 0;
     }
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
@@ -205,7 +172,7 @@ function migrationFlags(argv: readonly string[]): {
 }
 function commandFlags(
   argv: readonly string[],
-  command: typeof generationMigrationCommand | typeof completionMigrationCommand | typeof settingsMigrationCommand,
+  command: typeof generationMigrationCommand | typeof completionMigrationCommand,
 ): Map<string, string> {
   const inputs = new Set<string>(command.inputs.map((input) => input.name)),
     values = new Map<string, string>();

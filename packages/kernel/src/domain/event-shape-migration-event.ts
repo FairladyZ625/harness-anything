@@ -1,0 +1,171 @@
+import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
+import { RETIRED_SETTINGS_PATHS } from "./settings.ts";
+import {
+  freezeDeclaredWritePlan,
+  hasOnlyFields,
+  hasRequiredFields,
+  isFrozenWritePlan,
+  isRecord,
+  validateEventEnvelopeIdentity,
+  type ActorIdentity,
+  type EventEnvelope,
+  type FrozenWritePlan,
+} from "./write-chain.contract.ts";
+
+export const eventShapeMigrationNames = Object.freeze([
+  "closeout-overrides.fact",
+  "schedule.ciObserve",
+  "settings.ci",
+  "vertical.completion.sources",
+] as const);
+export type EventShapeMigrationName = (typeof eventShapeMigrationNames)[number];
+export const retiredPersistedSchemaFields = Object.freeze([
+  "Task.closeoutOverrides.fact",
+  "Schedule.status.ciObserve",
+  "Settings.gates.ci",
+  "Settings.ci.workflows",
+  "Vertical.completion.sources.*.kind",
+] as const);
+
+export type EventShapeMigrationEventV1 = EventEnvelope<
+  "event-shape-migration/v1",
+  "event_shape_migration_applied",
+  ActorIdentity,
+  {
+    readonly migration: EventShapeMigrationName;
+    readonly version: 1;
+    readonly sourceRevision: number;
+    readonly affectedEvents: number;
+  }
+>;
+
+export function isEventShapeMigrationEvent(event: { readonly schema: string }): event is EventShapeMigrationEventV1 {
+  return event.schema === "event-shape-migration/v1";
+}
+
+export function validateEventShapeMigrationEvent(value: unknown): readonly string[] {
+  return validateEventShapeMigrationEventFields(value, true);
+}
+
+export function validateCurrentEventShapeMigrationEvent(value: unknown): readonly string[] {
+  return validateEventShapeMigrationEventFields(value, false);
+}
+
+function validateEventShapeMigrationEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  if (
+    !isRecord(value) ||
+    !hasFields(value, [
+      "schema",
+      "eventId",
+      "workspaceRevision",
+      "opId",
+      "type",
+      "actor",
+      "source",
+      "occurredAt",
+      "payload",
+    ]) ||
+    value.schema !== "event-shape-migration/v1" ||
+    value.type !== "event_shape_migration_applied" ||
+    !isRecord(value.payload) ||
+    !hasFields(value.payload, ["migration", "version", "sourceRevision", "affectedEvents"]) ||
+    !eventShapeMigrationNames.includes(value.payload.migration as EventShapeMigrationName) ||
+    value.payload.version !== 1 ||
+    ![value.payload.sourceRevision, value.payload.affectedEvents].every(
+      (candidate) => Number.isSafeInteger(candidate) && Number(candidate) >= 0,
+    )
+  )
+    return ["event-shape migration event is invalid"];
+  return validateEventEnvelopeIdentity(value, allowUnknownFields).length
+    ? ["event-shape migration event identity is invalid"]
+    : [];
+}
+
+export function eventShapeMigrationWritePlan(
+  event: EventShapeMigrationEventV1,
+): FrozenWritePlan<"EventShapeMigration"> {
+  return freezeDeclaredWritePlan(
+    {
+      commandType: "EventShapeMigration",
+      targets: [
+        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        { kind: "projection_invalidation", projection: "event-shape-migration/v1", key: event.payload.migration },
+      ],
+    },
+    ["EventShapeMigration"],
+  );
+}
+
+export function assertEventShapeMigrationWritePlan(
+  event: EventShapeMigrationEventV1,
+  plan: FrozenWritePlan | undefined,
+): void {
+  const expected = eventShapeMigrationWritePlan(event);
+  if (
+    !plan ||
+    !isFrozenWritePlan(plan) ||
+    plan.commandType !== expected.commandType ||
+    JSON.stringify(plan.targets) !== JSON.stringify(expected.targets)
+  )
+    throw new Error("event-shape migration plan must exactly declare event, head, and migration projection targets");
+}
+
+/** Pure transformations shared by attach replay, generation conversion, and document reads. */
+export function withoutRetiredFactCloseoutOverride(value: unknown): unknown {
+  if (!isRecord(value) || typeof value.fact !== "boolean") return value;
+  const remaining = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "fact"));
+  return Object.keys(remaining).length ? remaining : undefined;
+}
+
+export function withoutRetiredScheduleCiObserve(value: unknown): unknown {
+  if (!isRecord(value) || !Object.hasOwn(value, "ciObserve")) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "ciObserve"));
+}
+
+export function withoutRetiredSettings(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const next = structuredClone(value) as Record<string, unknown>;
+  let changed = false;
+  for (const [parent, key] of RETIRED_SETTINGS_PATHS) {
+    const group = next[parent];
+    if (!isRecord(group) || !Object.hasOwn(group, key)) continue;
+    delete (group as Record<string, unknown>)[key];
+    if (Object.keys(group).length === 0) delete next[parent];
+    changed = true;
+  }
+  if (Array.isArray(next.gates)) {
+    const gates = next.gates.filter(
+      (gate) => !isRecord(gate) || !["github-actions", "gitlab-pipeline"].includes(String(gate.adapter)),
+    );
+    if (gates.length !== next.gates.length) {
+      next.gates = gates;
+      changed = true;
+    }
+  }
+  return changed ? next : value;
+}
+
+export function withoutRetiredVerticalHostedCi(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.completion)) return value;
+  const completion = value.completion;
+  if (!isRecord(completion) || !isRecord(completion.sources)) return value;
+  const retiredSources = new Set(
+    Object.entries(completion.sources)
+      .filter(([, source]) => isRecord(source) && ["github-actions", "gitlab-pipeline"].includes(String(source.kind)))
+      .map(([sourceId]) => sourceId),
+  );
+  if (retiredSources.size === 0) return value;
+  const sources = Object.fromEntries(
+    Object.entries(completion.sources).filter(([sourceId]) => !retiredSources.has(sourceId)),
+  );
+  const gates = isRecord(completion.gates)
+    ? Object.fromEntries(
+        Object.entries(completion.gates).filter(
+          ([, gate]) => !isRecord(gate) || !retiredSources.has(String(gate.source)),
+        ),
+      )
+    : completion.gates;
+  return { ...value, completion: { ...completion, sources, gates } };
+}

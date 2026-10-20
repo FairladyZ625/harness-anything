@@ -15,4 +15,5 @@ export {
 } from "./legacy-generation-conversion.ts";
 export type { StoppedLegacySourceEvidenceV1 } from "./legacy-generation-conversion.ts";
 export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
+export { applyAttachMigrations } from "./attach-migrations.ts";
 export * from "./task-event-store.ts";

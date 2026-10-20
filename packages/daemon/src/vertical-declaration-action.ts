@@ -5,6 +5,7 @@ import {
   applyVerticalKindCommand,
   compileVerticalDeclarationEvent,
   decodeVerticalDefinition,
+  normalizeHistoricalVerticalDocument,
   parseVerticalDeclarationDocument,
   VERTICAL_DECLARATION_PATH,
   type CanonicalEventStore,
@@ -30,7 +31,8 @@ export function readCanonicalVerticalDeclaration(
   projection: VerticalDeclarationReader,
 ): VerticalDeclarationDocumentV1 | null {
   const body = projection.readDocument(VERTICAL_DECLARATION_PATH).document?.body;
-  return body === undefined ? null : parseVerticalDeclarationDocument(JSON.parse(body));
+  if (body === undefined) return null;
+  return parseVerticalDeclarationDocument(normalizeHistoricalVerticalDocument(JSON.parse(body)));
 }
 
 export function requireCanonicalVerticalDeclaration(

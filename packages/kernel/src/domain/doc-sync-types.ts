@@ -15,6 +15,7 @@ import type { LeaseV1 } from "./execution.ts";
 import type { EntityDocumentEventV1 } from "./entity-document-event.ts";
 import type { FactEventV1 } from "./fact-event.ts";
 import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
+import type { EventShapeMigrationEventV1 } from "./event-shape-migration-event.ts";
 import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
 import type { RetiredPeopleEventV1 } from "./people-event.ts";
 import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
@@ -203,7 +204,8 @@ export type CanonicalEventV1 =
   | DecisionEventV1
   | RelationEventV1
   | MigrationImportEventV1
-  | LedgerLayoutMigrationEventV1;
+  | LedgerLayoutMigrationEventV1
+  | EventShapeMigrationEventV1;
 
 /** Canonical events plus retired envelopes that remain readable in append-only history. */
 export type PersistedCanonicalEventV1 =

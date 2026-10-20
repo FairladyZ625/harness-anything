@@ -285,7 +285,6 @@ export {
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   localSettings,
-  migrateRetiredSettingsCandidate,
   parseLocalSettings,
   readGateSettings,
   readSettingsFacet,

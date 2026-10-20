@@ -236,7 +236,7 @@ export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1
   return mappings.flatMap(({ gateId, adapter, ...options }) => {
     if (adapter === "none" && Object.keys(options).length) return [`settings.gates.${gateId}: none carries no options`];
     if (adapter === "github-actions" || adapter === "gitlab-pipeline")
-      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; run ha migrate settings --help`];
+      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; attach migrates this field`];
     if (gateId === CODE_DOC_GATE_ID && adapter !== "none")
       return [`settings.gates.${CODE_DOC_GATE_ID} is internal; map it only to none`];
     return [];
