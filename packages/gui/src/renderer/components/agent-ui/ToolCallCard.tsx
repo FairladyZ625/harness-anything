@@ -150,7 +150,7 @@ function PayloadBlock({
         <HighlightedJson text={preview.text} />
         {preview.truncated && (
           <span data-testid={`${testId}-truncated`} className="mt-2 block text-text-faint">
-            已截断预览 · 共 {preview.totalLength.toLocaleString()} 字符,完整内容用上方复制按钮
+            已截断预览 · 共 {preview.totalLength} 字符,完整内容用上方复制按钮
           </span>
         )}
       </pre>

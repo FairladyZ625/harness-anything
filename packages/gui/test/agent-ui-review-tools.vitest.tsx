@@ -80,7 +80,7 @@ describe("ToolCallCard", () => {
     mount(<ToolCallCard call={{ ...baseCall, arguments: hugeArguments }} defaultExpanded />);
     const truncated = byTestId("toolcall-card-arguments-truncated");
     expect(truncated).not.toBeNull();
-    expect(truncated.textContent).toContain("9,011");
+    expect(truncated.textContent).toContain("9011");
     // 预览体本身必须被截断,不渲染全部负载。
     const previewText = byTestId("toolcall-card-arguments").querySelector("pre")!.textContent ?? "";
     expect(previewText.length).toBeLessThan(2_400);
