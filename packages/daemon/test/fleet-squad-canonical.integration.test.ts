@@ -516,7 +516,27 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
         .map((event) => ({ type: event.type, opId: event.opId, payload: event.payload })),
     ),
   );
+  const response = await b.rpc.handle({
+    jsonrpc: "2.0",
+    id: 1001,
+    method: "repo.task.dispatches",
+    params: { repo: { repoId: "lease-repo" }, payload: { taskId } },
+  });
+  assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+  const dispatches = parseDaemonGuiReadResult("repo.task.dispatches", response.result);
+  assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs through the center");
+  assert.ok(dispatches.dispatches.some((row) => row.executionId === observed.payload.executionId));
+  assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
+  b.signIn("person-other");
+  await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
+    code: "human_confirmation_required",
+  });
+  b.signIn("person-one");
   await restartedCenter.close();
+  // Dispatch advisories are center-local; an offline read must expose the transport failure.
+  await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
+    code: "ECONNREFUSED",
+  });
   const { schema: _readerSchema, ...readerConfiguration } = b.config;
   await assert.rejects(
     b.host.fleet.edgeRuntime(
@@ -562,22 +582,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   utimesSync(path.join(view.viewDir, "current.json"), tenMinutesAgo, tenMinutesAgo);
   const connections = t.mock.method(tls, "connect");
   syncBuiltinESMExports();
-  const response = await b.rpc.handle({
-    jsonrpc: "2.0",
-    id: 1001,
-    method: "repo.task.dispatches",
-    params: { repo: { repoId: "lease-repo" }, payload: { taskId } },
-  });
-  assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
-  const dispatches = parseDaemonGuiReadResult("repo.task.dispatches", response.result);
-  assert.equal(connections.mock.callCount(), 0, "GUI read makes zero TLS calls to center");
-  assert.equal(dispatches.freshness?.state, "stale");
-  assert.match(dispatches.warning ?? "", /可能过期/u);
-  assert.ok(dispatches.cut);
-  assert.ok(dispatches.freshness);
-  assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs while center is offline");
-  assert.ok(dispatches.dispatches.some((row) => row.executionId === observed.payload.executionId));
-  assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
   const offlineReads = [
     ["repo.tasks.list", {}],
     ["repo.works.index", {}],
@@ -636,7 +640,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     `B offline GUI shared-query families=${offlineReads.length}; center Fleet operations explicitly unavailable`,
   );
   b.signIn("person-other");
-  await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
+  await assert.rejects(b.host.read("lease-repo", "repo.tasks.list", {}, localAuthFixture()), {
     code: "authorization_denied",
   });
   b.signIn("person-one");
@@ -644,7 +648,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   connections.mock.restore();
   syncBuiltinESMExports();
   t.diagnostic(
-    `B GUI RPC offline dispatches=${dispatches.dispatches.length} freshness=${dispatches.freshness!.state} center TLS calls=0 owner mismatch=authorization_denied`,
+    `B GUI RPC online dispatches=${dispatches.dispatches.length}; offline shared-query families center TLS calls=0 owner mismatch=authorization_denied`,
   );
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);

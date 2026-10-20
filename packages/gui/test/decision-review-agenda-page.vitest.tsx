@@ -1,9 +1,10 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { harnessClient } from "../src/renderer/api-client.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type {
   AgendaAnsweredRow,
@@ -450,5 +451,79 @@ describe("议程页(标准 §2.4 列表页)", () => {
       ),
     );
     expect(loading.textContent).toContain("正在追赶台账切面(r7)");
+  });
+});
+
+it("tags agenda task rows only when their dispatch read has an advisory", async () => {
+  const annotated = {
+    dispatchId: "dispatch_111111111111111111111111",
+    taskId: "task_tagged",
+    executionId: "execution-one",
+    runtimeSessionId: "runtime-one",
+    instanceId: "runtime-provider",
+    attemptGroupId: "dispatch_111111111111111111111111",
+    attemptIndex: 0,
+    provider: { instance: "runtime-provider", model: "runtime-model" },
+    classification: "worker_stop",
+    reason: "Stopped",
+    fallbackState: null,
+    nextDispatchId: null,
+    providerSessionId: null,
+    eventStreamRef: null,
+    startedAt: AT,
+    endedAt: AT,
+    outcome: "stopped",
+    status: "stopped",
+    advisories: [
+      {
+        evaluatedAt: AT,
+        pointId: "dispatch-stop-reason",
+        questionVersion: "pilot2-choice-v2",
+        selected: "environment",
+        distribution: { environment: 1 },
+        options: [{ id: "environment", text: "Environment" }],
+        provider: {
+          providerId: "decision-provider",
+          vendor: "openrouter",
+          requestedModel: "model",
+          resolvedModel: "model",
+          modelVersion: null,
+          providerRoute: null,
+        },
+        usage: { inputTokens: 1, outputTokens: 1, reportedCost: null },
+        latencyMs: 1,
+      },
+    ],
+  };
+  const getTaskDispatches = vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => ({
+    ok: true,
+    status: "ready",
+    taskIds: payload.taskIds,
+    unavailableTaskIds: [],
+    page: { cursor: null, nextCursor: null, limit: 500 },
+    outcome: "stopped",
+    exitCode: 0,
+    dispatches: [annotated],
+    watermark: 1,
+    sourceRevision: 1,
+  }));
+  mount(
+    createElement(AgendaView, {
+      repoId: "repo-advisory",
+      agenda: agenda({ awaitingRework: [reworkRow("task_tagged"), reworkRow("task_plain")] }),
+      agendaError: null,
+      onNavigateEntity: () => {},
+    }),
+  );
+  await act(async () => {
+    await vi.waitFor(() => expect(container!.querySelectorAll('[data-testid="agenda-advisory-tag"]')).toHaveLength(1));
+  });
+  expect(container!.querySelector('[data-testid="agenda-row-task_tagged"]')?.textContent).toContain("判断建议");
+  expect(container!.querySelector('[data-testid="agenda-row-task_plain"]')?.textContent).not.toContain("判断建议");
+  expect(getTaskDispatches).toHaveBeenCalledExactlyOnceWith({
+    repoId: "repo-advisory",
+    taskIds: ["task_plain", "task_tagged"],
+    limit: 500,
+    advisorySurface: "agenda",
   });
 });

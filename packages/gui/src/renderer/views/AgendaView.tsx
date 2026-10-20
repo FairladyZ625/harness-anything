@@ -1,3 +1,4 @@
+import { useAgendaAdvisories } from "../agenda-advisories.ts";
 import { useMemo, useState } from "react";
 import type { AgendaSuccess } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
@@ -47,6 +48,7 @@ export function AgendaView({
   const [search, setSearch] = useState("");
 
   const allRows = useMemo(() => (agenda === undefined ? [] : agendaRowsOf(agenda)), [agenda]);
+  const advisoryRead = useAgendaAdvisories(repoId, allRows);
   // 排序 = 注意力分倒序(daemon 同一分,GUI 不重推),不在切面里的行按组序垫底。
   const ordered = useMemo(() => {
     const scoreOf = new Map((agenda?.attentionItems ?? []).map((item) => [item.ref, item.attention.score] as const));
@@ -118,6 +120,11 @@ export function AgendaView({
           <p className="text-sm text-text-muted">{t("views.agenda.loading")}</p>
         ) : (
           <>
+            {advisoryRead.error ? (
+              <p role="alert" className="ui-meta text-danger">
+                {t("views.agenda.advisoryReadError", { error: String(advisoryRead.error) })}
+              </p>
+            ) : null}
             {agenda.status === "pending" ? (
               <p className="mb-2 font-mono ui-micro text-text-faint">
                 {t("views.overviewView.decisionTilesCatchingUp", { revision: String(agenda.sourceRevision) })}
@@ -130,7 +137,20 @@ export function AgendaView({
                 {visible.map((row) => (
                   <div key={`${row.group}:${row.id}`} data-testid={`agenda-row-${row.id}`}>
                     <DenseRow
-                      tag={<StatusTag tone={GROUP_TONE[row.group]} label={t(GROUP_LABEL[row.group])} />}
+                      tag={
+                        <>
+                          <StatusTag tone={GROUP_TONE[row.group]} label={t(GROUP_LABEL[row.group])} />
+                          {advisoryRead.advisories.has(
+                            /^task(?:review)?\/([^/]+)/u.exec(row.target ?? "")?.[1] ?? "",
+                          ) ? (
+                            <StatusTag
+                              testId="agenda-advisory-tag"
+                              tone="neutral"
+                              label={t("views.dispatch.advisory")}
+                            />
+                          ) : null}
+                        </>
+                      }
                       title={row.title}
                       reason={row.hint}
                       time={row.since === null ? undefined : formatListTime(row.since, { now })}

@@ -379,7 +379,8 @@ const relationGraph = {
       name: "validateDaemonSettingsRead",
       entityId: "settings",
       field: "settings",
-      validate: () => validateDaemonSettingsRead({ schema: "daemon.settings-read/v1", ok: true, settings: {} }),
+      validate: () =>
+        validateDaemonSettingsRead({ schema: "daemon.settings-read/v1", decisionPoints: [], ok: true, settings: {} }),
     },
   ];
 

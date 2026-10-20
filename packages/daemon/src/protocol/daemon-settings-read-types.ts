@@ -1,4 +1,21 @@
-import { repositorySettingsActionValues, type SettingsV1 } from "@harness-anything/kernel";
+import {
+  repositorySettingsActionValues,
+  type DecisionPointDeclaration,
+  type DecisionQuestionDeclaration,
+  type SettingsV1,
+} from "@harness-anything/kernel";
+
+export interface DecisionPointSettingsRow {
+  readonly pointId: string;
+  readonly bindingDigest: string;
+  readonly bindingKey: string;
+  readonly on: DecisionPointDeclaration["on"];
+  readonly revision: string;
+  readonly question: DecisionQuestionDeclaration;
+  readonly when: DecisionPointDeclaration["when"];
+  readonly input: readonly { readonly field: string; readonly maxLength: number; readonly redactionRevision: string }[];
+  readonly projectionSample: string;
+}
 
 /** `repo.settings.read` 返回的最近一条 `settings_changed` 归因:`actor` 是紧凑的
  * `<executor-kind>:<executor-id>` 或 `person:<personId>`;`revision` 是该事件的 workspace 修订。 */
@@ -20,6 +37,7 @@ export interface DaemonSettingsRead {
   readonly values: ReturnType<typeof repositorySettingsActionValues>;
   readonly revision: number;
   readonly lastChanged: DaemonSettingsLastChange | "initial";
+  readonly decisionPoints: readonly DecisionPointSettingsRow[];
 }
 
 /** `repo.settings.read` 的唯一构造口:settings 原样返回(含 locale 本地偏好),
@@ -29,6 +47,7 @@ export function daemonSettingsRead(
   settings: SettingsV1,
   revision: number,
   lastChanged: DaemonSettingsLastChange | "initial",
+  decisionPoints: readonly DecisionPointSettingsRow[] = [],
 ): DaemonSettingsRead {
   return {
     schema: "daemon.settings-read/v1",
@@ -37,5 +56,6 @@ export function daemonSettingsRead(
     values: repositorySettingsActionValues(settings),
     revision,
     lastChanged,
+    decisionPoints,
   };
 }

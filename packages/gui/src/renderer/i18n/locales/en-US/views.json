@@ -2015,5 +2015,18 @@
   "views.today.readError": "Read failed: {message}",
   "views.today.loading": "Reading…",
   "views.overviewView.drillWipError": "Worktable occupancy read failed: ",
-  "views.overviewView.worksOtherMine": "{count} to follow up"
+  "views.overviewView.worksOtherMine": "{count} to follow up",
+  "views.settingsView.decisionPointsNotice": "Enable each point after reviewing its question and the data it sends. Suggestions are advisory. Save to apply.",
+  "views.settingsView.decisionPointsEmpty": "This vertical declares no decision points.",
+  "views.settingsView.decisionPointEnabled": "Enabled",
+  "views.settingsView.decisionPointChanged": "Binding changed · paused",
+  "views.settingsView.decisionPointReenable": "Re-enable",
+  "views.settingsView.decisionPointDisable": "Disable",
+  "views.settingsView.decisionPointChangedHint": "The accepted digest differs from the current declaration. Review the current question, conditions and fields before re-enabling. Only the previous digest was saved; a field-by-field history is unavailable.",
+  "views.settingsView.decisionPointDeclaration": "Question, conditions and outgoing fields",
+  "views.settingsView.decisionPointSample": "Outgoing projection example · synthetic data, using production redaction and length limits",
+  "views.settingsView.decisionPointRemoved": "Point no longer declared",
+  "views.dispatch.advisory": "Advisory suggestion",
+  "views.dispatch.distribution": "Option distribution",
+  "views.agenda.advisoryReadError": "Suggestions could not be read: {error}"
 }

@@ -163,6 +163,25 @@ async function mountView(values: Record<string, unknown> = {}): Promise<HTMLElem
         values: merged,
         revision: 1,
         lastChanged: "initial",
+        decisionPoints: [
+          {
+            pointId: "dispatch-stop-reason",
+            bindingDigest: "b".repeat(64),
+            bindingKey: "dispatch-stop-reason@bbbbbbbbbbbb",
+            on: "dispatch.settled",
+            revision: "1",
+            question: {
+              version: "pilot2-choice-v2",
+              type: "choice",
+              prompt: "Classify the settlement",
+              options: [],
+              criteria: {},
+            },
+            when: { outcome: ["stopped"] },
+            input: [{ field: "report.body", maxLength: 2000, redactionRevision: "report-summary-v1" }],
+            projectionSample: "report: Synthetic report [LOCAL_PATH]",
+          },
+        ],
       }),
     },
   });
@@ -174,6 +193,25 @@ async function mountView(values: Record<string, unknown> = {}): Promise<HTMLElem
     values: merged,
     revision: 1,
     lastChanged: "initial",
+    decisionPoints: [
+      {
+        pointId: "dispatch-stop-reason",
+        bindingDigest: "b".repeat(64),
+        bindingKey: "dispatch-stop-reason@bbbbbbbbbbbb",
+        on: "dispatch.settled",
+        revision: "1",
+        question: {
+          version: "pilot2-choice-v2",
+          type: "choice",
+          prompt: "Classify the settlement",
+          options: [],
+          criteria: {},
+        },
+        when: { outcome: ["stopped"] },
+        input: [{ field: "report.body", maxLength: 2000, redactionRevision: "report-summary-v1" }],
+        projectionSample: "report: Synthetic report [LOCAL_PATH]",
+      },
+    ],
   });
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), SNAPSHOT);
   client.setQueryData(["agents", REPO_ID], AGENT_ROWS);
@@ -379,5 +417,26 @@ describe("设置页按用途分组并逐项解释", () => {
     ]);
     expect(options.map((option) => option.value)).toEqual(["execution", "principal"]);
     expect(container.querySelector('[data-testid="settings-gates-import"]')).toBeTruthy();
+  });
+});
+
+describe("Decision point settings", () => {
+  it("enables a declared point with its server binding and replaces stale digests", async () => {
+    const container = await mountView({ decisionsEnabledPoints: ["dispatch-stop-reason@aaaaaaaaaaaa"] });
+    expect(container.textContent).toContain("aaaaaaaaaaaa → bbbbbbbbbbbb");
+    expect(container.textContent).toContain("report: Synthetic report [LOCAL_PATH]");
+    expect(container.querySelector('[data-testid="settings-decisionsEnabledPoints-input"]')).toBeNull();
+    const reenable = container.querySelector<HTMLButtonElement>(
+      '[data-testid="decision-point-reenable-dispatch-stop-reason"]',
+    );
+    expect(reenable).not.toBeNull();
+    await act(async () => reenable!.click());
+    await act(async () => saveButton(container).click());
+    expect(lastUpdatePayload().decisionsEnabledPoints).toEqual(["dispatch-stop-reason@bbbbbbbbbbbb"]);
+    const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="dispatch-stop-reason"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle!.click());
+    await act(async () => saveButton(container).click());
+    expect(lastUpdatePayload().decisionsEnabledPoints).toEqual([]);
   });
 });

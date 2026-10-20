@@ -1,3 +1,5 @@
+import { readFleetOperationalClient } from "./fleet-edge-write.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -9,7 +11,7 @@ import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   readDaemonRegistry,
@@ -788,6 +790,28 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
       if (edge && edge.canonicalRoot) {
+        // Advisory annotations live only at the center. GUI and CLI share this read route.
+        if (method === "repo.task.dispatches") {
+          const config = readFleetEdgeConfig(edge.canonicalRoot);
+          if (!config)
+            throw context.hostCodedError("fleet_edge_config_missing", "Center reads require fleet-edge.json.");
+          return parseDaemonGuiReadResult(
+            method,
+            await readFleetOperationalClient({
+              hostname: config.host,
+              port: config.port,
+              ca: readFileSync(config.caPath, "utf8"),
+              servername: config.servername,
+              nodeId: config.nodeId,
+              credential: config.credential,
+              repoId,
+              method,
+              payload,
+              connectionSignal: auth.connectionSignal,
+              readAccessToken: async () => (await context.oidc.bind(auth)).oidcPrincipal?.accessToken,
+            }),
+          );
+        }
         const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true);
         const cell = context.cells.get(repoId);
         if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {

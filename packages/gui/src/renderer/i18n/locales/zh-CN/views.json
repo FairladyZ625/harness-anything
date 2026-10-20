@@ -2015,5 +2015,18 @@
   "views.today.readError": "读取失败：{message}",
   "views.today.loading": "正在读取…",
   "views.overviewView.drillWipError": "工作台占用读取失败:",
-  "views.overviewView.worksOtherMine": "跟进 {count}"
+  "views.overviewView.worksOtherMine": "跟进 {count}",
+  "views.settingsView.decisionPointsNotice": "查看问题和外发内容后逐点启用；建议仅供参考。提交到仓库后生效。",
+  "views.settingsView.decisionPointsEmpty": "当前领域包未声明判断点。",
+  "views.settingsView.decisionPointEnabled": "已启用",
+  "views.settingsView.decisionPointChanged": "绑定已变化 · 已暂停",
+  "views.settingsView.decisionPointReenable": "重新启用",
+  "views.settingsView.decisionPointDisable": "停用",
+  "views.settingsView.decisionPointChangedHint": "已接受摘要与当前声明不同。请检查当前问题、条件和字段后重新启用。此前仅保存摘要，无法还原逐字段历史差异。",
+  "views.settingsView.decisionPointDeclaration": "问题、触发条件与外发字段",
+  "views.settingsView.decisionPointSample": "实际外发投影样例 · 合成数据，使用执行器相同的脱敏与长度限制",
+  "views.settingsView.decisionPointRemoved": "判断点已从声明移除",
+  "views.dispatch.advisory": "判断建议",
+  "views.dispatch.distribution": "选项分布",
+  "views.agenda.advisoryReadError": "判断建议读取失败：{error}"
 }

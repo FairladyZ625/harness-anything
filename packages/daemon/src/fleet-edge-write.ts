@@ -14,7 +14,7 @@ import {
 // the port through a wildcard re-export.
 export {
   FleetRemoteError,
-  awaitFleetRuntimeSessionsClient,
+  readFleetOperationalClient,
   openFleetEdgeView,
   readFleetRepositoryMetadataClient,
 } from "./fleet/peer.ts";

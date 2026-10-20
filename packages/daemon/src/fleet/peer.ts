@@ -493,10 +493,10 @@ export async function runFleetRuntimeArchiveClient(
     session.close();
   }
 }
-export async function awaitFleetRuntimeSessionsClient(
+export async function readFleetOperationalClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
-    readonly method: "repo.agentRuntime.sessions.await";
+    readonly method: "repo.agentRuntime.sessions.await" | "repo.task.dispatches";
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },
@@ -510,15 +510,15 @@ export async function awaitFleetRuntimeSessionsClient(
     // keep their existing bounds; disconnecting its caller closes the peer.
     const response = await session.request(
       {
-        schema: "fleet.runtime.await/v1",
+        schema: "fleet.operational.read/v1",
         messageId: session.messageId(),
         repoId: options.repoId,
         method: options.method,
         payload: options.payload,
       },
-      null,
+      options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
     );
-    if (response.schema !== "fleet.runtime.await.result/v1") throw new Error("runtime read result expected");
+    if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
     return response.result;
   } finally {
     options.connectionSignal?.removeEventListener("abort", close);

@@ -1,6 +1,5 @@
 import {
   consumeKnownError,
-  decisionEventDescriptor,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type RuntimeSession,
@@ -106,7 +105,7 @@ export function readTaskDispatches(
       ? readDecisionAnnotationsByDispatch(
           rootDir,
           dispatchEvents.map((event) => event.payload.dispatchId),
-          "task.dispatches",
+          input.advisorySurface ?? "task.dispatches",
         )
       : new Map();
   for (const event of dispatchEvents)
@@ -482,10 +481,9 @@ function canonicalDispatchRow(
     ...(reportPath && projection.readDocument(reportPath).document ? { reportPath } : {}),
     ...(annotations.length > 0
       ? {
-          advisories: annotations.flatMap((entry) => {
-            const descriptor = decisionEventDescriptor(entry.event);
-            return descriptor?.readSurfaces.includes("task.dispatches") && entry.advisory ? [entry.advisory] : [];
-          }),
+          advisories: annotations.flatMap((entry) =>
+            entry.advisory ? [{ ...entry.advisory, evaluatedAt: entry.updatedAt }] : [],
+          ),
         }
       : {}),
   };

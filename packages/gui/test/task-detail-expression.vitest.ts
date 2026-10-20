@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
@@ -112,6 +113,7 @@ describe("Task detail expression", () => {
 
     await clickTab("派工");
     expect(byTestId("task-dispatch-tab").textContent).toContain("Codex Worker");
+    expect(document.querySelector('[data-testid="dispatch-advisories"]')).toBeNull();
     expect(byTestId("task-dispatch-tab").textContent).toContain("Rendered runtime report");
     expect(byTestId("task-dispatch-tab").textContent).toContain("runtime_session_exited");
 
@@ -565,6 +567,7 @@ describe("Task detail expression", () => {
     await clickTab("派工");
     expect(document.querySelector('[data-testid="task-detail-landing-pending"]')).toBeNull();
     expect(byTestId("task-dispatch-tab").textContent).toContain("Codex Worker");
+    expect(document.querySelector('[data-testid="dispatch-advisories"]')).toBeNull();
 
     await act(async () => {
       releaseList?.(listPayload);
@@ -637,4 +640,53 @@ describe("Task detail expression", () => {
     expect(document.querySelector('[data-region="files"]')).not.toBeNull();
     expect(document.querySelector('[data-region="timeline"]')).not.toBeNull();
   });
+});
+
+it("shows advisory selection, distribution, provider/model and evaluation time on the real dispatch tab", async () => {
+  const bridge = installBridge(),
+    read = await bridge.getTaskDispatches();
+  const annotated = {
+    ...read,
+    dispatches: read.dispatches.map((row) => ({
+      ...row,
+      advisories: [
+        {
+          pointId: "dispatch-stop-reason",
+          questionVersion: "pilot2-choice-v2",
+          evaluatedAt: "2026-10-19T01:02:03.000Z",
+          selected: "environment_unavailable",
+          distribution: { environment_unavailable: 0.9, insufficient_information: 0.1 },
+          options: [
+            { id: "environment_unavailable", text: "Environment unavailable" },
+            { id: "insufficient_information", text: "Insufficient information" },
+          ],
+          provider: {
+            providerId: "dp-probe",
+            vendor: "openrouter",
+            requestedModel: "model-requested",
+            resolvedModel: "model-resolved",
+            modelVersion: null,
+            providerRoute: null,
+          },
+          usage: { inputTokens: 12, outputTokens: 3, reportedCost: null },
+          latencyMs: 24,
+        },
+      ],
+    })),
+  };
+  bridge.getTaskDispatches.mockResolvedValue(annotated);
+  await mount();
+  await clickTab("派工");
+  const advice = byTestId("dispatch-advisories");
+  expect(advice.textContent).toContain("判断建议");
+  expect(advice.textContent).toContain("Environment unavailable");
+  expect(advice.textContent).toContain("90.0%");
+  expect(advice.textContent).toContain("10.0%");
+  expect(advice.textContent).toContain("dp-probe · model-resolved");
+  expect(advice.querySelector("time")?.dateTime).toBe("2026-10-19T01:02:03.000Z");
+  setActiveLocale("en-US");
+  await clickTab("概况");
+  await clickTab("Dispatch");
+  expect(byTestId("dispatch-advisories").textContent).toContain("Advisory suggestion");
+  setActiveLocale("zh-CN");
 });

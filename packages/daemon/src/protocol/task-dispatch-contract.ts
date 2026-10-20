@@ -4,6 +4,7 @@ export type TaskDispatchResume = {
 };
 
 export interface TaskDispatchAdvisory {
+  readonly evaluatedAt: string;
   readonly pointId: string;
   readonly questionVersion: string;
   readonly selected: string;

@@ -1,3 +1,4 @@
+import decisionPoints from "./scenarios/decision-points.mjs";
 import myDevices from "./scenarios/my-devices.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
@@ -61,6 +62,7 @@ import redesignToday from "./scenarios/redesign-today.mjs";
 import workLineageTaskExecution from "./scenarios/work-lineage-task-execution.mjs";
 
 export const catalog = [
+  decisionPoints,
   taskReturnChoice,
   myDevices,
   edgeReadFreshness,

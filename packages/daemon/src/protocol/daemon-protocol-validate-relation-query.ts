@@ -217,6 +217,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
 function validTaskDispatchAdvisory(value: unknown): boolean {
   return (
     isJsonObject(value) &&
+    dispatchText(value.evaluatedAt) &&
     dispatchText(value.pointId) &&
     dispatchText(value.questionVersion) &&
     dispatchText(value.selected) &&

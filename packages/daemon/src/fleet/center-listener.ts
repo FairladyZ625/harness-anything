@@ -1,3 +1,4 @@
+import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { fetchWorkerDelivery, workerGitIdentityForPerson } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
@@ -988,7 +989,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         });
       });
     }
-    if (frame.schema === "fleet.runtime.await/v1") {
+    if (frame.schema === "fleet.operational.read/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
@@ -1001,7 +1002,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
       let result;
       try {
-        result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
+        if (frame.method === "repo.task.dispatches") {
+          const errors = validateTaskDispatchesPayload(frame.payload);
+          if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
+          result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+        } else result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
       } catch (error) {
         const code = runtimeErrorCode(error);
         if (
@@ -1014,7 +1019,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw error;
       }
       return immediate({
-        schema: "fleet.runtime.await.result/v1",
+        schema: "fleet.operational.read.result/v1",
         messageId: mid(frame.messageId, "runtime-read"),
         inReplyTo: frame.messageId,
         result: result as unknown as Readonly<Record<string, unknown>>,

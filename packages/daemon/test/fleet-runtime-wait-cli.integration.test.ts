@@ -11,7 +11,7 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { awaitFleetRuntimeSessionsClient } from "../src/fleet/peer.ts";
+import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
@@ -299,7 +299,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       assert.equal(waited.receipt.outcome, "succeeded", JSON.stringify(waited));
     }
     await assert.rejects(
-      awaitFleetRuntimeSessionsClient({
+      readFleetOperationalClient({
         readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: center.port,
         ca: fixture.cert,

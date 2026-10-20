@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { formatTime } from "../src/renderer/model/time.ts";
 import { EdgeInvitePanel } from "../src/renderer/views/settings/EdgeInvitePanel.tsx";
 
 vi.mock("motion/react", async (original) => {
@@ -220,7 +221,7 @@ describe("EdgeInvitePanel", () => {
       nodeLabel: "edge-boston",
     });
     expect(container.querySelector('[data-testid="edge-invite-issued"]')?.textContent).toContain(LINK);
-    expect(container.textContent).toContain("2026-10-21");
+    expect(container.textContent).toContain(formatTime("2026-10-21T00:00:00.000Z", { style: "date-time" }));
     expect(list).toHaveBeenCalled();
     expect(container.textContent).toContain("Pending");
   });

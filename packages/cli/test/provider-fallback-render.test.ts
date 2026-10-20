@@ -47,36 +47,39 @@ test("task dispatch and runtime status renders expose provider attempt chains", 
 });
 
 test("task dispatch rows render typed decision advisories with options and distribution", () => {
-  assert.match(
-    renderDispatchRow({
-      dispatchId: "dispatch-one",
-      status: "failed",
-      runtimeSessionId: "runtime-one",
-      advisories: [
-        {
-          pointId: "dispatch-stop-reason",
-          questionVersion: "pilot2-choice-v2",
-          selected: "environment_unavailable",
-          distribution: { environment_unavailable: 0.9, insufficient_information: 0.1 },
-          options: [
-            { id: "environment_unavailable", text: "Environment unavailable" },
-            { id: "insufficient_information", text: "Insufficient information" },
-          ],
-          provider: {
-            providerId: "dp-openrouter-mercury",
-            vendor: "openrouter",
-            requestedModel: "model-a",
-            resolvedModel: "model-a",
-            modelVersion: null,
-            providerRoute: null,
-          },
-          usage: { inputTokens: 12, outputTokens: 3, reportedCost: null },
-          latencyMs: 24,
+  const rendered = renderDispatchRow({
+    dispatchId: "dispatch-one",
+    status: "failed",
+    runtimeSessionId: "runtime-one",
+    advisories: [
+      {
+        pointId: "dispatch-stop-reason",
+        questionVersion: "pilot2-choice-v2",
+        evaluatedAt: "2026-10-19T01:02:03.000Z",
+        selected: "environment_unavailable",
+        distribution: { environment_unavailable: 0.9, insufficient_information: 0.1 },
+        options: [
+          { id: "environment_unavailable", text: "Environment unavailable" },
+          { id: "insufficient_information", text: "Insufficient information" },
+        ],
+        provider: {
+          providerId: "dp-openrouter-mercury",
+          vendor: "openrouter",
+          requestedModel: "model-a",
+          resolvedModel: "model-a",
+          modelVersion: null,
+          providerRoute: null,
         },
-      ],
-    }),
+        usage: { inputTokens: 12, outputTokens: 3, reportedCost: null },
+        latencyMs: 24,
+      },
+    ],
+  });
+  assert.match(
+    rendered,
     /advisories:\[\{"pointId":"dispatch-stop-reason".*"selected":"environment_unavailable".*"distribution":\{"environment_unavailable":0\.9.*"options":\[/u,
   );
+  assert.match(rendered, /"evaluatedAt":"2026-10-19T01:02:03\.000Z"/u);
 });
 
 test("runtime status renders the actor that requested cancellation", () => {

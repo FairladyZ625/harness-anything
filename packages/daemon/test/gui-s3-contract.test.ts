@@ -35,6 +35,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
   };
   const valid = {
     schema: "daemon.settings-read/v1",
+    decisionPoints: [],
     ok: true,
     settings,
     values: {
@@ -49,6 +50,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
   assert.throws(() =>
     parseDaemonGuiReadResult("repo.settings.read", {
       schema: "daemon.settings-read/v1",
+      decisionPoints: [],
       ok: true,
       settings: {
         ...settings,

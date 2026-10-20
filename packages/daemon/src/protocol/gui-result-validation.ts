@@ -93,7 +93,8 @@ const settingsLastChange = (item: unknown): boolean =>
     Number.isSafeInteger(item.revision));
 export const validateDaemonSettingsRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 6 &&
+  Object.keys(value).length === 7 &&
+  Array.isArray(value.decisionPoints) &&
   value.schema === "daemon.settings-read/v1" &&
   value.ok === true &&
   validateSettingsV1(value.settings).length === 0 &&
