@@ -16,12 +16,7 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import {
-  persistedShapeSurfaceHits,
-  schemaMigrationAgentId,
-  schemaMigrationReviewPrompt,
-  schemaReviewDispatchKey,
-} from "./schema-migration-review.ts";
+import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "./review-path-lanes.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -300,8 +295,8 @@ type DispatchStep = {
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
   readonly dispatchOpId?: string;
-  /** The persisted-shape review lane beside the cut review; absent means the primary cut lane. */
-  readonly lane?: "schema-migration";
+  /** The configured path-review lane beside the cut review; absent means the primary cut lane. */
+  readonly lane?: string;
   readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
   readonly error?: string;
 };
@@ -324,12 +319,16 @@ export async function spawnCutReviewDispatch(
     readonly reviewerId: string;
     readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
+    /** The lane dispatch key; absent selects the cut's own `reviewDispatchKey`. */
+    readonly dispatchKey?: string;
+    /** The lane's mission; absent builds the cut review packet. */
+    readonly prompt?: string;
   },
 ): Promise<
   | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
   | { readonly outcome: "failed"; readonly error: string }
 > {
-  const key = reviewDispatchKey(input.taskId, input.execution),
+  const key = input.dispatchKey ?? reviewDispatchKey(input.taskId, input.execution),
     ids = reviewDispatchIds(cell.input.repoId, key);
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
@@ -371,17 +370,19 @@ export async function spawnCutReviewDispatch(
       ...(typeof extras.model === "string" ? { model: extras.model } : {}),
       ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
       ...(extras.fast === true ? { fast: true } : {}),
-      prompt: reviewDispatchPrompt({
-        ownerNote: input.ownerNote,
-        taskId: input.taskId,
-        packagePath: input.packagePath,
-        dispatchId: ids.dispatchId,
-        execution: input.execution,
-        gates: completionGateIds(
-          cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
-          input.execution.submission,
-        ),
-      }),
+      prompt:
+        input.prompt ??
+        reviewDispatchPrompt({
+          ownerNote: input.ownerNote,
+          taskId: input.taskId,
+          packagePath: input.packagePath,
+          dispatchId: ids.dispatchId,
+          execution: input.execution,
+          gates: completionGateIds(
+            cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
+            input.execution.submission,
+          ),
+        }),
     },
     authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
@@ -404,15 +405,24 @@ export async function spawnCutReviewDispatch(
   return { outcome: "dispatched", ids };
 }
 
+/** One configured path-review lane's result for a submitted cut. */
+type PathLaneDispatchResult = {
+  readonly lane: string;
+  readonly hits: readonly string[];
+  readonly outcome: "dispatched" | "already_dispatched" | "failed";
+  readonly ids?: ReturnType<typeof reviewDispatchIds>;
+  readonly error?: string;
+};
+
 /**
- * The schema-migration lane's dispatch: fired only when the cut's frozen manifest hits a
- * persisted-shape surface (see schema-migration-review.ts). Same idempotency grammar as the
- * cut review — keyed by the submitted cut with the lane's own key segment, attempt chain
- * advanced only after the prior attempt's runtime session ended — and a missing specialist
- * declaration fails loud as its own step with the install command. It never disturbs the
- * primary reviewer dispatch that owns the cut, and `ha task dispatch-review` is its retry lane.
+ * The configured path-review lanes beside the cut review: each repository setting entry pairs a
+ * reviewer agent with a path, and a submitted cut whose frozen manifest touches that path gets the
+ * agent dispatched under its own idempotent key. The product owns the mechanism only; which agents
+ * watch which paths is repository setting, and what the lane reviews is the agent's declaration.
+ * A lane never disturbs the primary reviewer dispatch or the durable write that precedes it: its
+ * own failures are returned per lane for the caller's retry lane.
  */
-async function dispatchSchemaMigrationReview(
+async function dispatchPathReviewLanes(
   cell: RepoCellOperationalContext,
   input: {
     readonly taskId: string;
@@ -422,14 +432,56 @@ async function dispatchSchemaMigrationReview(
     readonly revision: number;
     readonly extras?: Readonly<Record<string, unknown>>;
   },
-): Promise<
-  | { readonly outcome: "skipped" }
-  | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
-  | { readonly outcome: "failed"; readonly error: string }
-> {
-  const hits = persistedShapeSurfaceHits(input.execution.submission);
-  if (hits.length === 0) return { outcome: "skipped" };
-  const baseKey = schemaReviewDispatchKey(input.taskId, input.execution);
+): Promise<readonly PathLaneDispatchResult[]> {
+  const lanes = reviewPathLanes(cell.settings.readRepository().review?.pathReviewers),
+    hits = reviewLaneHits(input.execution.submission, lanes);
+  if (hits.size === 0) return [];
+  const results: PathLaneDispatchResult[] = [];
+  for (const lane of lanes) {
+    const matched = hits.get(lane.agentId);
+    if (matched === undefined || matched.length === 0) continue;
+    const { key, ids, existing } = reviewDispatchAttempt(
+      cell,
+      reviewLaneDispatchKey(lane.agentId, input.taskId, input.execution),
+    );
+    if (existing !== null) {
+      results.push({
+        lane: lane.agentId,
+        hits: matched,
+        outcome: "already_dispatched",
+        ids: { ...ids, dispatchOpId: existing.opId },
+      });
+      continue;
+    }
+    const dispatch = await spawnCutReviewDispatch(cell, {
+      taskId: input.taskId,
+      execution: input.execution,
+      packagePath: input.packagePath,
+      binding: input.binding,
+      revision: input.revision,
+      reviewerId: lane.agentId,
+      dispatchKey: key,
+      prompt: reviewLanePrompt({
+        agentId: lane.agentId,
+        taskId: input.taskId,
+        packagePath: input.packagePath,
+        dispatchId: ids.dispatchId,
+        execution: input.execution,
+        hits: matched,
+      }),
+      ...(input.extras === undefined ? {} : { extras: input.extras }),
+    });
+    results.push(
+      dispatch.outcome === "failed"
+        ? { lane: lane.agentId, hits: matched, outcome: "failed", error: dispatch.error }
+        : { lane: lane.agentId, hits: matched, outcome: dispatch.outcome, ids: dispatch.ids },
+    );
+  }
+  return results;
+}
+
+/** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
+function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string) {
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
@@ -440,72 +492,7 @@ async function dispatchSchemaMigrationReview(
     ids = reviewDispatchIds(cell.input.repoId, key);
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   }
-  if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
-  let resolved;
-  try {
-    resolved = readAgentDeclarationResolution({
-      rootDir: cell.rootDir,
-      agentId: schemaMigrationAgentId,
-      entityStore: createEntityStore(cell.store),
-    });
-  } catch (error) {
-    if (!isAgentDeclarationInvalid(error)) throw error;
-    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
-  }
-  if (!resolved)
-    return {
-      outcome: "failed",
-      error:
-        `Schema-migration lane: reviewer ${schemaMigrationAgentId} is not bundled in this build or installed. ` +
-        `Install it with ha agent install --source harness/agents/${schemaMigrationAgentId}.json, ` +
-        `then retry with ha task dispatch-review ${input.taskId}.`,
-    };
-  const { declaration: agent, layer } = resolved;
-  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof input.extras?.model !== "string")
-    return {
-      outcome: "failed",
-      error:
-        `Schema-migration lane: declare an explicit model on every runtimes row for reviewer ` +
-        `${schemaMigrationAgentId}, or pass --model <model> on dispatch-review.`,
-    };
-  const extras = input.extras ?? {},
-    payload = {
-      agentId: agent.id,
-      role: "reviewer",
-      taskId: input.taskId,
-      executionId: input.execution.executionId,
-      cwd: { scope: "repo-root" },
-      dispatchKey: key,
-      ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
-      ...(typeof extras.model === "string" ? { model: extras.model } : {}),
-      ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
-      prompt: schemaMigrationReviewPrompt({
-        taskId: input.taskId,
-        packagePath: input.packagePath,
-        dispatchId: ids.dispatchId,
-        execution: input.execution,
-        hits,
-      }),
-    },
-    authorizationDecision = await evaluateRepoCellAction({
-      action: { kind: "runtime-spawn", ...payload },
-      repoId: cell.input.repoId,
-      binding: input.binding,
-      actionId: ids.dispatchOpId,
-      revision: input.revision,
-      now: cell.now(),
-      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
-    });
-  if (authorizationDecision.outcome !== "allowed")
-    return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
-  try {
-    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
-  } catch (error) {
-    consumeKnownError(error);
-    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
-  }
-  return { outcome: "dispatched", ids };
+  return { key, ids, existing };
 }
 
 /**
@@ -525,8 +512,9 @@ export async function dispatchInReviewCutReview(
 ): Promise<{
   readonly selection: ReturnType<typeof selectReviewAgent>;
   readonly step: WriteReceiptDraft;
-  /** The schema-migration lane's own step when the cut's frozen manifest hits a persisted-shape surface. */
-  readonly schemaStep?: WriteReceiptDraft;
+  /** The configured path-review lanes' own steps; a failed lane is a warning, never the cut's verdict. */
+  readonly laneSteps: readonly WriteReceiptDraft[];
+  readonly laneWarnings: readonly string[];
 } | null> {
   const current = await cell.service.read(taskId);
   if (current.snapshot.task?.status !== "in_review") return null;
@@ -572,7 +560,7 @@ export async function dispatchInReviewCutReview(
             dispatchId: dispatch.ids.dispatchId,
             runtimeSessionId: dispatch.ids.runtimeSessionId,
           } as WriteReceiptDraft);
-  const schema = await dispatchSchemaMigrationReview(cell, {
+  const laneResults = await dispatchPathReviewLanes(cell, {
       taskId,
       execution,
       packagePath: current.packagePath,
@@ -583,33 +571,27 @@ export async function dispatchInReviewCutReview(
         ...(typeof action.model === "string" ? { model: action.model } : {}),
       },
     }),
-    schemaStep = schemaStepDraft(cell, taskId, schema, receipt);
-  return { selection, step, ...(schemaStep === null ? {} : { schemaStep }) };
-}
-
-/** The schema lane's receipt step: its own dispatch identities on success, the retry lane on failure. */
-function schemaStepDraft(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  schema: Awaited<ReturnType<typeof dispatchSchemaMigrationReview>>,
-  receipt: WriteReceiptDraft,
-): WriteReceiptDraft | null {
-  if (schema.outcome === "skipped") return null;
-  if (schema.outcome === "failed")
-    return cell.failed(
-      receipt.opId,
-      cell.cellCodedError(
-        "review_dispatch_failed",
-        `Task ${taskId} schema-migration review dispatch failed: ${schema.error} ` +
-          `The cut review is unaffected; recover this lane with ha task dispatch-review ${taskId}.`,
-      ),
+    laneSteps = laneResults.flatMap((lane): WriteReceiptDraft[] =>
+      lane.outcome === "failed" || lane.ids === undefined
+        ? []
+        : [
+            {
+              ...receipt,
+              dispatchId: lane.ids.dispatchId,
+              runtimeSessionId: lane.ids.runtimeSessionId,
+              summary: `Task ${taskId} path-review lane ${lane.lane} ${lane.ids.dispatchId} ${lane.outcome}.`,
+            } as WriteReceiptDraft,
+          ],
+    ),
+    laneWarnings = laneResults.flatMap((lane) =>
+      lane.outcome === "failed"
+        ? [
+            `Task ${taskId} path-review lane ${lane.lane} dispatch failed: ${lane.error ?? "unknown error"} ` +
+              `The cut review is unaffected; recover this lane with ha task dispatch-review ${taskId}.`,
+          ]
+        : [],
     );
-  return {
-    ...receipt,
-    dispatchId: schema.ids.dispatchId,
-    runtimeSessionId: schema.ids.runtimeSessionId,
-    summary: `Task ${taskId} schema-migration review ${schema.ids.dispatchId} ${schema.outcome}.`,
-  } as WriteReceiptDraft;
+  return { selection, step, laneSteps, laneWarnings };
 }
 
 /**
@@ -708,9 +690,10 @@ export async function dispatchTaskReview(
       );
       continue;
     } else execution = candidates[0]!;
-    // The schema-migration lane keys off the same submitted cut as the primary review but owns
-    // its dispatch identities, so it runs before any primary-path continue and reports its own step.
-    const schema = await dispatchSchemaMigrationReview(cell, {
+    // A configured path-review lane keys off the same submitted cut as the primary review but
+    // owns its dispatch identities, so it runs before any primary-path continue and reports its
+    // own step. A failed lane never replaces the primary outcome.
+    const laneResults = await dispatchPathReviewLanes(cell, {
         taskId,
         execution,
         packagePath: read.packagePath,
@@ -721,39 +704,28 @@ export async function dispatchTaskReview(
           ...(typeof action.model === "string" ? { model: action.model } : {}),
         },
       }),
-      schemaStep: DispatchStep | null =
-        schema.outcome === "skipped"
-          ? null
-          : schema.outcome === "failed"
-            ? {
-                taskId,
-                executionId: execution.executionId,
-                lane: "schema-migration",
-                outcome: "failed",
-                error: schema.error,
-              }
-            : {
-                taskId,
-                executionId: execution.executionId,
-                lane: "schema-migration",
-                dispatchId: schema.ids.dispatchId,
-                runtimeSessionId: schema.ids.runtimeSessionId,
-                dispatchOpId: schema.ids.dispatchOpId,
-                outcome: schema.outcome,
-              };
-    const baseKey = reviewDispatchKey(taskId, execution);
-    let attempt = 0,
-      key = reviewAttemptKey(baseKey, attempt),
-      ids = reviewDispatchIds(cell.input.repoId, key),
-      existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-    while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
-      attempt += 1;
-      key = reviewAttemptKey(baseKey, attempt);
-      ids = reviewDispatchIds(cell.input.repoId, key);
-      existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-    }
+      laneSteps: DispatchStep[] = laneResults.map((lane) =>
+        lane.outcome === "failed" || lane.ids === undefined
+          ? {
+              taskId,
+              executionId: execution.executionId,
+              lane: lane.lane,
+              outcome: "failed",
+              error: lane.error ?? "path-review lane dispatch failed",
+            }
+          : {
+              taskId,
+              executionId: execution.executionId,
+              lane: lane.lane,
+              dispatchId: lane.ids.dispatchId,
+              runtimeSessionId: lane.ids.runtimeSessionId,
+              dispatchOpId: lane.ids.dispatchOpId,
+              outcome: lane.outcome,
+            },
+      );
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution));
     if (existing !== null) {
-      if (schemaStep !== null) steps.push(schemaStep);
+      steps.push(...laneSteps);
       steps.push({
         taskId,
         executionId: execution.executionId,
@@ -794,7 +766,7 @@ export async function dispatchTaskReview(
       });
     if (authorizationDecision.outcome !== "allowed") {
       fail(`authorization_denied: ${authorizationDecision.nextActions.join(" ")}`, execution.executionId);
-      if (schemaStep !== null) steps.push(schemaStep);
+      steps.push(...laneSteps);
       continue;
     }
     try {
@@ -808,15 +780,17 @@ export async function dispatchTaskReview(
         dispatchOpId: ids.dispatchOpId,
         outcome: "dispatched",
       });
-      if (schemaStep !== null) steps.push(schemaStep);
+      steps.push(...laneSteps);
     } catch (error) {
       // One task's launch failure is reported on its own step; the batch continues for the rest.
       consumeKnownError(error);
       fail(error instanceof Error ? error.message : String(error), execution.executionId);
-      if (schemaStep !== null) steps.push(schemaStep);
+      steps.push(...laneSteps);
     }
   }
-  const dispatchedTasks = new Set(steps.filter((step) => step.outcome !== "failed").map((step) => step.taskId)),
+  const dispatchedTasks = new Set(
+      steps.filter((step) => step.lane === undefined && step.outcome !== "failed").map((step) => step.taskId),
+    ),
     failed = steps.filter((step) => step.outcome === "failed");
   return {
     outcome: dispatchedTasks.size === 0 ? "op_rejected" : "applied",

@@ -62,6 +62,12 @@ export const settingsFieldProtocolProjection = {
       enum: ["off", "high", "medium_and_high", "all"],
     },
     {
+      field: "reviewPathReviewers",
+      description: "Reviewers dispatched beside the cut review when its file manifest touches a configured path.",
+      type: "string-array",
+      required: false,
+    },
+    {
       field: "reviewReturnBudget",
       description: "How many times review may send a task back for rework.",
       type: "number",
@@ -363,6 +369,16 @@ export const settingsFieldProtocolProjection = {
       name: "--decision-review-requirement",
       kind: "single",
       enum: ["off", "high", "medium_and_high", "all"],
+    },
+    {
+      field: "reviewPathReviewers",
+      description: "Reviewers dispatched beside the cut review when its file manifest touches a configured path.",
+      group: "review-closeout",
+      effect: "`<agent> <path>` per entry; trailing / covers a directory, otherwise one file. No entry means no lane.",
+      name: "--path-reviewer",
+      kind: "repeated",
+      regex: "^(?:none|[a-z0-9][a-z0-9-]{0,62} [A-Za-z0-9.][A-Za-z0-9._/-]*)$",
+      format: "<agent-id> <repository path; a trailing / covers the directory>, or none to clear",
     },
     {
       field: "reviewReturnBudget",

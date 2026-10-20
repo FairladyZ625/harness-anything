@@ -385,7 +385,7 @@ type DispatchStep = {
   executionId?: string;
   dispatchId?: string;
   runtimeSessionId?: string;
-  lane?: "schema-migration";
+  lane?: string;
   outcome: string;
   error?: string;
 };
@@ -751,7 +751,7 @@ test(
 );
 
 test(
-  "a persisted-shape delivery dispatches the schema-migration reviewer beside the cut review",
+  "a configured path-review lane dispatches its reviewer beside the cut review and stays off by default",
   { timeout: 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
@@ -760,12 +760,23 @@ test(
     });
     try {
       await f.install();
-      const launchesBefore = f.launches.length;
-      // Replace the in-review cut with one whose frozen manifest touches a persisted-shape
-      // surface. The standard-task preset binds a task worktree; committing on the bound
-      // worktree branch and amending without an explicit commit makes the frozen manifest
-      // derive from the branch's fork point, exactly as a worker's delivery does.
-      await f.cell().settlePendingMaterialization("schema lane fixture delivery");
+      const laneAgent = await f.run({
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "data-migration",
+          name: "Data migration reviewer",
+          instructions:
+            "Report the affected persisted data, the attach-migration registration, and the old-copy evidence.",
+          runtimes: [{ type: "codex", model: "review-model" }],
+          role: "reviewer",
+        },
+      });
+      assert.equal(laneAgent.outcome, "applied", JSON.stringify(laneAgent));
+      // The standard-task preset binds a task worktree; committing on the bound worktree branch and
+      // amending without an explicit commit makes the frozen manifest derive from the branch's fork
+      // point, exactly as a worker's delivery does.
+      await f.cell().settlePendingMaterialization("path lane fixture delivery");
       const worktreePaths = execFileSync("git", ["-C", f.root, "worktree", "list", "--porcelain"], {
           encoding: "utf8",
         })
@@ -776,42 +787,70 @@ test(
           .map((line) => path.resolve(line.slice("worktree ".length))),
         checkout = worktreePaths.find((entry) => entry !== path.resolve(f.root));
       assert.ok(checkout, `expected the bound task worktree beside ${f.root}`);
-      const schemaSurface = path.join(checkout, "packages/kernel/src/domain/settings.ts");
-      mkdirSync(path.dirname(schemaSurface), { recursive: true });
-      writeFileSync(schemaSurface, "// schema fixture surface\n");
-      execFileSync("git", ["-C", checkout, "add", "packages/kernel/src/domain/settings.ts"]);
-      execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: narrow a persisted field"]);
+      const commitSchemaSurface = (body: string) => {
+        const surface = path.join(checkout, "packages/kernel/src/domain/settings.ts");
+        mkdirSync(path.dirname(surface), { recursive: true });
+        writeFileSync(surface, body);
+        execFileSync("git", ["-C", checkout, "add", "packages/kernel/src/domain/settings.ts"]);
+        execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: narrow a persisted field"]);
+      };
+      // Default off: no repository entry means no additional lane, even when the cut touches the
+      // path the product's self-hosted configuration would watch.
+      commitSchemaSurface("// first schema surface\n");
+      const unconfigured = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(unconfigured.outcome, "applied", JSON.stringify(unconfigured));
+      assert.equal(
+        f
+          .events()
+          .some(
+            (event) =>
+              event.type === "runtime_dispatch_requested" && event.payload.dispatchKey?.startsWith("task-review-lane:"),
+          ),
+        false,
+        "an empty review.pathReviewers must dispatch no lane",
+      );
+      const settings = await f.run({ kind: "settings-read" });
+      const configured = await f.runPrincipal({
+        kind: "settings-update",
+        reviewPathReviewers: ["data-migration packages/kernel/src/domain/"],
+        expectedVersion: settings.revision,
+      });
+      assert.equal(configured.outcome, "applied", JSON.stringify(configured));
+      const launchesBefore = f.launches.length;
+      // The amended cut's frozen manifest touches the configured directory.
+      commitSchemaSurface("// second schema surface\n");
       const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-      const schemaDispatch = f
+      const laneDispatch = f
         .events()
         .find(
           (event) =>
-            event.type === "runtime_dispatch_requested" && event.payload.dispatchKey?.startsWith("task-review-schema:"),
+            event.type === "runtime_dispatch_requested" &&
+            event.payload.dispatchKey?.startsWith("task-review-lane:data-migration:"),
         );
-      assert.ok(schemaDispatch?.type === "runtime_dispatch_requested", "no schema-migration dispatch was requested");
-      assert.equal(schemaDispatch.payload.agentId, "data-migration");
-      assert.equal(schemaDispatch.payload.role, "reviewer");
-      assert.equal(schemaDispatch.payload.taskId, taskId);
-      assert.equal(schemaDispatch.payload.executionId, executionId);
-      const schemaId = schemaDispatch.payload.dispatchId!;
-      const schemaLaunch = f.launches.find((launch) => launch.prompt.includes(schemaId));
-      assert.ok(schemaLaunch, `no provider launch carried the schema dispatch ${schemaId}`);
-      assert.match(schemaLaunch.prompt, /schema-migration lane/u);
-      assert.ok(schemaLaunch.prompt.includes("- packages/kernel/src/domain/settings.ts"), schemaLaunch.prompt);
+      assert.ok(laneDispatch?.type === "runtime_dispatch_requested", "no path-review lane dispatch was requested");
+      assert.equal(laneDispatch.payload.agentId, "data-migration");
+      assert.equal(laneDispatch.payload.role, "reviewer");
+      assert.equal(laneDispatch.payload.taskId, taskId);
+      assert.equal(laneDispatch.payload.executionId, executionId);
+      const laneId = laneDispatch.payload.dispatchId!;
+      const laneLaunch = f.launches.find((launch) => launch.prompt.includes(laneId));
+      assert.ok(laneLaunch, `no provider launch carried the lane dispatch ${laneId}`);
+      assert.match(laneLaunch.prompt, /additional review lane for agent data-migration/u);
+      assert.ok(laneLaunch.prompt.includes("- packages/kernel/src/domain/settings.ts"), laneLaunch.prompt);
       assert.ok(
-        schemaLaunch.prompt.includes(`--review-id review-${schemaId}`),
-        "the schema reviewer's registration identity is fixed by its dispatch",
+        laneLaunch.prompt.includes(`--review-id review-${laneId}`),
+        "the lane reviewer's registration identity is fixed by its dispatch",
       );
-      assert.equal(f.launches.length, launchesBefore + 2, "one cut review plus one schema-migration review");
+      assert.equal(f.launches.length, launchesBefore + 2, "one cut review plus one path-review lane");
       // The lane is idempotent on the same submitted cut.
       const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
       assert.equal(retry.outcome, "applied", JSON.stringify(retry));
       const steps = dispatchesOf(retry),
-        schemaStep = steps.find((step) => step.lane === "schema-migration");
-      assert.ok(schemaStep, `no schema-migration step in ${JSON.stringify(steps)}`);
-      assert.equal(schemaStep!.outcome, "already_dispatched");
-      assert.equal(schemaStep!.dispatchId, schemaId);
+        laneStep = steps.find((step) => step.lane === "data-migration");
+      assert.ok(laneStep, `no path-review lane step in ${JSON.stringify(steps)}`);
+      assert.equal(laneStep!.outcome, "already_dispatched");
+      assert.equal(laneStep!.dispatchId, laneId);
       assert.equal(f.launches.length, launchesBefore + 2, "an idempotent retry launches nothing");
     } finally {
       await f.close();

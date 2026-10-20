@@ -385,10 +385,12 @@ async function amendedCutReview(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
-): Promise<readonly WriteReceiptDraft[]> {
-  if (action.amend !== true) return [];
+): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
+  if (action.amend !== true) return { steps: [], warnings: [] };
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
-  return dispatched ? [dispatched.step, ...(dispatched.schemaStep === undefined ? [] : [dispatched.schemaStep])] : [];
+  return dispatched
+    ? { steps: [dispatched.step, ...dispatched.laneSteps], warnings: dispatched.laneWarnings }
+    : { steps: [], warnings: [] };
 }
 
 export async function submitTask(
@@ -485,7 +487,8 @@ export async function submitTask(
       review = await amendedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps: [...steps, ...review],
+      ...(review.warnings.length ? { warnings: review.warnings } : {}),
+      steps: [...steps, ...review.steps],
     } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
@@ -569,11 +572,12 @@ export async function submitTask(
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
   const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
-    review = await amendedCutReview(cell, taskId, action, binding, receipt);
+    review = await amendedCutReview(cell, taskId, action, binding, receipt),
+    warnings = [...anchorDriftWarnings, ...review.warnings];
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-    ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
-    steps: [...(synced ? [synced] : []), ...steps, ...review],
+    ...(warnings.length ? { warnings } : {}),
+    steps: [...(synced ? [synced] : []), ...steps, ...review.steps],
   } as WriteReceiptDraft;
 }
 

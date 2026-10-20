@@ -601,3 +601,52 @@ function gatedFixture(): { readonly currentEntity: unknown; readonly currentDocu
   const body = `${documentBody}  gates:\n    lint:\n      adapter: research/check\n      appliesTo: code\n`;
   return { currentEntity: repositorySettings(readSettingsFacet(body)), currentDocumentBody: body };
 }
+
+test("path reviewers write as one agent-and-path entry per line and read back exactly", () => {
+  const entries = ["data-migration packages/kernel/src/domain/", "gui-reviewer packages/gui/src/"],
+    draft = compile({ reviewPathReviewers: entries });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.review, { pathReviewers: entries });
+  const written = draft.result.bundle.blobs[0].body;
+  assert.match(
+    written,
+    /^  review:\n    pathReviewers:\n      - data-migration packages\/kernel\/src\/domain\/\n      - gui-reviewer packages\/gui\/src\/$/mu,
+  );
+  assert.deepEqual(readSettingsFacet(written).review.pathReviewers, entries);
+});
+
+test("path reviewer entries reject a malformed pair, traversal, an absolute path, and duplicates", () => {
+  for (const entry of [
+    "data-migration",
+    "data-migration ../private",
+    "data-migration /etc/passwd",
+    "Data-Migration packages/gui/src/",
+    "data-migration packages/../gui/src/",
+    "data-migration packages//gui/src/",
+  ])
+    assert.throws(
+      () => compile({ reviewPathReviewers: [entry] }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+      entry,
+    );
+  assert.throws(
+    () => compile({ reviewPathReviewers: ["data-migration packages/gui/src/", "data-migration packages/gui/src/"] }),
+    (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+  );
+});
+
+test("path reviewers default to no additional review, and none clears them", () => {
+  assert.deepEqual(readSettingsFacet("schema: harness-anything/v1\nsettings:\n").review.pathReviewers, []);
+  const first = compile({ reviewPathReviewers: ["data-migration packages/kernel/src/domain/"] });
+  if (first.kind !== "settings" || first.result.kind !== "event") throw new Error("missing settings event");
+  const cleared = compile(
+    { reviewPathReviewers: [] },
+    {
+      currentEntity: first.result.bundle.event.payload.settings,
+      currentDocumentBody: first.result.bundle.blobs[0].body,
+    },
+  );
+  if (cleared.kind !== "settings" || cleared.result.kind !== "event") throw new Error("missing cleared settings event");
+  assert.deepEqual(cleared.result.bundle.event.payload.settings.review, { pathReviewers: [] });
+  assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /^  review:/mu);
+});
