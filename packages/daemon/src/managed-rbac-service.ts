@@ -37,6 +37,7 @@ import {
   removeSelfSignedCertificate,
   publicListener,
   requestedListener,
+  validateListenerInput,
 } from "./managed-rbac-listener-certificate.ts";
 
 export const managedRbacVersions = Object.freeze({
@@ -317,12 +318,11 @@ export class ManagedRbacService {
       const address = request.listenAddress ?? firstReachableAddress();
       const hostname = request.hostname ?? address;
       const port = request.port ?? 8443;
-      const generated = await ensureSelfSignedCertificate(this.#root, hostname, address);
-      validateCertificateNames(readFileSync(generated.certificateFile), [address, hostname]);
+      const endpoint = validateListenerInput(address, hostname, port),
+        generated = await ensureSelfSignedCertificate(this.#root, endpoint.hostname, endpoint.address);
+      validateCertificateNames(readFileSync(generated.certificateFile), [endpoint.address, endpoint.hostname]);
       return {
-        address,
-        hostname,
-        port,
+        ...endpoint,
         certificateFile: generated.certificateFile,
         certificateKeyFile: generated.certificateKeyFile,
       };

@@ -478,6 +478,35 @@ test("the self-signed certificate mode generates a private listener certificate 
   }
 });
 
+test("self-signed listener input validates hostname and port before generating a certificate", async () => {
+  const managed = managedFixture();
+  try {
+    for (const input of [
+      { hostname: "center.example.test/path", port: 8443 },
+      { hostname: "center.example.test", port: 0 },
+      { hostname: "center.example.test", port: 70_000 },
+    ]) {
+      await assert.rejects(
+        managed.service.run({
+          operation: "listener-set",
+          certificateMode: "self-signed",
+          hostname: input.hostname,
+          listenAddress: "127.0.0.1",
+          port: input.port,
+          expectedVersion: await managed.version(),
+        }),
+        { code: "rbac_listener_invalid" },
+      );
+    }
+    assert.equal(
+      existsSync(path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.pem")),
+      false,
+    );
+  } finally {
+    await managed.close();
+  }
+});
+
 test("self-signed certificates are reused while current and replaced when the hostname changes", async () => {
   const managed = managedFixture();
   try {

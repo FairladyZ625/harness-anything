@@ -114,6 +114,26 @@ export function listenerVersion(listener: ManagedRbacListener | undefined, certi
     .digest("hex");
 }
 
+export function validateListenerInput(
+  address: string | undefined,
+  hostname: string | undefined,
+  port: number | undefined,
+): { readonly address: string; readonly hostname: string; readonly port: number } {
+  if (
+    !address ||
+    isIP(address) === 0 ||
+    !hostname ||
+    !Number.isInteger(port) ||
+    port === undefined ||
+    port < 1 ||
+    port > 65_535 ||
+    !URL.canParse(`https://${hostname}:${port}`) ||
+    new URL(`https://${hostname}:${port}`).hostname !== hostname
+  )
+    throw listenerError("A listener takes --hostname (as the certificate names it), --port, and an IP listen address.");
+  return { address, hostname, port };
+}
+
 export function requestedListener(request: ManagedRbacRequest): ManagedRbacListener | undefined {
   const { hostname, port, certificateFile, certificateKeyFile } = request;
   const supplied = [request.listenAddress, hostname, port, certificateFile, certificateKeyFile].every(
@@ -125,15 +145,8 @@ export function requestedListener(request: ManagedRbacRequest): ManagedRbacListe
     return undefined;
   }
   const address = request.listenAddress ?? (request.certificateMode ? "0.0.0.0" : firstReachableAddress());
+  const endpoint = validateListenerInput(address, hostname, port);
   if (
-    !address ||
-    isIP(address) === 0 ||
-    !hostname ||
-    !Number.isInteger(port) ||
-    port! < 1 ||
-    port! > 65_535 ||
-    !URL.canParse(`https://${hostname}:${port}`) ||
-    new URL(`https://${hostname}:${port}`).hostname !== hostname ||
     !certificateFile ||
     !certificateKeyFile ||
     !path.isAbsolute(certificateFile) ||
@@ -143,7 +156,7 @@ export function requestedListener(request: ManagedRbacRequest): ManagedRbacListe
     throw listenerError(
       "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
     );
-  return { address, hostname, port: port!, certificateFile, certificateKeyFile };
+  return { ...endpoint, certificateFile, certificateKeyFile };
 }
 
 function listenerError(message: string): Error {
