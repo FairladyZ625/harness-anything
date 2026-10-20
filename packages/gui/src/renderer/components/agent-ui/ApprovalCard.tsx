@@ -140,7 +140,7 @@ export function ApprovalCard({
               <span
                 data-testid="approval-countdown"
                 data-paused={attention || undefined}
-                className={`shrink-0 font-mono ui-micro tabular-nums ${remainingMs <= WARN_REMAINING_MS ? "text-danger" : "text-text-faint"}`}
+                className={`shrink-0 font-mono ui-micro tabular-nums ${remainingSeconds <= WARN_REMAINING_MS / 1_000 ? "text-danger" : "text-text-faint"}`}
                 title={attention ? "已暂停(悬停/聚焦中)" : "归零自动拒绝"}
               >
                 {attention ? "‖" : ""}
