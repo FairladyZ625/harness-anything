@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
 import { ArrowSquareOut, LinkSimple } from "@phosphor-icons/react";
-import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { useTriadicProjectionQuery } from "../../triadic-data.ts";
 import type { TaskRow } from "../../model/types.ts";
 import { normalizeTaskId } from "../../model/triadic.ts";
@@ -8,6 +6,7 @@ import { t } from "../../i18n/index.tsx";
 import { IN_LABEL, OUT_LABEL } from "./constants.ts";
 import { RelationRow } from "./RelationRow.tsx";
 import { Section } from "../primitives/Section.tsx";
+import { WorkLineageTree } from "../WorkLineageTree.tsx";
 
 export interface TaskDecisionRef {
   readonly decisionId: string;
@@ -32,17 +31,11 @@ export function TaskRelationsTab({
   readonly onNavigateEntity?: (ref: string) => void;
   readonly onOpenSession: (runtimeSessionId: string) => void;
 }) {
-  const runtime = useQuery({
-    queryKey: runtimeQueryKeys.overview(task.projectId, task.taskId),
-    queryFn: () => agentRuntimeClient.overview(task.projectId, task.taskId),
-    staleTime: 4_000,
-  });
   const graph = useTriadicProjectionQuery(task.projectId, { decisionsEnabled: false });
   const relations = graph.relations;
   const taskRef = `task/${task.taskId}`;
   const outEdges = relations.filter((edge) => edge.from === taskRef || normalizeTaskId(edge.from) === task.taskId);
   const inEdges = relations.filter((edge) => edge.to === taskRef || normalizeTaskId(edge.to) === task.taskId);
-  const children = tasks.filter((candidate) => candidate.parentTaskId === task.taskId);
   const parent = tasks.find((candidate) => candidate.taskId === task.parentTaskId);
   const decisionIds = new Set<string>();
   for (const edge of [...outEdges, ...inEdges]) {
@@ -55,29 +48,33 @@ export function TaskRelationsTab({
     <section data-testid="task-relations-tab">
       {graph.isPending && <p role="status">正在加载任务关系…</p>}
       {graph.isError && <p role="alert">任务关系读取失败，请刷新后重试。</p>}
-      <Section title="任务关系" note="父子任务、承重决策、关系边与运行 session 的可跳转索引">
+      <Section title="任务关系" note="血缘与成本树、上级任务、承重决策与关系边的可跳转索引">
         <div className="grid gap-8 xl:grid-cols-2">
-          <RelationGroup title="父子 Task" count={children.length + (task.parentTaskId ? 1 : 0)}>
-            {task.parentTaskId ? (
+          {/* 血缘树(W3-T1)替换旧「父子 Task + Runtime session」两块平铺:子孙任务与
+              Squad/Worker 派工轮在一棵实时树上,节点带状态/耗时/Token,任务节点开详情、
+              派工节点落本页签对应会话(focusedSessionId)。 */}
+          <RelationGroup title={t("views.lineage.sectionTitle")}>
+            <p className="m-0 ui-micro leading-5 text-text-faint">{t("views.lineage.sectionNote")}</p>
+            <WorkLineageTree
+              repoId={task.projectId}
+              rootTask={task}
+              tasks={tasks}
+              live={task.activeExecutionId !== undefined}
+              onOpenTask={onSelect}
+              onOpenSession={onOpenSession}
+              testId="task-relations-lineage"
+            />
+          </RelationGroup>
+          {task.parentTaskId ? (
+            <RelationGroup title={t("views.lineage.parentTask")} count={1}>
               <EntityButton
                 label="parent"
                 id={task.parentTaskId}
                 title={parent?.title ?? "父任务"}
                 onClick={onSelect ? () => onSelect(task.parentTaskId!) : undefined}
               />
-            ) : (
-              <p className="ui-meta text-text-faint">这是根任务，没有 parent。</p>
-            )}
-            {children.map((child) => (
-              <EntityButton
-                key={child.taskId}
-                label="child"
-                id={child.taskId}
-                title={child.title}
-                onClick={onSelect ? () => onSelect(child.taskId) : undefined}
-              />
-            ))}
-          </RelationGroup>
+            </RelationGroup>
+          ) : null}
           <RelationGroup title="Decision" count={relatedDecisions.length}>
             {relatedDecisions.length === 0 ? (
               <p className="ui-meta text-text-faint">没有关联 decision。</p>
@@ -90,41 +87,6 @@ export function TaskRelationsTab({
                   title={decision.title}
                   onClick={onNavigateDecision ? () => onNavigateDecision(decision.decisionId) : undefined}
                 />
-              ))
-            )}
-          </RelationGroup>
-          <RelationGroup title="Runtime session" count={runtime.data?.sessions.length ?? 0}>
-            {runtime.isPending ? (
-              <p className="animate-pulse ui-meta text-text-faint">正在读取 session…</p>
-            ) : runtime.isError ? (
-              <p role="alert" className="ui-meta leading-5 text-danger">
-                Session 读取失败：{runtime.error.message}
-              </p>
-            ) : runtime.data.sessions.length === 0 ? (
-              <p className="ui-meta text-text-faint">没有与该任务绑定的 session。</p>
-            ) : (
-              runtime.data.sessions.map((session) => (
-                <button
-                  key={session.runtimeSessionId}
-                  type="button"
-                  onClick={() => onOpenSession(session.runtimeSessionId)}
-                  className={
-                    "group flex w-full items-center gap-3 border-b border-border/70 py-2.5 text-left " +
-                    "last:border-b-0 hover:text-accent"
-                  }
-                >
-                  <span className="font-mono ui-micro text-text-muted group-hover:text-accent">
-                    {session.runtimeSessionId}
-                  </span>
-                  <span className="min-w-0 truncate ui-meta text-text-faint">
-                    {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
-                    {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
-                      ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
-                      : ""}
-                  </span>
-                  <span className="ml-auto font-mono ui-micro text-text-faint">{session.liveness}</span>
-                  <ArrowSquareOut weight="bold" className="ui-meta text-text-faint group-hover:text-accent" />
-                </button>
               ))
             )}
           </RelationGroup>
@@ -170,7 +132,8 @@ function RelationGroup({
   children,
 }: {
   readonly title: string;
-  readonly count: number;
+  /** 组内条目数(血缘树组自己报实时计数,不给)。 */
+  readonly count?: number;
   readonly children: React.ReactNode;
 }) {
   return (
@@ -178,7 +141,7 @@ function RelationGroup({
       <div className="mb-2 flex items-center gap-2">
         <LinkSimple weight="duotone" className="ui-body text-text-faint" />
         <h3 className="ui-body font-semibold text-text">{title}</h3>
-        <span className="font-mono ui-micro text-text-faint">{count}</span>
+        {count !== undefined && <span className="font-mono ui-micro text-text-faint">{count}</span>}
       </div>
       {children}
     </section>

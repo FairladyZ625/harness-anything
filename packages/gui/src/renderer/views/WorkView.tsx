@@ -5,6 +5,7 @@ import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { AgendaAttentionItem } from "../../api/renderer-dto.ts";
 import { StartWorkDialog } from "../components/StartWorkDialog.tsx";
+import { WorkLineageTree } from "../components/WorkLineageTree.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import {
   attentionByWork,
@@ -16,6 +17,7 @@ import {
   type WorkHealth,
   type WorkTier,
 } from "../model/work-collections.ts";
+import { Button } from "../components/primitives/Button.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag, TONE_COLOR, type StatusTone } from "../components/primitives/StatusTag.tsx";
@@ -67,14 +69,16 @@ const TIER_CARD: Record<WorkTier, { readonly size: SummaryCardSize; readonly tit
  * 自上而下:标题与最后活动、为什么要你看、谁在跑、任务构成条与数字、最近一次活动。
  * 筛选默认「全部」(分档已经表达轻重),筛选与排序作用于三组;搜索同时匹配工作标题与
  * 其下任务标题,命中任务显示在所属卡片底部;排序默认用 daemon 议程读面的注意力分(与
- * 总览同一序)。数据全部来自 App 已挂载的任务切面与议程读面,本页不另发请求。顶部仍是
- * 「开始一项工作」的唯一入口(dec_DC3A1BB9 CH3)。
+ * 总览同一序)。分组与概况数字全部来自 App 已挂载的任务切面与议程读面;卡片可展开
+ * 「血缘与成本」树(dec_C0AF8CBBFFECF71F4F34FB76F9 CH4),展开时按工作子树批量读一次
+ * 派工轮。顶部仍是「开始一项工作」的唯一入口(dec_DC3A1BB9 CH3)。
  */
 export function WorkView({
   tasks,
   repoId,
   ready,
   onOpenTask,
+  onNavigateEntity,
   catalog,
   catalogError,
   daemonState,
@@ -85,6 +89,8 @@ export function WorkView({
   readonly repoId: string;
   readonly ready: boolean;
   readonly onOpenTask: (id: string) => void;
+  /** 实体互链出口(血缘树派工节点 → session/<id> 会话转录);缺省时派工节点不可点。 */
+  readonly onNavigateEntity?: (ref: string) => void;
   /** `repo.gui.catalog.snapshot` 同一条投影(App 已挂载);创建向导的选型取值面。 */
   readonly catalog: CatalogSnapshotSuccess | undefined;
   readonly catalogError: string | null;
@@ -239,11 +245,19 @@ export function WorkView({
                   key={entry.group.task.taskId}
                   entry={entry}
                   size={TIER_CARD[tier].size}
+                  tasks={tasks}
+                  repoId={repoId}
                   titleOf={titleOf}
                   hits={searchHits(entry)}
                   ready={ready}
                   now={now}
                   onOpen={() => onOpenTask(entry.group.task.taskId)}
+                  onOpenTask={onOpenTask}
+                  onOpenSession={
+                    onNavigateEntity === undefined
+                      ? undefined
+                      : (runtimeSessionId) => onNavigateEntity(`session/${runtimeSessionId}`)
+                  }
                 />
               ))}
             </SummaryCardGroup>
@@ -327,14 +341,21 @@ const COUNT_PARTS: readonly {
 function WorkCard({
   entry,
   size,
+  tasks,
+  repoId,
   titleOf,
   hits,
   ready,
   now,
   onOpen,
+  onOpenTask,
+  onOpenSession,
 }: {
   readonly entry: WorkEntry;
   readonly size: SummaryCardSize;
+  /** 全仓任务切面:血缘树从中筛本工作子孙。 */
+  readonly tasks: readonly TaskRow[];
+  readonly repoId: string;
   /** 卡住本工作的任务可能在工作之外,标题从全仓任务切面查。 */
   readonly titleOf: (taskId: string) => string | undefined;
   /** 搜索命中的后代任务,显示在所属卡片底部(样张 v1 的「↳ 命中行」)。 */
@@ -342,7 +363,12 @@ function WorkCard({
   readonly ready: boolean;
   readonly now: number;
   readonly onOpen: () => void;
+  /** 血缘树任务节点激活出口(树含子孙任务,不只工作根)。 */
+  readonly onOpenTask: (taskId: string) => void;
+  /** 派工节点激活出口(session/<id>);缺省时树内派工节点不可点。 */
+  readonly onOpenSession?: (runtimeSessionId: string) => void;
 }) {
+  const [lineageOpen, setLineageOpen] = useState(false);
   const { group } = entry,
     { task, counts } = group,
     done = counts.done ?? 0,
@@ -369,98 +395,127 @@ function WorkCard({
       </span>
     );
   return (
-    <SummaryCard
-      size={size}
-      testId="work-row"
-      attrs={{ "data-work-id": task.taskId }}
-      title={focus}
-      subtitle={size === "large" ? supplement : undefined}
-      aside={size === "tile" ? undefined : ago}
-      tone={reasons[0]?.tone}
-      onOpen={onOpen}
-    >
-      {reasons.length > 0 ? (
-        <div data-testid="work-flags" className="space-y-1.5">
-          {reasons.map((reason) => (
-            <CardReason key={reason.label} tone={reason.tone} label={reason.label}>
-              {reason.text}
-            </CardReason>
-          ))}
-        </div>
-      ) : null}
-      {size === "large" && group.live > 0 ? (
-        <p data-testid="work-running" className="flex min-w-0 items-center gap-2 text-text-muted ui-meta">
-          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-active" />
-          <span className="min-w-0 truncate">
-            {metaLine([
-              t("views.work.running", { count: group.live }),
-              runner === undefined ? undefined : splitTitleFocus(runner.title).focus,
-            ])}
-          </span>
-        </p>
-      ) : null}
-      {size === "tile" ? (
-        <p className="flex min-w-0 items-center gap-1.5 font-mono tabular-nums text-text-faint ui-meta">
-          {ready ? <span data-testid="work-progress">{`${done}/${effective}`}</span> : null}
-          {ready ? <span aria-hidden>·</span> : null}
-          {ago}
-        </p>
-      ) : ready ? (
-        <>
-          <div data-testid="work-progress" className="flex items-center gap-2.5">
-            <SegBar
-              counts={counts as Partial<Record<SnapshotStatus, number>>}
-              // 构成条在卡上加粗(SegBar 默认 h-1,根字号 14px 下是 3.5px):大卡 6px,小卡 4px。
-              className={`min-w-0 flex-1 ${size === "large" ? "h-[6px]!" : "h-[4px]!"}`}
-            />
-            {progress}
+    /* 血缘树长在卡外(整卡点击进详情的契约不变):包装列持有卡与可展开的血缘面板。 */
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <SummaryCard
+        size={size}
+        testId="work-row"
+        attrs={{ "data-work-id": task.taskId }}
+        title={focus}
+        subtitle={size === "large" ? supplement : undefined}
+        aside={size === "tile" ? undefined : ago}
+        tone={reasons[0]?.tone}
+        onOpen={onOpen}
+        action={
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-pressed={lineageOpen}
+            testId={`work-lineage-toggle-${task.taskId}`}
+            onClick={() => setLineageOpen((open) => !open)}
+          >
+            {t(lineageOpen ? "views.lineage.collapse" : "views.lineage.expand")}
+          </Button>
+        }
+      >
+        {reasons.length > 0 ? (
+          <div data-testid="work-flags" className="space-y-1.5">
+            {reasons.map((reason) => (
+              <CardReason key={reason.label} tone={reason.tone} label={reason.label}>
+                {reason.text}
+              </CardReason>
+            ))}
           </div>
-          {size === "large" ? (
-            <p data-testid="work-counts" className="flex flex-wrap gap-x-3 gap-y-0.5 text-text-muted ui-meta">
-              {COUNT_PARTS.map(({ key, tone, statuses }) => {
-                const count = statuses.reduce((sum, status) => sum + (counts[status] ?? 0), 0);
-                return count === 0 ? null : (
-                  <span key={key}>
-                    {t(key)}{" "}
-                    <b className="font-mono font-semibold tabular-nums" style={{ color: TONE_COLOR[tone] }}>
-                      {count}
-                    </b>
-                  </span>
-                );
-              })}
-            </p>
-          ) : (
-            <p className="truncate text-text-faint ui-meta">
-              {group.live > 0
-                ? t("views.work.running", { count: group.live })
-                : metaLine([
-                    (counts.planned ?? 0) > 0 ? `${t("views.work.counts.planned")} ${counts.planned ?? 0}` : undefined,
-                    t("views.work.idle"),
-                  ])}
-            </p>
-          )}
-        </>
-      ) : null}
-      {size === "large" && recent !== undefined ? (
-        <p data-testid="work-recent" className="truncate text-text-faint ui-meta">
-          {t("views.work.recent", { title: splitTitleFocus(recent.title).focus })}
-        </p>
-      ) : null}
-      {hits.length > 0 ? (
-        <div className="space-y-1 border-t border-border pt-2">
-          {hits.map((hit) => (
-            <span key={hit.taskId} data-testid="work-hit" className="flex min-w-0 items-center gap-1.5">
-              <span aria-hidden className="text-text-faint">
-                ↳
-              </span>
-              <span className="min-w-0 truncate ui-meta text-text" title={hit.title}>
-                <TitleText title={hit.title} />
-              </span>
-              <StatusTag status={(hit.canonicalStatus ?? "unknown") as SnapshotStatus} />
+        ) : null}
+        {size === "large" && group.live > 0 ? (
+          <p data-testid="work-running" className="flex min-w-0 items-center gap-2 text-text-muted ui-meta">
+            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-active" />
+            <span className="min-w-0 truncate">
+              {metaLine([
+                t("views.work.running", { count: group.live }),
+                runner === undefined ? undefined : splitTitleFocus(runner.title).focus,
+              ])}
             </span>
-          ))}
+          </p>
+        ) : null}
+        {size === "tile" ? (
+          <p className="flex min-w-0 items-center gap-1.5 font-mono tabular-nums text-text-faint ui-meta">
+            {ready ? <span data-testid="work-progress">{`${done}/${effective}`}</span> : null}
+            {ready ? <span aria-hidden>·</span> : null}
+            {ago}
+          </p>
+        ) : ready ? (
+          <>
+            <div data-testid="work-progress" className="flex items-center gap-2.5">
+              <SegBar
+                counts={counts as Partial<Record<SnapshotStatus, number>>}
+                // 构成条在卡上加粗(SegBar 默认 h-1,根字号 14px 下是 3.5px):大卡 6px,小卡 4px。
+                className={`min-w-0 flex-1 ${size === "large" ? "h-[6px]!" : "h-[4px]!"}`}
+              />
+              {progress}
+            </div>
+            {size === "large" ? (
+              <p data-testid="work-counts" className="flex flex-wrap gap-x-3 gap-y-0.5 text-text-muted ui-meta">
+                {COUNT_PARTS.map(({ key, tone, statuses }) => {
+                  const count = statuses.reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+                  return count === 0 ? null : (
+                    <span key={key}>
+                      {t(key)}{" "}
+                      <b className="font-mono font-semibold tabular-nums" style={{ color: TONE_COLOR[tone] }}>
+                        {count}
+                      </b>
+                    </span>
+                  );
+                })}
+              </p>
+            ) : (
+              <p className="truncate text-text-faint ui-meta">
+                {group.live > 0
+                  ? t("views.work.running", { count: group.live })
+                  : metaLine([
+                      (counts.planned ?? 0) > 0
+                        ? `${t("views.work.counts.planned")} ${counts.planned ?? 0}`
+                        : undefined,
+                      t("views.work.idle"),
+                    ])}
+              </p>
+            )}
+          </>
+        ) : null}
+        {size === "large" && recent !== undefined ? (
+          <p data-testid="work-recent" className="truncate text-text-faint ui-meta">
+            {t("views.work.recent", { title: splitTitleFocus(recent.title).focus })}
+          </p>
+        ) : null}
+        {hits.length > 0 ? (
+          <div className="space-y-1 border-t border-border pt-2">
+            {hits.map((hit) => (
+              <span key={hit.taskId} data-testid="work-hit" className="flex min-w-0 items-center gap-1.5">
+                <span aria-hidden className="text-text-faint">
+                  ↳
+                </span>
+                <span className="min-w-0 truncate ui-meta text-text" title={hit.title}>
+                  <TitleText title={hit.title} />
+                </span>
+                <StatusTag status={(hit.canonicalStatus ?? "unknown") as SnapshotStatus} />
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </SummaryCard>
+      {lineageOpen ? (
+        <div data-testid={`work-lineage-${task.taskId}`} className="glass flex min-w-0 flex-col gap-1.5 rounded-md p-2">
+          <WorkLineageTree
+            repoId={repoId}
+            rootTask={task}
+            tasks={tasks}
+            live={group.live > 0}
+            onOpenTask={onOpenTask}
+            onOpenSession={onOpenSession}
+            testId={`work-lineage-tree-${task.taskId}`}
+          />
         </div>
       ) : null}
-    </SummaryCard>
+    </div>
   );
 }

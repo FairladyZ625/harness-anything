@@ -193,25 +193,27 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  // 52 explicit actions plus the complete declaration read are the 53 editing-facing facets:
+  // 53 explicit actions plus the complete declaration read are the 54 editing-facing facets:
   // task adjudication (owner triage/verdict) and the owner's review consent joined as named
   // facets alongside complete; retireRelation answers an awaits ask in place
   // (dec_DF67F23066BAFE444190A191B5, task_ec805e49); Decision review responds, overrides,
   // dispatches, and reads the report through its center document (dec_A64B14D6B7DDCF6A459CCC7A00);
   // agent retire/delete and squad delete are named ingresses onto the CLI entity actions
-  // (task_3c098ffe: GUI entity CRUD completion).
+  // (task_3c098ffe: GUI entity CRUD completion); steerAgentRuntime restores the steer facet for
+  // W3-T1 AgentSteering's mid-run instruction write
+  // (dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4 — supersedes the 2026-10-14 no-consumer removal).
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
     "readVerticalDeclaration",
   ];
   // S8 CH2: assignTask and unassignTask.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: one dispatcher for export/claim/revoke.
-  assert.equal(editingFacets.length, 53);
+  assert.equal(editingFacets.length, 54);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets.
-  // The same single handoff dispatcher accounts for the approved 52 actions / 53 editing facets.
-  assert.equal(daemonGuiActionMethods.length, 52);
+  // The same single handoff dispatcher accounts for the approved 53 actions / 54 editing facets.
+  assert.equal(daemonGuiActionMethods.length, 53);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
     true,

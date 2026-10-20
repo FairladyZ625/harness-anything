@@ -340,7 +340,12 @@ export function AgentPlan({
 
   const list = (
     <div data-testid={testId} data-plan-phase={phase} className="flex min-w-0 flex-col gap-1.5">
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setDragging(null)}
+      >
         <ol className="flex min-w-0 flex-col" style={{ gap: 0 }}>
           {steps.map((step) => (
             <Fragment key={step.id}>

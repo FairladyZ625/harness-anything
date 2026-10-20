@@ -25,7 +25,7 @@ import { SettingsView } from "./views/SettingsView.tsx";
 import { IdentityAccessView } from "./views/IdentityAccessView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
-import { TaskDetailView } from "./views/TaskDetailView.tsx";
+import { taskDetailEntry } from "./views/task-detail-entry.tsx";
 import { CollaborationView } from "./views/CollaborationView.tsx";
 import { useFleetOverview } from "./collaboration-data.ts";
 import { collaborationSummaryOf } from "./model/collaboration.ts";
@@ -35,7 +35,7 @@ import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
-import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
+import { workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
@@ -431,55 +431,40 @@ function AppShell() {
     updateLocation({ ...workTargetOf(selectedWorkRootId), selectedId: null, previewId: null });
   }, [selectedWorkRootId, view, location.scopeRootTaskId, updateLocation]);
 
+  // Task 详情三处落点(列表选中、工作页根任务、预览反向)共用同一份布线;组合细节
+  // 在 views/task-detail-entry,App 只声明依赖。
   const renderTaskDetail = (
     task: TaskRow,
     framing: { readonly onBack: () => void; readonly fromViewLabel: string; readonly embedded?: boolean },
-  ) => {
-    const work =
-      framing.embedded || task.workId === undefined || task.workId === task.taskId
-        ? null
-        : { taskId: task.workId, title: task.workTitle ?? task.workId };
-    return (
-      <TaskDetailView
-        repoId={projectId}
-        connectionId={activeRepo?.connectionId ?? null}
-        task={task}
-        tasks={tasks}
-        relations={edgeRelations}
-        decisions={chromeDecisions}
-        onBack={framing.onBack}
-        onSelect={openTaskDetail}
-        projectName={project.name}
-        fromViewLabel={framing.fromViewLabel}
-        work={work}
-        onOpenWork={openWork}
-        onNavigateDecision={navigateToDecision}
-        onNavigateEntity={navigateToEntity}
-        mutationFeedback={taskActions.feedback.get(task.taskId)}
-        onProgress={(input) => taskActions.appendProgress(task, input)}
-        onSubmit={() => taskActions.submitTask(task)}
-        onComplete={() => taskActions.completeTask(task)}
-        onAdjudicate={(decision, reason, reviewId) => adjudicateTask(task, decision, reason, reviewId)}
-        onConsentReview={(reviewId) => taskActions.consentReview(task, reviewId)}
-        onAttest={taskActions.attestGate}
-        onSetPin={handleSetPin}
-        onOpenTerminal={(target) => {
-          setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: target.taskId, title: target.title });
-          goto("terminal");
-        }}
-        onFocusGraph={focusEntityInGraph}
-        initialTab={!framing.embedded && focusedEntityRef === taskReviewRef(task.taskId) ? "closeout" : undefined}
-        initialRecordFocus={
-          !framing.embedded && recordFocus !== null && recordFocus.taskId === task.taskId
-            ? recordFocus.recordRef
-            : undefined
-        }
-        initialDocFocus={
-          !framing.embedded && docFocus !== null && docFocus.taskId === task.taskId ? docFocus.docPath : undefined
-        }
-      />
-    );
-  };
+  ) =>
+    taskDetailEntry(task, framing, {
+      projectId,
+      connectionId: activeRepo?.connectionId ?? null,
+      projectName: project.name,
+      tasks,
+      relations: edgeRelations,
+      decisions: chromeDecisions,
+      onSelect: openTaskDetail,
+      onOpenWork: openWork,
+      onNavigateDecision: navigateToDecision,
+      onNavigateEntity: navigateToEntity,
+      onFocusGraph: focusEntityInGraph,
+      getMutationFeedback: feedbackOf,
+      onProgress: (target, input) => taskActions.appendProgress(target, input),
+      onSubmit: (target) => taskActions.submitTask(target),
+      onComplete: (target) => taskActions.completeTask(target),
+      onAdjudicate: adjudicateTask,
+      onConsentReview: (target, reviewId) => taskActions.consentReview(target, reviewId),
+      onAttest: taskActions.attestGate,
+      onSetPin: handleSetPin,
+      onOpenTerminal: (target) => {
+        setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: target.taskId, title: target.title });
+        goto("terminal");
+      },
+      focusedEntityRef,
+      recordFocus,
+      docFocus,
+    });
 
   // ⌘K 命令面板(REQ-GUI-01)与关系图左栏共用统一实体索引(search-index-data):
   // 事实条目在 ⌘K 打开或左栏有搜索输入时才读,声明实体一并进搜索范围。
@@ -670,6 +655,7 @@ function AppShell() {
                   repoId={projectId}
                   ready={tasksQuery.data?.status === "ready"}
                   onOpenTask={openTaskDetail}
+                  onNavigateEntity={navigateToEntity}
                   catalog={catalogQuery.data}
                   catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
                   daemonState={runtimeHealth.daemon.state}

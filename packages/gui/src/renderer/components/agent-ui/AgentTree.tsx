@@ -21,8 +21,8 @@ import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
  * 纯展示组件,无计时器;实时状态由调用方响应式数据流驱动。
  */
 
-/** Agent 运行态五级词表:与 Orca 注意力模型同构;词面经 ACTIVITY_KEY 进 i18n,非文字表面用 ACTIVITY_COLOR。 */
-export type AgentActivity = "running" | "awaiting" | "done" | "failed" | "idle";
+/** Agent 运行态词表:与 Orca 注意力模型同构(终态非成功单列 cancelled,不冒充 done/failed);词面经 ACTIVITY_KEY 进 i18n,非文字表面用 ACTIVITY_COLOR。 */
+export type AgentActivity = "running" | "awaiting" | "done" | "failed" | "cancelled" | "idle";
 
 /**
  * 状态的非文字表面配色(泳道块描边/运行点等):awaiting 用 Orca 独立橙(agent-question,
@@ -33,6 +33,7 @@ export const ACTIVITY_COLOR: Record<AgentActivity, string> = {
   awaiting: "var(--color-agent-question)",
   done: "var(--color-status-done)",
   failed: "var(--color-danger)",
+  cancelled: "var(--color-status-cancelled)",
   idle: "var(--color-text-muted)",
 };
 
@@ -49,15 +50,16 @@ export interface AgentTreeNode {
   readonly children?: readonly AgentTreeNode[];
 }
 
-/** 终态:done/failed 之后不再变化,子树全终态即可整枝折叠。 */
-const TERMINAL_ACTIVITY: ReadonlySet<AgentActivity> = new Set(["done", "failed"]);
+/** 终态:done/failed/cancelled 之后不再变化,子树全终态即可整枝折叠。 */
+const TERMINAL_ACTIVITY: ReadonlySet<AgentActivity> = new Set(["done", "failed", "cancelled"]);
 
-/** 状态词 → StatusTag tone(CEO 映射:running→active、awaiting→wait、done/failed/idle 同名族)。 */
+/** 状态词 → StatusTag tone(CEO 映射:running→active、awaiting→wait、cancelled→cancel,done/failed/idle 同名族)。 */
 export const ACTIVITY_TONE: Record<AgentActivity, StatusTone> = {
   running: "active",
   awaiting: "wait",
   done: "done",
   failed: "bad",
+  cancelled: "cancel",
   idle: "neutral",
 };
 
@@ -67,6 +69,7 @@ export const ACTIVITY_KEY: Record<AgentActivity, MessageKey> = {
   awaiting: "agentUi.activity.awaiting",
   done: "agentUi.activity.done",
   failed: "agentUi.activity.failed",
+  cancelled: "agentUi.activity.cancelled",
   idle: "agentUi.activity.idle",
 };
 
@@ -99,11 +102,17 @@ export function rollupSubtree(node: AgentTreeNode): AgentRollup {
 export function AgentTree({
   root,
   defaultCollapsedIds,
+  onNodeActivate,
   testId,
 }: {
   readonly root: AgentTreeNode;
   /** 初始折叠的节点 id;此后由组件内部管理。 */
   readonly defaultCollapsedIds?: readonly string[];
+  /**
+   * 节点激活(点击行 / Enter):打开对应详情或会话转录的出口。id 是调用方域,激活语义
+   * (task→详情、dispatch→会话)由调用方解读;折叠按钮与键盘漫游不受影响。
+   */
+  readonly onNodeActivate?: (node: AgentTreeNode) => void;
   readonly testId?: string;
 }) {
   const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set(defaultCollapsedIds ?? []));
@@ -204,6 +213,17 @@ export function AgentTree({
           focusRow(rows.length - 1);
           break;
         case "Enter":
+          // 激活出口存在时 Enter 是激活(与点击同义);没有出口时保留展开/折叠语义。
+          if (onNodeActivate !== undefined) {
+            if (current !== null) {
+              event.preventDefault();
+              onNodeActivate(current);
+            }
+          } else if (current !== null && (current.children?.length ?? 0) > 0) {
+            event.preventDefault();
+            toggle(current.id);
+          }
+          break;
         case " ":
           if (current !== null && (current.children?.length ?? 0) > 0) {
             event.preventDefault();
@@ -214,7 +234,7 @@ export function AgentTree({
           break;
       }
     },
-    [activeId, collapsedIds, root, toggle],
+    [activeId, collapsedIds, onNodeActivate, root, toggle],
   );
 
   const renderRow = (node: AgentTreeNode, level: number) => {
@@ -231,7 +251,18 @@ export function AgentTree({
           tabIndex={node.id === activeId ? 0 : -1}
           data-tree-id={node.id}
           data-testid={rowId}
-          className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 ui-meta"
+          onClick={
+            onNodeActivate === undefined
+              ? undefined
+              : (event) => {
+                  // 折叠按钮自带 onClick 并冒泡到行;行激活只认行自身的点击。
+                  if ((event.target as HTMLElement).closest("button") !== null) return;
+                  onNodeActivate(node);
+                }
+          }
+          className={`flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 ui-meta ${
+            onNodeActivate === undefined ? "" : "cursor-pointer hover:bg-surface-raised"
+          }`}
           onFocus={() => setActiveId(node.id)}
         >
           {hasChildren ? (
@@ -261,7 +292,7 @@ export function AgentTree({
           <span className="ml-auto flex shrink-0 items-center gap-2 font-mono tabular-nums ui-micro text-text-muted">
             {node.ownTokens !== undefined && (
               <span title={t("agentUi.tree.ownTokensTip", { tokens: node.ownTokens })}>
-                {compactTokens(node.ownTokens)} tok
+                {compactTokens(node.ownTokens)} {t("agentUi.tree.tokenUnit")}
               </span>
             )}
             {node.ownDurationMs !== undefined && (
@@ -273,7 +304,7 @@ export function AgentTree({
                 className="rounded-xs border border-border px-1 py-px"
                 style={{ color: rollup.finished ? "var(--color-text-faint)" : "var(--color-text)" }}
               >
-                Σ {compactTokens(rollup.tokens)} tok · {formatDuration(rollup.durationMs)}
+                Σ {compactTokens(rollup.tokens)} {t("agentUi.tree.tokenUnit")} · {formatDuration(rollup.durationMs)}
                 {collapsed ? ` · ${t("agentUi.tree.nodeCount", { count: rollup.descendants })}` : ""}
               </span>
             )}

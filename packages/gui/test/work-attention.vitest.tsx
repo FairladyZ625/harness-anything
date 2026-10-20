@@ -303,10 +303,13 @@ describe("工作页:卡上的概况与注意力排序", () => {
       "work-counts",
       "work-recent",
     ]);
-    // 标题止于冒号前,冒号后的补充在下一行弱色;整张卡只有标题这一个可点目标。
+    // 标题止于冒号前,冒号后的补充在下一行弱色;可点目标只有标题与 action 槽的血缘开关
+    // (SummaryCard 契约的唯一例外,W3-T1 血缘与成本树的展开入口)。
     expect(card.querySelector("header button")!.textContent).toBe("PLT-Honest");
     expect(card.querySelector("header p")!.textContent).toBe("系统说的每句话必须为真");
-    expect(card.querySelectorAll("button")).toHaveLength(1);
+    const cardButtons = [...card.querySelectorAll("button")] as HTMLButtonElement[];
+    expect(cardButtons).toHaveLength(2);
+    expect(cardButtons[1]!.dataset.testid).toBe("work-lineage-toggle-w-two");
     expect([...card.querySelectorAll('[data-testid="work-flags"] > p')].map((line) => line.textContent)).toEqual([
       "等你答复验收两行：看截图（另 1 件）",
       "有阻塞被「S7 授权执行」卡住",

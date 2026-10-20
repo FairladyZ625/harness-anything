@@ -18,7 +18,7 @@ import { TaskAssignmentPanel } from "../components/taskDetail/TaskAssignmentPane
 import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
-import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
+import { TaskExecutionPanel } from "../components/taskDetail/TaskExecutionPanel.tsx";
 import { PageRegions, RegionDragHandle } from "../components/primitives/page-regions.tsx";
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
@@ -403,14 +403,13 @@ export function TaskDetailView({
         </div>
         {/* 一行目标(可展开):收起时一行截断,点开看全文;无 Brief 时不渲染。 */}
         {goal !== null && <TaskGoalLine goal={goal} />}
-        {/* 生命周期进度与关键数字与页签同行:阶段投影步进条 + 子任务分段(有子任务才有) +
-            数字随行,页签靠右、下划线即页头底边。 */}
+        {/* 子任务分段与关键数字与页签同行;静态阶段步进条已删(W3-T1):执行阶段的实时
+            步骤列表(带计时与重试)在派工页签的执行与干预面板,当前状态词仍在标题行 StatusTag。 */}
         <div className="flex min-h-0 flex-wrap items-end gap-x-4 gap-y-1.5 px-3 pb-0.5 lg:px-4">
-          <div data-testid="task-detail-phase" className="min-w-0 max-w-[520px] flex-1 self-center">
-            <PhaseSteps phase={task.phase} />
-          </div>
           {childTotal > 0 ? (
-            <SegBar counts={childCounts} className="h-[5px] min-w-[70px] max-w-[190px] flex-1 self-center" />
+            <div data-testid="task-detail-children" className="min-w-[70px] max-w-[190px] flex-1 self-center">
+              <SegBar counts={childCounts} className="h-[5px]" />
+            </div>
           ) : null}
           <span className="whitespace-nowrap pb-[7px] font-mono tabular-nums text-text-muted ui-meta">
             {t("views.taskDetailView.keyNumbers", {
@@ -497,6 +496,10 @@ export function TaskDetailView({
                       />
                     ) : activeTab === "dispatch" ? (
                       <>
+                        {/* 执行与干预(W3-T1):轮次步骤实时计时、失败步重试与运行中插话。 */}
+                        {!external && (
+                          <TaskExecutionPanel key={`execution:${task.projectId}:${task.taskId}`} task={task} />
+                        )}
                         {!external && (
                           <TaskAssignmentPanel
                             key={`${task.projectId}:${task.taskId}`}

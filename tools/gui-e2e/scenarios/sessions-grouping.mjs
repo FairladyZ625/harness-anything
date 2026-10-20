@@ -63,7 +63,13 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
     active: `squad_${identity("squad-run-active").slice(0, 24)}`,
   },
   roundsFixture = [
-    { key: "round-4", status: "failed", agent: "GLM-5.3", startedAt: "2026-10-02T13:30:00.000Z" },
+    {
+      key: "round-4",
+      status: "failed",
+      agent: "GLM-5.3",
+      startedAt: "2026-10-02T13:30:00.000Z",
+      tokens: 160_000,
+    },
     {
       key: "round-3",
       status: "succeeded",
@@ -71,6 +77,7 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
       startedAt: "2026-10-02T13:00:00.000Z",
       squadId: "squad-e2e",
       squadRunKey: "converged",
+      tokens: 90_000,
     },
     {
       key: "round-2",
@@ -78,6 +85,7 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
       agent: "GLM-5.3",
       startedAt: "2026-10-02T12:30:00.000Z",
       squadRunKey: "failed",
+      tokens: 40_000,
     },
     {
       key: "round-1",
@@ -85,9 +93,12 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
       agent: "GLM-5.3",
       startedAt: "2026-10-02T12:00:00.000Z",
       squadRunKey: "active",
+      tokens: 120_000,
     },
   ],
-  singleFixture = [{ key: "single-1", status: "succeeded", agent: "Astra", startedAt: "2026-10-02T11:00:00.000Z" }],
+  singleFixture = [
+    { key: "single-1", status: "succeeded", agent: "Astra", startedAt: "2026-10-02T11:00:00.000Z", tokens: 70_000 },
+  ],
   /** 总览 AgentLanes 泳道夹具(task_097108d2):近 30 分钟收口的一轮——层次夹具的轮次都
    *  落在 2026-10-02(总览泳道 6h 窗口外),没有它泳道在 Electron 里只能验证空窗。 */
   lanesFixture = [
@@ -376,6 +387,20 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
               exitCode: row.status === "succeeded" ? 0 : 1,
               resultRef: `artifact:runtime-result/sha256/${resultClaim.sha256}`,
               result: resultClaim,
+              // 派工行成本真相:生产 outcome 事件带 runtimeMetrics;W3-T1 血缘树
+              // 直接读 metrics.totalTokens 做子树 Rollup,不另造前端夹具。
+              ...(row.tokens === undefined
+                ? {}
+                : {
+                    runtimeMetrics: {
+                      inputTokens: Math.round(row.tokens * 0.4),
+                      cacheReadTokens: 0,
+                      outputTokens: row.tokens - Math.round(row.tokens * 0.4),
+                      totalTokens: row.tokens,
+                      toolCallCount: 1,
+                      usageUnavailable: false,
+                    },
+                  }),
             },
             [{ ...resultClaim, body }],
           );

@@ -315,6 +315,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.schedule.disable", { scheduleId: "schedule-a", idempotencyKey: "schedule-disable-once" }],
     ["repo.schedule.runNow", { scheduleId: "schedule-a", idempotencyKey: "schedule-run-once" }],
     ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
+    ["repo.agentRuntime.steer", { runtimeSessionId: "runtime-session-a", prompt: "Adjust course." }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", backend: "direct-pty", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
     ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
     ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],
@@ -352,12 +353,14 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci", result: "pass", executor: { kind: "agent", id: "runtime" } } }).ok, false);
 });
 
-test("runtime steer is contracted outside the GUI preload surface and rejects invalid selectors", () => {
+test("runtime steer is a GUI action with a real consumer (W3-T1 AgentSteering) and rejects invalid selectors", () => {
   const call = (payload: Record<string, unknown>) =>
     parseDaemonRpcParams("repo.agentRuntime.steer", { repo: { repoId: "alpha" }, payload });
+  // dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4:AgentSteering 的追加指令写入必须走统一 runtime
+  // 客户端。2026-10-14 把 steer 移出 GUI 面时还没有消费者;W3-T1 接线后恢复该 facet。
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.steer"),
-    false,
+    true,
   );
   assert.equal(call({ dispatchId: "dispatch-a", prompt: "Change direction." }).ok, true);
   assert.equal(call({ runtimeSessionId: "runtime-a", prompt: "Change direction." }).ok, true);
