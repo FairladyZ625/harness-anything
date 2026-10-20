@@ -53,6 +53,27 @@ test("task pr carries an optional --body-file alongside the required title", () 
   );
 });
 
+test("task release accepts owner force-takeover only with an audit reason", () => {
+  const reason = "The dispatched worker session ended.";
+  const release = parseThinCommand(["task", "release", "task-1", "--force-takeover", "--reason", reason]),
+    missingReason = parseThinCommand(["task", "release", "task-1", "--force-takeover"]);
+  assert.equal(release.ok, true, JSON.stringify(release));
+  assert.equal(missingReason.ok, false, "forced release must state an auditable reason");
+  if (release.ok)
+    assert.deepEqual(release.command.action, {
+      kind: "task-release",
+      taskId: "task-1",
+      reason,
+      forceTakeover: true,
+    });
+
+  const rpcRelease = parseDaemonRpcParams("repo.task.run", {
+    repo: { repoId: "repo" },
+    payload: { action: { kind: "task-release", taskId: "task-1", reason, forceTakeover: true } },
+  });
+  assert.equal(rpcRelease.ok, true, JSON.stringify(rpcRelease));
+});
+
 test("settings CLI and RPC accept role deltas and reject the retired root reviewer input", () => {
   const roles = { defaultWorker: "dev-worker", defaultReviewer: null };
   const command = parseThinCommand(["settings", "update", "--roles", JSON.stringify(roles)]);

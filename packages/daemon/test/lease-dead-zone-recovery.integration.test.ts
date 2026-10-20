@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding, WriteReceipt } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -86,6 +87,102 @@ test("an expired current-round lease is recoverable by any repo-write actor thro
       { kind: "task-submit", taskId: "task_dead_zone", executionId: "exe_dead_zone" },
       peerBinding,
     )) as WriteReceipt;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the task owner can force-release an abandoned lease, rejoin its execution, and submit the closeout", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-force-takeover-"));
+  let cell: Cell | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("lease-force-takeover"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "lease-force-takeover",
+    });
+    const taskId = "task_force_takeover",
+      executionId = "exe_force_takeover",
+      packagePath = await createReadyTask(cell, rootDir, taskId, "Force takeover after dispatch death");
+    const workerBinding = withPolicyGroup(
+      {
+        actor: {
+          principal: holderBinding.actor.principal,
+          executor: { kind: "agent" as const, id: "runtime-session:worker-429" },
+        },
+        source: "local" as const,
+      },
+      "admin",
+    );
+    const started = (await cell.run(
+      { kind: "task-start", taskId, executionId, ttlMs: 3_600_000 },
+      workerBinding,
+    )) as WriteReceipt;
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+
+    // The agent session ended after a provider 429; no heartbeat or release reached the ledger.
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "closeout.md"),
+      "## Summary\nThe delivery was ready before the worker session ended.\n" +
+        "## Verification\nThe task owner recovered the existing execution.\n" +
+        "## Residual Risk\nNo provider retry was attempted.\n" +
+        "## Same Mechanism Elsewhere\nRuntime-session leases use the same task-start fencing sequence.\n",
+    );
+    const foreignTakeover = (await cell.run(
+      {
+        kind: "task-release",
+        taskId,
+        forceTakeover: true,
+        reason: "Attempt a takeover from a different principal.",
+      },
+      peerBinding,
+    )) as WriteReceipt;
+    assert.equal(foreignTakeover.outcome, "op_rejected", JSON.stringify(foreignTakeover));
+    assert.equal(foreignTakeover.code, "lease_conflict");
+
+    const ownerWithoutReason = (await cell.run(
+      { kind: "task-release", taskId, forceTakeover: true },
+      holderBinding,
+    )) as WriteReceipt;
+    assert.equal(ownerWithoutReason.outcome, "op_rejected", JSON.stringify(ownerWithoutReason));
+    assert.equal(ownerWithoutReason.code, "invalid_command");
+
+    const released = (await cell.run(
+      {
+        kind: "task-release",
+        taskId,
+        forceTakeover: true,
+        reason: "Worker session ended after provider HTTP 429; preserve and submit the existing closeout.",
+      },
+      holderBinding,
+    )) as WriteReceipt;
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    const releaseEvent = makeTaskEventReader({
+      repoId: workspaceId("lease-force-takeover"),
+      rootDir: canonicalRoot(rootDir),
+    }).readEvent(released.opId);
+    assert.equal(releaseEvent?.type, "lease_released");
+    if (releaseEvent?.type === "lease_released")
+      assert.equal(
+        releaseEvent.payload.mutation.reason,
+        "Owner forced takeover: Worker session ended after provider HTTP 429; preserve and submit the existing closeout.",
+      );
+
+    const rejoined = (await cell.run({ kind: "task-start", taskId, executionId }, holderBinding)) as WriteReceipt;
+    assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+    assert.equal(rejoined.executionId, executionId, "takeover must preserve the unsubmitted execution");
+    const staleWrite = (await cell.run(
+      { kind: "task-progress-append", taskId, text: "stale worker write" },
+      workerBinding,
+    )) as WriteReceipt;
+    assert.equal(staleWrite.outcome, "op_rejected", JSON.stringify(staleWrite));
+
+    const synced = (await cell.run({ kind: "doc-submit", taskId }, holderBinding)) as WriteReceipt;
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+    const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, holderBinding)) as WriteReceipt;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell?.close();
@@ -218,8 +315,8 @@ test("an archived dead-zone task reopens and rejoins its execution through ha ta
   }
 });
 
-async function createReadyTask(cell: Cell, rootDir: string, taskId: string, title: string): Promise<void> {
-  await createRealizedTaskPlanFixture(
+async function createReadyTask(cell: Cell, rootDir: string, taskId: string, title: string): Promise<string> {
+  const created = await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
       const created = await cell.run({ kind: "task-create", taskId, title }, holderBinding);
@@ -229,6 +326,7 @@ async function createReadyTask(cell: Cell, rootDir: string, taskId: string, titl
     (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, holderBinding),
     title,
   );
+  return String(created.packagePath);
 }
 
 function initRepo(rootDir: string): void {
