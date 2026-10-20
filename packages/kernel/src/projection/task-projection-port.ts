@@ -89,12 +89,23 @@ export interface RuntimeDispatchPage {
   readonly nextCursor: { readonly startedAt: string; readonly dispatchId: string } | null;
   readonly done: boolean;
 }
+export interface RuntimeDispatchMemberSession {
+  readonly runtimeSessionId: string;
+  /** Distinct task ids from the session's bindings (the projection's binding table). */
+  readonly taskIds: readonly string[];
+  /** The member's latest dispatch on this session when it is a decision review; otherwise null. */
+  readonly latestDecisionId: string | null;
+}
 export interface RuntimeDispatchMemberRead {
   /** The member's newest dispatch events first; bounded by the caller's limit. */
   readonly rows: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly truncated: boolean;
-  /** Full-history distinct counts for the member, independent of the page size. */
-  readonly totals: { readonly groups: number; readonly sessions: number };
+  /**
+   * Every session the member ever dispatched, with the ingredients the shared task-group
+   * normalization needs. Totals are derived from this by the caller so the full-history count and
+   * the window groups share one definition.
+   */
+  readonly sessions: readonly RuntimeDispatchMemberSession[];
 }
 
 export interface TaskProjection {

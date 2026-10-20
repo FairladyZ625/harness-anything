@@ -508,7 +508,14 @@ test("member dispatch reads page an executor's newest rows with window groups an
       }) as unknown as Dispatch;
   const older = dispatchEvent("dispatch_member_old", "runtime-terra-1", "task-a", "2026-08-23T00:00:00.000Z"),
     newer = dispatchEvent("dispatch_member_new", "runtime-terra-2", "task-b", "2026-08-24T00:00:00.000Z"),
-    memberPage = { rows: [newer, older], truncated: true, totals: { groups: 7, sessions: 1326 } };
+    memberPage = {
+      rows: [newer, older],
+      truncated: true,
+      sessions: [
+        { runtimeSessionId: "runtime-terra-1", taskIds: ["task-a"], latestDecisionId: null },
+        { runtimeSessionId: "runtime-terra-2", taskIds: ["task-b"], latestDecisionId: null },
+      ],
+    };
   const projection = {
     read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
     readDocument: () => ({ document: null }),
@@ -540,7 +547,7 @@ test("member dispatch reads page an executor's newest rows with window groups an
       readonly limit: number;
     }) => {
       assert.equal(query.agentId ?? query.squadId, "terra");
-      return query.limit === 1 ? { rows: [newer], truncated: true, totals: memberPage.totals } : memberPage;
+      return query.limit === 1 ? { rows: [newer], truncated: true, sessions: memberPage.sessions } : memberPage;
     },
   } as unknown as TaskProjection;
   const page = readTaskDispatches({ projection, agentId: "terra", limit: 2 });
@@ -551,7 +558,7 @@ test("member dispatch reads page an executor's newest rows with window groups an
   assert.equal(page.dispatches[0]?.agentId, "terra");
   assert.equal(page.dispatches[0]?.taskTitle ?? null, null);
   assert.equal(page.truncated, true);
-  assert.deepEqual(page.totals, { groups: 7, sessions: 1326 });
+  assert.deepEqual(page.totals, { groups: 2, sessions: 2 });
   assert.deepEqual(
     page.groups.map((group) => [group.key, group.label, group.sessionCount]),
     [

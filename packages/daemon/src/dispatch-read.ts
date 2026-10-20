@@ -8,7 +8,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
-import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
+import { agentRuntimeSessionGroupTotals, buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
 import {
   readDispatchStreamSummary,
   type RuntimeMetrics,
@@ -142,8 +142,8 @@ export function readTaskDispatches(
 /** The member-scoped page of `repo.task.dispatches`: an executor's newest dispatch rows, one
  * read bounded by the caller's limit — the first screen never pays for the member's total
  * history. Rows carry the same canonical construction as every other dispatch listing, the
- * groups describe exactly the returned window, and `totals` are full-history distinct counts
- * so a paged list can still say how much is below the fold. */
+ * groups describe exactly the returned window, and `totals` count the member's full history with
+ * the same task-group normalization as the window (bindings, decision review, unattributed). */
 function readMemberTaskDispatches(input: {
   readonly projection: TaskProjectionQueries;
   readonly agentId?: string;
@@ -206,7 +206,7 @@ function readMemberTaskDispatches(input: {
     ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
     groups: groups.groups,
     taskLabels: [...taskLabels.entries()].map(([taskId, title]) => ({ taskId, title })),
-    totals: member.totals,
+    totals: agentRuntimeSessionGroupTotals(member.sessions),
     truncated: member.truncated,
   };
 }
