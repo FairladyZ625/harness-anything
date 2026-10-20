@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { WorkIndexRead, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import type { AgendaSuccess } from "../api-client.ts";
 import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
@@ -8,16 +8,26 @@ import { Region } from "../components/primitives/Region";
 import { StatusTag } from "../components/primitives/StatusTag";
 import type { AppLocation, OverviewFocusLocation } from "../navigation/viewHistory.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
-import { useOverviewArtifacts, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
+import {
+  useOverviewAgentGroups,
+  useOverviewAgentMemberPages,
+  useOverviewArtifacts,
+  useOverviewRecentEvents,
+  useOverviewRuntime,
+  useOverviewSessionTouches,
+  activeAgentIdsOf,
+} from "../overview-data.ts";
 import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
+import { computePromptCacheTtlState, mostUrgentPromptCacheTtl } from "../model/smart-attention.ts";
 import { t } from "../i18n/index.tsx";
 import { dayKeyOf } from "../model/time.ts";
 import {
+  agentLanesOf,
   attentionSources,
+  awaitsByTask,
   decisionRows,
-  drillWipRows,
   followUpRows,
   pinnedTaskRows,
   recentDayGroups,
@@ -40,12 +50,9 @@ import {
   ReviewFocusDetail,
   ReviewFocusList,
   reviewDrillRows,
-  WipFocusDetail,
-  WipFocusList,
   type DrillFocusKey,
   type OverviewBoardDeps,
 } from "./overview-regions.tsx";
-import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
  * 总览(2026-10-11 业主意见返工):页面顶部仍是紧凑决策带(计数并入标签)。首屏主体
@@ -136,9 +143,6 @@ export function OverviewView({
   const wipQuery = useTaskWipQuery(repoId, true);
   const wipErrorText = wipQuery.error instanceof Error ? wipQuery.error.message : null;
   const artifactsErrorText = artifactsQuery.error instanceof Error ? artifactsQuery.error.message : null;
-  // WIP 放大层的分组/搜索过滤态放在这里:FocusLayer 的 ↑↓ 只在可见集合里移动,itemIds
-  // 与名单渲染必须出自同一份 wipVisibleEntries,组件内部各持一份会各自漂移。
-  const [wipFilter, setWipFilter] = useState<WipFilter>({ group: "all", search: "" });
   // 年龄随读面刷新重算:agenda/works/runtime 任一前进都给一帧新时钟,不立单独计时器。
   const now = useMemo(() => new Date().toISOString(), [agenda, works, runtimeQuery.data]);
 
@@ -180,11 +184,59 @@ export function OverviewView({
   );
   const wipCounted = wipQuery.data?.counted ?? [];
   const wipFull = wipQuery.data !== undefined && wipCounted.length >= wipQuery.data.limit;
-  // 「执行与下钻 → 进行中的任务」的内联名单(注意力分降序;行内含执行者与最近活动)。
-  const drillWip = useMemo(
-    () => drillWipRows(wipQuery.data, runtimeQuery.data, agenda),
-    [wipQuery.data, runtimeQuery.data, agenda],
+  // 泳道派生的两个查表:任务标题(titles 的键带 task/ 前缀,这里剥成裸 taskId)与
+  // 任务上的未决 awaits 行(块「待拍板」动作的答复面板源行)。
+  const taskTitlesById = useMemo(
+    () => new Map([...titles].map(([ref, title]) => [ref.replace(/^task\//u, ""), title] as const)),
+    [titles],
   );
+  const awaitsOfTask = useMemo(() => awaitsByTask(agenda), [agenda]);
+  // 「执行与下钻 → 进行中的任务」的泳道数据(W2-T1,替换旧 WIP 平铺名单):三段读面
+  // (sessionGroups 按 agent / 活跃 agent 成员派工页 / 运行块会话事件流)在
+  // overview-data 组合,这里只做纯派生与接线;nowMs 用数据时钟(读面前进才重算,
+  // 非运行块的 endAt 冻结在数据切面上,不随秒针生长)。
+  const agentGroupsQuery = useOverviewAgentGroups(repoId);
+  const activeAgents = useMemo(() => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? []), [agentGroupsQuery.data]);
+  const memberPages = useOverviewAgentMemberPages(repoId, activeAgents);
+  const lanesNowMs = Date.parse(now);
+  const lanesModel = useMemo(
+    () =>
+      agentLanesOf({
+        groups: agentGroupsQuery.data?.groups ?? [],
+        memberPages,
+        taskTitles: taskTitlesById,
+        awaits: awaitsOfTask,
+        awaitingFallbackQuestion: t("views.overviewView.drillLanesAwaitingFallback"),
+        nowMs: lanesNowMs,
+      }),
+    [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs],
+  );
+  const touches = useOverviewSessionTouches(repoId, lanesModel.runningSessionIds);
+  // 倒计时专用秒针:只在确有缓存触达证据时才走,其余时候不开计时器。
+  const hasCacheTouches = useMemo(() => [...touches.values()].some((touch) => touch !== null), [touches]);
+  const [ttlNowMs, setTtlNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasCacheTouches) return;
+    const timer = setInterval(() => setTtlNowMs(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [hasCacheTouches]);
+  // 块内 CacheTimer:有触达证据的块才并入(模型层返回 null 不渲染,不虚构倒计时)。
+  const lanes = useMemo(
+    () =>
+      lanesModel.lanes.map((lane) => ({
+        ...lane,
+        tasks: lane.tasks.map((task) => {
+          const block = lanesModel.blockOf.get(task.id);
+          if (block?.runtimeSessionId === null || block === undefined) return task;
+          const touch = touches.get(block.runtimeSessionId);
+          if (touch === undefined || touch === null) return task;
+          const ttl = computePromptCacheTtlState(touch, ttlNowMs);
+          return ttl === null ? task : { ...task, cacheTtl: { state: ttl.kind, remainingMs: ttl.remainingMs } };
+        }),
+      })),
+    [lanesModel, touches, ttlNowMs],
+  );
+  const cacheTtl = useMemo(() => mostUrgentPromptCacheTtl([...touches.values()], ttlNowMs), [touches, ttlNowMs]);
   // 产物二级页:列表 = 全部产物行(不只架上的 6 条),打开时收敛到首个存在的键
   // (daemon 已按时间倒序给出,首个即最新——意见 1 的「默认选中最新一个产物」)。
   const artifactRows = artifactsQuery.data?.artifacts ?? [];
@@ -215,26 +267,18 @@ export function OverviewView({
 
   // 点行开层(推栈):内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
   const openFocus = (key: DrillFocusKey, selectedId?: string) => {
-    // WIP 层的可见集合出自 wipFilter:上次遗留的分组/搜索会把被点行滤出集合,选中被
-    // focusSelected 复算回首行、详情显示错任务——进入即重置,被点行必然可见且被选中。
-    if (selectedId !== undefined && key === "wip") setWipFilter({ group: "all", search: "" });
     onOverviewLayerNavigate({ overviewFocus: { key, selectedId: selectedId ?? null } });
   };
 
-  // 键盘导航的可选中集合:WIP 用当前过滤后的可见名单(过滤隐藏的行不可被 ↑↓ 选中),
-  // 其余入口用各自全量行;选中行不在集合时收敛到首行,详情与选中同源。
+  // 键盘导航的可选中集合:各入口用各自全量行;选中行不在集合时收敛到首行,详情与选中同源。
   const focusIds: readonly string[] =
     focus === null
       ? []
-      : focus === "wip"
-        ? wipVisibleEntries(wipQuery.data?.counted, wipFilter).map(({ taskId }) => taskId)
-        : focus === "review"
-          ? reviewDrill.map(({ id }) => id)
-          : focus === "followups"
-            ? followUps.map(({ id }) => id)
-            : focus === "pinned"
-              ? pinned.map(({ taskId }) => taskId)
-              : [];
+      : focus === "review"
+        ? reviewDrill.map(({ id }) => id)
+        : focus === "followups"
+          ? followUps.map(({ id }) => id)
+          : pinned.map(({ taskId }) => taskId);
   const focusSelected =
     focus === null ? null : focusIds.includes(layerSelectedId ?? "") ? layerSelectedId! : (focusIds[0] ?? null);
 
@@ -370,7 +414,6 @@ export function OverviewView({
                     }
                   >
                     <OverviewDrillBody
-                      wipRows={drillWip}
                       wipOccupancy={
                         wipQuery.data === undefined
                           ? wipErrorText !== null
@@ -379,8 +422,21 @@ export function OverviewView({
                           : `${wipCounted.length}/${wipQuery.data.limit}`
                       }
                       wipFull={wipFull}
-                      wipLoading={wipQuery.isPending}
-                      wipError={wipErrorText}
+                      lanes={lanes}
+                      handoffs={lanesModel.handoffs}
+                      lanesLoading={agentGroupsQuery.isPending}
+                      lanesError={agentGroupsQuery.error instanceof Error ? agentGroupsQuery.error.message : null}
+                      onResolveAwaiting={(blockId) => {
+                        // 块上「待拍板」:有未决 awaits 行就原地开答复面板(一等动作);
+                        // blocked 但没有 awaits 边的块退到任务详情(裁决/查看上下文)。
+                        const block = lanesModel.blockOf.get(blockId);
+                        if (block === undefined) return;
+                        const awaitsRow = awaitsOfTask.get(block.taskId);
+                        if (block.awaiting && awaitsRow !== undefined)
+                          deps.onAnswer({ mode: "answer", row: awaitsRow });
+                        else onOpenTask(block.taskId);
+                      }}
+                      cacheTtl={cacheTtl}
                       reviewRowsAll={reviews}
                       followUps={followUps}
                       pinned={pinned}
@@ -482,49 +538,6 @@ export function OverviewView({
         />
       </div>
 
-      {focus === "wip" && (
-        <FocusLayer
-          open
-          title={t("views.overviewTaskWip.title")}
-          tag={wipFull ? <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} /> : undefined}
-          big={
-            wipQuery.data === undefined
-              ? wipErrorText !== null
-                ? "—"
-                : "…"
-              : `${wipCounted.length}/${wipQuery.data.limit}`
-          }
-          itemIds={focusIds}
-          selectedId={focusSelected}
-          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "wip", selectedId: id } })}
-          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
-          list={
-            <WipFocusList
-              snapshot={wipQuery.data}
-              loading={wipQuery.isPending}
-              error={wipErrorText}
-              selectedId={focusSelected}
-              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "wip", selectedId: id } })}
-              onOpenTask={onOpenTask}
-              filter={wipFilter}
-              onFilterChange={setWipFilter}
-            />
-          }
-          detail={
-            wipQuery.data !== undefined && focusSelected !== null ? (
-              <WipFocusDetail
-                entry={
-                  wipQuery.data.counted.find(({ taskId }) => taskId === focusSelected) ?? wipQuery.data.counted[0]!
-                }
-                wip={wipQuery.data}
-                onOpenTask={onOpenTask}
-              />
-            ) : (
-              <p className="ui-meta text-text-faint">{wipErrorText ?? t("views.overviewTaskWip.loading")}</p>
-            )
-          }
-        />
-      )}
       {focus === "review" && (
         <FocusLayer
           open

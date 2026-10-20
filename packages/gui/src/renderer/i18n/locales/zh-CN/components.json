@@ -15,6 +15,7 @@
   "components.appSidebar.manageAll": "管理全部",
   "components.appSidebar.noTaskRowsFromLocalBridge": "本地任务桥暂无任务记录",
   "components.appSidebar.pinnedWorkTitle": "置顶工作",
+  "components.appSidebar.needsYouLabel": "{count} 项置顶工作有需要你处理的事项",
   "components.appSidebar.unpinWorkLabel": "解除置顶:{title}",
   "components.appSidebar.projectCount": "{count} 个项目",
   "components.appSidebar.quickSwitch": "快速切换",

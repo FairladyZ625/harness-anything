@@ -53,6 +53,8 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
    * 只读截图覆盖。 */
   ROUNDS_TASK = "task-e2e-rounds",
   SINGLE_TASK = "task-e2e-single",
+  /** 总览 AgentLanes 的泳道任务:近期一轮让总览 6h 窗口内有真实块可画(task_097108d2)。 */
+  LANES_TASK = "task-e2e-lanes",
   WORK_TASK = "task-e2e-work",
   /** 工作层夹具:两个任务挂在同一个工作根下;task-gui-smoke 无父任务 → 散件桶。 */
   squadRunIds = {
@@ -86,6 +88,16 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
     },
   ],
   singleFixture = [{ key: "single-1", status: "succeeded", agent: "Astra", startedAt: "2026-10-02T11:00:00.000Z" }],
+  /** 总览 AgentLanes 泳道夹具(task_097108d2):近 30 分钟收口的一轮——层次夹具的轮次都
+   *  落在 2026-10-02(总览泳道 6h 窗口外),没有它泳道在 Electron 里只能验证空窗。 */
+  lanesFixture = [
+    {
+      key: "lanes-1",
+      status: "succeeded",
+      agent: "GLM-5.3",
+      startedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+    },
+  ],
   roundIds = (rows) =>
     Object.fromEntries(
       rows.map((row) => [
@@ -276,6 +288,7 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
     for (const [task, instanceId, rows] of [
       [ROUNDS_TASK, "instance-e2e-rounds", roundsFixture],
       [SINGLE_TASK, "instance-e2e-single", singleFixture],
+      [LANES_TASK, "instance-e2e-lanes", lanesFixture],
     ]) {
       for (const row of rows) {
         const { dispatchId, runtimeSessionId } = roundIds([row])[row.key],
@@ -372,7 +385,7 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
     // 归档一次成组发布(readTaskDispatches 只认投影文档,直接落盘文件不进投影)。
     const archiveRevision = (store.readHead()?.revision ?? 0) + 1,
       archiveWrite = compileEntityDocumentRematerialization({
-        entityRefs: [`task/${ROUNDS_TASK}`, `task/${SINGLE_TASK}`],
+        entityRefs: [`task/${ROUNDS_TASK}`, `task/${SINGLE_TASK}`, `task/${LANES_TASK}`],
         updates: archiveUpdates,
         rationale: "gui-e2e sessions-grouping hierarchy fixture: settled dispatch archives",
         actor,
@@ -436,6 +449,7 @@ export async function seedGuiE2eSessionTasks(endpoint, repoId) {
   for (const [taskId, title] of [
     [ROUNDS_TASK, "恢复可用的性能统计窗口"],
     [SINGLE_TASK, "页面分区换位与紧凑布局"],
+    [LANES_TASK, "并行 Agent 泳道时间线"],
   ])
     await create(taskId, title, WORK_TASK);
   return packagePaths;

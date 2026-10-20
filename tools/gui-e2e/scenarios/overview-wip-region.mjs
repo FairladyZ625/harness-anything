@@ -55,18 +55,18 @@ export function assertWipGeometry(geometry) {
 }
 
 /**
- * 总览「执行与下钻」WIP tab(#task_88003efc 三块区域返工后):tab 计数带占用/上限,tab 下
- * 是内联名单——每个占位任务直接可见、注意力分排序、区内滚动;点行弹既有放大层并选中
- * 该行。占用数、上限、名单长度全部从 daemon 快照读出,不在场景里写死。夹具任务经
- * repo.task.start 真实写路占位(planned 不占位,先启动)。
+ * 总览「执行与下钻」WIP tab(#task_88003efc 三块区域返工后;W2-T1 task_097108d2 改接
+ * AgentLanes):tab 计数仍带 WIP 占用/上限(来自 daemon 快照),但 tab 下不再是静态平铺
+ * 名单,而是按 agent 分泳道的实时时间线——近期收口/运行块直接可见,旧 data-drill-row
+ * 行必须消失。占用数、上限从 daemon 快照读出,泳道块来自隔离 lane 预置的近期派工夹具。
  */
 export default {
   id: "overview-wip-region",
   feature: "overview",
   lane: "isolated",
   description:
-    "The WIP drill tab shows the daemon occupancy and lists every counted task inline on the region " +
-    "(attention order, in-region scroll); clicking a row navigates directly to that task's detail.",
+    "The WIP drill tab still shows daemon occupancy, but the inline flat list is replaced by AgentLanes: " +
+    "the seeded recent dispatch renders as a lane block and the legacy data-drill-row list is gone.",
   async run({ page, fixture, shot }) {
     const started = await requestDaemonJsonRpcAt(
       fixture.endpoint,
@@ -134,38 +134,29 @@ export default {
       { timeout: 10_000 },
     );
 
-    // 内联名单与 daemon 快照逐 ID 一致(顺序按注意力分,不比顺序):不再是「点开才有内容」。
-    await page.waitForFunction(
-      ({ ids }) => {
-        const rows = [...globalThis.document.querySelectorAll('[data-testid="overview-drill-list"] [data-drill-row]')];
-        return rows.length > 0 && rows.length === ids.length;
-      },
-      { ids: snapshot.counted },
-      { timeout: 10_000 },
+    // W2-T1:旧静态平铺名单被 AgentLanes 替代——WIP tab 下不再有 data-drill-row 旧行。
+    assert.equal(
+      await page.locator('[data-testid="overview-drill-list"] [data-drill-row]').count(),
+      0,
+      "the legacy flat WIP list must not render beside AgentLanes",
     );
-    const inlineIds = await page.evaluate(() =>
-      [...globalThis.document.querySelectorAll('[data-testid="overview-drill-list"] [data-drill-row]')].map((row) =>
-        row.getAttribute("data-drill-row"),
+    // 隔离 lane 预置了 30 分钟前收口的一轮(task-e2e-lanes):总览 6h 窗口内必有泳道块。
+    const lanes = page.getByTestId("overview-agent-lanes");
+    await lanes.waitFor({ timeout: 15_000 });
+    await page.waitForFunction(
+      () => globalThis.document.querySelectorAll('[data-testid^="overview-agent-lanes-task-"]').length > 0,
+      null,
+      { timeout: 15_000 },
+    );
+    const blockStates = await page.evaluate(() =>
+      [...globalThis.document.querySelectorAll('[data-testid^="overview-agent-lanes-task-"]')].map((block) =>
+        block.getAttribute("data-lane-status"),
       ),
     );
-    assert.deepEqual(
-      [...inlineIds].sort(),
-      snapshot.counted.map(({ taskId }) => taskId).sort(),
-      "the inline drill list must show every counted task",
-    );
+    // 已收口块必须有确定状态(不冒充运行中):夹具那一轮是 succeeded → done。
+    assert.ok(blockStates.includes("done"), `the seeded settled round must render as done: ${blockStates}`);
+    await shot("overview-wip-lanes");
 
-    // 点行直接进入对应任务详情；当前产品路由不打开 focus dialog。
-    const pickedId = inlineIds[0];
-    await drill.locator(`[data-drill-row="${pickedId}"]`).getByRole("button").first().click();
-    // 行入口直接打开真实任务详情；从详情页头返回总览后继续验证紧凑入口几何。
-    await page.getByTestId("task-detail-view").waitFor();
-    await shot("overview-wip-task-detail");
-
-    await page
-      .getByTestId("task-detail-header")
-      .getByRole("button", { name: /^(?:总览|Overview)$/u })
-      .click();
-    await page.getByTestId("overview-region-drill").waitFor();
     await settledWipGeometry(page);
     await shot("overview-wip-settled");
   },

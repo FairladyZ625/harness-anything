@@ -317,10 +317,10 @@ describe("view navigation history (HISTORY-002)", () => {
     const local = makeLocal();
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "overview", overviewArtifactId: "task_a/artifacts/reports/r-0.html" }));
-    state = pushLocation(state, loc({ view: "overview", overviewFocus: { key: "wip", selectedId: "task_w1" } }));
+    state = pushLocation(state, loc({ view: "overview", overviewFocus: { key: "review", selectedId: "task_w1" } }));
     writeViewHistory(session, "proj-overview-layers", state);
     const restored = readViewHistory(session, local, "proj-overview-layers");
-    expect(currentLocation(restored).overviewFocus).toEqual({ key: "wip", selectedId: "task_w1" });
+    expect(currentLocation(restored).overviewFocus).toEqual({ key: "review", selectedId: "task_w1" });
     expect(viewCanBack(restored)).toBe(true);
     expect(currentLocation(viewGoBack(restored)).overviewArtifactId).toBe("task_a/artifacts/reports/r-0.html");
     expect(currentLocation(viewGoBack(viewGoBack(restored))).overviewArtifactId ?? null).toBeNull();
@@ -349,7 +349,7 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(preLayers.view).toBe("overview");
     expect(preLayers.overviewArtifactId ?? null).toBeNull();
     expect(preLayers.overviewFocus ?? null).toBeNull();
-    // 坏层键(不在 wip/review/followups/pinned/ci 里)回退干净初始栈。
+    // 坏层键(不在 review/followups/pinned 里;WIP 平铺层已退役)回退干净初始栈。
     local.raw.set(
       "harness-view-history:proj-bad-focus",
       JSON.stringify({

@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { PushPinSlash } from "@phosphor-icons/react";
-import type { AgendaAttentionItem, TaskWipRead } from "../../api/renderer-dto.ts";
+import type { AgendaAttentionItem } from "../../api/renderer-dto.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AWAITS_KIND_LABEL } from "../awaits-answer.ts";
-import { IdText } from "../components/IdText.tsx";
 import { STATUS_META } from "../components/badges";
+import { AgentLanes, type AgentHandoff, type AgentLane } from "../components/agent-ui/AgentLanes.tsx";
+import { CacheTimer } from "../components/agent-ui/CacheTimer.tsx";
+import type { PromptCacheTtlState } from "../model/smart-attention.ts";
 import { DenseRow } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
 import { FilterChips } from "../components/primitives/FilterChips";
@@ -18,12 +20,10 @@ import { actorDisplayName } from "../model/actor-name.ts";
 import type { SnapshotStatus } from "../model/types.ts";
 import { formatRelative, formatTime } from "../model/time.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
-import { OverviewTaskWipBody, type WipFilter } from "./OverviewTaskWip.tsx";
 import { STEP_META } from "./workspace/WorkOverview.tsx";
 import {
   type AttentionSource,
   type DecisionRow,
-  type DrillWipRow,
   type FollowUpKind,
   type FollowUpRow,
   type PinnedTaskRow,
@@ -33,10 +33,12 @@ import {
 } from "./overview-model.ts";
 
 /**
- * 总览三段的展示层(2026-10-07 三块区域返工,纯展示层):「需要你处理」是页面顶部的紧凑
- * 决策带——默认只铺 COMPACT_DECISIONS 条明确事项,其余一键展开;主区「关注的工作」是
- * 全部关注工作的紧凑行列表(一到两行/工作,区内滚动,点行进工作详情);「执行与下钻」是
- * tab + 内联名单(WIP/跟进与返工/置顶承诺,注意力序,点行弹既有 FocusLayer 详情)。
+ * 总览三段的展示层(2026-10-07 三块区域返工,纯展示层;2026-10-20 W2-T1 接入 Orca 五级
+ * 序数与 Agent 泳道):「需要你处理」是页面顶部的紧凑决策带——Needs you(class 1)绝对
+ * 顶置、橙色提问档标签,默认只铺 COMPACT_DECISIONS 条明确事项,其余一键展开;主区
+ * 「关注的工作」是全部关注工作的紧凑行列表(名下有 Needs you 的工作置顶);「执行与
+ * 下钻」是 tab + Agent 泳道(进行中的任务 tab 由 AgentLanes 替换旧静态平铺名单,块内
+ * 挂待拍板动作与 Prompt Cache 倒计时)。
  * 动作全部接现有真实动作:答复走 AwaitsAnswerPanel、裁决落决策详情、任务/工作走实体
  * 导航、取消置顶走 pin 写通道。没有的字段如实写「未提供」,不生成假推荐。
  */
@@ -81,8 +83,8 @@ export interface OverviewBoardDeps {
   readonly onUnpin: (taskId: string) => void;
 }
 
-/** 放大层的键:WIP/评审执行/跟进返工/置顶承诺/main CI 红。 */
-export type DrillFocusKey = "wip" | "review" | "followups" | "pinned";
+/** 放大层的键:评审执行/跟进返工/置顶承诺(WIP 平铺名单已由 AgentLanes 原位替代,不再开层)。 */
+export type DrillFocusKey = "review" | "followups" | "pinned";
 
 /* ------------------------------------------------------------------ 顶部:需要你处理(紧凑决策带) */
 
@@ -144,6 +146,7 @@ export function OverviewDecisionsBand({
     );
   }
   const urgent = decisionsUrgentCount(rows),
+    needsYou = rows.some(({ kind }) => kind === "awaiting-you"),
     visible = expanded ? rows : rows.slice(0, COMPACT_DECISIONS),
     hidden = rows.length - visible.length;
   return (
@@ -151,7 +154,7 @@ export function OverviewDecisionsBand({
       <div className="flex flex-none flex-wrap items-center gap-2 px-3 pb-1.5 pt-2">
         <h2 className="min-w-0 shrink-0 font-semibold ui-meta">{t("views.overviewView.regionDecisions")}</h2>
         <StatusTag
-          tone={urgent > 0 ? "bad" : "wait"}
+          tone={needsYou ? "agent-question" : urgent > 0 ? "bad" : "wait"}
           label={
             urgent > 0
               ? t("views.overviewView.mineUrgentOf", { urgent: String(urgent), count: String(rows.length) })
@@ -207,10 +210,12 @@ export function OverviewDecisionsBand({
               <DenseRow
                 tag={
                   <StatusTag
-                    tone={row.kind === "decision" ? "wait" : "bad"}
+                    // Needs you 用 Orca 独立橙(agent-question,严格区别于等评审的琥珀);
+                    // 待点头 decision 维持 wait 档——同为本人动作,但不是提问阻塞。
+                    tone={row.kind === "awaiting-you" ? "agent-question" : "wait"}
                     label={t(
                       row.kind === "awaiting-you"
-                        ? "views.overviewView.kindAwaitingYou"
+                        ? "agentRuntime.smartClassNeedsYou"
                         : "views.overviewView.kindDecision",
                     )}
                   />
@@ -365,7 +370,8 @@ export function OverviewWorksBody({
               </span>
             ) : null,
             mine > 0 ? (
-              <span key="mine" className="shrink-0 text-status-blocked">
+              // Needs you 计数走 Orca 独立橙(与顶部决策带同一语义色):卡在等人,不是失败。
+              <span key="mine" className="shrink-0 font-semibold" style={{ color: "var(--color-agent-question)" }}>
                 {t("views.overviewView.worksMine", { count: String(mine) })}
               </span>
             ) : null,
@@ -436,20 +442,21 @@ export function reviewDrillRows(rows: readonly ReviewRow[]): readonly ReviewRow[
 export type DrillTabKey = "wip" | "review" | "followups" | "pinned";
 
 /**
- * 「执行与下钻」区(2026-10-07 三块区域返工;2026-10-11 意见 3 合并在飞任务流):顶部
- * FilterChips tab(进行中的任务 / 跟进与返工 / 置顶承诺;有评审行时加评审执行 tab),
- * tab 下是内联名单——全部条目直接可见、区内滚动,排序沿用原设计的重要性口径(议程注意
- * 力分)。「进行中的任务」行并进原在飞任务流的执行信息:最近活动时间与当前在跑的
- * agent;有执行者的行挂呼吸光条,静止行安静待命(动效即心跳,不再输出消极文本)。
- * 点行弹既有 FocusLayer 详情并选中该行。
- * 全部工作/全部任务/会话入口收进区域页脚(宿主 Region footer),列表滚动时保持可达。
+ * 「执行与下钻」区(2026-10-07 三块区域返工;2026-10-11 意见 3 合并在飞任务流;
+ * 2026-10-20 W2-T1:进行中的任务 tab 由 AgentLanes 泳道替换旧静态平铺名单——一条泳道
+ * 一个 agent,任务块按时间比例定位、运行块随 now 生长,跨 Agent 交接连线,阻塞块挂
+ * 待拍板徽标与快捷动作;块内/页头内嵌 Prompt Cache 倒计时。其余 tab(跟进与返工/
+ * 置顶承诺/评审执行)保持内联名单。全部工作/全部任务/会话入口收进区域页脚。
  */
 export function OverviewDrillBody({
-  wipRows,
   wipOccupancy,
   wipFull,
-  wipLoading,
-  wipError,
+  lanes,
+  handoffs,
+  lanesLoading,
+  lanesError,
+  onResolveAwaiting,
+  cacheTtl,
   reviewRowsAll,
   followUps,
   pinned,
@@ -457,15 +464,20 @@ export function OverviewDrillBody({
   onOpenTask,
   deps,
 }: {
-  /** drillWipRows 的当前行(注意力分降序,行内含执行者与最近活动)。 */
-  readonly wipRows: readonly DrillWipRow[];
   /** 占用/上限(快照未到给「…/—」);WIP 是常驻观察面,tab 恒在。 */
   readonly wipOccupancy: string;
   readonly wipFull: boolean;
-  /** WIP 读面首次取数进行中(宿主传 `query.isPending`)。 */
-  readonly wipLoading: boolean;
-  /** WIP 读面失败的可读信息(宿主传 `query.error?.message ?? null`)。 */
-  readonly wipError: string | null;
+  /** AgentLanes 的当前泳道数据(agentLanesOf 的产物,块内已并入 CacheTimer)。 */
+  readonly lanes: readonly AgentLane[];
+  readonly handoffs: readonly AgentHandoff[];
+  /** 泳道读面(sessionGroups/成员页)首次取数进行中。 */
+  readonly lanesLoading: boolean;
+  /** 泳道读面失败的可读信息。 */
+  readonly lanesError: string | null;
+  /** 泳道块「待拍板」动作:宿主把 blockId 接回 awaits 答复面板或任务详情。 */
+  readonly onResolveAwaiting: (blockId: string) => void;
+  /** 全部活跃会话里最紧迫的缓存剩余(模型层算好);null = 无触达证据,不渲染。 */
+  readonly cacheTtl: PromptCacheTtlState | null;
   readonly reviewRowsAll: readonly ReviewRow[];
   readonly followUps: readonly FollowUpRow[];
   readonly pinned: readonly PinnedTaskRow[];
@@ -518,45 +530,36 @@ export function OverviewDrillBody({
           ]}
         />
         {wipFull && <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} />}
+        {/* 最紧迫 Prompt Cache 剩余(多会话取最早失效):击穿前连贯提问,击穿即红。 */}
+        {cacheTtl !== null && (
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1" data-testid="overview-drill-cache">
+            <span className="text-text-faint ui-micro">{t("views.overviewView.drillCacheLabel")}</span>
+            <CacheTimer state={cacheTtl.kind} remainingMs={cacheTtl.remainingMs} testId="overview-drill-cache-timer" />
+          </span>
+        )}
       </div>
       <div data-testid="overview-drill-list" className="min-h-0 flex-1 overflow-y-auto">
         {tab === "wip" &&
-          (wipError !== null ? (
-            <Notice tone="bad" variant="strip" testId="overview-drill-wip-error">
-              {t("views.overviewTaskWip.errorRead")}
-              {wipError}
+          (lanesError !== null ? (
+            <Notice tone="bad" variant="strip" testId="overview-drill-lanes-error">
+              {t("views.overviewView.drillLanesError")}
+              {lanesError}
             </Notice>
-          ) : wipRows.length === 0 ? (
+          ) : lanes.length === 0 ? (
             <div data-testid="overview-drill-wip-empty" className="px-3.5 py-2">
-              <Empty>{wipLoading ? t("views.overviewTaskWip.loading") : t("views.overviewTaskWip.emptyIdle")}</Empty>
+              <Empty>
+                {lanesLoading ? t("views.overviewView.drillLanesLoading") : t("views.overviewView.drillLanesEmpty")}
+              </Empty>
             </div>
           ) : (
-            wipRows.map((row) => (
-              <div
-                key={row.taskId}
-                data-drill-row={row.taskId}
-                className={row.handlers.length > 0 ? "live-row" : undefined}
-              >
-                <DenseRow
-                  tag={<StatusTag status={row.status} />}
-                  title={row.title}
-                  hoverTitle={row.taskId}
-                  relaxed
-                  reason={row.handlers.length > 0 ? row.handlers.join(" · ") : undefined}
-                  time={
-                    row.since === null ? undefined : (
-                      <span
-                        title={formatTime(row.since, { style: "date-time", now: deps.now }) ?? row.since}
-                        className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta"
-                      >
-                        {formatRelative(row.since, { now: deps.now })}
-                      </span>
-                    )
-                  }
-                  onClick={() => onOpenTask(row.taskId)}
-                />
-              </div>
-            ))
+            <div data-testid="overview-drill-lanes" className="px-3 pb-3 pt-2">
+              <AgentLanes
+                lanes={lanes}
+                handoffs={handoffs}
+                onResolveAwaiting={onResolveAwaiting}
+                testId="overview-agent-lanes"
+              />
+            </div>
           ))}
         {tab === "followups" &&
           (followUps.length === 0 ? (
@@ -815,54 +818,6 @@ export function PinnedFocusDetail({ task, deps }: { readonly task: PinnedTaskRow
       </div>
     </div>
   );
-}
-
-/* ------------------------------------------------------------------ WIP 放大层详情 */
-
-/** WIP 放大层右侧详情:名单在 OverviewTaskWipBody(条面/放大层同一组件),详情给占用上下文与导航。 */
-export function WipFocusDetail({
-  entry,
-  wip,
-  onOpenTask,
-}: {
-  readonly entry: TaskWipRead["counted"][number];
-  readonly wip: TaskWipRead;
-  readonly onOpenTask: (taskId: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <StatusTag status={entry.status} />
-      <h3 className="text-text ui-title">{entry.title}</h3>
-      <IdText value={`task/${entry.taskId}`} title={entry.title === "" ? undefined : entry.title} />
-      <p className="ui-meta text-text-muted">
-        {t("views.overviewTaskWip.occupancyTitle", {
-          count: wip.counted.length,
-          limit: wip.limit,
-          limitLabel: wip.limitLabel,
-          threshold: wip.threshold,
-        })}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        <OverviewActionButton primary onClick={() => onOpenTask(entry.taskId)}>
-          {t("views.overviewView.actionOpenTask")}
-        </OverviewActionButton>
-      </div>
-    </div>
-  );
-}
-
-/** WIP 放大层左侧列表:OverviewTaskWipBody 的放大层展面(分组/搜索 + 名单)。 */
-export function WipFocusList(props: {
-  readonly snapshot: TaskWipRead | undefined;
-  readonly loading: boolean;
-  readonly error: string | null;
-  readonly selectedId: string | null;
-  readonly onSelect: (taskId: string) => void;
-  readonly onOpenTask: (taskId: string) => void;
-  readonly filter: WipFilter;
-  readonly onFilterChange: (filter: WipFilter) => void;
-}) {
-  return <OverviewTaskWipBody {...props} inFocus />;
 }
 
 /* ------------------------------------------------------------------ 共享小件 */

@@ -5,6 +5,7 @@ import { formatDuration } from "../../model/time.ts";
 import { t } from "../../i18n/index.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { CacheTimer, type PromptCacheTtlState } from "./CacheTimer.tsx";
 import { ACTIVITY_COLOR, ACTIVITY_KEY, ACTIVITY_TONE, type AgentActivity } from "./AgentTree.tsx";
 
 /**
@@ -32,6 +33,11 @@ export interface AgentLaneTask {
   readonly status: AgentActivity;
   /** 阻塞待拍板:块上挂徽标与快捷动作(Orca:提问/阻塞必须一眼可分)。 */
   readonly awaiting?: { readonly question: string };
+  /**
+   * 块内 Prompt Cache 倒计时(W2 总览接线):TTL 三态由模型层
+   * (W1-T1 computePromptCacheTtlState)算好传入;无触达证据时缺省,块内不渲染。
+   */
+  readonly cacheTtl?: { readonly state: PromptCacheTtlState; readonly remainingMs: number };
 }
 
 export interface AgentLane {
@@ -281,6 +287,13 @@ export function AgentLanes({
                           />
                         )}
                         <span className="min-w-0 truncate ui-micro">{task.label}</span>
+                        {task.cacheTtl !== undefined && (
+                          <CacheTimer
+                            state={task.cacheTtl.state}
+                            remainingMs={task.cacheTtl.remainingMs}
+                            testId={testId !== undefined ? `${testId}-cache-${task.id}` : undefined}
+                          />
+                        )}
                         {task.awaiting !== undefined && (
                           <span className="ml-auto inline-flex shrink-0">
                             <Button
@@ -321,7 +334,7 @@ export function AgentLanes({
         {showScaleBar && (
           <span className="inline-flex items-center gap-1" aria-hidden>
             <i className="inline-block h-px w-10 border-t border-border-strong" />
-            1m
+            {t("agentUi.lanes.scaleOneMinute")}
           </span>
         )}
         {(["running", "awaiting", "done", "failed", "idle"] as const).map((status) => (
