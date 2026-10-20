@@ -96,6 +96,7 @@ import {
 import {
   canonicalJson,
   prepareQuery,
+  queryRow,
   queryRows,
   runSql,
   transaction,
@@ -135,11 +136,30 @@ const INSERT_TASK_SNAPSHOT_SQL = [
   "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
   "VALUES (?, ?, ?, ?, ?)",
 ].join(" ");
-const UPSERT_PRESET_SNAPSHOT_SQL = [
-  "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?)",
-  "ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json",
-  "WHERE preset_snapshot.value_json=excluded.value_json",
-].join(" ");
+/**
+ * A digest names one snapshot. A row an older build stored before today's historical normalization
+ * is compared in normalized form and rewritten; any other difference is a conflict (returns false).
+ */
+function upsertPresetSnapshot(db: DatabaseSync, digest: string, revision: number, valueJson: string): boolean {
+  const stored = queryRow<{ readonly value_json: string }>(
+    db,
+    "SELECT value_json FROM preset_snapshot WHERE digest = ?",
+    digest,
+  )?.value_json;
+  if (stored === undefined)
+    runSql(
+      db,
+      "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?)",
+      digest,
+      revision,
+      valueJson,
+    );
+  else if (stored !== valueJson) {
+    if (canonicalJson(normalizeHistoricalPresetSnapshot(JSON.parse(stored))) !== valueJson) return false;
+    runSql(db, "UPDATE preset_snapshot SET value_json = ? WHERE digest = ?", valueJson, digest);
+  }
+  return true;
+}
 
 // Canonical-event dispatcher for non-task domains and task-event handoff.
 export function applyEvent(
@@ -694,9 +714,8 @@ export function applyEvent(
       event.occurredAt,
     );
     refreshTaskRelationProjection(db, event.taskId, event.payload.task, event.workspaceRevision, event.occurredAt);
-    runSql(
+    upsertPresetSnapshot(
       db,
-      UPSERT_PRESET_SNAPSHOT_SQL,
       event.payload.presetSnapshotClaim.digest,
       event.workspaceRevision,
       canonicalJson(snapshot),
@@ -742,15 +761,12 @@ export function applyEvent(
     );
     runSql(db, "INSERT OR IGNORE INTO task_generation VALUES (?, 'v1')", event.taskId);
     if (
-      Number(
-        runSql(
-          db,
-          UPSERT_PRESET_SNAPSHOT_SQL,
-          event.payload.presetSnapshotClaim.digest,
-          event.workspaceRevision,
-          canonicalJson(snapshot),
-        ),
-      ) === 0
+      !upsertPresetSnapshot(
+        db,
+        event.payload.presetSnapshotClaim.digest,
+        event.workspaceRevision,
+        canonicalJson(snapshot),
+      )
     )
       throw new Error(`preset snapshot digest ${event.payload.presetSnapshotClaim.digest} names different bytes`);
     for (const claim of event.payload.initialDocumentClaims) {
