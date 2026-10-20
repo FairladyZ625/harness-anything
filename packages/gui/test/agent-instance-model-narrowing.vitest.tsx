@@ -77,6 +77,8 @@ async function renderAgentCardProps(
           skills: [],
           prompts: [],
           preset: null,
+          revision: 1,
+          retirement: null,
         } as never,
         row: null,
         squads: [],

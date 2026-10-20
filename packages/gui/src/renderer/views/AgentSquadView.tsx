@@ -19,6 +19,7 @@ import { useSettingsQuery } from "../settings-data.ts";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/runtime/AgentCard.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
 import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/DegradedEntityCard.tsx";
+import { DeleteEntityDialog, RetireAgentDialog } from "../components/runtime/EntityLifecycleDialog.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Hint } from "../components/runtime/parts.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
@@ -45,7 +46,9 @@ type Dialog =
       readonly subject: DispatchSubject;
       readonly prompts: readonly string[];
       readonly mission: string;
-    };
+    }
+  | { readonly kind: "retire-agent"; readonly agentId: string }
+  | { readonly kind: "delete-entity"; readonly entity: "agent" | "squad"; readonly id: string };
 
 // Agent 入口 · 含 Squad(W6 IA 拆分):身份层(Agent 声明)与组织层(Squad)共享一页,
 // 依据方案 P2——Squad 没有独立于 Agent 的生命周期,所以它是本页的一个面而非第四个
@@ -244,6 +247,29 @@ export function AgentSquadView({
     setDialog(null);
     if (settled?.runtimeSessionId) onSelectEntity(`session/${settled.runtimeSessionId}`);
   };
+  // 退役/删除:详情卡只发起对话框,写入走 workspace 的 daemon 实体动作(与 CLI 同路)。
+  // 退役结算后把筛选切到「已退役」,让刚退役的行留在视野里而不是被默认分类藏掉。
+  const retireAgent = async (agentId: string, input: { readonly reason: string; readonly successor?: string }) => {
+    const settled = await workspace.retireAgent({ agentId, ...input });
+    if (settled === null) return;
+    setDialog(null);
+    setFilters((value) => ({ ...value, lifecycle: "retired" }));
+  };
+  // expected-version 是声明自身 revision:对话框只能从当前选中实体的卡上发起,而选中
+  // 者的 detail query 已在页面上——直接取它,不让用户输入,也不再发一次 show。
+  const deleteEntity = async (
+    entity: "agent" | "squad",
+    id: string,
+    revision: number,
+    input: { readonly reason: string },
+  ) => {
+    const settled =
+      entity === "agent"
+        ? await workspace.deleteAgent({ agentId: id, reason: input.reason, expectedVersion: revision })
+        : await workspace.deleteSquad({ squadId: id, reason: input.reason, expectedVersion: revision });
+    if (settled === null) return;
+    setDialog(null);
+  };
 
   // The page reads only its own sources: one failing read degrades its region (rail, card,
   // inspector) and nothing else — the machine instance catalogue going down must not take
@@ -392,6 +418,9 @@ export function AgentSquadView({
                   onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
                   onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
                   onFocusGraph={onFocusGraph}
+                  onRetire={() => setDialog({ kind: "retire-agent", agentId: current.id })}
+                  onDelete={() => setDialog({ kind: "delete-entity", entity: "agent", id: current.id })}
+                  deleteBlockedBy={agentDeleteBlockedBy(selectedAgent.id, squads, dockRows, settings.data?.values)}
                 />
               ) : (
                 <Empty>{t("agentRuntime.loading")}</Empty>
@@ -427,6 +456,7 @@ export function AgentSquadView({
                   onSave={(declaration) => void workspace.saveSquad(declaration)}
                   onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
                   onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
+                  onDelete={() => setDialog({ kind: "delete-entity", entity: "squad", id: current.id })}
                 />
               </>
             ) : (
@@ -471,6 +501,43 @@ export function AgentSquadView({
           onCancel={() => setDialog(null)}
           onSubmit={(request) => void dispatch(request)}
           onPreview={(request) => workspace.preview(request)}
+        />
+      )}
+      {heldDialog?.kind === "retire-agent" && selectedAgent !== null && isAvailableAgentEntityRow(selectedAgent) && (
+        <RetireAgentDialog
+          open={dialog?.kind === "retire-agent"}
+          agent={selectedAgent}
+          agents={agents}
+          busy={workspace.busy}
+          actionError={workspace.error}
+          onCancel={() => setDialog(null)}
+          onRetire={(input) => void retireAgent(heldDialog.agentId, input)}
+        />
+      )}
+      {heldDialog?.kind === "delete-entity" && (
+        <DeleteEntityDialog
+          open={dialog?.kind === "delete-entity"}
+          kind={heldDialog.entity}
+          entity={
+            heldDialog.entity === "agent"
+              ? {
+                  id: heldDialog.id,
+                  name: agents.find((agent) => agent.id === heldDialog.id)?.name ?? heldDialog.id,
+                }
+              : {
+                  id: heldDialog.id,
+                  name: squads.find((squad) => squad.id === heldDialog.id)?.name ?? heldDialog.id,
+                }
+          }
+          busy={workspace.busy}
+          actionError={workspace.error}
+          onCancel={() => setDialog(null)}
+          onDelete={(input) => {
+            const revision = heldDialog.entity === "agent" ? agentDetail.data?.revision : squadDetail.data?.revision;
+            // 卡在而 detail 未到时按钮本就未渲染;这里只挡类型收窄,revision 缺失不发写。
+            if (revision === undefined) return;
+            void deleteEntity(heldDialog.entity, heldDialog.id, revision, input);
+          }}
         />
       )}
       {workspace.settlement && (
@@ -555,4 +622,26 @@ function settingsRoleRefs(values: Readonly<Record<string, unknown>> | undefined,
   const roles = values?.roles as Partial<Record<(typeof ROLE_REF_KEYS)[number]["key"], string | null>> | undefined;
   if (roles === undefined) return [];
   return ROLE_REF_KEYS.filter(({ key }) => roles[key] === entityId).map(({ key, role }) => ({ key, role }));
+}
+
+/** 删除禁用的本地引用面:所在 Squad、设置角色键、派工历史。daemon 侧的完整判定
+ *  (含 schedule/relation)仍是权威——本地算不到的引用由 daemon 以 agent_referenced
+ *  拒绝,GUI 把它翻成可读提示。 */
+function agentDeleteBlockedBy(
+  agentId: string,
+  squads: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly leader: string;
+    readonly workers: readonly string[];
+  }[],
+  dispatchRows: readonly { readonly agentId: string | null }[],
+  settingsValues: Readonly<Record<string, unknown>> | undefined,
+): readonly string[] {
+  const refs = [
+    ...squads.filter((squad) => squad.leader === agentId || squad.workers.includes(agentId)).map((squad) => squad.name),
+    ...settingsRoleRefs(settingsValues, agentId).map((ref) => `roles.${ref.key}`),
+    ...(dispatchRows.some((row) => row.agentId === agentId) ? [t("agentRuntime.deleteRefDispatches")] : []),
+  ];
+  return refs;
 }

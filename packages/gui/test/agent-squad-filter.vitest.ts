@@ -12,6 +12,7 @@ import {
   DEFAULT_AGENT_SQUAD_FILTERS,
   filterAgents,
   filterSquads,
+  hasActiveAgentSquadFilters,
   type AgentSquadFilters,
 } from "../src/renderer/model/agentSquadFilters.ts";
 
@@ -31,6 +32,7 @@ const agent = (
   permissionMode: null,
   role: "worker",
   layer: "user",
+  retirement: null,
   ...overrides,
 });
 const squad = (
@@ -51,10 +53,17 @@ const degraded: AgentEntityRow = {
   error: { code: "invalid_entity_contract", hint: "bad" },
 };
 
+const retiredAgent: AgentEntityRow = agent("luna", {
+  name: "Luna",
+  runtimes: [{ type: "codex" }],
+  retirement: { retiredAt: "2026-10-01T00:00:00.000Z", reason: "superseded by terra", successor: "terra" },
+});
+
 const agents: AgentEntityRow[] = [
   agent("fable", { name: "Fable", role: "commander", runtimes: [{ type: "codex" }, { type: "claude" }] }),
   agent("astra", { name: "Astra", runtimes: [{ type: "devin" }] }),
   agent("terra", { name: "Terra", runtimes: [{ type: "codex" }] }),
+  retiredAgent,
   degraded,
 ];
 const squads: SquadEntityRow[] = [squad("core-squad", { name: "Core Squad", leader: "fable", workers: ["terra"] })];
@@ -96,6 +105,23 @@ describe("agent squad filters", () => {
       runtimeKinds: ["claude", "codex", "devin"],
       layers: ["user"],
     });
+  });
+
+  it("classifies retired agents into their own lifecycle bucket and keeps degraded rows visible", () => {
+    // 默认(在用)不混退役项;降级行是健康信号,恒留在在用侧。
+    expect(filterAgents(agents, squads, DEFAULT_AGENT_SQUAD_FILTERS).map((row) => row.id)).toEqual([
+      "fable",
+      "astra",
+      "terra",
+      "broken-agent",
+    ]);
+    const retired = { ...DEFAULT_AGENT_SQUAD_FILTERS, lifecycle: "retired" as const };
+    expect(filterAgents(agents, squads, retired).map((row) => row.id)).toEqual(["luna"]);
+    // 其他分面与生命周期分类相交。
+    expect(filterAgents(agents, squads, { ...retired, runtimeKinds: ["devin"] }).map((row) => row.id)).toEqual([]);
+    // 退役分类是激活态(选中已退役时,清除入口可见)。
+    expect(hasActiveAgentSquadFilters(retired)).toBe(true);
+    expect(hasActiveAgentSquadFilters(DEFAULT_AGENT_SQUAD_FILTERS)).toBe(false);
   });
 });
 
@@ -223,7 +249,7 @@ describe("agent squad filter bar and rail", () => {
       toggle.click();
     });
     const chips = [...byTestId("agent-squad-filter-role").querySelectorAll("button")];
-    // 全部 3(降级行不计)、commander 1、worker 2;选中「全部」。
+    // 全部 3(降级行与退役行不计)、commander 1、worker 2;选中「全部」。
     expect(chips.map((chip) => chip.textContent)).toEqual(["All3", "commander1", "worker2"]);
     expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
     await act(async () => {
@@ -266,5 +292,30 @@ describe("agent squad filter bar and rail", () => {
       byTestId("agent-squad-filter-in-squad").click();
     });
     expect(latest.inSquadOnly).toBe(true);
+  });
+
+  it("offers the lifecycle category with counts inside the filter dropdown", async () => {
+    let latest = DEFAULT_AGENT_SQUAD_FILTERS;
+    await mount(
+      createElement(AgentSquadFilterBar, {
+        agents,
+        squads,
+        filters: DEFAULT_AGENT_SQUAD_FILTERS,
+        onChange: (next: AgentSquadFilters) => {
+          latest = next;
+        },
+      }),
+    );
+    await act(async () => {
+      byTestId("agent-squad-filter-toggle").click();
+    });
+    const chips = [...byTestId("agent-squad-filter-lifecycle").querySelectorAll("button")];
+    // 在用 3(降级行不计入分类计数)、已退役 1;默认选中「在用」。
+    expect(chips.map((chip) => chip.textContent)).toEqual(["In use3", "Retired1"]);
+    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      chips[1]!.click();
+    });
+    expect(latest.lifecycle).toBe("retired");
   });
 });

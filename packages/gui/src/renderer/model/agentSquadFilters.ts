@@ -20,6 +20,9 @@ export interface AgentSquadFilters {
   readonly layers: readonly string[];
   /** 只看被 Squad 引用的 Agent(leader 或 workers 命中)。 */
   readonly inSquadOnly: boolean;
+  /** Agent 生命周期分类:active=在用(默认,退役项不混入);retired=只看已退役。
+   *  只作用于 Agent 段;降级行是健康信号,恒保留在 active 侧。 */
+  readonly lifecycle: "active" | "retired";
 }
 
 export const DEFAULT_AGENT_SQUAD_FILTERS: AgentSquadFilters = {
@@ -28,6 +31,7 @@ export const DEFAULT_AGENT_SQUAD_FILTERS: AgentSquadFilters = {
   runtimeKinds: [],
   layers: [],
   inSquadOnly: false,
+  lifecycle: "active",
 };
 
 export const hasActiveAgentSquadFilters = (filters: AgentSquadFilters) =>
@@ -35,7 +39,8 @@ export const hasActiveAgentSquadFilters = (filters: AgentSquadFilters) =>
   filters.roles.length > 0 ||
   filters.runtimeKinds.length > 0 ||
   filters.layers.length > 0 ||
-  filters.inSquadOnly;
+  filters.inSquadOnly ||
+  filters.lifecycle !== DEFAULT_AGENT_SQUAD_FILTERS.lifecycle;
 
 const substring = (query: string, fields: readonly (string | null)[]) =>
   query === "" || fields.some((field) => field !== null && field.toLowerCase().includes(query));
@@ -46,7 +51,8 @@ export interface AgentSquadFilterOptions {
   readonly layers: readonly string[];
 }
 
-// 筛选项从当前数据聚合:只出现真实存在的取值,不写死清单。
+// 筛选项从当前数据聚合:只出现真实存在的取值,不写死清单。分面取值只数在用行——
+// 退役项有自己的分类,它的 role/runtime 不该出现在在用筛选的候选里。
 export function agentSquadFilterOptions(
   agents: readonly AgentEntityRow[],
   squads: readonly SquadEntityRow[],
@@ -55,7 +61,7 @@ export function agentSquadFilterOptions(
     runtimeKinds = new Set<string>(),
     layers = new Set<string>();
   for (const agent of agents) {
-    if (!isAvailableAgentEntityRow(agent)) continue;
+    if (!isAvailableAgentEntityRow(agent) || agent.retirement !== null) continue;
     roles.add(agent.role);
     layers.add(agent.layer);
     for (const target of agent.runtimes) runtimeKinds.add(target.type);
@@ -66,6 +72,7 @@ export function agentSquadFilterOptions(
 }
 
 // 降级行(invalid/missing)是目录健康信号,过滤不应把它们藏起来——恒保留。
+// 退役分类同理只分派可用行:active 侧保留降级行,retired 侧只收带 retirement 的行。
 export function filterAgents(
   agents: readonly AgentEntityRow[],
   squads: readonly SquadEntityRow[],
@@ -77,7 +84,9 @@ export function filterAgents(
     for (const squad of squads)
       if (isAvailableSquadEntityRow(squad)) for (const id of [squad.leader, ...squad.workers]) referenced.add(id);
   return agents.filter((row) => {
-    if (!isAvailableAgentEntityRow(row)) return true;
+    if (!isAvailableAgentEntityRow(row)) return filters.lifecycle === "active";
+    const retired = row.retirement !== null;
+    if ((filters.lifecycle === "retired") !== retired) return false;
     if (!substring(query, [row.name, row.id, row.instance])) return false;
     if (filters.roles.length > 0 && !filters.roles.includes(row.role)) return false;
     if (filters.runtimeKinds.length > 0 && !row.runtimes.some((target) => filters.runtimeKinds.includes(target.type)))

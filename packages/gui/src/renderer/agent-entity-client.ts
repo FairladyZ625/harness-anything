@@ -83,6 +83,41 @@ export const agentEntityClient = {
         "saveSquad",
       ),
     ),
+  // U/D 复用 CLI 同一条 daemon 实体动作(agent-retire / agent-delete / squad-delete);
+  // 删除的 expectedVersion 是 show 结果里的声明自身 revision,调用方从 detail 拿,不由用户输入。
+  retireAgent: async (
+    repoId: string,
+    input: { readonly agentId: string; readonly reason: string; readonly successor?: string },
+  ): Promise<EntitySaveResult> =>
+    save(
+      await invoke(
+        "repo.agent.entity.retire",
+        { repoId, ...input } as { readonly repoId: string } & object,
+        "retireAgent",
+      ),
+    ),
+  deleteAgent: async (
+    repoId: string,
+    input: { readonly agentId: string; readonly reason: string; readonly expectedVersion: number },
+  ): Promise<EntitySaveResult> =>
+    save(
+      await invoke(
+        "repo.agent.entity.delete",
+        { repoId, ...input } as { readonly repoId: string } & object,
+        "deleteAgent",
+      ),
+    ),
+  deleteSquad: async (
+    repoId: string,
+    input: { readonly squadId: string; readonly reason: string; readonly expectedVersion: number },
+  ): Promise<EntitySaveResult> =>
+    save(
+      await invoke(
+        "repo.squad.entity.delete",
+        { repoId, ...input } as { readonly repoId: string } & object,
+        "deleteSquad",
+      ),
+    ),
 };
 function catalog(value: unknown, schema: string, field: string): readonly unknown[] {
   const row = entityRecord(value);

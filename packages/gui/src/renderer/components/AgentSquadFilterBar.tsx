@@ -128,7 +128,9 @@ function FilterMenu({
   }, [open]);
   const patch = (next: Partial<AgentSquadFilters>) => onChange({ ...filters, ...next });
   const options = agentSquadFilterOptions(agents, squads);
-  const available = agents.filter(isAvailableAgentEntityRow);
+  // 生命周期分类与角色 chips 都只数在用行:退役项是独立分类,不混进这些计数。
+  const available = agents.filter(isAvailableAgentEntityRow).filter((agent) => agent.retirement === null),
+    retiredCount = agents.filter(isAvailableAgentEntityRow).filter((agent) => agent.retirement !== null).length;
   const roleChips = [
     { key: "all", label: t("agentRuntime.filterAll"), count: available.length },
     ...options.roles.map((role) => ({
@@ -137,11 +139,16 @@ function FilterMenu({
       count: available.filter((agent) => agent.role === role).length,
     })),
   ];
-  // 面计数只数分面,不数搜索词:搜索框就在旁边,自己的状态自己亮。
+  // 面计数只数分面,不数搜索词:搜索框就在旁边,自己的状态自己亮。生命周期取默认值
+  // (active)不计——它与「全部」一样是无操作档。
   const facetCount =
-    filters.roles.length + filters.runtimeKinds.length + filters.layers.length + (filters.inSquadOnly ? 1 : 0);
+    filters.roles.length +
+    filters.runtimeKinds.length +
+    filters.layers.length +
+    (filters.inSquadOnly ? 1 : 0) +
+    (filters.lifecycle === "retired" ? 1 : 0);
   return (
-    <div ref={containerRef} className="relative shrink-0">
+    <div ref={containerRef} className="shrink-0">
       <button
         type="button"
         data-testid="agent-squad-filter-toggle"
@@ -166,9 +173,31 @@ function FilterMenu({
           onKeyDown={(event) => {
             if (event.key === "Escape") setOpen(false);
           }}
+          // 弹层的百分比宽度以工具栏行为基准(见 AgentSquadFilterBar 的 relative):
+          // 定位祖先若是只包按钮的窄容器,w-[272px] 会被 max-w-full 压成按钮宽,
+          // 分面按钮逐字竖排(业主 2026-10-20)。
           className="absolute right-0 top-full z-30 mt-1.5 flex w-[272px] max-w-full flex-col
             gap-2.5 rounded border border-border-strong bg-surface-raised p-2.5 shadow-lg"
         >
+          {retiredCount > 0 && (
+            <div>
+              <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.filterLifecycle")}</p>
+              <span
+                role="group"
+                aria-label={t("agentRuntime.filterLifecycle")}
+                data-testid="agent-squad-filter-lifecycle"
+              >
+                <FilterChips
+                  chips={[
+                    { key: "active", label: t("agentRuntime.filterLifecycleActive"), count: available.length },
+                    { key: "retired", label: t("agentRuntime.filterLifecycleRetired"), count: retiredCount },
+                  ]}
+                  value={filters.lifecycle}
+                  onChange={(key) => patch({ lifecycle: key })}
+                />
+              </span>
+            </div>
+          )}
           {options.roles.length > 1 && (
             <div>
               <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.filterRole")}</p>
@@ -271,10 +300,11 @@ export function AgentSquadFilterBar({
 
   return (
     // 筛选一行(标准 §2.3 统一摆法 + 紧凑 rail):搜索占剩余宽度,全部分面收进右侧
-    // 「筛选」下拉弹层;不换行、不占第二行。
+    // 「筛选」下拉弹层;不换行、不占第二行。本行是弹层的定位祖先(relative):弹层的
+    // max-w-full 以行宽为基准,右缘与行内容对齐,不会越过 rail。
     <div
       data-testid="agent-squad-filter-bar"
-      className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5"
+      className="relative flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5"
     >
       <label className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-xs border border-border bg-surface-raised px-2 focus-within:border-border-strong">
         <MagnifyingGlass weight="bold" aria-hidden className="shrink-0 text-text-faint" />

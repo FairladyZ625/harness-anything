@@ -115,6 +115,39 @@ export const entityDeclarationGuiActions = Object.freeze([
     "repo-write",
     DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
+  // The U/D of the GUI entity CRUD: named ingresses onto the same agent-retire / agent-delete /
+  // squad-delete actions the CLI uses, so retirement and deletion validation (system-bundled
+  // closure, the entity revision fence, agent_referenced) stays in the one daemon executor.
+  guiS3Action(
+    "agent.entity.retire",
+    "repo.agent.entity.retire",
+    "agent-retire",
+    shape({ agentId: "string", reason: "string", successor: "string?" }),
+    "retireAgent",
+    "/api/agents/:agentId/retire",
+    "repo-write",
+    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
+  ),
+  guiS3Action(
+    "agent.entity.delete",
+    "repo.agent.entity.delete",
+    "agent-delete",
+    shape({ agentId: "string", reason: "string", expectedVersion: "number" }),
+    "deleteAgent",
+    "/api/agents/:agentId",
+    "repo-write",
+    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
+  ),
+  guiS3Action(
+    "squad.entity.delete",
+    "repo.squad.entity.delete",
+    "squad-delete",
+    shape({ squadId: "string", reason: "string", expectedVersion: "number" }),
+    "deleteSquad",
+    "/api/squads/:squadId",
+    "repo-write",
+    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
+  ),
 ] as const);
 
 /** 任务收口的 GUI 写入 ingress:与 `ha task complete` 同一个 fleet `task-complete` 动作。放在这里

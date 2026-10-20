@@ -35,6 +35,8 @@ const agentDetail = {
   skills: [{ id: "review", path: SKILL_DIR }],
   prompts: [],
   preset: null,
+  revision: 1,
+  retirement: null,
 } as const;
 const availableSkills = [
   { id: "review", path: SKILL_DIR, source: "user" },

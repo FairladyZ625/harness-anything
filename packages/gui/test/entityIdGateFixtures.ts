@@ -267,6 +267,7 @@ export const FIXTURE_AGENT_ROW: AgentEntityRow = {
   runtimes: [{ type: "codex" }],
   role: "commander",
   layer: "user",
+  retirement: null,
 };
 export const FIXTURE_SQUAD_ROW: SquadEntityRow = {
   id: SQUAD_ID,
@@ -284,6 +285,8 @@ export const FIXTURE_AGENT_DETAIL: AgentEntityDetail = {
   skills: [],
   prompts: [],
   preset: null,
+  revision: 1,
+  retirement: null,
 };
 export const FIXTURE_SQUAD_DETAIL: SquadEntityDetail = {
   id: SQUAD_ID,
@@ -292,6 +295,7 @@ export const FIXTURE_SQUAD_DETAIL: SquadEntityDetail = {
   workers: [AGENT_ID],
   leaderTurnBudget: 8,
   roster: "g10-agent",
+  revision: 1,
 };
 
 /** 会话页 daemon 分组读面 fixture:一个 task 组,最新一轮就是探针会话。 */
