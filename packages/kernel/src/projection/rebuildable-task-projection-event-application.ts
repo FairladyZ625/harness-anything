@@ -2,6 +2,7 @@ import { projectArtifactEntityState } from "./artifact-entity-state-projection.t
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
+import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
   normalizeHistoricalPresetSnapshot,
@@ -134,11 +135,6 @@ const UPSERT_TASK_SNAPSHOT_SQL = [
 const INSERT_TASK_SNAPSHOT_SQL = [
   "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
   "VALUES (?, ?, ?, ?, ?)",
-].join(" ");
-const UPSERT_PRESET_SNAPSHOT_SQL = [
-  "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?)",
-  "ON CONFLICT(digest) DO UPDATE SET value_json=excluded.value_json",
-  "WHERE preset_snapshot.value_json=excluded.value_json",
 ].join(" ");
 
 // Canonical-event dispatcher for non-task domains and task-event handoff.
@@ -694,9 +690,8 @@ export function applyEvent(
       event.occurredAt,
     );
     refreshTaskRelationProjection(db, event.taskId, event.payload.task, event.workspaceRevision, event.occurredAt);
-    runSql(
+    upsertPresetSnapshot(
       db,
-      UPSERT_PRESET_SNAPSHOT_SQL,
       event.payload.presetSnapshotClaim.digest,
       event.workspaceRevision,
       canonicalJson(snapshot),
@@ -742,15 +737,12 @@ export function applyEvent(
     );
     runSql(db, "INSERT OR IGNORE INTO task_generation VALUES (?, 'v1')", event.taskId);
     if (
-      Number(
-        runSql(
-          db,
-          UPSERT_PRESET_SNAPSHOT_SQL,
-          event.payload.presetSnapshotClaim.digest,
-          event.workspaceRevision,
-          canonicalJson(snapshot),
-        ),
-      ) === 0
+      !upsertPresetSnapshot(
+        db,
+        event.payload.presetSnapshotClaim.digest,
+        event.workspaceRevision,
+        canonicalJson(snapshot),
+      )
     )
       throw new Error(`preset snapshot digest ${event.payload.presetSnapshotClaim.digest} names different bytes`);
     for (const claim of event.payload.initialDocumentClaims) {
