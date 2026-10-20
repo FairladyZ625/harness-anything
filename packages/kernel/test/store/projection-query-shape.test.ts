@@ -2,12 +2,15 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { compileDecisionWrite } from "../../src/index.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   createDecisionProjectionTables,
   decisionIdSortKey,
+  decisionLegacyNumber,
   listDecisionAgendaRowsPage,
   listDecisionRowsPage,
+  reduceDecisionEvent,
   readDecisionGraphRows,
   readDecisionRows,
 } from "../../src/projection/decision-event-projection.ts";
@@ -33,6 +36,7 @@ import {
   readTaskRelationsByTargets,
   readTaskStatusRows,
 } from "../../src/projection/task-query-projection.ts";
+import { proposal } from "./relation-graph-projection.fixtures.ts";
 
 test("filtered task index parses only the returned page", () => {
   const db = new DatabaseSync(":memory:");
@@ -376,62 +380,25 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
       "dec_alpha",
       "dec_10",
       "dec_2",
-      "other_plain",
+      "dec_other_plain",
     ];
-    const applies = JSON.stringify({ modules: ["kernel"], productLines: ["harness"] }),
-      proposer = JSON.stringify({ principal: { personId: "shape" }, executor: null }),
-      columns = new Set(
-        (db.prepare("PRAGMA table_info(decision)").all() as unknown as readonly { readonly name: string }[]).map(
-          ({ name }) => name,
-        ),
-      ),
-      derivedColumns = [
-        ...(columns.has("legacy_number") ? ["legacy_number"] : []),
-        ...(columns.has("decision_sort_key") ? ["decision_sort_key"] : []),
-      ],
-      insert = db.prepare(
-        `INSERT INTO decision (${[
-          "decision_id",
-          "state",
-          "title",
-          "question",
-          "risk_tier",
-          "urgency",
-          "vertical",
-          "preset",
-          "decision_class",
-          "applies_json",
-          "proposer_json",
-          "arbiter_json",
-          "proposed_at",
-          "decided_at",
-          "workspace_revision",
-          ...derivedColumns,
-        ].join(
-          ",",
-        )}) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?${derivedColumns.map(() => ", ?").join("")})`,
-      );
-    const expectedLegacyNumber = (decisionId: string): number | null => {
-      const match = /(?:^|_)E([1-9][0-9]*)(?:_|$)/u.exec(decisionId);
-      return match ? Number(match[1]) : null;
-    };
     for (const [index, decisionId] of decisionIds.entries()) {
-      const parameters: (string | number | null)[] = [
-        decisionId,
-        decisionId,
-        `Should ${decisionId} ship?`,
-        applies,
-        proposer,
-        index + 1,
-      ];
-      if (columns.has("legacy_number")) parameters.push(expectedLegacyNumber(decisionId));
-      if (columns.has("decision_sort_key")) parameters.push(decisionIdSortKey(decisionId));
-      insert.run(...parameters);
+      const event = proposal(index + 1, decisionId);
+      reduceDecisionEvent(
+        db,
+        compileDecisionWrite({
+          decisionReviewRequirement: "off",
+          event,
+          currentDecision: null,
+          currentRelations: [],
+          currentDocument: null,
+        }).event,
+      );
     }
 
     const legacyOrder = (left: string, right: string): number => {
-      const leftNumber = expectedLegacyNumber(left),
-        rightNumber = expectedLegacyNumber(right);
+      const leftNumber = decisionLegacyNumber(left),
+        rightNumber = decisionLegacyNumber(right);
       return leftNumber !== null && rightNumber !== null && leftNumber !== rightNumber
         ? leftNumber - rightNumber
         : leftNumber !== null && rightNumber === null

@@ -77,8 +77,8 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    // task_31c5fac6a36be905ec8fd10152 adds indexed decision-list pagination.
-    assert.equal(taskProjectionSchemaVersion, 36);
+    // task_091649528317e9e2fb33849b87 adds localeCompare-compatible indexed decision-list pagination.
+    assert.equal(taskProjectionSchemaVersion, 37);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),

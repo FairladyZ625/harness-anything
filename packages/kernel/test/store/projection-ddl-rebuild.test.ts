@@ -6,6 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-event.ts";
+import { listDecisionRowsPage } from "../../src/projection/decision-event-projection.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -87,8 +88,11 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
     original.close();
     const stale = new DatabaseSync(projectionPath);
     stale.exec(`DROP INDEX lease_cas_execution;
+      DROP INDEX legacy_block;
+      DROP INDEX plain_block;
       ALTER TABLE lease_cas DROP COLUMN execution_id;
       ALTER TABLE task_snapshot DROP COLUMN package_disposition;
+      ALTER TABLE decision DROP COLUMN decision_sort_key;
       UPDATE projection_meta SET schema_version = ${taskProjectionSchemaVersion - 1}`);
     stale.close();
     const projection = makeTaskProjection({ rootDir, eventStore });
@@ -171,6 +175,12 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
       assert.equal(db.prepare("SELECT package_disposition FROM task_snapshot").get()?.package_disposition, "archived");
     } finally {
       db.close();
+    }
+    const rebuiltDb = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.deepEqual(listDecisionRowsPage(rebuiltDb, { limit: 1 }).rows, []);
+    } finally {
+      rebuiltDb.close();
     }
   });
 });
