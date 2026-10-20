@@ -470,9 +470,7 @@ export class OidcSessionService {
     const authority = await this.#loginAuthority(),
       url = authority.browserUrl ?? authority.url;
     const systemTrusted = await this.#probeSystemTrust(url),
-      certificate = systemTrusted
-        ? undefined
-        : rootCaFromCertificateChain(authority.certificate ?? "", new URL(url).hostname);
+      certificate = systemTrusted ? undefined : rootCaFromCertificateChain(authority.certificate ?? "");
     if (!systemTrusted && !certificate)
       throw coded(
         "oidc_login_trust_unavailable",
@@ -996,53 +994,6 @@ export class OidcSessionService {
     this.#ports.sessionStore.write(`${JSON.stringify(session)}\n`);
   }
 }
-function clientFields(authority: OidcLoginAuthority): Record<string, string> {
-  return {
-    client_id: authority.clientId,
-    ...(authority.clientSecret ? { client_secret: authority.clientSecret } : {}),
-  };
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> {
-  const payload = token.split(".")[1];
-  if (!payload) throw coded("oidc_token_invalid", "Keycloak returned an invalid access token.");
-  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
-}
-function realmRoles(claims: Record<string, unknown>): readonly string[] {
-  const access = claims.realm_access;
-  if (!access || typeof access !== "object" || Array.isArray(access)) return [];
-  const roles = (access as Record<string, unknown>).roles;
-  return Array.isArray(roles) ? roles.filter((role): role is string => typeof role === "string") : [];
-}
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value) throw coded("oidc_response_invalid", `Keycloak omitted ${field}.`);
-  return value;
-}
-function requiredNumber(value: unknown, field: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
-    throw coded("oidc_response_invalid", `Keycloak omitted ${field}.`);
-  return value;
-}
-function unavailable(message: string, cause?: unknown): Error {
-  return Object.assign(coded("oidc_session_unavailable", message), cause === undefined ? {} : { cause });
-}
-function coded(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
-}
-
-const transientDeviceTransportCodes = new Set([
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "EHOSTUNREACH",
-  "ENETUNREACH",
-  "EPIPE",
-  "ETIMEDOUT",
-  "EAI_AGAIN",
-  "UND_ERR_SOCKET",
-  "UND_ERR_CONNECT_TIMEOUT",
-  "UND_ERR_HEADERS_TIMEOUT",
-  "UND_ERR_BODY_TIMEOUT",
-]);
 
 /**
  * The one code a transient Keycloak transport failure carries. Starting device authorization and
@@ -1050,26 +1001,7 @@ const transientDeviceTransportCodes = new Set([
  * inventing an answer. Returns whether the caught value was that failure; callers rethrow it as-is.
  */
 function tagDeviceTransportFailure(error: unknown): boolean {
-  if (!(error instanceof TypeError) || !transientDeviceTransportFailure(error)) return false;
+  if (!transientDeviceTransportFailure(error)) return false;
   (error as TypeError & { code?: string }).code = "oidc_device_transport_unavailable";
   return true;
-}
-
-function transientDeviceTransportFailure(error: unknown): boolean {
-  if (!(error instanceof TypeError)) return false;
-  let cause: unknown = error,
-    depth = 0;
-  while (cause !== undefined && depth < 4) {
-    if (
-      typeof cause === "object" &&
-      cause !== null &&
-      "code" in cause &&
-      typeof cause.code === "string" &&
-      transientDeviceTransportCodes.has(cause.code)
-    )
-      return true;
-    cause = cause instanceof Error ? cause.cause : undefined;
-    depth += 1;
-  }
-  return false;
 }

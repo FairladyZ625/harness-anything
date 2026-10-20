@@ -25,11 +25,11 @@ export function normalizeRootCaCertificate(value: string): string {
 }
 
 /** Extract the root that signs the first (listener leaf) certificate in a configured PEM chain. */
-export function rootCaFromCertificateChain(value: string, hostname: string, now = Date.now()): string | undefined {
+export function rootCaFromCertificateChain(value: string, now = Date.now()): string | undefined {
   if (value.trim() === "") return undefined;
   const certificates = certificatesIn(value),
     root = certificates.find(isSelfSignedRoot);
-  if (!root || certificates[0]!.checkHost(hostname) === undefined) return undefined;
+  if (!root) return undefined;
   let current = certificates[0]!;
   const visited = new Set<X509Certificate>();
   const validAtCurrentTime = (certificate: X509Certificate): boolean =>

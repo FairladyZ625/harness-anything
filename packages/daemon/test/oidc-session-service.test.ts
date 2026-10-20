@@ -25,7 +25,12 @@ interface TestTlsCertificate {
   readonly certificate: string;
 }
 
-function createTestTlsCertificate(root: string, name: string, isCa: boolean): TestTlsCertificate {
+function createTestTlsCertificate(
+  root: string,
+  name: string,
+  isCa: boolean,
+  commonName = "127.0.0.1",
+): TestTlsCertificate {
   const keyFile = path.join(root, `${name}.key`),
     certificateFile = path.join(root, `${name}.pem`);
   execFileSync(
@@ -41,7 +46,7 @@ function createTestTlsCertificate(root: string, name: string, isCa: boolean): Te
       "-out",
       certificateFile,
       "-subj",
-      "/CN=127.0.0.1",
+      `/CN=${commonName}`,
       "-days",
       "1",
       "-addext",
@@ -245,6 +250,16 @@ test("a private listener invitation carries its configured self-signed CA root",
     leafListener = await startTlsListener(t, leaf);
   configureListener(root, leaf, leafListener.port);
   await assert.rejects(service.interactiveAuthority(), { code: "oidc_login_trust_unavailable" });
+});
+
+test("a private IP listener invitation carries its CA when the DNS common name differs", async (t) => {
+  const { service, root } = fixture(1_000, { defaultCaCertificates: () => [] }, t),
+    certificate = createTestTlsCertificate(root, "listener", true, "listener.example.test"),
+    listener = await startTlsListener(t, certificate);
+  configureListener(root, certificate, listener.port);
+  const invitation = await service.interactiveAuthority();
+  assert.equal(invitation.url, `https://127.0.0.1:${listener.port}`);
+  assert.equal(invitation.certificate, certificate.certificate);
 });
 
 test("an unreachable login listener surfaces its connection error", async (t) => {
