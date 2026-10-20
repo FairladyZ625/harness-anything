@@ -349,6 +349,15 @@ export async function publishExit(
         binding: active.binding,
       })
       .catch((error: unknown) => {
+        // A Schedule's claim settlement is the occurrence's single-flight witness, so its terminal
+        // outcome must not become visible while the settlement can still be retried. A Fleet edge
+        // writes the two through separate center requests, so publishing the outcome here could
+        // outrun a settlement this catch swallowed. Leaving no terminal snapshot keeps the durable
+        // dispatch stream replayable: the next adoption settles the claim before publishing the
+        // outcome. A definitive center rejection (`retryable: false`) cannot progress by replaying
+        // this terminal, so it keeps the honest-failed publication and leaves the occurrence to the
+        // center's Schedule scheduler.
+        if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
         reasonCode = settlementCode;
