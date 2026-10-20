@@ -230,7 +230,9 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
           error instanceof Error &&
           "code" in error &&
           error.code === "zcode_unattended_permission_mode_unsupported" &&
-          /interactive permission client.*permissionMode.*Agent declaration/su.test(error.message),
+          /interactive permission client.*runtime that supports unattended workspace-write or read-only/su.test(
+            error.message,
+          ),
       );
       assert.equal(launchCount, 0);
       const bypass = await cell.spawnRuntime(
