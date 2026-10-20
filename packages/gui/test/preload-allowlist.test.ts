@@ -111,6 +111,22 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a" }), true);
   assert.equal(
+    assertPreloadPayload("getTaskDispatches", {
+      repoId: "repo-a",
+      taskId: "task-a",
+      advisorySurface: "gui.dispatch",
+    }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("getTaskDispatches", {
+      repoId: "repo-a",
+      taskId: "task-a",
+      advisorySurface: "agenda",
+    }),
+    true,
+  );
+  assert.equal(
     assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }),
     true,
   );
