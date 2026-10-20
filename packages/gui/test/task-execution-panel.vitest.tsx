@@ -11,9 +11,9 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
 
-const { getTaskDispatches, getAgentRuntimeEvents } = vi.hoisted(() => ({
+const { getTaskDispatches, pollSessionEventsOnce } = vi.hoisted(() => ({
   getTaskDispatches: vi.fn(),
-  getAgentRuntimeEvents: vi.fn(),
+  pollSessionEventsOnce: vi.fn(),
 }));
 
 vi.mock("../src/renderer/runtime-command-client.ts", () => ({
@@ -79,7 +79,7 @@ vi.mock("../src/renderer/api-client.ts", async (importOriginal) => {
 });
 vi.mock("../src/renderer/agent-runtime-client.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/renderer/agent-runtime-client.ts")>();
-  return { ...actual, agentRuntimeClient: { ...actual.agentRuntimeClient, events: getAgentRuntimeEvents } };
+  return { ...actual, pollSessionEventsOnce };
 });
 
 const mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
@@ -109,7 +109,7 @@ beforeEach(() => {
   vi.mocked(runtimeCommandClient.cancel).mockReset();
   vi.mocked(runtimeCommandClient.spawn).mockReset();
   getTaskDispatches.mockReset();
-  getAgentRuntimeEvents.mockReset();
+  pollSessionEventsOnce.mockReset();
 });
 
 afterEach(async () => {
@@ -149,7 +149,13 @@ describe("TaskExecutionPanel", () => {
         dispatch({ dispatchId: "dispatch-run", attemptIndex: 1, agentName: "GLM W3", status: "running" }),
       ]),
     );
-    getAgentRuntimeEvents.mockResolvedValue(eventsRead("2026-08-23T10:30:00.000Z"));
+    pollSessionEventsOnce.mockResolvedValue(eventsRead("2026-08-23T10:30:00.000Z"));
+    vi.mocked(runtimeCommandClient.spawn).mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: true,
+      outcome: "applied",
+      opId: "op-0",
+    });
     const container = await mountPanel();
     await vi.waitFor(() => expect(byTestId(container, "task-execution-plan-step-dispatch-f1")).toBeTruthy());
     expect(container.textContent).toContain("第 1 轮 · Codex W1");
@@ -167,7 +173,7 @@ describe("TaskExecutionPanel", () => {
   it("steers the running session through the runtime channel and absorbs the note when the session advances", async () => {
     getTaskDispatches.mockResolvedValue(dispatchRead([dispatch({ agentName: "GLM W3" })]));
     // 会话在 steer 送达之后又推进了一条生命周期事件 → 纸条吸收。
-    getAgentRuntimeEvents.mockResolvedValue(eventsRead("2099-01-01T00:00:00.000Z"));
+    pollSessionEventsOnce.mockResolvedValue(eventsRead("2099-01-01T00:00:00.000Z"));
     vi.mocked(runtimeCommandClient.steer).mockResolvedValue({
       schema: "command-receipt/v2",
       ok: true,
@@ -200,7 +206,7 @@ describe("TaskExecutionPanel", () => {
 
   it("keeps the note queued with the real error when the steer write fails — no fake receipt", async () => {
     getTaskDispatches.mockResolvedValue(dispatchRead([dispatch({ agentName: "GLM W3" })]));
-    getAgentRuntimeEvents.mockResolvedValue(eventsRead("2099-01-01T00:00:00.000Z"));
+    pollSessionEventsOnce.mockResolvedValue(eventsRead("2099-01-01T00:00:00.000Z"));
     vi.mocked(runtimeCommandClient.steer).mockRejectedValue(
       new Error("runtime_steer_unsupported: zhipu-a2a does not support runtime steering."),
     );
@@ -221,7 +227,7 @@ describe("TaskExecutionPanel", () => {
 
   it("interrupts through the cancel channel of the runtime client", async () => {
     getTaskDispatches.mockResolvedValue(dispatchRead([dispatch({ agentName: "GLM W3" })]));
-    getAgentRuntimeEvents.mockResolvedValue(eventsRead("2026-08-23T10:30:00.000Z"));
+    pollSessionEventsOnce.mockResolvedValue(eventsRead("2026-08-23T10:30:00.000Z"));
     vi.mocked(runtimeCommandClient.cancel).mockResolvedValue({
       schema: "command-receipt/v2",
       ok: true,

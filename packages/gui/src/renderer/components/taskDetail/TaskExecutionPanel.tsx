@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AgentPlan, type PlanStep, type PlanStepStatus } from "../agent-ui/AgentPlan.tsx";
 import { AgentSteering, type SteerNote } from "../agent-ui/AgentSteering.tsx";
-import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
+import { pollSessionEventsOnce, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import { resumeRuntimeSpawnInput } from "../../runtime-control.ts";
 import { dispatchRole } from "../../model/lineage-tree.ts";
 import { harnessClient } from "../../api-client.ts";
-import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import type { TaskRow } from "../../model/types.ts";
 import type { TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
@@ -72,10 +71,12 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
   );
   const runningRow = useMemo(() => [...rows].reverse().find((row) => row.status === "running") ?? null, [rows]);
 
-  // 运行中会话的生命周期事件(与派工链同键同函数,共享缓存):纸条吸收判据。
+  // 运行中会话的生命周期事件:走 W1-T1 的增量同步唯一入口(共享 runtime-session-events
+  // 缓存与游标),纸条吸收判据只看合并后的事件时间线。
+  const queryClient = useQueryClient();
   const events = useQuery({
-    queryKey: ["task-detail", task.projectId, runningRow?.runtimeSessionId ?? "none", "events", "lifecycle:0"],
-    queryFn: () => agentRuntimeClient.events(task.projectId, runningRow!.runtimeSessionId),
+    queryKey: runtimeQueryKeys.events(task.projectId, runningRow?.runtimeSessionId ?? "none"),
+    queryFn: () => pollSessionEventsOnce(queryClient, task.projectId, runningRow!.runtimeSessionId),
     enabled: runningRow !== null,
     staleTime: 4_000,
     refetchInterval: runningRow !== null ? 4_000 : false,
@@ -119,21 +120,19 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
   async function runOperation(labelOk: string, operation: () => Promise<unknown>) {
     setBusy(true);
     setFeedback(null);
-    try {
-      await operation();
-      setFeedback({ ok: true, text: labelOk });
-    } catch (error) {
-      // 失败不吞:原文进 feedback 行展示给操作者,这里显式声明消费完成。
-      consumeKnownError(error);
-      setFeedback({
-        ok: false,
-        text: t("views.execution.opFailed", {
-          message: error instanceof Error ? error.message : String(error),
+    // 双回调显式把失败投影成 error feedback:不回退成成功、不吞异常,也不新增 catch 兜底点
+    // (no-swallowed-failure 只认「显式失败投影」与 rethrow 两种写法)。
+    await operation().then(
+      () => setFeedback({ ok: true, text: labelOk }),
+      (error: unknown) =>
+        setFeedback({
+          ok: false,
+          text: t("views.execution.opFailed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
         }),
-      });
-    } finally {
-      setBusy(false);
-    }
+    );
+    setBusy(false);
   }
 
   const enqueue = (text: string) => {

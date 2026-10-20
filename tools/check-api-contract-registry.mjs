@@ -78,8 +78,18 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
       violations.push(`${registryPath}: retired GUI/API capability authority must not feed the W3 daemon protocol`);
     }
   }
-  if (runtimeActions?.includes('"repo.agentRuntime.steer"'))
-    violations.push(`${runtimeActionsPath}: runtime steer must not expand the GUI action or preload surface`);
+  if (runtimeActions) {
+    // W3-T1(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4)恢复 steer 的 GUI facet:AgentSteering
+    // 的运行中追加指令必须走统一 runtime 写通道。这里把 2026-10-14 的「steer 不进 GUI 面」
+    // 反转为「恰好一个 steer facet + 对应 bridge method」,防止重复注册或无回执的平行通道。
+    const steerGuiFacets = [...runtimeActions.matchAll(/guiS3Action\(\s*"agentRuntime\.steer"/gu)].length;
+    if (steerGuiFacets !== 1)
+      violations.push(
+        `${runtimeActionsPath}: runtime steer must be registered exactly once as a GUI facet; found ${steerGuiFacets}`,
+      );
+    if (steerGuiFacets === 1 && !runtimeActions.includes('"steerAgentRuntime"'))
+      violations.push(`${runtimeActionsPath}: runtime steer GUI facet must carry the steerAgentRuntime bridge method`);
+  }
   if (registry) {
     const steerEntries = [...registry.matchAll(/method:\s*"repo\.agentRuntime\.steer"/gu)].length;
     if (steerEntries !== 1)
