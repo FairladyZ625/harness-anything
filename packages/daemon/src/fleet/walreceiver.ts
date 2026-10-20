@@ -4,7 +4,6 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
-  consumeKnownError,
   makeTaskEventReader,
   makeTaskProjection,
   openReplicaStore,
@@ -128,15 +127,15 @@ export async function runWalReceiver(input: {
     const observed = error as { readonly code?: unknown; readonly message?: unknown } | null;
     const code = typeof observed?.code === "string" ? observed.code : "replica_apply_failed",
       message = (error instanceof Error ? error.message : String(error)).slice(0, 512);
-    await peer.send({ type: "replica.failure", code, message }).catch(() => undefined);
+    await peer.send({ type: "replica.failure", code, message });
     // The sender may still be writing the rest of its bounded page. Drain without applying until
     // it reads this failure and closes the session, so the report is not lost behind that page.
     for (;;) {
       try {
         await peer.receive(signal);
-      } catch (error) {
-        consumeKnownError(error);
-        return;
+      } catch (drainError) {
+        if (signal.aborted) throw drainError;
+        throw error;
       }
     }
   };
