@@ -830,6 +830,21 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
     await eventLoopTurn();
     await eventLoopTurn();
     assert.equal(drainObserved, false, "the delayed queued status keeps supersession resident");
+    for (let index = 0; index < 8; index += 1) {
+      const deferredWrite = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.task.create",
+        {
+          repo: { repoId },
+          payload: { taskId: `task-during-drain-${index}`, title: "Must wait for the successor" },
+        },
+        2_000,
+        5_000,
+        undefined,
+        true,
+      );
+      assert.equal(deferredWrite.code, "daemon_stopping", "new writes must not extend a superseded daemon's queue");
+    }
     queuedStatusHeld = false;
     publishDrainedStatus!();
     await waitUntil(() => drainObserved);
