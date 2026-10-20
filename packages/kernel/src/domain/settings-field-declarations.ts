@@ -129,6 +129,12 @@ export interface SettingsFieldPresentation {
 }
 
 export const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
+/**
+ * One review.pathReviewers entry: `<agent-id> <repository path>`. The path is repo-relative
+ * (no leading separator, no traversal segments), and a trailing separator marks a directory
+ * whose whole subtree matches; any other path matches that exact file.
+ */
+export const reviewPathReviewerEntryPattern = "^[a-z0-9][a-z0-9-]{0,62} [A-Za-z0-9.][A-Za-z0-9._/-]*$";
 export const settingsLocales = ["en-US", "zh-CN"] as const;
 export type SettingsLocale = (typeof settingsLocales)[number];
 export const reviewIndependenceLevels = ["execution", "principal"] as const;
@@ -278,6 +284,27 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "review-closeout",
     action: { field: "decisionReviewRequirement", type: "string" },
     cli: { name: "--decision-review-requirement", kind: "single", enum: decisionReviewRequirementLevels },
+  }),
+  defineSettingsField({
+    path: ["review", "pathReviewers"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: Object.freeze([] as readonly string[]),
+    pattern: reviewPathReviewerEntryPattern,
+    forbiddenPattern: "\\.\\.|\\./|//",
+    uniqueItems: true,
+    description: "Reviewers dispatched beside the cut review when its file manifest touches a configured path.",
+    effect: "`<agent> <path>` per entry; trailing / covers a directory, otherwise one file. No entry means no lane.",
+    group: "review-closeout",
+    action: { field: "reviewPathReviewers", type: "string-array" },
+    cli: {
+      name: "--path-reviewer",
+      kind: "repeated",
+      regex: `^(?:none|${reviewPathReviewerEntryPattern.slice(1, -1)})$`,
+      format: "<agent-id> <repository path; a trailing / covers the directory>, or none to clear",
+    },
+    noneMeansEmpty: true,
+    yamlStyle: "block-list",
   }),
   defineSettingsField({
     path: ["reviewReturnBudget"],

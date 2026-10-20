@@ -1,0 +1,142 @@
+// harness-test-tier: fast
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { ExecutionV1, SubmissionV1 } from "@harness-anything/kernel";
+import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "../src/review-path-lanes.ts";
+import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
+
+const submission = (deliverables: readonly string[], deleted: readonly string[] = []): SubmissionV1 =>
+  ({
+    completionClaim: "claim",
+    deliverables,
+    outputs: deleted.map((target) => `Deleted-Production-Paths: ${target}`),
+    verificationNotes: [],
+    knownGaps: [],
+    residualRisks: [],
+    commitSha: "0".repeat(40),
+    completionContract: {},
+  }) as unknown as SubmissionV1;
+
+test("settings entries group into one lane per agent, splitting directory prefixes from exact files", () => {
+  assert.deepEqual(
+    reviewPathLanes([
+      "data-migration packages/kernel/src/domain/",
+      "data-migration packages/kernel/src/store/",
+      "data-migration tools/gates/canonical-event-compat.mjs",
+      "gui-reviewer packages/gui/src/",
+      "data-migration packages/kernel/src/domain/",
+      "malformed-entry-without-a-space",
+      "x ",
+      " ",
+    ]),
+    [
+      {
+        agentId: "data-migration",
+        prefixes: ["packages/kernel/src/domain/", "packages/kernel/src/store/"],
+        files: ["tools/gates/canonical-event-compat.mjs"],
+      },
+      { agentId: "gui-reviewer", prefixes: ["packages/gui/src/"], files: [] },
+    ],
+  );
+  assert.deepEqual(reviewPathLanes([]), []);
+  assert.deepEqual(reviewPathLanes(undefined), []);
+});
+
+test("a cut hits a lane through its frozen deliverables or its deleted production paths", () => {
+  const lanes = reviewPathLanes([
+    "data-migration packages/kernel/src/domain/",
+    "data-migration tools/gates/canonical-event-compat.mjs",
+    "gui-reviewer packages/gui/src/",
+  ]);
+  const hits = reviewLaneHits(
+    submission(
+      ["packages/kernel/src/domain/settings.ts", "packages/gui/src/App.tsx", "README.md"],
+      ["packages/kernel/src/domain/retired.ts"],
+    ),
+    lanes,
+  );
+  assert.deepEqual(
+    [...hits],
+    [
+      ["data-migration", ["packages/kernel/src/domain/retired.ts", "packages/kernel/src/domain/settings.ts"]],
+      ["gui-reviewer", ["packages/gui/src/App.tsx"]],
+    ],
+  );
+});
+
+test("matching stays path-exact: a near-miss file or a sibling directory never fires", () => {
+  const lanes = reviewPathLanes([
+    "data-migration packages/kernel/src/domain/",
+    "data-migration tools/gates/canonical-event-compat.mjs",
+  ]);
+  assert.equal(
+    reviewLaneHits(
+      submission([
+        "packages/kernel/src/domains/settings.ts",
+        "packages/kernel/src/domain",
+        "tools/gates/canonical-event-compat.test.mjs",
+      ]),
+      lanes,
+    ).size,
+    0,
+  );
+});
+
+test("an empty configuration or an empty cut reports no lanes: the mechanism is off by default", () => {
+  assert.equal(reviewLaneHits(submission(["packages/kernel/src/domain/settings.ts"]), []).size, 0);
+  assert.equal(
+    reviewLaneHits(
+      submission(["packages/kernel/src/domain/settings.ts"]),
+      reviewPathLanes(["data-migration packages/kernel/src/domain/"]),
+    ).size,
+    1,
+  );
+  assert.equal(
+    reviewLaneHits(
+      submission(["packages/kernel/src/domain/settings.ts"]),
+      reviewPathLanes(["data-migration packages/kernel/src/schemas/"]),
+    ).size,
+    0,
+  );
+  assert.equal(reviewLaneHits(null, reviewPathLanes(["data-migration packages/kernel/src/domain/"])).size, 0);
+});
+
+test("the lane keys off the same cut with the agent as its own segment", () => {
+  const execution = {
+    executionId: "execution-path-lane",
+    iteration: 2,
+    submission: submission(["packages/kernel/src/domain/settings.ts"]),
+  } as unknown as ExecutionV1;
+  const key = reviewLaneDispatchKey("data-migration", "task-path-lane", execution);
+  assert.match(key, /^task-review-lane:data-migration:task-path-lane:execution-path-lane:2:sha256:[0-9a-f]{64}$/u);
+  assert.notEqual(key, reviewDispatchKey("task-path-lane", execution));
+  assert.notEqual(key, reviewLaneDispatchKey("gui-reviewer", "task-path-lane", execution));
+});
+
+test("the lane prompt fixes the routing evidence and the registration identity, not the role contract", () => {
+  const execution = {
+      executionId: "execution-path-prompt",
+      iteration: 1,
+      submission: submission(["packages/kernel/src/domain/settings.ts"]),
+    } as unknown as ExecutionV1,
+    hits = reviewLaneHits(execution.submission, reviewPathLanes(["data-migration packages/kernel/src/domain/"])).get(
+      "data-migration",
+    )!,
+    prompt = reviewLanePrompt({
+      agentId: "data-migration",
+      taskId: "task-path-prompt",
+      packagePath: "tasks/task-path-prompt-pkg",
+      dispatchId: "dispatch_prompt01",
+      execution,
+      hits,
+    });
+  assert.match(prompt, /additional review lane for agent data-migration/u);
+  assert.ok(prompt.includes("- packages/kernel/src/domain/settings.ts"), prompt);
+  assert.ok(prompt.includes("Your own Agent declaration defines this lane's review focus"), prompt);
+  assert.ok(
+    prompt.includes("--review-id review-dispatch_prompt01") &&
+      prompt.includes("--from-file harness/tasks/task-path-prompt-pkg/artifacts/reports/dispatch_prompt01.json"),
+    "registration identity is fixed by the dispatch",
+  );
+  assert.ok(!prompt.includes("attach-migrations.ts"), "the shared prompt must not hardcode one lane's contract");
+});

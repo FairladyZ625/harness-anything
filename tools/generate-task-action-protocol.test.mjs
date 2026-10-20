@@ -65,6 +65,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "workerPermissionsMode",
       "reviewIndependence",
       "decisionReviewRequirement",
+      "reviewPathReviewers",
       "reviewReturnBudget",
       "decisionsProvider",
       "decisionsEnabledPoints",
