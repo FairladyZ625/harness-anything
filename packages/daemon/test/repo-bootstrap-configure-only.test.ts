@@ -26,13 +26,18 @@ const writer = { workspaceId: repoId, ownerId: "configure-only-test", generation
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
-function init(rootDir: string, configureOnly: boolean): RepoBootstrapReceipt {
+function init(
+  rootDir: string,
+  configureOnly: boolean,
+  extra: Partial<RepoBootstrapRequest> = {},
+): RepoBootstrapReceipt {
   const request: RepoBootstrapRequest = {
     rootDir,
     repoId,
     personId: "owner",
     displayName: "Owner",
     ...(configureOnly ? { configureOnly: true } : {}),
+    ...extra,
   };
   return bootstrapRepo(resolveRepoBootstrap(request, auth), writer, bindWriterGenerationToken(writer));
 }
@@ -80,6 +85,44 @@ test("init --configure-only refuses a workspace that was never initialized", () 
       () => init(rootDir, true),
       (error: Error & { code?: string }) => error.code === "workspace_not_initialized",
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("init --name on an initialized workspace rewrites only the top-level name and preserves every other document", () => {
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-init-rename-")));
+  try {
+    git(rootDir, "init", "-q");
+    assert.equal(init(rootDir, false).publication.ok, true);
+    const ledgerRoot = path.join(rootDir, "harness"),
+      before = git(ledgerRoot, "rev-parse", "HEAD"),
+      beforeBody = readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8");
+    const renamed = init(rootDir, false, { name: "harness-anything" });
+    assert.equal(renamed.outcome, "applied", JSON.stringify(renamed));
+    assert.deepEqual(renamed.updated, ["harness/harness.yaml#name"]);
+    assert.deepEqual([renamed.created, renamed.drifted], [[], []], "the rename must not create or orphan documents");
+    assert.ok(renamed.preserved.length > 0, "the remaining scaffold documents must be listed as preserved");
+    assert.equal(renamed.preserved.includes("harness/harness.yaml"), false);
+    assert.deepEqual(renamed.publication.changedPaths, ["harness/harness.yaml"]);
+    assert.ok(renamed.commit);
+    const afterBody = readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8");
+    assert.match(afterBody, /^name: "harness-anything"$/mu);
+    assert.equal(
+      afterBody,
+      beforeBody.replace(/^name:[^\r\n]*$/mu, 'name: "harness-anything"'),
+      "the rename entry rewrites exactly the top-level name line",
+    );
+    assert.deepEqual(
+      git(ledgerRoot, "diff", "--name-only", `${before}..HEAD`).split("\n").filter(Boolean),
+      ["harness.yaml"],
+      "the rename commit touches the identity document alone",
+    );
+    const head = git(ledgerRoot, "rev-parse", "HEAD");
+    const repeat = init(rootDir, false, { name: "harness-anything" });
+    assert.equal(repeat.outcome, "noop", JSON.stringify(repeat));
+    assert.deepEqual([repeat.created, repeat.updated, repeat.drifted], [[], [], []]);
+    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), head, "an equal-name rerun writes nothing");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
