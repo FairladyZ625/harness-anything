@@ -90,14 +90,13 @@ describe("Task detail expression", () => {
     expect(title.nextElementSibling?.className).toContain("shrink-0");
     // 会话组入口随头部重排仍可寻址(原在 tab 行尾部)。
     expect(byTestId("task-open-sessions").closest("header")).toBe(header);
-    // 三行化(chrome S4):标题并入面包屑行(行1),页签并入阶段+数字行(行3);
+    // 三行化(chrome S4):标题并入面包屑行(行1),页签并入子任务分段+数字行(行3);
     // EngineBadge 已退役,engine 值只留在「身份」折叠的 LIFECYCLE/STATUS 条目里。
     const firstRow = header.firstElementChild as HTMLElement;
     expect(firstRow.querySelector("h1")).toBe(header.querySelector("h1"));
     expect(firstRow.textContent).toContain("Harness");
-    expect(
-      byTestId("task-detail-tabs").parentElement?.querySelector('[data-testid="task-detail-phase"]'),
-    ).not.toBeNull();
+    // 静态阶段步进条已删(W3-T1):执行阶段的实时步骤列表在派工页签的执行与干预面板。
+    expect(header.querySelector('[data-testid="task-detail-phase"]')).toBeNull();
     expect(byTestId("task-identity-strip").textContent).toContain("kernel/task-lifecycle/v1");
     expect(byTestId("task-document-tree").textContent).toContain("artifacts");
     expect(byTestId("task-overview-tab").textContent).toContain("Canonical plan body");
@@ -130,7 +129,8 @@ describe("Task detail expression", () => {
 
     await clickTab("关系");
     expect(byTestId("task-relations-tab").textContent).toContain("PLT GUI UX");
-    expect(byTestId("task-relations-tab").textContent).toContain("runtime-w3");
+    // 血缘树(W3-T1)替换旧平铺:派工轮以执行者身份出现在树上,不再平铺 session id。
+    expect(byTestId("task-relations-tab").textContent).toContain("Codex Worker");
     await clickTab("收口");
     expect(bridge.getTaskCompletion).toHaveBeenCalledTimes(1);
     expect(bridge.getTaskCompletion).toHaveBeenCalledWith({ repoId: "repo-a", taskId: "task-w3" });
@@ -238,10 +238,8 @@ describe("Task detail expression", () => {
       expect(cluster.className).toContain("flex-wrap");
       expect(cluster.className).toContain("min-w-0");
       expect(cluster.className).not.toContain("shrink-0");
-      // 阶段步进条的最小宽由内容决定,不再写死 240px。
-      const phase = header.querySelector('[data-testid="task-detail-phase"]')!;
-      expect(phase.className).toContain("min-w-0");
-      expect(phase.className).not.toMatch(/min-w-\[\d+px\]/u);
+      // 阶段步进条已删(W3-T1):头部不再渲染静态步骤分支,阶段实时呈现归派工页签。
+      expect(header.querySelector('[data-testid="task-detail-phase"]')).toBeNull();
     } finally {
       setDetailOpenTerminal(undefined);
     }

@@ -58,6 +58,7 @@ import previewDrawerSingle from "./scenarios/preview-drawer-single.mjs";
 import overlayGlass from "./scenarios/overlay-glass.mjs";
 import redesignMyAsks from "./scenarios/redesign-my-asks.mjs";
 import redesignToday from "./scenarios/redesign-today.mjs";
+import workLineageTaskExecution from "./scenarios/work-lineage-task-execution.mjs";
 
 export const catalog = [
   taskReturnChoice,
@@ -120,6 +121,7 @@ export const catalog = [
   tokenUsageCosts,
   graphSpotlightCards,
   redesignToday,
+  workLineageTaskExecution,
 ];
 
 export function selectScenarios({ lane, ids }) {

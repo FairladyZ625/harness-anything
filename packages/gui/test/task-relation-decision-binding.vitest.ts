@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskRelationsTab } from "../src/renderer/components/taskDetail/TaskRelationsTab.tsx";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
@@ -102,5 +103,51 @@ describe("task relation decision binding", () => {
     expect(decisionGroup?.textContent).toContain("dec-bound");
     expect(decisionGroup?.textContent).toContain("in_effect");
     await act(async () => root.unmount());
+  });
+
+  it("renders the relations Section title and note from en-US i18n", async () => {
+    vi.stubGlobal("window", {
+      harness: {
+        getRelationGraph: vi.fn(async () => ({
+          ok: true,
+          page: { limit: 500, cursor: null, nextCursor: null },
+          edges: [],
+          coverageRows: [],
+          factAnchors: [],
+          facts: [],
+          cursor: null,
+          sourceCursor: null,
+          done: true,
+        })),
+        getAgentRuntimeOverview: vi.fn(async () => ({ ok: true, sessions: [] })),
+      },
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    setActiveLocale("en-US");
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client },
+            createElement(TaskRelationsTab, { task, onOpenSession: () => undefined }),
+          ),
+        );
+      });
+      // B1: 外层 Section 的 title/note 不再内嵌自然语言——en-US 下整个 Section 头行
+      // 只有英文文案，标题与 note 都来自 views.taskDetailView.relationsTitle/relationsNote。
+      const sectionHeader = container.querySelector("h2")?.parentElement;
+      expect(sectionHeader?.textContent).toContain("Task relations");
+      expect(sectionHeader?.textContent).toContain("Jumpable index of the lineage and cost tree");
+      expect(sectionHeader?.textContent ?? "").not.toMatch(/[\u4e00-\u9fff]/u);
+    } finally {
+      setActiveLocale("zh-CN");
+      await act(async () => root.unmount());
+    }
   });
 });

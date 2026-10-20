@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { LayoutGroup, motion } from "motion/react";
 import { ChatCircleDots, X } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
@@ -59,6 +59,8 @@ export function AgentSteering({
 }) {
   const [draft, setDraft] = useState("");
   const [targetStepId, setTargetStepId] = useState<string>("");
+  // useId 而非写死字面量:同页多实例(多任务面板)不会互相抢 label 关联(CEO 派工单 #7)。
+  const inputId = useId();
   const queued = notes.filter((note) => note.state === "queued");
 
   const submit = (event: FormEvent) => {
@@ -72,12 +74,12 @@ export function AgentSteering({
   const body = (
     <div data-testid={testId} className="flex min-w-0 flex-col gap-2">
       <form onSubmit={submit} className="flex min-w-0 flex-col gap-1.5">
-        <label className="font-semibold ui-meta" htmlFor={testId !== undefined ? `${testId}-input` : "steer-input"}>
+        <label className="font-semibold ui-meta" htmlFor={inputId}>
           {t("agentUi.steer.titleLabel")}
         </label>
         <div className="flex min-w-0 items-start gap-1.5">
           <textarea
-            id={testId !== undefined ? `${testId}-input` : "steer-input"}
+            id={inputId}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             disabled={!running}

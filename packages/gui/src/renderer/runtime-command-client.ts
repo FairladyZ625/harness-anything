@@ -30,6 +30,19 @@ export const runtimeCommandClient = {
         "cancelAgentRuntime",
       ),
     ),
+  // Steering write (runtime-steer): the daemon interrupts the live provider session at a safe
+  // point and continues it with the appended prompt; the receipt is the only success signal.
+  steer: async (
+    repoId: string,
+    input: { readonly runtimeSessionId?: string; readonly dispatchId?: string; readonly prompt: string },
+  ): Promise<unknown> =>
+    action(
+      await invoke(
+        "repo.agentRuntime.steer",
+        { repoId, ...input } as { readonly repoId: string } & object,
+        "steerAgentRuntime",
+      ),
+    ),
   showReceipt: async (repoId: string, opId: string): Promise<unknown> =>
     action(await invoke("repo.receipt.show", { repoId, opId } as { readonly repoId: string } & object, "showReceipt")),
 };
