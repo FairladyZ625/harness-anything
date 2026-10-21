@@ -1,10 +1,10 @@
 # Hosted Git credentials
 
-Task branch publishing and pull request creation go through the daemon.
-Workers read CI checks directly with their hosting-platform CLI and their own
-platform credentials. The daemon credential is a GitHub or GitLab token the
-machine's operator configures once per runtime instance. This page is the
-operator setup; the worker-facing commands are described in
+Task branch publishing, pull request creation, and CI reading go through the
+daemon. The daemon credential is a GitHub or GitLab token the machine's
+operator configures once per runtime instance; runtime processes never receive
+it. This page is the operator setup; the worker-facing commands are described
+in
 [Task branch publishing and direct-push protection](operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
 
 ## What the credential powers
@@ -88,10 +88,12 @@ references it.
 GitHub and GitLab task delivery are supported. GitHub tokens need repository
 contents write access for pushes; GitLab tokens need `write_repository` for
 pushes. The daemon resolves the provider-specific reference and supplies the
-token only to its own git/API operation. Workers wait for checks with
+token only to its own git/API operation. Workers and reviewers read checks with
 `ha task pr <task-id> --wait-ci`, which reads through the daemon-held
-credential; inspecting a failure with `gh run view --log-failed` uses the
-worker's own platform CLI session. Provider selection is inferred from
+credential and returns the head it judged; inspecting a failure with
+`gh run view --log-failed` needs the worker's own platform CLI session, and a
+runtime without one reads the failing job from the check URL instead. Provider
+selection is inferred from
 `origin`; declare `hosting.provider` and `hosting.host` in repository settings
 for an unrecognized or self-hosted GitLab host. GitLab CI uses REST API v4 and
 does not require `glab` for daemon-managed publishing (see [Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)).
