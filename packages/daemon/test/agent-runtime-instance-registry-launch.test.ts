@@ -116,7 +116,7 @@ test("runtime installation discovery projects each provider's detected model cat
     );
     writeProviderExecutable(
       path.join(bin, "claude"),
-      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("claude-test"); else if (args[0] === "--help") console.log("aliases 'fable', 'sonnet', and 'opus'");\n`,
+      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("2.1.305 (Claude Code)"); else if (args[0] === "--help") console.log("aliases 'fable', 'sonnet', and 'opus'");\n`,
     );
     writeProviderExecutable(
       path.join(bin, "zcode"),
@@ -142,6 +142,35 @@ test("runtime installation discovery projects each provider's detected model cat
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A below-floor build cannot honor the launch contract, so discovery keeps its witness —
+// the operator still sees which build is installed — but advertises no model catalog that
+// would invite configuring it. The same stub at the floor yields the aliases.
+test("discovery keeps a below-floor Claude witness but advertises no model catalog for it", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-floor-discovery-")),
+    stub = (version: string, target: string): void =>
+      writeProviderExecutable(
+        target,
+        `const args = process.argv.slice(2); if (args[0] === "--version") console.log(${JSON.stringify(version)}); else if (args[0] === "--help") console.log("aliases 'fable', 'sonnet', and 'opus'");\n`,
+      );
+  try {
+    const discoverAt = async (version: string) => {
+      const directory = path.join(parent, version.replaceAll(/[^\d]/gu, "-"));
+      mkdirSync(directory, { recursive: true });
+      stub(version, path.join(directory, "claude"));
+      const rows = await discoverRuntimeInstallations({ env: { PATH: directory } });
+      return rows.find((row) => row.kindId === "claude");
+    };
+    const below = await discoverAt("2.1.268 (Claude Code)"),
+      atFloor = await discoverAt("2.1.280 (Claude Code)");
+    assert.equal(below?.version, "2.1.268 (Claude Code)");
+    assert.equal(below?.models, undefined);
+    assert.equal(below?.defaultModel, undefined);
+    assert.deepEqual(atFloor?.models, ["fable", "sonnet", "opus"]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 
@@ -433,7 +462,9 @@ test("runtime kinds receive prompt-injected skills without native discovery moun
       installationId: `${kindId}-skills`,
       kindId,
       executablePath: `/opt/runtime-test/${kindId}`,
-      version: "1.0.0",
+      // The shared fixture version belongs to Codex; Claude must witness a build its own
+      // launch contract accepts, or this skills claim is refused at the version floor.
+      version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
       observedAt: "2026-08-20T00:00:00.000Z",
     }));
   try {
@@ -528,6 +559,7 @@ test("subscription launch fails closed without provider-native readiness and nev
       installationId: "claude-installation-test",
       kindId: "claude",
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     let ready = false,

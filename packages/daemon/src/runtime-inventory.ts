@@ -119,6 +119,10 @@ export const runtimeKinds = [
       authFile: ".credentials.json",
       modelProbe: ["--help"],
       modelProbeFormat: "aliases-from-help",
+      // Model aliases resolve inside the CLI, not here: a build older than this floor maps
+      // the launch model to an id this catalog no longer selects. Which builds can honor the
+      // launch contract is a precondition of it, so it is catalog data alongside the args.
+      minimumVersion: "2.1.280",
     },
     declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
     configuration: {

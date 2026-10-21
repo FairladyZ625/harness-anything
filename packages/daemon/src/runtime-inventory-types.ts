@@ -22,6 +22,11 @@ export interface RuntimeProviderDeclaration {
     /** null means the provider exposes no model catalog; discovery leaves catalog fields unavailable. */
     readonly modelProbe: readonly string[] | null;
     readonly modelProbeFormat: "aliases-from-help" | "json-models" | "json-families" | "tabular-models";
+    /** The oldest CLI build this kind's launch contract is valid against. Absent means the
+     *  provider declares no floor. A witnessed build below it cannot be probed ready or
+     *  launched: the model tokens and flags this catalog sends are only re-validated by the
+     *  provider after it spawns, where the failure is already too late to route around. */
+    readonly minimumVersion?: string;
   };
   readonly declaredCapabilities: RuntimeInstallation["effectiveCapabilities"];
   readonly configuration: {

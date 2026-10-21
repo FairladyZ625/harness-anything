@@ -17,8 +17,8 @@
   },
   "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance": {
    "task": "task_1103403e13bb17aa06cc3ebb10",
-   "errors": "runtime_instance_disabled, runtime_instance_not_found, runtime_installation_not_found, runtime_credential_unavailable, runtime_subscription_required, runtime_auth_in_progress, runtime_auth_probe_failed, invalid_runtime_model",
-   "reason": "Only automatic declaration selection consumes named pre-launch unavailability to try the next local candidate. Installation and login state can change after configuration writes; explicit instance and resume requests preserve the original error. Owner iteration-4 inventory authorization, 2026-10-09.",
+   "errors": "runtime_instance_disabled, runtime_instance_not_found, runtime_installation_not_found, runtime_credential_unavailable, runtime_subscription_required, runtime_auth_in_progress, runtime_auth_probe_failed, invalid_runtime_model, minimum_version_not_met",
+   "reason": "Only automatic declaration selection consumes named pre-launch unavailability to try the next local candidate. Installation and login state can change after configuration writes; explicit instance and resume requests preserve the original error. A witnessed CLI build below the kind's declared executable.minimumVersion is the same class of pre-launch unavailability (task_ded68aa1e75fbbd43f1bec213e): one node can host several installations of a kind, so automatic selection may try the next candidate while an explicit instance pin or resume keeps the refusal. Owner iteration-4 inventory authorization, 2026-10-09.",
   "packages/daemon/src/agent-declaration-migration.ts#readRuntimeInstanceViews": {
    "task": "task_9cc5c52b4f0fc7ef8fd82401ac",
    "decision": null,

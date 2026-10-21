@@ -21,6 +21,7 @@ test("permission defaults open and tightens through the instance record or a sin
       installationId: "claude-permission",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     const store = openRuntimeInstanceStore({

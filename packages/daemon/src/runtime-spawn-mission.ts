@@ -334,6 +334,9 @@ export async function prepareRuntimeInstance<T>(
           "runtime_auth_in_progress",
           "runtime_auth_probe_failed",
           "invalid_runtime_model",
+          // A machine can host several installations of one kind; an old build is a
+          // per-installation unavailability, so automatic selection may try the next one.
+          "minimum_version_not_met",
         ].includes(code)
       )
         throw error;

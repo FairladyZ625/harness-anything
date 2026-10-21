@@ -5,6 +5,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { runtimeKindForId, runtimeKinds, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
+import { runtimeVersionGate } from "./runtime-version.ts";
 
 export const runtimeModelCatalogCache = new Map<
   string,
@@ -57,7 +58,14 @@ export async function discoverRuntimeInstallations(
           });
           if (!version) return null;
           const installationId = `${kindId}_${createHash("sha256").update(key).digest("hex").slice(0, 24)}`,
-            catalog = await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env, version });
+            // A build below the kind's floor cannot honor the launch contract, so its model
+            // catalog is not advertised: offering models that build would reject invites the
+            // configuration this gate exists to refuse. The witness itself stays, so the
+            // operator still sees which build is installed and why it is refused.
+            catalog =
+              runtimeVersionGate(kindId, version) === null
+                ? await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env, version })
+                : null;
           return {
             installationId,
             kindId,

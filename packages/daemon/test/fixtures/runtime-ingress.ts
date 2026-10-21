@@ -233,7 +233,9 @@ export function installationFixture(kindId: "claude" | "codex", executablePath: 
     installationId: `installation-${kindId}`,
     kindId,
     executablePath,
-    version: "1.0.0",
+    // Each kind reports its own version frame; a Claude witness carrying the Codex version
+    // is below the declared Claude floor and would be refused before launch.
+    version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
     observedAt: "2026-08-19T00:00:00.000Z",
   };
 }

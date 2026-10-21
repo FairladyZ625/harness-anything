@@ -282,6 +282,87 @@ test("DeepSeek Harness API-key instances write secret-free profile patches and i
   }
 });
 
+// A Claude Code below the kind's declared floor cannot launch a turn: the alias/model it
+// reaches is rejected by this build only after the provider is spawned, so the failure
+// surfaced as provider_fault after the dispatch had already spent its worker. The probe
+// and the launch share one version gate, so both refuse before any spawn and name the
+// witnessed version, the floor, and the upgrading command.
+test("a Claude installation below the version floor is refused by probe and launch, and the current floor passes", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-version-gate-")),
+    oldClaude = {
+      ...observed,
+      installationId: "claude-below-floor",
+      kindId: "claude" as const,
+      executablePath: "/opt/runtime-test/claude-old",
+      version: "2.1.268 (Claude Code)",
+    },
+    currentClaude = {
+      ...observed,
+      installationId: "claude-at-floor",
+      kindId: "claude" as const,
+      executablePath: "/opt/runtime-test/claude-current",
+      version: "2.1.305 (Claude Code)",
+    };
+  try {
+    let credentialLookups = 0;
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [oldClaude, currentClaude],
+      resolveCredential: () => {
+        credentialLookups += 1;
+        return "instance-secret";
+      },
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    for (const [instanceId, installationId] of [
+      ["claude-old", oldClaude.installationId],
+      ["claude-current", currentClaude.installationId],
+    ] as const)
+      store.create({
+        schemaVersion: 2,
+        instanceId,
+        name: instanceId,
+        kindId: "claude",
+        installationId,
+        providerId: "anthropic",
+        models: ["claude-opus-5-5"],
+        defaultModel: "claude-opus-5-5",
+        enabled: true,
+        claude: {},
+        auth: { mode: "api-key", credentialRef: `credential:v1:${instanceId}` },
+      });
+
+    const refused = await store.authStatus("claude-old");
+    assert.equal(refused.status, "not-ready", JSON.stringify(refused));
+    assert.equal(refused.code, "minimum_version_not_met");
+    assert.match(refused.hint!, /2\.1\.268/u);
+    assert.match(refused.hint!, /2\.1\.280/u);
+    assert.match(refused.hint!, /claude update/u);
+
+    // The launch is refused before the credential is even resolved: an unusable CLI must
+    // not report authentication readiness or read a secret it can never use.
+    credentialLookups = 0;
+    await assert.rejects(
+      store.prepareLaunch("claude-old", { cwd: "/workspace/repo", prompt: "Inspect" }),
+      (error: unknown) =>
+        codedAs(error, "minimum_version_not_met") &&
+        error instanceof Error &&
+        /2\.1\.268/u.test(error.message) &&
+        /2\.1\.280/u.test(error.message),
+    );
+    assert.equal(credentialLookups, 0, "an unusable CLI must be refused before any credential lookup");
+
+    assert.deepEqual(await store.authStatus("claude-current"), { status: "ready", code: null, hint: null });
+    const launch = await store.prepareLaunch("claude-current", { cwd: "/workspace/repo", prompt: "Inspect" });
+    assert.deepEqual(launch.args.slice(launch.args.indexOf("--model"), launch.args.indexOf("--model") + 2), [
+      "--model",
+      "claude-opus-5-5",
+    ]);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("claude launches carry attribution-off settings and other kinds stay untouched", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-attribution-")),
     claude = {
@@ -289,6 +370,7 @@ test("claude launches carry attribution-off settings and other kinds stay untouc
       installationId: "claude-attribution",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     const store = openRuntimeInstanceStore({
@@ -563,6 +645,7 @@ test("an acp launch carries the caller's handshake timeout; other families never
       installationId: "claude-installation-test",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
     const claudeStore = openRuntimeInstanceStore({
       userRoot,
