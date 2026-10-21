@@ -11,7 +11,9 @@ import {
   createEdgeJoinStore,
   decodeEdgeJoinLink,
   EdgeJoinError,
+  edgeJoinPlatforms,
   encodeEdgeJoinLink,
+  isEdgeJoinPlatform,
   type EdgeJoinRecord,
 } from "../src/fleet/edge-join.ts";
 
@@ -177,6 +179,51 @@ test("restoring the writer journal preserves invite state without the plaintext 
   assert.equal(restored.status(created.record.joinId).state, "pending");
   restored.consume(created.record.joinId, "node-restored");
   assert.equal(restored.status(created.record.joinId).state, "consumed");
+});
+
+test("a win32 invitation is written, journaled, restored, and read back as win32", async () => {
+  const current = "2026-10-21T00:00:00.000Z",
+    journal: EdgeJoinRecord[] = [],
+    first = createEdgeJoinStore({
+      now: () => current,
+      randomToken: () => "opaque-token",
+      onChange: (record) => journal.push(record),
+    }),
+    created = first.create({ ...inviteInput, platform: "win32" });
+
+  assert.equal(created.record.platform, "win32");
+  assert.equal((journal[0] as { readonly platform?: string }).platform, "win32");
+  const restored = createEdgeJoinStore({ records: journal, now: () => current });
+  assert.equal(restored.get(created.record.joinId)?.platform, "win32", "the restored record keeps win32");
+  // The edge registers the platform the record carried; admission projects this same field.
+  await admitEdgeJoin({
+    joinId: created.record.joinId,
+    inviteToken: created.link.token!,
+    accessToken: "human-access-token",
+    oidc: {
+      bind: async () => ({ oidcPrincipal: { personId: "person-a" } }),
+      serialize: async <T>(operation: () => Promise<T>) => operation(),
+    } as never,
+    edgeJoins: restored,
+    validateSnapshot: async () => {},
+    registerNode: async (record) => {
+      assert.equal(record.platform, "win32");
+      return "credential";
+    },
+  });
+  assert.equal(restored.status(created.record.joinId).state, "consumed");
+});
+
+test("the platform vocabulary is one definition shared by validation and record writes", () => {
+  assert.deepEqual([...edgeJoinPlatforms], ["darwin", "linux", "win32"]);
+  for (const platform of edgeJoinPlatforms) assert.equal(isEdgeJoinPlatform(platform), true, platform);
+  for (const rejected of ["windows", "win64", "Darwin", ""])
+    assert.equal(isEdgeJoinPlatform(rejected), false, rejected);
+  // Negative control: the store refuses nothing it accepted, so a missing platform is simply absent.
+  const store = createEdgeJoinStore();
+  for (const platform of edgeJoinPlatforms)
+    assert.equal(store.create({ ...inviteInput, platform }).record.platform, platform);
+  assert.equal(Object.hasOwn(store.create(inviteInput).record, "platform"), false);
 });
 
 test("admission binds the invited person, validates the snapshot, and serializes competing nodes", async () => {

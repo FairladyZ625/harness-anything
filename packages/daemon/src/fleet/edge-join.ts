@@ -2,6 +2,11 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { normalizeRootCaCertificate } from "../tls-ca-certificate.ts";
 
 export type EdgeJoinState = "pending" | "consumed" | "expired" | "revoked";
+/** The operating systems a fleet edge node can register from. */
+export const edgeJoinPlatforms = ["darwin", "linux", "win32"] as const;
+export type EdgeJoinPlatform = (typeof edgeJoinPlatforms)[number];
+export const isEdgeJoinPlatform = (value: string): value is EdgeJoinPlatform =>
+  edgeJoinPlatforms.some((platform) => platform === value);
 export interface EdgeJoinLink {
   readonly version: 2;
   readonly joinId: string;
@@ -26,7 +31,7 @@ export interface EdgeJoinRecord {
   readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
   readonly tokenDigest: string;
   readonly nodeLabel?: string;
-  readonly platform?: "darwin" | "linux";
+  readonly platform?: EdgeJoinPlatform;
   readonly centerOrigin: string;
   readonly spkiSha256: string;
   readonly loginUrl: string;
@@ -178,7 +183,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         readonly repoIds: readonly string[];
         readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
         readonly nodeLabel?: string;
-        readonly platform?: "darwin" | "linux";
+        readonly platform?: EdgeJoinPlatform;
         readonly createdBy: string;
         readonly ttlMs: number;
       },

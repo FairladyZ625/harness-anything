@@ -1,3 +1,7 @@
+import type { EdgeJoinPlatform } from "@harness-anything/daemon/protocol";
+
+export type { EdgeJoinPlatform };
+
 export const ACCESS_ADMIN_CHANNEL = "harness:access:admin";
 
 /** The facets of one declared action, as the daemon reads them from ActionDeclaration. */
@@ -205,7 +209,7 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
       readonly repoIds: readonly string[];
       readonly groupIds: readonly string[];
       readonly nodeLabel?: string;
-      readonly platform?: "darwin" | "linux";
+      readonly platform?: EdgeJoinPlatform;
     }
   | { readonly operation: "edge-join-status"; readonly joinId: string }
   | { readonly operation: "edge-join-list" }
@@ -290,7 +294,7 @@ export interface AccessAdminApi {
     readonly repoIds: readonly string[];
     readonly groupIds: readonly string[];
     readonly nodeLabel?: string;
-    readonly platform?: "darwin" | "linux";
+    readonly platform?: EdgeJoinPlatform;
   }) => Reply<EdgeJoinIssued>;
   readonly edgeJoinStatus: (input: { readonly joinId: string }) => Reply<EdgeJoinStatusReply>;
   readonly edgeJoinList: () => Reply<{ readonly joins: readonly EdgeJoinSummary[] }>;
