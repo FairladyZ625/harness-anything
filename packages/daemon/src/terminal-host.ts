@@ -14,7 +14,6 @@ import {
   type TerminalControlReceipt,
   type TerminalSessionRow,
 } from "./gui-s3-control.ts";
-import { ensurePtySpawnHelperExecutable } from "./terminal-spawn-helper.ts";
 import { loadTmuxSessionRegistry, saveTmuxSessionRegistry, type StoredTmuxSession } from "./terminal-session-store.ts";
 import { posixShellFallback } from "./process-port.ts";
 import {
@@ -128,7 +127,6 @@ export interface TrustedTerminalLaunch {
   readonly profile: "runtime-auth";
 }
 export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
-  ensurePtySpawnHelperExecutable();
   const sessions = new Map<string, Session>(),
     idempotency = new Map<string, string>();
   const now = input.now ?? (() => new Date().toISOString()),
