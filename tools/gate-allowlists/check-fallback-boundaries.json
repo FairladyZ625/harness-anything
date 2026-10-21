@@ -24,6 +24,12 @@
    "decision": null,
    "errors": "transient hosting-provider read failures after the first successful snapshot",
    "reason": "ha task pr --wait-ci is the single daemon-side CI wait loop (owner-approved direction, 2026-10-19): it polls the provider port on a fixed interval until the PR head's checks settle or a constant budget expires. A mid-wait read failure is recorded into the terminal timeout receipt's last-read-error line instead of failing the wait; the first read and any ci_pull_request_missing rethrow. Coordinator-authorized entry, 2026-10-19."
+  },
+  "packages/daemon/src/agent-declaration-migration.ts#readRuntimeInstanceViews": {
+   "task": "task_9cc5c52b4f0fc7ef8fd82401ac",
+   "decision": null,
+   "errors": "unreadable or malformed runtime-instances.json",
+   "reason": "The offline declaration migration's availability report is advisory: a missing or unparseable node instance store downgrades the receipt to runtimeAvailability unknown and the conversion itself proceeds, because blocking a format conversion on node-local runtime state would make historical repositories unmigratable on fresh nodes. The conversion and its per-file rejections never depend on this read. Task-authorized entry, 2026-10-21."
   }
   }
  },
@@ -48,6 +54,7 @@
    "packages/cli/src/daemon/control.ts#signalStop",
    "packages/cli/src/daemon/control.ts#startDaemonService",
    "packages/cli/src/index.ts#finishTimingWithoutChangingOutcome",
+   "packages/daemon/src/agent-declaration-migration.ts#readRuntimeInstanceViews",
    "packages/daemon/src/agent-declaration-resolution.ts#storedAgentDeclarationOutcome",
    "packages/daemon/src/agent-entities.ts#readAgentEntityGuiProjection",
    "packages/daemon/src/agent-entities.ts#readSquadDeclaration",

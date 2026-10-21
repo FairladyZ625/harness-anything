@@ -34,3 +34,18 @@ export const completionMigrationCommand = {
     { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
   ],
 } as const;
+export const agentDeclarationMigrationCommand = {
+  id: "migrate-agent-declaration",
+  path: ["migrate", "agent-declaration"],
+  usage:
+    "ha migrate agent-declaration --source <declaration-file|agents-directory> --mode <dry-run|convert> [--destination <new-path>]",
+  summary:
+    "Convert pre-runtimes agent declarations (runtime_type plus top-level model) to the runtimes shape once, preserving the source.",
+  help: "    Handles one declaration file or a whole harness/agents directory. Unconvertible files are reported per file and never abort the batch.\n    Declarations naming runtime kinds or models without an enabled instance on this node still convert; the receipt lists the exact install-time issue (agent_runtime_type_unavailable / agent_model_unavailable) so the operator can enable an instance or install on another node first.\n    Review the candidates, replace the originals, and reinstall each agent with ha agent install --source harness/agents/<id>.json.",
+  helpCommand: "ha migrate agent-declaration --help",
+  inputs: [
+    { name: "--source", kind: "single", required: true, error: { code: "missing_field" } },
+    { name: "--mode", kind: "single", required: true, enum: ["dry-run", "convert"], error: { code: "invalid_field" } },
+    { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
+  ],
+} as const;
