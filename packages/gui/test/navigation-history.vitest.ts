@@ -309,64 +309,31 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(currentLocation(readViewHistory(session, local, "proj-d")).view).toBe("overview");
   });
 
-  it("round-trips the overview in-page layers and rejects a stored layer key outside the closed set", () => {
-    // 总览页内层(产物二级页/放大层)是后加的 AppLocation 字段:旧存储没有它们照样可读
-    // (缺省 = 层关着);带层条目经会话栈往返原样还原;键不在放大层枚举里按坏
-    // 存储回退干净初始栈,不猜收敛。
+  it("strips the retired overview in-page layer fields from stored history", () => {
+    // 2026-10-21 总览四块重构撤销页内层(产物二级页/放大层):旧存储带着这些字段的
+    // 条目仍可读,还原时就地剥除,不让已死字段在读写间轮回。
     const session = makeSession();
     const local = makeLocal();
-    let state = createViewHistory(loc({ view: "overview" }));
-    state = pushLocation(state, loc({ view: "overview", overviewArtifactId: "task_a/artifacts/reports/r-0.html" }));
-    state = pushLocation(state, loc({ view: "overview", overviewFocus: { key: "review", selectedId: "task_w1" } }));
-    writeViewHistory(session, "proj-overview-layers", state);
-    const restored = readViewHistory(session, local, "proj-overview-layers");
-    expect(currentLocation(restored).overviewFocus).toEqual({ key: "review", selectedId: "task_w1" });
-    expect(viewCanBack(restored)).toBe(true);
-    expect(currentLocation(viewGoBack(restored)).overviewArtifactId).toBe("task_a/artifacts/reports/r-0.html");
-    expect(currentLocation(viewGoBack(viewGoBack(restored))).overviewArtifactId ?? null).toBeNull();
-    expect(currentLocation(viewGoBack(viewGoBack(restored))).overviewFocus ?? null).toBeNull();
-    // 旧存储(无层字段)仍可读:缺省解释为层关着。
     local.raw.set(
-      "harness-view-history:proj-prelayers",
-      JSON.stringify({
-        schema: "gui-view-history/v1",
-        history: {
-          entries: [
-            {
-              view: "overview",
-              selectedId: null,
-              previewId: null,
-              focusedEntityRef: null,
-              taskFilters: initialLocation().taskFilters,
-              drill: null,
-            },
-          ],
-          index: 0,
-        },
-      }),
-    );
-    const preLayers = currentLocation(readViewHistory(session, local, "proj-prelayers"));
-    expect(preLayers.view).toBe("overview");
-    expect(preLayers.overviewArtifactId ?? null).toBeNull();
-    expect(preLayers.overviewFocus ?? null).toBeNull();
-    // 坏层键(不在 review/followups/pinned 里;WIP 平铺层已退役)回退干净初始栈。
-    local.raw.set(
-      "harness-view-history:proj-bad-focus",
+      "harness-view-history:proj-stale-layers",
       JSON.stringify({
         schema: "gui-view-history/v1",
         history: {
           entries: [
             {
               ...initialLocation(),
-              overviewFocus: { key: "bogus", selectedId: "x" },
+              overviewArtifactId: "task_a/artifacts/reports/r-0.html",
+              overviewFocus: { key: "review", selectedId: "task_w1" },
             },
           ],
           index: 0,
         },
       }),
     );
-    expect(currentLocation(readViewHistory(session, local, "proj-bad-focus")).view).toBe("overview");
-    expect(currentLocation(readViewHistory(session, local, "proj-bad-focus")).overviewFocus ?? null).toBeNull();
+    const restored = currentLocation(readViewHistory(session, local, "proj-stale-layers"));
+    expect(restored.view).toBe("overview");
+    expect((restored as Record<string, unknown>).overviewArtifactId).toBeUndefined();
+    expect((restored as Record<string, unknown>).overviewFocus).toBeUndefined();
   });
 });
 

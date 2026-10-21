@@ -1,17 +1,14 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { WorkIndexRead, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import type { AgendaSuccess } from "../api-client.ts";
+import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
-import { FocusLayer } from "../components/primitives/FocusLayer";
 import { PageRegions } from "../components/primitives/page-regions.tsx";
 import { Region } from "../components/primitives/Region";
 import { StatusTag } from "../components/primitives/StatusTag";
-import type { AppLocation, OverviewFocusLocation } from "../navigation/viewHistory.ts";
-import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import {
   useOverviewAgentGroups,
   useOverviewAgentMemberPages,
-  useOverviewArtifacts,
   useOverviewRecentEvents,
   useOverviewRuntime,
   activeAgentIdsOf,
@@ -19,50 +16,42 @@ import {
 import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
+import type { TaskRow } from "../model/types.ts";
+import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 import { t } from "../i18n/index.tsx";
 import { dayKeyOf } from "../model/time.ts";
+import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import {
   agentLanesOf,
-  attentionSources,
+  attestationPendingRows,
   awaitsByTask,
   decisionRows,
-  followUpRows,
   pinnedEntityRows,
   pinnedTaskRows,
   recentDayGroups,
-  reviewRows,
   runRows,
+  runningTaskRows,
   watchedRecentPaths,
   watchedWorks,
   workHandlers,
   WATCHED_ACTIVITY_DAYS_DEFAULT,
 } from "./overview-model.ts";
-import { OverviewArtifactsPage, OverviewArtifactsShelf, artifactRowKey } from "./overview-artifacts.tsx";
 import {
-  FollowUpsFocusDetail,
-  FollowUpsFocusList,
-  OverviewDecisionsBand,
-  OverviewDrillBody,
+  OverviewAwaitsBody,
+  OverviewPinsBody,
+  OverviewRunningBody,
   OverviewWorksBody,
-  PinnedEntityFocusDetail,
-  PinnedFocusDetail,
-  PinnedFocusList,
-  ReviewFocusDetail,
-  ReviewFocusList,
-  reviewDrillRows,
-  type DrillFocusKey,
+  decisionsUrgentCount,
   type OverviewBoardDeps,
 } from "./overview-regions.tsx";
 
 /**
- * 总览(2026-10-11 业主意见返工):页面顶部仍是紧凑决策带(计数并入标签)。首屏主体
- * 左列上格是「执行与下钻」(放左上角;「进行中的任务」行并进原在飞任务流的执行者与
- * 最近活动信息,「在飞任务」区块已删除),下格是最新 HTML 产物速览架;右列是关注的工作
- * (默认列最近 N 天内有活动的工作,N 是设置项「关注的工作活动天数」,置顶工作保留在
- * 前;行内给进度、进行中子任务数、最近活动与等你处理数)。点产物行或「查看全部」进
- * 接近全屏的产物二级页:左窄列表、右大预览、默认选中最新;二级页与各名单的放大层都
- * 走全局导航历史(开层推栈、后退回原位)。系统状态弱化成一行小字。
- * 数据全部来自已挂载读面,页面不另发第二套请求;区域板沿用 PageRegions。
+ * 总览(2026-10-21 业主 13:50 定案:任务列表为主,四块):左上「在跑的任务」窄行高密度
+ * 名单(标题、谁在跑、跑了多久、现在哪一步),右上「置顶与议程」把 pin 拿回总览,左下
+ * 「关注的工作」只留标题、进度、负责人,右下「等你处理的事」取待办签发前几条。全局
+ * Agent 泳道移出总览(组件保留给任务弹层/现场页);最新产物移出总览(产物页仍从侧栏
+ * 进)。系统状态弱化成一行小字。数据全部来自已挂载读面,页面不另发第二套请求;区域板
+ * 沿用 PageRegions(布局记忆复用其连接+仓+页面槽的本地偏好)。
  */
 export function OverviewView({
   repoId,
@@ -72,6 +61,7 @@ export function OverviewView({
   titles,
   workspaceSummary,
   health,
+  tasks,
   collaboration,
   onNavigateEntity,
   onOpenTask,
@@ -80,12 +70,10 @@ export function OverviewView({
   onOpenWorks,
   onOpenTasks,
   onOpenCollaboration,
+  onOpenSignoffs,
+  onOpenPool,
   onUnpin,
   onUnpinEntity,
-  overviewLayer,
-  onOverviewLayerNavigate,
-  onOverviewLayerPatch,
-  onOverviewLayerClose,
 }: {
   readonly repoId: string;
   readonly connectionId: string | null;
@@ -101,8 +89,7 @@ export function OverviewView({
   /** 非纯本地仓的协作摘要(task_1bafbf09);null/undefined = 纯本地,不显示入口。 */
   readonly collaboration?: { readonly total: number; readonly executing: number } | null;
   readonly onNavigateEntity: (ref: string) => void;
-  /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情;产物二级页
-   *  「跳到所属 task」额外带该产物的包内相对路径,任务详情直接选中该文档。 */
+  /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情。 */
   readonly onOpenTask: (taskId: string, docPath?: string | null) => void;
   /** 顶栏全局搜索的落点:⌘K 命令面板。 */
   readonly onOpenSearch: () => void;
@@ -113,54 +100,34 @@ export function OverviewView({
   readonly onOpenTasks: () => void;
   /** 紧凑协作入口的落点(总览只给摘要与入口,分工清单在协作页)。 */
   readonly onOpenCollaboration?: () => void;
+  /** 任务侧人签的落点:待办签发总池(带任务焦点);总览不复制签发写通道。 */
+  readonly onOpenSignoffs: (taskId: string) => void;
+  /** 「待办签发」总池的落点:本块没列出的待办(评审中的决策等)从这里进。 */
+  readonly onOpenPool: () => void;
+  /** 任务投影行(App 常驻):「等你处理的事」的人签行按待办签发同一判据派生。 */
+  readonly tasks: readonly TaskRow[];
   /** 取消置顶(pin 写通道,taskActions.setTaskPin)。 */
   readonly onUnpin: (taskId: string) => void;
   /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
   readonly onUnpinEntity: (entityRef: string) => void;
-  /** 总览页内层位置(AppLocation 的总览层字段子集,App 从 location 派生):null = 层关着。 */
-  readonly overviewLayer: {
-    readonly overviewArtifactId: string | null;
-    readonly overviewFocus: OverviewFocusLocation | null;
-  };
-  /** 开层/换层(导航性):推栈,后退回到开层前的位置。 */
-  readonly onOverviewLayerNavigate: (
-    fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>,
-  ) => void;
-  /** 层内精修(换选中行):原地改当前位置,不占历史条目。 */
-  readonly onOverviewLayerPatch: (fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>) => void;
-  /** 关层:能退则弹栈回上一位置,栈底(会话恢复的孤立层条目)原地收层。 */
-  readonly onOverviewLayerClose: (fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>) => void;
 }) {
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
-  // 放大层与产物二级页的开关/选中都在全局导航历史(AppLocation 的总览层字段):
-  // 开层推栈、层内换选中原地改、关层弹栈——原地 useState 会让后退失灵(业主
-  // 2026-10-11 全局导航返工)。焦点键与选中行从层位置派生,不再各持一份。
-  const focus = overviewLayer.overviewFocus?.key ?? null;
-  const layerSelectedId = overviewLayer.overviewFocus?.selectedId ?? null;
-  const artifactFocus = overviewLayer.overviewArtifactId;
   const runtimeQuery = useOverviewRuntime(repoId);
   const eventsQuery = useOverviewRecentEvents(repoId);
-  const artifactsQuery = useOverviewArtifacts(repoId);
   // WIP 与看板共用同一条 repo.tasks.wip 读面(同一 query key,一处缓存):总览挂载期间
   // 本实例是观察者,台账切面前进由既有失效扇出更新,不建第二份快照。
   const wipQuery = useTaskWipQuery(repoId, true);
-  const wipErrorText = wipQuery.error instanceof Error ? wipQuery.error.message : null;
-  const artifactsErrorText = artifactsQuery.error instanceof Error ? artifactsQuery.error.message : null;
+  const wipCounted = wipQuery.data?.counted ?? [];
   // 年龄随读面刷新重算:agenda/works/runtime 任一前进都给一帧新时钟,不立单独计时器。
   const now = useMemo(() => new Date().toISOString(), [agenda, works, runtimeQuery.data]);
 
-  const workTitleOf = useMemo(
-    () => new Map((works?.works ?? []).map((work) => [work.taskId, work.title] as const)),
-    [works],
-  );
   const decisions = useMemo(() => decisionRows(agenda), [agenda]);
-  const followUps = useMemo(() => followUpRows(agenda), [agenda]);
-  const reviews = useMemo(() => reviewRows(agenda), [agenda]);
-  const reviewDrill = useMemo(() => reviewDrillRows(reviews), [reviews]);
+  // 任务侧人签:与侧栏角标、待办签发总池同一条派生(model/attestation-pool.ts),不重推判据。
+  const signoffs = useMemo(() => attestationPendingRows(deriveAttestationLanes(tasks)), [tasks]);
   const pinned = useMemo(() => pinnedTaskRows(agenda, works), [agenda, works]);
   // 置顶的非任务实体(Decision、Schedule…):同一读面派生,行上走实体级解 pin 通道。
   const pinnedOthers = useMemo(() => pinnedEntityRows(agenda), [agenda]);
-  // 关注的活动窗口(意见 4):天数走设置项,读面落定前的 undefined 用声明默认,不猜。
+  // 关注的活动窗口:天数走设置项,读面落定前的 undefined 用声明默认,不猜。
   const settingsQuery = useSettingsQuery(repoId);
   const activityDays = useMemo(() => {
     const value = settingsQuery.data?.values.overviewWatchedActivityDays;
@@ -172,8 +139,6 @@ export function OverviewView({
     () => watchedWorks(works, agenda, { days: activityDays, now }, runtimeQuery.data),
     [works, agenda, activityDays, now, runtimeQuery.data],
   );
-  // 卡点行接回源行的映射(一次构建,attentionOf 逐项查;行上动作需要源读面的完整行)。
-  const attentionSourceMap = useMemo(() => (agenda === undefined ? null : attentionSources(agenda)), [agenda]);
   const recentDays = useMemo(
     () =>
       recentDayGroups({
@@ -187,19 +152,14 @@ export function OverviewView({
     () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
     [recentDays, watched],
   );
-  const wipCounted = wipQuery.data?.counted ?? [];
-  const wipFull = wipQuery.data !== undefined && wipCounted.length >= wipQuery.data.limit;
-  // 泳道派生的两个查表:任务标题(titles 的键带 task/ 前缀,这里剥成裸 taskId)与
-  // 任务上的未决 awaits 行(块「待拍板」动作的答复面板源行)。
+  // 「在跑的任务」的数据(2026-10-21 定案):泳道块模型(agentLanesOf)是唯一派生——
+  // 总览的窄行名单与任务弹层/现场页的泳道是同一份块模型的两个视图;成员派工页同时给
+  // 出模型短标签。nowMs 用数据时钟(读面前进才重算,时长相新不随秒针生长)。
   const taskTitlesById = useMemo(
     () => new Map([...titles].map(([ref, title]) => [ref.replace(/^task\//u, ""), title] as const)),
     [titles],
   );
   const awaitsOfTask = useMemo(() => awaitsByTask(agenda), [agenda]);
-  // 「执行与下钻 → 进行中的任务」的泳道数据(W2-T1,替换旧 WIP 平铺名单):三段读面
-  // (sessionGroups 按 agent / 活跃 agent 成员派工页 / 运行块会话事件流)在
-  // overview-data 组合,这里只做纯派生与接线;nowMs 用数据时钟(读面前进才重算,
-  // 非运行块的 endAt 冻结在数据切面上,不随秒针生长)。
   const agentGroupsQuery = useOverviewAgentGroups(repoId);
   const activeAgents = useMemo(
     () => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? [], awaitsOfTask),
@@ -219,55 +179,44 @@ export function OverviewView({
       }),
     [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs],
   );
-  // 泳道不再挂 Prompt Cache 倒计时:触达读面只轮询运行中会话,而运行一轮内缓存由模型
-  // 调用保温,倒计时对操作者无意义(任务书口径),会话页的收口倒计时才是有效面。
-  const lanes = lanesModel.lanes;
-  // 产物二级页:列表 = 全部产物行(不只架上的 6 条),打开时收敛到首个存在的键
-  // (daemon 已按时间倒序给出,首个即最新——意见 1 的「默认选中最新一个产物」)。
-  const artifactRows = artifactsQuery.data?.artifacts ?? [];
-  const artifactKeys = useMemo(() => artifactRows.map(artifactRowKey), [artifactsQuery.data]);
-  const artifactSelected =
-    artifactFocus !== null && artifactKeys.includes(artifactFocus)
-      ? artifactFocus
-      : artifactFocus !== null
-        ? (artifactKeys[0] ?? null)
-        : null;
+  const modelOfBlock = useMemo(() => {
+    // 模型短标签的收短点(runtimeModelShortLabel):候选清单只给第一个候选加 +N,
+    // 元组字符串不进正文(2026-10-21 CEO 截图补充的缺陷)。
+    const models = new Map<string, string | null>();
+    for (const page of memberPages.values())
+      for (const row of page.rows) models.set(row.dispatchId, runtimeModelShortLabel(row.provider?.model));
+    return models;
+  }, [memberPages]);
+  const runningRows = useMemo(() => runningTaskRows(lanesModel, modelOfBlock), [lanesModel, modelOfBlock]);
+
+  const workTitleOf = useMemo(
+    () => new Map((works?.works ?? []).map((work) => [work.taskId, work.title] as const)),
+    [works],
+  );
 
   const deps: OverviewBoardDeps = {
     now,
     workTitleOf,
-    // 答复卡点:收放大层(能退则弹栈)再开答复面板;其余导航直接透传——推栈后层留在
-    // 原条目里,后退自然回到带着层的总览,不需要(也不应该)先把层就地清掉。
-    onAnswer: (subject) => {
-      onOverviewLayerClose({ overviewFocus: null });
-      setPanel(subject);
-    },
+    onAnswer: setPanel,
     onNavigateEntity,
     onOpenTask,
     onOpenWorks,
     onOpenTasks,
     onOpenSessions,
+    onOpenSignoffs,
+    onOpenPool,
     onUnpin,
     onUnpinEntity,
   };
 
-  // 点行开层(推栈):内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
-  const openFocus = (key: DrillFocusKey, selectedId?: string) => {
-    onOverviewLayerNavigate({ overviewFocus: { key, selectedId: selectedId ?? null } });
+  // 卡点行的「答复」:有未决 awaits 源行才给动作(一等动作,开答复面板);blocked 但没有
+  // awaits 边的行不给假入口,行点击直接进任务详情(裁决/查看上下文)。
+  const resolveOf = (row: { readonly id: string; readonly awaiting: string | null }) => {
+    if (row.awaiting === null) return null;
+    const source = lanesModel.blockOf.get(row.id);
+    const awaitsRow = source === undefined ? undefined : awaitsOfTask.get(source.taskId);
+    return awaitsRow === undefined ? null : () => deps.onAnswer({ mode: "answer", row: awaitsRow });
   };
-
-  // 键盘导航的可选中集合:各入口用各自全量行;选中行不在集合时收敛到首行,详情与选中同源。
-  // 置顶承诺的集合是任务行 + 非任务实体行(键分别为裸 taskId 与实体 ref)。
-  const focusIds: readonly string[] =
-    focus === null
-      ? []
-      : focus === "review"
-        ? reviewDrill.map(({ id }) => id)
-        : focus === "followups"
-          ? followUps.map(({ id }) => id)
-          : [...pinned.map(({ taskId }) => taskId), ...pinnedOthers.map(({ ref }) => ref)];
-  const focusSelected =
-    focus === null ? null : focusIds.includes(layerSelectedId ?? "") ? layerSelectedId! : (focusIds[0] ?? null);
 
   const quietLine = health.daemon.state === "responsive" && (health.projection.lag ?? 0) <= 0;
 
@@ -338,17 +287,15 @@ export function OverviewView({
         </button>
       </header>
 
-      {/* 双列信息密度(2026-10-11 返工):紧凑决策带仍是内容定高的普通条(不进区域板);
-          左列上格是「执行与下钻」(左上角),下格最新产物速览架,右列是关注的工作。
-          计数并进标题小字(意见 2),区域头不再放孤立的大号数字。 */}
+      {/* 四块(2026-10-21 定案):左列上「在跑的任务」下「关注的工作」,右列上「置顶与
+          议程」下「等你处理的事」;计数并进区域头小字,区域头不再放孤立的大号数字。 */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-1" data-testid="overview-scroll">
-        <OverviewDecisionsBand rows={decisions} deps={deps} />
         <PageRegions
           connectionId={connectionId}
           repoId={repoId}
           slot="overview"
           testId="overview-board"
-          defaultRatio={0.38}
+          defaultRatio={0.6}
           settled={
             // 区域集就绪声明(恢复协调用,不定时猜测):本页读面全部落定后,区域集合才是
             // 完整事实,快照恢复的剪枝才不会把「还没到的区域」提前删掉。
@@ -357,42 +304,42 @@ export function OverviewView({
             !runtimeQuery.isPending &&
             !eventsQuery.isPending &&
             !wipQuery.isPending &&
-            !artifactsQuery.isPending
+            !agentGroupsQuery.isPending
           }
-          columns={[["drill", "artifacts"], ["works"]]}
+          columns={[
+            ["running", "works"],
+            ["pins", "awaits"],
+          ]}
           regions={[
             {
-              id: "drill",
-              title: t("views.overviewView.regionDrill"),
-              weight: 3,
-              testId: "overview-region-drill",
+              id: "running",
+              title: t("views.overviewView.regionRunning"),
+              weight: 2,
+              testId: "overview-region-running",
               content: (
                 <div className="grid min-h-0 min-w-0">
                   <Region
-                    title={t("views.overviewView.regionDrill")}
+                    title={t("views.overviewView.regionRunning")}
+                    tag={
+                      <span className="font-mono tabular-nums text-text-faint ui-meta">
+                        {agentGroupsQuery.isPending ? "…" : agentGroupsQuery.isError ? "—" : String(runningRows.length)}
+                      </span>
+                    }
                     footer={
                       // 全量入口收在页脚:名单在区内滚动,入口保持可达(不随列表滚走)。
                       <>
                         <button
                           type="button"
-                          data-testid="overview-drill-all-works"
-                          onClick={deps.onOpenWorks}
-                          className="text-accent underline-offset-2 hover:underline"
-                        >
-                          {t("views.overviewView.drillAllWorks")}
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="overview-drill-all-tasks"
-                          onClick={deps.onOpenTasks}
+                          data-testid="overview-running-all-tasks"
+                          onClick={onOpenTasks}
                           className="text-accent underline-offset-2 hover:underline"
                         >
                           {t("views.overviewView.drillAllTasks")}
                         </button>
                         <button
                           type="button"
-                          data-testid="overview-drill-sessions"
-                          onClick={deps.onOpenSessions}
+                          data-testid="overview-running-sessions"
+                          onClick={onOpenSessions}
                           className="text-accent underline-offset-2 hover:underline"
                         >
                           {t("views.overviewView.actionOpenSessions")}
@@ -400,90 +347,34 @@ export function OverviewView({
                       </>
                     }
                   >
-                    <OverviewDrillBody
-                      wipOccupancy={
-                        wipQuery.data === undefined
-                          ? wipErrorText !== null
-                            ? "—"
-                            : "…"
-                          : `${wipCounted.length}/${wipQuery.data.limit}`
-                      }
-                      wipFull={wipFull}
-                      wipError={wipErrorText}
-                      lanes={lanes}
-                      handoffs={lanesModel.handoffs}
-                      lanesLoading={agentGroupsQuery.isPending}
-                      lanesError={agentGroupsQuery.error instanceof Error ? agentGroupsQuery.error.message : null}
-                      onResolveAwaiting={(blockId) => {
-                        // 块上「待拍板」:有未决 awaits 行就原地开答复面板(一等动作);
-                        // blocked 但没有 awaits 边的块退到任务详情(裁决/查看上下文)。
-                        const block = lanesModel.blockOf.get(blockId);
-                        if (block === undefined) return;
-                        const awaitsRow = awaitsOfTask.get(block.taskId);
-                        if (block.awaiting && awaitsRow !== undefined)
-                          deps.onAnswer({ mode: "answer", row: awaitsRow });
-                        else onOpenTask(block.taskId);
-                      }}
-                      reviewRowsAll={reviews}
-                      followUps={followUps}
-                      pinned={pinned}
-                      pinnedOthers={pinnedOthers}
-                      onOpenFocus={openFocus}
+                    <OverviewRunningBody
+                      rows={runningRows}
+                      loading={agentGroupsQuery.isPending}
+                      error={agentGroupsQuery.error instanceof Error ? agentGroupsQuery.error.message : null}
+                      nowMs={lanesNowMs}
+                      resolveOf={resolveOf}
                       onOpenTask={onOpenTask}
-                      deps={deps}
                     />
                   </Region>
                 </div>
               ),
             },
             {
-              id: "artifacts",
-              title: t("views.overviewView.regionArtifacts"),
+              id: "pins",
+              title: t("views.overviewView.regionPins"),
               weight: 2,
-              testId: "overview-region-artifacts",
+              testId: "overview-region-pins",
               content: (
                 <div className="grid min-h-0 min-w-0">
                   <Region
-                    title={t("views.overviewView.regionArtifacts")}
+                    title={t("views.overviewView.regionPins")}
                     tag={
                       <span className="font-mono tabular-nums text-text-faint ui-meta">
-                        {artifactsQuery.data === undefined
-                          ? artifactsErrorText !== null
-                            ? "—"
-                            : "…"
-                          : t("views.overviewView.regionCountOf", {
-                              count: String(artifactsQuery.data.counts.html),
-                            })}
+                        {agenda === undefined ? "…" : String(pinned.length + pinnedOthers.length)}
                       </span>
                     }
-                    footer={
-                      <>
-                        {artifactsQuery.data !== undefined && (
-                          <span className="min-w-0 truncate">
-                            {t("views.overviewView.artifactsShelfNote", {
-                              shown: String(Math.min(artifactsQuery.data.artifacts.length, 6)),
-                              total: String(artifactsQuery.data.counts.html),
-                            })}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          data-testid="overview-artifacts-open-all"
-                          onClick={() => onOverviewLayerNavigate({ overviewArtifactId: artifactKeys[0] ?? "" })}
-                          className="text-accent underline-offset-2 hover:underline"
-                        >
-                          {t("views.overviewView.artifactsOpenPage")}
-                        </button>
-                      </>
-                    }
                   >
-                    <OverviewArtifactsShelf
-                      repoId={repoId}
-                      rows={artifactsQuery.data?.artifacts ?? []}
-                      pending={artifactsQuery.isPending}
-                      error={artifactsErrorText}
-                      onOpenArtifact={(row) => onOverviewLayerNavigate({ overviewArtifactId: artifactRowKey(row) })}
-                    />
+                    <OverviewPinsBody pinned={pinned} pinnedOthers={pinnedOthers} onOpenTask={onOpenTask} deps={deps} />
                   </Region>
                 </div>
               ),
@@ -503,19 +394,63 @@ export function OverviewView({
                         <span className="font-mono tabular-nums text-text-faint ui-meta"> · {watched.length}</span>
                       </>
                     }
-                    footer={t("views.overviewView.worksFooterWatched", { days: String(activityDays) })}
+                    footer={
+                      <>
+                        <span>{t("views.overviewView.worksFooterWatched", { days: String(activityDays) })}</span>
+                        <button
+                          type="button"
+                          data-testid="overview-works-all"
+                          onClick={deps.onOpenWorks}
+                          className="text-accent underline-offset-2 hover:underline"
+                        >
+                          {t("views.overviewView.drillAllWorks")}
+                        </button>
+                      </>
+                    }
                   >
                     <OverviewWorksBody
                       watched={watched}
                       pinnedClosed={pinnedClosed}
                       activityDays={activityDays}
-                      attentionOf={(workTaskId) =>
-                        (agenda?.attentionItems ?? [])
-                          .filter((item) => item.workTaskId === workTaskId)
-                          .map((item) => ({ item, source: attentionSourceMap?.get(item.ref) ?? null }))
-                      }
                       handlersOf={(entry) => workHandlers(runtimeQuery.data, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
+                      deps={deps}
+                    />
+                  </Region>
+                </div>
+              ),
+            },
+            {
+              id: "awaits",
+              title: t("views.overviewView.regionAwaits"),
+              weight: 3,
+              testId: "overview-region-awaits",
+              content: (
+                <div className="grid min-h-0 min-w-0">
+                  <Region
+                    title={t("views.overviewView.regionAwaits")}
+                    tag={
+                      <StatusTag
+                        tone={decisions.some(({ kind }) => kind === "awaiting-you") ? "agent-question" : "wait"}
+                        label={
+                          // 数的是块里列出的两类(本人决策 + 人签),与行数一致;总池里没列出的
+                          // 其余待办由块内「待裁池」指针带条数说明,不混进这个数。
+                          decisionsUrgentCount(decisions) > 0
+                            ? t("views.overviewView.mineUrgentOf", {
+                                urgent: String(decisionsUrgentCount(decisions)),
+                                count: String(decisions.length + signoffs.length),
+                              })
+                            : t("views.overviewView.decisionsPendingCount", {
+                                count: String(decisions.length + signoffs.length),
+                              })
+                        }
+                      />
+                    }
+                  >
+                    <OverviewAwaitsBody
+                      rows={decisions}
+                      signoffs={signoffs}
+                      decisionInboxCount={workspaceSummary.decisions.inboxCount}
                       deps={deps}
                     />
                   </Region>
@@ -525,108 +460,6 @@ export function OverviewView({
           ]}
         />
       </div>
-
-      {focus === "review" && (
-        <FocusLayer
-          open
-          title={t("views.overviewView.drillReview")}
-          tag={<StatusTag tone="wait" label={t("views.overviewView.reviewInFlight", { count: reviewDrill.length })} />}
-          big={reviewDrill.length}
-          itemIds={focusIds}
-          selectedId={focusSelected}
-          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "review", selectedId: id } })}
-          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
-          list={
-            <ReviewFocusList
-              rows={reviewDrill}
-              selectedId={focusSelected}
-              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "review", selectedId: id } })}
-              deps={deps}
-            />
-          }
-          detail={
-            focusSelected === null ? null : (
-              <ReviewFocusDetail row={reviewDrill.find(({ id }) => id === focusSelected)!} deps={deps} />
-            )
-          }
-        />
-      )}
-      {focus === "followups" && (
-        <FocusLayer
-          open
-          title={t("views.overviewView.drillFollowUps")}
-          tag={<StatusTag tone="neutral" label={t("views.overviewView.followTotalTag", { count: followUps.length })} />}
-          big={followUps.length}
-          itemIds={focusIds}
-          selectedId={focusSelected}
-          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "followups", selectedId: id } })}
-          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
-          list={
-            <FollowUpsFocusList
-              rows={followUps}
-              selectedId={focusSelected}
-              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "followups", selectedId: id } })}
-              deps={deps}
-            />
-          }
-          detail={
-            focusSelected === null ? null : (
-              <FollowUpsFocusDetail row={followUps.find(({ id }) => id === focusSelected)!} deps={deps} />
-            )
-          }
-        />
-      )}
-      {focus === "pinned" && (
-        <FocusLayer
-          open
-          title={t("views.overviewView.regionQueue")}
-          tag={
-            pinned.some(({ dispatchable }) => dispatchable) ? (
-              <StatusTag tone="plan" label={t("views.overviewView.queueTag")} />
-            ) : (
-              <StatusTag tone="neutral" label={t("views.overviewView.queueNoDispatchable")} />
-            )
-          }
-          big={pinned.length + pinnedOthers.length}
-          itemIds={focusIds}
-          selectedId={focusSelected}
-          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
-          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
-          list={
-            <PinnedFocusList
-              rows={pinned}
-              entityRows={pinnedOthers}
-              selectedId={focusSelected}
-              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
-              deps={deps}
-            />
-          }
-          detail={
-            focusSelected === null ? null : pinned.some(({ taskId }) => taskId === focusSelected) ? (
-              <PinnedFocusDetail task={pinned.find(({ taskId }) => taskId === focusSelected)!} deps={deps} />
-            ) : (
-              <PinnedEntityFocusDetail row={pinnedOthers.find(({ ref }) => ref === focusSelected)!} deps={deps} />
-            )
-          }
-        />
-      )}
-
-      {/* 产物二级页面(2026-10-11 意见 1):接近全屏,左窄列表、右大预览,默认选中最新
-          一条(daemon 倒序首行);开层/换选中/关层走全局历史(开层推栈、层内换选中原地
-          改、关层弹栈)。「跳到所属 task」保留 task_15b1bb96 的落点并直接推栈——后退
-          回到带着产物页的总览位置。 */}
-      {artifactFocus !== null && (
-        <OverviewArtifactsPage
-          open
-          repoId={repoId}
-          rows={artifactRows}
-          total={artifactsQuery.data?.counts.html ?? artifactRows.length}
-          selectedId={artifactSelected}
-          onSelect={(key) => onOverviewLayerPatch({ overviewArtifactId: key })}
-          onClose={() => onOverviewLayerClose({ overviewArtifactId: null })}
-          onOpenTask={(taskId, docPath) => onOpenTask(taskId, docPath)}
-        />
-      )}
 
       {panel ? (
         <AwaitsAnswerPanel

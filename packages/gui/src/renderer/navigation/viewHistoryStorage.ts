@@ -5,11 +5,9 @@ import {
   createViewHistory,
   type AppLocation,
   type DrillState,
-  type OverviewFocusLocation,
   type ViewId,
   type ViewHistoryState,
 } from "./viewHistory.ts";
-import type { DrillFocusKey } from "../views/overview-regions.tsx";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 import { isRendererRecord } from "../result-validation.ts";
 
@@ -123,19 +121,6 @@ function restoreTaskFilters(value: unknown): TaskFilters | null {
 
 const LANE_GROUP_BYS: ReadonlySet<unknown> = new Set<LaneGroupBy>(["root", "engine", "productLine"]);
 
-const OVERVIEW_FOCUS_KEYS: ReadonlySet<unknown> = new Set<DrillFocusKey>(["review", "followups", "pinned"]);
-
-/**
- * 总览层字段还原(后加字段,旧存储没有照样可读):null/缺省 = 层关着;键不在放大层
- * 枚举里或 selectedId 形状不对 → undefined(拒绝该位置,不猜收敛)。
- */
-function restoreOverviewFocus(value: unknown): OverviewFocusLocation | null | undefined {
-  if (value === null || value === undefined) return null;
-  if (!isRendererRecord(value) || !OVERVIEW_FOCUS_KEYS.has(value.key)) return undefined;
-  if (value.selectedId !== null && typeof value.selectedId !== "string") return undefined;
-  return { key: value.key as DrillFocusKey, selectedId: (value.selectedId as string | null) ?? null };
-}
-
 /**
  * drill 还原:合法 → 原样;旧存储里按已删除的 `module` 维度下钻的 drill 丢成 null
  * (lane 是模块名,对现存维度没有意义),位置本身保留;其余形状 → undefined(拒绝)。
@@ -161,13 +146,15 @@ function restoreAppLocation(value: unknown): AppLocation | null {
   // poolTab 是后加字段:旧存储没有它照样可读,消费侧按 "decisions" 解释。
   if (value.poolTab !== undefined && !ATTESTATION_POOL_TABS.includes(value.poolTab as AttestationPoolTabId))
     return null;
-  if (value.overviewArtifactId !== undefined && !isNullableString(value.overviewArtifactId)) return null;
-  const overviewFocus = restoreOverviewFocus(value.overviewFocus);
-  if (overviewFocus === undefined) return null;
   const taskFilters = restoreTaskFilters(value.taskFilters);
   const drill = restoreDrill(value.drill);
   if (taskFilters === null || drill === undefined) return null;
-  return { ...(value as unknown as AppLocation), taskFilters, drill, overviewFocus };
+  const restored = { ...(value as unknown as AppLocation), taskFilters, drill };
+  // 旧存储里的总览层字段(overviewArtifactId/overviewFocus)随 2026-10-21 四块重构撤销:
+  // 还原时就地剥除,不让已死字段在读写间轮回。
+  delete (restored as { overviewArtifactId?: unknown }).overviewArtifactId;
+  delete (restored as { overviewFocus?: unknown }).overviewFocus;
+  return restored;
 }
 
 function restoreStoredViewHistory(value: unknown): ViewHistoryState | null {
@@ -200,8 +187,6 @@ export function initialLocation(filters?: TaskFilters): AppLocation {
     taskFilters: filters ?? { ...DEFAULT_TASK_FILTERS },
     drill: null,
     poolTab: "decisions",
-    overviewArtifactId: null,
-    overviewFocus: null,
   };
 }
 

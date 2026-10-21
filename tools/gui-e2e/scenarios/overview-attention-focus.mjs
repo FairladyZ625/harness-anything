@@ -1,31 +1,21 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import path from "node:path";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { createRealizedTaskPlanFixture } from "../../fixtures/task-plan.mjs";
 import { nav } from "./helpers.mjs";
 
 /**
- * #task_ac9665e4b3d0400b34e851b1c4 CEO 视觉返工的验收场景(2026-10-04;2026-10-11 业主
- * 意见返工后重排):真实 daemon 数据下的注意力布局——至少 3 条置顶关注工作、多条机器
- * 返工(task-adjudicate --return 打回)、多条真实人工决策(awaits 问句 + 夹具自带的待
- * 点头决策)。隐藏 Electron 在默认宽(1440)/1120/900 三档窗口截屏:决策带默认只铺三条
- * 并可一键展开,「执行与下钻」在左上格(产物速览架叠其下同列),关注的工作独占右列。
- * 全部数据走真实写路(repo.task.create/run/pin、relation-relate),断言与截图不写死
- * daemon 侧数值。
+ * #task_ac9665e4b3d0400b34e851b1c4 CEO 视觉返工的验收场景(2026-10-04;2026-10-21
+ * 四块定案后重排):真实 daemon 数据下的任务列表形态——左上「在跑的任务」窄行名单、
+ * 右上「置顶与议程」、左下「关注的工作」、右下「等你处理的事」,全局泳道与最新产物
+ * 不再进总览首屏。隐藏 Electron 在默认宽(1440)/1120/最小窗宽三档窗口截屏:待办签发
+ * 默认只铺三条并可一键展开,三条置顶关注工作直接可见。全部数据走真实写路
+ * (repo.task.create/run/pin、relation-relate),断言与截图不写死 daemon 侧数值。
  */
 
 const WATCHED_WORKS = [
   { root: "task-att-watch-a", member: "task-att-watch-a1", title: "关注工作甲·投影读面" },
   { root: "task-att-watch-b", member: "task-att-watch-b1", title: "关注工作乙·评审闸门" },
   { root: "task-att-watch-c", member: "task-att-watch-c1", title: "关注工作丙·交付节奏" },
-];
-
-// 机器返工住关注工作乙/丙名下:评审打回的成员任务,返工由执行方再派,不是用户裁决。
-const REWORK_TASKS = [
-  { taskId: "task-att-watch-b1", executionId: "exec-att-rework-b" },
-  { taskId: "task-att-watch-c1", executionId: "exec-att-rework-c" },
 ];
 
 // 真实人工决策:指向读者(person-gui)的 awaits 问句,只有本人能答。
@@ -53,9 +43,9 @@ async function setSize(app, page, width, height) {
   await page.waitForFunction(([w, h]) => globalThis.innerWidth === w && globalThis.innerHeight === h, actual);
 }
 
-/** 三段布局的实测几何(2026-10-11 返工):决策带在上,「执行与下钻」占左上格,最新产物
- * 速览架叠在其下,关注的工作是右列主体。 */
-async function attentionGeometry(page) {
+/** 四块布局的实测几何(2026-10-21 定案):左列 running 上 works 下,右列 pins 上
+ *  awaits 下;右列整体在左列右侧,同列两块左对齐且上下相接。 */
+async function fourBlockGeometry(page) {
   return page.evaluate(() => {
     const box = (testId) => {
       const node = globalThis.document.querySelector(`[data-testid="${testId}"]`);
@@ -72,48 +62,55 @@ async function attentionGeometry(page) {
     };
     return {
       viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight },
-      band: box("overview-decisions-band"),
+      running: box("overview-region-running"),
+      pins: box("overview-region-pins"),
       works: box("overview-region-works"),
-      drill: box("overview-region-drill"),
+      awaits: box("overview-region-awaits"),
+      lanes: globalThis.document.querySelector('[data-testid="overview-agent-lanes"]') !== null,
       artifacts: box("overview-region-artifacts"),
-      decisionRows: globalThis.document.querySelectorAll('[data-testid="overview-decisions-band"] [data-decision]')
-        .length,
+      awaitRows: globalThis.document.querySelectorAll('[data-testid="overview-awaits"] [data-awaits-row]').length,
       workCards: globalThis.document.querySelectorAll("[data-work-card]").length,
     };
   });
 }
 
-function assertAttentionLayout(geometry) {
-  const { viewport, band, works, drill, artifacts } = geometry;
+function assertFourBlockLayout(geometry) {
+  const { viewport, running, pins, works, awaits } = geometry;
   assert.ok(
-    band !== null && works !== null && drill !== null && artifacts !== null,
-    `all four sections must exist: ${JSON.stringify(geometry)}`,
+    running !== null && works !== null && pins !== null && awaits !== null,
+    `all four blocks must exist: ${JSON.stringify(geometry)}`,
   );
-  // 紧凑决策带:默认 ≤3 行,且不占首屏的大头(高度低于工作主体)。
-  assert.ok(geometry.decisionRows <= 3, `compact band must show at most 3 rows, saw ${geometry.decisionRows}`);
+  // 左列:running 上格、works 下格,同列左对齐且上下相接。
   assert.ok(
-    band.height < works.height,
-    `watched works must be the main body: band ${band.height} vs works ${works.height}`,
+    Math.abs(running.left - works.left) <= 2 && running.bottom <= works.top + 1,
+    `running must be the top-left cell with works stacked below: ${JSON.stringify(geometry)}`,
   );
+  // 右列:pins 上格、awaits 下格,整体在左列右侧。
   assert.ok(
-    band.height < viewport.height * 0.42,
-    `band must stay a compact strip: ${band.height} of ${viewport.height}`,
+    Math.abs(pins.left - awaits.left) <= 2 &&
+      pins.bottom <= awaits.top + 1 &&
+      pins.left >= running.right - 1 &&
+      awaits.left >= works.right - 1,
+    `pins/awaits must own the right column: ${JSON.stringify(geometry)}`,
   );
-  // 决策带横跨两列之上;「执行与下钻」在左上格(业主意见 3),产物速览架叠其下同列。
-  assert.ok(
-    band.bottom <= drill.top + 1 && band.bottom <= works.top + 1,
-    `band must sit above both columns: ${JSON.stringify(geometry)}`,
-  );
-  assert.ok(
-    drill.bottom <= artifacts.top + 1 && Math.abs(drill.left - artifacts.left) <= 2,
-    `drill must be the top-left cell with the artifacts shelf stacked below: ${JSON.stringify(geometry)}`,
-  );
-  // 关注的工作独占右列:在 drill 右侧,不与左列重叠。
-  assert.ok(
-    works.left >= drill.right - 1,
-    `works must own the right column instead of sharing the drill column: ${JSON.stringify(geometry)}`,
-  );
+  // 泳道与最新产物已移出总览(2026-10-21 定案)。
+  assert.ok(!geometry.lanes, "the global AgentLanes swimlane must not render on the overview");
+  assert.ok(geometry.artifacts === null, "the artifacts shelf must not render on the overview");
+  // 待办签发默认紧凑 ≤3 行。
+  assert.ok(geometry.awaitRows <= 3, `compact awaits must show at most 3 rows, saw ${geometry.awaitRows}`);
   assert.ok(geometry.workCards >= 3, `at least three watched works must render, saw ${geometry.workCards}`);
+  // 四块都不挤压成不可读的细条:每块至少保持区域板的最小可用尺寸。
+  for (const [name, block] of [
+    ["running", running],
+    ["works", works],
+    ["pins", pins],
+    ["awaits", awaits],
+  ]) {
+    assert.ok(
+      block.width >= 200 && block.height >= 120,
+      `${name} must stay usable (${block.width}x${block.height}) at ${viewport.width}x${viewport.height}`,
+    );
+  }
 }
 
 export default {
@@ -121,10 +118,10 @@ export default {
   feature: "overview",
   lane: "isolated",
   description:
-    "Compact decision band (few rows by default, one-click expand), the Execution & drill region in the " +
-    "top-left cell with the artifacts shelf stacked below it, and watched works owning the right column, " +
-    "verified against a real daemon seeded with 3+ pinned works, machine reworks and human decisions at " +
-    "1440/1120/900 hidden windows.",
+    "The 2026-10-21 four-block overview (running tasks top-left, pins & agenda top-right, watched works " +
+    "bottom-left, waiting-for-you bottom-right) verified against a real daemon seeded with 3+ pinned works and " +
+    "human decisions; the global swimlane and artifacts shelf stay off the overview, and the compact awaiting " +
+    "list expands in place. Hidden windows at 1440/1120/minimum width.",
   async run({ page, app, fixture, shot }) {
     const { endpoint, repoId, rootDir } = fixture;
 
@@ -136,7 +133,7 @@ export default {
         (planPath) => rpc(endpoint, repoId, "repo.task.run", { action: { kind: "doc-submit", paths: [planPath] } }),
         work.title,
       );
-      const member = await createRealizedTaskPlanFixture(
+      await createRealizedTaskPlanFixture(
         rootDir,
         () =>
           rpc(endpoint, repoId, "repo.task.create", {
@@ -147,73 +144,8 @@ export default {
         (planPath) => rpc(endpoint, repoId, "repo.task.run", { action: { kind: "doc-submit", paths: [planPath] } }),
         `${work.title}·成员任务`,
       );
-      work.packagePath = member.packagePath;
       const pinned = await rpc(endpoint, repoId, "repo.task.pin", { taskId: work.root });
       assert.equal(pinned.ok, true, `pin ${work.root}: ${JSON.stringify(pinned).slice(0, 300)}`);
-    }
-
-    // 机器返工:成员任务走 真实提交→初审打回,落 awaitingRework(owning CEO 的机器双闸)。
-    writeFileSync(path.join(rootDir, "attention-focus-delivery.txt"), "attention focus fixture delivery\n");
-    execFileSync("git", ["-C", rootDir, "add", "attention-focus-delivery.txt"], { stdio: "pipe" });
-    execFileSync(
-      "git",
-      [
-        "-C",
-        rootDir,
-        "-c",
-        "user.name=gui-e2e",
-        "-c",
-        "user.email=gui-e2e@local",
-        "commit",
-        "-m",
-        "test: attention focus delivery",
-      ],
-      { stdio: "pipe" },
-    );
-    const commitSha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    for (const rework of REWORK_TASKS) {
-      const memberPath = WATCHED_WORKS.find((work) => work.member === rework.taskId)?.packagePath;
-      writeFileSync(
-        path.join(rootDir, "harness", memberPath, "closeout.md"),
-        [
-          "## Summary",
-          "Delivered the attention-focus rework fixture round.",
-          "",
-          "## Verification",
-          "- Real daemon receipts for submit and adjudicate return.",
-          "",
-          "## Residual Risk",
-          "- Fixture-only content.",
-          "",
-          "## Same Mechanism Elsewhere",
-          "- No sibling surface.",
-          "",
-        ].join("\n"),
-      );
-      const submitted = await rpc(endpoint, repoId, "repo.task.run", {
-        action: { kind: "doc-submit", paths: [`${memberPath}/closeout.md`] },
-      });
-      assert.equal(submitted.ok, true, `doc-submit closeout: ${JSON.stringify(submitted).slice(0, 300)}`);
-      const started = await rpc(endpoint, repoId, "repo.task.run", {
-        action: { kind: "task-start", taskId: rework.taskId, executionId: rework.executionId },
-      });
-      assert.equal(started.ok, true, `task-start: ${JSON.stringify(started).slice(0, 300)}`);
-      const sent = await rpc(endpoint, repoId, "repo.task.run", {
-        action: { kind: "task-submit", taskId: rework.taskId, executionId: rework.executionId, commitSha },
-      });
-      assert.equal(sent.ok, true, `task-submit: ${JSON.stringify(sent).slice(0, 300)}`);
-      const returned = await rpc(endpoint, repoId, "repo.task.run", {
-        action: {
-          kind: "task-adjudicate",
-          taskId: rework.taskId,
-          executionId: rework.executionId,
-          return: true,
-          reason: "attention focus fixture: machine rework round",
-          // 9ceab8bb1 起 return 必须显式选续派模式;夹具只要返工状态转移。
-          workerMode: "none",
-        },
-      });
-      assert.equal(returned.ok, true, `task-adjudicate return: ${JSON.stringify(returned).slice(0, 300)}`);
     }
 
     // 真实人工决策:两条指向读者的 awaits 问句(relation-relate 真实写路)。
@@ -243,73 +175,50 @@ export default {
     }
     await worksRegion.getByText("置顶 3 项").waitFor({ timeout: 20_000 });
 
-    // 决策带:默认紧凑 ≤3 行;人工问句在带内,机器返工不在带内。
-    const band = page.getByTestId("overview-decisions-band");
-    await band.waitFor();
+    // 等你处理的事:默认紧凑 ≤3 行;人工问句在块内,机器行不冒充用户决策。
+    const awaits = page.getByTestId("overview-awaits");
+    await awaits.waitFor();
     await page.waitForFunction(
-      () => globalThis.document.querySelectorAll('[data-testid="overview-decisions-band"] [data-decision]').length > 0,
+      () => globalThis.document.querySelectorAll('[data-testid="overview-awaits"] [data-awaits-row]').length > 0,
     );
-    const bandText = await band.innerText();
-    assert.ok(bandText.includes(HUMAN_ASKS[0].question), "the human ask must be in the band");
-    // 机器行不冒充用户决策:带内行只有「等你答复/决策待点头」两档,没有待初审/评审打回。
-    const rowKinds = await page.evaluate(() =>
-      [...globalThis.document.querySelectorAll('[data-testid="overview-decisions-band"] [data-decision]')].map(
+    const awaitsText = await awaits.innerText();
+    assert.ok(awaitsText.includes(HUMAN_ASKS[0].question), "the human ask must be in the awaiting block");
+    const rowTexts = await page.evaluate(() =>
+      [...globalThis.document.querySelectorAll('[data-testid="overview-awaits"] [data-awaits-row]')].map(
         (row) => row.textContent,
       ),
     );
     assert.ok(
-      rowKinds.length > 0 && rowKinds.every((row) => !row.includes("待初审") && !row.includes("评审打回")),
-      `machine rows must not pose as user decisions in the band: ${JSON.stringify(rowKinds)}`,
+      rowTexts.length > 0 && rowTexts.every((row) => !row.includes("待初审") && !row.includes("评审打回")),
+      `machine rows must not pose as user decisions in the awaiting block: ${JSON.stringify(rowTexts)}`,
     );
-    const expand = band.getByTestId("overview-decisions-expand");
+    const expand = awaits.getByTestId("overview-awaits-expand");
     if (await expand.count()) {
       await expand.click();
       const expandedRows = await page.evaluate(
-        () => globalThis.document.querySelectorAll('[data-testid="overview-decisions-band"] [data-decision]').length,
+        () => globalThis.document.querySelectorAll('[data-testid="overview-awaits"] [data-awaits-row]').length,
       );
       assert.ok(expandedRows > 3, "expanding must reveal the remaining decisions");
       await shot("overview-attention-expanded");
-      await band.getByTestId("overview-decisions-collapse").click();
+      await awaits.getByTestId("overview-awaits-collapse").click();
     }
 
-    // 跟进与返工 tab(2026-10-07 三块区域返工):机器返工在 tab 计数里,内联名单直接可见
-    // 打回行;点行弹放大层,层内名单同源。
-    const followTab = page.getByTestId("overview-drill-followups");
-    await followTab.waitFor();
-    await followTab.click();
-    await page.waitForFunction(
-      () =>
-        globalThis.document.querySelector('[data-testid="overview-drill-list"]')?.textContent.includes("关注工作乙"),
-      null,
-      { timeout: 10_000 },
-    );
-    await shot("overview-attention-drill-inline");
-    const followRow = page.locator('[data-testid="overview-drill-list"] [data-drill-row]').first();
-    await followRow.getByRole("button").first().click();
-    const followDialog = page.locator('[role="dialog"]');
-    await followDialog.waitFor();
-    await page.waitForFunction(
-      () => globalThis.document.querySelector("[data-focus-list]")?.textContent.includes("关注工作乙"),
-      null,
-      { timeout: 10_000 },
-    );
-    await page.keyboard.press("Escape");
-    await followDialog.waitFor({ state: "detached" });
-
-    // 三档窗口实测几何 + 截屏:默认宽(1440)→1120→900。
+    // 三档窗口实测几何 + 截屏:默认宽(1440)→1120→最小窗宽。
     await setSize(app, page, 1440, 900);
-    let geometry = await attentionGeometry(page);
-    assertAttentionLayout(geometry);
+    let geometry = await fourBlockGeometry(page);
+    assertFourBlockLayout(geometry);
     await shot("overview-attention-wide-1440");
 
     await setSize(app, page, 1120, 800);
-    geometry = await attentionGeometry(page);
-    assertAttentionLayout(geometry);
+    geometry = await fourBlockGeometry(page);
+    assertFourBlockLayout(geometry);
     await shot("overview-attention-1120");
 
+    // 900 宽是 Electron 最小窗宽以下的值:窗口被主进程夹到 1120,断言用实测视口而不是
+    // 请求值,否则会把「最小窗宽」误判成布局失败。
     await setSize(app, page, 900, 800);
-    geometry = await attentionGeometry(page);
-    assertAttentionLayout(geometry);
-    await shot("overview-attention-900");
+    geometry = await fourBlockGeometry(page);
+    assertFourBlockLayout(geometry);
+    await shot("overview-attention-min-width");
   },
 };

@@ -74,10 +74,6 @@ function gotoLocation(navigate: (fields: Partial<AppLocation>) => void, view: Vi
     focusedEntityRef: null,
     selectedId: null,
     previewId: null,
-    // 总览页内层(产物二级页/放大层)随离页显式收起:侧栏再进总览给干净首屏,
-    // 后退仍能回到带着层的那一条(层字段留在原条目里)。
-    overviewArtifactId: null,
-    overviewFocus: null,
     ...(view !== "board" ? { drill: null } : {}),
   });
 }

@@ -2,7 +2,6 @@ import type { TaskFilters } from "../model/taskFilters.ts";
 import type { AttestationPoolTabId } from "../model/attestation-pool.ts";
 import type { SnapshotStatus } from "../model/types.ts";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
-import type { DrillFocusKey } from "../views/overview-regions.tsx";
 
 /**
  * AppShell 级全局视图导航历史(移植老 main 线 navigationHistory,贴 rebuild 现状)。
@@ -56,15 +55,6 @@ export interface DrillState {
   groupBy: LaneGroupBy;
 }
 
-/**
- * 总览页放大层(执行与下钻各名单的 FocusLayer)在 AppLocation 里的形状:开层推栈、
- * 层内换选中原地改、关层弹栈(任务预览抽屉同一契约,业主 2026-10-11 全局导航)。
- */
-export interface OverviewFocusLocation {
-  key: DrillFocusKey;
-  selectedId: string | null;
-}
-
 export interface AppLocation {
   view: ViewId;
   scopeRootTaskId?: string | null;
@@ -76,10 +66,6 @@ export interface AppLocation {
   drill: DrillState | null;
   /** 待办签发总池的当前 Tab(可寻址、刷新不丢);缺省 "decisions"(决策待裁域)。 */
   poolTab?: AttestationPoolTabId;
-  /** 总览页产物二级页选中的产物行键(可寻址、后退回原位);null/缺省 = 层关着。 */
-  overviewArtifactId?: string | null;
-  /** 总览页放大层(执行与下钻各名单);null/缺省 = 层关着。 */
-  overviewFocus?: OverviewFocusLocation | null;
 }
 
 export interface ViewHistoryState {
@@ -124,9 +110,7 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     a.focusedEntityRef === b.focusedEntityRef &&
     JSON.stringify(a.taskFilters) === JSON.stringify(b.taskFilters) &&
     JSON.stringify(a.drill) === JSON.stringify(b.drill) &&
-    (a.poolTab ?? "decisions") === (b.poolTab ?? "decisions") &&
-    (a.overviewArtifactId ?? null) === (b.overviewArtifactId ?? null) &&
-    JSON.stringify(a.overviewFocus ?? null) === JSON.stringify(b.overviewFocus ?? null)
+    (a.poolTab ?? "decisions") === (b.poolTab ?? "decisions")
   );
 }
 
