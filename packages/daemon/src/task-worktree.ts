@@ -12,6 +12,7 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
+  abortInterruptedWorktreeOperation,
   addManagedWorktree,
   advanceIdleCheckout,
   continuePublishedBranch,
@@ -185,10 +186,12 @@ export async function checkoutTaskWorktree(
     if (fresh) await refreshDefaultBranch(rootDir);
     const defaultRef = repositoryBaseRef(rootDir);
     if (fresh && !defaultRef) return null;
+    // A runtime that stopped mid-rebase or mid-merge leaves conflict residue; clear it before judging the branch.
+    if (!fresh) await abortInterruptedWorktreeOperation(rootDir, cwd);
     const published = await publishedBranchRef(rootDir, binding.branch);
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
     // A checkout this node already had, or a branch that survived one, may predate another node's push.
-    if (published) await continuePublishedBranch(cwd, published, defaultRef);
+    if (published) await continuePublishedBranch(cwd, published);
     // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
     // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
     else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
