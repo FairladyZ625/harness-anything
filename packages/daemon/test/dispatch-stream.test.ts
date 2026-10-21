@@ -1035,3 +1035,60 @@ test("a held-descriptor appender lands schema-tagged records and reopens after c
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("a settled runtime_metrics record straddling the backward-probe edge is still the one read", () => {
+  // The summary recovers runtime_metrics when its head/tail windows missed it: the probe walks
+  // back from EOF in 64 KiB chunks, each next chunk starting 64 KiB - overlap earlier (the overlap
+  // carries a kind marker split across the edge). The scan must resolve a record whose start sits
+  // in one chunk and whose tail opens the next from its true line start; otherwise it returns the
+  // older record before it.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-metrics-straddle-"));
+  try {
+    const dispatchId = "dispatch_dddddddddddddddddddddddd",
+      writer = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: "task-straddle",
+        executionId: "execution-straddle",
+        runtimeSessionId: "runtime_dddddddddddddddddddddddd",
+        instanceId: "instance-1",
+        startedAt: "2026-09-15T00:00:00.000Z",
+      }),
+      metrics = (totalTokens: number) => ({
+        inputTokens: totalTokens,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        totalTokens,
+        toolCallCount: 0,
+        compacted: false,
+        raw: { pad: "m".repeat(700) },
+      }),
+      filler = (bytes: number) => ({ kind: "provider_event", event: { text: "f".repeat(bytes) } }),
+      target = dispatchStreamPath(rootDir, dispatchId),
+      chunkBytes = 64 * 1024,
+      overlapBytes = Buffer.byteLength('"kind":"runtime_metrics"') - 1,
+      // Third chunk start sits 192 KiB before EOF, beyond the 128 KiB tail window.
+      thirdChunkStart = (size: number) => size - 3 * chunkBytes + 2 * overlapBytes;
+    // Park the older record past the 16 KiB head window, or the summary settles on it directly
+    // and never probes the tail.
+    for (let index = 0; index < 80; index += 1) appendRuntimeWorkerRecord(rootDir, dispatchId, filler(300));
+    writer.appendRuntimeMetrics?.(metrics(111), "2026-09-15T00:01:00.000Z");
+    for (let index = 0; index < 420; index += 1) appendRuntimeWorkerRecord(rootDir, dispatchId, filler(300));
+    const newestOffset = statSync(target).size;
+    writer.appendRuntimeMetrics?.(metrics(222), "2026-09-15T00:02:00.000Z");
+    const newestEnd = statSync(target).size;
+    assert.ok(newestEnd - newestOffset > 700, "the seeded record must be long enough to straddle a chunk edge");
+    // Pad until a probe chunk start falls inside the newest record, past both head and tail windows.
+    let straddled = false;
+    for (let pads = 0; pads < 2_000 && !straddled; pads += 1) {
+      const size = statSync(target).size;
+      const start = thirdChunkStart(size);
+      straddled = start > newestOffset + 20 && start < newestEnd - 20;
+      if (!straddled) appendRuntimeWorkerRecord(rootDir, dispatchId, filler(200));
+    }
+    assert.ok(straddled, "could not place a probe chunk edge inside the newest record");
+    assert.ok(statSync(target).size - 128 * 1024 > newestEnd, "the record must sit outside the tail window");
+    assert.equal(readDispatchStreamSummary(rootDir, dispatchId)?.runtimeMetrics?.totalTokens, 222);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

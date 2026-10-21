@@ -600,6 +600,7 @@
   "agentRuntime.tokenUsageUnreportedCount": "{count}",
   "agentRuntime.tokenUsageUnreportedMore": "{count} more from other providers",
   "agentRuntime.sessionMetricsTitle": "Session consumption",
+  "agentRuntime.sessionMetricsContextUsed": "Used context",
   "agentRuntime.sessionMetricsInput": "Input tokens",
   "agentRuntime.sessionMetricsCacheRead": "Cache read",
   "agentRuntime.sessionMetricsOutput": "Output tokens",

@@ -134,7 +134,8 @@ export function SessionsPanel({
   );
 }
 
-/** 会话消耗面板:该会话派工的输入/缓存读取/输出/总 Token、工具调用与 compaction 标记。 */
+/** 会话消耗面板:该会话派工的输入/缓存读取/输出/总 Token、工具调用与 compaction 标记。
+ * 分段条按总量占比画组成,不做窗口比值——累计 token 每轮重算缓存前缀,不是上下文占用。 */
 function SessionMetricsCard({ metrics }: { readonly metrics: NonNullable<AgentRuntimeSessionDto["metrics"]> }) {
   // satisfies 保住 kind 的字面量窄化:.filter 会切断数组字面量的上下文类型,直接标注会把 kind 拓宽成 string。
   const segments = (
@@ -156,7 +157,6 @@ function SessionMetricsCard({ metrics }: { readonly metrics: NonNullable<AgentRu
                 ? segments
                 : [{ kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 }]
             }
-            limitTokens={200_000}
             testId="session-metrics-context-meter"
           />
         </div>
@@ -246,21 +246,16 @@ export function SessionDetailView({
     installationBadge = sessionInstallationBadge(session),
     resume = row?.kind === "round" ? row.resume : null;
   const [confirmResume, setConfirmResume] = useState(false);
-  const contextSegments: readonly ContextSegment[] = useMemo(() => {
-    if (!session.metrics || session.metrics.usageUnavailable) return [];
-    const m = session.metrics;
-    const segs: ContextSegment[] = [];
-    if (m.cacheReadTokens > 0) {
-      segs.push({ kind: "cache", label: t("agentRuntime.sessionMetricsCacheRead"), tokens: m.cacheReadTokens });
-    }
-    if (m.inputTokens > 0) {
-      segs.push({ kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: m.inputTokens });
-    }
-    if (m.outputTokens > 0) {
-      segs.push({ kind: "output", label: t("agentRuntime.sessionMetricsOutput"), tokens: m.outputTokens });
-    }
-    return segs;
-  }, [session.metrics]);
+  // 上下文占用只认 provider 自报的窗口填充(daemon 的 context 投影)。没有上报就没有比值:
+  // 窗口上限不设默认值,占用也不拿累计消耗冒充。
+  const contextFill = session.context ?? null;
+  const contextSegments: readonly ContextSegment[] = useMemo(
+    () =>
+      contextFill === null
+        ? []
+        : [{ kind: "reserve", label: t("agentRuntime.sessionMetricsContextUsed"), tokens: contextFill.usedTokens }],
+    [contextFill],
+  );
 
   return (
     <div data-testid="session-detail">
@@ -314,17 +309,15 @@ export function SessionDetailView({
                 testId="session-detail-cache-timer"
               />
             )}
-            <div className="w-36 shrink-0">
-              <ContextMeter
-                segments={
-                  contextSegments.length > 0
-                    ? contextSegments
-                    : [{ kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 }]
-                }
-                limitTokens={200_000}
-                testId="session-detail-context-meter"
-              />
-            </div>
+            {contextFill !== null && (
+              <div className="w-36 shrink-0" data-testid="session-detail-context">
+                <ContextMeter
+                  segments={contextSegments}
+                  limitTokens={contextFill.windowTokens}
+                  testId="session-detail-context-meter"
+                />
+              </div>
+            )}
           </div>
           <Right>
             {LIVENESS_LIVE[session.liveness] && (

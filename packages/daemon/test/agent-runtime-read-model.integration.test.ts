@@ -1168,6 +1168,46 @@ test("public runtime overview and detail ignore local provider telemetry and exp
     assert.deepEqual(reads.overview({ limit: 16 }).sessions[0]?.metrics, { ...metrics, compacted: null });
   }));
 
+test("session detail reports the context fill its provider measured and never invents a window", () =>
+  withMissingInstallationRuntime(true, ({ rootDir, store, projection }) => {
+    const details = () => makeAgentRuntimeReadModel({ store, projection, rootDir });
+    openDispatchStream(rootDir, {
+      dispatchId: "dispatch_000000000000000000000001",
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-historical",
+      instanceId: "instance-historical",
+      startedAt: "2026-09-03T00:00:00.000Z",
+    });
+    // A provider that reports no window: the detail carries no context at all, so the renderer
+    // draws no percentage instead of dividing by a default.
+    assert.equal(details().session({ runtimeSessionId: "runtime-historical" }).session.context, undefined);
+
+    appendRuntimeWorkerRecord(rootDir, "dispatch_000000000000000000000001", {
+      kind: "provider_event",
+      event: {
+        type: "acp.update",
+        update: { sessionUpdate: "usage_update", used: 516_976, size: 1_000_000 },
+        usage: { used: 516_976, context_size: 1_000_000 },
+      },
+    });
+    const detail = details().session({ runtimeSessionId: "runtime-historical" }).session;
+    assert.deepEqual(detail.context, { usedTokens: 516_976, windowTokens: 1_000_000 });
+    // The GUI's response validator accepts the new facet, and still rejects a window no meter
+    // could divide by or a fill with no window behind it.
+    const read = details().session({ runtimeSessionId: "runtime-historical" });
+    assert.deepEqual(validateAgentRuntimeSession(read), []);
+    assert.deepEqual(
+      validateAgentRuntimeSession({ ...read, session: { ...detail, context: { usedTokens: 5, windowTokens: 0 } } }),
+      ["agent runtime session is invalid"],
+    );
+    assert.deepEqual(validateAgentRuntimeSession({ ...read, session: { ...detail, context: { usedTokens: 5 } } }), [
+      "agent runtime session is invalid",
+    ]);
+    // List reads stay cheap: the fill probe is detail-only and the overview never carries it.
+    assert.equal(details().overview({ limit: 16 }).sessions[0]?.context, undefined);
+  }));
+
 function withMissingInstallationRuntime(
   installationPresent: boolean,
   use: (fixture: {

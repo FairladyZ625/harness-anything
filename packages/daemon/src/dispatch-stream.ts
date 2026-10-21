@@ -25,6 +25,7 @@ import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
+import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 const streamSchema = "runtime-dispatch-stream/v1" as const;
@@ -426,12 +427,13 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     }
   }
   if (value.runtimeMetrics === null) {
-    const runtimeMetrics = readLatestRecordOfKind(
+    const runtimeMetrics = readLatestStreamRecord(
       target,
-      "runtime_metrics",
-      Math.max(0, stat.size - summaryMetricsProbeLimitBytes),
+      summaryMetricsProbeLimitBytes,
+      ["runtime_metrics"],
+      (record) => (isRuntimeMetrics(record) ? record : null),
     );
-    if (runtimeMetrics && isRuntimeMetrics(runtimeMetrics)) records.push(runtimeMetrics);
+    if (runtimeMetrics) records.push(runtimeMetrics);
   }
   return summarizeDispatch(header, records, stat.mtimeMs);
 }
@@ -969,33 +971,30 @@ function readStreamRecordOfKindForward(
   return null;
 }
 
-function readLatestRecordOfKind(target: string, kind: string, start: number): Record<string, unknown> | null {
-  const descriptor = requiredDispatchStreamForRead(target),
-    size = fstatSync(descriptor).size,
-    marker = Buffer.from(`"kind":"${kind}"`),
-    chunkSize = 64 * 1024;
+/** Latest matching record in the tail of a dispatch stream. `select` gates both vocabulary and
+ * shape, so a kind marker plus a field check never parses a provider transcript payload. */
+export function readLatestStreamRecord<T>(
+  target: string,
+  probeBytes: number,
+  kinds: readonly string[],
+  select: (record: Record<string, unknown>) => T | null,
+): T | null {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const markers = kinds.map((kind) => `"kind":"${kind}"`);
   try {
-    for (let end = size; end > start; ) {
-      const chunkStart = Math.max(start, end - chunkSize),
-        length = end - chunkStart,
-        bytes = Buffer.alloc(length),
-        read = readSync(descriptor, bytes, 0, length, chunkStart),
-        markerOffset = bytes.subarray(0, read).lastIndexOf(marker);
-      if (markerOffset !== -1) {
-        const lineStart = bytes.lastIndexOf(10, markerOffset) + 1,
-          lineEnd = bytes.indexOf(10, markerOffset);
-        if (lineEnd !== -1) return parseRecord(bytes.subarray(lineStart, lineEnd).toString("utf8"));
-      }
-      if (chunkStart === start) break;
-      end = chunkStart + marker.length - 1;
-    }
+    return readLatestLineInTail(descriptor, fstatSync(descriptor).size, probeBytes, (line) => {
+      if (!markers.some((marker) => line.includes(marker))) return null;
+      const record = parseRecord(line);
+      return record === null ? null : select(record);
+    });
   } finally {
     closeSync(descriptor);
   }
-  return null;
 }
 
-function openDispatchStreamForRead(target: string): number | null {
+/** Read-only descriptor for a live or archived stream; the caller closes it. */
+export function openDispatchStreamForRead(target: string): number | null {
   const live = openDispatchStreamPath(target);
   if (live.descriptor !== null) return live.descriptor;
   const archived = archivedPathForLiveTarget(target);
