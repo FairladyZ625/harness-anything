@@ -249,17 +249,12 @@ function migrateLegacyWriterEpochDatabase(stateRoot: string): void {
     }
     legacy.exec("COMMIT");
     transactionOpen = false;
-  } catch (error) {
-    if (transactionOpen) {
-      try {
-        legacy.exec("ROLLBACK");
-      } catch (rollbackError) {
-        consumeKnownError(rollbackError);
-      }
-    }
-    throw error;
   } finally {
-    legacy.close();
+    try {
+      if (transactionOpen) legacy.exec("ROLLBACK");
+    } finally {
+      legacy.close();
+    }
   }
 }
 
