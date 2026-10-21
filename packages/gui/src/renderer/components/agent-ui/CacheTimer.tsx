@@ -5,12 +5,13 @@ import { t } from "../../i18n/index.tsx";
 
 /**
  * Prompt Cache 剩余 TTL 倒计时胶囊(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Orca CacheTimer):
- * 大模型 Prompt Cache 有 5 分钟 TTL,击穿后下一轮按未缓存输入重发完整上下文(约 10x
- * 输入成本),让操作者在击穿前连贯提问。
+ * 大模型 Prompt Cache 有 provider 口径的 TTL,击穿后下一轮按未缓存输入重发完整上下文
+ * (约 10x 输入成本),让操作者在击穿前连贯提问。
  *
  * 纯受控展示组件(CEO 返工裁定 F1):TTL 窗口、剩余毫秒与三态判定全部由模型层
- * (W1-T1 `computePromptCacheTtlState` 同名同义形状)算好后传入,本组件只负责格式化、
- * 三态样式与过期成本对价提示;模型无 TTL 数据时调用方直接不渲染,不虚构倒计时。
+ * (`computePromptCacheTtlState` + provider TTL 表,只有公开确定口径的 runtime 才有值)
+ * 算好后传入,本组件只负责格式化、三态样式与过期成本对价提示;模型无 TTL 数据时调用方
+ * 直接不渲染,不虚构倒计时。
  *
  * 三态:normal=中性灰剩余时长;warning=琥珀色 + 小圆点 opacity 脉冲(点级循环动效,
  * reduced-motion 时静止);expired=只留红色计时图标,不显示秒数,Tooltip 写明 10x

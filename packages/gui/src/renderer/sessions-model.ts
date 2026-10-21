@@ -12,13 +12,7 @@ import type { AgendaAwaitsRow } from "../api/renderer-dto.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { WorkIndex, WorkRef } from "./model/work-collections.ts";
 import type { RelationEdge } from "./model/types.ts";
-import {
-  classifySmartAttention,
-  computePromptCacheTtlState,
-  mostUrgentPromptCacheTtl,
-  type PromptCacheTtlState,
-  type SmartClass,
-} from "./model/smart-attention.ts";
+import { computePromptCacheTtlState, type PromptCacheTtlState } from "./model/smart-attention.ts";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
@@ -275,45 +269,7 @@ export function sessionEventTimeline(events: readonly SessionLifecycleEvent[]): 
   return { lastTurnActivityAt, lastCacheTouchAt };
 }
 
-/** 会话侧完整注意力投影:五级分类 + 缓存 TTL,时钟由调用方注入。 */
-export type SessionAttention = {
-  readonly smartClass: SmartClass;
-  readonly needsYou: boolean;
-  readonly lastTurnActivityAt: number | null;
-  readonly lastCacheTouchAt: number | null;
-  readonly cacheTtl: PromptCacheTtlState | null;
-};
-
-/** 单会话:session DTO 有 liveness 与 outcome 证据,是五级分级最精确的输入。 */
-export function sessionAttention(
-  session: AgentRuntimeSessionDto,
-  refs: ReadonlySet<string>,
-  timeline: SessionEventTimeline = EMPTY_EVENT_TIMELINE,
-  nowMs: number,
-): SessionAttention {
-  const needsYou = session.associations.some((association) => refs.has(`task/${association.taskId}`)),
-    observedAt = epochMsOf(session.activity.lastObservedAt),
-    lastTurnActivityAt = timeline.lastTurnActivityAt ?? observedAt;
-  return {
-    smartClass: classifySmartAttention(
-      {
-        status: session.semanticState ?? "unavailable",
-        liveness: session.liveness,
-        needsYou,
-        lastTurnActivityAt,
-        settledAt: session.activity.outcome === null ? null : observedAt,
-      },
-      nowMs,
-    ),
-    needsYou,
-    lastTurnActivityAt,
-    lastCacheTouchAt: timeline.lastCacheTouchAt,
-    cacheTtl: computePromptCacheTtlState(timeline.lastCacheTouchAt, nowMs),
-  };
-}
-const EMPTY_EVENT_TIMELINE: SessionEventTimeline = { lastTurnActivityAt: null, lastCacheTouchAt: null };
-
-/** 组级终态词表(新鲜度窗口的适用范围);running/unknown/blocked/lost/unavailable 不是收口。 */
+/** 组级终态词表(收口判定的适用范围);running/unknown/blocked/lost/unavailable 不是收口。 */
 const GROUP_TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set([
   "succeeded",
   "failed",
@@ -322,78 +278,18 @@ const GROUP_TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set([
   "ended-indeterminate",
 ]);
 
-/** 组级投影:组没有 liveness 与收口时间戳,终态以 latestActivityAt 近似收口时刻;缓存触达按组成员会话给入,取最早失效。 */
-export function sessionGroupAttention(
-  group: SessionGroup,
-  refs: ReadonlySet<string>,
-  memberCacheTouches: readonly (number | null)[] = [],
+/**
+ * 一轮收口后的缓存倒计时,行级与详情共用唯一判定:只有终态(一轮结束、等操作者下一轮
+ * 输入)才有「再不提问缓存就失效」的意义——running/blocked 轮内缓存由模型调用本身保温,
+ * 生命周期读面也拿不到轮内触达;触达时间或该 provider 的 TTL 缺一都返回 null,不虚构。
+ */
+export function settledCacheTtl(
+  status: SessionStatus,
+  lastCacheTouchAt: number | null,
+  ttlMs: number | null,
   nowMs: number,
-): SessionAttention {
-  const needsYou = sessionGroupNeedsYou(group, refs),
-    lastTurnActivityAt = epochMsOf(group.latestActivityAt);
-  return {
-    smartClass: classifySmartAttention(
-      {
-        status: group.latestStatus,
-        needsYou,
-        lastTurnActivityAt,
-        settledAt: GROUP_TERMINAL_STATUSES.has(group.latestStatus) ? lastTurnActivityAt : null,
-      },
-      nowMs,
-    ),
-    needsYou,
-    lastTurnActivityAt,
-    lastCacheTouchAt: earliestCacheTouch(memberCacheTouches),
-    cacheTtl: mostUrgentPromptCacheTtl(memberCacheTouches, nowMs),
-  };
-}
-
-/** 轮次级投影:dispatch 行自带 endedAt,终态新鲜度有真实收口时刻;轮次读面没有缓存触达时间,不虚构。 */
-export function sessionRoundAttention(round: SessionRound, refs: ReadonlySet<string>, nowMs: number): SessionAttention {
-  const needsYou = refs.has(`task/${round.taskId}`),
-    lastTurnActivityAt = epochMsOf(round.endedAt) ?? epochMsOf(round.startedAt);
-  return {
-    smartClass: classifySmartAttention(
-      {
-        status: round.status,
-        needsYou,
-        lastTurnActivityAt,
-        settledAt: epochMsOf(round.endedAt),
-      },
-      nowMs,
-    ),
-    needsYou,
-    lastTurnActivityAt,
-    lastCacheTouchAt: null,
-    cacheTtl: null,
-  };
-}
-
-function earliestCacheTouch(touches: readonly (number | null)[]): number | null {
-  let earliest: number | null = null;
-  for (const touch of touches) {
-    if (touch === null || !Number.isFinite(touch)) continue;
-    if (earliest === null || touch < earliest) earliest = touch;
-  }
-  return earliest;
-}
-
-/** 任务 → 组内各会话的缓存触达时间(组级 TTL 的输入);没有事件证据的会话不进桶。 */
-export function sessionCacheTouchesByTask(
-  sessions: readonly AgentRuntimeSessionDto[],
-  touchBySessionId: ReadonlyMap<string, number | null>,
-): ReadonlyMap<string, readonly (number | null)[]> {
-  const byTask = new Map<string, (number | null)[]>();
-  for (const session of sessions) {
-    const touch = touchBySessionId.get(session.runtimeSessionId);
-    if (touch === undefined) continue;
-    for (const association of session.associations) {
-      const bucket = byTask.get(association.taskId) ?? [];
-      bucket.push(touch);
-      byTask.set(association.taskId, bucket);
-    }
-  }
-  return byTask;
+): PromptCacheTtlState | null {
+  return GROUP_TERMINAL_STATUSES.has(status) ? computePromptCacheTtlState(lastCacheTouchAt, nowMs, ttlMs) : null;
 }
 
 /**

@@ -659,12 +659,7 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
       agentGroup({ key: "agent:glm", agentId: "glm", label: "GLM Worker", runningCount: 2 }),
       agentGroup({ key: "agent:sol", agentId: "sol", label: "Sol", runningCount: 1 }),
     ];
-    const restore = stubLanesBridge({
-      groups,
-      members: { glm: glmRows, sol: solRows },
-      // rs_glm_1 有 started 事件触达 → 块内/聚合 CacheTimer 都有真实倒计时输入。
-      eventsBySession: { rs_glm_1: ["runtime_session_started"], rs_sol_1: ["runtime_session_started"] },
-    });
+    const restore = stubLanesBridge({ groups, members: { glm: glmRows, sol: solRows } });
     const container = mount();
     try {
       await flushUntil(() => container.querySelector('[data-testid="overview-drill-lanes"]') !== null);
@@ -686,13 +681,10 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
       ).toBe("done");
       const blocked = lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_3"]')!;
       expect(blocked.getAttribute("data-lane-status")).toBe("awaiting");
-      // 块内 CacheTimer:有触达证据的运行块显示剩余时长(模型层算好,normal 档)。
-      await flushUntil(() => lanes.querySelector('[data-testid^="overview-agent-lanes-cache-"]') !== null);
-      expect(
-        lanes.querySelector('[data-testid^="overview-agent-lanes-cache-"]')!.getAttribute("data-cache-state"),
-      ).toMatch(/normal|warning|expired/);
-      // 聚合胶囊(tab 行右侧)取最紧迫会话;无触达证据时整个不渲染,这里两块都有。
-      expect(drill.querySelector('[data-testid="overview-drill-cache-timer"]')).not.toBeNull();
+      // 泳道不再挂 Prompt Cache 倒计时:触达读面只轮询运行中会话,而运行一轮内缓存由
+      // 模型调用本身保温,倒计时对操作者无意义;聚合胶囊随数据源一并退役。
+      expect(lanes.querySelector('[data-testid^="overview-agent-lanes-cache-"]')).toBeNull();
+      expect(drill.querySelector('[data-testid="overview-drill-cache-timer"]')).toBeNull();
       // 待拍板动作:task_w1 有未决 awaits(默认夹具 rel_1 的 sourceRef)→ 开答复面板。
       const resolve = lanes.querySelector<HTMLButtonElement>(
         '[data-testid="overview-agent-lanes-resolve-disp_glm_3"]',
@@ -734,11 +726,7 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
         },
       }),
     ];
-    const restore = stubLanesBridge({
-      groups,
-      members: { glm: glmRows },
-      eventsBySession: { rs_glm_b1: ["runtime_session_started"] },
-    });
+    const restore = stubLanesBridge({ groups, members: { glm: glmRows } });
     const container = mount();
     try {
       await flushUntil(

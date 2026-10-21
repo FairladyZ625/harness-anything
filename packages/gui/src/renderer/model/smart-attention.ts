@@ -32,10 +32,29 @@ export interface SmartAttentionSignal {
   readonly settledAt?: number | null;
 }
 
-/** Prompt Cache 默认 TTL 窗口:5 分钟(Orca CacheTimer 同源口径)。 */
-export const PROMPT_CACHE_TTL_MS = 300_000;
-/** 剩余不足该值进入告警态:60 秒。 */
+/**
+ * 各 runtime kind 的 Prompt Cache TTL,只收 provider 公开口径给出确定值的条目:
+ * Anthropic 官方文档为默认 5 分钟、每次命中刷新(platform.claude.com/docs/en/build-with-claude/
+ * prompt-caching),claude 与 claude-acp 都是其官方端点。其余 provider 没有确定口径——
+ * OpenAI 为「通常 5–10 分钟、闲时至多 1 小时」的浮动区间,DeepSeek 为「数小时到数天」,
+ * GLM 未公布——一律不进表,查表得 null 就不显示倒计时,绝不套默认窗口。
+ */
+const PROMPT_CACHE_TTL_MS_BY_KIND: Readonly<Record<string, number>> = {
+  claude: 300_000,
+  "claude-acp": 300_000,
+};
+/** 剩余不足该值进入告警态:60 秒(UI 紧迫档,与 provider 无关)。 */
 export const PROMPT_CACHE_TTL_WARNING_MS = 60_000;
+
+/**
+ * 该 runtime kind 的 Prompt Cache TTL;查不到返回 null。claude 走 baseUrl 第三方端点覆盖
+ * (如 GLM 适配)时端点不是 Anthropic,其口径不成立,同样返回 null。
+ */
+export function promptCacheTtlMsForKind(kindId: string | null | undefined, baseUrl?: string | null): number | null {
+  if (kindId == null || baseUrl) return null;
+  const ttlMs = PROMPT_CACHE_TTL_MS_BY_KIND[kindId];
+  return ttlMs === undefined ? null : ttlMs;
+}
 /** class 2「刚完成待收口」的新鲜度窗口;收口时间未知或超窗的终态沉为 Idle。 */
 export const DONE_FRESHNESS_MS = 300_000;
 
@@ -113,36 +132,27 @@ export type PromptCacheTtlState =
 
 /**
  * 单会话 Prompt Cache TTL 剩余:remainingMs = lastCacheTouchAt + ttlMs - nowMs。
- * lastCacheTouchAt 未知(null/非有限)返回 null——缓存击穿的代价提示只建立在真实
- * 观测到的触达时间上。阈值:≤0 过期、≤60s 告警、其余正常。
+ * lastCacheTouchAt 未知(null/非有限)或该 provider 无确定 TTL(ttlMs null/非有限)都返回
+ * null——缓存击穿的代价提示只建立在真实观测到的触达时间与真实 provider 口径上。
+ * 阈值:≤0 过期、≤60s 告警、其余正常。
  */
 export function computePromptCacheTtlState(
   lastCacheTouchAt: number | null,
   nowMs: number,
-  ttlMs: number = PROMPT_CACHE_TTL_MS,
+  ttlMs: number | null,
 ): PromptCacheTtlState | null {
-  if (lastCacheTouchAt === null || !Number.isFinite(lastCacheTouchAt) || !Number.isFinite(nowMs)) return null;
+  if (
+    lastCacheTouchAt === null ||
+    !Number.isFinite(lastCacheTouchAt) ||
+    !Number.isFinite(nowMs) ||
+    ttlMs === null ||
+    !Number.isFinite(ttlMs)
+  )
+    return null;
   const remainingMs = lastCacheTouchAt + ttlMs - nowMs;
   if (remainingMs <= 0) return { kind: "expired", remainingMs };
   if (remainingMs <= PROMPT_CACHE_TTL_WARNING_MS) return { kind: "warning", remainingMs };
   return { kind: "normal", remainingMs };
-}
-
-/**
- * 多会话取最紧迫(最早即将失效)的活跃缓存,与 Orca CacheTimer 的多会话聚合同口径。
- * 全部未知返回 null。触达时间最早的会话就是剩余最少的会话,直接取 min。
- */
-export function mostUrgentPromptCacheTtl(
-  lastCacheTouchAt: readonly (number | null)[],
-  nowMs: number,
-  ttlMs: number = PROMPT_CACHE_TTL_MS,
-): PromptCacheTtlState | null {
-  let earliestTouch: number | null = null;
-  for (const touch of lastCacheTouchAt) {
-    if (touch === null || !Number.isFinite(touch)) continue;
-    if (earliestTouch === null || touch < earliestTouch) earliestTouch = touch;
-  }
-  return earliestTouch === null ? null : computePromptCacheTtlState(earliestTouch, nowMs, ttlMs);
 }
 
 /** 视图用的级别文案 key(与 sessions-model 的 sessionStatusKey 同一模式,词条落在 i18n 目录)。 */
@@ -152,9 +162,4 @@ export const smartClassLabelKey: Readonly<Record<SmartClass, string>> = {
   3: "agentRuntime.smartClassWorking",
   4: "agentRuntime.smartClassUnverifiable",
   5: "agentRuntime.smartClassIdle",
-};
-export const promptCacheTtlLabelKey: Readonly<Record<PromptCacheTtlState["kind"], string>> = {
-  normal: "agentRuntime.cacheTtlNormal",
-  warning: "agentRuntime.cacheTtlWarning",
-  expired: "agentRuntime.cacheTtlExpired",
 };

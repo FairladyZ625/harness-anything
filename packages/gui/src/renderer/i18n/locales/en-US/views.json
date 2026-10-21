@@ -1869,7 +1869,6 @@
   "views.overviewView.drillLanesLoading": "Loading agent lanes…",
   "views.overviewView.drillLanesError": "Agent lanes read failed: ",
   "views.overviewView.drillLanesAwaitingFallback": "This task is blocked and needs you",
-  "views.overviewView.drillCacheLabel": "Cache",
   "views.settingsView.overviewWatchedActivityDaysLabel": "Watched-works activity days",
   "views.settingsView.overviewWatchedActivityDaysDescription": "How many days back the overview's watched-works activity window reaches.",
   "views.settingsView.overviewWatchedActivityDaysEffect": "The overview keeps pinned works first, then works active in this window; older ones stay on the works page.",
