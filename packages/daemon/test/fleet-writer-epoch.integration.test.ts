@@ -46,6 +46,43 @@ function probeRepo(root: string): string {
   probeGit(repo, "commit", "-qm", "harness");
   return repo;
 }
+function seedLegacyWriterEpochDatabase(
+  stateRoot: string,
+  input: {
+    readonly current: readonly {
+      readonly repoId: string;
+      readonly holderId: string;
+      readonly epoch: number;
+      readonly version: number;
+      readonly issuedAt: string;
+    }[];
+    readonly history: readonly { readonly repoId: string; readonly epoch: number }[];
+  },
+): void {
+  const database = new DatabaseSync(path.join(stateRoot, "writer-epochs.sqlite"));
+  database.exec(`
+    PRAGMA journal_mode=WAL;
+    CREATE TABLE writer_epoch_history (
+      repo_id TEXT NOT NULL,
+      epoch INTEGER NOT NULL CHECK(epoch > 0),
+      PRIMARY KEY(repo_id, epoch)
+    ) STRICT;
+    CREATE TABLE writer_epochs (
+      repo_id TEXT PRIMARY KEY,
+      holder_id TEXT NOT NULL CHECK(length(holder_id) > 0),
+      epoch INTEGER NOT NULL CHECK(epoch > 0),
+      version INTEGER NOT NULL CHECK(version > 0),
+      issued_at TEXT NOT NULL
+    ) STRICT;
+  `);
+  const insertCurrent = database.prepare(
+      "INSERT INTO writer_epochs(repo_id, holder_id, epoch, version, issued_at) VALUES (?, ?, ?, ?, ?)",
+    ),
+    insertHistory = database.prepare("INSERT INTO writer_epoch_history(repo_id, epoch) VALUES (?, ?)");
+  for (const row of input.current) insertCurrent.run(row.repoId, row.holderId, row.epoch, row.version, row.issuedAt);
+  for (const row of input.history) insertHistory.run(row.repoId, row.epoch);
+  database.close();
+}
 const probeBinding = (writerEpochFence: {
   readonly schema: "harness-writer-epoch-fence/v1";
   readonly stateRoot: string;
@@ -157,36 +194,56 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
   }
 });
 
-test("a fresh authority starts at epoch zero and ignores legacy epoch files", () => {
+test("per-repository epoch databases import the maximum legacy current or history epoch", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-fresh-"));
   try {
-    writeFileSync(
-      path.join(root, "writer-epochs.json"),
-      `${JSON.stringify({
-        schema: "fleet-writer-epoch/v1",
-        repos: {
-          repo: { repoId: "repo", holderId: "legacy", epoch: 40, version: 40, issuedAt: "legacy" },
-        },
-      })}\n`,
-    );
-    writeFileSync(
-      path.join(root, "writer-epochs.history"),
-      `${JSON.stringify({ repoId: "repo", holderId: "legacy", epoch: 41, version: 41, issuedAt: "legacy" })}\n`,
-    );
-    writeFileSync(path.join(root, "writer-epochs.lock"), "");
-    // The retired monolithic per-state-root database joins the legacy family: its rows never
-    // seed the per-repository databases, so epoch allocation again floors at the ledger lease.
-    const legacy = new DatabaseSync(path.join(root, "writer-epochs.sqlite"));
-    legacy.exec(
-      "PRAGMA journal_mode=WAL; CREATE TABLE writer_epochs (repo_id TEXT PRIMARY KEY, holder_id TEXT, epoch INTEGER, version INTEGER, issued_at TEXT)",
-    );
-    legacy.prepare("INSERT INTO writer_epochs VALUES ('repo', 'legacy', 42, 42, 'legacy')").run();
-    legacy.close();
+    seedLegacyWriterEpochDatabase(root, {
+      current: [
+        { repoId: "repo-current", holderId: "old", epoch: 42, version: 42, issuedAt: "legacy" },
+        { repoId: "repo-history", holderId: "old", epoch: 8, version: 8, issuedAt: "legacy" },
+      ],
+      history: [
+        { repoId: "repo-current", epoch: 41 },
+        { repoId: "repo-history", epoch: 12 },
+        { repoId: "repo-retired", epoch: 31 },
+      ],
+    });
     const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: "sqlite" }),
-      lease = authority.acquire("repo");
-    assert.equal(lease.epoch, 1);
-    assert.deepEqual(authority.current("repo"), lease);
-    authority.close();
+      previousEpochs = new Map([
+        ["repo-current", 42],
+        ["repo-history", 12],
+        ["repo-retired", 31],
+      ]);
+    try {
+      for (const [repoId, previousEpoch] of previousEpochs) {
+        const lease = authority.acquire(repoId, 0);
+        assert.ok(lease.epoch > previousEpoch, `${repoId} epoch ${lease.epoch} did not exceed ${previousEpoch}`);
+        assert.ok(authority.highWatermark(repoId) >= lease.epoch);
+      }
+    } finally {
+      authority.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("remote-edge lease allocation with ledger floor zero stays above a legacy epoch of 42", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-edge-legacy-"));
+  try {
+    seedLegacyWriterEpochDatabase(root, {
+      current: [{ repoId: "edge-repo", holderId: "old-edge", epoch: 42, version: 42, issuedAt: "legacy" }],
+      history: [
+        { repoId: "edge-repo", epoch: 41 },
+        { repoId: "edge-repo", epoch: 42 },
+      ],
+    });
+    const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: "remote-edge" });
+    try {
+      assert.ok(authority.acquire("edge-repo", 0).epoch > 42);
+    } finally {
+      authority.close();
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -337,38 +394,43 @@ test("append fences for distinct repositories do not contend on one shared write
   // repository could exhaust busy_timeout waiting behind unrelated repositories' appends.
   // The holder child parks inside repo-a's fence section; repo-b's fence must still enter.
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-perrepo-")),
-    stateRoot = path.join(root, "state"),
-    heldFile = path.join(root, "section-held"),
-    releaseFile = path.join(root, "section-release");
+    stateRoot = path.join(root, "state");
   const source = path.resolve("packages/daemon/src/writer-epoch.ts"),
     holderSource = `
-      import { existsSync, writeFileSync } from "node:fs";
+      import { readSync, writeSync } from "node:fs";
       import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)};
-      const [stateRoot, heldFile, releaseFile] = process.argv.slice(1);
+      const [stateRoot] = process.argv.slice(1);
       const authority = openPersistentWriterEpoch({ stateRoot, holderId: "holder-a" });
       const lease = authority.acquire("repo-a");
       authority.withAppendFence("repo-a", lease.epoch, lease.holderId, () => {
-        writeFileSync(heldFile, "held\\n");
-        const deadline = Date.now() + 30_000;
-        while (!existsSync(releaseFile) && Date.now() < deadline)
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        writeSync(1, Buffer.from([104, 101, 108, 100, 10]));
+        readSync(0, Buffer.alloc(1), 0, 1, null);
       });
       authority.close();
     `,
-    holder = spawn(process.execPath, ["--input-type=module", "-e", holderSource, stateRoot, heldFile, releaseFile], {
-      stdio: ["ignore", "ignore", "pipe"],
+    holder = spawn(process.execPath, ["--input-type=module", "-e", holderSource, stateRoot], {
+      signal: AbortSignal.timeout(15_000),
+      stdio: ["pipe", "pipe", "pipe"],
     });
   let holderErrors = "";
   holder.stderr.setEncoding("utf8").on("data", (chunk) => {
     holderErrors += chunk;
   });
   const holderExit = new Promise<number | null>((resolve) => holder.on("close", resolve));
+  const holderReady = new Promise<void>((resolve, reject) => {
+    let output = "";
+    holder.stdout.setEncoding("utf8").on("data", (chunk) => {
+      output += chunk;
+      if (output.includes("held\n")) resolve();
+    });
+    holder.once("error", reject);
+    holder.once("close", (code) => {
+      if (!output.includes("held\n"))
+        reject(new Error(`holder exited before acquiring its fence (${code}): ${holderErrors}`));
+    });
+  });
   try {
-    const heldDeadline = performance.now() + 15_000;
-    while (!existsSync(heldFile)) {
-      if (performance.now() > heldDeadline) throw new Error("holder never entered its append fence section");
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    await holderReady;
     const challenger = openPersistentWriterEpoch({ stateRoot, holderId: "challenger" }),
       lease = challenger.acquire("repo-b");
     assert.equal(
@@ -377,7 +439,7 @@ test("append fences for distinct repositories do not contend on one shared write
     );
     challenger.close();
   } finally {
-    writeFileSync(releaseFile, "release\n");
+    holder.stdin.end(Buffer.from([1]));
     assert.equal(await holderExit, 0, `holder child failed: ${holderErrors}`);
     rmSync(root, { recursive: true, force: true });
   }

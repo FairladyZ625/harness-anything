@@ -49,18 +49,11 @@ type EpochRow = {
   readonly issued_at: string;
 };
 
-/** One repository's epoch authority over its own database file. The append fence must exclude
- *  only takeover of its repository, and SQLite locks are database-granular, so the fencing scope
- *  is one repo: `stateRoot/writer-epochs/<repoId>.sqlite`. A shared database serialized every
- *  repository's append behind one write lock; under load a queued fence could exhaust
- *  busy_timeout and reject its write ("database is locked"). */
-function openRepoEpochAuthority(options: {
-  readonly databasePath: string;
-  readonly holderId: string;
-  readonly now: () => string;
-}) {
-  mkdirSync(path.dirname(options.databasePath), { recursive: true });
-  const database = new DatabaseSync(options.databasePath);
+const repoIdPattern = /^[a-z][a-z0-9-]{0,62}$/u;
+
+function openEpochDatabase(databasePath: string): DatabaseSync {
+  mkdirSync(path.dirname(databasePath), { recursive: true });
+  const database = new DatabaseSync(databasePath);
   database.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON");
   database.exec(`
     CREATE TABLE IF NOT EXISTS writer_epoch_history (
@@ -76,6 +69,22 @@ function openRepoEpochAuthority(options: {
       issued_at TEXT NOT NULL
     ) STRICT;
   `);
+  return database;
+}
+
+/** One repository's epoch authority over its own database file. The append fence must exclude
+ *  only takeover of its repository, and SQLite locks are database-granular, so the fencing scope
+ *  is one repo: `stateRoot/writer-epochs/<repoId>.sqlite`. A shared database serialized every
+ *  repository's append behind one write lock; under load a queued fence could exhaust
+ *  busy_timeout and reject its write ("database is locked"). */
+function openRepoEpochAuthority(options: {
+  readonly databasePath: string;
+  readonly repoId: string;
+  readonly holderId: string;
+  readonly now: () => string;
+  readonly initialEpochFloor?: number;
+}) {
+  const database = openEpochDatabase(options.databasePath);
   const selectCurrent = database.prepare(
       "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs WHERE repo_id=?",
     ),
@@ -111,6 +120,16 @@ function openRepoEpochAuthority(options: {
       throw error;
     }
   };
+  const initialEpochFloor = options.initialEpochFloor;
+  if (initialEpochFloor !== undefined) {
+    withImmediateTransaction(() => {
+      const previous = readCurrent(options.repoId),
+        historyFloor = Number((selectFloor.get(options.repoId) as { readonly floor: number | null }).floor ?? 0),
+        floor = Math.max(previous?.epoch ?? 0, historyFloor, initialEpochFloor);
+      if (floor > historyFloor) insertHistory.run(options.repoId, floor);
+      if (previous && previous.epoch <= Math.max(historyFloor, initialEpochFloor)) deleteCurrent.run(options.repoId);
+    });
+  }
   const assertState = (repoId: string, epoch: number, expectedHolderId: string): void => {
     const observed = readCurrent(repoId);
     if (!observed || observed.epoch !== epoch || observed.holderId !== expectedHolderId)
@@ -178,7 +197,71 @@ function openRepoEpochAuthority(options: {
   };
 }
 
-const repoIdPattern = /^[a-z][a-z0-9-]{0,62}$/u;
+/** Import legacy fencing floors before the split database layout becomes authoritative. */
+function migrateLegacyWriterEpochDatabase(stateRoot: string): void {
+  const legacyPath = path.join(stateRoot, "writer-epochs.sqlite");
+  if (!existsSync(legacyPath)) return;
+
+  const legacy = new DatabaseSync(legacyPath);
+  legacy.exec("PRAGMA busy_timeout=5000");
+  let transactionOpen = false;
+  try {
+    const readUserVersion = (): number =>
+      Number((legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version);
+    let userVersion = readUserVersion();
+    if (userVersion === 1) return;
+    if (userVersion > 1)
+      throw new WriterEpochError(
+        "writer_epoch_invalid",
+        `legacy writer epoch database version ${userVersion} is newer than supported version 1`,
+      );
+    legacy.exec("BEGIN IMMEDIATE");
+    transactionOpen = true;
+    userVersion = readUserVersion();
+    if (userVersion > 1)
+      throw new WriterEpochError(
+        "writer_epoch_invalid",
+        `legacy writer epoch database version ${userVersion} is newer than supported version 1`,
+      );
+    if (userVersion === 0) {
+      const floors = legacy
+        .prepare(
+          "SELECT repo_id, MAX(epoch_floor) AS floor FROM (" +
+            "SELECT repo_id, epoch AS epoch_floor FROM writer_epoch_history UNION ALL " +
+            "SELECT repo_id, epoch AS epoch_floor FROM writer_epochs UNION ALL " +
+            "SELECT repo_id, version AS epoch_floor FROM writer_epochs" +
+            ") GROUP BY repo_id ORDER BY repo_id",
+        )
+        .all() as unknown as readonly { readonly repo_id: string; readonly floor: number }[];
+      for (const { repo_id: repoId, floor } of floors) {
+        if (!repoIdPattern.test(repoId) || !Number.isSafeInteger(floor) || floor < 1)
+          throw new WriterEpochError("writer_epoch_invalid", `legacy writer epoch row is invalid for ${repoId}`);
+        const migrated = openRepoEpochAuthority({
+          databasePath: path.join(stateRoot, "writer-epochs", `${repoId}.sqlite`),
+          repoId,
+          holderId: "legacy-migration",
+          now: () => new Date().toISOString(),
+          initialEpochFloor: floor,
+        });
+        migrated.close();
+      }
+      legacy.exec("PRAGMA user_version=1");
+    }
+    legacy.exec("COMMIT");
+    transactionOpen = false;
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        legacy.exec("ROLLBACK");
+      } catch (rollbackError) {
+        consumeKnownError(rollbackError);
+      }
+    }
+    throw error;
+  } finally {
+    legacy.close();
+  }
+}
 
 export function openPersistentWriterEpoch(options: {
   readonly stateRoot: string;
@@ -186,6 +269,7 @@ export function openPersistentWriterEpoch(options: {
   readonly now?: () => string;
 }): PersistentWriterEpoch {
   mkdirSync(options.stateRoot, { recursive: true });
+  migrateLegacyWriterEpochDatabase(options.stateRoot);
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
     authorities = new Map<string, ReturnType<typeof openRepoEpochAuthority>>();
@@ -202,6 +286,7 @@ export function openPersistentWriterEpoch(options: {
     if (!authority) {
       authority = openRepoEpochAuthority({
         databasePath: path.join(options.stateRoot, "writer-epochs", `${repoId}.sqlite`),
+        repoId,
         holderId,
         now,
       });
