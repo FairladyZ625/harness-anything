@@ -82,7 +82,7 @@ test("the dispatch notice appears exactly when the repository has no provider cr
   t.after(() => removeTemporaryDirectory(rootDir));
   assert.equal(await hostingCredentialDispatchNotice(rootDir, { instances: [githubInstance] }), null);
   const notice = await hostingCredentialDispatchNotice(rootDir, { instances: [] });
-  assert.match(notice!, /cannot publish its branch, open the task PR, or read CI/u);
+  assert.match(notice!, /cannot publish its branch until/u);
   assert.match(notice!, new RegExp(hostingCredentialConfigurationAdvice("github").replaceAll(".", "\\."), "u"));
 });
 

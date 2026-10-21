@@ -22,9 +22,9 @@ const reviewerDiscipline = [
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
-  "- For a Task delivery, read the PR checks with `gh pr checks <task-id>` and its head with " +
-    "`gh pr view <task-id> --json headRefOid`; that head must equal the pinned delivery commit. Pending checks are " +
-    "not green. `gh run view <run-id> --log-failed` reads a failure's log. When the checks cannot be read, record " +
+  "- For a Task delivery, read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with " +
+    "`gh pr checks <task-id>`, then the head again; both reads must equal the pinned delivery commit. Pending " +
+    "checks are not green. `gh run view <run-id> --log-failed` reads a failure's log. When the checks cannot be read, record " +
     "the exact error and label the check unverified.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
