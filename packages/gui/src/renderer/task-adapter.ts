@@ -1,5 +1,6 @@
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
 import { t } from "./i18n/index.tsx";
+import { actorDisplayName } from "./model/actor-name.ts";
 import type { EventEntry, TaskRow } from "./model/types.ts";
 import { WORK_STEP_LABEL_KEY, type WorkStepKind } from "./model/workspace-narrative.ts";
 import { NO_WORKS, type WorkIndex } from "./model/work-collections.ts";
@@ -115,13 +116,15 @@ function adaptProjectionRow(
   };
 }
 
-/** 列表行内的 lease 持有者标签:principal personId,agent executor 附 session 标识。 */
-function leaseHolderLabel(
-  actor: { readonly principal: { readonly personId: string } } & {
-    readonly executor: { readonly kind: "agent"; readonly id: string } | null;
-  },
-): string {
-  return actor.executor === null ? actor.principal.personId : `${actor.principal.personId} · ${actor.executor.id}`;
+/** 列表行内的 lease 持有者标签:人与执行者都经 actorDisplayName 转可读名(X2:
+ * `agent:runtime-session:runtime_…` 这类机器串不上屏);需要原始结构的消费方走
+ * leaseActor/leaseSource 原样字段,不从显示串反解析。 */
+function leaseHolderLabel(actor: {
+  readonly principal: { readonly personId: string };
+  readonly executor: { readonly kind: "agent"; readonly id: string } | null;
+}): string {
+  const person = actorDisplayName(actor.principal.personId).name;
+  return actor.executor === null ? person : `${person} · ${actorDisplayName(actor.executor).name}`;
 }
 
 // 快照记录 → 时间线事件种类。词表单源是 workspace-narrative 的 WorkStepKind

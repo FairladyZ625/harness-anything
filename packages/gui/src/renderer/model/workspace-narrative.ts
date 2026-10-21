@@ -254,18 +254,40 @@ export function workSubgroups(input: {
     });
 }
 
-/** task_plan.md 的 Brief 段:目标一行的唯一来源;没有 Brief 或为空就是 null,不猜。 */
-export function workspaceGoalLine(planBody: string): string | null {
-  const lines = planBody.split(/\r?\n/u);
+/** task_plan.md 的一个 `## <title>` 节:非空行原文;没有该节或为空就是 null,不猜。 */
+export function workspacePlanSection(planBody: string, title: string): readonly string[] | null {
   let inside = false;
   const collected: string[] = [];
-  for (const line of lines) {
+  for (const line of planBody.split(/\r?\n/u)) {
     if (/^##\s/u.test(line)) {
       if (inside) break;
-      inside = /^##\s+Brief\s*$/u.test(line);
+      inside = line.replace(/^##\s+/u, "").trim() === title;
       continue;
     }
     if (inside && line.trim() !== "") collected.push(line.trim());
   }
-  return collected.length > 0 ? collected.join("\n\n") : null;
+  return collected.length > 0 ? collected : null;
+}
+
+/** task_plan.md 的 Brief 段:页头目标一行的来源;没有 Brief 或为空就是 null,不猜。 */
+export function workspaceGoalLine(planBody: string): string | null {
+  const section = workspacePlanSection(planBody, "Brief");
+  return section === null ? null : section.join("\n\n");
+}
+
+/** 工作目标原文(概况「终点与剩余」区):工作版式 Mission 节优先,task 版式回退 Goal、
+ * Brief;三节都没有就 null,不自造文案。 */
+export function workspaceMissionText(planBody: string): string | null {
+  for (const title of ["Mission", "Goal", "Brief"]) {
+    const section = workspacePlanSection(planBody, title);
+    if (section !== null) return section.join(" ");
+  }
+  return null;
+}
+
+/** 完成标准(工作版式 Exit Criteria 节的清单行,去掉 `- [ ] `/`- [x] ` 前缀);
+ * 没有该节就 null——缺口如实,不拿别的节冒充。 */
+export function workspaceExitCriteria(planBody: string): readonly string[] | null {
+  const section = workspacePlanSection(planBody, "Exit Criteria");
+  return section === null ? null : section.map((line) => line.replace(/^[-*]\s+\[[ xX]\]\s*/u, "").trim());
 }
