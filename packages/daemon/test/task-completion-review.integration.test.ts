@@ -86,6 +86,7 @@ test("submit enters independent review automatically and completion still requir
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
     autoForward: false,
+    create: { riskTier: "high" },
   });
   try {
     await f.install();
@@ -124,7 +125,7 @@ test("a lightweight task's forward order upgrades the cut into the review corrid
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
     autoForward: false,
-    create: { profileId: "lightweight" },
+    create: { riskTier: "low" },
   });
   try {
     await f.install();
@@ -345,7 +346,7 @@ test.skip("sibling complete refuses unfinished sources and missing facts, then c
 test("a done lightweight source without independent review cannot resolve a sibling", async () => {
   const f = await fixture(false, true, true, false, false, undefined, {
     autoForward: false,
-    create: { profileId: "lightweight" },
+    create: { riskTier: "low" },
   });
   try {
     await f.createPlannedTask("task-unreviewed-target");

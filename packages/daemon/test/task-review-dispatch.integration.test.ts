@@ -524,9 +524,12 @@ test(
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
       autoForward: false,
+      create: { riskTier: "low" },
     });
     try {
       await f.install();
+      const submitted = await f.submit();
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], executionId });
       assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
       assert.match(dispatchesOf(receipt)[0]?.error ?? "", /has no automatic review requirement/u);
@@ -1071,7 +1074,7 @@ test(
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
-      create: { presetId: "standard-task" },
+      create: { presetId: "standard-task", riskTier: "high" },
     });
     try {
       await f.install();
