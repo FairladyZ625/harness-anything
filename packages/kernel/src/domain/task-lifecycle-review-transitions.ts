@@ -36,7 +36,7 @@ import {
   revisionIssues,
 } from "./task-lifecycle-contract-support.ts";
 
-// Review, consent, code-document, and completion transition definitions.
+// Review, consent, and completion transition definitions.
 function reviewIssues(
   snapshot: TaskLifecycleSnapshot,
   command: RecordReviewCommand,
