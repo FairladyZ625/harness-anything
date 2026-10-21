@@ -5,6 +5,7 @@ import {
   renderWorkPayload,
   workIndexFromProjection,
   workListFromProjection,
+  workReceiptLine,
   workShowFromProjection,
 } from "../src/work-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
@@ -200,6 +201,64 @@ test("work show names the goal, subtree counts and open tasks, and the renderer 
   assert.match(rendered, /^work declared \[active\] declared title\ngoal: Ship release two\./u);
   assert.match(rendered, /- leaf-a \[active\] leaf-a title/u);
   assert.match(rendered, /next: ha task create --work declared --title <title> · ha agenda --work declared$/u);
-  assert.match(renderWorkPayload(workListFromProjection(projection(), {}))!, /^works:\ndeclared\tactive\tdeclared/u);
+  // The title sits beside the id: id, title, status, root, counts, activity.
+  assert.match(
+    renderWorkPayload(workListFromProjection(projection(), {}))!,
+    /^works:\ndeclared\tdeclared title\tactive\tdeclared\t2 tasks/u,
+  );
   assert.equal(renderWorkPayload({ schema: "other/v1" }), null);
+});
+
+// A create receipt must say where the task landed; a standalone create names the open work roots it
+// could join, read from the same work-root rule `ha work list` uses. The rows are the kernel index
+// shape, so this also pins that the receipt reads titles, not ids alone.
+function receiptProjection() {
+  const byId = new Map(rows.map((row) => [row.taskId, row]));
+  return {
+    read: (taskId: string) =>
+      byId.has(taskId)
+        ? {
+            packagePath: `tasks/${taskId}`,
+            snapshot: { task: { ...byId.get(taskId), metadata: { parentTaskId: byId.get(taskId)!.parentTaskId } } },
+          }
+        : { packagePath: null, snapshot: { task: null } },
+    readTaskIndex: (query: { workRootsOnly?: boolean; openOnly?: boolean } = {}) => ({
+      status: "ready",
+      rows: rows.filter(
+        (row) =>
+          (!query.workRootsOnly ||
+            row.taskClass === "work" ||
+            (row.parentTaskId === null && rows.some((candidate) => candidate.parentTaskId === row.taskId))) &&
+          (!query.openOnly || (row.status !== "done" && row.status !== "cancelled")),
+      ),
+      watermark: 7,
+      sourceRevision: 7,
+      warnings: [],
+    }),
+  } as never;
+}
+
+test("a create receipt names the work it landed under by id and title", () => {
+  assert.equal(
+    workReceiptLine(receiptProjection(), { ...rows[1]!, metadata: { parentTaskId: "declared" } } as never),
+    "\nwork: declared declared title",
+  );
+  // A new work root names itself with its title, so the line is recognizable without a second read.
+  assert.equal(
+    workReceiptLine(receiptProjection(), { ...rows[0]!, metadata: { parentTaskId: null } } as never),
+    "\nwork: declared declared title (new work root; add tasks with --work declared)",
+  );
+});
+
+test("a standalone create receipt lists the open work roots it could join, newest first", () => {
+  assert.equal(
+    workReceiptLine(receiptProjection(), { ...rows[6]!, metadata: { parentTaskId: null } } as never),
+    [
+      "\nwork: none (standalone task)",
+      "candidate works:",
+      "- declared declared title: ha task move standalone --parent declared",
+      "- derived derived title: ha task move standalone --parent derived",
+      "next: ha work list",
+    ].join("\n"),
+  );
 });

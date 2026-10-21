@@ -17,6 +17,12 @@ export type ThinHelpCatalogEntry = {
   readonly errorCode?: string;
 };
 
+/** One open work row of `ha work list`, shown by `ha task create --help` as the packs a create can join. */
+export type ThinHelpWorkEntry = {
+  readonly taskId: string;
+  readonly title: string;
+};
+
 export const clientLocalCommands = [
   generationMigrationCommand,
   completionMigrationCommand,

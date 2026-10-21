@@ -168,6 +168,21 @@ export function run(root: string, userRoot: string, args: readonly string[], ent
   if (result.status !== 0) assert.fail(`${result.stderr}\n${JSON.stringify(result.receipt)}${daemonLogTail(userRoot)}`);
   return result.receipt;
 }
+// The human face of the same CLI: no --json, so the assertions read exactly what a person reads.
+export function runText(root: string, userRoot: string, args: readonly string[]): string {
+  const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
+  const result = spawnSync(process.execPath, [cli, "--root", root, ...args], {
+    encoding: "utf8",
+    env: {
+      ...baseEnv,
+      HOME: path.join(root, ".home"),
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
+    },
+  });
+  assert.equal(result.status, 0, `${result.stderr}${daemonLogTail(userRoot)}`);
+  return result.stdout;
+}
 // A failed command names the daemon log, and every test removes its fixture root on the way out.
 function daemonLogTail(userRoot: string): string {
   const log = path.join(userRoot, "logs/daemon-default.log");

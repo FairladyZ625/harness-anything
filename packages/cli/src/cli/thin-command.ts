@@ -31,6 +31,7 @@ export { deriveThinCliInputs } from "./thin-command-inputs.ts";
 export { cliCommandDomains } from "./thin-command-help.ts";
 export { unsupportedCommandHint } from "./thin-command-help.ts";
 export type { ThinHelpCatalogEntry } from "./thin-command-help.ts";
+export type { ThinHelpWorkEntry } from "./thin-command-help.ts";
 export type { ThinCommand } from "./thin-command-types.ts";
 export type { ThinParseResult } from "./thin-command-types.ts";
 export type { ThinCliInput } from "./thin-command-types.ts";
@@ -45,7 +46,7 @@ import {
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
 import { clientLocalCommands, commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
-import type { ThinHelpCatalogEntry } from "./thin-command-help.ts";
+import type { ThinHelpCatalogEntry, ThinHelpWorkEntry } from "./thin-command-help.ts";
 import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parseRouted, parseStorageRoute } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
@@ -115,6 +116,7 @@ export function renderThinHelp(
   catalog: readonly ThinHelpCatalogEntry[] = [],
   domain?: string,
   commandPrefix?: string,
+  works: readonly ThinHelpWorkEntry[] = [],
 ): string {
   const rows = [
       ...thinCliCommands.map(({ usage, summary, help }) =>
@@ -160,8 +162,16 @@ export function renderThinHelp(
           "Use ha <domain> --help for the commands in a domain.",
           ...rows.filter(({ usage }) => usage.includes("--service")).map(({ usage }) => `  ${usage}`),
         ],
-    presetRows = catalog.length ? ["", "Recommended presets:", ...catalog.map(renderPresetHelpEntry)] : [];
-  return ["Harness Anything thin CLI", "", ...body, ...presetRows].join("\n");
+    presetRows = catalog.length ? ["", "Recommended presets:", ...catalog.map(renderPresetHelpEntry)] : [],
+    workRows = works.length
+      ? [
+          "",
+          `Active works (${works.length} shown, newest activity first — the same rows ha work list returns):`,
+          ...works.map(({ taskId, title }) => `  ${taskId} — ${title}`),
+          "File this task with --work <id>; ha work create --title <name> starts a new one.",
+        ]
+      : [];
+  return ["Harness Anything thin CLI", "", ...body, ...workRows, ...presetRows].join("\n");
 }
 
 function renderPresetHelpEntry(entry: ThinHelpCatalogEntry): string {
