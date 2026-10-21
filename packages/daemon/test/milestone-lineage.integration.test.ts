@@ -103,6 +103,7 @@ async function reachGreenInReview(
           taskId,
           executionId,
           forward: true,
+          reviewer: "closeout-reviewer",
           reason: "Owner forwards the lineage fixture for independent review.",
         },
         binding,

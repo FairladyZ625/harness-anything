@@ -8,6 +8,7 @@ import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -461,6 +462,79 @@ test("explicit reviewer selection dispatches beside the automatic reviewer and r
       dispatches.map((event) => event.payload.agentId),
       ["closeout-reviewer", "alternate-reviewer"],
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("legacy base-key dispatch for an alternate reviewer is reused by reroute and dispatch-review", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    autoSubmit: false,
+    closeoutProfile: "strict",
+  });
+  try {
+    const configured = await f.runPrincipal({
+      kind: "settings-update",
+      roles: { defaultReviewer: "missing-reviewer" },
+      dispatchKey: "freeze-missing-reviewer",
+    });
+    assert.equal(configured.outcome, "applied", JSON.stringify(configured));
+    await f.submit();
+    assert.equal(f.launches.length, 0, "the frozen reviewer is not installed, so submit has no dispatch row");
+    const installed = await f.run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "alternate-reviewer",
+        name: "Alternate reviewer",
+        instructions: "Independently inspect the submitted cut.",
+        runtimes: [{ type: "codex", model: "review-model" }],
+        instance: "review-first",
+        role: "reviewer",
+      },
+    });
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        executions: Parameters<typeof reviewDispatchKey>[1][];
+      },
+      execution = shown.executions.find((item) => item.executionId === executionId);
+    assert.ok(execution?.submission);
+    const legacyKey = reviewDispatchKey(taskId, execution);
+    const legacy = await f.cell().spawnRuntime(
+      {
+        agentId: "alternate-reviewer",
+        role: "reviewer",
+        taskId,
+        executionId,
+        cwd: { scope: "repo-root" },
+        dispatchKey: legacyKey,
+        prompt: "Review the bound submission cut.",
+      },
+      owner,
+    );
+    assert.equal(legacy.outcome, "applied", JSON.stringify(legacy));
+    assert.equal(f.launches.length, 1);
+
+    const rerouted = await f.run({
+      kind: "task-adjudicate",
+      taskId,
+      executionId,
+      forward: true,
+      reviewer: "alternate-reviewer",
+      reason: "Retry the selected reviewer on the same cut.",
+    });
+    assert.equal(rerouted.outcome, "applied", JSON.stringify(rerouted));
+    assert.equal(f.launches.length, 1, "the owner reroute must reuse the live legacy dispatch");
+
+    const retry = await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "alternate-reviewer",
+    });
+    assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+    const step = (retry as Record<string, unknown>).dispatches as { outcome: string; dispatchKey?: string }[];
+    assert.equal(step[0]?.outcome, "already_dispatched", JSON.stringify(step[0]));
+    assert.equal(f.launches.length, 1, "dispatch-review must recognize the legacy key as well");
   } finally {
     await f.close();
   }

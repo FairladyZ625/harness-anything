@@ -65,6 +65,16 @@ goes through `decision accept/reject/defer`.
 
 ## 4. Create the derived task
 
+This recipe walks through review and owner consent, so turn on the strict closeout
+profile before creating the task. New tasks freeze the current profile in their
+completion contract; a fresh `ha init` otherwise starts with review disabled.
+
+```bash
+ha settings update --closeout-profile strict
+```
+
+Expected: `ok=true command=settings-update`.
+
 ```bash
 ha task create --title "Publish a durable handoff note" --preset docs-task
 ```

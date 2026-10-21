@@ -33,7 +33,7 @@ export function selectReviewAgent(frozen?: string, argument?: string, setting?: 
   return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
 }
 
-/** A user-initiated review dispatch is keyed by the reviewed cut, never by a caller or node. */
+/** The cut key gains a reviewer suffix only for a replacement reviewer. */
 export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
   const key = `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
     execution.submission!,
@@ -284,6 +284,30 @@ function previousReviewerContinuation(
   };
 }
 
+function matchingLegacyCutReviewDispatch(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly execution: ExecutionV1;
+    readonly reviewerId: string;
+    readonly currentKey: string;
+  },
+) {
+  const key = reviewDispatchKey(input.taskId, input.execution);
+  if (key === input.currentKey) return null;
+  const event = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
+  if (
+    event?.payload.role !== "reviewer" ||
+    event.payload.agentId !== input.reviewerId ||
+    event.payload.taskId !== input.taskId ||
+    event.payload.executionId !== input.execution.executionId
+  )
+    return null;
+  const ids = reviewDispatchIds(cell.input.repoId, key);
+  if (reviewAttemptEnded(cell, ids.runtimeSessionId)) return null;
+  return { key, ids: { ...ids, dispatchOpId: event.opId }, event };
+}
+
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
@@ -398,10 +422,10 @@ type DispatchStep = {
 
 /**
  * The one review-dispatch spawn: the cut's frozen completionContract reviewer claim wins over the
- * repository default, the dispatch is keyed by `reviewDispatchKey` (task/execution/iteration/digest,
- * the deterministic claim fence that makes concurrent dispatches share one reviewer), and launch
- * admission is awaited while provider completion is not. Returns the idempotent identities the
- * caller reports on its own step shape.
+ * repository default, and the key includes an explicit replacement reviewer when selected. Old
+ * base-key rows remain reusable only for the same live reviewer and cut; launch admission is awaited
+ * while provider completion is not. Returns the idempotent identities the caller reports on its
+ * own step shape.
  */
 export async function spawnCutReviewDispatch(
   cell: RepoCellOperationalContext,
@@ -414,7 +438,7 @@ export async function spawnCutReviewDispatch(
     readonly reviewerId: string;
     readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
-    /** The lane dispatch key; absent selects the cut's own `reviewDispatchKey`. */
+    /** An explicit dispatch key for a secondary lane; absent selects the cut review key. */
     readonly dispatchKey?: string;
     /** The lane's mission; absent builds the cut review packet. */
     readonly prompt?: string;
@@ -423,10 +447,20 @@ export async function spawnCutReviewDispatch(
   | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
   | { readonly outcome: "failed"; readonly error: string }
 > {
-  const key = input.dispatchKey ?? reviewDispatchKey(input.taskId, input.execution),
+  const cutReviewKey = reviewDispatchKey(input.taskId, input.execution, input.reviewerId),
+    key = input.dispatchKey ?? cutReviewKey,
     ids = reviewDispatchIds(cell.input.repoId, key);
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
+  if (key === cutReviewKey) {
+    const legacy = matchingLegacyCutReviewDispatch(cell, {
+      taskId: input.taskId,
+      execution: input.execution,
+      reviewerId: input.reviewerId,
+      currentKey: key,
+    });
+    if (legacy !== null) return { outcome: "already_dispatched", ids: legacy.ids };
+  }
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -626,11 +660,19 @@ async function dispatchPathReviewLanes(
 }
 
 /** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
-function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string) {
+function reviewDispatchAttempt(
+  cell: RepoCellOperationalContext,
+  baseKey: string,
+  legacyReview?: { readonly taskId: string; readonly execution: ExecutionV1; readonly reviewerId: string },
+) {
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+  if (existing === null && legacyReview !== undefined) {
+    const legacy = matchingLegacyCutReviewDispatch(cell, { ...legacyReview, currentKey: key });
+    if (legacy !== null) return { ...legacy, existing: legacy.event };
+  }
   while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
@@ -877,7 +919,11 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
-    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId), {
+      taskId,
+      execution,
+      reviewerId,
+    });
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.

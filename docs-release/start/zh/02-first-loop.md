@@ -58,6 +58,15 @@ ha decision accept dec_... --rationale "Durable facts preserve handoff reasons" 
 
 ## 4. 创建由 decision 派生的 task
 
+本配方会演示评审和 owner consent，因此要在创建 task 前启用 strict closeout profile。
+新 task 会把当时的 profile 冻结进 completion contract；全新的 `ha init` 默认关闭 review。
+
+```bash
+ha settings update --closeout-profile strict
+```
+
+预期：`ok=true command=settings-update`。
+
 ```bash
 ha task create --title "Publish a durable handoff note" --preset docs-task
 ```
