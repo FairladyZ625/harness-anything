@@ -109,13 +109,7 @@ export function NodeDetails({
         />
         <FieldLine label={t("collaboration.fieldOwner")} state={node.owner} />
         <FieldLine label={t("collaboration.fieldOnline")} state={node.online} />
-        {node.replica === null ? (
-          <DetailLine
-            label={t("collaboration.fieldReplica")}
-            value={node.replicaNote === null ? t("collaboration.notProvided") : reasonText(node.replicaNote)}
-            title={node.replicaNote ?? undefined}
-          />
-        ) : (
+        {node.replica === null ? null : (
           <>
             <DetailLine label={t("collaboration.fieldView")} value={`${node.replica.viewId}`} />
             <DetailLine

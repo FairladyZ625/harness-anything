@@ -131,11 +131,11 @@ test("the overview joins daemon facts: center node from daemon identity, edges f
   assert.equal(center.build.kind, "value");
   assert.match(center.build.text, /bd2251a/);
   assert.equal(center.online.kind, "value");
-  // 租约来源节点但副本账本没有行的节点如实标注,不静默消失。
+  // 租约来源节点但副本账本没有行的节点如实标注,不静默消失;原因只有 replicaReason 一处。
   const ghost = result.nodes.find((node) => node.nodeId === "ghost-node")!;
   assert.equal(ghost.replica, null);
-  // replicaNote 是稳定机器码(人话解释归 GUI i18n),不带内嵌文案。
-  assert.equal(ghost.replicaNote, "center-replica-ledger-has-no-row-for-node");
+  assert.equal(ghost.replicaReason, "replica-row-missing");
+  assert.equal("replicaNote" in ghost, false);
   assert.deepEqual(
     result.links.map((link) => [link.nodeId, link.state]),
     [
@@ -221,7 +221,7 @@ test("replica reason remains center-observed when no failure text exists", () =>
   assert.equal(disconnected.replicaReason, "replica-disconnected");
   assert.deepEqual(disconnected.lastFailure, {
     kind: "unavailable",
-    reason: "no-replica-sync-failure-record-in-lifecycle-read",
+    reason: "no-replica-sync-failure-in-replica-status-row",
   });
 });
 
@@ -284,7 +284,7 @@ test("authorization failures become redacted lease blocks; other failures propag
   assert.equal(parseDaemonGuiReadResult("repo.fleet.overview.read", result), result);
 });
 
-test("the validator accepts a real overview and rejects the pinned negative fixture", () => {
+test("the validator accepts a real overview and rejects each pinned negative fixture", () => {
   const good = buildFleetOverview(
     input({
       replicas: [replica("cc90-ubuntu")],
@@ -299,6 +299,15 @@ test("the validator accepts a real overview and rejects the pinned negative fixt
     readFileSync(new URL("../fixtures/contracts/daemon-fleet-overview-invalid.json", import.meta.url), "utf8"),
   );
   assert.notDeepEqual(validateFleetOverview(negative), []);
+  // 这条夹具除 replicaReason 外全合法:它的拒绝本身就是「新字段必需」的证明,
+  // 不是靠 owner 等其它字段先失败。错误文本精确到字段,防止将来被更早的错误掩盖。
+  const reasonOnly = JSON.parse(
+    readFileSync(
+      new URL("../fixtures/contracts/daemon-fleet-overview-replica-reason-invalid.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(validateFleetOverview(reasonOnly), ["nodes[0].replicaReason must be a string"]);
 });
 
 test("the host assembly maps task snapshots, dispatch rows, the event tail and registry failures", async () => {

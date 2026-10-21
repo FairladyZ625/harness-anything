@@ -139,9 +139,8 @@ export interface FleetNodeRow {
         | "syncFailure"
       > & { readonly repoId: string })
     | null;
-  /** replica 为 null 时必给原因;非 null 时为 null。 */
-  readonly replicaNote: string | null;
-  /** 中心根据副本状态记录的同步原因;机器码由 GUI 翻译,不在 GUI 推断。 */
+  /** 中心侧唯一同步原因(中心本地写入 / 无副本行 / 断开 / 快照 / 追赶 / 已同步 / 失败);
+   * 机器码由 GUI 翻译,不在 GUI 推断。 */
   readonly replicaReason: string;
   readonly watch: FleetFieldState;
   readonly lastFailure: FleetFieldState;
@@ -192,8 +191,7 @@ export interface FleetOverviewResult {
 const ONLINE_REASON = "tls-session-fact-not-exposed",
   EDGE_BUILD_REASON = "replica-status-has-no-build-field",
   WATCH_REASON = "edge-sync-internals-not-exposed",
-  LAST_FAILURE_REASON = "no-replica-sync-failure-record-in-lifecycle-read",
-  NO_REPLICA_ROW_REASON = "center-replica-ledger-has-no-row-for-node",
+  LAST_FAILURE_REASON = "no-replica-sync-failure-in-replica-status-row",
   CENTER_REPLICA_REASON = "center-local-writer",
   REPLICA_ROW_MISSING_REASON = "replica-row-missing",
   REPLICA_DISCONNECTED_REASON = "replica-disconnected",
@@ -273,7 +271,6 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         ? leaseRows(leasesByNode.get(nodeId) ?? [], dispatchByTask)
         : { redacted: input.leaseReads.code },
       replica: replica === null ? null : projectReplica(replica),
-      replicaNote: isCenter || replica !== null ? null : NO_REPLICA_ROW_REASON,
       replicaReason: isCenter
         ? CENTER_REPLICA_REASON
         : replica === null
@@ -503,8 +500,6 @@ function validateNodeRow(node: unknown, at: string): readonly string[] {
     typeof (row.leases as Record<string, unknown>).redacted !== "string"
   )
     errors.push(`${at}.leases must be an array or a redaction object`);
-  if (row.replicaNote !== null && typeof row.replicaNote !== "string")
-    errors.push(`${at}.replicaNote must be a string or null`);
   const replica = row.replica;
   if (replica !== null) {
     if (replica === undefined || typeof replica !== "object" || Array.isArray(replica))
