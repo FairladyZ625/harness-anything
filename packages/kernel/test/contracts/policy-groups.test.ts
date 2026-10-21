@@ -25,9 +25,12 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: runtime steering is a canonical action declaration.
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to the worker's gh.
-  assert.equal(actionDeclarations.length, 157);
+  // Owner 2026-10-21 B3 (task_8ebc730e board) deletes task-code-doc-reconcile/repoint with the mechanism.
+  assert.equal(actionDeclarations.length, 155);
   assert.equal(
-    actionDeclarations.some(({ kind }) => kind === "ci-observe-pull" || kind === "task-ci"),
+    actionDeclarations.some(
+      ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),
+    ),
     false,
   );
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
