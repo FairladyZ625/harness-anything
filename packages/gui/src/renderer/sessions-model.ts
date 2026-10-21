@@ -564,8 +564,8 @@ export type SessionRow = SessionRound | SessionOrphan;
 
 /** 选中会话该读哪条派工转写:展开的轮次行自带 dispatchId;组尚未展开、或选中落在列表
  *  之外的会话时,daemon 的 attemptChain 仍指着这条会话自己的派工——转写因此不必等用户
- *  先展开组,也不在 GUI 里拼原始事件。只认同一会话 id 的那一条,认不出就不猜(交给转写
- *  的「没有派工记录」空状态)。 */
+ *  先展开组,也不在 GUI 里拼原始事件。只认同一会话 id 的那一条;认不出就返回 null,
+ *  转写照旧整块不渲染(不猜、也不张冠李戴)。 */
 export function sessionDispatchIdOf(
   session: Pick<AgentRuntimeSessionDto, "runtimeSessionId" | "attemptChain"> | null | undefined,
   row: SessionRow | null,
