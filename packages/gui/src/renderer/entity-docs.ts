@@ -303,8 +303,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "adjudicate",
       "review",
       "consent",
-      "reconcile",
-      "repoint",
       "complete",
       "release",
       "amend",

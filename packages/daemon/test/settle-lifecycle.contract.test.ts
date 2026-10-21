@@ -466,11 +466,11 @@ test("settle stops on the closeout gate instead of fabricating a draft", async (
   }
 });
 
-test("owner retries preparation failure on the same submitted cut without a second submit event", async (t) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-prepare-")),
-    repoId = workspaceId("settle-prepare"),
-    taskId = "task_settle_prepare",
-    executionId = "exe_settle_prepare";
+test("owner retries a settle interrupted after the durable cut without a second submit event", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-resume-")),
+    repoId = workspaceId("settle-resume"),
+    taskId = "task_settle_resume",
+    executionId = "exe_settle_resume";
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   let armed = false,
@@ -478,15 +478,15 @@ test("owner retries preparation failure on the same submitted cut without a seco
   const cell = await openRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
-    ownerId: "settle-prepare",
+    ownerId: "settle-resume",
     killpoint: (point) => {
       if (
         armed &&
-        point === "before_event_write" &&
+        point === "before_response_write" &&
         reader.read().events.some((event) => event.type === "execution_submitted")
       ) {
         interrupted = true;
-        throw new Error("fixture interrupts evidence preparation after submission");
+        throw new Error("fixture interrupts settle after the submission is durable");
       }
     },
   });
@@ -497,10 +497,10 @@ test("owner retries preparation failure on the same submitted cut without a seco
     armed = true;
     const failed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
     assert.equal(interrupted, true, JSON.stringify(failed));
-    // SQLite accepted the submission, but the follow-up failed before its append began.
-    // Its determinate failure must not imply a later completion witness exists.
-    assert.equal(failed.code, "service_rejected", JSON.stringify(failed));
-    assert.match(String(failed.rejectionExplanation), /fixture interrupts evidence preparation after submission/u);
+    // The canonical cut is durable, so the interrupted call returns the recovery receipt for that
+    // cut instead of claiming completion on its way out.
+    assert.equal(failed.status, "accepted_durable", JSON.stringify(failed));
+    assert.equal(failed.code, "publication_indeterminate", JSON.stringify(failed));
     assert.equal(
       reader.read().events.some((event) => event.type === "task_completed"),
       false,
