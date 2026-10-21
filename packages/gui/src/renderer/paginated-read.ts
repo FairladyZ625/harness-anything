@@ -5,25 +5,24 @@
  *
  *   - 终止条件用读者自己的信号:服务端 `nextCursor` 为空即最后一页——不是 cursor
  *     本身为空,流尾游标通常不为空;
- *   - 单调量:已读页数每轮严格 +1,`CURSOR_READ_PAGE_BUDGET` 是硬上界。服务端游标
- *     异常循环时 fail-closed 抛错:部分切面不能冒充完整读,内存也随页数有界。
+ *   - 单调量:已消费的续读游标每轮严格增加;重复游标表示异常循环,抛错且不发布
+ *     部分切面。合法数据量不受固定页数限制。
  */
-export const CURSOR_READ_PAGE_BUDGET = 50;
-
 export async function drainCursorPages<Page extends { readonly page?: { readonly nextCursor?: string | null } }>(
   readPage: (facets: { readonly cursor?: string }) => Promise<Page>,
   label: string,
 ): Promise<[Page, ...Page[]]> {
   const pages: Page[] = [];
+  const cursors = new Set<string>();
   let cursor: string | undefined;
   // 终止:服务端 nextCursor 为空(最后一页);页预算兜底游标异常循环。
   while (true) {
-    if (pages.length >= CURSOR_READ_PAGE_BUDGET)
-      throw new Error(`${label}: cursor did not drain within the ${CURSOR_READ_PAGE_BUDGET}-page read budget`);
     const page = await readPage(cursor === undefined ? {} : { cursor });
     pages.push(page);
     const next = page.page?.nextCursor;
     if (!next) return pages as [Page, ...Page[]];
+    if (cursors.has(next)) throw new Error(`${label}: cursor did not advance`);
+    cursors.add(next);
     cursor = next;
   }
 }
