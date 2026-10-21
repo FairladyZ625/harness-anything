@@ -304,7 +304,8 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     word: "submitted",
     entity: "Task",
     field: "status",
-    meaning: "The worker submitted the current cut; it awaits the owning CEO's triage.",
+    meaning:
+      "The current cut is submitted without an automatic review requirement, or retains a historical triage state.",
     divergence: "entity-scoped",
   },
   {

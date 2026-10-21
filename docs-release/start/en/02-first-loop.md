@@ -123,17 +123,16 @@ Use the same Fact → Decision → Task → Fact cycle for the next handoff.
 ha task submit task_...
 ```
 
-Expected: `ok=true command=task-submit transition.from=active/implementation transition.to=submitted/review`.
+Expected: `ok=true command=task-submit transition.from=active/implementation transition.to=in_review/review`.
 `submit` publishes eligible task documents, including the closeout; do not make
-a separate manual Git commit in the private ledger. Submission does not dispatch
-a reviewer. The owner first checks that the result matches the requested direction:
+a separate manual Git commit in the private ledger. Submissions that require review
+automatically dispatch the frozen reviewer and configured path reviewers:
 
 ```bash
-ha task adjudicate task_... --forward --note "Direction and evidence are ready for independent review."
+ha task dispatches task_...
 ```
 
-Expected: `ok=true command=task-adjudicate transition.from=submitted/review
-transition.to=in_review/review`. A return order uses
+Expected: required reviewers were dispatched automatically by submit. The dispatch list binds each reviewer to the frozen execution cut. A return order uses
 `--return --worker-mode resume --message <feedback> --note <reason>` to continue the
 implementation worker's provider session. Choose `--worker-mode fresh` to start a
 new session with the previous submission's conclusion, verification and risks attached.

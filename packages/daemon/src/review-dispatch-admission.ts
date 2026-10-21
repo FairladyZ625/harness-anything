@@ -52,7 +52,7 @@ export function selectReviewTarget(
   if (taskSnapshot.task?.status !== "in_review")
     throw runtimeSpawnError(
       "review_admission_denied",
-      `Task ${taskId} is not in review. The task owner must forward the submitted cut before a reviewer is dispatched.`,
+      `Task ${taskId} is not in review. Review-required submissions enter review automatically; use an explicit owner forward to request review for a review-disabled cut.`,
     );
   const candidates = currentSubmittedExecutions(taskSnapshot);
   if (requestedExecutionId !== undefined) {

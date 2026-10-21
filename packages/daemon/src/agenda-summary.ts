@@ -148,7 +148,7 @@ export function renderAgendaSummary(
     ),
     section(
       "待派审",
-      "status=submitted 且有 submitted execution；下一步 ha task adjudicate --forward",
+      "status=submitted 且有 submitted execution；按冻结契约完成；显式选 reviewer 才用 adjudicate --forward --reviewer",
       groups.awaitingAdjudication.map(executionLine),
     ),
     section(

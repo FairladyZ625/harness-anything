@@ -535,7 +535,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       },
       { authority: "operation-id", retry: "canonical-event-replay" },
     ),
-    explain: "Publish the initial submission or amend the current submitted execution without replacing its history.",
+    explain: "Publish or amend the current cut and automatically dispatch its required reviewers.",
   }),
   lifecycle("adjudicate", {
     input: input(
@@ -562,7 +562,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-adjudication-transitions/adjudicate.validate",
         "invalid_transition",
-        "The owner adjudicates the current submitted cut: forward requires status submitted; " +
+        "The owner adjudicates the current submitted cut: forward explicitly selects a reviewer; " +
           "return accepts submitted or in_review and may name a recorded review.",
       ),
       criterion(
@@ -575,8 +575,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", retry: "canonical-event-replay" },
     ),
-    explain:
-      "The owning CEO's double gate: forward a submitted cut to independent review, or return it with a rework note.",
+    explain: "Select a reviewer explicitly with --forward --reviewer, or return the submitted cut with a rework note.",
   }),
   lifecycle("review", {
     input: input(

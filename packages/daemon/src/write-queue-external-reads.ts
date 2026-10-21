@@ -126,7 +126,10 @@ export function readBeforeWriteQueue(
     })();
   }
   if (action.kind === "task-adjudicate" && action.forward === true && typeof action.taskId === "string") {
-    const refused = refuseAdjudicatedForwardBeforeQueue(context, action.taskId, explicitExecutionId(action));
+    const refused =
+      typeof action.reviewer === "string"
+        ? null
+        : refuseAdjudicatedForwardBeforeQueue(context, action.taskId, explicitExecutionId(action));
     if (refused) return Promise.reject(refused);
   }
   return null;
@@ -135,10 +138,8 @@ export function readBeforeWriteQueue(
 const ADJUDICATE_VALIDATE_CRITERION = "task-lifecycle-adjudication-transitions/adjudicate.validate";
 
 /**
- * A forward order on a cut that already passed the owner's triage is invalid under every
- * concurrent transition — nothing moves in_review back to submitted — so the refusal needs no
- * writer turn: it is answered here, before the write queue, instead of waiting behind a stalled
- * runtime publication. The queued kernel validation stays the authority for every other state.
+ * An in-review forward needs an explicit reviewer selection. Refuse obsolete manual triage
+ * before the queue, preserving the same-cut return guidance for an already recorded verdict.
  */
 function refuseAdjudicatedForwardBeforeQueue(
   context: RepoCellApiContext,
@@ -151,8 +152,8 @@ function refuseAdjudicatedForwardBeforeQueue(
     returnOrder = `ha task adjudicate ${taskId} --return${review ? ` --review-id ${review.reviewId}` : ""}`;
   return cellCriterionError(
     "invalid_transition",
-    `Task ${taskId} is in review; a forward order only triages a fresh submitted cut, so this one is refused before ` +
-      `the write queue. Adjudicate the recorded verdict on the same review cut instead: ${returnOrder}.`,
+    `Task ${taskId} is already in review after submit. Use --forward --reviewer <agent> only to select a reviewer. ` +
+      `Adjudicate the recorded verdict on the same review cut with ${returnOrder}.`,
     "adjudicate",
     ADJUDICATE_VALIDATE_CRITERION,
     [`${returnOrder} --note "<the owner's rework instruction>"`],

@@ -255,7 +255,7 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [],
       },
-      explain: "Publish the initial submission or amend the current submitted execution without replacing its history.",
+      explain: "Publish or amend the current cut and automatically dispatch its required reviewers.",
       execution: {
         ingress: "task-submit",
         topology: "ledger-write",
@@ -347,7 +347,7 @@ export const taskActionDescriptorProjection = {
         exactlyOneOf: [["forward", "return"]],
       },
       explain:
-        "The owning CEO's double gate: forward a submitted cut to independent review, or return it with a rework note.",
+        "Select a reviewer explicitly with --forward --reviewer, or return the submitted cut with a rework note.",
       execution: {
         ingress: "task-adjudicate",
         topology: "ledger-write",

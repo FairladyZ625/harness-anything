@@ -528,7 +528,7 @@ test(
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], executionId });
       assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-      assert.match(dispatchesOf(receipt)[0]?.error ?? "", /awaits its owner's triage/u);
+      assert.match(dispatchesOf(receipt)[0]?.error ?? "", /has no automatic review requirement/u);
       await expectCoded(
         f.cell().spawnRuntime(
           {
@@ -656,6 +656,7 @@ test(
             taskId: task2,
             executionId: execution2,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Owner forwards the second cut for independent review.",
           })
         ).outcome,

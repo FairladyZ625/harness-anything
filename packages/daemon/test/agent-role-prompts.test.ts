@@ -169,7 +169,7 @@ test("commander owns child waiting, the CEO delivery contract and final integrat
   );
   assert.match(prompt, /Synthesize by filtering.*never forward a worker claim as an established fact/u);
   assert.match(prompt, /Report upward when a ruling is needed.*plan itself leads to the wrong result/u);
-  assert.match(prompt, /ha task adjudicate --forward/u);
+  assert.match(prompt, /submit automatically dispatches the required ledger reviewers/u);
   assert.match(prompt, /Do not merge the PR or main/u);
   assert.doesNotMatch(prompt, /ha task pr|ha task push|closeout.md|task delivery commands/u);
   assert.doesNotMatch(assembleUnboundPrompt("Review.", "reviewer"), /ha runtime status|ha task dispatches/u);
