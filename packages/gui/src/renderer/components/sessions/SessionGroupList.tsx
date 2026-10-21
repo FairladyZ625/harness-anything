@@ -622,6 +622,7 @@ function RoundRow({
               <ContextMeter
                 segments={segments}
                 limitTokens={200_000}
+                compact
                 testId={`session-card-context-meter-${row.runtimeSessionId}`}
               />
             </div>
@@ -683,6 +684,7 @@ function OrphanRow({
               <ContextMeter
                 segments={segments}
                 limitTokens={200_000}
+                compact
                 testId={`session-card-context-meter-${row.runtimeSessionId}`}
               />
             </div>
@@ -786,6 +788,7 @@ function DecisionGroupBody({
                 <ContextMeter
                   segments={segments}
                   limitTokens={200_000}
+                  compact
                   testId={`session-card-context-meter-${round.dispatch.runtimeSessionId}`}
                 />
               </div>

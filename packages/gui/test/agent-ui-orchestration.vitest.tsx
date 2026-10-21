@@ -161,6 +161,18 @@ describe("ContextMeter", () => {
     expect([...container.textContent!.matchAll(/缓存上下文/g)]).toHaveLength(1);
   });
 
+  it("keeps the readout and bar in one line in compact rows", () => {
+    const container = mount(
+      createElement(ContextMeter, { segments, limitTokens: 200_000, testId: "cm-compact", compact: true }),
+    );
+    const meter = container.querySelector('[role="meter"]')!;
+    expect(meter.textContent).toBe("50%");
+    expect(meter.getAttribute("aria-valuetext")).toContain("100K / 200K");
+    expect(container.querySelector('[data-testid="cm-compact"]')!.className).toContain("items-center");
+    expect(container.querySelector("div[aria-hidden]")!.className).toContain("flex-1");
+    expect(container.textContent).not.toContain("缓存上下文");
+  });
+
   it("escalates to warn and danger at the high-water ratios", () => {
     const warn = mount(
       createElement(ContextMeter, {

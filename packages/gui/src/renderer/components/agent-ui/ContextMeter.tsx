@@ -38,6 +38,7 @@ export function ContextMeter({
   highWaterRatio = CONTEXT_HIGH_WATER,
   dangerRatio = CONTEXT_DANGER,
   testId,
+  compact = false,
 }: {
   readonly segments: readonly ContextSegment[];
   /** 上下文窗口上限(Token)。 */
@@ -45,6 +46,8 @@ export function ContextMeter({
   readonly highWaterRatio?: number;
   readonly dangerRatio?: number;
   readonly testId?: string;
+  /** Inline percentage + bar for dense list rows; the meter retains its full accessible value. */
+  readonly compact?: boolean;
 }) {
   const used = segments.reduce((sum, segment) => sum + segment.tokens, 0);
   const ratio = limitTokens > 0 ? used / limitTokens : 0;
@@ -58,7 +61,11 @@ export function ContextMeter({
   const visible = segments.filter((segment) => segment.tokens > 0);
 
   return (
-    <div data-testid={testId} data-context-level={level} className="flex min-w-0 flex-col gap-1">
+    <div
+      data-testid={testId}
+      data-context-level={level}
+      className={`flex min-w-0 ${compact ? "items-center gap-2" : "flex-col gap-1"}`}
+    >
       <div
         role="meter"
         aria-valuemin={0}
@@ -74,15 +81,19 @@ export function ContextMeter({
         }
         aria-label={t("agentUi.context.ariaLabel")}
         tabIndex={0}
-        className="flex min-w-0 items-baseline justify-between gap-2 font-mono tabular-nums ui-micro"
+        className={`flex min-w-0 items-baseline gap-2 font-mono tabular-nums ui-micro ${
+          compact ? "shrink-0 whitespace-nowrap" : "justify-between"
+        }`}
       >
         <span style={{ color: levelColor }}>
-          {compactTokens(used)} / {compactTokens(limitTokens)} · {percentText(ratio)}
+          {compact
+            ? percentText(ratio)
+            : `${compactTokens(used)} / ${compactTokens(limitTokens)} · ${percentText(ratio)}`}
         </span>
       </div>
       <div
         aria-hidden
-        className="h-1.5 w-full overflow-hidden rounded-xs border border-border"
+        className={`h-1.5 ${compact ? "min-w-0 flex-1" : "w-full"} overflow-hidden rounded-xs border border-border`}
         style={{ background: "var(--color-surface-raised)" }}
       >
         <div className="flex h-full w-full">
@@ -103,7 +114,7 @@ export function ContextMeter({
           ))}
         </div>
       </div>
-      {visible.length > 0 && (
+      {!compact && visible.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 ui-micro text-text-faint">
           {visible.map((segment) => (
             <span key={segment.kind} className="inline-flex items-center gap-1">
