@@ -48,6 +48,7 @@ export default {
     saveFleetCenterConfig(fixture.userRoot, fixture.daemonId, {
       bind: "127.0.0.1",
       port: 8443,
+      externalUrl: "https://127.0.0.1:8443",
       repoId: fixture.repoId,
       keyPath,
       certPath,
