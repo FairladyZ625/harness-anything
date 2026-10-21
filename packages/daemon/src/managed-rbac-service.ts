@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { connect, createServer, isIP, type Server } from "node:net";
+import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -30,6 +30,15 @@ import {
   sessionLifetimeRealmSettings,
 } from "./keycloak-session-lifetime.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
+import {
+  ensureSelfSignedCertificate,
+  firstReachableAddress,
+  listenerVersion,
+  removeSelfSignedCertificate,
+  publicListener,
+  requestedListener,
+  validateListenerInput,
+} from "./managed-rbac-listener-certificate.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -91,7 +100,10 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly port?: number;
   readonly certificateFile?: string;
   readonly certificateKeyFile?: string;
+  readonly certificateMode?: CertificateMode;
 }
+
+export type CertificateMode = "self-signed" | "domain" | "internal-ca";
 
 /**
  * Where edge nodes reach the managed Keycloak: HTTPS on one address of this machine, under the
@@ -117,6 +129,7 @@ interface ManagedRbacConfig {
   readonly postgresPort?: number;
   readonly managementPort?: number;
   readonly listener?: ManagedRbacListener;
+  readonly certificateMode?: CertificateMode;
   /** An operator stopped the managed services; a daemon start leaves them down until they are started again. */
   readonly stopped?: boolean;
 }
@@ -185,8 +198,15 @@ export class ManagedRbacService {
       return this.stop();
     }
     if (operation === "listener") {
-      const { listener } = this.#readManagedConfig();
-      return { ok: true, command: "rbac-listener", listener: listener ?? null, version: listenerVersion(listener) };
+      const config = this.#readManagedConfig();
+      const { listener } = config;
+      return {
+        ok: true,
+        command: "rbac-listener",
+        listener: listener ? publicListener(listener) : null,
+        certificateMode: config.certificateMode ?? (listener ? "domain" : "self-signed"),
+        version: listenerVersion(listener, config.certificateMode),
+      };
     }
     if (operation === "listener-set") return this.#setListener(request);
     if (operation === "backup") return this.#backup(request);
@@ -248,8 +268,13 @@ export class ManagedRbacService {
    * issuer is refused at its next renewal and signs in again.
    */
   async #setListener(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+    if (
+      request.certificateMode !== undefined &&
+      !["self-signed", "domain", "internal-ca"].includes(request.certificateMode)
+    )
+      throw managedRbacError("rbac_listener_invalid", "Certificate mode must be self-signed, domain, or internal-ca.");
     const config = this.#readManagedConfig(),
-      currentVersion = listenerVersion(config.listener),
+      currentVersion = listenerVersion(config.listener, config.certificateMode),
       expectedVersion = request.expectedVersion;
     if (!expectedVersion)
       throw managedRbacError(
@@ -258,8 +283,9 @@ export class ManagedRbacService {
       );
     if (expectedVersion !== currentVersion)
       return { ok: false, code: "version_conflict", command: "rbac-listener-set", expectedVersion, currentVersion };
-    const listener = requestedListener(request),
-      { listener: _replaced, ...loopback } = config,
+    const listener = await this.#requestedListener(request),
+      certificateMode = request.certificateMode ?? (listener ? (config.certificateMode ?? "domain") : "self-signed"),
+      { listener: _replaced, certificateMode: _oldMode, ...loopback } = config,
       apply = async (next: ManagedRbacConfig): Promise<void> => {
         await this.#stopChild("keycloak");
         this.#writeConfig(next);
@@ -271,7 +297,8 @@ export class ManagedRbacService {
       validateCertificateNames(readFileSync(listener.certificateFile), [listener.address, listener.hostname]);
     }
     try {
-      await apply(listener ? { ...loopback, listener } : loopback);
+      await apply(listener ? { ...loopback, listener, certificateMode } : { ...loopback, certificateMode });
+      if (certificateMode === "domain" || certificateMode === "internal-ca") removeSelfSignedCertificate(this.#root);
     } catch (error) {
       await apply(config);
       throw mapListenerBindError(error);
@@ -279,9 +306,28 @@ export class ManagedRbacService {
     return {
       ok: true,
       command: "rbac-listener-set",
-      listener: listener ?? null,
-      version: listenerVersion(listener),
+      listener: listener ? publicListener(listener) : null,
+      certificateMode,
+      version: listenerVersion(listener, certificateMode),
     };
+  }
+
+  async #requestedListener(request: ManagedRbacRequest): Promise<ManagedRbacListener | undefined> {
+    const mode = request.certificateMode;
+    if (mode === "self-signed") {
+      const address = request.listenAddress ?? firstReachableAddress();
+      const hostname = request.hostname ?? address;
+      const port = request.port ?? 8443;
+      const endpoint = validateListenerInput(address, hostname, port),
+        generated = await ensureSelfSignedCertificate(this.#root, endpoint.hostname, endpoint.address);
+      validateCertificateNames(readFileSync(generated.certificateFile), [endpoint.address, endpoint.hostname]);
+      return {
+        ...endpoint,
+        certificateFile: generated.certificateFile,
+        certificateKeyFile: generated.certificateKeyFile,
+      };
+    }
+    return requestedListener(request);
   }
 
   async health(): Promise<Record<string, unknown>> {
@@ -314,6 +360,17 @@ export class ManagedRbacService {
       httpPort = existing?.mode === "managed" ? Number(new URL(existing.url).port) : ports![0],
       postgresPort = existing?.mode === "managed" && existing.postgresPort ? existing.postgresPort : ports![1],
       managementPort = existing?.mode === "managed" && existing.managementPort ? existing.managementPort : ports![2];
+    const certificateMode =
+      existing?.mode === "managed"
+        ? (existing.certificateMode ?? (existing.listener ? "domain" : "self-signed"))
+        : "self-signed";
+    let generatedListener: ManagedRbacListener | undefined =
+      existing?.mode === "managed" ? existing.listener : undefined;
+    if (certificateMode === "self-signed" && !generatedListener) {
+      const address = firstReachableAddress(),
+        generated = await ensureSelfSignedCertificate(this.#root, address, address);
+      generatedListener = { address, hostname: address, port: 8443, ...generated };
+    }
     this.#writeConfig({
       schema: "harness-managed-rbac/v1",
       mode: "managed",
@@ -325,7 +382,8 @@ export class ManagedRbacService {
       installedAt: this.#ports.now(),
       postgresPort,
       managementPort,
-      ...(existing?.mode === "managed" && existing.listener ? { listener: existing.listener } : {}),
+      ...(generatedListener ? { listener: generatedListener } : {}),
+      ...(certificateMode ? { certificateMode } : {}),
     });
   }
 
@@ -853,47 +911,14 @@ export function managedRbacListenerUrl(listener: Pick<ManagedRbacListener, "host
   return `https://${listener.hostname}:${listener.port}`;
 }
 
-function listenerVersion(listener: ManagedRbacListener | undefined): string {
-  return createHash("sha256")
-    .update(JSON.stringify(listener ?? null))
-    .digest("hex");
-}
-
-/** No listener field means loopback only; otherwise all five describe the listener. */
-function requestedListener(request: ManagedRbacRequest): ManagedRbacListener | undefined {
-  const { listenAddress: address, hostname, port, certificateFile, certificateKeyFile } = request;
-  if ([address, hostname, port, certificateFile, certificateKeyFile].every((value) => value === undefined))
-    return undefined;
-  if (
-    !address ||
-    isIP(address) === 0 ||
-    !hostname ||
-    !Number.isInteger(port) ||
-    port! < 1 ||
-    port! > 65_535 ||
-    !URL.canParse(`https://${hostname}:${port}`) ||
-    new URL(`https://${hostname}:${port}`).hostname !== hostname ||
-    !certificateFile ||
-    !certificateKeyFile ||
-    !path.isAbsolute(certificateFile) ||
-    !path.isAbsolute(certificateKeyFile) ||
-    !existsSync(certificateFile)
-  )
-    throw managedRbacError(
-      "rbac_listener_invalid",
-      "A listener takes --listen-address (an IP address of this machine), --hostname (lowercase, as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
-    );
-  return { address, hostname, port: port!, certificateFile, certificateKeyFile };
-}
-
 function requirePrivateKeyFile(file: string): void {
   const mode = existsSync(file) ? statSync(file).mode & 0o777 : undefined;
   if (mode === undefined || (mode & 0o077) !== 0)
     throw managedRbacError(
       "rbac_listener_key_exposed",
       mode === undefined
-        ? `The listener's private key ${file} does not exist.`
-        : `The listener's private key ${file} has mode ${mode.toString(8).padStart(4, "0")}; only its owner may read it (chmod 600).`,
+        ? "The listener's private key must be present and readable only by its owner (chmod 600)."
+        : "The listener's private key must be readable only by its owner (chmod 600).",
     );
 }
 

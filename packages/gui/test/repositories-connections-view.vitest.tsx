@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { CenterListenerSettings } from "../src/api/center-settings-contract.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import { connectionQueryKeys } from "../src/renderer/connection-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -94,6 +95,7 @@ interface Bridge {
   readonly connections: Record<string, ReturnType<typeof vi.fn>>;
   readonly repoAdmin: Record<string, ReturnType<typeof vi.fn>>;
   readonly firstRun: Record<string, ReturnType<typeof vi.fn>>;
+  readonly centerSettings: Record<string, ReturnType<typeof vi.fn>>;
 }
 
 async function mountView(
@@ -103,6 +105,18 @@ async function mountView(
     readonly probeResult?: unknown;
   } = {},
 ): Promise<{ container: HTMLElement; bridge: Bridge }> {
+  let centerState: CenterListenerSettings = {
+    ok: true,
+    command: "rbac-listener",
+    certificateMode: "self-signed",
+    listener: {
+      address: "127.0.0.1",
+      hostname: "127.0.0.1",
+      port: 8443,
+      certificateFile: "/tmp/self-signed.pem",
+    },
+    version: "center-v1",
+  };
   const bridge: Bridge = {
     connections: {
       status: vi.fn(async () => ({ ok: true, connections: options.connections ?? CONNECTIONS })),
@@ -164,6 +178,29 @@ async function mountView(
     firstRun: {
       chooseRepository: vi.fn(async () => "/repo/picked"),
       bootstrap: vi.fn(async () => ({ ok: true, command: "init" })),
+    },
+    centerSettings: {
+      listener: vi.fn(async () => centerState),
+      selectFile: vi.fn(async (kind: "certificate" | "private-key") =>
+        kind === "certificate" ? "/tmp/selected.pem" : "/tmp/selected.key",
+      ),
+      setCertificate: vi.fn(async (input: Record<string, unknown>) => {
+        centerState = {
+          ...centerState,
+          certificateMode: input.certificateMode as CenterListenerSettings["certificateMode"],
+          listener:
+            input.certificateMode === "self-signed"
+              ? centerState.listener
+              : {
+                  ...centerState.listener!,
+                  hostname: String(input.hostname),
+                  port: Number(input.port),
+                  certificateFile: String(input.certificateFile),
+                },
+          version: "center-v2",
+        };
+        return centerState;
+      }),
     },
   };
   vi.stubGlobal("window", { harness: bridge });
@@ -270,6 +307,42 @@ describe("repositories and connections page", () => {
     await click(container, "connection-repo-local-repo");
     expect(container.textContent).toContain("Switching to edge requires a center connection");
     expect(bridge.repoAdmin.update).not.toHaveBeenCalled();
+  });
+
+  it("switches all login certificate modes and saves the selected mode back", async () => {
+    const { container, bridge } = await mountView();
+    await click(container, "connection-node-center");
+    await settle(8);
+
+    for (const mode of ["self-signed", "domain", "internal-ca"] as const) {
+      const radio = container.querySelector(
+        `input[name="center-certificate-mode"][value="${mode}"]`,
+      ) as HTMLInputElement;
+      expect(radio).toBeTruthy();
+      await act(async () => {
+        radio.click();
+      });
+      expect(radio.checked).toBe(true);
+    }
+    await click(container, "center-certificate-file-choose");
+    await click(container, "center-certificate-key-choose");
+    await settle(4);
+    await click(container, "center-certificate-save");
+    await settle(8);
+
+    expect(bridge.centerSettings.setCertificate).toHaveBeenCalledWith({
+      expectedVersion: "center-v1",
+      certificateMode: "internal-ca",
+      hostname: "127.0.0.1",
+      port: 8443,
+      certificateFile: "/tmp/selected.pem",
+      certificateKeyFile: "/tmp/selected.key",
+    });
+    expect(
+      (container.querySelector('input[name="center-certificate-mode"][value="internal-ca"]') as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(container.textContent).toContain("Login service certificate settings saved.");
   });
 
   it("registers a picked folder that already has a ledger instead of bootstrapping", async () => {

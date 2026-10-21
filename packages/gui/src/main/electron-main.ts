@@ -20,6 +20,7 @@ import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLoginWebviewSecurity } from "./login-webview-security.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
+import { registerCenterSettingsIpc } from "./center-settings-ipc.ts";
 import { EDGE_JOIN_LINK_CHANNEL } from "../api/edge-join-entry-contract.ts";
 import { edgeJoinLinkFromArgv, registerEdgeJoinEntryIpc } from "./edge-join-entry-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
@@ -382,6 +383,23 @@ export async function startGuiApp(): Promise<void> {
   registerAccessAdminIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     operationId: randomUUID,
+  });
+  registerCenterSettingsIpc(ipcMain, trustPolicy, {
+    daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
+    dialog: {
+      selectFile: async (kind) => {
+        const selected = await dialog.showOpenDialog({
+          title:
+            kind === "certificate" ? "Choose the login service certificate" : "Choose the login service private key",
+          properties: ["openFile"],
+          filters:
+            kind === "certificate"
+              ? [{ name: "Certificates", extensions: ["pem", "crt", "cer"] }]
+              : [{ name: "Private keys", extensions: ["key", "pem"] }],
+        });
+        return selected.canceled ? null : (selected.filePaths[0] ?? null);
+      },
+    },
   });
   // 边缘节点加入向导(task_0499bcc75d0f):只调用 daemon 既有 edge join,主进程收窄见
   // main/edge-join-entry-ipc.ts;「在浏览器打开」只开 daemon 返回的登录页。

@@ -2,12 +2,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { artifactManifest, ManagedRbacService, managedRbacVersions } from "../src/managed-rbac-service.ts";
+import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 
 test("managed RBAC pins supported platform artifacts and published checksums", () => {
   for (const platform of ["darwin-arm64", "darwin-x64", "linux-x64"] as const) {
@@ -451,6 +452,134 @@ test("a listener carries HTTPS for edge nodes while Keycloak, PostgreSQL, and ma
   }
 });
 
+test("the self-signed certificate mode generates a private listener certificate without returning its key", async () => {
+  const managed = managedFixture();
+  try {
+    const result = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      hostname: "center.example.test",
+      listenAddress: "127.0.0.1",
+      port: await availablePort(),
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.certificateMode, "self-signed");
+    assert.equal("certificateKeyFile" in ((result.listener ?? {}) as object), false);
+    const config = managed.config();
+    assert.equal(config.certificateMode, "self-signed");
+    assert.equal(typeof config.listener.certificateKeyFile, "string");
+    assert.equal((statSync(config.listener.certificateKeyFile).mode & 0o077) === 0, true);
+    assert.doesNotThrow(() =>
+      validateCertificateNames(readFileSync(config.listener.certificateFile), ["127.0.0.1", "center.example.test"]),
+    );
+  } finally {
+    await managed.close();
+  }
+});
+
+test("self-signed listener input validates hostname and port before generating a certificate", async () => {
+  const managed = managedFixture();
+  try {
+    for (const input of [
+      { hostname: "center.example.test/path", port: 8443 },
+      { hostname: "center.example.test", port: 0 },
+      { hostname: "center.example.test", port: 70_000 },
+    ]) {
+      await assert.rejects(
+        managed.service.run({
+          operation: "listener-set",
+          certificateMode: "self-signed",
+          hostname: input.hostname,
+          listenAddress: "127.0.0.1",
+          port: input.port,
+          expectedVersion: await managed.version(),
+        }),
+        { code: "rbac_listener_invalid" },
+      );
+    }
+    assert.equal(
+      existsSync(path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.pem")),
+      false,
+    );
+  } finally {
+    await managed.close();
+  }
+});
+
+test("self-signed certificates are reused while current and replaced when the hostname changes", async () => {
+  const managed = managedFixture();
+  try {
+    const first = await managed.service.run({
+        operation: "listener-set",
+        certificateMode: "self-signed",
+        hostname: "center-a.example.test",
+        listenAddress: "127.0.0.1",
+        port: await availablePort(),
+        expectedVersion: await managed.version(),
+      }),
+      certificateFile = managed.config().listener.certificateFile,
+      firstPem = readFileSync(certificateFile),
+      reused = await managed.service.run({
+        operation: "listener-set",
+        certificateMode: "self-signed",
+        hostname: "center-a.example.test",
+        listenAddress: "127.0.0.1",
+        port: await availablePort(),
+        expectedVersion: String(first.version),
+      });
+    assert.deepEqual(readFileSync(certificateFile), firstPem);
+
+    const replaced = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      hostname: "center-b.example.test",
+      listenAddress: "127.0.0.1",
+      port: await availablePort(),
+      expectedVersion: String(reused.version),
+    });
+    const replacedPem = readFileSync(certificateFile);
+    assert.notDeepEqual(replacedPem, firstPem);
+    assert.doesNotThrow(() => validateCertificateNames(replacedPem, ["127.0.0.1", "center-b.example.test"]));
+    assert.equal(replaced.certificateMode, "self-signed");
+  } finally {
+    await managed.close();
+  }
+});
+
+test("switching from self-signed to an uploaded certificate removes generated material", async () => {
+  const managed = managedFixture();
+  const selfSignedCertificate = path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.pem");
+  const selfSignedKey = path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.key");
+  try {
+    const selfSigned = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      hostname: "center.example.test",
+      listenAddress: "127.0.0.1",
+      port: await availablePort(),
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(existsSync(selfSignedCertificate), true);
+    assert.equal(existsSync(selfSignedKey), true);
+
+    await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "domain",
+      listenAddress: "127.0.0.1",
+      hostname: "center.example.test",
+      port: await availablePort(),
+      certificateFile: managed.certificateFile,
+      certificateKeyFile: managed.certificateKeyFile,
+      expectedVersion: String(selfSigned.version),
+    });
+    assert.equal(existsSync(selfSignedCertificate), false);
+    assert.equal(existsSync(selfSignedKey), false);
+  } finally {
+    await managed.close();
+  }
+});
+
 test("a private key others can read is refused when the listener is set and when Keycloak starts", async () => {
   const managed = managedFixture(),
     listener = {
@@ -466,7 +595,9 @@ test("a private key others can read is refused when the listener is set and when
     await assert.rejects(
       managed.service.run({ operation: "listener-set", ...listener, expectedVersion: await managed.version() }),
       (error: { code?: string; message: string }) =>
-        error.code === "rbac_listener_key_exposed" && /mode 0644/u.test(error.message),
+        error.code === "rbac_listener_key_exposed" &&
+        !error.message.includes(managed.certificateKeyFile) &&
+        /owner.*chmod 600/u.test(error.message),
     );
     assert.equal(managed.configText(), before);
     assert.deepEqual(managed.keycloakLaunches(), []);
