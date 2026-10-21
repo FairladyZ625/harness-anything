@@ -211,9 +211,10 @@ test("work show names the goal, subtree counts and open tasks, and the renderer 
 
 // A create receipt must say where the task landed; a standalone create names the open work roots it
 // could join, read from the same work-root rule `ha work list` uses. The rows are the kernel index
-// shape, so this also pins that the receipt reads titles, not ids alone.
-function receiptProjection() {
-  const byId = new Map(rows.map((row) => [row.taskId, row]));
+// shape, so this also pins that the receipt reads titles, not ids alone. `plans` maps a work root's
+// task id to its task_plan.md body; a root without an entry has no readable plan.
+function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, string> = {}) {
+  const byId = new Map(rowsFor.map((row) => [row.taskId, row]));
   return {
     read: (taskId: string) =>
       byId.has(taskId)
@@ -224,23 +225,31 @@ function receiptProjection() {
         : { packagePath: null, snapshot: { task: null } },
     readTaskIndex: (query: { workRootsOnly?: boolean; openOnly?: boolean } = {}) => ({
       status: "ready",
-      rows: rows.filter(
+      rows: rowsFor.filter(
         (row) =>
           (!query.workRootsOnly ||
             row.taskClass === "work" ||
-            (row.parentTaskId === null && rows.some((candidate) => candidate.parentTaskId === row.taskId))) &&
+            (row.parentTaskId === null && rowsFor.some((candidate) => candidate.parentTaskId === row.taskId))) &&
           (!query.openOnly || (row.status !== "done" && row.status !== "cancelled")),
       ),
       watermark: 7,
       sourceRevision: 7,
       warnings: [],
     }),
+    readDocument: (documentPath: string) => {
+      const taskId = /^tasks\/([^/]+)\/task_plan\.md$/u.exec(documentPath)?.[1] ?? "";
+      return { document: plans[taskId] === undefined ? null : { body: plans[taskId] } };
+    },
   } as never;
 }
 
 test("a create receipt names the work it landed under by id and title", () => {
   assert.equal(
-    workReceiptLine(receiptProjection(), { ...rows[1]!, metadata: { parentTaskId: "declared" } } as never),
+    workReceiptLine(receiptProjection(), {
+      ...rows[1]!,
+      title: "专用迁移修复",
+      metadata: { parentTaskId: "declared" },
+    } as never),
     "\nwork: declared declared title",
   );
   // A new work root names itself with its title, so the line is recognizable without a second read.
@@ -260,5 +269,70 @@ test("a standalone create receipt lists the open work roots it could join, newes
       "- derived derived title: ha task move standalone --parent derived",
       "next: ha work list",
     ].join("\n"),
+  );
+});
+
+test("a landed receipt states the work's goal and offers move commands to closer works", () => {
+  const line = workReceiptLine(
+    receiptProjection(rows, {
+      declared: "# Work\n\n## Goal\n\n- Ship release two.\n",
+      derived: "# Work\n\n## Goal\n\n- Keep the release lanes green.\n",
+    }),
+    { ...rows[1]!, title: "keep release lanes green", metadata: { parentTaskId: "declared" } } as never,
+  );
+  assert.equal(
+    line,
+    [
+      "\nwork: declared declared title",
+      "goal: Ship release two.",
+      "if this task does not belong to that work, move it now:",
+      "- derived derived title: ha task move leaf-a --parent derived",
+    ].join("\n"),
+  );
+});
+
+test("receipt candidates rank works by title similarity and cap at three", () => {
+  const candidate = (taskId: string, title: string, updatedAt: string) => ({
+    ...task(taskId, null, "active", "work", updatedAt),
+    title,
+  });
+  const rankedRows = [
+    candidate("w_noise", "Unrelated storage rewrite", "2026-09-25T00:00:00.000Z"),
+    candidate("w_close", "Receipt rendering pipeline", "2026-09-24T00:00:00.000Z"),
+    candidate("w_closest", "Receipt candidate ranking", "2026-09-23T00:00:00.000Z"),
+    candidate("w_mid", "Receipt deduplication", "2026-09-22T00:00:00.000Z"),
+    candidate("w_also", "Receipt guidance text", "2026-09-21T00:00:00.000Z"),
+  ];
+  const line = workReceiptLine(receiptProjection(rankedRows), {
+    ...rows[6]!,
+    title: "receipt candidate ordering",
+    metadata: { parentTaskId: null },
+  } as never);
+  assert.equal(
+    line,
+    [
+      "\nwork: none (standalone task)",
+      "candidate works:",
+      "- w_closest Receipt candidate ranking: ha task move standalone --parent w_closest",
+      "- w_close Receipt rendering pipeline: ha task move standalone --parent w_close",
+      "- w_mid Receipt deduplication: ha task move standalone --parent w_mid",
+      "next: ha work list",
+    ].join("\n"),
+  );
+});
+
+test("receipt candidates match CJK titles through character bigrams", () => {
+  const cjkRows = [
+    { ...task("w_cjk", null, "active", "work"), title: "编排器派工回退治理" },
+    { ...task("w_other", null, "active", "work"), title: "storage rewrite" },
+  ];
+  const line = workReceiptLine(receiptProjection(cjkRows), {
+    ...rows[6]!,
+    title: "派工回退误拒修复",
+    metadata: { parentTaskId: null },
+  } as never);
+  assert.match(
+    line,
+    /candidate works:\n- w_cjk 编排器派工回退治理: ha task move standalone --parent w_cjk\n- w_other storage rewrite: ha task move standalone --parent w_other/u,
   );
 });

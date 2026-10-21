@@ -119,10 +119,17 @@ export function taskMutation(
     };
   }
   // An orphaned lease's holder is gone; it fences nothing (start already takes it over via the
-  // reservation CAS), so only a live reservation or hold keeps task-level mutations out. Release
-  // above still needs the orphaned record itself to settle it.
-  const liveLease = activeLease !== null && ["reserving", "held"].includes(activeLease.phase);
-  if (liveLease && action.kind !== "task-contract-migrate")
+  // reservation CAS), so only a live reservation or hold keeps task-level mutations out. A live
+  // lease also never fences a pure parentTaskId amend (`ha task move`): re-hanging the task changes
+  // only where it is grouped — dispatch history, delivery, and the holder's own writes stay keyed to
+  // the task id, and the single write queue serializes the patch against the holder. Every other
+  // mutation waits for release. Release above still needs the orphaned record itself to settle it.
+  const liveLease = activeLease !== null && ["reserving", "held"].includes(activeLease.phase),
+    ownershipAmendOnly =
+      action.kind === "task-amend" &&
+      amendPatches.length > 0 &&
+      amendPatches.every((patch) => patch !== null && typeof patch === "object" && patch.field === "parentTaskId");
+  if (liveLease && action.kind !== "task-contract-migrate" && !ownershipAmendOnly)
     throw cell.cellCodedError("active_lease", `Run ha task release ${task.taskId} before ${action.kind}.`);
   if (action.kind === "task-amend") {
     const patches = amendPatches,

@@ -1083,6 +1083,86 @@ test("task move refuses cyclic parents and the receipt names the landed work", a
   }
 });
 
+test("task move re-hangs a leased task while every other amendment stays fenced", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-move-lease-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("task-move-lease"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "task-move-lease",
+    });
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    for (const action of [
+      { kind: "task-create", taskId: "task_lease_work_a", title: "Lease work a", taskClass: "work" },
+      { kind: "task-create", taskId: "task_lease_work_b", title: "Lease work b", taskClass: "work" },
+    ] as const) {
+      const created = await cell.run(action, binding);
+      assert.equal(created.outcome, "applied", JSON.stringify(action));
+      await waitForFixturePublication(cell, created.opId, binding);
+    }
+    const leased = await cell.run(
+      { kind: "task-create", taskId: "task_move_leased", title: "Leased lane", parentTaskId: "task_lease_work_a" },
+      binding,
+    );
+    assert.equal(leased.outcome, "applied", JSON.stringify(leased));
+    await waitForFixturePublication(cell, leased.opId, binding);
+    const packagePath = String((leased as Record<string, unknown>).packagePath);
+    await waitForWorktree(cell, leased);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    const started = await cell.run(
+      { kind: "task-start", taskId: "task_move_leased", executionId: "exe_move_leased", ttlMs: 3_600_000 },
+      binding,
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    // A pure re-hang does not disturb the executing holder: the move applies under the live lease.
+    const moved = (await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_move_leased",
+        patches: [{ field: "parentTaskId", value: "task_lease_work_b" }],
+      },
+      binding,
+    )) as Record<string, unknown>;
+    assert.equal(moved.outcome, "applied", JSON.stringify(moved));
+    await waitForFixturePublication(cell, String(moved.opId), binding);
+    // Every other mutation still waits for release, and the cyclic-parent refusal holds under lease.
+    const retitle = await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_move_leased",
+        patches: [{ field: "title", value: "Retitled under lease" }],
+      },
+      binding,
+    );
+    assert.equal(retitle.outcome, "op_rejected");
+    assert.equal(retitle.code, "active_lease");
+    const cycle = await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_move_leased",
+        patches: [{ field: "parentTaskId", value: "task_move_leased" }],
+      },
+      binding,
+    );
+    assert.equal(cycle.outcome, "op_rejected");
+    assert.equal(cycle.code, "parent_cycle");
+    const replay = makeTaskProjection({
+        rootDir,
+        eventStore: makeTaskEventReader({ repoId: "task-move-lease", rootDir }),
+      }),
+      movedTask = replay.read("task_move_leased").snapshot.task;
+    replay.close();
+    assert.equal(movedTask?.metadata?.parentTaskId, "task_lease_work_b");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("task amend refuses to retitle a plan with unsynced local edits, then retitles once synced", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-amend-prose-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;

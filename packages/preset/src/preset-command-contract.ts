@@ -283,7 +283,9 @@ export const presetCommands = Object.freeze([
     path: ["task", "create"],
     summary: [
       "Create a task package with its complete metadata. --work <id> files it under that work (the work root ",
-      "or any task in it becomes its parent); without --work the task stands alone. A repository-diff task is ",
+      "or any task in it becomes its parent); without --work the task stands alone. Choose the work by its ",
+      "goal — the task belongs where it serves that goal, not under whichever line is currently busy; with ",
+      "no fitting work, create one (ha work create) or file under a general work. A repository-diff task is ",
       "bound to its own git worktree, checked out on first start or dispatch and reclaimed when the task closes; ",
       "no command is needed.",
     ].join(""),

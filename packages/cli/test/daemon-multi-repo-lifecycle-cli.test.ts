@@ -634,7 +634,9 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     assert.match(listText, /^works:\ntask-parent\tParent\t/u);
     const help = runText(fixture.alpha, fixture.userRoot, ["task", "create", "--help"]);
     assert.match(help, /Active works \(1 shown, newest activity first[^)]*\):\n  task-parent — Parent/u);
-    assert.match(help, /File this task with --work <id>/u);
+    assert.match(help, /File this task with --work <id>, chosen by the work's goal/u);
+    assert.match(help, /not under whichever line is currently busy/u);
+    assert.match(help, /No fitting\nwork\? ha work create --title <name> starts one, or file under a general work/u);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     await ledgerReaders.drain();
