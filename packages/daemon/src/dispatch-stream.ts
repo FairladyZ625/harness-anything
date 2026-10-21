@@ -995,7 +995,8 @@ function readLatestRecordOfKind(target: string, kind: string, start: number): Re
   return null;
 }
 
-function openDispatchStreamForRead(target: string): number | null {
+/** Read-only descriptor for a live or archived stream; the caller closes it. */
+export function openDispatchStreamForRead(target: string): number | null {
   const live = openDispatchStreamPath(target);
   if (live.descriptor !== null) return live.descriptor;
   const archived = archivedPathForLiveTarget(target);

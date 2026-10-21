@@ -7,6 +7,8 @@ export function repositoryRuntimeReads(
   projection: TaskProjection,
   store: Pick<CanonicalEventStore, "readContentBlob">,
   now?: () => string,
+  /** Harness root holding dispatch streams; the only source of provider-reported context fill. */
+  rootDir?: string,
 ) {
   return makeAgentRuntimeReadModel({
     readAttemptChain: (id) => readRuntimeAttemptChain(id, projection),
@@ -14,6 +16,7 @@ export function repositoryRuntimeReads(
     readDispatches: ({ sessions, events }) => readSessionGroupDispatches({ sessions, events, projection }),
     projection,
     store,
+    ...(rootDir === undefined ? {} : { rootDir }),
     ...(now ? { now } : {}),
   });
 }

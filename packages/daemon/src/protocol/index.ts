@@ -60,6 +60,7 @@ export type {
   AgentRuntimeEventsResult,
   AgentRuntimeInstanceDto,
   AgentRuntimeOverviewResult,
+  AgentRuntimeSessionContextDto,
   AgentRuntimeSessionDto,
   AgentRuntimeSessionGroupDto,
   AgentRuntimeSessionGroupStatus,

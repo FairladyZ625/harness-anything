@@ -200,6 +200,20 @@ describe("ContextMeter", () => {
     expect(container.querySelector("div[aria-hidden] div[data-tip]")).toBeNull();
     expect(container.querySelector('[role="meter"]')!.textContent).toContain("0 / 0 · 0%");
   });
+
+  it("composition mode (no limit) states the total without context-window ratio semantics", () => {
+    const container = mount(createElement(ContextMeter, { segments, testId: "cm-total" }));
+    // 无窗口语义:没有 meter 角色、没有水位档、没有百分比——会话累计消耗不是窗口占用。
+    expect(container.querySelector('[role="meter"]')).toBeNull();
+    expect(container.querySelector('[data-testid="cm-total"]')!.getAttribute("data-context-level")).toBeNull();
+    expect(container.textContent).toContain(compactTokens(100_000));
+    expect(container.textContent).not.toContain("%");
+    // 分段条按总量占比:80K/100K → 第一段 80% 宽,tip 同口径。
+    const bars = container.querySelectorAll("div[aria-hidden] div[data-tip]");
+    expect(bars.length).toBe(3);
+    expect((bars[0] as HTMLElement).style.width).toBe("80%");
+    expect((bars[0] as HTMLElement).getAttribute("data-tip")).toContain("80%");
+  });
 });
 
 // ---------------------------------------------------------------------------

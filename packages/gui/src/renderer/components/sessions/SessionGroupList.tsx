@@ -22,7 +22,6 @@ import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
 import { CompletedDivider } from "../primitives/CompletedDivider.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import { CacheTimer } from "../agent-ui/CacheTimer.tsx";
-import { ContextMeter, type ContextSegment } from "../agent-ui/ContextMeter.tsx";
 import { computePromptCacheTtlState } from "../../model/smart-attention.ts";
 import { sessionGroupAttention } from "../../sessions-model.ts";
 import type { DecisionReviewRound } from "../../model/decision-review.ts";
@@ -585,9 +584,6 @@ function RoundRow({
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
   const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
   const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
-  const segments: readonly ContextSegment[] = [
-    { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 },
-  ];
 
   return (
     <button
@@ -618,14 +614,6 @@ function RoundRow({
                 testId={`session-card-cache-timer-${row.runtimeSessionId}`}
               />
             )}
-            <div className="w-20 shrink-0">
-              <ContextMeter
-                segments={segments}
-                limitTokens={200_000}
-                compact
-                testId={`session-card-context-meter-${row.runtimeSessionId}`}
-              />
-            </div>
           </div>
         }
         hoverTitle={[meta, row.runtimeSessionId].filter(Boolean).join(" · ")}
@@ -653,9 +641,6 @@ function OrphanRow({
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
   const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
   const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
-  const segments: readonly ContextSegment[] = [
-    { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 },
-  ];
 
   return (
     <button
@@ -680,14 +665,6 @@ function OrphanRow({
                 testId={`session-card-cache-timer-${row.runtimeSessionId}`}
               />
             )}
-            <div className="w-20 shrink-0">
-              <ContextMeter
-                segments={segments}
-                limitTokens={200_000}
-                compact
-                testId={`session-card-context-meter-${row.runtimeSessionId}`}
-              />
-            </div>
           </div>
         }
         selected={selected}
@@ -751,9 +728,6 @@ function DecisionGroupBody({
     const needsYou = attentionRefs?.has(`decision/${decisionId}`) ?? false;
     const touch = sessionTouches?.get(round.dispatch.runtimeSessionId) ?? null;
     const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
-    const segments: readonly ContextSegment[] = [
-      { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 },
-    ];
 
     return (
       <button
@@ -784,14 +758,6 @@ function DecisionGroupBody({
                   testId={`session-card-cache-timer-${round.dispatch.runtimeSessionId}`}
                 />
               )}
-              <div className="w-20 shrink-0">
-                <ContextMeter
-                  segments={segments}
-                  limitTokens={200_000}
-                  compact
-                  testId={`session-card-context-meter-${round.dispatch.runtimeSessionId}`}
-                />
-              </div>
             </div>
           }
           selected={selectedId === round.dispatch.runtimeSessionId}

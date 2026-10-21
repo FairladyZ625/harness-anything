@@ -600,6 +600,7 @@
   "agentRuntime.tokenUsageUnreportedCount": "{count} 次",
   "agentRuntime.tokenUsageUnreportedMore": "其余 provider 另有 {count} 次",
   "agentRuntime.sessionMetricsTitle": "本次会话消耗",
+  "agentRuntime.sessionMetricsContextUsed": "已用上下文",
   "agentRuntime.sessionMetricsInput": "输入 Token",
   "agentRuntime.sessionMetricsCacheRead": "缓存读取",
   "agentRuntime.sessionMetricsOutput": "输出 Token",

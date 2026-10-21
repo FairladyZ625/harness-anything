@@ -10,6 +10,7 @@ import {
   OPAQUE_TEXTUAL_POLICY_ID,
 } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../../../packages/daemon/src/dispatch-stream.ts";
 import { assertUnscrolledLayout, nav } from "./helpers.mjs";
 
 /**
@@ -421,6 +422,28 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
       });
     store.append({ event: archiveWrite.event, plan: archiveWrite.plan, blobs: archiveWrite.blobs });
     projection.apply(archiveWrite.event);
+    // D2:上下文窗口夹具——第 4 轮(活跃轮)的派工流里写一条 ACP `usage_update`,即生产
+    // provider 自报的填充度。会话详情的窗口水位只认这一条(分母 1M 来自 provider,不是
+    // GUI 的默认 200K);没有它的轮次如实不画比值。
+    const occupancyRound = ROUNDS["round-4"],
+      occupancyDispatch = occupancyRound.dispatchId;
+    openDispatchStream(rootDir, {
+      dispatchId: occupancyDispatch,
+      taskId: ROUNDS_TASK,
+      executionId: "exe-round-4",
+      runtimeSessionId: occupancyRound.runtimeSessionId,
+      instanceId: "instance-e2e-rounds",
+      startedAt: "2026-10-02T13:30:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, occupancyDispatch, {
+      kind: "provider_event",
+      occurredAt: "2026-10-02T13:31:00.000Z",
+      event: {
+        type: "acp.update",
+        update: { sessionUpdate: "usage_update", used: 243_138, size: 1_000_000 },
+        usage: { used: 243_138, context_size: 1_000_000 },
+      },
+    });
     // E:小队编排段夹具——同一小队两次 run(收敛/失败)+ 另一小队在编,证明列表中
     // 先见小队再见 run;run 行只留 phase/mission/相对时间。事件走 canonical 读面,
     // 与生产 `runtime_squad_run_observed` 同形,不 mock 视图。
@@ -594,7 +617,7 @@ export default {
     const geometry = await hierarchyGeometry(page);
     writeFileSync(path.join(runRoot, "sessions-hierarchy-geometry.json"), `${JSON.stringify(geometry, null, 2)}\n`);
     await assertHierarchyGeometry(page, geometry);
-    await assertRoundInteractions(page);
+    await assertRoundInteractions(page, shot);
 
     // Exercise both real responsive controls; a wide-only run cannot catch a hidden inline selector.
     const originalViewport = await page.evaluate(() => ({
@@ -895,7 +918,7 @@ async function assertHierarchyGeometry(page, geometry) {
 }
 
 /** 交互证据:点第 2 轮精确选中、Task 入口跳对、收起不误选、检索返回正确轮次。 */
-async function assertRoundInteractions(page) {
+async function assertRoundInteractions(page, shot) {
   const body = page.getByTestId(`session-group-body-${ROUNDS_TASK}`),
     round2Id = ROUNDS["round-2"].runtimeSessionId,
     round1Id = ROUNDS["round-1"].runtimeSessionId;
@@ -936,6 +959,61 @@ async function assertRoundInteractions(page) {
     "collapsing the group must not change the selected session",
   );
   await expandGroup(page, ROUNDS_TASK);
+
+  // 上下文水位唯一且诚实:详情头只有一个窗口 meter,分母是 provider 自报的 1M(不是 GUI 的
+  // 200K 默认值),消耗卡不再把累计 token 冒充成窗口比值。第 2 轮没有 provider 上报,
+  // 如实不画比值——猜测的百分比一个都不许出现。
+  const detail = page.getByTestId("sessions-detail");
+  assert.equal(
+    await detail.locator('[data-testid="session-detail-context-meter"]').count(),
+    0,
+    "a session whose provider reported no window must not draw a context ratio",
+  );
+  await body.locator(`[data-testid="rail-session-${ROUNDS["round-4"].runtimeSessionId}"]`).click();
+  await page.waitForFunction(
+    (id) => globalThis.document.querySelector('[data-testid="sessions-detail"]')?.textContent?.includes(id),
+    ROUNDS["round-4"].runtimeSessionId,
+  );
+  // 读面返回后详情头才有窗口 meter:等它出现再断言(不靠 count() 的空窗抢跑)。
+  const windowMeter = detail.locator('[data-testid="session-detail-context-meter"] [role="meter"]');
+  await windowMeter.waitFor();
+  assert.equal(
+    await detail.locator('[data-testid="session-detail-context-meter"] [role="meter"]').count(),
+    1,
+    "the detail must carry exactly one context meter",
+  );
+  assert.equal(
+    await windowMeter.getAttribute("aria-valuemax"),
+    "1000000",
+    "the window denominator must be the provider-reported context window",
+  );
+  assert.equal(
+    await windowMeter.getAttribute("aria-valuenow"),
+    "243138",
+    "the window numerator must be the fill the provider last measured",
+  );
+  assert.ok(
+    (await windowMeter.innerText()).includes("243K / 1M · 24%"),
+    "the readout must be the provider's fill against the provider's window",
+  );
+  assert.ok(!(await detail.innerText()).includes("200K"), "the detail must not print a hardcoded 200K window");
+  await shot("sessions-detail-context-window");
+
+  // 有累计消耗的轮次:消耗卡画组成条,但不带 meter 角色与百分比——累计 token 不是窗口占用。
+  await body.locator(`[data-testid="rail-session-${round1Id}"]`).click();
+  await page.waitForFunction(
+    (id) => globalThis.document.querySelector('[data-testid="sessions-detail"]')?.textContent?.includes(id),
+    round1Id,
+  );
+  assert.equal(
+    await detail.locator('[data-testid="session-metrics-context-meter"] [role="meter"]').count(),
+    0,
+    "the consumption card must not repeat window-ratio semantics",
+  );
+  assert.ok(
+    !(await detail.getByTestId("session-metrics-context-meter").innerText()).includes("%"),
+    "cumulative consumption must not print a context-window percentage",
+  );
 
   // Task 入口归组操作位:跳到 task-e2e-rounds 的详情,再回会话页(任务详情头部也有
   // 「Sessions」入口,回程导航限定侧栏作用域)。

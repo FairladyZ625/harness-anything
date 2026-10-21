@@ -86,6 +86,11 @@ export interface AgentRuntimeSessionMetricsDto {
   /** True when the provider reports no token usage, so the counters mean absence, not consumption. */
   readonly usageUnavailable: boolean;
 }
+/** Provider-reported context-window fill: the numbers a window meter may divide. */
+export interface AgentRuntimeSessionContextDto {
+  readonly usedTokens: number;
+  readonly windowTokens: number;
+}
 export interface AgentRuntimeSessionDto {
   readonly runtimeSessionId: string;
   readonly providerSessionId: string | null;
@@ -97,6 +102,9 @@ export interface AgentRuntimeSessionDto {
   readonly installationError?: AgentRuntimeInstallationErrorDto;
   /** Latest dispatch-stream consumption metrics; omitted until the worker emits them. */
   readonly metrics?: AgentRuntimeSessionMetricsDto;
+  /** Context-window fill the provider itself reported; omitted when it reports no window, so
+   * the renderer draws no percentage rather than guessing a default. */
+  readonly context?: AgentRuntimeSessionContextDto;
   readonly definitionSnapshotRef: string;
   readonly definitionSnapshot: AgentDefinitionSnapshot | null;
   readonly definitionSnapshotPersisted: boolean;
@@ -475,7 +483,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "associations",
         "activity",
       ],
-      ["installationState", "installationError", "semanticState", "attemptChain", "metrics"],
+      ["installationState", "installationError", "semanticState", "attemptChain", "metrics", "context"],
     ) &&
     typeof value.runtimeSessionId === "string" &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
@@ -486,6 +494,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     value.kindId.length > 0 &&
     validInstallationState(value.installationState, value.installationError) &&
     (value.metrics === undefined || validSessionMetrics(value.metrics)) &&
+    (value.context === undefined || validSessionContext(value.context)) &&
     typeof value.definitionSnapshotPersisted === "boolean" &&
     (value.definitionSnapshot === null ||
       (isAgentDefinitionSnapshot(value.definitionSnapshot) &&
@@ -546,6 +555,19 @@ function validSessionMetrics(value: unknown): value is AgentRuntimeSessionMetric
     sessionMetricsCounters.every((field) => Number.isSafeInteger(value[field]) && Number(value[field]) >= 0) &&
     (value.compacted === null || typeof value.compacted === "boolean") &&
     typeof value.usageUnavailable === "boolean"
+  );
+}
+
+/** Fill can exceed the window a provider once reported (a window shrinks between builds), so
+ * used is any non-negative integer while the window must be positive: no divide-by-zero meter. */
+function validSessionContext(value: unknown): value is AgentRuntimeSessionContextDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, ["usedTokens", "windowTokens"]) &&
+    Number.isSafeInteger(value.usedTokens) &&
+    Number(value.usedTokens) >= 0 &&
+    Number.isSafeInteger(value.windowTokens) &&
+    Number(value.windowTokens) > 0
   );
 }
 

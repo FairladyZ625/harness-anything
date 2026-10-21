@@ -35,6 +35,7 @@ import {
   runtimeTaskLabels,
   type RuntimeSessionActivityEvidence,
 } from "./dispatch-read.ts";
+import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
@@ -47,6 +48,8 @@ export function makeAgentRuntimeReadModel(input: {
   readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
   readonly projection: TaskProjection;
   readonly store: Pick<CanonicalEventStore, "readContentBlob">;
+  /** Harness root holding dispatch streams; without it no session reports context occupancy. */
+  readonly rootDir?: string;
   readonly now?: () => string;
 }) {
   const installationDto = (raw: RuntimeInstallation): AgentRuntimeInstallationDto => {
@@ -60,11 +63,13 @@ export function makeAgentRuntimeReadModel(input: {
       lastObservedAt: installation.lastObservedAt,
     };
   };
+  // Detail-only reads opt into the expensive joins: the attempt chain and the context-fill
+  // probe each cost their own read, and list reads repeat per member.
   const sessionDto = (
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
-    includeAttemptChain = false,
+    detail: { readonly attemptChain?: boolean; readonly context?: boolean } = {},
   ): AgentRuntimeSessionDto => {
     const observedSession = publicRuntimeSession(session),
       outcome = input.projection
@@ -74,7 +79,11 @@ export function makeAgentRuntimeReadModel(input: {
             event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_outcome_observed",
         ),
       metrics = outcome?.payload.runtimeMetrics,
-      attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,
+      occupancy =
+        detail.context === true && input.rootDir !== undefined
+          ? readRuntimeSessionContextOccupancy(input.projection, input.rootDir, session.runtimeSessionId)
+          : null,
+      attemptChain = detail.attemptChain === true ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,
       installationError = installation
         ? null
         : {
@@ -91,6 +100,7 @@ export function makeAgentRuntimeReadModel(input: {
         : historicalRuntimeKindId(session, definition.snapshot),
       ...(installationError ? { installationState: "missing" as const, installationError } : {}),
       ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
+      ...(occupancy ? { context: occupancy } : {}),
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,
       definitionSnapshotPersisted: definition.persisted,
@@ -269,7 +279,7 @@ export function makeAgentRuntimeReadModel(input: {
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(session),
-          true,
+          { attemptChain: true, context: true },
         ),
         result = resultFor(session);
       return {

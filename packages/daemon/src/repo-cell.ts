@@ -221,6 +221,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
           readSessionGroupDispatches({ sessions, events, projection: projection! }),
         projection,
         store,
+        rootDir: context.rootDir,
         now: context.now,
       }),
       service = makeTaskLifecycleService({
