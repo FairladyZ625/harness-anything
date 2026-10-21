@@ -17,6 +17,7 @@ import {
 } from "./runtime-worker-push.ts";
 import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
+import { readDispatchRuling } from "./runtime-ruling.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
@@ -96,7 +97,11 @@ export async function publishExit(
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code);
+    const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(
+      active,
+      code,
+      runtimeRulingRequest(context, active),
+    );
     let outcome = initialOutcome,
       reviewResultMissing = false;
     if (
@@ -507,6 +512,23 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
       executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
     },
   };
+}
+
+/**
+ * The ruling a worker left in its task package, read at the single settlement entry. Only a
+ * task-bound dispatch has a package to read, and only the node holding that task's projection can
+ * witness the artifact; an edge settles by the same ordinary classification it always had.
+ */
+function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (!active.task || !context.input.projection) return null;
+  const projection = context.requiredRuntimeProjection(context.input),
+    packagePath = projection.read(active.task.taskId).packagePath;
+  if (typeof packagePath !== "string") return null;
+  return readDispatchRuling(
+    (relative) => projection.readDocument(relative).document?.body ?? null,
+    packagePath,
+    active.dispatchId,
+  );
 }
 
 /** The registration witness for a dispatched Decision review: the Decision carries a review by

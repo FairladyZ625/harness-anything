@@ -363,6 +363,44 @@ test("a stopped dispatch with the same empty-cut accepted submission is read bac
   assert.equal(taskDispatchesOutcome(rows, new Map()).outcome, "succeeded");
 });
 
+test("an awaiting-ruling dispatch row carries the question and options, not just a raw stream", () => {
+  // task_936005e1 evidence: the worker asked, stopped, and the question lived only in the provider
+  // log. The row now projects the ruling artifact so `ha task dispatches` shows the ask directly.
+  const f = fixture(
+    session("exited", "stopped", { exitCode: 2, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+  );
+  const rulingPath = `tasks/task-1/artifacts/rulings/${dispatchId}.md`,
+    projection = {
+      ...f.projection,
+      readDocument: (path: string) => ({
+        document:
+          path === rulingPath
+            ? {
+                body: [
+                  "---",
+                  "ruling: awaiting",
+                  "question: low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+                  "options:",
+                  "  - 保留 GUI 验收（推荐）",
+                  "  - low 档不要求 GUI 验收",
+                  "---",
+                  "",
+                ].join("\n"),
+              }
+            : null,
+      }),
+    } as unknown as TaskProjection;
+  const row = readTaskDispatches({ projection, taskId }).dispatches[0];
+  assert.equal(row?.status, "stopped", "a ruling is a stop, not a failure");
+  assert.deepEqual(row?.ruling, {
+    question: "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+    options: ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
+    path: rulingPath,
+  });
+  // Without the artifact the same run keeps its ordinary reading: no ruling field is invented.
+  assert.equal(readTaskDispatches({ projection: f.projection, taskId }).dispatches[0]?.ruling, undefined);
+});
+
 test("stopped dispatch is shown as blocked only from a structured task state", () => {
   const f = fixture(
     session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),

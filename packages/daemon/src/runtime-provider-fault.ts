@@ -79,9 +79,17 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
     : diagnosticFault;
 }
 
+/**
+ * `ruling` is the worker's own machine-readable request for an owner ruling, already read from
+ * the task package by the caller. It is an input rather than a projection read here so this
+ * classifier stays pure; settlement is still the one place that turns a result into a settlement.
+ * A ruling outranks `gate_red` because the worker stopped on purpose: with no one to answer, the
+ * same turn reads as "gate red" and hides the question forever.
+ */
 export function classifyRuntimeExit(
   active: ActiveRuntime,
   exitCode: number | null,
+  ruling: { readonly question: string } | null = null,
 ): RuntimeAttemptOutcome & { readonly outcome: RuntimeExitOutcome } {
   const providerFault =
       active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
@@ -103,6 +111,10 @@ export function classifyRuntimeExit(
       attemptIndex,
     });
   if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
+  // A requested stop for a ruling is never a provider fault: the worker wrote the question and
+  // stopped, which is exactly what the unattended contract asks for. It settles `stopped` rather
+  // than `failed` so the receipt and agenda read "waiting on the owner", not "the run broke".
+  if (ruling !== null) return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
   if (attemptFailed && providerFault?.code === "unrecognized_model")
     return classified("gate_red", providerFault.reason);
   if (attemptFailed && providerFault)

@@ -423,7 +423,7 @@ interface RuntimePayloads {
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
     readonly attempt?: {
-      readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
+      readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "awaiting_ruling" | "gate_red";
       readonly reason: string;
       readonly faultClass?: "quota_exhausted" | "rate_limited";
       readonly resetAt?: string;
@@ -654,7 +654,7 @@ function validateAgentRuntimePayloadFields(
               Object.hasOwn(value.attempt as object, field),
             ),
           ]) ||
-          !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(
+          !["provider_fault", "provider_quota", "worker_stop", "awaiting_ruling", "gate_red"].includes(
             String(value.attempt.classification),
           ) ||
           !isNonEmptyString(value.attempt.reason) ||
