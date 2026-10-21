@@ -33,7 +33,8 @@ test(
     // the retry loop without tearing the resident sync down.
     const readAccessToken = async (): Promise<string | undefined> => {
       attempts += 1;
-      if (attempts === 1) throw Object.assign(new Error("authentication_required"), { code: "authentication_required" });
+      if (attempts === 1)
+        throw Object.assign(new Error("authentication_required"), { code: "authentication_required" });
       return await f.owners.readAccessToken(nodeId)();
     };
     const running = runFleetReplicaSync({

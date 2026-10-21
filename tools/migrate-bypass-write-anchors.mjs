@@ -35,4 +35,5 @@ function main(args) {
   }
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main(process.argv.slice(2));

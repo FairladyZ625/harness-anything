@@ -1,3 +1,6 @@
 export const multicaAdapterProviderMetadata = {
-  id: "multica", capabilities: [], readonly: true, writable: false
+  id: "multica",
+  capabilities: [],
+  readonly: true,
+  writable: false,
 } as const;

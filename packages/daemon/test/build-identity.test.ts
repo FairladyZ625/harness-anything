@@ -17,7 +17,9 @@ test("the build stamp prefers the packaged build stamp over the source tree", as
   try {
     const fresh = await import(`${moduleUrl}?case=stamped`);
     assert.equal(fresh.daemonBuildStamp().commit, "0123456789abcdef0123456789abcdef01234567");
-  } finally { restore(previous); }
+  } finally {
+    restore(previous);
+  }
 });
 
 test("a source-tree run reports the serving tree's HEAD commit", async () => {
@@ -25,9 +27,17 @@ test("a source-tree run reports the serving tree's HEAD commit", async () => {
   delete process.env.HARNESS_BUILD_COMMIT;
   try {
     const fresh = await import(`${moduleUrl}?case=tree`);
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.dirname(fileURLToPath(moduleUrl)), encoding: "utf8" }).trim();
+    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: path.dirname(fileURLToPath(moduleUrl)),
+      encoding: "utf8",
+    }).trim();
     assert.equal(fresh.daemonBuildStamp().commit, head);
-  } finally { restore(previous); }
+  } finally {
+    restore(previous);
+  }
 });
 
-function restore(previous: string | undefined): void { if (previous === undefined) delete process.env.HARNESS_BUILD_COMMIT; else process.env.HARNESS_BUILD_COMMIT = previous; }
+function restore(previous: string | undefined): void {
+  if (previous === undefined) delete process.env.HARNESS_BUILD_COMMIT;
+  else process.env.HARNESS_BUILD_COMMIT = previous;
+}

@@ -22,7 +22,7 @@ test("Service mappability accepts named typed LocalControllerService contracts",
       "  readonly getTasks: () => TaskListResult;",
       "  readonly getTaskDetail: (payload: TaskIdPayload) => Promise<LocalControllerResult>;",
       "}",
-      ""
+      "",
     ]);
 
     assert.deepEqual(evaluateServiceMappability(root), []);
@@ -38,12 +38,15 @@ test("Service mappability rejects unknown in referenced Service result types", a
       "export interface LocalControllerService {",
       "  readonly getTasks: () => TaskListResult;",
       "}",
-      ""
+      "",
     ]);
 
     const violations = evaluateServiceMappability(root);
 
-    assert.equal(violations.some((violation) => violation.includes("TaskListSuccess.tasks") && violation.includes("unknown")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("TaskListSuccess.tasks") && violation.includes("unknown")),
+      true,
+    );
   });
 });
 
@@ -53,12 +56,15 @@ test("Service mappability rejects inline object blobs in Service signatures", as
       "export interface LocalControllerService {",
       "  readonly getTasks: () => { readonly ok: true };",
       "}",
-      ""
+      "",
     ]);
 
     const violations = evaluateServiceMappability(root);
 
-    assert.equal(violations.some((violation) => violation.includes("getTasks return") && violation.includes("inline object")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("getTasks return") && violation.includes("inline object")),
+      true,
+    );
   });
 });
 
@@ -69,12 +75,17 @@ test("Service mappability rejects unknown Service payload parameters", async () 
       "export interface LocalControllerService {",
       "  readonly getTaskDetail: (payload: unknown) => LocalControllerSuccess;",
       "}",
-      ""
+      "",
     ]);
 
     const violations = evaluateServiceMappability(root);
 
-    assert.equal(violations.some((violation) => violation.includes("getTaskDetail parameter payload") && violation.includes("unknown")), true);
+    assert.equal(
+      violations.some(
+        (violation) => violation.includes("getTaskDetail parameter payload") && violation.includes("unknown"),
+      ),
+      true,
+    );
   });
 });
 
@@ -87,12 +98,15 @@ test("Service mappability rejects unknown inherited through extended Service res
       "export interface LocalControllerService {",
       "  readonly getTaskDetail: () => TaskDetailSuccess;",
       "}",
-      ""
+      "",
     ]);
 
     const violations = evaluateServiceMappability(root);
 
-    assert.equal(violations.some((violation) => violation.includes("UnmappableBase.payload") && violation.includes("unknown")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("UnmappableBase.payload") && violation.includes("unknown")),
+      true,
+    );
   });
 });
 
@@ -103,12 +117,17 @@ test("Service mappability fails closed on imported Service contract types withou
       "export interface LocalControllerService {",
       "  readonly getTaskDetail: () => ImportedResult;",
       "}",
-      ""
+      "",
     ]);
 
     const violations = evaluateServiceMappability(root);
 
-    assert.equal(violations.some((violation) => violation.includes("ImportedResult") && violation.includes("no local mappability declaration")), true);
+    assert.equal(
+      violations.some(
+        (violation) => violation.includes("ImportedResult") && violation.includes("no local mappability declaration"),
+      ),
+      true,
+    );
   });
 });
 

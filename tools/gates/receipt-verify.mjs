@@ -18,11 +18,11 @@ export const RECEIPT_SCHEMA = Object.freeze({
         kind: { type: "string", minLength: 1 },
         limit: { type: ["integer", "string"] },
         expiry: { type: "string", format: "date-time" },
-        signature: { type: "string", pattern: "^[0-9a-f]{64}$" }
+        signature: { type: "string", pattern: "^[0-9a-f]{64}$" },
       },
-      additionalProperties: false
-    }
-  ]
+      additionalProperties: false,
+    },
+  ],
 });
 
 // Decision receipts are committed on the trusted base side.
@@ -37,7 +37,11 @@ function isPlainObject(value) {
 function canonicalValue(value) {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (!isPlainObject(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]));
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalValue(value[key])]),
+  );
 }
 
 export function canonicalReceiptPayload(receipt) {
@@ -58,8 +62,13 @@ export function validateReceiptSchema(receipt) {
     if (typeof receipt[key] !== "string" || receipt[key].length === 0) errors.push(`${key} must be a non-empty string`);
   }
   if (typeof receipt.scope === "string" && /[\r\n]/u.test(receipt.scope)) errors.push("scope must be one line");
-  if (typeof receipt.expiry === "string" && (!ISO_DATE_TIME.test(receipt.expiry) || Number.isNaN(Date.parse(receipt.expiry)))) errors.push("expiry must be an RFC 3339 UTC timestamp");
-  if (typeof receipt.signature === "string" && !SIGNATURE.test(receipt.signature)) errors.push("signature must be 64 lowercase hexadecimal characters");
+  if (
+    typeof receipt.expiry === "string" &&
+    (!ISO_DATE_TIME.test(receipt.expiry) || Number.isNaN(Date.parse(receipt.expiry)))
+  )
+    errors.push("expiry must be an RFC 3339 UTC timestamp");
+  if (typeof receipt.signature === "string" && !SIGNATURE.test(receipt.signature))
+    errors.push("signature must be 64 lowercase hexadecimal characters");
 
   const isDecision = Object.hasOwn(receipt, "decisionId") || Object.hasOwn(receipt, "limit");
   const allowed = new Set(["decisionId", "scope", "kind", "limit", "expiry", "signature"]);
@@ -68,8 +77,12 @@ export function validateReceiptSchema(receipt) {
   }
 
   if (isDecision) {
-    if (typeof receipt.decisionId !== "string" || !DECISION_ID.test(receipt.decisionId)) errors.push("decisionId must match dec_<id>");
-    if (!(Number.isInteger(receipt.limit) && receipt.limit >= 0) && !(typeof receipt.limit === "string" && receipt.limit.length > 0)) {
+    if (typeof receipt.decisionId !== "string" || !DECISION_ID.test(receipt.decisionId))
+      errors.push("decisionId must match dec_<id>");
+    if (
+      !(Number.isInteger(receipt.limit) && receipt.limit >= 0) &&
+      !(typeof receipt.limit === "string" && receipt.limit.length > 0)
+    ) {
       errors.push("limit must be a non-negative integer or non-empty string");
     }
   } else errors.push("receipt must be a decision receipt");
@@ -86,25 +99,39 @@ export function verifyReceipt(receipt, expectations = {}) {
     } else {
       const supplied = Buffer.from(receipt.signature, "hex");
       const expected = Buffer.from(signReceipt(receipt, key), "hex");
-      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) errors.push("signature does not match receipt payload");
+      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
+        errors.push("signature does not match receipt payload");
     }
   }
 
   const now = expectations.now instanceof Date ? expectations.now : new Date(expectations.now ?? Date.now());
-  if (typeof receipt?.expiry === "string" && !Number.isNaN(Date.parse(receipt.expiry)) && Date.parse(receipt.expiry) <= now.getTime()) {
+  if (
+    typeof receipt?.expiry === "string" &&
+    !Number.isNaN(Date.parse(receipt.expiry)) &&
+    Date.parse(receipt.expiry) <= now.getTime()
+  ) {
     errors.push(`receipt expired at ${receipt.expiry}`);
   }
-  if (expectations.maximumTtlMs !== undefined
-    && typeof receipt?.expiry === "string"
-    && !Number.isNaN(Date.parse(receipt.expiry))
-    && Date.parse(receipt.expiry) > now.getTime() + expectations.maximumTtlMs) {
+  if (
+    expectations.maximumTtlMs !== undefined &&
+    typeof receipt?.expiry === "string" &&
+    !Number.isNaN(Date.parse(receipt.expiry)) &&
+    Date.parse(receipt.expiry) > now.getTime() + expectations.maximumTtlMs
+  ) {
     errors.push(`receipt expiry exceeds maximum TTL of ${expectations.maximumTtlMs}ms`);
   }
-  if (expectations.scope !== undefined && receipt?.scope !== expectations.scope) errors.push(`scope must be ${expectations.scope}`);
-  if (expectations.kind !== undefined && receipt?.kind !== expectations.kind) errors.push(`kind must be ${expectations.kind}`);
-  if (expectations.decisionId !== undefined && receipt?.decisionId !== expectations.decisionId) errors.push(`decisionId must be ${expectations.decisionId}`);
-  if (expectations.limit !== undefined && receipt?.limit !== expectations.limit) errors.push(`limit must be ${expectations.limit}`);
-  if (expectations.minimumLimit !== undefined && !(typeof receipt?.limit === "number" && receipt.limit >= expectations.minimumLimit)) {
+  if (expectations.scope !== undefined && receipt?.scope !== expectations.scope)
+    errors.push(`scope must be ${expectations.scope}`);
+  if (expectations.kind !== undefined && receipt?.kind !== expectations.kind)
+    errors.push(`kind must be ${expectations.kind}`);
+  if (expectations.decisionId !== undefined && receipt?.decisionId !== expectations.decisionId)
+    errors.push(`decisionId must be ${expectations.decisionId}`);
+  if (expectations.limit !== undefined && receipt?.limit !== expectations.limit)
+    errors.push(`limit must be ${expectations.limit}`);
+  if (
+    expectations.minimumLimit !== undefined &&
+    !(typeof receipt?.limit === "number" && receipt.limit >= expectations.minimumLimit)
+  ) {
     errors.push(`limit must be at least ${expectations.minimumLimit}`);
   }
   return { ok: errors.length === 0, errors };

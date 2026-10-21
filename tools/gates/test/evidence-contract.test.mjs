@@ -8,7 +8,7 @@ const common = [
   "Commit-SHA: 0123456789abcdef0123456789abcdef01234567",
   "Failed-Test: packages/cli/test/help.test.ts",
   "Scope: cli/help",
-  "Owner: rebuild-ci"
+  "Owner: rebuild-ci",
 ];
 
 test("G17 accepts complete CI and paired performance evidence", () => {
@@ -20,7 +20,7 @@ test("G17 accepts complete CI and paired performance evidence", () => {
     ...common,
     "Fixture: cli-help-cold-start-v1",
     "Phase: cold-start",
-    "Baseline: 89abcdef0123456789abcdef0123456789abcdef"
+    "Baseline: 89abcdef0123456789abcdef0123456789abcdef",
   ].join("\n");
   assert.deepEqual(validateEvidenceBody(body).errors, []);
   assert.equal(evaluateEvidenceEvent({ issue: { body } }).status, "verified");
@@ -38,15 +38,22 @@ test("G18 rejects absolute thresholds and performance evidence without a compari
     ...common,
     "Fixture: cli-help-cold-start-v1",
     "Phase: cold-start",
-    "Baseline: absolute"
+    "Baseline: absolute",
   ].join("\n");
   assert.equal(validateEvidenceBody(noComparison).status, "unknown");
   assert.match(validateEvidenceBody(noComparison).errors.join("\n"), /paired SHA or evidence URL/u);
 
   const absoluteOnly = "Performance-Claim: finishes under 200ms";
-  assert.match(validateEvidenceBody(absoluteOnly).errors.join("\n"), /missing fixture.*missing phase.*missing baseline/su);
+  assert.match(
+    validateEvidenceBody(absoluteOnly).errors.join("\n"),
+    /missing fixture.*missing phase.*missing baseline/su,
+  );
 });
 
 test("G17 returns N/A when an event makes no CI or performance claim", () => {
-  assert.deepEqual(evaluateEvidenceEvent({ pull_request: { body: "Documentation only." } }), { status: "N/A", claims: [], errors: [] });
+  assert.deepEqual(evaluateEvidenceEvent({ pull_request: { body: "Documentation only." } }), {
+    status: "N/A",
+    claims: [],
+    errors: [],
+  });
 });

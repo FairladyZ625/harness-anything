@@ -6,12 +6,15 @@ import viteConfig from "./vite.config.ts";
 // test semantics must not change.
 const localMaxWorkers = process.env.CI ? undefined : 4;
 
-export default mergeConfig(viteConfig, defineConfig({
-  test: {
-    environment: "node",
-    globals: false,
-    setupFiles: ["test/vitest.setup.ts"],
-    include: ["test/**/*.vitest.ts", "test/**/*.vitest.tsx"],
-    ...(localMaxWorkers === undefined ? {} : { maxWorkers: localMaxWorkers })
-  }
-}));
+export default mergeConfig(
+  viteConfig,
+  defineConfig({
+    test: {
+      environment: "node",
+      globals: false,
+      setupFiles: ["test/vitest.setup.ts"],
+      include: ["test/**/*.vitest.ts", "test/**/*.vitest.tsx"],
+      ...(localMaxWorkers === undefined ? {} : { maxWorkers: localMaxWorkers }),
+    },
+  }),
+);

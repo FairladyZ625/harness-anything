@@ -7,10 +7,12 @@ import { findLegacyReaders, validateSchemaClosure } from "../schema-closure.mjs"
 import { makeRepo } from "./helpers.mjs";
 
 function contract(schema) {
-  return [{
-    file: "tools/gates/contracts/example.contract.mjs",
-    declaration: { id: "example", phases: ["P2"], commands: [], gates: [], guards: [], schemas: [schema] }
-  }];
+  return [
+    {
+      file: "tools/gates/contracts/example.contract.mjs",
+      declaration: { id: "example", phases: ["P2"], commands: [], gates: [], guards: [], schemas: [schema] },
+    },
+  ];
 }
 
 test("G23 requires schema, parser, writer, error, and rejecting fixture facets", async () => {
@@ -19,9 +21,9 @@ test("G23 requires schema, parser, writer, error, and rejecting fixture facets",
       "export const schema = {};",
       "export const parse = (value) => value.valid ? [] : ['invalid'];",
       "export const write = (value) => value;",
-      "export class ContractError extends Error {}"
+      "export class ContractError extends Error {}",
     ].join("\n"),
-    "tools/gates/test/fixtures/invalid.json": "{\"valid\":false}\n"
+    "tools/gates/test/fixtures/invalid.json": '{"valid":false}\n',
   });
   const complete = {
     id: "example",
@@ -29,17 +31,24 @@ test("G23 requires schema, parser, writer, error, and rejecting fixture facets",
     parser: "tools/gates/example.mjs#parse",
     writer: "tools/gates/example.mjs#write",
     error: "tools/gates/example.mjs#ContractError",
-    negativeFixtures: ["tools/gates/test/fixtures/invalid.json"]
+    negativeFixtures: ["tools/gates/test/fixtures/invalid.json"],
   };
   assert.deepEqual(await validateSchemaClosure(rootDir, contract(complete)), []);
-  assert.match((await validateSchemaClosure(rootDir, contract({ ...complete, writer: undefined }))).join("\n"), /writer must use path#export/u);
-  assert.match((await validateSchemaClosure(rootDir, contract({ ...complete, negativeFixtures: [] }))).join("\n"), /negative fixture is required/u);
+  assert.match(
+    (await validateSchemaClosure(rootDir, contract({ ...complete, writer: undefined }))).join("\n"),
+    /writer must use path#export/u,
+  );
+  assert.match(
+    (await validateSchemaClosure(rootDir, contract({ ...complete, negativeFixtures: [] }))).join("\n"),
+    /negative fixture is required/u,
+  );
 });
 
 test("G24 rejects accepted negative fixtures and legacy reader markers", async () => {
   const { rootDir } = makeRepo({
-    "tools/gates/example.mjs": "export const schema = {}; export const parse = () => []; export const write = x => x; export class ContractError extends Error {}\n",
-    "tools/gates/test/fixtures/invalid.json": "{}\n"
+    "tools/gates/example.mjs":
+      "export const schema = {}; export const parse = () => []; export const write = x => x; export class ContractError extends Error {}\n",
+    "tools/gates/test/fixtures/invalid.json": "{}\n",
   });
   const schema = {
     id: "example",
@@ -47,7 +56,7 @@ test("G24 rejects accepted negative fixtures and legacy reader markers", async (
     parser: "tools/gates/example.mjs#parse",
     writer: "tools/gates/example.mjs#write",
     error: "tools/gates/example.mjs#ContractError",
-    negativeFixtures: ["tools/gates/test/fixtures/invalid.json"]
+    negativeFixtures: ["tools/gates/test/fixtures/invalid.json"],
   };
   assert.match((await validateSchemaClosure(rootDir, contract(schema))).join("\n"), /negative fixture was accepted/u);
 

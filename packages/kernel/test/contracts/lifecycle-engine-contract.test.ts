@@ -7,7 +7,7 @@ import type { LifecycleEngine } from "../../src/ports/index.js";
 const forbiddenPortMembers = [
   ["request", "Transition"].join(""),
   ["sync", "Mode"].join(""),
-  ["binding", "Role"].join("")
+  ["binding", "Role"].join(""),
 ];
 
 test("LifecycleEngine is a read-oriented snapshot port", () => {
@@ -16,18 +16,19 @@ test("LifecycleEngine is a read-oriented snapshot port", () => {
     capabilities: Effect.succeed({
       snapshots: true,
       listTasks: false,
-      publishNote: false
+      publishNote: false,
     }),
-    snapshot: () => Effect.succeed({
-      canonicalStatus: "active",
-      rawStatus: "active",
-      freshness: "fresh",
-      fetchedAt: "2026-06-11T00:00:00.000Z",
-      expiresAt: "2026-06-11T00:05:00.000Z",
-      source: "local-document",
-      engine: "local",
-      ref: "task-1"
-    })
+    snapshot: () =>
+      Effect.succeed({
+        canonicalStatus: "active",
+        rawStatus: "active",
+        freshness: "fresh",
+        fetchedAt: "2026-06-11T00:00:00.000Z",
+        expiresAt: "2026-06-11T00:05:00.000Z",
+        source: "local-document",
+        engine: "local",
+        ref: "task-1",
+      }),
   } satisfies LifecycleEngine;
 
   const snapshot = Effect.runSync(engine.snapshot({ engine: "local", ref: "task-1" }));
@@ -41,13 +42,7 @@ test("LifecycleEngine is a read-oriented snapshot port", () => {
 });
 
 test("LifecycleEngine contract does not expose old lifecycle coordination members", () => {
-  const publicMembers = new Set([
-    "name",
-    "capabilities",
-    "snapshot",
-    "listTasks",
-    "publishNote"
-  ]);
+  const publicMembers = new Set(["name", "capabilities", "snapshot", "listTasks", "publishNote"]);
 
   for (const member of forbiddenPortMembers) {
     assert.equal(publicMembers.has(member), false);

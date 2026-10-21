@@ -13,7 +13,9 @@ import type { AppLocation } from "../src/renderer/navigation/viewHistory.ts";
  * back() → 断言 A 的 scrollTop 与 document.activeElement 原样回来。
  */
 
-beforeAll(() => { globalThis.IS_REACT_ACT_ENVIRONMENT = true; });
+beforeAll(() => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+});
 
 const EMPTY_FILTERS = { query: "", status: "all", favoritesOnly: false } as const;
 
@@ -26,23 +28,45 @@ function Harness({ state, restore = true }: { state: { history: AppLocation[]; i
     state.index += 1;
     setLocation(state.history[state.index]!);
   };
-  return <div>
-    {location.view === "a"
-      ? <main data-testid="view-a">
+  return (
+    <div>
+      {location.view === "a" ? (
+        <main data-testid="view-a">
           <div data-testid="scrollable" className="overflow-y-auto" style={{ height: "200px" }} tabIndex={-1}>
-            <p>line 1</p><p>line 2</p><p>line 3</p>
+            <p>line 1</p>
+            <p>line 2</p>
+            <p>line 3</p>
           </div>
           <button type="button" data-testid="focus-target" onClick={() => navigate({ view: "b" as never })}>
             go to B
           </button>
         </main>
-      : <section data-testid="view-b"><p data-testid="b-body">B</p><button type="button" data-testid="back" onClick={() => { state.index -= 1; setLocation(state.history[state.index]!); }}>back</button></section>}
-  </div>;
+      ) : (
+        <section data-testid="view-b">
+          <p data-testid="b-body">B</p>
+          <button
+            type="button"
+            data-testid="back"
+            onClick={() => {
+              state.index -= 1;
+              setLocation(state.history[state.index]!);
+            }}
+          >
+            back
+          </button>
+        </section>
+      )}
+    </div>
+  );
 }
 
 const initial: AppLocation = {
-  view: "a", selectedId: null, previewId: null, focusedEntityRef: null,
-  taskFilters: EMPTY_FILTERS as never, drill: null,
+  view: "a",
+  selectedId: null,
+  previewId: null,
+  focusedEntityRef: null,
+  taskFilters: EMPTY_FILTERS as never,
+  drill: null,
 };
 
 describe("G10 回退保真:焦点与滚动位置随后退恢复", () => {
@@ -58,7 +82,9 @@ describe("G10 回退保真:焦点与滚动位置随后退恢复", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root: Root = createRoot(container);
-    await act(async () => { root.render(createElement(Harness, { state })); });
+    await act(async () => {
+      root.render(createElement(Harness, { state }));
+    });
 
     // 在视图 A:滚动 + 聚焦按钮
     const scrollable = container.querySelector<HTMLElement>('[data-testid="scrollable"]')!;
@@ -72,17 +98,24 @@ describe("G10 回退保真:焦点与滚动位置随后退恢复", () => {
 
     // 点「go to B」(聚焦按钮本身)→ 视图 B;在 B 上焦点落在 back 按钮,
     // 与 A 上的焦点形成竞争态 —— 恢复语义必须把焦点带回 A 的 focus-target。
-    await act(async () => { focusTarget.click(); });
+    await act(async () => {
+      focusTarget.click();
+    });
     expect(container.querySelector('[data-testid="view-b"]')).not.toBeNull();
     const backButton = container.querySelector<HTMLElement>('[data-testid="back"]')!;
-    await act(async () => { backButton.focus(); backButton.click(); });
+    await act(async () => {
+      backButton.focus();
+      backButton.click();
+    });
 
     const restoredScrollable = container.querySelector<HTMLElement>('[data-testid="scrollable"]')!;
     expect(restoredScrollable.scrollTop).toBe(120);
     const active = document.activeElement;
     expect(active?.dataset.testid).toBe("focus-target");
     expect(active?.isConnected).toBe(true);
-    act(() => { root.unmount(); });
+    act(() => {
+      root.unmount();
+    });
     container.remove();
   });
 
@@ -91,21 +124,30 @@ describe("G10 回退保真:焦点与滚动位置随后退恢复", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    await act(async () => { root.render(createElement(Harness, { state, restore: false })); });
+    await act(async () => {
+      root.render(createElement(Harness, { state, restore: false }));
+    });
     const scrollable = container.querySelector<HTMLElement>('[data-testid="scrollable"]')!;
     const focusTarget = container.querySelector<HTMLElement>('[data-testid="focus-target"]')!;
     scrollable.scrollTop = 120;
     scrollable.dispatchEvent(new Event("scroll", { bubbles: false }));
     focusTarget.focus();
     document.body.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-    await act(async () => { focusTarget.click(); });
+    await act(async () => {
+      focusTarget.click();
+    });
     const backButton = container.querySelector<HTMLElement>('[data-testid="back"]')!;
-    await act(async () => { backButton.focus(); backButton.click(); });
+    await act(async () => {
+      backButton.focus();
+      backButton.click();
+    });
     const restored = container.querySelector<HTMLElement>('[data-testid="scrollable"]')!;
     expect(restored.scrollTop).not.toBe(120);
     const active = document.activeElement;
     expect(active === null || active.dataset.testid !== "focus-target" || !active.isConnected).toBe(true);
-    act(() => { root.unmount(); });
+    act(() => {
+      root.unmount();
+    });
     container.remove();
   });
 
@@ -114,10 +156,14 @@ describe("G10 回退保真:焦点与滚动位置随后退恢复", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    await act(async () => { root.render(createElement(Harness, { state })); });
+    await act(async () => {
+      root.render(createElement(Harness, { state }));
+    });
     // B 上没有历史快照,不抛错不越权
     expect(container.querySelector('[data-testid="view-b"]')).not.toBeNull();
-    act(() => { root.unmount(); });
+    act(() => {
+      root.unmount();
+    });
     container.remove();
   });
 });

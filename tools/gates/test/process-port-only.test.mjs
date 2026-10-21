@@ -6,17 +6,27 @@ import rule from "../eslint-rules/process-port-only.js";
 
 function lint(source, options = {}, filename = "packages/example/src/run.ts") {
   const linter = new Linter({ configType: "flat" });
-  return linter.verify(source, {
-    files: ["**/*.ts"],
-    languageOptions: { ecmaVersion: 2024, sourceType: "module" },
-    plugins: { ha: { rules: { "process-port-only": rule } } },
-    rules: { "ha/process-port-only": ["error", options] }
-  }, { filename });
+  return linter.verify(
+    source,
+    {
+      files: ["**/*.ts"],
+      languageOptions: { ecmaVersion: 2024, sourceType: "module" },
+      plugins: { ha: { rules: { "process-port-only": rule } } },
+      rules: { "ha/process-port-only": ["error", options] },
+    },
+    { filename },
+  );
 }
 
 test("G19 accepts argv process calls and dedicated process ports", () => {
-  assert.deepEqual(lint("import { spawn } from 'node:child_process'; spawn('git', ['status'], { windowsHide: true });"), []);
-  assert.deepEqual(lint("import { exec } from 'node:child_process'; exec('git status');", {}, "packages/example/src/process-port.ts"), []);
+  assert.deepEqual(
+    lint("import { spawn } from 'node:child_process'; spawn('git', ['status'], { windowsHide: true });"),
+    [],
+  );
+  assert.deepEqual(
+    lint("import { exec } from 'node:child_process'; exec('git status');", {}, "packages/example/src/process-port.ts"),
+    [],
+  );
 });
 
 test("G19 rejects string exec, shell:true, POSIX shell literals, and entry regex", () => {
@@ -25,11 +35,14 @@ test("G19 rejects string exec, shell:true, POSIX shell literals, and entry regex
     "exec('git status');",
     "spawn('git status', { shell: true });",
     "const shell = '/bin/sh';",
-    "const entry = /dist\\/cli\\/src\\/index\\.js$/u;"
+    "const entry = /dist\\/cli\\/src\\/index\\.js$/u;",
   ].join("\n");
   const messages = lint(source);
   assert.equal(messages.length, 4);
-  assert.match(messages.map((entry) => entry.message).join("\n"), /exec\(string\).*shell: true.*\/bin\/sh.*entrypoints/su);
+  assert.match(
+    messages.map((entry) => entry.message).join("\n"),
+    /exec\(string\).*shell: true.*\/bin\/sh.*entrypoints/su,
+  );
 });
 
 test("G19 baseline fingerprints agree across LF and CRLF checkouts of the same source (#1538)", () => {
@@ -51,7 +64,8 @@ test("G19 baseline exemptions are exact and do not cover modified code", () => {
 });
 
 test("G19 requires windowsHide where the console-less daemon spawns children", () => {
-  const source = "import { execFileSync } from 'node:child_process'; execFileSync('git', ['status'], { encoding: 'utf8' });";
+  const source =
+    "import { execFileSync } from 'node:child_process'; execFileSync('git', ['status'], { encoding: 'utf8' });";
   const messages = lint(source);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].messageId, "windowsHide");
