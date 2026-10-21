@@ -41,8 +41,8 @@ template selections, the repository scaffold, and the agents entry.
 The vertical defines the domain; the selected preset/profile defines which
 deterministic completion gates apply to one Task. In `preset-manifest/v3`
 (`packages/preset/src/preset.contract.ts`), every profile carries
-`completionGates` — portable gate ids such as `ci` and
-`code-doc-reconciliation`, or an explicit empty array. The kernel validates
+`completionGates` — portable gate ids such as `ci`, or an explicit empty array.
+The kernel validates
 non-empty gate-ID syntax, and the daemon executes the implemented gates on the
 completion path via `completion-readiness.ts`, rejecting unknown or duplicate
 gates. So `--ci`-style requirements come from the coding contract, not from the

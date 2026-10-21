@@ -387,7 +387,6 @@ function taskRow(
       lease: overrides.lease ?? null,
       decisionRelations: [],
       consents: [],
-      codeDocWitnesses: [],
       gateWitnesses: [],
     },
   };

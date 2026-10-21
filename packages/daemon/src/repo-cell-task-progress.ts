@@ -7,9 +7,7 @@ import {
   completionPreparationBlockers,
   taskCompletionNext,
   completionGuidance,
-  completionGateIds,
   currentSubmittedExecutions,
-  currentCodeDocWitness,
   consumeKnownError,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
@@ -28,7 +26,6 @@ import {
 import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import {
   readCompletionContext,
   readCompletionDeliveryStatus,
@@ -39,44 +36,6 @@ import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { prepareReturnedWorker, dispatchReturnedWorker } from "./task-return-dispatch.ts";
-
-/** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
-export async function prepareSubmissionEvidence(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  executionId: string,
-  binding: RepoCellBinding,
-): Promise<readonly WriteReceipt[]> {
-  const current = await cell.service.read(taskId),
-    snapshot = current.snapshot,
-    execution = snapshot.executions.find(
-      (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
-    );
-  if (!execution?.submission)
-    throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
-  const steps: WriteReceipt[] = [],
-    gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
-    witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
-  if (
-    gates.includes("code-doc-reconciliation") &&
-    !(
-      witness?.iteration === execution.iteration &&
-      (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === execution.submission.commitSha)
-    )
-  ) {
-    const step = await cell.lifecycleAction(
-      {
-        kind: "task-code-doc-reconcile",
-        taskId,
-        paths: execution.submission.deliverables,
-      },
-      binding,
-    );
-    steps.push(step);
-    if (step.outcome !== "applied") return steps;
-  }
-  return steps;
-}
 
 export function appendProgress(
   cell: RepoCellOperationalContext,
@@ -200,7 +159,7 @@ export async function completeTask(
     ],
     initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
   if (Object.keys(action).some((field) => !allowed.includes(field)))
-    throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
+    throw cell.cellCodedError("invalid_command", "Complete derives CI evidence from the submitted cut.");
   if (
     action.resolvedBy === undefined &&
     (action.resolutionRationale !== undefined || action.resolutionFact !== undefined)
@@ -282,11 +241,7 @@ export async function completeTask(
       typeof action.executionId === "string" ? action.executionId : undefined,
     ),
     executionId = decision.executionId ?? "",
-    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
-    submittedExecution = initial.snapshot.executions.find(
-      (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
-    ),
-    paths = submittedExecution?.submission?.deliverables ?? [];
+    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds);
   if (
     !decision.executionId ||
     decision.blocker?.code === "projection_unknown" ||
@@ -316,7 +271,6 @@ export async function completeTask(
         kind: "task-complete",
         taskId,
         executionId,
-        ...(paths.length ? { paths } : {}),
         ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
       },
       binding,
@@ -332,23 +286,7 @@ export async function completeTask(
     refreshed.snapshot.task!.presetSnapshotDigest!,
   );
   const closeoutGates = preparedContext.closeoutGates!,
-    codeDoc =
-      closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
-        ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
-        : null;
-  const remaining = completionPreparationBlockers(refreshed.snapshot, executionId, {
-    ...preparedContext,
-    preparedGateIds: [...(codeDoc?.ok ? ["code-doc-reconciliation"] : [])],
-    ...(codeDoc && !codeDoc.ok
-      ? {
-          invalidDocument: {
-            path: preparedContext.closeoutPath,
-            reason:
-              `Submitted commit ${codeDoc.commitSha}: ${codeDoc.code}; ` + `paths: ${codeDoc.missingPaths.join(", ")}.`,
-          },
-        }
-      : {}),
-  })[0];
+    remaining = completionPreparationBlockers(refreshed.snapshot, executionId, preparedContext)[0];
   if (remaining && remaining.code !== "doc_sync_required")
     return cell.completionStopped(facadeOpId, refreshed.snapshot, executionId, remaining, []);
   const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
@@ -433,8 +371,6 @@ export async function completeTask(
     // review_missing and consent_missing are hard stops (owner adjudication 2026-09-19): the
     // verdict and consent belong to the owner's explicit actions, never to a complete that
     // would otherwise dispatch reviewers or write consent inline on someone's behalf.
-    // A missing code/doc witness stops completion with the reconcile command; complete never
-    // writes another Action's witness under its own declaration.
     if (blocker.code === "doc_sync_required") {
       let step: WriteReceipt;
       try {

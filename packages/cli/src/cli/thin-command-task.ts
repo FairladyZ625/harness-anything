@@ -2,7 +2,7 @@ import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-command-task-admin.ts";
-import { parseCodeDoc, parseCodeDocRepoint, parseProgress, parseTaskAttest } from "./thin-command-task-evidence.ts";
+import { parseProgress, parseTaskAttest } from "./thin-command-task-evidence.ts";
 import { parseAmend, parseSupersede, parseTaskRelocation } from "./thin-command-task-relations.ts";
 import { parseRematerialize } from "./thin-command-rematerialize.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
@@ -33,7 +33,7 @@ export function parseTask(
   if (delegatedParse !== undefined) return delegatedParse;
   if (id === "task-progress-append") return parseProgress(rootDir, repoId, json, args, inputs);
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
-  const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
+  const taskId = args[2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
   if (id === "task-push") return parseTaskPush(args, rootDir, repoId, json, inputs);
   if (
@@ -102,8 +102,6 @@ export function parseTask(
       taskId,
       commandType: "RecordReviewConsent",
     });
-  if (id === "task-code-doc-reconcile") return parseCodeDoc(rootDir, repoId, json, args, taskId, inputs);
-  if (id === "task-code-doc-repoint") return parseCodeDocRepoint(rootDir, repoId, json, args, taskId, inputs);
   return rejected(
     "unsupported_command",
     renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),

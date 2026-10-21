@@ -299,7 +299,6 @@ export function makeTaskQueryReadModel(input: {
           },
           snapshotAvailability = {
             consents: "known" as const,
-            codeDocWitnesses: "known" as const,
             gateWitnesses: "known" as const,
           },
           blockingAssessment = blockingByTaskId.get(row.taskId) ?? {

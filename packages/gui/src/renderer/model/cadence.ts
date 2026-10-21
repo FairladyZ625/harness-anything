@@ -48,8 +48,6 @@ const STAGE_BY_EVENT_TYPE: Readonly<Record<string, CadenceStageId>> = {
   completion_gate_verified: "gate",
   review_recorded: "gate",
   review_consent_recorded: "gate",
-  code_doc_reconciled: "gate",
-  code_doc_repointed: "gate",
   execution_submitted: "gate",
   submission_forwarded: "gate",
   submission_returned: "gate",

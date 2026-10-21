@@ -380,7 +380,7 @@ describe("workspace readability under real ledger shapes", () => {
     FEED_EVENTS.length = 0;
     FEED_EVENTS.push(
       event("execution_submitted", null),
-      event("code_doc_reconciled", null),
+      event("review_recorded", null),
       event("fact_recorded", "已提交评审并附回执"),
       event("vertical_thing_happened", null),
     );
@@ -388,7 +388,7 @@ describe("workspace readability under real ledger shapes", () => {
       text = visibleText(history),
       note = "其中部分事件只有索引、没有可读正文";
     expect(text).toContain("已提交评审");
-    expect(text).toContain("代码与文档已对账");
+    expect(text).toContain("评审已记录");
     expect(text).toContain("记录了一条事实");
     // 不认识的 type 如实显示原名,不猜。
     expect(text).toContain("vertical_thing_happened");

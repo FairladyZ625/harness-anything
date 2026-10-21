@@ -47,11 +47,12 @@ async function submittedTask(name: string, gates: string) {
   cpSync(path.join(defaultBundled, "standard-task"), source, { recursive: true });
   const manifestPath = path.join(source, "preset.json"),
     manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  // The profile still names the retired code/doc gate: resolution must drop it, never freeze it.
   manifest.profiles[0].completionGates = ["signoff", "code-doc-reconciliation"];
   manifest.completion = {
     sources: {},
     gates: { signoff: { source: "manual-attest", appliesTo: "code" } },
-    closeoutDefaults: { codeDoc: true },
+    closeoutDefaults: { review: false },
   };
   writeFileSync(manifestPath, JSON.stringify(manifest));
   assert.equal((await cell.run({ kind: "preset-install", packageSource: source }, owner)).outcome, "applied");
@@ -145,7 +146,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
         .events.flatMap((event) =>
           event.schema === "task-bootstrap-event/v1" ? [event.payload.presetSnapshotClaim.digest] : [],
         )[0]!,
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+      closeoutGates: { review: false, consent: false, factDisposition: false },
       gates: [
         {
           gateId: "signoff",
@@ -157,11 +158,6 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
             adapterId: "manual-attest",
             adapterOptions: {},
           },
-        },
-        {
-          gateId: "code-doc-reconciliation",
-          appliesTo: "code",
-          witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
         },
       ],
       reviewer: { agentId: "closeout-reviewer" },
@@ -271,7 +267,7 @@ test("the frozen vertical declaration supplies the source when the repository ha
     const contracts = submittedContracts(rootDir, repoId);
     assert.equal(contracts.length, 1);
     assert.equal(contracts[0]!.gates[0]!.witness.adapterId, "manual-attest");
-    assert.equal(contracts[0]!.closeoutGates.codeDoc, true);
+    assert.equal(contracts[0]!.gates.length, 1, "the retired code/doc gate never enters a frozen contract");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

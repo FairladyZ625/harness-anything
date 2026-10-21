@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  CODE_DOC_GATE_ID,
   gateAppliesTo,
   gateGovernanceFields,
   SETTINGS_FIELD_GROUPS,
@@ -163,7 +162,6 @@ export function openGuiCatalog(input: {
         governableAdapters: Object.entries(sources)
           .filter(([, source]) => source.kind !== "manual")
           .map(([id]) => id),
-        internalGateId: CODE_DOC_GATE_ID,
       },
     };
     const catalogDigest = `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`;

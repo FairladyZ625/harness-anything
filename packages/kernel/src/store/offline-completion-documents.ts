@@ -34,9 +34,6 @@ export function completionDocumentConverter(readContent: (sha256: string) => Uin
       ...(event.type === "completion_gate_verified"
         ? { gateWitnesses: upsert(previous.gateWitnesses, event.payload.witness, "witnessId") }
         : {}),
-      ...(event.type === "code_doc_reconciled"
-        ? { codeDocWitnesses: [...previous.codeDocWitnesses, event.payload.witness] }
-        : {}),
     };
     snapshots.set(event.taskId, snapshot);
     if (!("documentClaims" in payload) || !payload.documentClaims?.length) return { event, blobs: [] };

@@ -182,7 +182,6 @@ test(
     );
     const beforeSubmit = locateFleetMirrorView(path.join(edgeUser, "view"), repoId)!;
     await invoke(["task", "submit", taskId, "--commit", delivery]);
-    await invoke(["task", "code-doc", "reconcile", taskId, "--path", "delivery.ts"]);
     await invoke([
       "task",
       "adjudicate",

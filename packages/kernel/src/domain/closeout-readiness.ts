@@ -7,15 +7,14 @@ import { consentedApprovedReviewForExecution, settledApprovedReviewsForExecution
 import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
-import { currentCodeDocWitness } from "./code-doc-witness.ts";
-import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
-import { CODE_DOC_GATE_ID, gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
+import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import type { CloseoutGate, CloseoutOverridesV1 } from "./settings-closeout.ts";
 import type { ForwardedCutRecord } from "./task-lifecycle-contract-internal-types.ts";
+import { isRetiredCodeDocRequirement } from "./code-doc-retirement.ts";
 
 import type { CloseoutGateStatus } from "./status-word-register-closeout.ts";
 export { closeoutGateStatuses, type CloseoutGateStatus } from "./status-word-register-closeout.ts";
@@ -35,7 +34,6 @@ export interface CloseoutAssessment {
 }
 export interface CloseoutProjectionAvailability {
   readonly consents: "known" | "unknown";
-  readonly codeDocWitnesses: "known" | "unknown";
   readonly gateWitnesses: "known" | "unknown";
 }
 export interface CompletionDeliveryStatus {
@@ -62,7 +60,6 @@ export interface CloseoutSnapshot {
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
-  readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
   readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
@@ -236,22 +233,14 @@ export function gateResults(
               ? gateResult(gateId, "passed", `delivery merge is on origin/${delivery.targetBranch}`)
               : gateResult(gateId, "missing", `delivery merge is not on origin/${delivery.targetBranch}`)
           : gateResult(gateId, "not_applicable", "the repository does not require code delivery to be merged");
-    const codeDoc = gateId === CODE_DOC_GATE_ID,
-      commitSha = cut?.commitSha,
-      known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
+    // Retired 2026-10-21: a frozen contract may still list the code/doc gate. It has no current
+    // witness source and never constrains completion again; the requirement reads as out of scope.
+    if (isRetiredCodeDocRequirement(gateId))
+      return gateResult(gateId, "not_applicable", "code/doc reconciliation is retired");
     if (!executionId || !cut || iteration === undefined)
       return gateResult(gateId, "missing", "no submitted execution cut");
-    if (!known) return gateResult(gateId, "unknown", "witness projection unknown");
-    if (codeDoc) {
-      const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
-      // A valid repoint may bind an archival commit rather than the submitted cut.
-      if (
-        witness?.iteration === iteration &&
-        (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === commitSha)
-      )
-        return gateResult(gateId, "passed");
-      return gateResult(gateId, "missing", "current execution cut has no code/doc witness");
-    }
+    if (availability && availability.gateWitnesses !== "known")
+      return gateResult(gateId, "unknown", "witness projection unknown");
     const judged = judgeGateWitnesses(
       snapshot.gateWitnesses,
       ((snapshot.executions ?? []).find(

@@ -272,7 +272,7 @@
       "manual-attest": { "kind": "manual", "predicateType": "harness/attestation/v1", "resultSchema": { "type": "object", "additionalProperties": false } }
     },
     "gates": {},
-    "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false, "codeDoc": true }
+    "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false }
   },
   "projectionSchemas": [
     { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },

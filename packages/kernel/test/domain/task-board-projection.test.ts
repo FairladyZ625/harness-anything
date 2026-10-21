@@ -185,7 +185,6 @@ const emptySnapshot: TaskLifecycleSnapshot = {
   executions: [],
   reviews: [],
   consents: [],
-  codeDocWitnesses: [],
   gateWitnesses: [],
   edgesTaken: [],
   lease: null,

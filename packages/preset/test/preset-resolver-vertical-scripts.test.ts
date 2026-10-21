@@ -65,7 +65,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
           title,
         })),
         outputShape: "repository-diff",
-        completionGates: ["code-doc-reconciliation"],
+        completionGates: [],
         entrypoints: [],
         issues: [],
         issueCount: 0,

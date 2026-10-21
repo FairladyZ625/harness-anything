@@ -24,7 +24,6 @@ export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uin
   const sources: Record<string, VerticalCompletionDeclaration["sources"][string]> = {},
     gates: Record<string, VerticalCompletionDeclaration["gates"][string]> = {};
   for (const gateId of original.profile.completionGateIds) {
-    if (gateId === "code-doc-reconciliation") continue;
     // Retired from live contracts. Keep the historical gate id in its profile snapshot, while
     // leaving the converted declaration free of a hosted source and execution mapping.
     if (gateId === "ci") continue;
@@ -33,7 +32,7 @@ export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uin
   const completion: VerticalCompletionDeclaration = {
       sources,
       gates,
-      closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: false },
+      closeoutDefaults: { review: false, consent: false, factDisposition: false },
     },
     current = { ...body, profile, completion, completionPackages: {} },
     digest = `sha256:${sha256Text(stableStringify(current))}` as const,

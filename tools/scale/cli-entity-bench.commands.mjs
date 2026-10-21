@@ -99,7 +99,6 @@ export const commandTable = [
     (c, s) => ["fact", "record", chain(s), "--statement", c.text(`chain fact ${s}`), "--source", "bench"],
   ],
   ["task-submit", (c, s) => ["task", "submit", chain(s)], worker],
-  ["task-code-doc-reconcile", (c, s) => ["task", "code-doc", "reconcile", chain(s), "--path", "README.md"]],
   ["task-show~witness", (c, s) => ["task", "show", chain(s)]],
   ["task-review", (c, s) => ["task", "review", chain(s)]],
   [
@@ -109,19 +108,6 @@ export const commandTable = [
   ],
   ["task-review-consent", (c, s) => ["task", "review-consent", chain(s), "--review-id", `rev-${s}`], worker],
   ["task-complete", (c, s) => ["task", "complete", chain(s), "--consent"], worker],
-  [
-    "task-code-doc-repoint",
-    (c, s) => [
-      "task",
-      "code-doc",
-      "repoint",
-      chain(s),
-      "--record",
-      c.field("task-show~witness", s, "witnessId"),
-      "--reason",
-      "b",
-    ],
-  ],
   // Chain 2 uses an independent artifact reviewer; chain 3 walks the non-happy transitions.
   [
     "task-create~chain2",

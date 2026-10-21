@@ -40,7 +40,7 @@ function fixture() {
       },
     },
     gates: { measured: { source: "measurement", appliesTo: "artifacts", subjects: "all-artifacts" } },
-    closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: false },
+    closeoutDefaults: { review: false, consent: false, factDisposition: false },
   };
   write(path.join(assets, "vertical.json"), JSON.stringify(vertical));
   const presets = path.join(assets, "presets");

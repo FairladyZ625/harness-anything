@@ -70,13 +70,11 @@ test("completion blocker matrix returns one canonical next for every substantive
                   selection: "newest" as const,
                 },
               }
-            : gateId === "code-doc-reconciliation"
-              ? { kind: "internal" as const, adapterId: "code-doc-reconciliation" as const, adapterOptions: {} }
-              : {
-                  ...completionSnapshot.completion.sources["manual-attest"],
-                  adapterId: "manual-attest" as const,
-                  adapterOptions: {},
-                },
+            : {
+                ...completionSnapshot.completion.sources["manual-attest"],
+                adapterId: "manual-attest" as const,
+                adapterOptions: {},
+              },
       }),
       withGates = (gateIds: readonly string[]) => {
         const execution = {
@@ -120,7 +118,6 @@ test("completion blocker matrix returns one canonical next for every substantive
         withGates(["ci"]),
         { ...ready, delivery: { required: true, merged: false, targetBranch: "main", platform: "github" as const } },
       ],
-      ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
       ["gate_witness_missing", withGates(["lint"]), ready],
       ["decision_lineage_missing", orphanWork, ready],
       ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
@@ -166,45 +163,16 @@ test("completion blocker matrix returns one canonical next for every substantive
       lineage.next.action,
       "Identify the authorizing Decision claim in harness/tasks/task-1/closeout.md Summary.",
     );
+    // A frozen contract that still names the retired code/doc gate: report-only and code cuts
+    // alike get no blocker from it, and the receipt reports it out of scope rather than passing.
     const reportOnly = withGates(["code-doc-reconciliation"]);
     assert.deepEqual(
       completionBlockers(reportOnly, "execution-1", ready).map((blocker) => blocker.code),
-      ["code_doc_missing"],
-      "report-only deliverables no longer waive the explicit code-doc witness",
+      [],
+      "the retired code-doc gate never blocks completion",
     );
     const reportExecution = reportOnly.executions.find((execution) => execution.executionId === "execution-1")!;
-    const witnessedReportOnly = {
-      ...reportOnly,
-      codeDocWitnesses: [
-        {
-          schema: "code-doc-witness/v1" as const,
-          witnessId: "explicit-report-only-witness",
-          taskId: "task-1",
-          executionId: "execution-1",
-          commitSha: reportExecution.submission!.commitSha,
-          iteration: 0 as const,
-          paths: [],
-          actor,
-          source: "local" as const,
-          reconciledAt: "2026-08-11T00:00:00.000Z",
-        },
-      ],
-    };
-    assert.deepEqual(completionBlockers(witnessedReportOnly, "execution-1", ready), []);
-    assert.deepEqual(
-      canonicalGateReceipts(witnessedReportOnly, reportExecution),
-      [
-        {
-          gateId: "code-doc-reconciliation",
-          receiptRef: "event:explicit-report-only-witness",
-          result: "pass",
-          executionId: "execution-1",
-          commitSha: reportExecution.submission!.commitSha,
-          iteration: 0,
-        },
-      ],
-      "the explicit empty-path witness is canonical proof for a report-only cut",
-    );
+    assert.deepEqual(canonicalGateReceipts(reportOnly, reportExecution), []);
     assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
   } finally {
     await harness.cleanup();
@@ -597,7 +565,7 @@ test("terminal lifecycle states clear a prior task pin", async () => {
         capabilityRef: "cap-complete-pin",
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, factDisposition: true },
         gateReceipts: [],
       },
     );

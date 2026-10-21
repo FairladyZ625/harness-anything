@@ -19,8 +19,6 @@ test("kernel public source index is importable by the explicit TS test runner", 
       "AdjudicateSubmission",
       "RecordReview",
       "RecordReviewConsent",
-      "ReconcileCodeDoc",
-      "RepointCodeDoc",
       "CompleteTask",
     ],
   );

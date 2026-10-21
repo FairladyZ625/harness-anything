@@ -105,7 +105,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--review-id",
       "review-1",
     ]),
-    reconcile = parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--path", "README.md"]),
     complete = parseThinCommand([
       "task",
       "complete",
@@ -115,7 +114,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--fact-holds",
       "F-ABCDEFGH:The upstream observation remains true after this task.",
     ]);
-  for (const parsed of [submit, adjudicate, declare, review, consent, reconcile, complete])
+  for (const parsed of [submit, adjudicate, declare, review, consent, complete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (submit.ok)
     assert.deepEqual(submit.command.action, {
@@ -203,12 +202,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       executionId: "execution-1",
       reviewId: "review-1",
       commandType: "RecordReviewConsent",
-    });
-  if (reconcile.ok)
-    assert.deepEqual(reconcile.command.action, {
-      kind: "task-code-doc-reconcile",
-      taskId: "task-1",
-      paths: ["README.md"],
     });
   if (complete.ok)
     assert.deepEqual(complete.command.action, {
@@ -336,25 +329,21 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       .ok,
     true,
   );
-  assert.equal(
-    parseThinCommand([
-      "task",
-      "code-doc",
-      "reconcile",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--commit-sha",
-      "short",
-      "--iteration",
-      "2",
-      "--path",
-      "a.ts",
-    ]).ok,
-    false,
-  );
+  // The retired code/doc pair no longer routes at all: no Action declares it, so the CLI rejects
+  // the invocation before any flag is even parsed.
+  for (const argv of [
+    ["task", "code-doc", "reconcile", "task-1", "--path", "README.md"],
+    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old", "--reason", "why"],
+  ]) {
+    const retired = parseThinCommand(argv);
+    assert.equal(retired.ok, false, JSON.stringify(argv));
+    if (!retired.ok) assert.equal(retired.code, "unsupported_command");
+  }
   assert.equal(parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--ci"]).ok, false);
-  assert.equal(parseThinCommand(["task", "complete", "task-1", "--path", "README.md"]).ok, false);
+  // A leftover --path on complete is an unknown field, not a silently ignored reconcile input.
+  const leftoverPath = parseThinCommand(["task", "complete", "task-1", "--path", "README.md"]);
+  assert.equal(leftoverPath.ok, false);
+  if (!leftoverPath.ok) assert.equal(leftoverPath.code, "unknown_field");
   assert.equal(
     parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--commit-sha", "a".repeat(40)])
       .ok,
@@ -546,26 +535,17 @@ test("progress append preserves ordered duplicate evidence in its closed daemon 
   if (ownerBackfill.ok) assert.equal(ownerBackfill.command.action.asOwner, true);
 });
 
-test("task submit uses closeout and rejects packet inputs while code-doc rejects retired witness flags", () => {
+test("task submit uses closeout and rejects packet inputs", () => {
   assert.equal(parseThinCommand(["task", "submit", "task-1"]).ok, true);
   for (const args of [
     ["--from-file", "submission.json"],
     ["--json-input", "{}"],
   ])
     assert.equal(parseThinCommand(["task", "submit", "task-1", ...args]).ok, false);
-  const obsolete = parseThinCommand([
-    "task",
-    "code-doc",
-    "reconcile",
-    "task-1",
-    "--path",
-    "README.md",
-    "--execution-id",
-    "execution-1",
-  ]);
-  assert.equal(obsolete.ok, false);
-  if (!obsolete.ok)
-    assert.match(obsolete.nextAction, /submitted execution supplies execution id, commit, and iteration/u);
+  // No lifecycle flag reopens the retired step either: the verb itself is gone.
+  const retired = parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--path", "README.md"]);
+  assert.equal(retired.ok, false);
+  if (!retired.ok) assert.equal(retired.code, "unsupported_command");
 });
 test("task show accepts the id positionally or as --id and reports flag misuse as unknown_field", () => {
   const positional = parseThinCommand(["task", "show", "task-1"]),
@@ -609,56 +589,6 @@ test("artifact add emits only a source-to-destination descriptor", () => {
       source: "tmp/result.md",
       destination: "reports/result.md",
     });
-});
-
-test("code-doc repoint derives the commit and rejects the retired caller cut", () => {
-  const parsed = parseThinCommand([
-    "task",
-    "code-doc",
-    "repoint",
-    "task-1",
-    "--record",
-    "code-doc-old",
-    "--path",
-    "README.md",
-    "--reason",
-    "Correct archive root",
-  ]);
-  assert.equal(parsed.ok, true, JSON.stringify(parsed));
-  if (parsed.ok)
-    assert.deepEqual(parsed.command.action, {
-      kind: "task-code-doc-repoint",
-      taskId: "task-1",
-      record: "code-doc-old",
-      paths: ["README.md"],
-      reason: "Correct archive root",
-    });
-  for (const argv of [
-    ["task", "code-doc", "repoint", "task-1", "--reason", "why"],
-    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old"],
-  ])
-    assert.equal(parseThinCommand(argv).ok, false, JSON.stringify(argv));
-  for (const retired of ["--commit-sha", `--commit-sha=${"b".repeat(40)}`]) {
-    const obsolete = parseThinCommand([
-      "task",
-      "code-doc",
-      "repoint",
-      "task-1",
-      "--record",
-      "code-doc-old",
-      retired,
-      ...(retired.includes("=") ? [] : ["b".repeat(40)]),
-      "--reason",
-      "why",
-    ]);
-    assert.equal(obsolete.ok, false);
-    if (!obsolete.ok)
-      assert.equal(
-        obsolete.nextAction,
-        "Run ha task code-doc repoint task-1 without --commit-sha; " +
-          "the submitted execution supplies the witness cut. See ha task code-doc repoint --help.",
-      );
-  }
 });
 
 // A route decided by scanning the whole argv lets a flag *value* spelling a command name hijack it.

@@ -1056,16 +1056,6 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       .outcome,
     "applied",
   );
-  assert.equal(
-    run(
-      fixture.root,
-      fixture.userRoot,
-      ["task", "code-doc", "reconcile", taskId, "--path", "README.md"],
-      "agent:claude-code",
-    ).outcome,
-    "applied",
-  );
-
   writeFileSync(
     path.join(fixture.root, "review.json"),
     JSON.stringify({

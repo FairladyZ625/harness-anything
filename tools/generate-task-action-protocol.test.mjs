@@ -83,7 +83,6 @@ test("Task Action transport has one current build-time projection", async () => 
       "closeoutReview",
       "closeoutConsent",
       "closeoutFactDisposition",
-      "closeoutCodeDoc",
       "agendaPinLimit",
       "wipLimit",
       "rootThreshold",

@@ -25,7 +25,7 @@ const githubCi =
 
 const historicalContract: FrozenCompletionContract = {
   ...emptyCompletionContract,
-  closeoutGates: { ...emptyCompletionContract.closeoutGates, codeDoc: true },
+  closeoutGates: emptyCompletionContract.closeoutGates,
   gates: [
     {
       gateId: "ci",
@@ -50,9 +50,9 @@ const historicalContract: FrozenCompletionContract = {
   ],
 };
 
-test("the standard coding contract contains only the internal code/doc checker", () => {
+test("the retired code/doc gate mints no requirement, while frozen history stays readable", () => {
   const resolved = resolveCompletionContract(["code-doc-reconciliation"], readSettingsFacet(repositoryYaml("")));
-  assert.deepEqual(resolved, { ok: true, contract: { ...historicalContract, gates: [historicalContract.gates[1]] } });
+  assert.deepEqual(resolved, { ok: true, contract: { ...historicalContract, gates: [] } });
   assert.deepEqual(validateFrozenCompletionContract(historicalContract), [], "frozen hosted history remains readable");
 });
 
@@ -78,12 +78,9 @@ test("new completion contracts cannot add hosted CI witnesses", () => {
   }
 });
 
-test("a task carrying the retired ci profile gate does not freeze a hosted witness", () => {
+test("a task carrying the retired ci and code/doc profile gates freezes neither witness", () => {
   const resolved = resolveCompletionContract(["ci", "code-doc-reconciliation"], readSettingsFacet(repositoryYaml("")));
-  assert.deepEqual(resolved, {
-    ok: true,
-    contract: { ...historicalContract, gates: [historicalContract.gates[1]] },
-  });
+  assert.deepEqual(resolved, { ok: true, contract: { ...historicalContract, gates: [] } });
   assert.deepEqual(validateFrozenCompletionContract(resolved.ok ? resolved.contract : null), []);
 });
 
@@ -134,7 +131,7 @@ test("none removes a declared requirement without minting a witness, and undecla
   });
 });
 
-test("harness.yaml gate mappings reject unknown fields, unknown adapters, and remapping the internal checker", () => {
+test("harness.yaml gate mappings reject unknown fields, unknown adapters, and malformed options", () => {
   const rejects = (gates: string, pattern: RegExp) =>
     assert.throws(() => readSettingsFacet(repositoryYaml(`  gates:\n${gates}`)), pattern);
 
@@ -155,7 +152,6 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
     ).ok,
     true,
   );
-  rejects(`    code-doc-reconciliation:\n      appliesTo: code\n      adapter: manual-attest\n`, /is internal/u);
   rejects(`    lint: github-actions\n`, /cannot read line/u);
   rejects(`    lint: none\n      appliesTo: code\n`, /cannot read line/u);
   rejects(`    lint:\n      appliesTo: code\n      appliesTo: artifacts\n`, /cannot read line/u);

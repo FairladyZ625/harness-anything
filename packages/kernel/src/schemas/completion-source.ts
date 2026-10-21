@@ -52,7 +52,6 @@ export const VerticalCompletionDeclarationSchema = Schema.Struct({
     review: Schema.optional(Schema.Boolean),
     consent: Schema.optional(Schema.Boolean),
     factDisposition: Schema.optional(Schema.Boolean),
-    codeDoc: Schema.optional(Schema.Boolean),
   }),
 });
 

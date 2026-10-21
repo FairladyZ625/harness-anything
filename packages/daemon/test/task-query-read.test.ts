@@ -183,22 +183,37 @@ test("an unparameterized guiTasks read serves one default-bounded page, never th
 });
 
 test("task snapshot list isolates an invalid row and continues serving valid rows", () => {
-  const invalidWitness = {
-      schema: "code-doc-witness/v1",
+  const malformedGateWitness = {
+      schema: "completion-gate-witness/v1",
+      subjects: [],
+      predicateType: "human/v1",
+      predicate: {},
+      diagnostic: "human attestation",
       witnessId: "",
+      receiptId: "receipt-1",
+      checkerId: "signoff",
+      gateId: "signoff",
+      result: "pass",
       taskId: "task_invalid",
       executionId: "execution-invalid",
       commitSha: "a".repeat(40),
       iteration: 0,
-      paths: ["packages/daemon/src/task-query-read.ts"],
       actor: { principal: { personId: "person-owner" }, executor: null },
       source: "local",
-      reconciledAt: "2026-09-01T00:00:00.000Z",
+      verifiedAt: "2026-09-01T00:00:00.000Z",
+      observed: true,
+      basis: {
+        executionId: "execution-invalid",
+        iteration: 0,
+        submissionDigest: `sha256:${"a".repeat(64)}`,
+        codeCommit: "a".repeat(40),
+      },
+      provenance: { source: "human", adapterId: "manual-attest", runId: "run-1", rawResult: "approved" },
     },
     result = queryRead(
       process.cwd(),
       projectionStub({
-        taskRows: [protocolTaskRow("task_valid"), protocolTaskRow("task_invalid", [invalidWitness])],
+        taskRows: [protocolTaskRow("task_valid"), protocolTaskRow("task_invalid", [malformedGateWitness])],
       }),
     ).guiTasks();
 
@@ -212,7 +227,7 @@ test("task snapshot list isolates an invalid row and continues serving valid row
   );
   assert.deepEqual(
     result.invalidRows.map(({ message: _message, ...diagnostic }) => diagnostic),
-    [{ rowIndex: 1, taskId: "task_invalid", field: "rows[1].snapshot.codeDocWitnesses[0]" }],
+    [{ rowIndex: 1, taskId: "task_invalid", field: "rows[1].snapshot.gateWitnesses[0]" }],
   );
   assert.match(result.invalidRows[0]!.message, /^actual=.*Task snapshot field is invalid\.$/u);
 });
@@ -1160,7 +1175,7 @@ function activeTaskRow(taskId: string) {
 
 function protocolTaskRow(
   taskId: string,
-  codeDocWitnesses: readonly unknown[] = [],
+  gateWitnesses: readonly unknown[] = [],
   patch: {
     readonly status?: "planned" | "active" | "blocked" | "submitted" | "in_review" | "done" | "cancelled";
     readonly taskClass?: "standard" | "work";
@@ -1197,8 +1212,7 @@ function protocolTaskRow(
       lease: null,
       decisionRelations: [],
       consents: [],
-      codeDocWitnesses,
-      gateWitnesses: [],
+      gateWitnesses,
     },
   };
 }
@@ -1282,7 +1296,6 @@ test("single-task completion read carries the canonical next and validates its r
         executions: [],
         reviews: [],
         consents: [],
-        codeDocWitnesses: [],
         gateWitnesses: [],
         edgesTaken: [],
         lease: null,

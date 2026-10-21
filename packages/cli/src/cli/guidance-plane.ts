@@ -116,9 +116,8 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "task-create:repository-diff-contract",
     () =>
-      "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc " +
-      "reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset " +
-      "docs-task.",
+      "contract: repository-diff requires a committable public-repository diff and real CI. " +
+      "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
   ],
   ["task-create:task-create-publish", () => "next: remove --dry-run to publish this exact resolved scaffold"],
   [

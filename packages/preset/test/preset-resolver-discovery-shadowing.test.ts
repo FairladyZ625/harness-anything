@@ -265,7 +265,7 @@ test("profile precedence is explicit action, then projected settings", () => {
       {
         id: "baseline",
         title: "Baseline",
-        completionGates: ["code-doc-reconciliation"],
+        completionGates: [],
         templateSelections: [],
       },
       {
@@ -317,7 +317,7 @@ test("default settings resolve the standard task without hosted CI completion so
         action: { kind: "task-create", title: "Witness", presetId: "standard-task" },
       }).snapshot;
     const witnessless = compile(INITIAL_SETTINGS_V1);
-    assert.deepEqual(witnessless.profile.completionGateIds, ["code-doc-reconciliation"]);
+    assert.deepEqual(witnessless.profile.completionGateIds, []);
     assert.equal(Object.hasOwn(witnessless.completion.sources, "github-actions"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

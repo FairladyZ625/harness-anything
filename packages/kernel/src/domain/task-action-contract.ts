@@ -270,28 +270,6 @@ const lifecycleSpecs = Object.freeze({
     eventType: "review_consent_recorded" as "review_consent_recorded" | "review_consent_overridden",
     proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
   },
-  reconcile: {
-    ingress: "task-code-doc-reconcile",
-    commandType: "ReconcileCodeDoc",
-    transitionId: "reconcile_code_doc",
-    implementation: "task-lifecycle",
-    topology: "ledger-write",
-    remoteEdgeAdmission: "via-center-forward",
-    coordination: "execute",
-    eventType: "code_doc_reconciled",
-    proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
-  },
-  repoint: {
-    ingress: "task-code-doc-repoint",
-    commandType: "RepointCodeDoc",
-    transitionId: "repoint_code_doc",
-    implementation: "task-lifecycle",
-    topology: "ledger-write",
-    remoteEdgeAdmission: "rejected",
-    coordination: "execute",
-    eventType: "code_doc_repointed",
-    proof: ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
-  },
   complete: {
     ingress: "task-complete",
     commandType: "CompleteTask",
@@ -314,7 +292,8 @@ interface Declaration {
   readonly transitionId: LifecycleSpec["transitionId"] | null;
   readonly implementation: LifecycleSpec["implementation"] | "catalog-runtime";
   readonly topology: LifecycleSpec["topology"];
-  readonly remoteEdgeAdmission: LifecycleSpec["remoteEdgeAdmission"];
+  /** Lifecycle actions always forward to the center; catalog-runtime mutations refuse edge writes. */
+  readonly remoteEdgeAdmission: "via-center-forward" | "rejected";
   readonly coordination: LifecycleSpec["coordination"] | null;
   readonly eventType: LifecycleSpec["eventType"] | null;
   readonly proof: LifecycleSpec["proof"] | readonly [];
@@ -630,59 +609,12 @@ export const declarations: readonly Declaration[] = Object.freeze([
     ),
     explain: "Select a recorded Review with content-pinned owner consent.",
   }),
-  lifecycle("reconcile", {
-    input: input([
-      taskId,
-      expectedVersion,
-      wire(field("executionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
-      field("witnessId"),
-      field("commitSha"),
-      field("iteration", "number"),
-      cli("paths", "string-array", true, "--path", "repeated"),
-    ]),
-    criteria: Object.freeze([
-      criterion(
-        "task-lifecycle-review-transitions/reconcile.validate",
-        "invalid_proof",
-        "The witness binds canonical document paths to the submitted commit.",
-      ),
-    ]),
-    concurrency: taskConcurrency(
-      { authority: "task-lease/v1", mode: "must-be-released" },
-      { authority: "operation-id", semanticKey: "witnessId" },
-    ),
-    explain: "Publish a typed code-doc witness.",
-  }),
-  lifecycle("repoint", {
-    input: input([
-      taskId,
-      expectedVersion,
-      cli("record", "string", true, "--record"),
-      field("repointId"),
-      field("commitSha"),
-      cli("paths", "string-array", false, "--path", "repeated"),
-      cli("reason", "string", true, "--reason"),
-    ]),
-    criteria: Object.freeze([
-      criterion(
-        "task-lifecycle-review-transitions/repoint.validate",
-        "invalid_proof",
-        "The correction names an existing witness and a valid replacement commit/path set.",
-      ),
-    ]),
-    concurrency: taskConcurrency(
-      { authority: "task-lease/v1", mode: "must-be-released" },
-      { authority: "operation-id", semanticKey: "repointId" },
-    ),
-    explain: "Append an audited code-doc witness correction for a completed task.",
-  }),
   lifecycle("complete", {
     input: input([
       taskId,
       expectedVersion,
       wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       field("ci"),
-      field("paths", "string-array"),
       cli("resolvedBy", "string", false, "--resolved-by"),
       cli("resolutionRationale", "string", false, "--resolution-rationale"),
       cli("resolutionFact", "string", false, "--resolution-fact"),

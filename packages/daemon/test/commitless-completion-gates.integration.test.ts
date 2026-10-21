@@ -84,23 +84,6 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
     ],
     reviews: [],
     consents: [],
-    codeDocWitnesses:
-      commitSha === null
-        ? []
-        : [
-            {
-              schema: "code-doc-witness/v1",
-              witnessId: "code-doc",
-              taskId: "task-artifact-only",
-              executionId: "execution-1",
-              commitSha,
-              iteration: 0,
-              paths: ["packages/daemon/src/live.ts"],
-              actor,
-              source: "local",
-              reconciledAt: "2026-09-14T00:02:00.000Z",
-            },
-          ],
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,
@@ -112,7 +95,7 @@ test("artifact-only cuts skip code gates while committed cuts require merge evid
       closeout: "ready" as const,
       closeoutPath: "tasks/task-artifact-only/closeout.md",
       eligibleDirtyPaths: [],
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+      closeoutGates: { review: false, consent: false, factDisposition: false },
       delivery: { required: true, merged: false, targetBranch: "main", platform: "github" as const },
     },
     artifactOnly = snapshot(null),
@@ -120,6 +103,8 @@ test("artifact-only cuts skip code gates while committed cuts require merge evid
   assert.deepEqual(completionBlockers(artifactOnly, "execution-1", context), []);
   assert.equal(requiredGateWitnessCount(artifactOnly, artifactOnly.executions[0]!), 0);
   assert.deepEqual(canonicalGateReceipts(artifactOnly, artifactOnly.executions[0]!), []);
+  // A frozen contract that still names the retired code/doc gate demands no witness: the
+  // committed cut's next stop is its merge evidence, not a reconciliation.
   assert.equal(completionBlockers(committed, "execution-1", context)[0]?.code, "delivery_missing");
   assert.equal(requiredGateWitnessCount(committed, committed.executions[0]!, context.delivery), 1);
 });

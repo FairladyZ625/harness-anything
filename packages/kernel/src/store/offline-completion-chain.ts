@@ -86,7 +86,7 @@ export function makeOfflineCompletionChain(input: {
         presetSnapshotDigest: snapshotDigest(task.presetSnapshotDigest),
         gates,
         closeoutGates:
-          previous?.closeoutGates ?? effectiveCloseoutGates(closeout, task.completionGateIds, task.closeoutOverrides),
+          previous?.closeoutGates ?? effectiveCloseoutGates(closeout, task.closeoutOverrides),
         ...(previous?.reviewer ? { reviewer: previous.reviewer } : {}),
       };
       contracts.set(identity, contract);
@@ -269,7 +269,7 @@ export function makeOfflineCompletionChain(input: {
         payload = {
           ...payload,
           historicalAcceptance: { sourceGeneration: input.generation, sourceRevision: event.workspaceRevision },
-          closeoutGates: gates ?? effectiveCloseoutGates(closeout, task.completionGateIds, task.closeoutOverrides),
+          closeoutGates: gates ?? effectiveCloseoutGates(closeout, task.closeoutOverrides),
         };
       }
       return { event: { ...event, payload } as CanonicalEventV1, blobs };

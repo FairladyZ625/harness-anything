@@ -11,7 +11,7 @@ const standardCompletion = {
     },
   },
   gates: {},
-  closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: true },
+  closeoutDefaults: { review: false, consent: false, factDisposition: false },
 };
 
 /** Explicit conversion only. Readers continue rejecting retired fields. */

@@ -183,7 +183,7 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     assert.ok(cliSubmission && guiSubmission);
     assert.deepEqual({ taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: { ...guiSubmission, commitSha: "<repo-cut>" } }, { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: { ...cliSubmission, commitSha: "<repo-cut>" } });
     const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!;
-    assert.deepEqual(row.snapshotAvailability, { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" });
+    assert.deepEqual(row.snapshotAvailability, { consents: "known", gateWitnesses: "known" });
     assert.deepEqual({ parentTaskId: row.placement.parentTaskId, origin: row.placement.origin, packageDisposition: row.placement.packageDisposition }, { parentTaskId: null, origin: "native", packageDisposition: "active" });
     assert.equal(row.placement.provenance.length > 0, true);
     assert.equal(row.executionEvidence[0]!.executionId, executionId);
@@ -201,7 +201,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("lifecycle-files"), rootDir: canonicalRoot(rootDir), ownerId: "lifecycle-daemon" });
     const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle files" }, binding); assert.equal(created.outcome, "applied"); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
     const assertCut = async (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.status, "accepted_durable"); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); const visible = await waitForAcceptedReceipt(cell!, receipt as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
-    const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`, codeDocPath = `${packagePath}/code-doc-anchors.json`;
+    const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`;
     const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
     assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((started.authorizationDecision as Record<string, unknown>).outcome, "allowed");
@@ -240,116 +240,48 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-life" }, binding) as unknown as Record<string, unknown>; await assertCut(consented, "review_consent_recorded", [indexPath, executionPath, reviewPath]); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Consent: consent-[0-9a-f]+[\s\S]*Consent actor: person-owner/u);
     assert.equal((consented.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((consented.authorizationDecision as Record<string, unknown>).outcome, "allowed");
-    const witnessedPath = "README.md", beforeInvalidWitness = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; assert.equal((await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath] }, binding)).outcome, "op_rejected"); assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidWitness); const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: [witnessedPath] }, binding) as unknown as Record<string, unknown>; await assertCut(reconciled, "code_doc_reconciled", [indexPath, executionPath, codeDocPath]); assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", codeDocPath), "utf8")), { schema: "code-doc-witness/v1", witnessId: String((makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { payload: { witness: { witnessId: string } } }).payload.witness.witnessId), taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath], actor, source: "local", reconciledAt: (makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { occurredAt: string }).occurredAt });
-    const lookedUp = await cell.run({ kind: "receipt-show", opId: reconciled.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: reconciled.transition, changedPaths: reconciled.changedPaths });
+    const lookedUp = await cell.run({ kind: "receipt-show", opId: consented.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: consented.transition, changedPaths: consented.changedPaths });
     await cell.close(); cell = undefined; const store = makeTaskEventReader({ repoId: "lifecycle-files", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, store.read().revision); assert.equal(projection.read(taskId).snapshot.codeDocWitnesses.length, 1); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close(); await store.drain();
+    const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, store.read().revision); for (const target of [indexPath, executionPath, reviewPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close(); await store.drain();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 // prettier-ignore
 
-test("code-doc repoint appends a replacement witness and rejects stale or unknown records", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-code-doc-repoint-")),
-    taskId = "task-code-doc-repoint",
-    executionId = "execution-code-doc-repoint",
-    repoId = workspaceId("code-doc-repoint");
+test("a task completes without any code/doc step, and the retired commands are unsupported", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-code-doc-retired-")),
+    taskId = "task-code-doc-retired",
+    executionId = "execution-code-doc-retired",
+    repoId = workspaceId("code-doc-retired");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "code-doc-repoint" });
-    await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
-    await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Repoint Ledger");
-    const anchorPath = path.join(
-        rootDir,
-        "harness",
-        "tasks/task-code-doc-repoint-repoint-ledger/code-doc-anchors.json",
-      ),
-      originalBytes = readFileSync(anchorPath),
-      original = JSON.parse(originalBytes.toString("utf8")) as { witnessId: string; commitSha: string };
-    const completed = await cell.run(
-      { kind: "task-complete", taskId, executionId },
-      repoWriteBinding,
-    );
-    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const missingBefore = makeTaskEventReader({ repoId, rootDir }).read().revision,
-      unknown = await cell.run(
-        {
-          kind: "task-code-doc-repoint",
-          taskId,
-          record: "code-doc-missing",
-          paths: ["README.md"],
-          reason: "Unknown anchor",
-        },
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "code-doc-retired" });
+    // prepareReadyCompletion walks start → submit → forward → review → consent → merged with no
+    // code/doc reconcile anywhere; completion succeeding here is the behavioural proof.
+    await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Retired Ledger");
+    const before = makeTaskEventReader({ repoId, rootDir }).read().revision,
+      reconcile = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, repoWriteBinding),
+      repoint = await cell.run(
+        { kind: "task-code-doc-repoint", taskId, record: "code-doc-any", paths: ["README.md"], reason: "retired" },
         repoWriteBinding,
       );
-    assert.equal(unknown.outcome, "op_rejected");
-    assert.equal(makeTaskEventReader({ repoId, rootDir }).read().revision, missingBefore);
-    const action = {
-        kind: "task-code-doc-repoint",
-        taskId,
-        record: original.witnessId,
-        paths: ["README.md"],
-        reason: "Correct archive root",
-      } as const,
-      repointed = (await cell.run(action, repoWriteBinding)) as Record<string, unknown>;
-    assert.equal(repointed.outcome, "applied", JSON.stringify(repointed));
-    const repointedVisible = await waitForAcceptedReceipt(cell, repointed as { opId: string; acceptance?: { revisionTo?: number } | null });
-    assert.equal(repointedVisible.wait?.state, "satisfied", JSON.stringify(repointedVisible));
-    const afterBytes = readFileSync(anchorPath),
-      lines = afterBytes
-        .toString("utf8")
-        .trimEnd()
-        .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
-    assert.deepEqual(afterBytes.subarray(0, originalBytes.length), originalBytes);
-    assert.equal(lines.length, 2);
-    assert.equal(lines[1]!.supersedes, original.witnessId);
-    assert.equal(lines[1]!.disposition, "repointed");
+    assert.equal(reconcile.outcome, "op_rejected");
+    assert.equal(reconcile.code, "unsupported_command");
+    assert.equal(repoint.outcome, "op_rejected");
+    assert.equal(repoint.code, "unsupported_command");
+    assert.equal(makeTaskEventReader({ repoId, rootDir }).read().revision, before, "refused commands write nothing");
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     const projection = await cell.read("repo.tasks.list"),
       row = projection.rows.find((value) => value.taskId === taskId);
     assert.ok(row, JSON.stringify(projection));
     assert.deepEqual(validateDaemonTaskSnapshotList(projection), []);
     assert.equal(
-      row.closeoutAssessment.gates.find((gate) => gate.gateId === "code-doc-reconciliation")?.status,
-      "passed",
+      row.closeoutAssessment.gates.some((gate) => gate.gateId === "code-doc-reconciliation"),
+      false,
+      "the retired gate is not part of a newly frozen contract",
     );
-    assert.deepEqual(
-      row.snapshot.codeDocWitnesses.map((witness) =>
-        witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId,
-      ),
-      [original.witnessId, lines[1]!.recordId],
-    );
-    const duplicate = await cell.run(action, repoWriteBinding);
-    assert.equal(duplicate.outcome, "op_rejected");
-    assert.deepEqual(readFileSync(anchorPath), afterBytes);
-    const knownInvalid = (await cell.run(
-      {
-        ...action,
-        record: String(lines[1]!.recordId),
-        paths: [],
-        reason: "Commit unresolvable after rebuild line reset",
-      },
-      repoWriteBinding,
-    )) as Record<string, unknown>;
-    assert.equal(knownInvalid.outcome, "applied", JSON.stringify(knownInvalid));
-    const invalidVisible = await waitForAcceptedReceipt(cell, knownInvalid as { opId: string; acceptance?: { revisionTo?: number } | null });
-    assert.equal(invalidVisible.wait?.state, "satisfied", JSON.stringify(invalidVisible));
-    const afterKnownInvalid = readFileSync(anchorPath),
-      invalidLines = afterKnownInvalid
-        .toString("utf8")
-        .trimEnd()
-        .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
-    assert.deepEqual(afterKnownInvalid.subarray(0, afterBytes.length), afterBytes);
-    assert.equal(invalidLines[2]!.supersedes, lines[1]!.recordId);
-    assert.equal(invalidLines[2]!.disposition, "known-invalid");
-    const invalidProjection = await cell.read("repo.tasks.list"),
-      invalidRow = invalidProjection.rows.find((value) => value.taskId === taskId)!;
-    assert.deepEqual(validateDaemonTaskSnapshotList(invalidProjection), []);
-    assert.equal(
-      invalidRow.closeoutAssessment.gates.find((gate) => gate.gateId === "code-doc-reconciliation")?.status,
-      "missing",
-    );
+    assert.equal(row.snapshot.codeDocWitnesses, undefined);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

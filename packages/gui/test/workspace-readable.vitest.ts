@@ -29,7 +29,6 @@ describe("workspace readable vocabulary", () => {
     expect(eventTypeLabel("fact_recorded")).toBe("记录了一条事实");
     setActiveLocale("en-US");
     expect(eventTypeLabel("execution_submitted")).toBe("Submitted for review");
-    expect(eventTypeLabel("code_doc_reconciled")).toBe("Code and docs reconciled");
     // 词表外的 type 如实回原名:不补造语义,也不吞掉它。
     expect(eventTypeLabel("vertical_thing_happened")).toBe("vertical_thing_happened");
     setActiveLocale("zh-CN");

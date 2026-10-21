@@ -175,7 +175,11 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   return next;
 }
 
-/** Settings retired with the ledger-side hosted CI witness flow. */
+/**
+ * Settings retired from the authored facet. Every entry is normalized away before a read, so an
+ * authored file (or an old settings event) that still names one keeps parsing. Paths may be nested
+ * arbitrarily deep.
+ */
 export const RETIRED_SETTINGS_PATHS = Object.freeze([
   ["workerPermissions", "ciRead"],
   ["workerPermissions", "artifactRead"],
@@ -187,6 +191,7 @@ export const RETIRED_SETTINGS_PATHS = Object.freeze([
   ["delivery", "platform"],
   ["ci", "workflows"],
   ["gates", "ci"],
+  ["closeout", "overrides", "codeDoc"],
 ] as const);
 
 export const RETIRED_SETTINGS_GATE_ADAPTERS = Object.freeze(["github-actions", "gitlab-pipeline"] as const);

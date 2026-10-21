@@ -310,7 +310,7 @@ test("settle submits against its frozen snapshot after an installed preset chang
           {
             id: "baseline",
             title: "Baseline",
-            completionGates: ["code-doc-reconciliation"],
+            completionGates: [],
             templateSelections: [],
           },
         ],
@@ -498,11 +498,11 @@ test("owner retries preparation failure on the same submitted cut without a seco
     const failed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
     assert.equal(interrupted, true, JSON.stringify(failed));
     // SQLite accepted the submission, but the follow-up failed before its append began.
-    // Its determinate failure must not imply the missing witness was prepared.
+    // Its determinate failure must not imply a later completion witness exists.
     assert.equal(failed.code, "service_rejected", JSON.stringify(failed));
     assert.match(String(failed.rejectionExplanation), /fixture interrupts evidence preparation after submission/u);
     assert.equal(
-      reader.read().events.some((event) => event.type === "code_doc_reconciled"),
+      reader.read().events.some((event) => event.type === "task_completed"),
       false,
     );
     armed = false;
@@ -514,7 +514,7 @@ test("owner retries preparation failure on the same submitted cut without a seco
       reader.read().events.filter((event) => event.type === "execution_submitted"),
       [cut],
     );
-    assert.ok(reader.read().events.some((event) => event.type === "code_doc_reconciled"));
+    assert.equal(resumed.steps?.length ?? 0, 0, "the retry resumes the existing cut without another write");
   } finally {
     await cell.close();
     await reader.drain();

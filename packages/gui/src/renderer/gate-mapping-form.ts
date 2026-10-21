@@ -2,7 +2,7 @@
  * 门映射编辑面的判定层:草稿形状、合法组合校验、提交载荷派生。
  *
  * 合法组合的权威是 kernel 的 completion-contract(gateMappingAdapterFields /
- * gateGovernanceFields / governableWitnessAdapterIds / CODE_DOC_GATE_ID),GUI 不手抄——
+ * gateGovernanceFields / governableWitnessAdapterIds),GUI 不手抄——
  * 规则经 catalog snapshot 的 gateMappings 描述面投影进来,本模块只消费它。
  * 校验镜像 kernel 的 gateWitnessMappingIssues:界面上挡住的组合,中心同样会拒。
  *
@@ -27,8 +27,7 @@ export type GateMappingIssue =
   | "adapterUnknown"
   | "adapterFieldMissing"
   | "adapterFieldUnexpected"
-  | "governanceNotAllowed"
-  | "internalGateAdapter";
+  | "governanceNotAllowed";
 
 export interface GateMappingRowIssue {
   readonly row: number;
@@ -45,7 +44,7 @@ export function gateMappingDrafts(gates: readonly unknown[]): GateMappingDraft[]
 
 /**
  * 行级校验,镜像 kernel gateWitnessMappingIssues 的判据:治理修饰只允许 true 且只能
- * 加在 governable adapter 上;option 字段集必须与 adapter 恰好一致;内建门只能 none。
+ * 加在 governable adapter 上;option 字段集必须与 adapter 恰好一致。
  */
 export function gateMappingRowIssues(
   drafts: readonly GateMappingDraft[],
@@ -74,7 +73,6 @@ export function gateMappingRowIssues(
       (!descriptor.governableAdapters.includes(adapter) || mandatorySignoff === false || allowOverride === false)
     )
       issues.push({ row, issue: "governanceNotAllowed" });
-    if (gateId === descriptor.internalGateId && adapter !== "none") issues.push({ row, issue: "internalGateAdapter" });
   });
   return issues;
 }

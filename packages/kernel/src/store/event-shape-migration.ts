@@ -1,5 +1,4 @@
 import { withoutRetiredSettings } from "../domain/event-shape-migration-event.ts";
-import { historicalCompletionRequirements } from "./offline-completion-contract.ts";
 import { effectiveCloseoutGates } from "../domain/settings-closeout.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -451,20 +450,17 @@ function submissionCompletionContractMigration(): EventShapeMigrationSpec {
         cuts.set(key, cut);
       }
       if (cut === undefined) {
-        const declared = [...new Set(event.payload.task.completionGateIds)],
-          gates = historicalCompletionRequirements(declared);
-        if (gates.length + Number(declared.includes("ci")) !== declared.length)
+        // Both hosted-CI and code/doc requirements are retired; a pre-contract submission that named
+        // either converts to a contract with no gate requirement rather than a witnessless one.
+        const declared = [...new Set(event.payload.task.completionGateIds)];
+        if (declared.some((gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation"))
           throw new Error(`legacy submission ${event.opId} has gates without historical witness mappings`);
         cut = {
           ...original,
           completionContract: {
-            gates,
+            gates: [],
             presetSnapshotDigest: event.payload.task.presetSnapshotDigest!,
-            closeoutGates: effectiveCloseoutGates(
-              { profile: "standard" },
-              declared,
-              event.payload.task.closeoutOverrides,
-            ),
+            closeoutGates: effectiveCloseoutGates({ profile: "standard" }, event.payload.task.closeoutOverrides),
           },
         };
         cuts.set(key, cut);

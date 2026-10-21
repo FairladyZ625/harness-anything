@@ -48,8 +48,8 @@ error code=terminal_status_requires_task_complete
 `dec_mrg3z1we/CH1-CH3`、ADR-0027 D3、D5-D6）。
 
 `ha task complete` 从 task 选中的 preset/profile 与仓库 Settings 解析确定性门。
-`standard` closeout profile 默认关闭独立评审、consent、fact 处置与 code-doc reconciliation，
-`strict` 默认开启四项；单项 override 可调整任一基线，Task/preset 只能收紧。使用
+`standard` closeout profile 默认关闭独立评审、consent 与 fact 处置，
+`strict` 默认开启这三项；单项 override 可调整任一基线，Task/preset 只能收紧。使用
 `ha settings update --closeout-profile standard|strict` 配置仓库。任何路径都不
 要求最低 Fact 数量：Fact 是 `0..N` 的显式晋升，submit、review 或 complete 都不会
 自动生成 Fact（依据 `dec_mrg3z1we/CH4`、ADR-0027 D7）。

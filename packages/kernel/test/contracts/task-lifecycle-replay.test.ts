@@ -95,30 +95,22 @@ test("retired CI is omitted from completion receipt cuts even when an old receip
   );
 });
 
-function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]): string {
-  const gates = gateIds.map((gateId) =>
-      gateId === "ci"
-        ? {
-            gateId,
-            appliesTo: "code" as const,
-            witness: {
-              ...retiredHostedCiSource,
-              adapterId: "github-actions" as const,
-              adapterOptions: {
-                workflows: ["rewrite-ci"],
-                branch: "main",
-                event: "push",
-                coverage: "exact" as const,
-                selection: "newest" as const,
-              },
-            },
-          }
-        : {
-            gateId,
-            appliesTo: "code" as const,
-            witness: { kind: "internal" as const, adapterId: gateId, adapterOptions: {} },
-          },
-    ),
+function executionReceipt(gateIds: readonly "ci"[]): string {
+  const gates = gateIds.map((gateId) => ({
+      gateId,
+      appliesTo: "code" as const,
+      witness: {
+        ...retiredHostedCiSource,
+        adapterId: "github-actions" as const,
+        adapterOptions: {
+          workflows: ["rewrite-ci"],
+          branch: "main",
+          event: "push",
+          coverage: "exact" as const,
+          selection: "newest" as const,
+        },
+      },
+    })),
     fixture = lifecycleFixture({ gates, complete: false }),
     event = fixture.events.at(-1)!,
     compiled = compileTaskLifecycleWrite({
@@ -135,15 +127,11 @@ function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]
 test("Execution receipts distinguish undeclared gates from required missing witnesses", () => {
   const ungated = executionReceipt([]);
   assert.match(ungated, /- Checker witnesses: not_required/u);
-  assert.match(ungated, /- Code-doc witness: not_required/u);
+  assert.doesNotMatch(ungated, /Code-doc witness/u, "the retired witness line is gone from the record");
 
   const ci = executionReceipt(["ci"]);
   assert.match(ci, /- Checker witnesses: pending/u);
-  assert.match(ci, /- Code-doc witness: not_required/u);
-
-  const codeDoc = executionReceipt(["code-doc-reconciliation"]);
-  assert.match(codeDoc, /- Checker witnesses: not_required/u);
-  assert.match(codeDoc, /- Code-doc witness: pending/u);
+  assert.doesNotMatch(ci, /Code-doc witness/u);
 });
 
 test("an amended delivery re-derives the record anchors; the closeout prose carries none", () => {
@@ -510,7 +498,7 @@ function legacyCompletion() {
       execution: { ...current, state: "accepted", closedAt: "2026-08-11T00:05:00.000Z" },
       // Completions recorded before the `fact` gate existed carry the other four gates only;
       // every ledger holds such events, so a cold replay must keep admitting this shape.
-      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, factDisposition: true },
       documentClaims: [],
     },
   };
@@ -558,7 +546,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
         capabilityRef: "cap-complete",
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, factDisposition: true },
         gateReceipts: [],
       }),
     /gate|witness|completion/i,

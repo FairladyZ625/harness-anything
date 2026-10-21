@@ -5,7 +5,6 @@ import {
 import type { artifactEntityImportActionInput } from "@harness-anything/kernel";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
-  codeDocRecord,
   consent,
   exactRecord,
   execution,
@@ -45,7 +44,7 @@ import {
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
 import type { DaemonTaskSnapshotInvalidRow } from "./daemon-protocol-gui-types.ts";
 
-export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesses"] as const,
+export const availabilityFields = ["consents", "gateWitnesses"] as const,
   snapshotBaseFields = [
     "revision",
     "task",
@@ -571,7 +570,7 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
     )
   )
     paths.push("snapshot.decisionRelations");
-  const validators = { consents: consent, codeDocWitnesses: codeDocRecord, gateWitnesses: gate };
+  const validators = { consents: consent, gateWitnesses: gate };
   for (const field of known) {
     const rows = value[field];
     if (!Array.isArray(rows)) paths.push(`snapshot.${field}`);

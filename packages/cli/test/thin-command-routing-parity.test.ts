@@ -625,8 +625,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-artifact-add",
       "task-assign",
       "task-attest",
-      "task-code-doc-reconcile",
-      "task-code-doc-repoint",
       "task-complete",
       "task-contract-migrate",
       "task-create",
@@ -816,7 +814,7 @@ test("task-create help renders recommended presets only from effective catalog r
         defaultProfile: "baseline",
         profiles: [{ id: "baseline" }, { id: "lightweight" }],
         outputShape: "repository-diff",
-        completionGates: ["ci", "code-doc-reconciliation"],
+        completionGates: ["ci", "manual-attest"],
       },
     },
     {
@@ -833,7 +831,7 @@ test("task-create help renders recommended presets only from effective catalog r
   );
   assert.match(
     help,
-    /profile=baseline \(also --profile lightweight\) — outputShape=repository-diff.*completionGates=\["ci","code-doc-reconciliation"\]/su,
+    /profile=baseline \(also --profile lightweight\) — outputShape=repository-diff.*completionGates=\["ci","manual-attest"\]/su,
   );
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
   assert.match(
@@ -860,7 +858,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
               validity: "valid",
               defaultProfile: "baseline",
               outputShape: "repository-diff",
-              completionGates: ["ci", "code-doc-reconciliation"],
+              completionGates: ["ci", "manual-attest"],
             },
           ]),
         },
@@ -872,7 +870,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
       "  validity: valid",
       "  defaultProfile: baseline",
       "  outputShape: repository-diff",
-      '  completionGates: ["ci","code-doc-reconciliation"]',
+      '  completionGates: ["ci","manual-attest"]',
     ].join("\n");
   assert.deepEqual(Buffer.from(presetOutput), Buffer.from(expectedPreset));
 
@@ -891,7 +889,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
             presetId: "standard-task",
             profileId: "baseline",
             outputShape: "repository-diff",
-            completionGates: ["ci", "code-doc-reconciliation"],
+            completionGates: ["ci", "manual-attest"],
             dryRun: false,
             proof: { canonicalVisible: true },
             guidance: taskCreateGuidance(resolveHarnessLayout(receiptRoot), {
@@ -907,15 +905,14 @@ test("human preset and task receipts print resolved completion contracts byte-fo
         ),
       ),
       expectedContract = [
-        "contract: repository-diff requires a committable public-repository diff, ",
-        "real CI, and a code-doc reconciliation witness. ",
+        "contract: repository-diff requires a committable public-repository diff and real CI. ",
         "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
       ].join(""),
       expectedTask = [
         "created task task-one at harness/tasks/task-one",
         "preset: standard-task/baseline",
         "outputShape: repository-diff",
-        'completionGates: ["ci","code-doc-reconciliation"]',
+        'completionGates: ["ci","manual-attest"]',
         expectedContract,
         "next: run ha task start task-one once the plan is canonical — a plan passed as --plan-file is " +
           "already in this write; a hand-edited task_plan.md still needs ha doc sync --submit --task <task-id> " +
@@ -1362,15 +1359,10 @@ test("all public commands expose the canonical structured input facet", () => {
       taskSubmit.inputs.some((input) => input.name === name),
       false,
     );
-  assert.deepEqual(
-    daemonProtocolCommands
-      .find((command) => command.id === "task-code-doc-reconcile")
-      ?.inputs.map((input) => [input.name, input.required]),
-    [["--path", true]],
-  );
-  assert.deepEqual(
-    daemonProtocolCommands.find((command) => command.id === "task-code-doc-repoint")?.inputs.map((input) => input.name),
-    ["--record", "--path", "--reason"],
+  // The retired code/doc commands are absent from the protocol catalog entirely.
+  assert.equal(
+    daemonProtocolCommands.some((command) => command.id.startsWith("task-code-doc-")),
+    false,
   );
 });
 

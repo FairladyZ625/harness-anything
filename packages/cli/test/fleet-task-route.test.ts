@@ -148,7 +148,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   for (const action of [
     { kind: "fact-record", taskId: "task_one", statement: "observed", source: "test", confidence: "high" },
     { kind: "task-declare-executor", taskId: "task_one", reason: "repair" },
-    { kind: "task-code-doc-reconcile", taskId: "task_one", paths: ["packages/cli/src/index.ts"] },
   ])
     assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action);
   const review = await fleetTaskRoute(

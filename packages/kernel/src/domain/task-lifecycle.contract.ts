@@ -9,8 +9,6 @@ export {
   validateTaskEvent,
 } from "./task-lifecycle-event.ts";
 export type {
-  CodeDocReconciledEvent,
-  CodeDocRepointedEvent,
   CompletionGateVerifiedEvent,
   ExecutionAnnotatedEvent,
   ExecutionExecutorDeclaredEvent,
@@ -27,20 +25,9 @@ export type {
   TaskEventV1,
   TaskLifecycleErrorCode,
 } from "./task-lifecycle-event.ts";
-export {
-  canonicalCodeDocPaths,
-  codeDocRecordId,
-  currentCodeDocRecord,
-  currentCodeDocWitness,
-  sameCodeDocPaths,
-  validateCodeDocRepointV1,
-  validateCodeDocWitnessV1,
-} from "./code-doc-witness.ts";
-export type { CodeDocRepointV1, CodeDocWitnessRecord, CodeDocWitnessV1 } from "./code-doc-witness.ts";
 export { reviewDigest } from "./review.ts";
 export {
   TASK_LIFECYCLE_SCHEMA,
-  type CodeDocProof,
   type CompleteTaskProof,
   type CompleteTaskCommand,
   type CreateReplayTaskCommand,
@@ -49,11 +36,6 @@ export {
   type ForwardedCutRecord,
   type NormalizedTaskLifecycleCommand,
   type ProofFor,
-  type ReconcileCodeDocCommand,
-  type ReconcileCodeDocIntent,
-  type RepointCodeDocCommand,
-  type RepointCodeDocIntent,
-  type RepointCodeDocProof,
   type RecordReviewCommand,
   type RecordReviewConsentCommand,
   type RecordReviewConsentIntent,

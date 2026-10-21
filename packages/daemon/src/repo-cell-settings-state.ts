@@ -189,7 +189,6 @@ export function readEffectiveCloseoutGates(
     | undefined;
   return effectiveCloseoutGates(
     projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS,
-    snapshot.task?.completionGateIds,
     snapshot.task?.closeoutOverrides,
     preset?.completion.closeoutDefaults,
   );

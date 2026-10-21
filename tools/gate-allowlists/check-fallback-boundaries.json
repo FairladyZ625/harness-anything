@@ -294,7 +294,6 @@
    "packages/kernel/src/daemon/registry.ts#decodeDaemonRegistry",
    "packages/kernel/src/daemon/registry.ts#invalidDaemonRegistryRepo",
    "packages/kernel/src/daemon/registry.ts#normalizeRemoteEndpoint",
-   "packages/kernel/src/domain/code-doc-witness.ts#canonicalCodeDocPaths",
    "packages/kernel/src/domain/doc-sync-codec.ts#validateDocWriteIntent",
    "packages/kernel/src/domain/doc-sync-writer.ts#decideDocWriteInternal",
    "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor",

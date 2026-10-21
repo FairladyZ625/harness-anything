@@ -132,11 +132,25 @@ export function withoutRetiredSettings(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const next = structuredClone(value) as Record<string, unknown>;
   let changed = false;
-  for (const [parent, key] of RETIRED_SETTINGS_PATHS) {
-    const group = next[parent];
-    if (!isRecord(group) || !Object.hasOwn(group, key)) continue;
-    delete (group as Record<string, unknown>)[key];
-    if (Object.keys(group).length === 0) delete next[parent];
+  for (const path of RETIRED_SETTINGS_PATHS) {
+    const parents: Record<string, unknown>[] = [];
+    let parent: unknown = next as Record<string, unknown>,
+      present = true;
+    for (const segment of path.slice(0, -1)) {
+      if (!isRecord(parent) || !Object.hasOwn(parent, segment)) {
+        present = false;
+        break;
+      }
+      parents.push(parent);
+      parent = parent[segment];
+    }
+    const key = path.at(-1)!;
+    if (!present || !isRecord(parent) || !Object.hasOwn(parent, key)) continue;
+    const ownerAtKey = parent as Record<string, unknown>;
+    delete ownerAtKey[key];
+    for (const owner of parents.reverse())
+      for (const [candidate, value] of Object.entries(owner))
+        if (isRecord(value) && Object.keys(value).length === 0) delete owner[candidate];
     changed = true;
   }
   if (Array.isArray(next.gates)) {

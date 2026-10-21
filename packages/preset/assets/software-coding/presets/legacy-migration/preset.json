@@ -12,7 +12,7 @@
     {
       "id": "baseline",
       "title": "Genesis replay",
-      "completionGates": ["code-doc-reconciliation"],
+      "completionGates": [],
       "templateSelections": []
     }
   ],

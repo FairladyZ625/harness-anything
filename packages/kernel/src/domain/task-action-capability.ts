@@ -115,10 +115,6 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("review", "repo-cell-proof/proofFor.RecordReview"), reviewIndependence],
     [key("consent", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("consent", "task-lifecycle-review-transitions/consent.validate"), mutationInvocation],
-    [key("reconcile", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [key("reconcile", "task-lifecycle-review-transitions/reconcile.validate"), mutationInvocation],
-    [key("repoint", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [key("repoint", "task-lifecycle-review-transitions/repoint.validate"), mutationInvocation],
     [key("complete", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [
       key("complete", "closeout-readiness/closeoutReadiness"),
@@ -337,9 +333,7 @@ export function taskActionUsage(action: EntityActionContract, taskId = "<task-id
       ? ["ha", "task", "create"]
       : action.id === "transition"
         ? ["ha", "task", "transition", taskId, "<planned|active|blocked|in_review|done|cancelled>"]
-        : action.id === "reconcile" || action.id === "repoint"
-          ? ["ha", "task", "code-doc", action.id, taskId]
-          : ["ha", "task", ingress.slice("task-".length), taskId];
+        : ["ha", "task", ingress.slice("task-".length), taskId];
   return [...path, ...flags].join(" ");
 }
 

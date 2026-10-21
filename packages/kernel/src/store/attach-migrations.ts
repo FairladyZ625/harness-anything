@@ -57,15 +57,24 @@ function hasFlatSquadRunIdentity(event: PersistedCanonicalEventV1): boolean {
   return isRecord(identity) && identity.subject === undefined && typeof identity.taskId === "string";
 }
 
+function settingsAt(
+  settings: Readonly<Record<string, unknown>>,
+  path: readonly string[],
+): Readonly<Record<string, unknown>> {
+  let current: unknown = settings;
+  for (const segment of path.slice(0, -1)) {
+    if (!isRecord(current)) return {};
+    current = current[segment];
+  }
+  return isRecord(current) ? current : {};
+}
+
 function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   if (event.schema !== "settings-event/v1") return false;
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload) || !isRecord(payload.settings)) return false;
   const settings = payload.settings;
-  if (
-    RETIRED_SETTINGS_PATHS.some(([parent, key]) => isRecord(settings[parent]) && Object.hasOwn(settings[parent], key))
-  )
-    return true;
+  if (RETIRED_SETTINGS_PATHS.some((path) => Object.hasOwn(settingsAt(settings, path), path.at(-1)!))) return true;
   return (
     Array.isArray(settings.gates) &&
     settings.gates.some(

@@ -15,7 +15,7 @@
     {
       "id": "baseline",
       "title": "Baseline",
-      "completionGates": ["code-doc-reconciliation"],
+      "completionGates": [],
       "templateSelections": [
         {
           "slot": "task.worker.flow",

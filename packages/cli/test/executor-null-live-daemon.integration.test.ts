@@ -136,11 +136,6 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
       run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId]).outcome,
       "applied",
     );
-    assert.equal(
-      run(root, userRoot, daemonId, ["task", "code-doc", "reconcile", taskId, "--path", "README.md"], "agent:worker")
-        .outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(root, "review.json"),
       JSON.stringify({

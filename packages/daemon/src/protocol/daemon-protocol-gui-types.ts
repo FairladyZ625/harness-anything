@@ -829,7 +829,6 @@ export type DaemonTaskSnapshotListResult = {
       | "unknown";
     readonly snapshotAvailability: {
       readonly consents: "known" | "unknown";
-      readonly codeDocWitnesses: "known" | "unknown";
       readonly gateWitnesses: "known" | "unknown";
     };
     readonly closeoutAssessment: import("@harness-anything/kernel/internal/domain/closeout-readiness").CloseoutAssessment;

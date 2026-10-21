@@ -3,7 +3,6 @@ import type { ExecutionV1, LeaseV1, ProjectedExecution } from "./execution.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { codeDocRecordId, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
@@ -29,7 +28,6 @@ export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot 
     executions: [],
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,
@@ -152,28 +150,21 @@ export function canonicalGateReceipts(
     // Retired CI is explained by merge evidence at read time; it has no ledger receipt to reference.
     if (isRetiredCiRequirement(gateId, requirement)) return [];
     if (!passed.has(gateId)) return [];
-    const codeDoc =
-      gateId === "code-doc-reconciliation"
-        ? currentCodeDocWitness(snapshot.codeDocWitnesses, current.executionId)
-        : undefined;
-    const gate =
-      gateId !== "code-doc-reconciliation"
-        ? snapshot.gateWitnesses.find(
-            (value) =>
-              value.gateId === gateId &&
-              value.executionId === current.executionId &&
-              value.commitSha === current.submission?.commitSha &&
-              value.iteration === current.iteration &&
-              value.result === "pass" &&
-              (value.basis === undefined || value.provenance === undefined || value.observed === undefined
-                ? true
-                : judgeCompletionEvidence(
-                    { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
-                    { execution: current, gateId },
-                  ).accepted),
-          )
-        : undefined;
-    const receiptRef = codeDoc ? `event:${codeDocRecordId(codeDoc)}` : gate ? `event:${gate.receiptId}` : null;
+    const gate = snapshot.gateWitnesses.find(
+      (value) =>
+        value.gateId === gateId &&
+        value.executionId === current.executionId &&
+        value.commitSha === current.submission?.commitSha &&
+        value.iteration === current.iteration &&
+        value.result === "pass" &&
+        (value.basis === undefined || value.provenance === undefined || value.observed === undefined
+          ? true
+          : judgeCompletionEvidence(
+              { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
+              { execution: current, gateId },
+            ).accepted),
+    );
+    const receiptRef = gate ? `event:${gate.receiptId}` : null;
     return receiptRef
       ? [
           {

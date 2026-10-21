@@ -53,8 +53,8 @@ plus a rationale (dec_mrg3z1we/CH1-CH3; ADR-0027 D3, D5-D6).
 
 `ha task complete` resolves deterministic gates from the Task's selected
 preset/profile and repository Settings. The `standard` closeout profile disables
-review, consent, fact disposition, and code-doc reconciliation by default;
-`strict` enables all four. Individual overrides may change either baseline, and
+review, consent, and fact disposition by default; `strict` enables all three.
+Individual overrides may change either baseline, and
 Task/preset gates can only tighten it. Configure the repository with
 `ha settings update --closeout-profile standard|strict`. No path
 requires a minimum number of Facts: Facts are explicit `0..N` promotions and

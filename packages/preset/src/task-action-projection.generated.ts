@@ -482,84 +482,6 @@ export const taskActionDescriptorProjection = {
       },
     },
     {
-      id: "reconcile",
-      input: {
-        schema: "entity-action-input/v1",
-        fields: [
-          { field: "taskId", type: "string", required: true },
-          { field: "expectedVersion", type: "number", required: false },
-          { field: "executionId", type: "string", required: false },
-          { field: "witnessId", type: "string", required: false },
-          { field: "commitSha", type: "string", required: false },
-          { field: "iteration", type: "number", required: false },
-          {
-            field: "paths",
-            type: "string-array",
-            required: true,
-            cli: { name: "--path", kind: "repeated", error: "missing_field" },
-          },
-          { field: "commandType", type: "string", required: false, enum: ["ReconcileCodeDoc"] },
-        ],
-        exactlyOneOf: [],
-      },
-      explain: "Publish a typed code-doc witness.",
-      execution: {
-        ingress: "task-code-doc-reconcile",
-        topology: "ledger-write",
-        remoteEdgeAdmission: "via-center-forward",
-        lifecycle: {
-          transitionId: "reconcile_code_doc",
-          commandType: "ReconcileCodeDoc",
-          targetIdField: "executionId",
-          coordination: "execute",
-        },
-      },
-    },
-    {
-      id: "repoint",
-      input: {
-        schema: "entity-action-input/v1",
-        fields: [
-          { field: "taskId", type: "string", required: true },
-          { field: "expectedVersion", type: "number", required: false },
-          {
-            field: "record",
-            type: "string",
-            required: true,
-            cli: { name: "--record", kind: "single", error: "missing_field" },
-          },
-          { field: "repointId", type: "string", required: false },
-          { field: "commitSha", type: "string", required: false },
-          {
-            field: "paths",
-            type: "string-array",
-            required: false,
-            cli: { name: "--path", kind: "repeated", error: "invalid_field" },
-          },
-          {
-            field: "reason",
-            type: "string",
-            required: true,
-            cli: { name: "--reason", kind: "single", error: "missing_field" },
-          },
-          { field: "commandType", type: "string", required: false, enum: ["RepointCodeDoc"] },
-        ],
-        exactlyOneOf: [],
-      },
-      explain: "Append an audited code-doc witness correction for a completed task.",
-      execution: {
-        ingress: "task-code-doc-repoint",
-        topology: "ledger-write",
-        remoteEdgeAdmission: "rejected",
-        lifecycle: {
-          transitionId: "repoint_code_doc",
-          commandType: "RepointCodeDoc",
-          targetIdField: "executionId",
-          coordination: "execute",
-        },
-      },
-    },
-    {
       id: "complete",
       input: {
         schema: "entity-action-input/v1",
@@ -573,7 +495,6 @@ export const taskActionDescriptorProjection = {
             cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
           },
           { field: "ci", type: "string", required: false },
-          { field: "paths", type: "string-array", required: false },
           {
             field: "resolvedBy",
             type: "string",

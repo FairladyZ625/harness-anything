@@ -139,42 +139,6 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
       },
       { actorBinding: owner, capability: "execution-consent@v1", capabilityRef: "cap-consent" },
     ),
-    reconcile = make(
-      owner,
-      {
-        type: "ReconcileCodeDoc",
-        taskId,
-        executionId,
-        witnessId: `witness-${iteration}`,
-        commitSha,
-        iteration,
-        paths: ["packages/kernel/src/index.ts"],
-      },
-      {
-        actorBinding: owner,
-        capability: "code-doc-reconcile@v1",
-        capabilityRef: "cap-reconcile",
-        commitPaths: { commitSha, paths: ["packages/kernel/src/index.ts"] },
-      },
-    ),
-    repoint = make(
-      owner,
-      {
-        type: "RepointCodeDoc",
-        taskId,
-        record: `witness-${iteration}`,
-        repointId: `repoint-${iteration}`,
-        commitSha,
-        paths: ["packages/kernel/src/index.ts"],
-        reason: "reachability",
-      },
-      {
-        actorBinding: owner,
-        capability: "code-doc-repoint@v1",
-        capabilityRef: "cap-repoint",
-        commitPaths: { commitSha, paths: ["packages/kernel/src/index.ts"] },
-      },
-    ),
     complete = make(
       owner,
       { type: "CompleteTask", taskId, executionId },
@@ -183,7 +147,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
         capabilityRef: "cap-complete",
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, factDisposition: true },
         gateReceipts: [],
       },
     );
@@ -220,8 +184,6 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
     ...adjudications,
     review,
     consent,
-    reconcile,
-    repoint,
     complete,
   ];
 }

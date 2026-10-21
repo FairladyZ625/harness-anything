@@ -11,7 +11,6 @@ const ISSUE_COPY: Readonly<Record<GateMappingIssue, MessageKey>> = {
   adapterFieldMissing: "views.settingsView.gateIssue.adapterFieldMissing",
   adapterFieldUnexpected: "views.settingsView.gateIssue.adapterFieldUnexpected",
   governanceNotAllowed: "views.settingsView.gateIssue.governanceNotAllowed",
-  internalGateAdapter: "views.settingsView.gateIssue.internalGateAdapter",
 };
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
@@ -66,10 +65,7 @@ export function GateMappingsEditor({
         const fields = descriptor.adapterFields[draft.adapter] ?? [],
           governable = descriptor.governableAdapters.includes(draft.adapter),
           rowIssues = issues.filter((issue) => issue.row === row),
-          // 内建对账门由系统见证,只能映射到 none——adapter 选择器直接收窄到合法面。
-          adapterOptions = (draft.gateId === descriptor.internalGateId ? ["none"] : descriptor.adapters).map(
-            (value) => ({ value, label: value }),
-          );
+          adapterOptions = descriptor.adapters.map((value) => ({ value, label: value }));
         return (
           <div
             key={row}

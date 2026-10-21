@@ -216,7 +216,7 @@ export function createRuntime(options: PresetResolverOptions): {
         completionValidation.issues.map(({ path, message }) => `${path}: ${message}`).join("; "),
       );
     for (const gateId of profile.completionGates)
-      if (gateId !== "code-doc-reconciliation" && !completion.gates[gateId])
+      if (!completion.gates[gateId])
         throw presetFailure("missing_gate", `Profile ${profile.id} selects undeclared completion gate ${gateId}.`);
     const completionPackages: Record<string, FrozenCompletionPackage> = {};
     for (const [sourceId, source] of Object.entries(completion.sources)) {

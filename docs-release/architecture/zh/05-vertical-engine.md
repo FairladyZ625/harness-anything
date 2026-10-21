@@ -31,7 +31,7 @@
 
 vertical 定义领域；选中的 preset/profile 定义某个 Task 适用哪些确定性 completion gate。
 `preset-manifest/v3`(`packages/preset/src/preset.contract.ts`)的每个 profile 都携带
-`completionGates`——`ci`、`code-doc-reconciliation` 这类可移植 gate id,也可以是显式空数组。
+`completionGates`——`ci` 这类可移植 gate id,也可以是显式空数组。
 kernel 校验非空 gate-ID 语法,daemon 在完成路径上按 `completion-readiness.ts` 执行已实现的门,
 拒绝未知或重复 gate。所以 `--ci` 类要求是 coding 契约的要求,不是 CLI 的全局要求（ADR-0027 D7）。
 

@@ -94,7 +94,7 @@ function seedQueries(client: QueryClient): void {
       capabilityImports: [{ id: "standard-task-check", kind: "checker", version: "1", required: false }],
     },
     resolved: {
-      profile: { id: "baseline", completionGateIds: ["ci", "code-doc-reconciliation"] },
+      profile: { id: "baseline", completionGateIds: ["ci", "manual-attest"] },
       templates: [
         { slot: "task.plan", path: "task_plan.md", locale: "zh-CN", owner: "doc-sync", requiredAnchors: ["## Brief"] },
       ],
@@ -237,7 +237,7 @@ describe("G7 Preset 列表 → 详情", () => {
       `digestsha256:${"e".repeat(64)}`,
     ]);
     // 原来的三串标签各自成条:完成门单行,能力导入第二行是 kind@version,ancestry 一行一个。
-    expect(rows("gates")).toEqual(["ci", "code-doc-reconciliation"]);
+    expect(rows("gates")).toEqual(["ci", "manual-attest"]);
     expect(rows("imports")).toEqual(["standard-task-checkchecker@1"]);
     expect(rows("provenance")).toEqual([
       `provenance.manifestSha256sha256:${"a".repeat(64)}`,

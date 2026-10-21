@@ -475,63 +475,6 @@ export function consent(value: unknown): boolean {
   );
 }
 
-export function codeDoc(value: unknown): boolean {
-  return (
-    exactRecord(value, [
-      "schema",
-      "witnessId",
-      "taskId",
-      "executionId",
-      "commitSha",
-      "iteration",
-      "paths",
-      "actor",
-      "source",
-      "reconciledAt",
-    ]) &&
-    value.schema === "code-doc-witness/v1" &&
-    [value.witnessId, value.taskId, value.executionId, value.reconciledAt].every(nonEmpty) &&
-    sha(value.commitSha) &&
-    iteration(value.iteration) &&
-    stringArray(value.paths) &&
-    actor(value.actor) &&
-    source(value.source)
-  );
-}
-
-export function codeDocRepoint(value: unknown): boolean {
-  return (
-    exactRecord(value, [
-      "schema",
-      "recordId",
-      "supersedes",
-      "taskId",
-      "executionId",
-      "commitSha",
-      "iteration",
-      "paths",
-      "disposition",
-      "reason",
-      "actor",
-      "source",
-      "repointedAt",
-    ]) &&
-    value.schema === "code-doc-witness-repoint/v1" &&
-    [value.recordId, value.supersedes, value.taskId, value.executionId, value.reason, value.repointedAt].every(
-      nonEmpty,
-    ) &&
-    sha(value.commitSha) &&
-    iteration(value.iteration) &&
-    stringArray(value.paths) &&
-    ((value.disposition === "repointed" && value.paths.length > 0) ||
-      (value.disposition === "known-invalid" && value.paths.length === 0)) &&
-    actor(value.actor) &&
-    source(value.source)
-  );
-}
-
-export const codeDocRecord = (value: unknown): boolean => codeDoc(value) || codeDocRepoint(value);
-
 export function gate(value: unknown): boolean {
   const historical = isJsonObject(value) && value.schema === "completion-gate-acceptance/v1";
   const required = [

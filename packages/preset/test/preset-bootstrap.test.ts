@@ -152,9 +152,11 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.deepEqual(documentation.event.payload.task.completionGateIds, []);
     assert.deepEqual(documentationContract.completionGates, []);
     assert.equal(documentationContract.presetSnapshotDigest, documentation.snapshot.digest);
-    assert.notEqual(documentation.snapshot.digest, standard.snapshot.digest);
+    // docs-task and standard-task now resolve to the same completion contract (neither declares a gate),
+    // so the snapshot digest is identical: there is no code-delivery gate left to strip for a docs task.
+    assert.equal(documentation.snapshot.digest, standard.snapshot.digest);
     // Upgrade recompiles the current preset for the task; a docs task on the current preset must stay current
-    // instead of being recompiled as ordinary work and regaining the CI and code-doc gates.
+    // instead of being recompiled as ordinary work and regaining the CI gate.
     assert.throws(
       () =>
         compilePresetSnapshotUpgrade({

@@ -570,23 +570,7 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
     };
   if (command.type === "RetireCompletionGeneration")
     return { ...common, executionId: command.executionId, sourceGeneration: command.sourceGeneration };
-  if (command.type === "RepointCodeDoc")
-    return {
-      ...common,
-      record: command.record,
-      repointId: command.repointId,
-      commitSha: command.commitSha,
-      paths: command.paths,
-      reason: command.reason,
-    };
-  return {
-    ...common,
-    executionId: command.executionId,
-    witnessId: command.witnessId,
-    commitSha: command.commitSha,
-    iteration: command.iteration,
-    paths: command.paths,
-  };
+  throw new TaskLifecycleOperationConflict("unsupported lifecycle command");
 }
 function operationIdentityFromEvent(event: TaskEventV1): unknown {
   const type =
@@ -612,11 +596,7 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
                         ? "RecordReview"
                         : event.type === "review_consent_recorded" || event.type === "review_consent_overridden"
                           ? "RecordReviewConsent"
-                          : event.type === "code_doc_reconciled"
-                            ? "ReconcileCodeDoc"
-                            : event.type === "code_doc_repointed"
-                              ? "RepointCodeDoc"
-                              : "CompleteTask";
+                          : "CompleteTask";
   const common = {
     type,
     taskId: event.taskId,
@@ -716,28 +696,6 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
             rationale: event.payload.disposition.rationale,
           }
         : {}),
-    };
-  }
-  if (event.type === "code_doc_reconciled") {
-    const witness = event.payload.witness;
-    return {
-      ...common,
-      executionId: witness.executionId,
-      witnessId: witness.witnessId,
-      commitSha: witness.commitSha,
-      iteration: witness.iteration,
-      paths: witness.paths,
-    };
-  }
-  if (event.type === "code_doc_repointed") {
-    const record = event.payload.record;
-    return {
-      ...common,
-      record: record.supersedes,
-      repointId: record.recordId,
-      commitSha: record.commitSha,
-      paths: record.paths,
-      reason: record.reason,
     };
   }
   throw new TaskLifecycleOperationConflict("unsupported lifecycle event");

@@ -248,7 +248,7 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
     writeFileSync(
       configPath,
       `${readFileSync(configPath, "utf8")}  gates:\n    lint:\n      adapter: research/check\n` +
-        "      appliesTo: code\n    code-doc-reconciliation: none\n",
+        "      appliesTo: code\n    contract: none\n",
     );
     const applied = await cell.run(
       { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "gates-import" },
@@ -262,12 +262,12 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
         adapter: "research/check",
         appliesTo: "code",
       },
-      { gateId: "code-doc-reconciliation", adapter: "none" },
+      { gateId: "contract", adapter: "none" },
     ]);
     // The facet write is symmetric: the canonical writer renders the block it parsed.
     assert.match(
       readFileSync(configPath, "utf8"),
-      /  gates:\n    lint:\n      adapter: research\/check\n[\s\S]*    code-doc-reconciliation: none\n/u,
+      /  gates:\n    lint:\n      adapter: research\/check\n[\s\S]*    contract: none\n/u,
     );
 
     // An unreadable gates block is a typed rejection, never a partial write.
@@ -313,7 +313,7 @@ test("settings update gatesDraft splices the declared facet into the authored do
           appliesTo: "code",
           mandatorySignoff: true,
         },
-        { gateId: "code-doc-reconciliation", adapter: "none" },
+        { gateId: "contract", adapter: "none" },
       ],
       applied = await cell.run({ kind: "settings-update", gatesDraft, idempotencyKey: "gates-draft" }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
@@ -329,7 +329,7 @@ test("settings update gatesDraft splices the declared facet into the authored do
     assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible));
     assert.match(
       readFileSync(configPath, "utf8"),
-      /  gates:\n    lint:\n      adapter: research\/check\n[\s\S]*mandatorySignoff: true\n[\s\S]*    code-doc-reconciliation: none\n/u,
+      /  gates:\n    lint:\n      adapter: research\/check\n[\s\S]*mandatorySignoff: true\n[\s\S]*    contract: none\n/u,
     );
 
     // An unchanged draft compiles to no-changes.

@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  canonicalCodeDocPaths,
-  currentExecutionCuts,
   currentSubmittedExecutions,
   heldLeaseForExecutionActor,
   getExecutableEntityAction,
@@ -35,7 +33,6 @@ import type {
   Snapshot,
 } from "./repo-cell-types.ts";
 
-const CODE_DOC_REPOINT_FIELDS = ["kind", "taskId", "record", "paths", "reason"];
 export function dispatchRead<M extends RepoCellReadMethod>(
   handlers: DaemonGuiReadHandlers,
   method: M,
@@ -45,38 +42,6 @@ export function dispatchRead<M extends RepoCellReadMethod>(
   return handlers[method](payload, binding);
 }
 
-function submittedExecutionWitness(
-  action: RepoTaskAction,
-  snapshot: Snapshot,
-  taskId: string,
-  allowed: string[],
-  paths: readonly string[],
-) {
-  const unsupported = Object.keys(action).filter((field) => !allowed.includes(field));
-  if (unsupported.length)
-    throw cellCodedError(
-      "invalid_command",
-      `Run ha task code-doc ${action.kind.split("-").at(-1)} ${taskId} without ${unsupported.join(", ")}; ` +
-        "the submitted execution supplies the witness cut.",
-    );
-  const executions = currentExecutionCuts(snapshot),
-    found = executions.map((value) => value.executionId).join(", ") || "none",
-    witnessError = `Expected one code-doc witness; found ${found}. Run ha task show ${taskId}.`;
-  if (executions.length !== 1) throw cellCodedError("invalid_command", witnessError);
-  const execution = executions[0]!,
-    commitSha = execution.submission!.commitSha;
-  if (commitSha === null)
-    throw cellCodedError(
-      "invalid_transition",
-      "code-doc reconciliation applies to the code part of a delivery; this submission is artifact-only.",
-    );
-  return {
-    executionId: execution.executionId,
-    commitSha,
-    iteration: execution.iteration,
-    paths,
-  };
-}
 
 export function buildCommand(
   action: RepoTaskAction,
@@ -340,38 +305,6 @@ export function buildCommand(
         ? { disposedReviewIds: action.dispose }
         : {}),
       ...(typeof action.rationale === "string" ? { rationale: action.rationale } : {}),
-    });
-  }
-  if (action.kind === "task-code-doc-reconcile") {
-    if (!canonicalCodeDocPaths(action.paths, true))
-      throw cellCodedError(
-        "invalid_command",
-        "Pass explicit canonical file paths as completion.codeDocPaths to code-doc reconcile; " +
-          "each --path must name one file relative to the Git repository root, and directories " +
-          "are not accepted.",
-      );
-    const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId", "paths"], action.paths);
-    if (witness.commitSha === null)
-      throw cellCodedError("invalid_proof", "Code/doc reconciliation requires a code delivery.");
-    return normalizeTaskLifecycleCommand(bound, {
-      type: "ReconcileCodeDoc",
-      taskId,
-      ...witness,
-      commitSha: witness.commitSha,
-      witnessId: `code-doc-${createHash("sha256").update(JSON.stringify(witness)).digest("hex").slice(0, 16)}`,
-    });
-  }
-  if (action.kind === "task-code-doc-repoint") {
-    const witness = submittedExecutionWitness(action, snapshot, taskId, CODE_DOC_REPOINT_FIELDS, []);
-    if (witness.commitSha === null) throw cellCodedError("invalid_proof", "Code/doc repoint requires a code delivery.");
-    return normalizeTaskLifecycleCommand(bound, {
-      type: "RepointCodeDoc",
-      taskId,
-      record: requiredCellText(action.record, "record"),
-      repointId: `code-doc-repoint-${createHash("sha256").update(JSON.stringify(action)).digest("hex").slice(0, 16)}`,
-      commitSha: witness.commitSha,
-      paths: cellStringList(action.paths),
-      reason: requiredCellText(action.reason, "reason"),
     });
   }
   if (lifecycleAction?.commandType === "CompleteTask")

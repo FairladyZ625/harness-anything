@@ -315,9 +315,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
 }
 
 function withoutCodeDeliveryGates(snapshot: PresetSnapshotV1): PresetSnapshotV1 {
-  const completionGateIds = snapshot.profile.completionGateIds.filter(
-    (gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation",
-  );
+  const completionGateIds = snapshot.profile.completionGateIds.filter((gateId) => gateId !== "ci");
   if (completionGateIds.length === snapshot.profile.completionGateIds.length) return snapshot;
   const { digest: _digest, ...withoutDigest } = snapshot,
     effective = { ...withoutDigest, profile: { ...snapshot.profile, completionGateIds } };

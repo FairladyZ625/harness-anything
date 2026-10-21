@@ -15,8 +15,8 @@ import {
   type CloseoutSettingsV1,
 } from "./settings-closeout.ts";
 import { gateAppliesTo, type GateAppliesTo } from "./completion-source.ts";
+import { retiredCodeDocGateId } from "./code-doc-retirement.ts";
 export { gateAppliesTo, type GateAppliesTo } from "./completion-source.ts";
-export const CODE_DOC_GATE_ID = "code-doc-reconciliation";
 export interface GithubWitnessOptions {
   readonly workflows: readonly string[];
   readonly branch: string;
@@ -39,7 +39,8 @@ export type FrozenGateWitness =
         readonly adapterOptions: GithubWitnessOptions;
       })
   | {
-      readonly adapterId: typeof CODE_DOC_GATE_ID;
+      /** Retired 2026-10-21: accepted cuts keep the internal code/doc requirement readable. */
+      readonly adapterId: typeof retiredCodeDocGateId;
       readonly kind: "internal";
       readonly adapterOptions: Readonly<Record<string, never>>;
     };
@@ -199,14 +200,14 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, histori
   if (!isNonEmptyString(adapterId) || !isRecord(adapterOptions)) return false;
   if (definition.kind === "internal")
     return (
-      value.gateId === CODE_DOC_GATE_ID &&
-      adapterId === CODE_DOC_GATE_ID &&
+      value.gateId === retiredCodeDocGateId &&
+      adapterId === retiredCodeDocGateId &&
       value.appliesTo === "code" &&
       optional.length === 0 &&
       fields(definition, ["kind"]) &&
       fields(adapterOptions, [])
     );
-  if (value.gateId === CODE_DOC_GATE_ID || !validFrozenSource(definition, fields)) return false;
+  if (value.gateId === retiredCodeDocGateId || !validFrozenSource(definition, fields)) return false;
   if (definition.kind === "manual" && (value.mandatorySignoff || value.allowOverride)) return false;
   if (
     definition.kind === "github-actions" || definition.kind === "gitlab-pipeline"
@@ -237,8 +238,6 @@ export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1
     if (adapter === "none" && Object.keys(options).length) return [`settings.gates.${gateId}: none carries no options`];
     if (adapter === "github-actions" || adapter === "gitlab-pipeline")
       return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; attach migrates this field`];
-    if (gateId === CODE_DOC_GATE_ID && adapter !== "none")
-      return [`settings.gates.${CODE_DOC_GATE_ID} is internal; map it only to none`];
     return [];
   });
 }
@@ -272,14 +271,9 @@ export function resolveCompletionContract(
     if (mapping?.adapter === "github-actions" || mapping?.adapter === "gitlab-pipeline")
       return { ok: false, message: "Hosted CI completion witnesses are retired." };
     if (mapping?.adapter === "none") continue;
-    if (gateId === CODE_DOC_GATE_ID) {
-      gates.push({
-        gateId,
-        appliesTo: "code",
-        witness: { adapterId: CODE_DOC_GATE_ID, kind: "internal", adapterOptions: {} },
-      });
-      continue;
-    }
+    // Retired 2026-10-21: a new submission never rebuilds the internal code/doc requirement, and a
+    // frozen profile that still lists it resolves to no requirement rather than a witnessless gate.
+    if (gateId === retiredCodeDocGateId) continue;
     const sourceId = mapping?.adapter ?? declared?.source,
       source = sourceId === undefined ? undefined : declaration.sources[sourceId];
     if (!source || !sourceId)
@@ -312,12 +306,7 @@ export function resolveCompletionContract(
     contract: {
       gates,
       presetSnapshotDigest: frozen.digest,
-      closeoutGates: effectiveCloseoutGates(
-        settings.closeout ?? {},
-        declaredGateIds,
-        taskOverrides,
-        declaration.closeoutDefaults,
-      ),
+      closeoutGates: effectiveCloseoutGates(settings.closeout ?? {}, taskOverrides, declaration.closeoutDefaults),
     },
   };
 }

@@ -38,7 +38,7 @@ in one package; a profile only lists gate ids.
 | --- | --- |
 | `sources` | A record keyed by a domain-owned source id. Every source has `kind`, `predicateType`, and a JSON Schema `resultSchema`. |
 | `gates` | A record keyed by a gate id. Each gate selects a source and an `appliesTo` scope; it may select subjects and bind predicate fields to submitted artifacts. |
-| `closeoutDefaults` | Domain fallbacks for `review`, `consent`, `factDisposition`, and `codeDoc`. Explicit repository and task-profile choices take precedence. |
+| `closeoutDefaults` | Domain fallbacks for `review`, `consent`, and `factDisposition`. Explicit repository and task-profile choices take precedence. |
 
 The current source contract has three execution routes: `command`, `external`,
 and `manual`. Hosted CI source kinds are retained only when reading frozen
@@ -132,8 +132,7 @@ Add this `completion` object to the vertical package:
   "closeoutDefaults": {
     "review": false,
     "consent": false,
-    "factDisposition": false,
-    "codeDoc": false
+    "factDisposition": false
   }
 }
 ```

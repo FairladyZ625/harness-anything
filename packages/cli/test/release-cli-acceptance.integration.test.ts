@@ -33,7 +33,7 @@ const {
   writeFileSync,
 } = shared;
 
-test("release acceptance: attributed lifecycle chain create→start→fact→submit→reconcile→review→consent→complete reaches done", async (context) => {
+test("release acceptance: attributed lifecycle chain create→start→fact→submit→review→consent→complete reaches done", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-release-acc-chain-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -83,7 +83,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     writeCloseout(root, packagePath, "The chain fixture executed once.");
     const reportFile = path.join(root, "harness", packagePath, "artifacts", "implementation.md");
     mkdirSync(path.dirname(reportFile), { recursive: true });
-    writeFileSync(reportFile, "# Release acceptance\n\nThe public probe is the code-doc verification target.\n");
+    writeFileSync(reportFile, "# Release acceptance\n\nThe public probe is the delivery target.\n");
     // The probe below commits repo Git directly, so the daemon must finish publishing this cut first;
     // otherwise the two HEAD writers race and git dies with `cannot lock ref 'HEAD'`.
     const probePublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
@@ -107,14 +107,6 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       ["task", "annotate", taskId, "--execution-id", executionId, "--note", `merge_commit_sha:${mergeCommitSha}`],
       worker,
     );
-    const reconciled = run(
-      root,
-      userRoot,
-      ["task", "code-doc", "reconcile", taskId, "--path", "scripts/release-acc-probe.mjs"],
-      worker,
-    );
-    assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
-
     mkdirSync(path.join(root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
     writeFileSync(
       path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-approved.md"),
@@ -154,17 +146,8 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     const completed = run(root, userRoot, ["task", "complete", taskId], worker);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     const shown = run(root, userRoot, ["task", "show", taskId]),
-      evidence = JSON.parse(String(shown.evidence)) as {
-        task: { status: string };
-        codeDocWitnesses: readonly { paths?: readonly string[] }[];
-      };
+      evidence = JSON.parse(String(shown.evidence)) as { task: { status: string } };
     assert.equal(evidence.task.status, "done");
-    assert.ok(
-      evidence.codeDocWitnesses.some(
-        (witness) => Array.isArray(witness.paths) && witness.paths.includes("scripts/release-acc-probe.mjs"),
-      ),
-      `reconcile must leave a code-doc witness, saw ${JSON.stringify(evidence.codeDocWitnesses)}`,
-    );
 
     // Actor attribution: the executor and the reviewer are distinct authenticated principals in the ledger.
     const events = reader.read().events,

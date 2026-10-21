@@ -347,7 +347,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
         profileId: (created as Record<string, unknown>).profileId,
         completionGates: (created as Record<string, unknown>).completionGates,
       },
-      { presetId: "standard-task", profileId: "baseline", completionGates: ["code-doc-reconciliation"] },
+      { presetId: "standard-task", profileId: "baseline", completionGates: [] },
       JSON.stringify(created),
     );
     await waitForFixturePublication(cell, created.opId, bare);
@@ -687,7 +687,7 @@ test("a lightweight reviewed child closes without declaring a review executor", 
         profileId: (created as Record<string, unknown>).profileId,
         completionGates: (created as Record<string, unknown>).completionGates,
       },
-      { presetId: "standard-task", profileId: "baseline", completionGates: ["code-doc-reconciliation"] },
+      { presetId: "standard-task", profileId: "baseline", completionGates: [] },
       JSON.stringify(created),
     );
     await waitForFixturePublication(cell, created.opId, bare);
@@ -722,7 +722,7 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     // Initial owner triage is required before any independent reviewer can act.
     const next = submitted.next as { readonly command: string; readonly reason?: string }[];
-    assert.equal(next[0]!.command, `ha task code-doc reconcile ${taskId} --path 'README.md'`);
+    assert.doesNotMatch(JSON.stringify(next), /code-doc/u, "no completion step names the retired code/doc pair");
     return;
     assert.equal(
       (
@@ -1090,8 +1090,6 @@ test("review binding permits independent runtimes but still rejects the executio
     if (submittedCut?.type !== "execution_submitted") throw new Error("missing runtime submission");
     assert.equal(submittedCut.payload.execution.submission?.commitSha, git(workerRoot, "rev-parse", "HEAD"));
     assert.ok(submittedCut.payload.execution.submission?.deliverables.includes("README.md"));
-    const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
-    assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
     const deliveryCommit = git(workerRoot, "rev-parse", "HEAD");
     git(rootDir, "update-ref", "refs/remotes/origin/main", deliveryCommit);
     const annotated = await cell.run(

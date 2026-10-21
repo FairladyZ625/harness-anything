@@ -7,7 +7,6 @@
 schema: harness-anything/v1
 settings:
   gates:
-    code-doc-reconciliation: none
     owner-signoff:
       appliesTo: submission
       adapter: manual-attest

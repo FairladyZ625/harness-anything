@@ -14,7 +14,6 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
-import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, gateResults } from "./closeout-readiness.ts";
 import { taskCompletionAction, type CompletionReadinessContext } from "./completion-readiness.ts";
 export interface LifecycleDocumentState {
@@ -54,8 +53,6 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
     paths.push(`${packagePath}/reviews/${event.payload.review.reviewId}.md`);
   if (event.type === "submission_returned")
     paths.push(`${packagePath}/returns/iteration-${String(event.payload.execution.iteration)}.md`);
-  if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed")
-    paths.push(`${packagePath}/code-doc-anchors.json`);
   return paths;
 }
 // Superset of `lifecycleDocumentPaths` for callers gathering current document bodies before a
@@ -220,7 +217,7 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
 /**
  * Re-renders the lifecycle-managed documents that already exist under one task package from the
  * current snapshot alone: INDEX/contract/module plus every published execution and review record.
- * Authored prose (task_plan.md), progress logs, code-doc anchors, and raw artifacts are owned by
+ * Authored prose (task_plan.md), progress logs, and raw artifacts are owned by
  * other writers and are intentionally not listed here.
  */
 export function rematerializeTaskDocuments(input: {
@@ -298,12 +295,6 @@ export function renderLifecycleDocument(
   if (path.endsWith("/module.md")) return renderModule(snapshot);
   if (path.endsWith("/task_plan.md") && retitledTaskPlanPath(event, path.slice(0, -"/task_plan.md".length)) !== null)
     return renderTaskPlan(snapshot, path, base);
-  if (path.endsWith("/code-doc-anchors.json") && event.type === "code_doc_reconciled")
-    return `${stableStringify(event.payload.witness)}\n`;
-  if (path.endsWith("/code-doc-anchors.json") && event.type === "code_doc_repointed") {
-    if (base === null) throw new Error("code-doc repoint requires an existing anchor document");
-    return `${base}${base.endsWith("\n") ? "" : "\n"}${stableStringify(event.payload.record)}\n`;
-  }
   if (path.includes("/reviews/")) {
     const review =
       event.type === "review_recorded" ||
@@ -354,13 +345,6 @@ function renderIndex(
     executionId = current?.executionId ?? "",
     gateStatus = (gateId: string) => {
       if (!current?.submission) return false;
-      if (gateId === "code-doc-reconciliation") {
-        const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
-        return (
-          witness?.iteration === current.iteration &&
-          (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission.commitSha)
-        );
-      }
       return snapshot.gateWitnesses.some(
         (value) =>
           value.executionId === executionId &&
@@ -470,21 +454,14 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
       ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, value, snapshot.reviewDispositions)
       : undefined,
     results = gateResults(snapshot, undefined, value.executionId, packet ?? null, value.iteration),
-    checkerGateIds = results.filter(({ gateId }) => gateId !== "code-doc-reconciliation").map(({ gateId }) => gateId),
+    checkerGateIds = results.map(({ gateId }) => gateId),
     gates = snapshot.gateWitnesses.filter(
       (candidate) =>
         checkerGateIds.includes(candidate.gateId) &&
         candidate.executionId === value.executionId &&
         candidate.iteration === value.iteration &&
         candidate.commitSha === packet?.commitSha,
-    ),
-    codeDocRequired = results.some(({ gateId }) => gateId === "code-doc-reconciliation"),
-    witness = codeDocRequired ? currentCodeDocRecord(snapshot.codeDocWitnesses, value.executionId) : undefined,
-    validCodeDocWitness =
-      witness?.iteration === value.iteration &&
-      (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === packet?.commitSha)
-        ? witness
-        : undefined;
+    );
   return [
     `# Execution ${value.executionId}\n\n`,
     "Managed by `ha task start/submit`; hand edits are rejected.\n\n",
@@ -523,12 +500,6 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
         : gates.length
           ? gates.map((value) => `${value.gateId}/${value.receiptId}`).join(", ")
           : "pending"
-    }\n`,
-    `- Code-doc witness: ${codeDocRequired ? (validCodeDocWitness ? codeDocRecordId(validCodeDocWitness) : "pending") : "not_required"}${
-      validCodeDocWitness?.schema === "code-doc-witness-repoint/v1" &&
-      validCodeDocWitness.disposition === "known-invalid"
-        ? " (known-invalid)"
-        : ""
     }\n`,
     "\n## Deliverables\n\n",
     list(packet?.deliverables ?? []),

@@ -72,7 +72,7 @@ export function researchPackage(root: string, script = researchScript, outputSha
             bindings: { seed: { artifact: "artifacts/experiment.json", pointer: "/seed" } },
           },
         },
-        closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: false },
+        closeoutDefaults: { review: false, consent: false, factDisposition: false },
       },
     }),
   );

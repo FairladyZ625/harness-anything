@@ -79,7 +79,6 @@ export function TaskCloseoutTab({
     completionNext = completion.data?.completionNext,
     reviews = task.reviews ?? [],
     consents = task.consents ?? [],
-    codeDocs = task.codeDocWitnesses ?? [],
     gateWitnesses = task.gateWitnesses ?? [];
   // W5:执行证据页撤销后,execution 输出/回执并入收口——从投影行原样适配
   // (model/execution-evidence),reviews/consents/gate 见证按 execution 对齐。
@@ -151,8 +150,8 @@ export function TaskCloseoutTab({
               ) : null}
               {task.snapshotAvailability ? (
                 <span className="ml-auto font-mono ui-micro text-text-faint">
-                  availability · consent {task.snapshotAvailability.consents} · code/doc{" "}
-                  {task.snapshotAvailability.codeDocWitnesses} · gates {task.snapshotAvailability.gateWitnesses}
+                  availability · consent {task.snapshotAvailability.consents} · gates{" "}
+                  {task.snapshotAvailability.gateWitnesses}
                 </span>
               ) : null}
             </div>
@@ -188,26 +187,6 @@ export function TaskCloseoutTab({
                   at={consent.consentedAt}
                   recordRef={`consent/${consent.consentId}`}
                   focused={focusedRecordRef === `consent/${consent.consentId}`}
-                />
-              ))}
-            </AuditGroup>
-            <AuditGroup title="Code / doc witness" count={codeDocs.length}>
-              {codeDocs.map((witness) => (
-                <AuditRow
-                  key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
-                  id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
-                  state={
-                    witness.schema === "code-doc-witness/v1" || witness.paths.length > 0
-                      ? "reconciled"
-                      : "known-invalid"
-                  }
-                  summary={witness.paths.join(", ")}
-                  at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}
-                  recordRef={`witness/${witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}`}
-                  focused={
-                    focusedRecordRef ===
-                    `witness/${witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}`
-                  }
                 />
               ))}
             </AuditGroup>

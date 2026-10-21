@@ -446,8 +446,7 @@
       "closeoutDefaults": {
         "review": false,
         "consent": false,
-        "factDisposition": false,
-        "codeDoc": true
+        "factDisposition": false
       }
     }
   }

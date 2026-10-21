@@ -35,7 +35,6 @@ active Execution (holding the lease)
     ▼
 [ doc sync + Submission packet derived from closeout.md ] ─ reject ─▶ (status unchanged)
     │ submitted -> in_review
-    │  ha task code-doc reconcile <id> --path ...   (when the contract declares it)
     │  ha task declare-executor <id>
     │  ha task review-execution <id> ...
     │  ha task review-consent <id>
@@ -134,19 +133,11 @@ current blocker codes:
 | `review_missing` | no approved Review |
 | `consent_missing` | no review-consent record |
 | `delivery_missing` | repository settings require merged code delivery, but its recorded merge commit is absent from the configured target branch; legacy frozen `ci` gates use the same read-only merge evidence |
-| `code_doc_missing` | the contract declares `code-doc-reconciliation` but no verified witness (`ha task code-doc reconcile`) |
 | `gate_witness_missing` | a canonical checker witness for another declared gate is missing |
 | `decision_lineage_missing` | the load-bearing decision lineage is not closed |
 | `lease_held` | a lease is still held |
 | `doc_sync_required` | authored documents are pending sync |
 | `fact_retirement_undeclared` | a fact retirement was not declared |
-
-For an applicable execution, `ha task code-doc reconcile <task-id>` derives the
-unique submitted execution, commit, iteration, and repository paths from its
-deliverables, verifies those paths against the Git repository that owns the
-commit, and publishes the typed witness. A reviewed report-only submission
-completes without inventing a repository path when all of its declared
-deliverables are task-package artifacts.
 
 If any blocker stands, the task stays where it is — and because `done` is a
 load-bearing write, that write itself goes through the single writer described

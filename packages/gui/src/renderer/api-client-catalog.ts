@@ -41,8 +41,6 @@ export interface CatalogGateMappingsDescriptor {
   readonly governanceFields: ReadonlyArray<string>;
   /** 可承载 mandatorySignoff/allowOverride 的 adapter。 */
   readonly governableAdapters: ReadonlyArray<string>;
-  /** 内建对账门 id:只能映射到 none。 */
-  readonly internalGateId: string;
 }
 export interface CatalogSnapshotSuccess {
   readonly schema: "gui-catalog-snapshot/v2";
@@ -171,8 +169,7 @@ function isGateMappingsDescriptor(value: unknown): value is CatalogGateMappingsD
     isRendererRecord(value.adapterFields) &&
     Object.values(value.adapterFields).every(Array.isArray) &&
     Array.isArray(value.governanceFields) &&
-    Array.isArray(value.governableAdapters) &&
-    typeof value.internalGateId === "string"
+    Array.isArray(value.governableAdapters)
   );
 }
 

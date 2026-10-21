@@ -250,7 +250,6 @@ function closeoutFixtureTask(executionEvidence: unknown[]) {
     lastKnownAt: "2026-10-02T00:00:00.000Z",
     reviews: [{ reviewId: LONG_ID, verdict: "returned", reason: LONG_REASON, reviewedAt: "2026-10-02T00:00:00.000Z" }],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
     gates: [],
     capabilities: [],
@@ -349,5 +348,36 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
     const bodyBlock = recordRows[0]!.firstElementChild!.nextElementSibling;
     expect(bodyBlock).not.toBeNull();
     expect(bodyBlock!.textContent).toContain(LONG_LOCATOR);
+  });
+});
+
+describe("收口记录行的复制动作:整条记录引用是复制值", () => {
+  it("点复制后剪贴板得到 recordRef(评审行 → review/<id>),而不是显示用的截断文本", async () => {
+    const { TaskCloseoutTab } = await import("../src/renderer/components/taskDetail/TaskCloseoutTab.tsx");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const written: string[] = [];
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    const task = { ...closeoutFixtureTask([]), consents: [] };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = mount(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(TaskCloseoutTab, { task: task as never, onNavigateEntity: () => {} }),
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const row = container.querySelector('[id^="closeout-record-review-"]')!;
+    const copy = [...row.querySelectorAll("button")].find(
+      (button) => button.textContent === "复制" || button.textContent === "Copy",
+    )!;
+    expect(copy).toBeDefined();
+    await act(async () => copy.click());
+    expect(written).toEqual([LONG_REF]);
   });
 });

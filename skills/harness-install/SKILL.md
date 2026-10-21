@@ -173,7 +173,7 @@ ha --root "<目标仓库绝对路径>" task submit <任务标识>
 
 需要显式指定交付提交时，使用当前帮助中的 `--commit <40 位 SHA>`；不要用已退役的 `--from-file`。
 
-代码文档锚通过当前 `task code-doc reconcile` 在所需阶段产生，不手写机器文件。由真实独立评审者通过 `task review-execution` 提交评审（参数与文件路径约束先读其 `--help`）；`task review` 只检查旧评审契约，不能批准完成。评审材料包含：
+由真实独立评审者通过 `task review-execution` 提交评审（参数与文件路径约束先读其 `--help`）；`task review` 只检查旧评审契约，不能批准完成。评审材料包含：
 
 ```json
 { "verdict": "approved", "reason": "<依据>", "evidenceChecked": ["<实际检查的证据>"] }

@@ -96,7 +96,6 @@ function adaptProjectionRow(
     snapshotAvailability: row.snapshotAvailability,
     reviews: row.snapshot.reviews,
     consents: row.snapshot.consents,
-    codeDocWitnesses: row.snapshot.codeDocWitnesses,
     gateWitnesses: row.snapshot.gateWitnesses,
     // W5:执行证据页撤销后,execution 输出/回执的渲染归 Task 详情「收口」页签;
     // 这里按 reviews 等既有模式原样透传,renderer 不重解释 kernel 字段。
@@ -179,11 +178,6 @@ function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): Tas
       event(review.reviewedAt, REVIEW_VERDICT_KIND[review.verdict] ?? "rejected", review.reviewId, "review"),
     ),
     ...row.snapshot.consents.map((consent) => event(consent.consentedAt, "consent", consent.consentId, "consent")),
-    ...row.snapshot.codeDocWitnesses.map((witness) =>
-      witness.schema === "code-doc-witness/v1"
-        ? event(witness.reconciledAt, "witness", witness.witnessId, "witness")
-        : event(witness.repointedAt, "witness", witness.recordId, "witness"),
-    ),
     ...row.snapshot.gateWitnesses.map((witness) =>
       event(witness.verifiedAt, GATE_RESULT_KIND[witness.result] ?? "gateCheck", witness.witnessId, "witness"),
     ),

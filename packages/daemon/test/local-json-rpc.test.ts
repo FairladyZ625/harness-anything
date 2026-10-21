@@ -510,8 +510,6 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "task-declare-executor": "repo-write",
     "task-review-execution": "arbiter",
     "task-review-consent": "repo-write",
-    "task-code-doc-reconcile": "repo-write",
-    "task-code-doc-repoint": "repo-write",
     "task-complete": "repo-write",
     "task-show": "repo-read",
     "receipt-show": "repo-read",

@@ -118,7 +118,6 @@ const CATALOG: CatalogSnapshotSuccess = {
     adapterFields: {},
     governanceFields: [],
     governableAdapters: [],
-    internalGateId: "code-doc-reconciliation",
   },
 };
 
@@ -134,7 +133,7 @@ const PRESET_DETAIL: CatalogPresetSuccess = {
     capabilityImports: [],
   },
   resolved: {
-    profile: { completionGateIds: ["ci", "code-doc-reconciliation"] },
+    profile: { completionGateIds: ["ci", "manual-attest"] },
     templates: [],
     documents: [],
     entrypoints: [],
@@ -388,7 +387,7 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
     expect(command).toContain("--work task_root");
     expect(dialogTestId("start-work-idempotency").textContent).toContain("gui-start-work-");
     await until(
-      () => (dialogTestId("start-work-preconditions").textContent ?? "").includes("code-doc-reconciliation"),
+      () => (dialogTestId("start-work-preconditions").textContent ?? "").includes("manual-attest"),
       "resolved profile gates never arrived",
     );
     const preconditions = dialogTestId("start-work-preconditions").textContent ?? "";

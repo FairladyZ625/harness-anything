@@ -396,9 +396,7 @@ export function resolveDocRoute(path: PortableDocumentPath): {
             ? "task-contract-upgrade"
             : taskFile === "facts.md"
               ? "ha fact record --help"
-              : taskFile === "code-doc-anchors.json"
-                ? "task-code-doc-reconcile"
-                : taskFile?.startsWith("executions/")
+              : taskFile?.startsWith("executions/")
                   ? "task-lifecycle"
                   : taskFile?.startsWith("reviews/")
                     ? "task-review-execution"

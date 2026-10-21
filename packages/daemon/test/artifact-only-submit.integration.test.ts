@@ -145,6 +145,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
       assert.equal(completed.code, "review_missing");
       assert.doesNotMatch(JSON.stringify(completed), /fact_missing|code_doc_missing/);
+      // A frozen contract that still names the retired gate reports it out of scope, never missing.
       assert.deepEqual(completed.gateChecks, [
         { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
       ]);

@@ -30,7 +30,7 @@ export const reviewer: ActorAxes = {
 };
 const fixtureCompletionContract: FrozenCompletionContract = {
   ...emptyCompletionContract,
-  closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+  closeoutGates: { review: true, consent: true, factDisposition: true },
 };
 
 export const commitSha = "a".repeat(40);
@@ -165,7 +165,7 @@ export function lifecycleFixture(
       capabilityRef: "cap-complete",
       actorRole: "owner",
       noActiveLease: true,
-      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, factDisposition: true },
       gateReceipts: [],
     });
   return { events, snapshot };
