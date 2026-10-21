@@ -16,5 +16,6 @@
 // Version 35 records the shared replica change sequence in each projection transaction.
 // Version 36 materializes decision legacy numbers for indexed list pagination.
 // Version 37 materializes localeCompare-compatible decision ids for indexed list pagination.
-// Version 38 stores reviewer-qualified historical cut-review keys in the runtime dispatch index.
+// Version 38 stores reviewer-qualified historical cut-review keys in the runtime dispatch index,
+// and drops the retired code/doc witness field from persisted task snapshots.
 export const taskProjectionSchemaVersion = 38;
