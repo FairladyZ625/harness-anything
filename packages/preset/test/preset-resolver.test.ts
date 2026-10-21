@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { createCanonicalPresetResolver, installPresetPackage } from "../src/index.ts";
@@ -152,6 +152,176 @@ test("missing preset hints exclude presets whose required provider is unavailabl
         return true;
       },
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("availability follows inherited and profile-scoped required providers", async () => {
+  const fixture = makeFixture(),
+    sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source"),
+    assetsRoot = path.join(path.dirname(fixture.bundledRoot), "user-assets");
+  try {
+    // A parent whose required provider is absent, a child that inherits it, and a preset whose
+    // *default profile* imports an absent provider: all three decode fine and none can resolve.
+    writePackage(sourceRoot, "absent-parent", {
+      capabilityImports: [{ id: "provider:parent-absent/v1", kind: "checker", version: "1", required: true }],
+    });
+    writePackage(sourceRoot, "inherits-absent", { extends: "absent-parent" });
+    writePackage(sourceRoot, "absent-profile", {
+      profiles: [
+        {
+          id: "baseline",
+          title: "Baseline",
+          completionGates: [],
+          templateSelections: [],
+          capabilityImports: [{ id: "provider:profile-absent/v1", kind: "checker", version: "1" }],
+        },
+      ],
+    });
+    for (const id of ["absent-parent", "inherits-absent", "absent-profile"])
+      installPresetPackage({ source: path.join(sourceRoot, id), userRoot: fixture.userRoot });
+
+    const resolver = createCanonicalPresetResolver({
+        bundledRoot: fixture.bundledRoot,
+        userRoot: fixture.userRoot,
+        assetsRoot: fixture.assetsRoot,
+      }),
+      listed = await resolver.list({ verticalId: "software/coding" }),
+      validity = Object.fromEntries(listed.map(({ id, validity: value }) => [id, value]));
+    assert.deepEqual(validity, {
+      "absent-parent": "unavailable",
+      "absent-profile": "unavailable",
+      "inherits-absent": "unavailable",
+      "standard-task": "valid",
+    });
+    assert.deepEqual(listed.find(({ id }) => id === "inherits-absent")?.missingProviderIds, [
+      "provider:parent-absent/v1",
+    ]);
+    assert.deepEqual(listed.find(({ id }) => id === "absent-profile")?.missingProviderIds, [
+      "provider:profile-absent/v1",
+    ]);
+
+    // Control: the projection downgraded them for the reason the resolver rejects them.
+    for (const presetId of ["absent-parent", "inherits-absent", "absent-profile"]) {
+      const rejected = await resolver.resolve({
+        presetId,
+        verticalId: "software/coding",
+        locale: "en-US",
+        purpose: "inspect",
+      });
+      assert.equal(rejected.ok, false, presetId);
+      if (!rejected.ok) assert.equal(rejected.error.code, "missing_provider", presetId);
+    }
+
+    const missingPreset = await resolver.resolve({
+      presetId: "not-installed",
+      verticalId: "software/coding",
+      locale: "en-US",
+      purpose: "inspect",
+    });
+    assert.equal(missingPreset.ok, false);
+    if (missingPreset.ok) return;
+    assert.equal(missingPreset.error.code, "preset_not_found");
+    assert.match(missingPreset.error.hint, /Available presets: standard-task\./u);
+
+    // The invariant behind the hint: every id it offers resolves without a provider rejection.
+    const advertised = [...missingPreset.error.hint.match(/Available presets: (.*)\./u)!][1]!.split(", ");
+    assert.deepEqual(
+      advertised,
+      listed.filter(({ validity: value }) => value === "valid").map(({ id }) => id),
+    );
+    for (const presetId of advertised) {
+      const result = await resolver.resolve({
+        presetId,
+        verticalId: "software/coding",
+        locale: "en-US",
+        purpose: "inspect",
+      });
+      assert.equal(result.ok || result.error.code !== "missing_provider", true, presetId);
+    }
+
+    assert.throws(
+      () =>
+        presetDocumentBody({
+          userRoot: fixture.userRoot,
+          verticalId: "software/coding",
+          presetId: "not-installed",
+        }),
+      (error: unknown) => {
+        const message = (error as { readonly message?: string }).message ?? "";
+        // presetDocumentBody reads the real vertical assets, so it lists those bundled presets too;
+        // what matters is that none of the three unrunnable user packages is offered.
+        assert.match(message, /Available presets: .*standard-task/u);
+        for (const unavailable of ["absent-parent", "inherits-absent", "absent-profile"])
+          assert.doesNotMatch(message, new RegExp(unavailable, "u"));
+        return true;
+      },
+    );
+
+    // The same tree with the parent's provider available: the child is selectable again, and both
+    // are advertised. Nothing is cached from the failing projection.
+    cpSync(fixture.assetsRoot, assetsRoot, { recursive: true });
+    write(
+      path.join(assetsRoot, "capabilities.json"),
+      JSON.stringify({
+        schema: "preset-capabilities/v1",
+        providers: [{ id: "provider:parent-absent/v1", kind: "checker", version: "1" }],
+      }),
+    );
+    const provided = createCanonicalPresetResolver({
+      bundledRoot: fixture.bundledRoot,
+      userRoot: fixture.userRoot,
+      assetsRoot,
+    });
+    assert.equal(
+      (await provided.list({ verticalId: "software/coding" })).find(({ id }) => id === "inherits-absent")?.validity,
+      "valid",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a broken extends chain blocks the entry instead of failing the whole catalog", async () => {
+  const fixture = makeFixture(),
+    sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source");
+  try {
+    writePackage(sourceRoot, "cycle-a", { extends: "cycle-b" });
+    writePackage(sourceRoot, "cycle-b", { extends: "cycle-a" });
+    writePackage(sourceRoot, "orphan", { extends: "never-installed" });
+    for (const id of ["cycle-a", "cycle-b", "orphan"])
+      installPresetPackage({ source: path.join(sourceRoot, id), userRoot: fixture.userRoot });
+    const resolver = createCanonicalPresetResolver({
+      bundledRoot: fixture.bundledRoot,
+      userRoot: fixture.userRoot,
+      assetsRoot: fixture.assetsRoot,
+    });
+    // Listing every preset must not throw because one chain is broken; the broken entries carry
+    // the same code the resolver reports, and the healthy preset is still selectable.
+    const listed = await resolver.list({ verticalId: "software/coding" });
+    assert.deepEqual(
+      listed.map(({ id, validity, errorCode }) => ({ id, validity, errorCode })),
+      [
+        { id: "cycle-a", validity: "blocked", errorCode: "extends_cycle" },
+        { id: "cycle-b", validity: "blocked", errorCode: "extends_cycle" },
+        { id: "orphan", validity: "blocked", errorCode: "missing_parent" },
+        { id: "standard-task", validity: "valid", errorCode: undefined },
+      ],
+    );
+    for (const [presetId, code] of [
+      ["cycle-a", "extends_cycle"],
+      ["orphan", "missing_parent"],
+    ] as const) {
+      const rejected = await resolver.resolve({
+        presetId,
+        verticalId: "software/coding",
+        locale: "en-US",
+        purpose: "inspect",
+      });
+      assert.equal(rejected.ok, false, presetId);
+      if (!rejected.ok) assert.equal(rejected.error.code, code, presetId);
+    }
   } finally {
     fixture.cleanup();
   }

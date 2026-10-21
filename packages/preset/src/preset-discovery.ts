@@ -1,6 +1,13 @@
 import { loadCanonicalAssets } from "./preset-assets.ts";
 import { materializeSelections } from "./preset-materialization.ts";
 import {
+  missingProviderFailure,
+  presetAvailability,
+  providerIndex,
+  resolveAncestry,
+} from "./preset-resolution-inputs.ts";
+import {
+  asFailure,
   defaultAssets,
   key,
   normalizeLocale,
@@ -155,46 +162,52 @@ export function listCatalog(catalog: ReadonlyMap<string, Candidate>, verticalId:
 }
 
 /**
- * The projection `ha preset list` renders: catalog entries plus the missing-provider downgrade.
- * Anything that reports "available" presets must read this projection, not raw `listCatalog`,
- * so the hint and the list cannot disagree about whether a preset is selectable.
+ * The projection `ha preset list` renders: catalog entries plus the resolution gate. Anything that
+ * reports "available" presets must read this projection, not raw `listCatalog`, so the hint and the
+ * list cannot disagree about whether a preset is selectable. A preset is gated on the same inputs
+ * `resolve()` reads — its whole `extends` ancestry and the default profile of every layer — so a
+ * required provider inherited from a parent downgrades the child too.
  */
 export function listCatalogWithAvailability(
   catalog: ReadonlyMap<string, Candidate>,
   verticalId: string,
   providers: readonly Provider[],
 ): PresetCatalogDisplayEntry[] {
-  const providerMap = new Map(providers.map((item) => [item.id, item]));
-  return listCatalog(catalog, verticalId).map((entry) => {
+  const providerMap = providerIndex(providers);
+  return listCatalog(catalog, verticalId).map((entry): PresetCatalogDisplayEntry => {
     if (entry.validity !== "valid") return entry;
-    const candidate = catalog.get(key(verticalId, entry.id)),
-      imports = candidate?.decoded?.manifest.capabilityImports ?? [],
-      missingProviderIds = imports
-        .filter((item) => {
-          const provider = providerMap.get(item.id);
-          return (
-            (!provider || provider.kind !== item.kind || provider.version !== item.version) &&
-            (!("required" in item) || item.required)
-          );
-        })
-        .map(({ id }) => id)
-        .sort();
+    const candidate = catalog.get(key(verticalId, entry.id));
+    if (!candidate?.decoded) return entry;
+    let ancestry: readonly Candidate[];
+    try {
+      ancestry = resolveAncestry(catalog, candidate, verticalId);
+    } catch (error) {
+      return catalogBlocked(entry, asFailure(error));
+    }
+    const { missingProviderIds } = presetAvailability({ catalog, verticalId, ancestry, providers: providerMap });
     if (!missingProviderIds.length) return entry;
-    const failure = presetFailure(
-      "missing_provider",
-      `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
-      missingProviderIds,
-    );
+    const failure = missingProviderFailure(missingProviderIds);
     return {
       ...entry,
       validity: "unavailable" as const,
       errorCode: failure.code,
       issues: [{ code: failure.code, message: failure.message }],
       issueCount: 1,
-      nextAction: `Use a Harness build that provides ${missingProviderIds.join(", ")}, then rerun ha preset list.`,
       missingProviderIds,
+      ...catalogRecovery(entry, failure),
     };
   });
+}
+
+function catalogBlocked(entry: PresetCatalogDisplayEntry, failure: PresetFailure): PresetCatalogDisplayEntry {
+  return {
+    ...entry,
+    validity: "blocked" as const,
+    errorCode: failure.code,
+    issues: [{ code: failure.code, message: failure.message }],
+    issueCount: 1,
+    ...catalogRecovery(entry, failure),
+  };
 }
 
 export function catalogRecovery(

@@ -7,6 +7,13 @@ import {
 import { validateCompletionDeclaration } from "./preset-extension-model.ts";
 import { effectiveCatalog, missingPresetFailure } from "./preset-catalog.ts";
 import { listCatalogWithAvailability } from "./preset-discovery.ts";
+import {
+  missingProviderFailure,
+  presetAvailability,
+  presetsDeclaringProfile,
+  providerIndex,
+  resolveAncestry,
+} from "./preset-resolution-inputs.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
 import { file, presetPackageScripts } from "./preset-package.ts";
 import {
@@ -66,37 +73,16 @@ export function createRuntime(options: PresetResolverOptions): {
         );
     const leaf = ancestry.at(-1)!.decoded!,
       leafManifest = manifests.at(-1)!,
-      profiles = manifests.map((manifest, index) =>
-        index === manifests.length - 1
-          ? profileFor(
-              manifest,
-              request.profileId,
-              request.profileId ? presetsDeclaringProfile(inventory, request.verticalId, request.profileId) : [],
-            )
-          : profileFor(manifest),
-      ),
-      profile = profiles.at(-1)!,
-      imports = manifests.flatMap((manifest, index) => [
-        ...manifest.capabilityImports,
-        ...(profiles[index]!.capabilityImports ?? []),
-      ]),
-      providerMap = new Map(assets.providers.map((item) => [item.id, item]));
-    let requiredTaskClass: "work" | undefined;
-    const missingProviderIds: string[] = [];
-    for (const imported of imports) {
-      const provider = providerMap.get(imported.id);
-      if (!provider || provider.kind !== imported.kind || provider.version !== imported.version) {
-        if (!("required" in imported) || imported.required) missingProviderIds.push(imported.id);
-        continue;
-      }
-      requiredTaskClass = provider.requiredTaskClass ?? requiredTaskClass;
-    }
-    if (missingProviderIds.length)
-      throw presetFailure(
-        "missing_provider",
-        `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
-        missingProviderIds,
-      );
+      providerMap = providerIndex(assets.providers),
+      { profiles, imports, missingProviderIds, requiredTaskClass } = presetAvailability({
+        catalog: inventory,
+        verticalId: request.verticalId,
+        ancestry,
+        providers: providerMap,
+        ...(request.profileId ? { requestedProfile: request.profileId } : {}),
+      }),
+      profile = profiles.at(-1)!;
+    if (missingProviderIds.length) throw missingProviderFailure(missingProviderIds);
     const taskPackageScaffold = assets.compiledVertical.definition.packageScaffolds.find(
       (item) => item.entityKind === "task",
     );
@@ -418,54 +404,4 @@ export function createRuntime(options: PresetResolverOptions): {
     },
   };
   return { resolver, resolveInternal };
-}
-
-export function profileFor(
-  manifest: PresetTaskManifestV3,
-  requested?: string,
-  declaredElsewhere: readonly string[] = [],
-) {
-  const id = requested ?? manifest.defaultProfile,
-    profile = manifest.profiles.find((item) => item.id === id);
-  if (!profile)
-    throw presetFailure(
-      "missing_profile",
-      `Profile ${id} is unavailable on preset ${manifest.id}; its profiles: ` +
-        `${manifest.profiles.map((item) => item.id).join(", ")}.` +
-        (declaredElsewhere.length ? ` Presets that declare ${id}: ${declaredElsewhere.join(", ")}.` : ""),
-    );
-  return profile;
-}
-
-/** The presets of one vertical whose manifest declares a profile id, in id order. */
-export function presetsDeclaringProfile(
-  catalog: ReadonlyMap<string, Candidate>,
-  verticalId: string,
-  profileId: string,
-): string[] {
-  const prefix = key(verticalId, "");
-  return [...catalog]
-    .filter(
-      ([catalogKey, item]) =>
-        catalogKey.startsWith(prefix) && item.decoded?.manifest.profiles.some(({ id }) => id === profileId),
-    )
-    .map(([, item]) => item.id)
-    .sort();
-}
-
-export function resolveAncestry(catalog: Map<string, Candidate>, selected: Candidate, verticalId: string): Candidate[] {
-  const ancestry: Candidate[] = [],
-    seen = new Set<string>();
-  let current: Candidate | undefined = selected;
-  while (current) {
-    if (seen.has(current.id)) throw presetFailure("extends_cycle", `Preset extends cycle includes ${current.id}.`);
-    seen.add(current.id);
-    ancestry.unshift(current);
-    const parentId = current.decoded!.manifest.extends;
-    if (!parentId) break;
-    const parent = catalog.get(key(verticalId, parentId));
-    if (!parent?.decoded) throw presetFailure("missing_parent", `Preset parent ${parentId} is missing or invalid.`);
-    current = parent;
-  }
-  return ancestry;
 }

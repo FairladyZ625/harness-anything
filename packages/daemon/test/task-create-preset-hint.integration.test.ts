@@ -11,34 +11,50 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 
-// A decodable preset whose required capability has no provider: `ha preset list` renders it as
-// `unavailable`, so the missing-preset hint must not offer it as a choice.
-function installUnavailablePreset(rootDir: string): void {
-  const sourceRoot = mkdtempSync(path.join(tmpdir(), "ha-create-preset-source-"));
+function writePresetPackage(sourceRoot: string, id: string, extra: Readonly<Record<string, unknown>> = {}): string {
+  const packageRoot = path.join(sourceRoot, id);
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(
+    path.join(packageRoot, "preset.json"),
+    JSON.stringify({
+      schema: "preset-manifest/v3",
+      id,
+      title: id,
+      vertical: "software/coding",
+      version: "3.0.0",
+      kind: "template-content",
+      outputShape: "repository-diff",
+      kernelVersionRange: { min: "1.0.0" },
+      capabilityImports: [],
+      profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }],
+      defaultProfile: "baseline",
+      ...extra,
+    }),
+  );
+  writeFileSync(
+    path.join(packageRoot, "PRESET.md"),
+    `---\nschema: preset-document/v1\ndescription: ${id}\nwhenToUse: Test fixture.\n---\n# ${id}\n`,
+  );
+  return packageRoot;
+}
+
+// Two decodable presets that cannot resolve: one imports an absent required provider itself, the
+// other inherits that requirement through `extends`. `ha preset list` must downgrade both, so the
+// missing-preset hint must not offer either as a choice.
+function installUnavailablePresets(rootDir: string): readonly string[] {
+  const sourceRoot = mkdtempSync(path.join(tmpdir(), "ha-create-preset-source-")),
+    absentProvider = [{ id: "provider:absent/v1", kind: "checker", version: "1", required: true }],
+    ids = ["needs-provider", "inherits-needed-provider"];
   try {
-    const packageRoot = path.join(sourceRoot, "needs-provider");
-    mkdirSync(packageRoot, { recursive: true });
-    writeFileSync(
-      path.join(packageRoot, "preset.json"),
-      JSON.stringify({
-        schema: "preset-manifest/v3",
-        id: "needs-provider",
-        title: "Needs provider",
-        vertical: "software/coding",
-        version: "3.0.0",
-        kind: "template-content",
-        outputShape: "repository-diff",
-        kernelVersionRange: { min: "1.0.0" },
-        capabilityImports: [{ id: "provider:absent/v1", kind: "checker", version: "1", required: true }],
-        profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }],
-        defaultProfile: "baseline",
-      }),
-    );
-    writeFileSync(
-      path.join(packageRoot, "PRESET.md"),
-      "---\nschema: preset-document/v1\ndescription: Needs an absent provider\nwhenToUse: Test fixture.\n---\n# Needs provider\n",
-    );
-    installPresetPackage({ source: packageRoot, userRoot: presetUserRoot(rootDir) });
+    installPresetPackage({
+      source: writePresetPackage(sourceRoot, "needs-provider", { capabilityImports: absentProvider }),
+      userRoot: presetUserRoot(rootDir),
+    });
+    installPresetPackage({
+      source: writePresetPackage(sourceRoot, "inherits-needed-provider", { extends: "needs-provider" }),
+      userRoot: presetUserRoot(rootDir),
+    });
+    return ids;
   } finally {
     rmSync(sourceRoot, { recursive: true, force: true });
   }
@@ -47,7 +63,7 @@ function installUnavailablePreset(rootDir: string): void {
 test("a mistyped task-create preset names every selectable preset from the same catalog", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-preset-hint-"));
   initRepo(rootDir);
-  installUnavailablePreset(rootDir);
+  const unavailable = installUnavailablePresets(rootDir);
   const cell = await openBootstrappedRepoCell({
     repoId: workspaceId("create-preset-hint"),
     rootDir: canonicalRoot(rootDir),
@@ -59,10 +75,9 @@ test("a mistyped task-create preset names every selectable preset from the same 
       readonly id: string;
       readonly validity: string;
     }[];
-    assert.equal(entries.find(({ id }) => id === "needs-provider")?.validity, "unavailable");
+    for (const id of unavailable) assert.equal(entries.find((row) => row.id === id)?.validity, "unavailable", id);
     const listed = entries.filter(({ validity }) => validity === "valid").map(({ id }) => id);
     assert.ok(listed.includes("standard-task"), JSON.stringify(listed));
-    assert.ok(!listed.includes("needs-provider"), JSON.stringify(listed));
 
     const rejected = await cell.run(
       { kind: "task-create", taskId: "task-hint", title: "Mistyped preset", presetId: "standard-taks" },
@@ -76,7 +91,7 @@ test("a mistyped task-create preset names every selectable preset from the same 
       explanation.includes(`Available presets: ${listed.join(", ")}.`),
       `hint must list the catalog's selectable presets: ${explanation}`,
     );
-    assert.doesNotMatch(explanation, /needs-provider/u, explanation);
+    for (const id of unavailable) assert.doesNotMatch(explanation, new RegExp(id, "u"), explanation);
 
     // The same preset id under a different vertical stays a missing-vertical rejection, not a
     // "here are the presets" suggestion: the list is scoped to the requested vertical.
