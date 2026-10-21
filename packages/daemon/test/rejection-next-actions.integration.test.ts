@@ -622,7 +622,9 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
     assert.match(leakedText, /GitHub|credential|authenticate/iu);
 
     // The lock's message nests a Git error under the workspace path, which is exactly where a
-    // remote URL with an embedded credential surfaces.
+    // remote URL with an embedded credential surfaces. `writer_rejected` is a mixed code: its
+    // authored frame is the operator's only clue to who holds the lock, so the frame stays and the
+    // credential inside it is scrubbed.
     const locked = failed(
       "op-lock",
       Object.assign(
@@ -631,8 +633,8 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
       ),
     );
     const lockedText = String(locked.rejectionExplanation);
-    assert.doesNotMatch(lockedText, /abcdefghijklmnop|fetch failed/u);
-    assert.match(lockedText, /lock/iu);
+    assert.doesNotMatch(lockedText, /abcdefghijklmnop/u, lockedText);
+    assert.match(lockedText, /Workspace writer lock is held/u, "the operator's diagnostic survives");
 
     // A code that is allowed to describe itself still cannot carry a credential through the boundary.
     const scrubbed = failed(
@@ -644,6 +646,18 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
     const scrubbedText = String(scrubbed.rejectionExplanation);
     assert.match(scrubbedText, /Settings write refused/u, "the authored sentence survives");
     assert.doesNotMatch(scrubbedText, /sk-live-abcdefghijklmnop/u, scrubbedText);
+
+    // A mixed code keeps its authored diagnostic. `repo_unavailable` names the latch's real
+    // failure, which is what tells an operator whether to reattach or fix the store; a GUI read
+    // test asserts that text, so replacing it would trade the only clue for safety it does not
+    // need — the scrubber above already removes any credential from what is kept.
+    const latched = failed(
+      "op-latch",
+      Object.assign(new Error("Repository projection is unavailable: task bootstrap event identity is invalid"), {
+        code: "repo_unavailable",
+      }),
+    );
+    assert.match(String(latched.rejectionExplanation), /task bootstrap event identity is invalid/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

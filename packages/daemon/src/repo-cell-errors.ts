@@ -81,21 +81,21 @@ export function cellErrorMessage(error: unknown): string {
 // A rejected action is self-describing by default: the sentence its own guard threw is the
 // explanation. That default is only safe where the daemon authored the sentence. These codes are
 // the measured exceptions — their message is a foreign payload it merely relayed (a remote's
-// stderr, a child process's JSON dump, an absolute host path), so forwarding it would hand
-// whatever the far end printed to the CLI, the GUI and an agent's prompt. They answer with a
-// sentence this module owns instead. Adding a code here is the deliberate act; the default stays
-// open so ordinary refusals keep explaining themselves.
+// stderr, a child process's JSON dump), so forwarding it would hand whatever the far end printed
+// to the CLI, the GUI and an agent's prompt. They answer with a sentence this module owns instead.
+// Adding a code here is the deliberate act; the default stays open so ordinary refusals keep
+// explaining themselves.
+//
+// The bar is "the message is only relayed text", not "the topic sounds sensitive". A code whose
+// message is an authored diagnostic stays out even when it mentions a credential: `repo_unavailable`
+// names the latch's real failure and `review_dispatch_failed` carries the recovery command, and
+// tests on both assert that text — dropping it would trade an operator's only clue for safety it
+// does not need, since the scrubber below already removes any credential from what is kept.
 const foreignMessageCodes: ReadonlyMap<string, string> = new Map([
   [
     "delivery_publish_failed",
     "The delivery could not be published to the remote. Check the GitHub credential and push access, then retry.",
   ],
-  [
-    "writer_rejected",
-    "The repository writer lock refused this write. Retry once the writer holding the lock releases it.",
-  ],
-  ["repo_unavailable", "The repository is unavailable on this node. Reattach or reopen it, then retry."],
-  ["review_dispatch_failed", "The review dispatch did not complete. Read the reviewer runtime's own log, then retry."],
   ["script_reported_failure", "The vertical script reported a failure. Read the script's own report, then retry."],
   ["squad_control_failed", "The squad control action did not complete. Check the squad run's own log, then retry."],
   ["squad_child_create_failed", "The squad child task was not created. Check the child action's own code, then retry."],
