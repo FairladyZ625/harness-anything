@@ -31,6 +31,7 @@ export type RuntimeFallbackAttempt = {
   readonly retryRound?: number;
   readonly waitStartedAt?: string;
   readonly rootDispatchKey: string;
+  /** Fallback source mission with the current dispatch ID replaced by the spawner's prompt token. */
   readonly originalMission: string;
   readonly candidates: readonly RuntimeFallbackCandidate[];
 };

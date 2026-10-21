@@ -24,7 +24,6 @@ import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
-import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
@@ -47,6 +46,7 @@ import {
   runtimeMissionName,
   resolveRuntimeMission,
 } from "./runtime-spawn-mission.ts";
+import { dispatchPromptTemplate, renderDispatchPrompt } from "./runtime-spawn-prompt.ts";
 import {
   assertPreparedRuntimeLaunch,
   launchExitNotification,
@@ -317,6 +317,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       explicitMission,
       reviewerBinding: Boolean(reviewerBinding),
     });
+    const fallbackMission = dispatchPromptTemplate(mission, newDispatchId);
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
@@ -368,7 +369,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 model,
                 providerSessionId,
                 dispatchKey,
-                mission,
+                fallbackMission,
                 runtimeInstances,
                 localRuntimeSessions,
                 allowedInstanceIds,
@@ -385,7 +386,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     model,
                     providerSessionId,
                     dispatchKey,
-                    mission,
+                    fallbackMission,
                     runtimeInstances,
                     localRuntimeSessions,
                     allowedInstanceIds,
@@ -458,7 +459,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               : taskMission || role === "reviewer"
                 ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
                 : dispatchMission,
-            prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
+            prompt = renderDispatchPrompt(assembledPrompt, newDispatchId, Boolean(trustedSchedule));
 
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
