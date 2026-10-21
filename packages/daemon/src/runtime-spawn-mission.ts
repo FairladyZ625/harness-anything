@@ -301,11 +301,21 @@ export async function prepareRuntimeInstance<T>(
   prepare: (instanceId: string) => Promise<T>,
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
   const reasons: string[] = [],
-    candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
-  const active = new Map<string, number>();
+    candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons }),
+    runtimeRank = new Map(input.agent?.runtimes.map((target, index) => [target.type, index])),
+    kindById = new Map(input.instances.map((instance) => [instance.instanceId, instance.kindId])),
+    liveLoad = new Map<string, number>(),
+    // The declaration's row is the primary key; kinds outside it (an unbound dispatch declares
+    // none) share one trailing row so they keep the previous cross-kind load spreading.
+    rankOf = (instanceId: string): number => runtimeRank.get(kindById.get(instanceId) ?? "") ?? runtimeRank.size;
   for (const session of input.sessions)
-    if (session.liveness === "live") active.set(session.instanceId, (active.get(session.instanceId) ?? 0) + 1);
-  candidates.sort((a, b) => (active.get(a) ?? 0) - (active.get(b) ?? 0));
+    if (session.liveness === "live") liveLoad.set(session.instanceId, (liveLoad.get(session.instanceId) ?? 0) + 1);
+  // Load is a secondary key only inside one declared row. Ties keep the resolver's order (a stable
+  // sort), which is the configured order the resolver already ranked; an instance-id tiebreak here
+  // would silently re-rank an unbound dispatch whose candidates all share the trailing row.
+  // Sorting the whole list by load let an idle later row outrank a busy first row, undoing the
+  // priority the Agent author declared.
+  candidates.sort((a, b) => rankOf(a) - rankOf(b) || (liveLoad.get(a) ?? 0) - (liveLoad.get(b) ?? 0));
   for (const instanceId of candidates) {
     try {
       return { instanceId, launch: await prepare(instanceId) };
