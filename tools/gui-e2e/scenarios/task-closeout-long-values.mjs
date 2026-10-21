@@ -313,6 +313,12 @@ export default {
       executionOverflow.scroll <= executionOverflow.client + 1,
       `execution row must not spill horizontally (scroll=${executionOverflow.scroll}, client=${executionOverflow.client})`,
     );
+    // 实际量得的宽度落盘:窗口 contentSize(minWidth 钳制后的真相)与 360px 窄容器的
+    // 实测行宽/截断触发,不以声称值作数。
+    writeFileSync(
+      path.join(runRoot, "task-closeout-long-values-measurements.json"),
+      `${JSON.stringify({ windowContentSize, executionNarrow }, null, 2)}\n`,
+    );
 
     assert.equal(
       await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.window.innerWidth),

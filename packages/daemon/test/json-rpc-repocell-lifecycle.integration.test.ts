@@ -25,7 +25,6 @@ import {
   policyTestCenter,
 } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
@@ -211,7 +210,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     assert.equal(invalidSubmit.outcome, "op_rejected");
     assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, Number(beforeInvalidSubmit) + 1);
     assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).read().events.some((event) => event.type === "execution_submitted"), false);
-    const commitSha = await writeCloseout(
+    await writeCloseout(
       () => cell!.settlePendingMaterialization("closeout git commit"),
       rootDir,
       path.join(rootDir, ".worktrees", taskId),
@@ -259,16 +258,20 @@ test("a task completes without any code/doc step, and the retired commands are u
     // prepareReadyCompletion walks start → submit → forward → review → consent → merged with no
     // code/doc reconcile anywhere; completion succeeding here is the behavioural proof.
     await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Retired Ledger");
-    const before = makeTaskEventReader({ repoId, rootDir }).read().revision,
-      reconcile = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, repoWriteBinding),
-      repoint = await cell.run(
+    const before = makeTaskEventReader({ repoId, rootDir }).read().revision;
+    // The retired Action descriptors are gone, so both commands die at the command-descriptor
+    // boundary before any proof or event work.
+    await assert.rejects(
+      cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, repoWriteBinding),
+      (error: unknown) => (error as { readonly code?: string }).code === "unsupported_command",
+    );
+    await assert.rejects(
+      cell.run(
         { kind: "task-code-doc-repoint", taskId, record: "code-doc-any", paths: ["README.md"], reason: "retired" },
         repoWriteBinding,
-      );
-    assert.equal(reconcile.outcome, "op_rejected");
-    assert.equal(reconcile.code, "unsupported_command");
-    assert.equal(repoint.outcome, "op_rejected");
-    assert.equal(repoint.code, "unsupported_command");
+      ),
+      (error: unknown) => (error as { readonly code?: string }).code === "unsupported_command",
+    );
     assert.equal(makeTaskEventReader({ repoId, rootDir }).read().revision, before, "refused commands write nothing");
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
