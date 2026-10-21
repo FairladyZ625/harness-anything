@@ -1,8 +1,7 @@
-import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
-import { listCatalogWithAvailability } from "./preset-discovery.ts";
+import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
 import { decodePackage, parsePresetJson } from "./preset-package.ts";
 import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
-import type { Candidate, PresetFailure, Provider } from "./preset-resolver-types.ts";
+import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -63,12 +62,9 @@ export function missingPresetFailure(
   catalog: ReadonlyMap<string, Candidate>,
   verticalId: string,
   presetId: string,
-  providers: readonly Provider[],
+  resolveAttempt: PresetResolutionAttempt,
 ): PresetFailure {
-  // Blocked packages (invalid manifest, invalid shadow) are not identifiers a caller can pass:
-  // they reject through their own code. Packages downgraded to unavailable (a required provider
-  // is missing) are decodable but equally unselectable, so only valid presets belong in the list.
-  const available = listCatalogWithAvailability(catalog, verticalId, providers)
+  const available = listCatalogWithResolution(catalog, verticalId, resolveAttempt)
     .filter(({ validity }) => validity === "valid")
     .map(({ id }) => id);
   return presetFailure(
@@ -78,22 +74,6 @@ export function missingPresetFailure(
         ? `Available presets: ${available.join(", ")}.`
         : `No presets are installed for ${verticalId}.`),
   );
-}
-
-/** Returns the selected package's PRESET.md body without running a full preset resolution. */
-export function presetDocumentBody(input: {
-  readonly bundledRoot?: string;
-  readonly repoRoot?: string;
-  readonly userRoot: string;
-  readonly verticalId: string;
-  readonly presetId: string;
-}): string {
-  const assetsRoot = resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
-    catalog = effectiveCatalog(input.bundledRoot ?? path.join(assetsRoot, "presets"), input.userRoot),
-    selected = catalog.get(key(input.verticalId, input.presetId));
-  if (selected?.decoded) return selected.decoded.document.body;
-  if (selected?.error) throw selected.error;
-  throw missingPresetFailure(catalog, input.verticalId, input.presetId, loadCanonicalAssets(assetsRoot).providers);
 }
 
 export function enumerateBundled(root: string): Candidate[] {

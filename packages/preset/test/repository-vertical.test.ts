@@ -12,7 +12,7 @@ import {
   createPresetProcessService,
   prepareBuiltinVerticalScriptExecution,
 } from "../src/index.ts";
-import { presetDocumentBody } from "../src/preset-catalog.ts";
+import { presetDocumentBody } from "../src/preset-runtime.ts";
 import { createRuntime } from "../src/preset-runtime.ts";
 import { waitFor } from "./preset-process-service.fixtures.ts";
 import { write, writePackage } from "./preset-resolver.fixtures.ts";

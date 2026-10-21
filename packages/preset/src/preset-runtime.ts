@@ -6,7 +6,7 @@ import {
 } from "./preset-assets.ts";
 import { validateCompletionDeclaration } from "./preset-extension-model.ts";
 import { effectiveCatalog, missingPresetFailure } from "./preset-catalog.ts";
-import { listCatalogWithAvailability } from "./preset-discovery.ts";
+import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
 import {
   missingProviderFailure,
   presetAvailability,
@@ -28,6 +28,7 @@ import {
 import type {
   InternalPresetResolution,
   OwnedEntrypoint,
+  PresetFailure,
   PresetResolverOptions,
   ResolverScaffoldSelection,
 } from "./preset-resolver-types.ts";
@@ -41,6 +42,21 @@ import type {
 } from "./preset.contract.ts";
 import { mergeScaffoldOverlay } from "./scaffold-overlay.ts";
 import path from "node:path";
+
+type ResolutionAttempt =
+  | { readonly ok: true; readonly resolution: InternalPresetResolution }
+  | { readonly ok: false; readonly error: PresetFailure };
+
+function attemptResolution(
+  resolveInternal: (request: ResolvePresetRequestV1) => InternalPresetResolution,
+  request: ResolvePresetRequestV1,
+): ResolutionAttempt {
+  try {
+    return { ok: true, resolution: resolveInternal(request) };
+  } catch (error) {
+    return { ok: false, error: asFailure(error) };
+  }
+}
 
 export function createRuntime(options: PresetResolverOptions): {
   readonly resolver: CanonicalPresetResolver;
@@ -56,7 +72,11 @@ export function createRuntime(options: PresetResolverOptions): {
     if (selected && !selected.decoded)
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
     assertCanonicalVertical(assets, request.verticalId);
-    if (!selected) throw missingPresetFailure(inventory, request.verticalId, request.presetId, assets.providers);
+    if (!selected)
+      throw missingPresetFailure(inventory, request.verticalId, request.presetId, (presetId) => {
+        const attempt = attemptResolution(resolveInternal, { ...request, presetId });
+        return attempt.ok ? { ok: true } : attempt;
+      });
     const ancestry = requireAncestry(inventory, selected, request.verticalId),
       manifests = ancestry.map((item) => item.decoded!.manifest);
     for (const manifest of manifests)
@@ -371,35 +391,73 @@ export function createRuntime(options: PresetResolverOptions): {
         catalog = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
         assets = loadCanonicalAssets(assetsRoot);
       assertCanonicalVertical(assets, verticalId);
-      return listCatalogWithAvailability(catalog, verticalId, assets.providers);
+      const resolveAttempt: PresetResolutionAttempt = (presetId) => {
+        const attempt = attemptResolution(resolveInternal, {
+          presetId,
+          verticalId,
+          locale: "en-US",
+          purpose: "inspect",
+        });
+        return attempt.ok ? { ok: true } : attempt;
+      };
+      return listCatalogWithResolution(catalog, verticalId, resolveAttempt);
     },
     resolve: async (request): Promise<PresetResolveResultV1> => {
-      try {
-        const resolved = resolveInternal(request);
-        const packageHandle: ExecutablePackageHandle | null =
+      const attempt = attemptResolution(resolveInternal, request);
+      if (!attempt.ok)
+        return {
+          ok: false,
+          error: {
+            code: attempt.error.code,
+            hint: attempt.error.message,
+            nextAction: attempt.error.message,
+          },
+        };
+      const { resolution: resolved } = attempt,
+        packageHandle: ExecutablePackageHandle | null =
           request.purpose === "script-run"
             ? {
                 packageDigest: resolved.packageDigest,
                 opaque: Symbol("preset-package"),
               }
             : null;
-        return {
-          ok: true,
-          snapshot: resolved.snapshot,
-          package: packageHandle,
-        };
-      } catch (error) {
-        const known = asFailure(error);
-        return {
-          ok: false,
-          error: {
-            code: known.code,
-            hint: known.message,
-            nextAction: known.message,
-          },
-        };
-      }
+      return {
+        ok: true,
+        snapshot: resolved.snapshot,
+        package: packageHandle,
+      };
     },
   };
   return { resolver, resolveInternal };
+}
+
+export function presetDocumentBody(input: {
+  readonly bundledRoot?: string;
+  readonly repoRoot?: string;
+  readonly userRoot: string;
+  readonly verticalId: string;
+  readonly presetId: string;
+}): string {
+  const assetsRoot = resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
+    bundledRoot = input.bundledRoot ?? path.join(assetsRoot, "presets"),
+    catalog = effectiveCatalog(bundledRoot, input.userRoot),
+    selected = catalog.get(key(input.verticalId, input.presetId));
+  if (selected?.decoded) return selected.decoded.document.body;
+  if (selected?.error) throw selected.error;
+  const runtime = createRuntime({
+      bundledRoot,
+      userRoot: input.userRoot,
+      assetsRoot,
+      ...(input.repoRoot ? { repoRoot: input.repoRoot } : {}),
+    }),
+    resolveAttempt: PresetResolutionAttempt = (presetId) => {
+      const attempt = attemptResolution(runtime.resolveInternal, {
+        presetId,
+        verticalId: input.verticalId,
+        locale: "en-US",
+        purpose: "inspect",
+      });
+      return attempt.ok ? { ok: true } : attempt;
+    };
+  throw missingPresetFailure(catalog, input.verticalId, input.presetId, resolveAttempt);
 }

@@ -157,6 +157,52 @@ test("missing preset hints exclude presets whose required provider is unavailabl
   }
 });
 
+test("missing preset hints exclude presets rejected by the complete resolver", async () => {
+  const fixture = makeFixture(),
+    sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source");
+  try {
+    writePackage(sourceRoot, "future-kernel", { kernelVersionRange: { min: "99.0.0" } });
+    installPresetPackage({ source: path.join(sourceRoot, "future-kernel"), userRoot: fixture.userRoot });
+    const resolver = createCanonicalPresetResolver({
+      bundledRoot: fixture.bundledRoot,
+      userRoot: fixture.userRoot,
+      assetsRoot: fixture.assetsRoot,
+    });
+
+    const listed = await resolver.list({ verticalId: "software/coding" });
+    const futureKernel = listed.find(({ id }) => id === "future-kernel");
+    assert.equal(futureKernel?.validity, "blocked");
+    assert.equal(futureKernel?.errorCode, "incompatible_kernel");
+    assert.deepEqual(futureKernel?.issues, [
+      { code: "incompatible_kernel", message: "Preset future-kernel is incompatible with kernel 1.0.0." },
+    ]);
+
+    const missingPreset = await resolver.resolve({
+      presetId: "not-installed",
+      verticalId: "software/coding",
+      locale: "en-US",
+      purpose: "inspect",
+    });
+    assert.equal(missingPreset.ok, false);
+    if (!missingPreset.ok) {
+      assert.equal(missingPreset.error.code, "preset_not_found");
+      assert.match(missingPreset.error.hint, /Available presets: standard-task\./u);
+      assert.doesNotMatch(missingPreset.error.hint, /future-kernel/u);
+    }
+
+    const rejected = await resolver.resolve({
+      presetId: "future-kernel",
+      verticalId: "software/coding",
+      locale: "en-US",
+      purpose: "inspect",
+    });
+    assert.equal(rejected.ok, false);
+    if (!rejected.ok) assert.equal(rejected.error.code, "incompatible_kernel");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("availability follows inherited and profile-scoped required providers", async () => {
   const fixture = makeFixture(),
     sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source"),

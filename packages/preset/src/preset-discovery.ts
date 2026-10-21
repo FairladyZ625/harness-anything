@@ -1,20 +1,13 @@
 import { loadCanonicalAssets } from "./preset-assets.ts";
 import { materializeSelections } from "./preset-materialization.ts";
 import {
-  missingProviderFailure,
-  presetAvailability,
-  providerIndex,
-  presetAncestry,
-} from "./preset-resolution-inputs.ts";
-import {
   defaultAssets,
-  key,
   normalizeLocale,
   presetFailure,
   requiredText,
   resolverContentHash,
 } from "./preset-resolver-common.ts";
-import type { Candidate, PresetFailure, Provider } from "./preset-resolver-types.ts";
+import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetCatalogEntryV1 } from "./preset.contract.ts";
 import path from "node:path";
 
@@ -160,55 +153,34 @@ export function listCatalog(catalog: ReadonlyMap<string, Candidate>, verticalId:
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+export type PresetResolutionAttempt = (
+  presetId: string,
+) => { readonly ok: true } | { readonly ok: false; readonly error: PresetFailure };
+
 /**
- * The projection `ha preset list` renders: catalog entries plus the resolution gate. Anything that
- * reports "available" presets must read this projection, not raw `listCatalog`, so the hint and the
- * list cannot disagree about whether a preset is selectable. A preset is gated on the same inputs
- * `resolve()` reads — its whole `extends` ancestry and the default profile of every layer — so a
- * required provider inherited from a parent downgrades the child too.
+ * The projection `ha preset list` renders: catalog entries plus an actual resolver attempt for every
+ * decodable candidate. The resolver remains the only authority for whether a preset is selectable;
+ * this projection only maps its failure into the catalog's display vocabulary.
  */
-export function listCatalogWithAvailability(
+export function listCatalogWithResolution(
   catalog: ReadonlyMap<string, Candidate>,
   verticalId: string,
-  providers: readonly Provider[],
+  resolveAttempt: PresetResolutionAttempt,
 ): PresetCatalogDisplayEntry[] {
-  const providerMap = providerIndex(providers);
   return listCatalog(catalog, verticalId).map((entry): PresetCatalogDisplayEntry => {
     if (entry.validity !== "valid") return entry;
-    const candidate = catalog.get(key(verticalId, entry.id));
-    if (!candidate?.decoded) return entry;
-    // A broken chain blocks this one entry; it never aborts the whole list.
-    const walk = presetAncestry(catalog, candidate, verticalId);
-    if (!walk.ok) return catalogBlocked(entry, walk.error);
-    const { missingProviderIds } = presetAvailability({
-      catalog,
-      verticalId,
-      ancestry: walk.ancestry,
-      providers: providerMap,
-    });
-    if (!missingProviderIds.length) return entry;
-    const failure = missingProviderFailure(missingProviderIds);
+    const attempt = resolveAttempt(entry.id);
+    if (attempt.ok) return entry;
+    const failure = attempt.error;
     return {
       ...entry,
-      validity: "unavailable" as const,
+      validity: failure.code === "missing_provider" ? ("unavailable" as const) : ("blocked" as const),
       errorCode: failure.code,
       issues: [{ code: failure.code, message: failure.message }],
       issueCount: 1,
-      missingProviderIds,
       ...catalogRecovery(entry, failure),
     };
   });
-}
-
-function catalogBlocked(entry: PresetCatalogDisplayEntry, failure: PresetFailure): PresetCatalogDisplayEntry {
-  return {
-    ...entry,
-    validity: "blocked" as const,
-    errorCode: failure.code,
-    issues: [{ code: failure.code, message: failure.message }],
-    issueCount: 1,
-    ...catalogRecovery(entry, failure),
-  };
 }
 
 export function catalogRecovery(
