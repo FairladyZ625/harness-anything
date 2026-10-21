@@ -987,6 +987,11 @@
         "value": "packages/daemon/test/replica-sequence-memory.integration.test.ts",
         "ref": "task_aceaabaedfedcf9cb062ccf883",
         "reason": "dec_9284BD6119D453EEECEED62450 deletes the manifest-paged edge cut and replica publication path this scale fixture exercised; resident-stream memory bounds are covered by the walreceiver commit buffer tests."
+      },
+      {
+        "value": "packages/daemon/test/code-doc-path-verification.test.ts",
+        "ref": "task_ee928d2898ddd8ef9684900e9b",
+        "reason": "Owner 2026-10-21 ruling B3 deletes the code/doc reconciliation mechanism; this file tested the daemon proof that only checked commit-and-path existence, and it goes with the mechanism."
       }
     ]
   }
