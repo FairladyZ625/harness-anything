@@ -315,7 +315,10 @@ export const daemonGuiReadSchemas = Object.freeze([
     parser: "packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview",
     writer: "packages/daemon/src/fleet/fleet-overview-read.ts#buildFleetOverview",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
-    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-fleet-overview-invalid.json"]),
+    negativeFixtures: Object.freeze([
+      "packages/daemon/fixtures/contracts/daemon-fleet-overview-invalid.json",
+      "packages/daemon/fixtures/contracts/daemon-fleet-overview-replica-reason-invalid.json",
+    ]),
   },
   {
     id: DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA.id,
