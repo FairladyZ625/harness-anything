@@ -133,8 +133,8 @@ export async function fleetReplicationFixture(
     // removal below.
     const children = edgeChildren.splice(0);
     for (const child of children) child.kill("SIGKILL");
+    // Bounded: a child that will not report its exit is named here, not waited on forever.
     for (const child of children)
-      // Bounded: a child that will not report its exit is named here, not waited on forever.
       if (!(await waitForChildExit(child, 10_000)))
         t.diagnostic(`edge pid ${child.pid} did not report exit within 10s of SIGKILL`);
     try {
