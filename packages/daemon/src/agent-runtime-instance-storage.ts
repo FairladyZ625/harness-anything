@@ -370,12 +370,61 @@ export function writeZcodeConfig(target: string, config: RuntimeInstanceConfig, 
 
 export const deepseekHarnessApiKeyEnvironment = "HARNESS_DEEPSEEK_API_KEY";
 
+function deepseekHarnessProviderId(config: RuntimeInstanceConfig): string {
+  const provider = runtimeProviderConfig(config);
+  return provider.wireApi ? config.providerId : "deepseek-official";
+}
+
+function deepseekHarnessModelTuple(model: string): readonly [string, string] | null {
+  // Validate JSON string escapes before parsing so invalid model IDs need no catch path.
+  const match =
+    /^\[[ \t\r\n]*("(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*")[ \t\r\n]*,[ \t\r\n]*("(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*")[ \t\r\n]*\]$/u.exec(
+      model,
+    );
+  if (!match) return null;
+  const providerId: unknown = JSON.parse(match[1]!),
+    modelId: unknown = JSON.parse(match[2]!);
+  return typeof providerId === "string" && providerId.length > 0 && typeof modelId === "string" && modelId.length > 0
+    ? [providerId, modelId]
+    : null;
+}
+
+function deepseekHarnessModelMapping(
+  config: RuntimeInstanceConfig,
+  model: string,
+): { providerModelId: string; acpModelOption: string } {
+  if (config.kindId !== "deepseek-harness" || config.auth.mode !== "api-key")
+    return { providerModelId: model, acpModelOption: model };
+  const providerId = deepseekHarnessProviderId(config),
+    tuple = deepseekHarnessModelTuple(model);
+  if (tuple) {
+    if (tuple[0] !== providerId)
+      throw runtimeInstanceError(
+        "invalid_runtime_model",
+        `Model ${model} selects DeepSeek provider ${tuple[0]}, but runtime instance ${config.instanceId} uses ${providerId}.`,
+      );
+    return { providerModelId: tuple[1], acpModelOption: model };
+  }
+  return {
+    providerModelId: model,
+    acpModelOption: JSON.stringify([providerId, model]),
+  };
+}
+
+export function deepseekHarnessAcpModelOption(config: RuntimeInstanceConfig, model: string): string {
+  return deepseekHarnessModelMapping(config, model).acpModelOption;
+}
+
 export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanceConfig): void {
   const provider = runtimeProviderConfig(config),
-    providerId = provider.wireApi ? config.providerId : "deepseek-official",
+    providerId = deepseekHarnessProviderId(config),
+    defaultModel = deepseekHarnessModelMapping(config, config.defaultModel).providerModelId,
+    models = [...new Set(config.models.map((model) => deepseekHarnessModelMapping(config, model).providerModelId))].map(
+      (id) => ({ id }),
+    ),
     patch = [
-      { id: "agent-default-model", config: { provider: providerId, model: config.defaultModel } },
-      { id: "acp", config: { provider: providerId, model: config.defaultModel } },
+      { id: "agent-default-model", config: { provider: providerId, model: defaultModel } },
+      { id: "acp", config: { provider: providerId, model: defaultModel } },
       provider.wireApi
         ? {
             id: "llm-pi-ai",
@@ -386,7 +435,7 @@ export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanc
                   ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
                   apiKeyEnv: deepseekHarnessApiKeyEnvironment,
                   displayName: providerId,
-                  models: config.models.map((id) => ({ id })),
+                  models,
                 },
               },
             },
@@ -396,7 +445,7 @@ export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanc
             config: {
               apiKeyEnv: deepseekHarnessApiKeyEnvironment,
               ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
-              models: config.models.map((id) => ({ id })),
+              models,
             },
           },
     ],
