@@ -17,7 +17,7 @@ export default {
     await shot("shell-graph");
     const modes = page.getByTestId("entity-workspace-mode-bar");
     await modes.getByRole("button", { name: "聚光灯", exact: true }).click();
-    await page.getByTestId("graph-relation-basis").or(page.getByTestId("triadic-graph-empty-state")).waitFor();
+    await page.getByTestId("ego-panel").or(page.getByTestId("triadic-graph-empty-state")).waitFor();
     await shot("shell-graph-spotlight");
     await modes.getByRole("button", { name: /^演化史/u }).click();
     await page.getByTestId("genealogy-timeline").or(page.getByTestId("genealogy-empty")).waitFor();
