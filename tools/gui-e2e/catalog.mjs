@@ -36,6 +36,7 @@ import artifactsRawPreview from "./scenarios/artifacts-raw-preview.mjs";
 import artifactsSpreadsheetPreview from "./scenarios/artifacts-spreadsheet-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
 import edgeInvite from "./scenarios/edge-invite.mjs";
+import edgeInviteEntry from "./scenarios/edge-invite-entry.mjs";
 import edgeJoinEntry from "./scenarios/edge-join-entry.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
@@ -103,6 +104,7 @@ export const catalog = [
   artifactsSpreadsheetPreview,
   settings,
   edgeInvite,
+  edgeInviteEntry,
   edgeJoinEntry,
   declaredEntityKinds,
   systemDaemonLogs,
