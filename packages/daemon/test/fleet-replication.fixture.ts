@@ -128,8 +128,15 @@ export async function fleetReplicationFixture(
   await host.attachmentsSettled();
   t.after(async () => {
     for (const close of trackedClosers.splice(0)) close();
-    for (const child of edgeChildren.splice(0)) child.kill("SIGKILL");
-    for (const child of [...edgeChildren]) await new Promise((resolve) => child.once("close", resolve));
+    // splice(0) empties the list, so the killed children are captured first; awaiting the now-empty
+    // array (the bug this replaces) let a SIGKILLed edge outlive the test and race the tmpdir
+    // removal below.
+    const children = edgeChildren.splice(0);
+    for (const child of children) child.kill("SIGKILL");
+    for (const child of children)
+      // Bounded: a child that will not report its exit is named here, not waited on forever.
+      if (!(await waitForChildExit(child, 10_000)))
+        t.diagnostic(`edge pid ${child.pid} did not report exit within 10s of SIGKILL`);
     try {
       await center?.close();
     } finally {
@@ -638,4 +645,20 @@ export async function seedCenterData(
   );
   assert.equal(installation.outcome, "applied", JSON.stringify(installation));
   return { planPath };
+}
+
+/** True when the child reports its exit before the bound; the caller names it instead of hanging. */
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      child.off("close", onClose);
+      resolve(false);
+    }, timeoutMs);
+    const onClose = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    child.once("close", onClose);
+  });
 }
