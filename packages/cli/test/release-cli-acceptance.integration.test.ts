@@ -48,6 +48,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]);
+    run(root, userRoot, ["settings", "update", "--closeout-profile", "strict"]);
     const created = run(root, userRoot, [
       "task",
       "create",
@@ -104,12 +105,6 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       root,
       userRoot,
       ["task", "annotate", taskId, "--execution-id", executionId, "--note", `merge_commit_sha:${mergeCommitSha}`],
-      worker,
-    );
-    run(
-      root,
-      userRoot,
-      ["task", "adjudicate", taskId, "--forward", "--note", "Forward release acceptance cut."],
       worker,
     );
     const reconciled = run(
@@ -220,6 +215,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]);
+    run(root, userRoot, ["settings", "update", "--closeout-profile", "strict"]);
     const created = run(root, userRoot, [
         "task",
         "create",
@@ -265,7 +261,6 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       "已知缺口：The report needs a second execution.",
     );
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", firstExecutionId], worker);
-    run(root, userRoot, ["task", "adjudicate", taskId, "--forward", "--note", "Forward first release cut."], worker);
     const firstSubmission = reader
       .read()
       .events.find(
@@ -354,7 +349,6 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     }
     writeCloseout(root, packagePath, `Second round: artifact:${reportLogical}@${secondPublication.revision}`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", secondExecutionId], worker);
-    run(root, userRoot, ["task", "adjudicate", taskId, "--forward", "--note", "Forward second release cut."], worker);
     const secondSubmission = reader
       .read()
       .events.find(

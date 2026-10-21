@@ -67,8 +67,7 @@ async function runChain(
 ): Promise<ChainOutcome> {
   const taskId = `task-cli-stress-${clientIndex}-${chainIndex}`,
     executionId = `execution-cli-stress-${clientIndex}-${chainIndex}`,
-    // This stress fixture exercises lifecycle transport, not CI ingestion. Keep every chain on the
-    // no-gate docs preset so completion uses the honest not_applicable contract.
+    // Keep lifecycle transport coverage independent of CI ingestion; the docs preset has no CI gate.
     standard = false,
     preset = "docs-task",
     workerEnvironment = actorEnvironment(fixture, clientIndex, actor),
@@ -154,11 +153,6 @@ async function runChain(
   );
   await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
   await expectApplied(fixture, ["task", "submit", taskId], workerEnvironment);
-  await expectApplied(
-    fixture,
-    ["task", "adjudicate", taskId, "--forward", "--note", "Forward CLI stress cut."],
-    workerEnvironment,
-  );
   mkdirSync(path.join(packageRoot, "artifacts", "reports"), { recursive: true });
   writeFileSync(
     path.join(packageRoot, "artifacts", "reports", `${taskId}.md`),
@@ -204,6 +198,7 @@ async function startClient(fixture: Fixture): Promise<void> {
       actorEnvironment(fixture, 0, null),
     );
     await waitForAttached(fixture);
+    await configureReviewRequiredProfile(fixture);
     return;
   }
   assert.match(started.stdout, /daemon_starting/u, started.stderr);
@@ -216,11 +211,23 @@ async function startClient(fixture: Fixture): Promise<void> {
         actorEnvironment(fixture, 0, null),
       );
       await waitForAttached(fixture);
+      await configureReviewRequiredProfile(fixture);
       return;
     }
     await delay(50);
   }
   throw new Error(`daemon did not become ready: ${started.stdout}`);
+}
+
+async function configureReviewRequiredProfile(fixture: Fixture): Promise<void> {
+  const result = await runResult(
+      fixture,
+      ["settings", "update", "--closeout-profile", "strict"],
+      actorEnvironment(fixture, 0, null),
+    ),
+    receipt = parseCliReceipt(result, "settings update");
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  assert.ok(receipt.outcome === "applied" || receipt.outcome === "no_changes", JSON.stringify(receipt));
 }
 
 async function waitForAttached(fixture: Fixture): Promise<void> {
