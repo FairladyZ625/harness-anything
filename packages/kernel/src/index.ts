@@ -215,6 +215,7 @@ export type {
   LeaseV1,
   ProjectedExecution,
   SubmissionV1,
+  TaskRiskTierAssessmentV1,
 } from "./domain/execution.ts";
 export { executionAnnotationKinds, isNativeExecution, submissionDigest } from "./domain/execution.ts";
 export {

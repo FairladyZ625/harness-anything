@@ -16,7 +16,7 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "./review-path-lanes.ts";
+import { reviewLaneDispatchKey, reviewLanePrompt } from "./review-path-lanes.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -390,6 +390,15 @@ export function reviewDispatchPrompt(input: {
       "pre-merge checks, and post-merge verification. Distinguish observed check failures from pending " +
       "evidence: a witness produced only after merge is not a source defect merely because this review " +
       "runs before merge. Report unverified evidence without claiming a gate passed or waiving it.",
+    ...(execution.submission?.riskTierAssessment?.effectiveTier === "medium"
+      ? [
+          "This is a medium-risk functional review. Request changes only for a behavior defect, data-loss or data-integrity risk, " +
+            "or security risk. Treat wording, formatting, explanation quality, and missing narrative/evidence as non-blocking notes; " +
+            "do not return the cut for those issues.",
+        ]
+      : execution.submission?.riskTierAssessment?.effectiveTier === "high"
+        ? ["This is a high-risk review; inspect the full delivery and apply the complete reviewer declaration."]
+        : []),
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. On the first review, list every " +
       "blocking finding visible in the frozen cut; do not defer a visible blocker to a later round. " +
@@ -612,20 +621,21 @@ async function dispatchPathReviewLanes(
     readonly extras?: Readonly<Record<string, unknown>>;
   },
 ): Promise<readonly PathLaneDispatchResult[]> {
-  const lanes = reviewPathLanes(cell.settings.readRepository().review?.pathReviewers),
-    hits = reviewLaneHits(input.execution.submission, lanes);
+  const assessment = input.execution.submission?.riskTierAssessment;
+  if (assessment?.effectiveTier !== "high") return [];
+  const hits = new Map<string, readonly string[]>(
+    assessment.matchedPathReviewers.map(({ agentId, paths }) => [agentId, paths]),
+  );
   if (hits.size === 0) return [];
   const results: PathLaneDispatchResult[] = [];
-  for (const lane of lanes) {
-    const matched = hits.get(lane.agentId);
-    if (matched === undefined || matched.length === 0) continue;
+  for (const [agentId, matched] of hits) {
     const { key, ids, existing } = reviewDispatchAttempt(
       cell,
-      reviewLaneDispatchKey(lane.agentId, input.taskId, input.execution),
+      reviewLaneDispatchKey(agentId, input.taskId, input.execution),
     );
     if (existing !== null) {
       results.push({
-        lane: lane.agentId,
+        lane: agentId,
         hits: matched,
         outcome: "already_dispatched",
         ids: { ...ids, dispatchOpId: existing.opId },
@@ -638,10 +648,10 @@ async function dispatchPathReviewLanes(
       packagePath: input.packagePath,
       binding: input.binding,
       revision: input.revision,
-      reviewerId: lane.agentId,
+      reviewerId: agentId,
       dispatchKey: key,
       prompt: reviewLanePrompt({
-        agentId: lane.agentId,
+        agentId,
         taskId: input.taskId,
         packagePath: input.packagePath,
         dispatchId: ids.dispatchId,
@@ -652,8 +662,8 @@ async function dispatchPathReviewLanes(
     });
     results.push(
       dispatch.outcome === "failed"
-        ? { lane: lane.agentId, hits: matched, outcome: "failed", error: dispatch.error }
-        : { lane: lane.agentId, hits: matched, outcome: dispatch.outcome, ids: dispatch.ids },
+        ? { lane: agentId, hits: matched, outcome: "failed", error: dispatch.error }
+        : { lane: agentId, hits: matched, outcome: dispatch.outcome, ids: dispatch.ids },
     );
   }
   return results;

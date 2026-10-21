@@ -13,9 +13,20 @@ const valid = Object.freeze({
   commitSha: "a".repeat(40),
   completionContract: { gates: [] },
 });
+const validRiskTierAssessment = Object.freeze({
+  schema: "task-risk-tier-assessment/v1",
+  declaredTier: "medium",
+  effectiveTier: "medium",
+  deliveryBaseSha: "b".repeat(40),
+  deliveryHeadSha: "c".repeat(40),
+  matchedPathReviewers: [],
+  reasons: ["repository floor"],
+  guiAcceptanceRequired: false,
+});
 
 test("#1546: a valid submission has no issues", () => {
   assert.deepEqual(validateGuiSubmission(valid), []);
+  assert.deepEqual(validateGuiSubmission({ ...valid, riskTierAssessment: validRiskTierAssessment }), []);
 });
 
 test("a submission frozen before the completion contract stays valid on the wire", () => {
@@ -56,5 +67,15 @@ test("#1546: a wrong field SET still fails closed with one message naming the ex
   ]);
   assert.deepEqual(validateGuiSubmission({ ...valid, extra: "unexpected" }), [
     "entity='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' field=extra field is not declared; actual='unexpected'",
+  ]);
+});
+
+test("risk tier assessment is declared and validated on the GUI submission envelope", () => {
+  assert.notDeepEqual(
+    validateGuiSubmission({ ...valid, riskTierAssessment: { ...validRiskTierAssessment, deliveryHeadSha: "bad" } }),
+    [],
+  );
+  assert.deepEqual(validateGuiSubmission({ ...valid, riskTierAssessment: { unexpected: true } }), [
+    "entity='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' field=riskTierAssessment must be a task-risk-tier-assessment/v1 object; actual={ unexpected: true }",
   ]);
 });

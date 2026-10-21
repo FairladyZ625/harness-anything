@@ -25,6 +25,7 @@ const FIELD_SEPARATOR = "\u0000";
  */
 export const START_WORK_TASK_CLASSES = Object.freeze(["standard", "work", "long_running"]);
 export const START_WORK_WORK_KINDS = Object.freeze(["feat", "fix", "refactor", "docs", "test", "chore"]);
+export const START_WORK_RISK_TIERS = Object.freeze(["low", "medium", "high"]);
 
 /** 「开始一项工作」表单的全部可写字段;命令是它的纯函数。 */
 export interface StartWorkDraft {
@@ -32,7 +33,7 @@ export interface StartWorkDraft {
   /** 目标与交付要求正文。它不是 `task create` 的字段,创建后写进 task_plan.md。 */
   readonly intent: string;
   readonly presetId: string;
-  readonly profileId: string | null;
+  readonly riskTier: string;
   readonly taskClass: string;
   readonly workKind: string;
   readonly parentTaskId: string | null;
@@ -71,7 +72,7 @@ export function startWorkIdempotencyKey(draft: StartWorkDraft): string {
     draft.title.trim(),
     draft.intent.trim(),
     draft.presetId,
-    draft.profileId ?? "",
+    draft.riskTier,
     draft.taskClass,
     draft.workKind,
     draft.parentTaskId ?? "",
@@ -80,7 +81,7 @@ export function startWorkIdempotencyKey(draft: StartWorkDraft): string {
 
 /**
  * 拼出真实的 `ha task create` 调用。只用 task-create 契约声明过的 flag
- * (`--title` / `--preset` / `--profile` / `--task-class` / `--kind` / `--work` /
+ * (`--title` / `--preset` / `--risk-tier` / `--task-class` / `--kind` / `--work` /
  * `--idempotency-key`),测试对着契约逐个核对,拼不出契约里没有的开关。
  */
 export function startWorkCommand(draft: StartWorkDraft): StartWorkCommand {
@@ -93,7 +94,8 @@ export function startWorkCommand(draft: StartWorkDraft): StartWorkCommand {
     draft.title.trim(),
     "--preset",
     draft.presetId,
-    ...(draft.profileId === null ? [] : ["--profile", draft.profileId]),
+    "--risk-tier",
+    draft.riskTier,
     "--task-class",
     draft.taskClass,
     "--kind",

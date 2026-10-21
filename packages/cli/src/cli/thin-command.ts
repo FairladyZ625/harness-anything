@@ -119,13 +119,29 @@ export function renderThinHelp(
   works: readonly ThinHelpWorkEntry[] = [],
 ): string {
   const rows = [
-      ...thinCliCommands.map(({ usage, summary, help }) =>
-        preferTaskActionHelp({
-          usage,
-          summary,
-          help,
-        }),
-      ),
+      ...thinCliCommands
+        .map(({ usage, summary, help }) =>
+          preferTaskActionHelp({
+            usage,
+            summary,
+            help,
+          }),
+        )
+        .map((preferred, index) =>
+          thinCliCommands[index]?.id === "task-create"
+            ? {
+                ...preferred,
+                help: [
+                  preferred.help,
+                  "Risk tier selects the task flow: low skips review and consent (and uses a short package when available); " +
+                    "medium is the default with one functional review; high uses full review and requires consent.",
+                  "Submit checks the actual delivery diff with repository-configured risk-floor scripts; they may only raise the tier.",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              }
+            : preferred,
+        ),
       ...clientLocalCommands,
     ],
     commandWords = commandPrefix?.split(" ") ?? [],
@@ -186,7 +202,9 @@ function renderPresetHelpEntry(entry: ThinHelpCatalogEntry): string {
     readonly outputShape?: string;
     readonly completionGates?: readonly string[];
   };
-  const others = (contract.profiles ?? []).map(({ id }) => id).filter((id) => id !== contract.defaultProfile);
+  const others = (contract.profiles ?? [])
+    .map(({ id }) => id)
+    .filter((id) => id !== contract.defaultProfile && id !== "lightweight");
   const description =
     entry.validity === "valid"
       ? [

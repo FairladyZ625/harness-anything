@@ -449,7 +449,6 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
             taskId: "task_lifecycle",
             patches: [
               { field: "title", value: "Lifecycle amended" },
-              { field: "riskTier", value: "high" },
               { field: "taskClass", value: "work" },
             ],
           },
@@ -458,6 +457,11 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
+    const riskTierAmend = await cell.run(
+      { kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "riskTier", value: "high" }] },
+      binding,
+    );
+    assert.equal(riskTierAmend.outcome, "op_rejected", JSON.stringify(riskTierAmend));
     // dec_5F7E74F1: the retired module grouping and milestone class are no longer amendable.
     for (const patch of [
       { field: "taskClass", value: "container" },
@@ -610,7 +614,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
         .rows.find((row) => row.sourceRef === "task/task_lifecycle" && row.targetRef === "task/task_replacement");
     replay.close();
     assert.equal(lifecycle?.title, "Lifecycle amended");
-    assert.equal(lifecycle?.metadata.riskTier, "high");
+    assert.equal(lifecycle?.metadata.riskTier, "medium");
     assert.equal(lifecycle?.metadata.moduleKey, null);
     assert.equal(lifecycle?.packageDisposition, "archived");
     assert.equal(replacement?.packageDisposition, "active");
@@ -1203,7 +1207,7 @@ test("task amend refuses to retitle a plan with unsynced local edits, then retit
       { kind: "task-amend", taskId: "task_amendprose", patches: [{ field: "riskTier", value: "high" }] },
       binding,
     );
-    assert.equal(metadataAmend.outcome, "applied", JSON.stringify(metadataAmend));
+    assert.equal(metadataAmend.outcome, "op_rejected", JSON.stringify(metadataAmend));
     assert.equal(readFileSync(authoredPlan, "utf8"), unsyncedBody);
     // Negative control: once the rewrite is synced, the same title amend applies and retitles only the H1.
     const synced = await cell.run({ kind: "doc-submit", paths: [`${packagePath}/task_plan.md`] }, binding);
