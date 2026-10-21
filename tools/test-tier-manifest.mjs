@@ -15,10 +15,18 @@ const scannableFilePattern = /\.(?:cjs|cts|js|jsx|mjs|mts|ts|tsx)$/u;
 // A file "is a test" when it registers cases at statement level, regardless of how it is named;
 // helpers that only import after/mock/TestContext from node:test or vitest are not tests.
 const testRegistrationPattern = /^\s*(?:test|describe|it)(?:\.\w+)*\s*\(/mu;
-// app-node_modules is the GUI packaging output: gitignored, full of vendored third-party test
-// files, and present on any machine that has built the GUI. Walking it makes check:local red
-// with "test tier marker missing" for a file nobody in this repository wrote.
-const ignoredDirectoryNames = new Set(["node_modules", "app-node_modules", "dist", "out", "coverage", ".git"]);
+// app-node_modules and dist-electron are GUI build outputs: gitignored, and full of vendored or
+// bundled test-shaped files on any machine that has built the GUI. Walking them fails discovery
+// with markers nobody in this repository wrote.
+const ignoredDirectoryNames = new Set([
+  "node_modules",
+  "app-node_modules",
+  "dist-electron",
+  "dist",
+  "out",
+  "coverage",
+  ".git",
+]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
 const timeoutMarkerPattern = /^\s*\/\/\s*harness-test-file-timeout:\s*(\S+)\s*$/u;
 

@@ -408,6 +408,23 @@ test("discoverTestFiles ignores helpers that import node:test without registerin
   );
 });
 
+test("discoverTestFiles skips gitignored GUI build outputs full of test-shaped files", () => {
+  // electron-main.js is the bundled Electron entry: on a machine that built the GUI it carries
+  // statement-level test( calls from vendored code, and discovery used to fail closed on it.
+  const electronMain = 'import { app } from "electron";\ntest("app ready", () => {});\n';
+  const vendoredTest = '// harness-test-tier: fast\nimport test from "node:test";\ntest("x", () => {});\n';
+  withTempRepoTree(
+    {
+      "packages/gui/dist-electron/electron-main.js": electronMain,
+      "packages/gui/dist-electron/main.test.js": vendoredTest,
+      "packages/gui/build-resources/app-node_modules/vendor.test.js": vendoredTest,
+    },
+    (root) => {
+      assert.deepEqual(discoverTestFiles(root), []);
+    },
+  );
+});
+
 test("discoverTestFiles defers to the vitest and e2e runners only inside their own roots", () => {
   const vitestSource = 'import { describe, it } from "vitest";\ndescribe("x", () => { it("y", () => {}); });\n';
   const e2eSource = 'import test from "node:test";\ntest("x", () => {});\n';
