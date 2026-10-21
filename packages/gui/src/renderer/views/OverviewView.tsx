@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { WorkIndexRead, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import type { AgendaSuccess } from "../api-client.ts";
 import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
@@ -14,13 +14,11 @@ import {
   useOverviewArtifacts,
   useOverviewRecentEvents,
   useOverviewRuntime,
-  useOverviewSessionTouches,
   activeAgentIdsOf,
 } from "../overview-data.ts";
 import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
-import { computePromptCacheTtlState, mostUrgentPromptCacheTtl } from "../model/smart-attention.ts";
 import { t } from "../i18n/index.tsx";
 import { dayKeyOf } from "../model/time.ts";
 import {
@@ -221,32 +219,9 @@ export function OverviewView({
       }),
     [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs],
   );
-  const touches = useOverviewSessionTouches(repoId, lanesModel.runningSessionIds);
-  // 倒计时专用秒针:只在确有缓存触达证据时才走,其余时候不开计时器。
-  const hasCacheTouches = useMemo(() => [...touches.values()].some((touch) => touch !== null), [touches]);
-  const [ttlNowMs, setTtlNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!hasCacheTouches) return;
-    const timer = setInterval(() => setTtlNowMs(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, [hasCacheTouches]);
-  // 块内 CacheTimer:有触达证据的块才并入(模型层返回 null 不渲染,不虚构倒计时)。
-  const lanes = useMemo(
-    () =>
-      lanesModel.lanes.map((lane) => ({
-        ...lane,
-        tasks: lane.tasks.map((task) => {
-          const block = lanesModel.blockOf.get(task.id);
-          if (block?.runtimeSessionId === null || block === undefined) return task;
-          const touch = touches.get(block.runtimeSessionId);
-          if (touch === undefined || touch === null) return task;
-          const ttl = computePromptCacheTtlState(touch, ttlNowMs);
-          return ttl === null ? task : { ...task, cacheTtl: { state: ttl.kind, remainingMs: ttl.remainingMs } };
-        }),
-      })),
-    [lanesModel, touches, ttlNowMs],
-  );
-  const cacheTtl = useMemo(() => mostUrgentPromptCacheTtl([...touches.values()], ttlNowMs), [touches, ttlNowMs]);
+  // 泳道不再挂 Prompt Cache 倒计时:触达读面只轮询运行中会话,而运行一轮内缓存由模型
+  // 调用保温,倒计时对操作者无意义(任务书口径),会话页的收口倒计时才是有效面。
+  const lanes = lanesModel.lanes;
   // 产物二级页:列表 = 全部产物行(不只架上的 6 条),打开时收敛到首个存在的键
   // (daemon 已按时间倒序给出,首个即最新——意见 1 的「默认选中最新一个产物」)。
   const artifactRows = artifactsQuery.data?.artifacts ?? [];
@@ -323,10 +298,10 @@ export function OverviewView({
             className="glass flex h-6 shrink-0 items-center gap-1.5 rounded-xs px-2.5 text-text-muted ui-meta hover:text-text"
           >
             <span className="size-[7px] shrink-0 rounded-full bg-accent" aria-hidden="true" />
-            {t("views.overviewView.collaborationEntry", {
-              total: String(collaboration.total),
-              executing: String(collaboration.executing),
-            })}
+            {/* 只报总数:顶栏已有「进行中」(任务生命周期)与「进行中占用」(WIP)两个
+                同词计数,再放一个按 lease phase 算的「执行中」就是同一个词指两件事
+                (X4);协作页自己去解释舰队执行面。 */}
+            {t("views.overviewView.collaborationEntry", { total: String(collaboration.total) })}
           </button>
         )}
         {(health.projection.lag ?? 0) > 0 && (
@@ -449,7 +424,6 @@ export function OverviewView({
                           deps.onAnswer({ mode: "answer", row: awaitsRow });
                         else onOpenTask(block.taskId);
                       }}
-                      cacheTtl={cacheTtl}
                       reviewRowsAll={reviews}
                       followUps={followUps}
                       pinned={pinned}

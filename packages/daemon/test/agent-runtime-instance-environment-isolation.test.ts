@@ -27,6 +27,7 @@ test("claude isolation defaults to the operator environment and stays enforced o
       installationId: "claude-isolation",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     },
     agy = {
       installationId: "agy-isolation",
@@ -218,14 +219,14 @@ test("macOS Claude operator probes use the OS username and report the probed env
         installationId: "claude-operator-ready",
         kindId: "claude",
         executablePath: ready,
-        version: "2.1.240",
+        version: "2.1.305 (Claude Code)",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
       rejectedInstallation: RuntimeInstallationWitness = {
         installationId: "claude-operator-rejected",
         kindId: "claude",
         executablePath: rejected,
-        version: "2.1.240",
+        version: "2.1.305 (Claude Code)",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
       env = { PATH: bin, HOME: "/operator/home", LANG: "C" };
@@ -305,6 +306,7 @@ test(
         installationId: "claude-shared-auth",
         kindId: "claude" as const,
         executablePath: "/opt/runtime-test/claude",
+        version: "2.1.305 (Claude Code)",
       };
     try {
       mkdirSync(path.join(operatorHome, ".codex"), { recursive: true });
@@ -410,6 +412,7 @@ test("api-key instances never receive the operator's shared provider credentials
       installationId: "claude-api-key-no-shared-auth",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     mkdirSync(path.join(operatorHome, ".codex"), { recursive: true });
@@ -677,6 +680,7 @@ test("linux instances keep the POSIX isolation shape distinct from the host", as
           kindId: "claude",
           installationId: "claude-installation-test",
           executablePath: "/opt/runtime-test/claude",
+          version: "2.1.305 (Claude Code)",
         },
       ],
       platform: "linux",

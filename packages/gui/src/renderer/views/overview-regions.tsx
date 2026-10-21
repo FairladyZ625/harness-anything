@@ -6,8 +6,6 @@ import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AWAITS_KIND_LABEL } from "../awaits-answer.ts";
 import { STATUS_META } from "../components/badges";
 import { AgentLanes, type AgentHandoff, type AgentLane } from "../components/agent-ui/AgentLanes.tsx";
-import { CacheTimer } from "../components/agent-ui/CacheTimer.tsx";
-import type { PromptCacheTtlState } from "../model/smart-attention.ts";
 import { DenseRow } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
 import { FilterChips } from "../components/primitives/FilterChips";
@@ -468,7 +466,6 @@ export function OverviewDrillBody({
   lanesLoading,
   lanesError,
   onResolveAwaiting,
-  cacheTtl,
   reviewRowsAll,
   followUps,
   pinned,
@@ -482,7 +479,7 @@ export function OverviewDrillBody({
   readonly wipFull: boolean;
   /** WIP 读面失败的可读信息。 */
   readonly wipError: string | null;
-  /** AgentLanes 的当前泳道数据(agentLanesOf 的产物,块内已并入 CacheTimer)。 */
+  /** AgentLanes 的当前泳道数据(agentLanesOf 的产物)。 */
   readonly lanes: readonly AgentLane[];
   readonly handoffs: readonly AgentHandoff[];
   /** 泳道读面(sessionGroups/成员页)首次取数进行中。 */
@@ -491,8 +488,6 @@ export function OverviewDrillBody({
   readonly lanesError: string | null;
   /** 泳道块「待拍板」动作:宿主把 blockId 接回 awaits 答复面板或任务详情。 */
   readonly onResolveAwaiting: (blockId: string) => void;
-  /** 全部活跃会话里最紧迫的缓存剩余(模型层算好);null = 无触达证据,不渲染。 */
-  readonly cacheTtl: PromptCacheTtlState | null;
   readonly reviewRowsAll: readonly ReviewRow[];
   readonly followUps: readonly FollowUpRow[];
   readonly pinned: readonly PinnedTaskRow[];
@@ -547,13 +542,6 @@ export function OverviewDrillBody({
           ]}
         />
         {wipFull && <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} />}
-        {/* 最紧迫 Prompt Cache 剩余(多会话取最早失效):击穿前连贯提问,击穿即红。 */}
-        {cacheTtl !== null && (
-          <span className="ml-auto inline-flex shrink-0 items-center gap-1" data-testid="overview-drill-cache">
-            <span className="text-text-faint ui-micro">{t("views.overviewView.drillCacheLabel")}</span>
-            <CacheTimer state={cacheTtl.kind} remainingMs={cacheTtl.remainingMs} testId="overview-drill-cache-timer" />
-          </span>
-        )}
       </div>
       <div data-testid="overview-drill-list" className="min-h-0 flex-1 overflow-y-auto">
         {tab === "wip" && (
@@ -583,6 +571,7 @@ export function OverviewDrillBody({
                   lanes={lanes}
                   handoffs={handoffs}
                   onResolveAwaiting={onResolveAwaiting}
+                  onOpenTask={onOpenTask}
                   testId="overview-agent-lanes"
                 />
               </div>

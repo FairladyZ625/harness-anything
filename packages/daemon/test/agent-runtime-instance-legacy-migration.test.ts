@@ -56,7 +56,7 @@ test("one same-kind witness automatically migrates a legacy installation binding
       installationId: "claude_stable_entry",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/versions/2.1.240",
-      version: "2.1.240 (Claude Code)",
+      version: "2.1.305 (Claude Code)",
       observedAt: "2026-08-23T00:00:00.000Z",
     };
   try {
@@ -98,14 +98,14 @@ test("legacy installation migration refuses zero or multiple same-kind witnesses
       installationId: "claude_candidate_one",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude-one",
-      version: "2.1.240",
+      version: "2.1.305 (Claude Code)",
       observedAt: "2026-08-23T00:00:00.000Z",
     },
     {
       installationId: "claude_candidate_two",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude-two",
-      version: "2.1.240",
+      version: "2.1.305 (Claude Code)",
       observedAt: "2026-08-23T00:00:00.000Z",
     },
   ];
@@ -144,7 +144,9 @@ test("legacy installation migration refuses zero or multiple same-kind witnesses
         );
       else {
         for (const candidate of candidates) {
-          assert.match(readiness.hint!, new RegExp(`${candidate.installationId} \\(${candidate.version}\\)`, "u"));
+          // The version carries its provider frame ("2.1.305 (Claude Code)"), so it is quoted
+          // literally instead of compiled as a pattern.
+          assert.ok(readiness.hint!.includes(`${candidate.installationId} (${candidate.version})`));
           assert.ok(
             readiness.hint!.includes(
               `ha runtime instance update claude-multiple --installation ${candidate.installationId}`,
@@ -195,6 +197,7 @@ test("flat Claude effort from schema v2 migrates into Claude configuration", asy
       installationId: "claude-installation-test",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     writeFileSync(

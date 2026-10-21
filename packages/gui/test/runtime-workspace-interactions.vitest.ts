@@ -487,7 +487,9 @@ describe("runtime entry split (W6 IA)", () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-bound");
     expect(byTestId("sessions-detail").contains(byTestId("session-detail"))).toBe(true);
-    expect(container.querySelector('[data-testid="sessions-status-filter"]')?.textContent).not.toMatch(/\d/u);
+    // 四档筛选的按钮文字是固定词,不带计数。
+    const statusGroup = container.querySelector('[aria-label="Status"]');
+    expect(statusGroup?.textContent).not.toMatch(/\d/u);
   });
 
   it("titles a collapsed decision-review group from the decision read, not its raw id", async () => {
@@ -566,7 +568,9 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(byTestId("session-group-toggle-task-bound").getAttribute("aria-expanded")).toBe("true");
     expect(byTestId("rail-session-runtime-sibling").getAttribute("aria-current")).toBe("true");
-    expect(byTestId("session-detail").textContent).toContain("runtime-sibling");
+    // 详情正文只上短码;完整运行时 id 收进卡头链接的悬停 title(视觉基线 v2)。
+    expect(byTestId("session-detail").textContent).toContain("runtime-siblin…");
+    expect(byTestId("session-detail").querySelector('button[title*="runtime-sibling"]')).toBeTruthy();
     expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-sibling");
   });
 
@@ -613,42 +617,37 @@ describe("runtime entry split (W6 IA)", () => {
 
   it("narrows by status through the daemon read and keys the cache by the selection (G12 §4d)", async () => {
     await mountSessions("session/runtime-bound");
-    const statusChip = (label: string) =>
-      [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
-        (button) => button.textContent === label,
-      ) as HTMLButtonElement;
-    // 词表就是 daemon 的十个状态,前端不另立分类。
-    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(10);
+    // 状态筛选收成四档(业主 2026-10-21 13:50):内部十词不再逐个上屏,单选取值。
+    const statusGroup = document.querySelector('[aria-label="Status"]');
+    const statusButtons = [...(statusGroup?.querySelectorAll("button") ?? [])];
+    expect(statusButtons.map((button) => button.textContent)).toEqual(["Running", "Succeeded", "Failed", "All"]);
     const firstCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).not.toHaveProperty("status");
 
-    await act(async () => statusChip("Failed").click());
-    await flushEffects();
+    await click("sessions-status-failed");
     // 切筛选必须重新读:query key 含状态选择,否则会命中未筛选的缓存。
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBeGreaterThan(firstCallCount);
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["failed"] });
-    expect(statusChip("Failed").getAttribute("aria-pressed")).toBe("true");
-
-    // 集合语义:第二个状态是「或」,不是替换。
-    await act(async () => statusChip("Lost").click());
-    await flushEffects();
+    // 「失败」档覆盖全部「结束但没做成」的内部词,顺序取 daemon 词表。
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({
-      status: ["failed", "lost"],
+      status: ["failed", "cancelled", "stopped", "ended-indeterminate", "unavailable", "unknown", "lost"],
     });
+    expect(byTestId("sessions-status-failed").getAttribute("aria-pressed")).toBe("true");
     // 计数条说清这是筛后的数,而不是会话消失了。
-    expect(byTestId("sessions-view").textContent).toContain("filtered to Failed / Lost");
+    expect(byTestId("sessions-view").textContent).toContain("filtered to Failed");
 
-    // 去掉一个状态仍是新的选择,所以是一次新读。
-    await act(async () => statusChip("Failed").click());
-    await flushEffects();
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["lost"] });
-    // 清空选择回到不筛:那个 key 首读就缓存过,命中缓存不再发读,计数条的筛选说明消失。
-    const lostOnlyCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
-    await act(async () => statusChip("Lost").click());
-    await flushEffects();
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBe(lostOnlyCallCount);
+    // 「运行中」档 = 在飞 + 受阻待裁决(等的是人的决定,不是结局)。
+    await click("sessions-status-running");
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({
+      status: ["running", "blocked"],
+    });
+    expect(byTestId("sessions-view").textContent).toContain("filtered to Running");
+
+    // 回「全部」:该 key 首读就缓存过,命中缓存不再发读,计数条的筛选说明消失。
+    const runningCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
+    await click("sessions-status-all");
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBe(runningCallCount);
     expect(byTestId("sessions-view").textContent).not.toContain("filtered to");
-    expect(statusChip("Failed").getAttribute("aria-pressed")).toBe("false");
+    expect(byTestId("sessions-status-failed").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("keeps a dimension switch sticky while a session focus exists (G12 §1a)", async () => {
@@ -734,6 +733,176 @@ describe("runtime entry split (W6 IA)", () => {
     expect(counts).toContain("2 task groups / 2 sessions · all sessions of terra");
   });
 
+  // 返工 F1:钻入行来自派工行,自身不带 kindId;行级倒计时的 TTL 口径只能从钻入窗口
+  // 任务组的任务范围 overview 会话行读来——不补这条读,钻入后除选中行外全部收口轮
+  // 的倒计时整段消失。
+  it("counts down a settled claude round inside an agent drill from the drill window's task overview", async () => {
+    const now = Date.now();
+    const claudeSession = {
+      ...session("runtime-claude", "task-bound"),
+      kindId: "claude",
+      definitionSnapshot: { ...definition, kindId: "claude" },
+    };
+    // 90 秒前收口:5 分钟 TTL 剩余恒落 3m 段,断言不受用例执行耗时漂移影响。
+    const claudeSettledAt = new Date(now - 90_000).toISOString();
+    const claudeDispatch = {
+      ...boundDispatch,
+      dispatchId: "dispatch_claude",
+      runtimeSessionId: "runtime-claude",
+      status: "succeeded" as const,
+      startedAt: claudeSettledAt,
+      endedAt: claudeSettledAt,
+    };
+    const container = await mountSessions(null, {}, undefined, drilledGroups);
+    const overview = vi
+      .spyOn(agentRuntimeClient, "overview")
+      .mockImplementation(
+        async (_repoId, taskId?: string) =>
+          (taskId === "task-bound"
+            ? { ...sessionGroups, sessions: [claudeSession] }
+            : { ...sessionGroups, sessions: [] }) as never,
+      );
+    vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+      if (!("agentId" in payload) && !("squadId" in payload)) throw new Error("unexpected non-member dispatch read");
+      return {
+        ok: true,
+        status: "ready",
+        agentId: "terra",
+        dispatches: [claudeDispatch, boundDispatch],
+        groups: [sessionGroups.groups[0]],
+        taskLabels: [{ taskId: "task-bound", title: "Bound task title" }],
+        totals: { groups: 1, sessions: 2 },
+        truncated: false,
+        outcome: "unknown",
+        exitCode: 1,
+        watermark: 1,
+        sourceRevision: 1,
+      } as never;
+    });
+    vi.spyOn(agentRuntimeClient, "events").mockImplementation(
+      async (_repoId, runtimeSessionId: string) =>
+        ({
+          ok: true,
+          runtimeSessionId,
+          events:
+            runtimeSessionId === "runtime-claude"
+              ? [
+                  {
+                    cursor: "lifecycle:1",
+                    runtimeSessionId,
+                    type: "runtime_session_outcome_observed",
+                    occurredAt: claudeSettledAt,
+                  },
+                ]
+              : [],
+          cursor: "lifecycle:1",
+          sourceCursor: "lifecycle:1",
+          done: true,
+        }) as never,
+    );
+
+    await click("session-group-drill-agent-terra");
+    // 钻入组初始折叠(轮次已随批量读返回,点开不再二次读):展开后才见轮次行。
+    await click("session-group-toggle-task-bound");
+    await flushEffects();
+
+    expect(overview).toHaveBeenCalledWith("repo-a", "task-bound");
+    const timer = container.querySelector('[data-testid="session-card-cache-timer-runtime-claude"]');
+    expect(timer?.getAttribute("data-cache-state")).toBe("normal");
+    expect(timer?.textContent).toContain("3m");
+  });
+
+  // 返工 F2:秒针闸门是「确有触达」而非「确有已知 TTL」——舰队主力 provider(本用例
+  // 全 codex,无已知 TTL)时钟也必须走,否则 Done 新鲜度窗(300s)冻结在挂载时刻,
+  // 已完成组长期压在 Working 之上。触达轮询窗与新鲜度窗同宽(300s),触达存在即
+  // 证明页面还有会随时间变化的排序。
+  it("keeps the shared clock running without any known provider TTL so fresh-done groups age below working", async () => {
+    const mountAt = Date.parse("2026-10-21T10:00:00.000Z");
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"], now: mountAt });
+    try {
+      const doneGroup = {
+        key: "task-done",
+        kind: "task" as const,
+        label: "Done task",
+        taskId: "task-done",
+        latestStatus: "succeeded" as const,
+        latestActivityAt: new Date(mountAt - 4 * 60_000).toISOString(),
+        runningCount: 0,
+        sessionCount: 1,
+        roundCount: 1,
+        latestRound: {
+          runtimeSessionId: "runtime-done",
+          dispatchId: "dispatch_done",
+          agentName: "terra",
+          instanceId: "w4c-verify-codex",
+          status: "succeeded" as const,
+          startedAt: new Date(mountAt - 4 * 60_000).toISOString(),
+        },
+      };
+      const runningGroup = {
+        ...doneGroup,
+        key: "task-run",
+        label: "Running task",
+        taskId: "task-run",
+        latestStatus: "running" as const,
+        latestActivityAt: new Date(mountAt - 30 * 60_000).toISOString(),
+        runningCount: 1,
+        latestRound: {
+          ...doneGroup.latestRound,
+          runtimeSessionId: "runtime-bound",
+          dispatchId: "dispatch_bbb",
+          status: "running" as const,
+          startedAt: new Date(mountAt - 30 * 60_000).toISOString(),
+        },
+      };
+      vi.spyOn(agentRuntimeClient, "events").mockImplementation(
+        async (_repoId, runtimeSessionId: string) =>
+          ({
+            ok: true,
+            runtimeSessionId,
+            events: [
+              {
+                cursor: "lifecycle:1",
+                runtimeSessionId,
+                type:
+                  runtimeSessionId === "runtime-done" ? "runtime_session_outcome_observed" : "runtime_session_started",
+                occurredAt:
+                  runtimeSessionId === "runtime-done"
+                    ? new Date(mountAt - 4 * 60_000).toISOString()
+                    : new Date(mountAt - 30 * 60_000).toISOString(),
+              },
+            ],
+            cursor: "lifecycle:1",
+            sourceCursor: "lifecycle:1",
+            done: true,
+          }) as never,
+      );
+      const container = await mountSessions(null, {}, undefined, {
+        ...sessionGroups,
+        totals: { groups: 2, sessions: 2 },
+        groups: [doneGroup, runningGroup],
+      } as never);
+      const railOrder = () =>
+        [...container.querySelectorAll('[data-testid^="session-group-toggle-"]')].map((node) =>
+          node.getAttribute("data-testid"),
+        );
+      // 挂载时:done 收口 4 分钟,仍在新鲜度窗(5 分钟)内 → Done 压在 Working 之上。
+      expect(railOrder()).toEqual(["session-group-toggle-task-done", "session-group-toggle-task-run"]);
+
+      // 同步逐秒推进(async 推进与 React act 的宏任务会互相等待):120 次秒针回调
+      // 全部落在同一个 act 里,状态批量结算后 DOM 一次到位。
+      await act(async () => {
+        for (let second = 0; second < 120; second += 1) vi.advanceTimersByTime(1_000);
+      });
+
+      // 收口满 6 分钟超窗 → Done 沉底,Working 回到最上;全程没有任何已知 TTL。
+      expect(railOrder()).toEqual(["session-group-toggle-task-run", "session-group-toggle-task-done"]);
+      expect(container.querySelector('[data-testid^="session-card-cache-timer-"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("defaults the squad segment to 30d and opens the flow detail from a run row (G12 §2a/§2b/§2c)", async () => {
     await mountSessions(null, {}, undefined, sessionGroups, async () => squadRunsListFixture);
     const squadSegment = [...byTestId("sessions-view").querySelectorAll("button")].find((button) =>
@@ -806,31 +975,16 @@ describe("runtime entry split (W6 IA)", () => {
     expect(document.querySelector(".catalog-split")!.getAttribute("data-detail-open")).toBe("false");
   });
 
-  it("collapses the status filter into a menu driving the same read; the toolbar wraps instead of scrolling (B1)", async () => {
+  it("renders the four status buckets inline at any width; the toolbar wraps instead of scrolling (B1)", async () => {
     await mountSessions("session/runtime-bound");
-    // 工具条不再用自身横向滚动容纳控件(标准 §1.9②):允许换行,状态词表窄容器收进下拉。
+    // 工具条不再用自身横向滚动容纳控件(标准 §1.9②):允许换行。四档在任何宽度都平铺,
+    // 窄容器不再另做一个下拉(业主 2026-10-21 13:50)。
     const toolbar = byTestId("sessions-toolbar");
     expect(toolbar.className).toContain("flex-wrap");
     // Real wrapping and control containment: sessions-grouping Electron scenario.
     expect(toolbar.className).not.toMatch(/overflow-x-(?:auto|scroll|overlay)/u);
-    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(10);
-
-    await click("sessions-status-filter-menu");
-    const menuButtons = byTestId("sessions-status-filter-menu-panel").querySelectorAll("button");
-    expect(menuButtons).toHaveLength(10);
-    const menuFailed = [...menuButtons].find((button) => button.textContent === "Failed");
-    expect(menuFailed).toBeInstanceOf(HTMLButtonElement);
-    await act(async () => {
-      (menuFailed as HTMLButtonElement).click();
-    });
-    await flushEffects();
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["failed"] });
-    expect(menuFailed?.getAttribute("aria-pressed")).toBe("true");
-    // 下拉与平铺是同一选择集的两份呈现。
-    const inlineFailed = [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
-      (button) => button.textContent === "Failed",
-    );
-    expect(inlineFailed?.getAttribute("aria-pressed")).toBe("true");
+    expect([...toolbar.querySelectorAll('[aria-label="Status"] button')]).toHaveLength(4);
+    expect(document.querySelector('[data-testid="sessions-status-filter-menu"]')).toBeNull();
   });
 
   it("keeps the page header and filter row on the unified layout (§2.3): bare header, search fills the row's tail", async () => {

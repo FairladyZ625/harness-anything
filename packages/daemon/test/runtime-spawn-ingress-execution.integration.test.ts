@@ -76,6 +76,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       ...ingressInstallation,
       installationId: "installation-claude",
       kindId: "claude" as const,
+      // The shared witness is Codex-shaped; Claude's launch contract declares its own floor.
+      version: "2.1.305 (Claude Code)",
     };
   let launchCount = 0,
     launchedPrompt = "",

@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
-import { sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
+import { sessionDispatchIdOf, sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { actorDisplayName } from "../../model/actor-name.ts";
 import { formatTime } from "../../model/time.ts";
+import { runtimeModelFullLabel } from "../../model/runtime-models.ts";
 import { exactTokens } from "../../token-format.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
@@ -109,7 +110,7 @@ export function SessionsPanel({
           transcript={
             <SessionTranscript
               repoId={repoId}
-              dispatchId={row?.kind === "round" ? row.dispatchId : null}
+              dispatchId={sessionDispatchIdOf(session, row)}
               live={LIVENESS_LIVE[session.liveness] ?? false}
               onSettled={reread}
               title={t("agentRuntime.transcript")}
@@ -293,14 +294,16 @@ export function SessionDetailView({
               {squadName}
             </span>
           )}
-          {/* 面包屑并入卡头(S5 身份只写一遍):会话 id 的可寻址出口收进这里,
-              页名段与目录选中态重复、载体名与 CardTitle 重复,不再各画一遍。 */}
+          {/* 面包屑并入卡头(S5 身份只写一遍):会话 id 的可寻址出口收进这里,可见文字
+              用短码(运行时 id 不当主文字),悬停给完整引用。 */}
           <EntityRefLink
             entityRef={`session/${session.runtimeSessionId}`}
             onNavigate={onNavigateEntity}
             title={session.runtimeSessionId}
             className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
-          />
+          >
+            {`session/${shortRef(session.runtimeSessionId, 14)}`}
+          </EntityRefLink>
           <div className="flex items-center gap-2" data-testid="session-detail-meters">
             {cacheTtl != null && (
               <CacheTimer
@@ -436,25 +439,15 @@ export function SessionDetailView({
       )}
       {/* 会话记录自带卡片,没有记录时由它自己整块不渲染。 */}
       {transcript}
+      {/* 会话事实只留用户能读的字段(业主 2026-10-21 定案:详情回答「这次会话做成了什么」)。
+          运行时 id、provider 会话 UUID、定义快照 sha256、resultRef、租约与派工链等原始
+          字段不再上屏;完整值仍在 daemon 读面,需要时从那里取。 */}
       <Card>
         <CardHead>
           <CardTitle>{t("agentRuntime.sessionFacts")}</CardTitle>
         </CardHead>
         <CardBody>
           <KV>
-            <KVRow name={t("agentRuntime.facts.session")}>
-              <EntityRefLink
-                entityRef={`session/${session.runtimeSessionId}`}
-                onNavigate={onNavigateEntity}
-                title={session.runtimeSessionId}
-                className="text-accent hover:underline"
-              />
-            </KVRow>
-            <KVRow name={t("agentRuntime.facts.providerSession")}>
-              <span title={session.providerSessionId ?? undefined}>
-                {session.providerSessionId ?? t("agentRuntime.notBound")}
-              </span>
-            </KVRow>
             <KVRow name={t("agentRuntime.facts.instance")}>
               <EntityRefLink
                 entityRef={`provider/${session.instanceId}`}
@@ -464,13 +457,8 @@ export function SessionDetailView({
               />
             </KVRow>
             <KVRow name={t("agentRuntime.facts.model")}>
-              {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
-            </KVRow>
-            <KVRow name={t("agentRuntime.facts.auth")}>{session.definitionSnapshot?.authMode ?? "—"}</KVRow>
-            <KVRow name={t("agentRuntime.facts.snapshot")} title={session.definitionSnapshotRef ?? undefined}>
-              {session.definitionSnapshotPersisted
-                ? session.definitionSnapshotRef
-                : t("agentRuntime.definitionSnapshotNotPersisted")}
+              {runtimeModelFullLabel(session.definitionSnapshot?.model) ??
+                t("agentRuntime.definitionSnapshotNotPersisted")}
             </KVRow>
             <KVRow name={t("agentRuntime.facts.outcome")}>{session.activity.outcome ?? "—"}</KVRow>
             {session.activity.missingEvidence !== null && (
@@ -479,51 +467,10 @@ export function SessionDetailView({
               </KVRow>
             )}
             <KVRow name={t("agentRuntime.facts.exitCode")}>{session.activity.exitCode ?? "—"}</KVRow>
-            <KVRow name={t("agentRuntime.facts.result")} title={session.activity.resultRef ?? undefined}>
-              {session.activity.resultRef ?? "—"}
-            </KVRow>
-            <KVRow name={t("agentRuntime.facts.task")}>
-              {target !== null ? (
-                <EntityRefLink
-                  entityRef={`task/${target.taskId}`}
-                  onNavigate={(ref) => onOpenTask(ref.slice(5))}
-                  title={target.taskId}
-                  className="text-accent hover:underline"
-                >
-                  {taskLabel}
-                </EntityRefLink>
-              ) : (
-                "—"
-              )}
-            </KVRow>
             <KVRow name={t("agentRuntime.facts.holder")}>
               {association?.holder?.personId
                 ? actorDisplayName(association.holder.personId).name
                 : t("agentRuntime.unheld")}
-            </KVRow>
-            <KVRow
-              name={t("agentRuntime.facts.lease")}
-              title={association?.lease ? association.lease.expiresAt : undefined}
-            >
-              {association?.lease
-                ? `${association.lease.phase} · ${formatTime(association.lease.expiresAt, { style: "date-time" }) ?? association.lease.expiresAt}`
-                : t("agentRuntime.noLease")}
-            </KVRow>
-            <KVRow name={t("agentRuntime.facts.dispatch")}>
-              {row?.kind === "round" && target !== null ? (
-                <EntityRefLink
-                  entityRef={`task/${target.taskId}`}
-                  onNavigate={(ref) => onOpenTask(ref.slice(5))}
-                  title={t("agentRuntime.sessionsDispatchChain", { dispatchId: row.dispatchId })}
-                  className="text-accent hover:underline"
-                >
-                  {row.dispatchId}
-                </EntityRefLink>
-              ) : row?.kind === "round" ? (
-                row.dispatchId
-              ) : (
-                "—"
-              )}
             </KVRow>
             <KVRow name={t("agentRuntime.facts.delegation")}>
               {row?.kind === "round" ? (row.delegation ?? "—") : "—"}

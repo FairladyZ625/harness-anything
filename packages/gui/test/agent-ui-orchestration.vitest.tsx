@@ -700,6 +700,84 @@ describe("AgentLanes", () => {
     );
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("opens the task behind a block on click and Enter/Space, and keeps a block without a task inert", () => {
+    const onOpenTask = vi.fn();
+    const onResolveAwaiting = vi.fn();
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: [
+              {
+                id: "disp-1",
+                taskId: "task-open-1",
+                label: "普通任务",
+                startAt: BASE - 20 * 60_000,
+                endAt: BASE - 10 * 60_000,
+                status: "done",
+              },
+              {
+                id: "disp-2",
+                taskId: "task-open-2",
+                label: "阻塞任务",
+                startAt: BASE - 15 * 60_000,
+                endAt: BASE - 5 * 60_000,
+                status: "awaiting",
+                awaiting: { question: "确认选方案 A？" },
+              },
+              // 兜底块(只有派工/会话 id、没有 taskId)没有可跳的任务:不给假入口。
+              {
+                id: "disp-3",
+                label: "无任务块",
+                startAt: BASE - 14 * 60_000,
+                endAt: BASE - 4 * 60_000,
+                status: "done",
+              },
+            ],
+          },
+        ],
+        nowMs: BASE,
+        onOpenTask,
+        onResolveAwaiting,
+        testId: "nav-lanes",
+      }),
+    );
+    const block = container.querySelector<HTMLElement>('[data-testid="nav-lanes-task-disp-1"]')!;
+    // 跳转用的是块背后的 taskId,不是块 id(块 id 是派工 id)。
+    expect(block.getAttribute("role")).toBe("button");
+    expect(block.getAttribute("aria-label")).toContain("普通任务");
+    act(() => block.click());
+    expect(onOpenTask).toHaveBeenCalledWith("task-open-1");
+
+    onOpenTask.mockClear();
+    act(() => {
+      block.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(onOpenTask).toHaveBeenCalledWith("task-open-1");
+
+    onOpenTask.mockClear();
+    act(() => {
+      block.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    });
+    expect(onOpenTask).toHaveBeenCalledWith("task-open-1");
+
+    // 没有 taskId 的块:无 button 语义、点击不触发跳转。
+    onOpenTask.mockClear();
+    const inert = container.querySelector<HTMLElement>('[data-testid="nav-lanes-task-disp-3"]')!;
+    expect(inert.getAttribute("role")).toBe("group");
+    act(() => inert.click());
+    expect(onOpenTask).not.toHaveBeenCalled();
+
+    // 待拍板按钮是块内的一等动作:只开答复面板,不冒泡成「打开任务」。
+    onOpenTask.mockClear();
+    const resolveBtn = container.querySelector<HTMLButtonElement>('[data-testid="nav-lanes-resolve-disp-2"]')!;
+    act(() => resolveBtn.click());
+    expect(onResolveAwaiting).toHaveBeenCalledWith("disp-2");
+    expect(onOpenTask).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

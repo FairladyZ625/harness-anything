@@ -580,10 +580,10 @@ test("runtime instance create filters auto-resolution by kind and rejects same-k
       installationId: "claude-first",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
-      version: "claude 1.0.0",
+      version: "2.1.305 (Claude Code)",
     },
     codex = { ...observed, installationId: "codex-first", version: "codex 1.0.0" },
-    secondClaude = { ...claude, installationId: "claude-second", version: "claude 2.0.0" };
+    secondClaude = { ...claude, installationId: "claude-second", version: "2.1.305 (Claude Code)" };
   t.after(() => rmSync(userRoot, { recursive: true, force: true }));
   t.after(() => rmSync(ambiguousRoot, { recursive: true, force: true }));
   try {
@@ -658,6 +658,7 @@ test("public instance projections expose one generic provider configuration", as
       installationId: "claude-projection",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     },
     store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude] });
   try {
@@ -734,6 +735,7 @@ test("kind-specific runtime config fails closed across adapters and rejects secr
       installationId: "claude-installation-test",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     },
     store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude] });
   try {
@@ -806,7 +808,7 @@ test("runtime instance update changes metadata and models without touching crede
       installationId: "claude-installation-replacement",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude-replacement",
-      version: "2.1.240",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     const store = openRuntimeInstanceStore({

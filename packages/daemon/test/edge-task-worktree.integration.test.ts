@@ -1,11 +1,21 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskWorktreeBindingV1 } from "@harness-anything/kernel";
+import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
@@ -220,20 +230,125 @@ test("a checkout behind the published branch that holds work of its own is refus
     if (scenario === "a commit of its own") commit(onB.cwd, "node-b.txt");
     else writeFileSync(path.join(onB.cwd, "src", "index.txt"), "edited on node b\n");
     const head = git(onB.cwd, "rev-parse", "HEAD"),
-      status = git(onB.cwd, "status", "--porcelain");
-
-    await assert.rejects(
-      checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()),
-      (error: unknown) =>
-        error instanceof Error &&
-        (error as { code?: unknown }).code === "task_worktree_diverged" &&
-        error.message.includes(onB.cwd) &&
-        error.message.includes(`origin/${taskId}`),
-      scenario,
+      status = git(onB.cwd, "status", "--porcelain"),
+      message = await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()).then(
+        () => assert.fail(`${scenario} was expected to stay refused`),
+        (error: unknown) => {
+          assert.ok(error instanceof Error, scenario);
+          assert.equal((error as { code?: unknown }).code, "task_worktree_diverged", scenario);
+          assert.equal(error.message.includes(onB.cwd), true, scenario);
+          assert.equal(error.message.includes(`origin/${taskId}`), true, scenario);
+          return error.message;
+        },
+      );
+    assert.equal(
+      message.includes(
+        scenario === "a commit of its own"
+          ? `git -C ${onB.cwd} rebase origin/${taskId}`
+          : `git -C ${onB.cwd} status --short`,
+      ),
+      true,
+      `${scenario}: the refusal names one command that can be run as written`,
     );
     assert.equal(git(onB.cwd, "rev-parse", "HEAD"), head, scenario);
     assert.equal(git(onB.cwd, "status", "--porcelain"), status, scenario);
   }
+});
+
+test("a checkout a stopped runtime left mid-rebase or mid-merge is recovered before dispatch", async (t) => {
+  for (const operation of ["rebase", "merge"] as const) {
+    const fixture = nodesFixture(t),
+      onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+    // A published commit plus newer local work: recovering the operation must keep both.
+    commit(onB.cwd, "task-change.txt");
+    assert.equal((await pushWorkerBranch({ cwd: onB.cwd, canonicalRoot: fixture.nodeB, taskId })).attempted, true);
+    const localTip = commit(onB.cwd, "task-change-2.txt");
+    // Main edits the file the task changed, so the operation stops on a conflict and is left behind.
+    writeFileSync(path.join(fixture.nodeA, "task-change.txt"), "main\n");
+    git(fixture.nodeA, "add", "task-change.txt");
+    git(fixture.nodeA, "commit", "-qm", "main moves");
+    git(fixture.nodeA, "push", "-q", "origin", "main");
+    git(fixture.nodeB, "fetch", "-q", "origin");
+    conflicting(onB.cwd, operation, "origin/main");
+    assert.equal(
+      existsSync(gitPath(onB.cwd, "rebase-merge")) || existsSync(gitPath(onB.cwd, "rebase-apply")),
+      operation === "rebase",
+      operation,
+    );
+    assert.equal(existsSync(gitPath(onB.cwd, "MERGE_HEAD")), operation === "merge", operation);
+
+    const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+    assert.equal(resumed.cwd, onB.cwd, operation);
+    assert.equal(git(onB.cwd, "rev-parse", "HEAD"), localTip, `${operation}: the local commits are kept`);
+    assert.equal(git(onB.cwd, "status", "--porcelain"), "", `${operation}: the half-done operation is gone`);
+    assert.equal(existsSync(gitPath(onB.cwd, "rebase-merge")), false, operation);
+    assert.equal(existsSync(gitPath(onB.cwd, "rebase-apply")), false, operation);
+    assert.equal(existsSync(gitPath(onB.cwd, "MERGE_HEAD")), false, operation);
+  }
+});
+
+test("a live dispatch keeps the rebase it is in, and the retry after it exits clears it", async (t) => {
+  const fixture = nodesFixture(t),
+    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  commit(onB.cwd, "task-change.txt");
+  assert.equal((await pushWorkerBranch({ cwd: onB.cwd, canonicalRoot: fixture.nodeB, taskId })).attempted, true);
+  writeFileSync(path.join(fixture.nodeA, "task-change.txt"), "main\n");
+  git(fixture.nodeA, "add", "task-change.txt");
+  git(fixture.nodeA, "commit", "-qm", "main moves");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin");
+  const localTip = git(onB.cwd, "rev-parse", "HEAD");
+  conflicting(onB.cwd, "rebase", "origin/main");
+  const stoppedHead = git(onB.cwd, "rev-parse", "HEAD"),
+    status = git(onB.cwd, "status", "--porcelain"),
+    dispatchId = liveDispatch(fixture.nodeB, onB.cwd);
+
+  await assert.rejects(
+    checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()),
+    (error: unknown) => error instanceof Error && (error as { code?: unknown }).code === "task_worktree_diverged",
+    "a live dispatch's rebase is not aborted",
+  );
+  assert.equal(existsSync(gitPath(onB.cwd, "rebase-merge")), true, "the live dispatch keeps its worktree");
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), stoppedHead);
+  assert.equal(git(onB.cwd, "status", "--porcelain"), status);
+
+  // The runtime exits: the next retry may clear the rebase it left behind.
+  appendRuntimeWorkerRecord(fixture.nodeB, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
+  await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup());
+  assert.equal(existsSync(gitPath(onB.cwd, "rebase-merge")), false);
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), localTip, "abort restores the branch the runtime had");
+  assert.equal(git(onB.cwd, "status", "--porcelain"), "");
+});
+
+test("a rewritten checkout continues after the default branch moves past the commit it was rebased onto", async (t) => {
+  const fixture = nodesFixture(t),
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  commit(onA.cwd, "task-change.txt");
+  commit(onB.cwd, "task-change.txt");
+  assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+
+  // Node B rewrites its copy of the task commit onto the default branch...
+  commit(fixture.nodeA, "main-change.txt");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin");
+  git(onB.cwd, "rebase", "-q", "origin/main");
+  const rebased = git(onB.cwd, "rev-parse", "HEAD");
+  // ...and the default branch moves on again before the retry, so the checkout no longer contains its tip.
+  commit(fixture.nodeA, "main-change-2.txt");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin");
+
+  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(resumed.cwd, onB.cwd);
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), rebased, "the local rewrite is the newer progress");
+  assert.equal(git(onB.cwd, "status", "--porcelain"), "");
+  assert.equal(git(onB.cwd, "rev-parse", "origin/main"), git(fixture.nodeA, "rev-parse", "origin/main"));
+  assert.notEqual(
+    git(onB.cwd, "merge-base", "origin/main", "HEAD"),
+    git(fixture.nodeA, "rev-parse", "origin/main"),
+    "the checkout may still be based on the previous default branch",
+  );
 });
 
 test("a clean rebase-equivalent task checkout continues when the published branch has the old commits", async (t) => {
@@ -346,4 +461,47 @@ function git(cwd: string, ...args: string[]): string {
     delete env[name];
   delete env.HARNESS_TASK_BOUND;
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env }).trim();
+}
+
+/** Where git keeps one in-progress operation's state; resolute because the daemon does not run inside the checkout. */
+function gitPath(cwd: string, name: string): string {
+  return path.resolve(cwd, git(cwd, "rev-parse", "--git-path", name));
+}
+
+/** An operation the fixture expects to stop on a conflict: git's exit status is the assertion. */
+function conflicting(cwd: string, ...args: string[]): void {
+  let status: number | undefined;
+  try {
+    git(cwd, ...args);
+  } catch (error) {
+    status = (error as { status?: number }).status;
+  }
+  assert.equal(status, 1, `git ${args.join(" ")} was expected to stop on a conflict`);
+}
+
+/** A dispatch whose worker (this test process) is running with its cwd inside the worktree. */
+function liveDispatch(rootDir: string, cwd: string): string {
+  const dispatchId = "dispatch_0123456789abcdef01234567";
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId: "runtime_edge_live",
+    instanceId: "instance-1",
+    startedAt: "2026-10-21T00:00:00.000Z",
+    dispatchOpId: "edge-live-op",
+    kindId: "codex",
+    permissionMode: null,
+    binding: { actor: { principal: { personId: "person-1" }, executor: null }, source: "local" },
+    cwd,
+    prompt: "work in the task worktree",
+    model: "gpt-5.6-sol",
+    reasoningEffort: null,
+    fast: false,
+  } as Parameters<typeof openDispatchStream>[1]);
+  appendFileSync(
+    dispatchStreamPath(rootDir, dispatchId),
+    `${JSON.stringify({ schema: "runtime-dispatch-stream/v1", kind: "process_started", pid: process.pid })}\n`,
+  );
+  return dispatchId;
 }

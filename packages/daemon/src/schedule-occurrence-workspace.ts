@@ -5,11 +5,13 @@ import { makeGitReadinessSource, runProcessExitAsync, runProcessTextAsync } from
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import {
   cleanupWorktreeSetup,
+  isLinkedWorktree,
   runWorktreeSetup,
   type WorktreeSetupSettings,
   unlinkWorktreeLedger,
   worktreeSetupFailure,
 } from "./worktree-setup.ts";
+import { liveDispatchIn } from "./live-dispatch-worktree.ts";
 
 /**
  * A git worktree Harness creates and reclaims itself — schedule occurrences, task checkouts and squad
@@ -69,48 +71,69 @@ export async function publishedBranchRef(rootDir: string, branch: string): Promi
 }
 
 /**
- * Brings a checkout that is behind the published task branch up to it, so a node that takes the task over
- * continues what the previous node pushed. A checkout that also holds work the published branch lacks — commits
- * of its own or uncommitted changes — is left exactly as it is and refused: nothing here discards work.
+ * A rebase or merge a runtime stopped in the middle of leaves the checkout on a conflict it will never finish. The
+ * operation is aborted here, restoring the branch to the commits the runtime made before it started, so a retry
+ * continues that work instead of failing on the residue. A dispatch still running in the checkout is not touched:
+ * its operation is live work, not residue.
  */
-export async function continuePublishedBranch(
-  cwd: string,
-  published: string,
-  defaultRef: string | null,
-): Promise<void> {
+export async function abortInterruptedWorktreeOperation(rootDir: string, cwd: string): Promise<void> {
+  if (!isLinkedWorktree(cwd)) return;
+  const operation = await interruptedGitOperation(cwd);
+  if (operation && !liveDispatchIn(rootDir, cwd)) await git(cwd, operation, "--abort");
+}
+
+/** The operation git recorded in the checkout, if any: its state directory, not its localized status text. */
+async function interruptedGitOperation(cwd: string): Promise<"rebase" | "merge" | null> {
+  const [rebaseMerge, rebaseApply, mergeHead] = (
+      await git(
+        cwd,
+        "rev-parse",
+        "--git-path",
+        "rebase-merge",
+        "--git-path",
+        "rebase-apply",
+        "--git-path",
+        "MERGE_HEAD",
+      )
+    ).split("\n"),
+    present = (gitPath: string | undefined) => gitPath !== undefined && existsSync(path.resolve(cwd, gitPath));
+  if (present(rebaseMerge) || present(rebaseApply)) return "rebase";
+  return present(mergeHead) ? "merge" : null;
+}
+
+/**
+ * Brings a checkout that is behind the published task branch up to it, so a node that takes the task over
+ * continues what the previous node pushed. A published commit the checkout lacks is refused: taking the local
+ * branch would drop it. A branch rewritten here — every published-only commit present by patch, with newer local
+ * work on top, whatever default branch it was based on — is the same task's newer progress and is kept as it is.
+ * Uncommitted changes are likewise left exactly as they are: nothing here discards work.
+ */
+export async function continuePublishedBranch(cwd: string, published: string): Promise<void> {
   if ((await git(cwd, "rev-list", "--count", `HEAD..${published}`)) === "0") return;
-  const ahead = await git(cwd, "rev-list", "--count", `${published}..HEAD`),
+  const aheadCount = Number(await git(cwd, "rev-list", "--count", `${published}..HEAD`)),
     dirty = (await git(cwd, "status", "--porcelain")).length > 0;
-  if (ahead !== "0" || dirty) {
-    const equivalentRebase =
-        ahead !== "0" &&
-        !dirty &&
-        defaultRef !== null &&
-        (await git(cwd, "merge-base", defaultRef, "HEAD")) === (await git(cwd, "rev-parse", defaultRef)) &&
-        (await git(cwd, "cherry", "HEAD", published)).split("\n").every((line) => !line.startsWith("+")),
-      remoteDifferent = equivalentRebase
-        ? []
-        : (await git(cwd, "cherry", "HEAD", published))
-            .split("\n")
-            .filter((line) => line.startsWith("+"))
-            .map((line) => line.slice(2)),
-      localDifferent = equivalentRebase
-        ? []
-        : (await git(cwd, "log", "--format=%h", `${published}..HEAD`)).split("\n").filter(Boolean);
-    if (equivalentRebase) return;
-    throw Object.assign(
-      new Error(
-        `Worktree ${cwd} is behind ${published} and holds ` +
-          (ahead !== "0" ? `${ahead} commit(s) that branch lacks` : "uncommitted changes") +
-          (remoteDifferent.length || localDifferent.length
-            ? `; different commits: ${[...remoteDifferent, ...localDifferent].join(", ")}`
-            : "") +
-          "; it was left untouched. Rebase or remove that work in the worktree, then retry.",
-      ),
-      { code: "task_worktree_diverged" },
-    );
+  if (aheadCount === 0 && !dirty) {
+    await git(cwd, "merge", "--quiet", "--ff-only", published);
+    return;
   }
-  await git(cwd, "merge", "--quiet", "--ff-only", published);
+  const publishedOnly = dirty ? [] : (await git(cwd, "cherry", "HEAD", published)).split("\n").filter(Boolean),
+    missing = publishedOnly.filter((line) => line.startsWith("+"));
+  if (aheadCount !== 0 && !dirty && missing.length === 0) return;
+  const localDifferent =
+      aheadCount === 0 ? [] : (await git(cwd, "log", "--format=%h", `${published}..HEAD`)).split("\n").filter(Boolean),
+    different = [...missing.map((line) => line.slice(2)), ...localDifferent];
+  throw Object.assign(
+    new Error(
+      `Worktree ${cwd} is behind ${published} and holds ` +
+        (aheadCount !== 0 ? `${aheadCount} commit(s) that branch lacks` : "uncommitted changes") +
+        (different.length ? `; different commits: ${different.join(", ")}` : "") +
+        `; it was left untouched. ` +
+        (dirty
+          ? `Inspect it with: git -C ${cwd} status --short`
+          : `Replay its commits onto the published branch: git -C ${cwd} rebase ${published}`),
+    ),
+    { code: "task_worktree_diverged" },
+  );
 }
 
 /**

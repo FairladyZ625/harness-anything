@@ -19,13 +19,18 @@ accepting the prompt moves it automatically, and declining still lets you contin
 
 ## 2. Admin: issue a one-time invitation
 
-In the center GUI, open **Settings → Repos & connections → Center node** and use the **Invite an edge node** panel:
+In the center GUI, open **Settings → Repos & connections** and click **Invite a member** on the card at the top of the
+page; that opens the invitation form directly:
 
 1. Under **Member**, pick an existing member or choose **New member…** and fill in the username, email, and display
    name; optionally set an **Edge node label (optional)**.
 2. Tick the **Repositories** and **Permission groups** to grant.
 3. Click **Issue invitation**. The one-time link is shown once: click **Copy link** and send it to that person over a
    separate channel (chat or email); after **Done** the link cannot be retrieved again.
+
+If this machine cannot act as the center yet (the login service certificate is not configured), the entry does not hide
+the invitation; it names the missing step first: click **Configure the login service**, finish the certificate setup,
+then come back to **Invite a member** and issue the invitation.
 
 The invitation expires after 72 hours and can be consumed once. The **Invitation audit** list shows each invitation as
 Pending / Consumed / Expired / Revoked, and a pending invitation can be withdrawn with **Revoke**. Do not post the link

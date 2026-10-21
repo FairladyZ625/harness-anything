@@ -28,6 +28,17 @@ import {
   type ReplicationPeer,
 } from "./protocol.ts";
 
+// A write to a peer that already hung up fails with a socket errno before the close event that
+// aborts `disconnected` lands. That is the session ending, not a center fault: reporting it would
+// bury real handler failures under one entry per disconnected edge.
+const PEER_GONE_CODES = ["EPIPE", "ECONNRESET", "ECONNABORTED", "ERR_STREAM_DESTROYED", "ERR_SOCKET_CLOSED"];
+function peerDisconnected(socket: TLSSocket, error: unknown): boolean {
+  if (socket.destroyed) return true;
+  const code =
+    typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : null;
+  return typeof code === "string" && PEER_GONE_CODES.includes(code);
+}
+
 export async function serve(
   socket: TLSSocket,
   options: FleetCenterOptions,
@@ -166,7 +177,7 @@ export async function serve(
       .onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal, humanClientId)
       .catch((error) => {
         // A peer that went away aborts its stream; any other end is a center failure worth reporting.
-        if (!disconnected.signal.aborted)
+        if (!disconnected.signal.aborted && !peerDisconnected(socket, error))
           (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({
             nodeId: node,
             messageId: null,

@@ -63,7 +63,8 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       installationId: claudeDefinition.installationId,
       kindId: claudeDefinition.kindId,
       executablePath: "/opt/witnessed/claude",
-      version: "1.0.0",
+      // Claude's launch contract declares a CLI floor; the shared 1.0.0 belongs to no provider.
+      version: "2.1.305 (Claude Code)",
       observedAt: "2026-08-14T00:00:00.000Z",
     };
     const claudeInstance: RuntimeInstanceSummary = {
@@ -274,6 +275,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       ...runtimeInstallation,
       installationId: "installation-claude-agent-model",
       kindId: "claude" as const,
+      version: "2.1.305 (Claude Code)",
     },
     agyInstallation = {
       ...runtimeInstallation,
@@ -772,7 +774,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
           installationId: preparedDefinition.installationId,
           kindId,
           executablePath: `/opt/witnessed/${kindId}`,
-          version: "1.0.0",
+          version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
           observedAt: "2026-08-20T00:00:00.000Z",
         };
       launches.push({

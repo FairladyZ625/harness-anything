@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
-import type { SessionGroup, SessionWorkGroup } from "../src/renderer/sessions-model.ts";
+import type { SessionGroup, SessionRound, SessionWorkGroup } from "../src/renderer/sessions-model.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
@@ -174,6 +174,84 @@ function mount(overrides: Partial<ReturnType<typeof baseProps>> = {}): HTMLEleme
   });
   return container;
 }
+
+describe("会话页:行级缓存倒计时接线", () => {
+  const NOW = Date.parse("2026-10-19T10:00:00.000Z");
+  const round = (overrides: Partial<SessionRound>): SessionRound => ({
+    kind: "round",
+    roundIndex: 1,
+    runtimeSessionId: "runtime_run",
+    dispatchId: "dispatch_run",
+    agentId: null,
+    agentName: null,
+    squadId: null,
+    instanceId: "instance_claude",
+    taskId: "task_1",
+    taskTitle: "Task One",
+    startedAt: "2026-10-19T09:30:00.000Z",
+    endedAt: null,
+    status: "running",
+    classification: null,
+    resume: null,
+    nextAction: null,
+    delegation: null,
+    ...overrides,
+  });
+
+  it("在跑轮不显示倒计时(触达证据再旧也不判 expired);收口的 claude 轮按真实 TTL 倒计时", () => {
+    const container = mount({
+      nowMs: NOW,
+      expandedKeys: new Set(["task_1"]),
+      rowsByGroup: new Map([
+        [
+          "task_1",
+          {
+            rounds: [
+              round({ runtimeSessionId: "runtime_run", dispatchId: "dispatch_run", status: "running" }),
+              round({
+                runtimeSessionId: "runtime_done",
+                dispatchId: "dispatch_done",
+                roundIndex: 2,
+                status: "succeeded",
+                endedAt: "2026-10-19T09:58:00.000Z",
+              }),
+              round({
+                runtimeSessionId: "runtime_ds",
+                dispatchId: "dispatch_ds",
+                roundIndex: 3,
+                status: "succeeded",
+                endedAt: "2026-10-19T09:58:00.000Z",
+              }),
+            ],
+            orphans: [],
+            pending: false,
+            error: null,
+          },
+        ],
+      ]),
+      // 三轮都有 started 触达(29 分钟前):修前这一证据会让在跑轮判 expired。
+      sessionTouches: new Map([
+        ["runtime_run", NOW - 29 * 60_000],
+        ["runtime_done", NOW - 2 * 60_000],
+        ["runtime_ds", NOW - 2 * 60_000],
+      ]),
+      sessionCacheTtlMs: new Map([
+        ["runtime_run", 300_000],
+        ["runtime_done", 300_000],
+        // DeepSeek:无确定 TTL。
+        ["runtime_ds", null],
+      ]),
+    });
+    // 在跑轮:触达 29 分钟前也不渲染计时器(轮内缓存由模型调用保温)。
+    expect(container.querySelector('[data-testid="session-card-cache-timer-runtime_run"]')).toBeNull();
+    // 收口的 claude 轮:触达 2 分钟前 + 5 分钟 TTL → 剩余 3 分钟,normal 档倒计时。
+    const done = container.querySelector('[data-testid="session-card-cache-timer-runtime_done"]');
+    expect(done?.getAttribute("data-cache-state")).toBe("normal");
+    expect(done?.textContent).toContain("3m");
+    // 收口但 provider 无确定 TTL(DeepSeek):不虚构倒计时。
+    expect(container.querySelector('[data-testid="session-card-cache-timer-runtime_ds"]')).toBeNull();
+  });
+});
 
 describe("会话页:组头三分法", () => {
   it("任务/Decision 是可展开按钮,时间组是静态行且不挂执行者名", () => {

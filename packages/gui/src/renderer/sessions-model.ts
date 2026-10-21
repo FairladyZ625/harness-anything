@@ -12,13 +12,7 @@ import type { AgendaAwaitsRow } from "../api/renderer-dto.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { WorkIndex, WorkRef } from "./model/work-collections.ts";
 import type { RelationEdge } from "./model/types.ts";
-import {
-  classifySmartAttention,
-  computePromptCacheTtlState,
-  mostUrgentPromptCacheTtl,
-  type PromptCacheTtlState,
-  type SmartClass,
-} from "./model/smart-attention.ts";
+import { computePromptCacheTtlState, type PromptCacheTtlState } from "./model/smart-attention.ts";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
@@ -189,8 +183,43 @@ export const sessionStatusKey: Readonly<Record<SessionStatus, string>> = {
   "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
   unavailable: "agentRuntime.sessionStatusUnavailable",
 };
-/** 状态筛选控件的词序:与 daemon 的状态词表同一份,前端不另立顺序或分类。 */
-export const sessionStatusFilterWords = agentRuntimeSessionGroupStatusWords;
+/**
+ * 状态筛选收成三档 + 全部(业主 2026-10-21 13:50 定案):内部状态词只以这三档上屏,
+ * 不再逐个当按钮。映射只此一处;daemon 词表新增成员时 `Record` 会报缺位。
+ * - 运行中:在飞,以及受阻等人裁决(等的是人的决定,不是结局);
+ * - 成功:有成功结局;
+ * - 失败:结束但没做成——失败、失联、取消、停手、无法判定、状态不可用/未知。
+ *   取消与停手不藏进「全部」:用户点「失败」要看的正是「哪些没做成」。
+ */
+export type SessionStatusBucket = "running" | "succeeded" | "failed";
+export type SessionStatusFilter = SessionStatusBucket | "all";
+export const sessionStatusBucketOf: Readonly<Record<SessionStatus, SessionStatusBucket>> = {
+  running: "running",
+  blocked: "running",
+  succeeded: "succeeded",
+  failed: "failed",
+  lost: "failed",
+  cancelled: "failed",
+  stopped: "failed",
+  "ended-indeterminate": "failed",
+  unavailable: "failed",
+  unknown: "failed",
+};
+/** 控件词序:固定四档,不随 daemon 词表长度变化。 */
+export const sessionStatusFilterWords: readonly SessionStatusFilter[] = ["running", "succeeded", "failed", "all"];
+/** 四档的展示词:词条落在 i18n 目录,与内部状态词(会话事实里仍保留)分开。 */
+export const sessionStatusFilterKey: Readonly<Record<SessionStatusFilter, string>> = {
+  running: "agentRuntime.sessionsBucketRunning",
+  succeeded: "agentRuntime.sessionsBucketSucceeded",
+  failed: "agentRuntime.sessionsBucketFailed",
+  all: "agentRuntime.sessionsBucketAll",
+};
+/** 该档的 daemon 状态词:空数组 = 不筛(全部);顺序取 daemon 词表,不另立顺序。 */
+export function sessionStatusesInBucket(bucket: SessionStatusFilter): readonly SessionStatus[] {
+  return bucket === "all"
+    ? []
+    : agentRuntimeSessionGroupStatusWords.filter((word) => sessionStatusBucketOf[word] === bucket);
+}
 /**
  * 未归属桶按缺失原因分名:daemon 侧一个桶三种成因(无任务绑定 / 无小队 / 无派工记录),
  * 前端此前把三者一律显示成「未归属」。key 是 daemon 给的稳定判别式,label 走 i18n。
@@ -275,45 +304,7 @@ export function sessionEventTimeline(events: readonly SessionLifecycleEvent[]): 
   return { lastTurnActivityAt, lastCacheTouchAt };
 }
 
-/** 会话侧完整注意力投影:五级分类 + 缓存 TTL,时钟由调用方注入。 */
-export type SessionAttention = {
-  readonly smartClass: SmartClass;
-  readonly needsYou: boolean;
-  readonly lastTurnActivityAt: number | null;
-  readonly lastCacheTouchAt: number | null;
-  readonly cacheTtl: PromptCacheTtlState | null;
-};
-
-/** 单会话:session DTO 有 liveness 与 outcome 证据,是五级分级最精确的输入。 */
-export function sessionAttention(
-  session: AgentRuntimeSessionDto,
-  refs: ReadonlySet<string>,
-  timeline: SessionEventTimeline = EMPTY_EVENT_TIMELINE,
-  nowMs: number,
-): SessionAttention {
-  const needsYou = session.associations.some((association) => refs.has(`task/${association.taskId}`)),
-    observedAt = epochMsOf(session.activity.lastObservedAt),
-    lastTurnActivityAt = timeline.lastTurnActivityAt ?? observedAt;
-  return {
-    smartClass: classifySmartAttention(
-      {
-        status: session.semanticState ?? "unavailable",
-        liveness: session.liveness,
-        needsYou,
-        lastTurnActivityAt,
-        settledAt: session.activity.outcome === null ? null : observedAt,
-      },
-      nowMs,
-    ),
-    needsYou,
-    lastTurnActivityAt,
-    lastCacheTouchAt: timeline.lastCacheTouchAt,
-    cacheTtl: computePromptCacheTtlState(timeline.lastCacheTouchAt, nowMs),
-  };
-}
-const EMPTY_EVENT_TIMELINE: SessionEventTimeline = { lastTurnActivityAt: null, lastCacheTouchAt: null };
-
-/** 组级终态词表(新鲜度窗口的适用范围);running/unknown/blocked/lost/unavailable 不是收口。 */
+/** 组级终态词表(收口判定的适用范围);running/unknown/blocked/lost/unavailable 不是收口。 */
 const GROUP_TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set([
   "succeeded",
   "failed",
@@ -322,78 +313,18 @@ const GROUP_TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set([
   "ended-indeterminate",
 ]);
 
-/** 组级投影:组没有 liveness 与收口时间戳,终态以 latestActivityAt 近似收口时刻;缓存触达按组成员会话给入,取最早失效。 */
-export function sessionGroupAttention(
-  group: SessionGroup,
-  refs: ReadonlySet<string>,
-  memberCacheTouches: readonly (number | null)[] = [],
+/**
+ * 一轮收口后的缓存倒计时,行级与详情共用唯一判定:只有终态(一轮结束、等操作者下一轮
+ * 输入)才有「再不提问缓存就失效」的意义——running/blocked 轮内缓存由模型调用本身保温,
+ * 生命周期读面也拿不到轮内触达;触达时间或该 provider 的 TTL 缺一都返回 null,不虚构。
+ */
+export function settledCacheTtl(
+  status: SessionStatus,
+  lastCacheTouchAt: number | null,
+  ttlMs: number | null,
   nowMs: number,
-): SessionAttention {
-  const needsYou = sessionGroupNeedsYou(group, refs),
-    lastTurnActivityAt = epochMsOf(group.latestActivityAt);
-  return {
-    smartClass: classifySmartAttention(
-      {
-        status: group.latestStatus,
-        needsYou,
-        lastTurnActivityAt,
-        settledAt: GROUP_TERMINAL_STATUSES.has(group.latestStatus) ? lastTurnActivityAt : null,
-      },
-      nowMs,
-    ),
-    needsYou,
-    lastTurnActivityAt,
-    lastCacheTouchAt: earliestCacheTouch(memberCacheTouches),
-    cacheTtl: mostUrgentPromptCacheTtl(memberCacheTouches, nowMs),
-  };
-}
-
-/** 轮次级投影:dispatch 行自带 endedAt,终态新鲜度有真实收口时刻;轮次读面没有缓存触达时间,不虚构。 */
-export function sessionRoundAttention(round: SessionRound, refs: ReadonlySet<string>, nowMs: number): SessionAttention {
-  const needsYou = refs.has(`task/${round.taskId}`),
-    lastTurnActivityAt = epochMsOf(round.endedAt) ?? epochMsOf(round.startedAt);
-  return {
-    smartClass: classifySmartAttention(
-      {
-        status: round.status,
-        needsYou,
-        lastTurnActivityAt,
-        settledAt: epochMsOf(round.endedAt),
-      },
-      nowMs,
-    ),
-    needsYou,
-    lastTurnActivityAt,
-    lastCacheTouchAt: null,
-    cacheTtl: null,
-  };
-}
-
-function earliestCacheTouch(touches: readonly (number | null)[]): number | null {
-  let earliest: number | null = null;
-  for (const touch of touches) {
-    if (touch === null || !Number.isFinite(touch)) continue;
-    if (earliest === null || touch < earliest) earliest = touch;
-  }
-  return earliest;
-}
-
-/** 任务 → 组内各会话的缓存触达时间(组级 TTL 的输入);没有事件证据的会话不进桶。 */
-export function sessionCacheTouchesByTask(
-  sessions: readonly AgentRuntimeSessionDto[],
-  touchBySessionId: ReadonlyMap<string, number | null>,
-): ReadonlyMap<string, readonly (number | null)[]> {
-  const byTask = new Map<string, (number | null)[]>();
-  for (const session of sessions) {
-    const touch = touchBySessionId.get(session.runtimeSessionId);
-    if (touch === undefined) continue;
-    for (const association of session.associations) {
-      const bucket = byTask.get(association.taskId) ?? [];
-      bucket.push(touch);
-      byTask.set(association.taskId, bucket);
-    }
-  }
-  return byTask;
+): PromptCacheTtlState | null {
+  return GROUP_TERMINAL_STATUSES.has(status) ? computePromptCacheTtlState(lastCacheTouchAt, nowMs, ttlMs) : null;
 }
 
 /**
@@ -526,6 +457,22 @@ export type SessionOrphan = {
   readonly status: SessionStatus;
 };
 export type SessionRow = SessionRound | SessionOrphan;
+
+/** 选中会话该读哪条派工转写:展开的轮次行自带 dispatchId;组尚未展开、或选中落在列表
+ *  之外的会话时,daemon 的 attemptChain 仍指着这条会话自己的派工——转写因此不必等用户
+ *  先展开组,也不在 GUI 里拼原始事件。只认同一会话 id 的那一条;认不出就返回 null,
+ *  转写照旧整块不渲染(不猜、也不张冠李戴)。 */
+export function sessionDispatchIdOf(
+  session: Pick<AgentRuntimeSessionDto, "runtimeSessionId" | "attemptChain"> | null | undefined,
+  row: SessionRow | null,
+): string | null {
+  if (row?.kind === "round") return row.dispatchId;
+  const runtimeSessionId = session?.runtimeSessionId;
+  if (runtimeSessionId === undefined) return null;
+  return (
+    session?.attemptChain?.attempts.find((attempt) => attempt.runtimeSessionId === runtimeSessionId)?.dispatchId ?? null
+  );
+}
 
 /** 委托链展示:`leader → worker`,无委托时为 null(与 dispatch 头同源,不推断)。 */
 export function sessionDelegation(row: TaskDispatchProjectionRow): string | null {

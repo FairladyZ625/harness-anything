@@ -61,8 +61,8 @@ export default {
     await page.getByRole("button", { name: /^(?:设置|Settings)$/u }).click();
     await page.getByTestId("settings-content").waitFor();
     await page.getByRole("button", { name: /^(?:仓库与连接|Repos & connections)/u }).click();
-    await page.getByTestId("connection-node-center").click();
-    await page.getByTestId("center-connection-panel").waitFor();
+    // 邀请入口在页顶,点开就是邀请面板;不再需要先点「中心节点」理解连接树。
+    await page.getByTestId("invite-entry-open").click();
 
     await page.getByTestId("edge-invite-person-select").waitFor();
     await shot("edge-invite-picker");

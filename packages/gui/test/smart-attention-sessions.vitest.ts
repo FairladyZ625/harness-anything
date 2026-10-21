@@ -6,15 +6,11 @@ import {
   applyLifecycleEventsToSessionGroups,
   epochMsOf,
   needsYouRefs,
-  sessionAttention,
-  sessionCacheTouchesByTask,
   sessionEventTimeline,
-  sessionGroupAttention,
   sessionGroupNeedsYou,
-  sessionRoundAttention,
+  settledCacheTtl,
   type SessionGroup,
   type SessionLifecycleEvent,
-  type SessionRound,
 } from "../src/renderer/sessions-model.ts";
 
 /**
@@ -69,27 +65,6 @@ const event = (
   runtimeSessionId = "rs-1",
 ): SessionLifecycleEvent => ({ cursor: `lifecycle:${cursor}`, runtimeSessionId, type, occurredAt });
 
-const round = (overrides: Partial<SessionRound> = {}): SessionRound => ({
-  kind: "round",
-  roundIndex: 1,
-  runtimeSessionId: "rs-1",
-  dispatchId: "dispatch-1",
-  agentId: null,
-  agentName: null,
-  squadId: null,
-  instanceId: "inst-1",
-  taskId: "task-a",
-  taskTitle: "Task A",
-  startedAt: "2026-10-20T11:50:00.000Z",
-  endedAt: null,
-  status: "running",
-  classification: null,
-  resume: null,
-  nextAction: null,
-  delegation: null,
-  ...overrides,
-});
-
 describe("needsYou 引用集", () => {
   it("awaits 边源实体 + 待审批 decision 都进集合;组级按 task/decision 前缀命中", () => {
     const refs = needsYouRefs([{ sourceRef: "task/task-a" }], ["dec_9"]);
@@ -123,82 +98,35 @@ describe("事件时间线", () => {
   });
 });
 
-describe("注意力投影", () => {
-  it("会话级:awaits 命中 → 1;事件时间线驱动 TTL", () => {
-    const refs = needsYouRefs([{ sourceRef: "task/task-a" }]);
-    const attention = sessionAttention(
-      session(),
-      refs,
-      { lastTurnActivityAt: NOW - 60_000, lastCacheTouchAt: NOW - 240_000 },
-      NOW,
-    );
-    expect(attention.smartClass).toBe(1);
-    expect(attention.needsYou).toBe(true);
-    expect(attention.lastCacheTouchAt).toBe(NOW - 240_000);
-    expect(attention.cacheTtl).toEqual({ kind: "warning", remainingMs: 60_000 });
+describe("收口后的缓存倒计时 settledCacheTtl", () => {
+  const TTL = 300_000;
+
+  it("在跑会话(轮内)不显示:running/blocked/unknown 触达再新也返回 null", () => {
+    // 无头 worker 整轮只在本轮内反复调模型,生命周期读面看不到触达推进;
+    // 这正是修前「启动满 5 分钟全体判 expired」的误报面。
+    for (const status of ["running", "blocked", "unknown", "lost", "unavailable"] as const) {
+      expect(settledCacheTtl(status, NOW - 400_000, TTL, NOW)).toBeNull();
+      expect(settledCacheTtl(status, NOW, TTL, NOW)).toBeNull();
+    }
   });
 
-  it("会话级:已收口且新鲜 → 2;时间线缺省时回退 lastObservedAt,缓存触达未知则 TTL 为 null", () => {
-    const attention = sessionAttention(
-      session({
-        semanticState: "succeeded",
-        liveness: "exited",
-        activity: {
-          lastObservedAt: "2026-10-20T11:59:00.000Z",
-          outcome: "succeeded",
-          exitCode: 0,
-          resultRef: null,
-          missingEvidence: null,
-        },
-      }),
-      new Set(),
-      undefined,
-      NOW,
-    );
-    expect(attention.smartClass).toBe(2);
-    expect(attention.lastTurnActivityAt).toBe(Date.parse("2026-10-20T11:59:00.000Z"));
-    expect(attention.cacheTtl).toBeNull();
+  it("一轮结束后按真实 TTL 倒计时:终态 + 已知 TTL + 触达证据三者齐", () => {
+    for (const status of ["succeeded", "failed", "cancelled", "stopped", "ended-indeterminate"] as const) {
+      expect(settledCacheTtl(status, NOW - 240_000, TTL, NOW)).toEqual({
+        kind: "warning",
+        remainingMs: 60_000,
+      });
+    }
+    expect(settledCacheTtl("succeeded", NOW - 120_000, TTL, NOW)).toEqual({
+      kind: "normal",
+      remainingMs: 180_000,
+    });
+    expect(settledCacheTtl("succeeded", NOW - TTL - 1, TTL, NOW)?.kind).toBe("expired");
   });
 
-  it("组级:终态以 latestActivityAt 近似收口;成员触达取最早失效", () => {
-    const attention = sessionGroupAttention(group(), new Set(), [NOW - 100_000, NOW - 280_000], NOW);
-    expect(attention.smartClass).toBe(2); // 30s 前收口,新鲜
-    expect(attention.lastCacheTouchAt).toBe(NOW - 280_000);
-    expect(attention.cacheTtl).toEqual({ kind: "warning", remainingMs: 20_000 });
-  });
-
-  it("组级:running 组无触达证据时 TTL 为 null;needsYou 命中优先", () => {
-    const refs = needsYouRefs([{ sourceRef: "task/task-a" }]);
-    const attention = sessionGroupAttention(group({ latestStatus: "running", runningCount: 1 }), refs, [], NOW);
-    expect(attention.smartClass).toBe(1);
-    expect(attention.cacheTtl).toBeNull();
-  });
-
-  it("轮次级:blocked → 1;新鲜 endedAt 的 succeeded → 2;无 endedAt 的终态 → 5", () => {
-    expect(sessionRoundAttention(round({ status: "blocked" }), new Set(), NOW).smartClass).toBe(1);
-    expect(
-      sessionRoundAttention(round({ status: "succeeded", endedAt: "2026-10-20T11:59:30.000Z" }), new Set(), NOW)
-        .smartClass,
-    ).toBe(2);
-    expect(sessionRoundAttention(round({ status: "succeeded" }), new Set(), NOW).smartClass).toBe(5);
-    expect(sessionRoundAttention(round({ status: "running" }), new Set(), NOW).cacheTtl).toBeNull();
-  });
-});
-
-describe("缓存触达按任务分桶", () => {
-  it("只收有事件证据的会话;无证据的会话不进桶(不虚构)", () => {
-    const touches = sessionCacheTouchesByTask(
-      [
-        session(),
-        session({
-          runtimeSessionId: "rs-2",
-          associations: [{ taskId: "task-b", executionId: "e2", holder: null, lease: null }],
-        }),
-      ],
-      new Map([["rs-1", NOW - 100_000]]),
-    );
-    expect(touches.get("task-a")).toEqual([NOW - 100_000]);
-    expect(touches.has("task-b")).toBe(false);
+  it("未知 provider TTL 或无触达证据都不虚构:终态也返回 null", () => {
+    expect(settledCacheTtl("succeeded", NOW - 60_000, null, NOW)).toBeNull();
+    expect(settledCacheTtl("succeeded", null, TTL, NOW)).toBeNull();
   });
 });
 

@@ -10,7 +10,9 @@ export type ConnectionNodeId = "local" | "center" | `remote:${string}`;
 
 export type TreeSelection =
   | { readonly kind: "connection"; readonly id: ConnectionNodeId }
-  | { readonly kind: "repo"; readonly repoId: string };
+  | { readonly kind: "repo"; readonly repoId: string }
+  /** The page-level invite surface: a destination, not a connection node. */
+  | { readonly kind: "invite" };
 
 export interface ConnectionTreeNode {
   readonly selection: TreeSelection;
@@ -64,4 +66,11 @@ export function isRemoteProxy(repo: SystemRepoRow): boolean {
 /** local ↔ remote-edge 切换的可用判据:存在 fleet-center 连接(本轮占位,注册面未开)。 */
 export function centerConnectionAvailable(connections: readonly AdminConnectionRow[]): boolean {
   return connections.some((connection) => connection.kind === "fleet-center" && connection.state === "enabled");
+}
+
+/** 可签发邀请的仓库:已启用、有本机台账、且不是纯展示仓。 */
+export function invitationRepos(repos: readonly SystemRepoRow[]): readonly SystemRepoRow[] {
+  return repos.filter(
+    (repo) => repo.registrationState === "enabled" && repo.canonicalRoot !== null && repo.mode !== "remote-proxy",
+  );
 }

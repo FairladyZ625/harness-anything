@@ -42,6 +42,7 @@ import {
   runtimeBaseUrl,
   runtimeInstanceKindConfig,
   sharedProviderDirectory,
+  deepseekHarnessAcpModelOption,
   deepseekHarnessApiKeyEnvironment,
   writeDeepseekHarnessPatch,
   writeCodexConfig,
@@ -72,6 +73,7 @@ import {
   runtimeKindIds,
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
+import { runtimeVersionGate } from "./runtime-version.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
  *  this id into a filesystem path that settlement recursively deletes, so the shape is pinned
@@ -196,6 +198,12 @@ export function openRuntimeInstanceStore(input: {
         config.instanceId,
         unavailable("runtime_installation_not_found", missingInstallationHint(config, witnessed)),
       );
+    // The provider's own version floor outranks authentication: a build that cannot honor
+    // this kind's launch contract is not "ready with a valid login", and reporting it as
+    // ready is what let a dispatch spend a spawn on it.
+    const versionRefusal = runtimeVersionGate(installation.kindId, installation.version);
+    if (versionRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription")
@@ -281,6 +289,14 @@ export function openRuntimeInstanceStore(input: {
       rememberAuthReadiness(config.instanceId, unavailable("runtime_installation_not_found", hint));
       throw runtimeInstanceError("runtime_installation_not_found", hint);
     }
+    // Refuse an unusable build before anything is read for it: no credential lookup, no
+    // secret written into an isolated HOME, no spawn. The dispatch precheck and the probe
+    // share this one comparison, so neither can report ready while the other refuses.
+    const versionRefusal = runtimeVersionGate(installation.kindId, installation.version);
+    if (versionRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
+      throw runtimeInstanceError(versionRefusal.code, versionRefusal.hint);
+    }
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
     if (config.isolationState === "enforced") ensureStateRoot(config);
@@ -310,7 +326,7 @@ export function openRuntimeInstanceStore(input: {
       acpLaunch =
         protocolFamily === "acp"
           ? {
-              model,
+              model: deepseekHarnessAcpModelOption(config, model),
               ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
             }
           : {};

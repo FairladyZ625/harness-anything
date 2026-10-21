@@ -10,7 +10,7 @@ const observed: RuntimeInstallationWitness = {
   installationId: "claude-installation-test",
   kindId: "claude",
   executablePath: "/opt/runtime-test/claude",
-  version: "2.1.260",
+  version: "2.1.305 (Claude Code)",
   observedAt: "2026-09-13T00:00:00.000Z",
 };
 

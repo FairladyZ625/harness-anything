@@ -36,6 +36,7 @@ import artifactsRawPreview from "./scenarios/artifacts-raw-preview.mjs";
 import artifactsSpreadsheetPreview from "./scenarios/artifacts-spreadsheet-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
 import edgeInvite from "./scenarios/edge-invite.mjs";
+import edgeInviteEntry from "./scenarios/edge-invite-entry.mjs";
 import edgeJoinEntry from "./scenarios/edge-join-entry.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
@@ -49,6 +50,7 @@ import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import taskReturnChoice from "./scenarios/task-return-choice.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
+import overviewLaneBlockOpenTask from "./scenarios/overview-lane-block-open-task.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
 import overviewSplitBoard from "./scenarios/overview-split-board.mjs";
@@ -103,6 +105,7 @@ export const catalog = [
   artifactsSpreadsheetPreview,
   settings,
   edgeInvite,
+  edgeInviteEntry,
   edgeJoinEntry,
   declaredEntityKinds,
   systemDaemonLogs,
@@ -118,6 +121,7 @@ export const catalog = [
   taskCloseoutLongValues,
   pageSplitLayout,
   overviewWipRegion,
+  overviewLaneBlockOpenTask,
   overviewAttentionFocus,
   overviewArtifactsShelf,
   overviewSplitBoard,

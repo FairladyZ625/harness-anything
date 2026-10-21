@@ -41,7 +41,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       installationId: "installation-gui-runtime-claude",
       kindId: "claude",
       executablePath,
-      version: "2.1.260",
+      version: "2.1.305 (Claude Code)",
       observedAt: "2026-08-23T00:00:00.000Z",
     },
     agyInstallation: RuntimeInstallationWitness = {

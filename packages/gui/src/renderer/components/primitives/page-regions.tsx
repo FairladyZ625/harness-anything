@@ -658,6 +658,12 @@ function PageRegionsHost({
       <div
         ref={hostRef}
         data-testid={testId}
+        // 拖分隔条(dockview 的 .dv-sash)是用户改动布局:它只走 onDidLayoutChange,
+        // 不经过带 touched 标记的停靠/调缝 API,所以在手势起点补这一个标记,否则尺寸改完
+        // 不落盘,切 tab 回来就回默认布局(业主 2026-10-21 反馈)。
+        onPointerDown={(event) => {
+          if (event.target instanceof Element && event.target.closest(".dv-sash") !== null) touchedRef.current = true;
+        }}
         className="flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-hidden"
         style={
           {

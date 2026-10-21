@@ -50,7 +50,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       installationId: `installation-${kindId}`,
       kindId,
       executablePath,
-      version: "1.0.0",
+      version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
       observedAt: "2026-08-19T00:00:00.000Z",
     } as const;
   });
@@ -418,7 +418,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
         installationId: `installation-${kindId}`,
         kindId,
         executablePath,
-        version: "1.0.0",
+        version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
         observedAt: "2026-08-19T00:00:00.000Z",
       } as const;
     });
@@ -885,7 +885,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       installationId: "installation-claude-effort",
       kindId: "claude" as const,
       executablePath,
-      version: "2.1.251",
+      version: "2.1.305 (Claude Code)",
       observedAt: "2026-08-30T00:00:00.000Z",
     },
     codexInstallation = {

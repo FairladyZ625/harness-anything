@@ -4,8 +4,10 @@ import type { AgentRuntimeUnattributedGroupKey } from "@harness-anything/daemon/
 import { agentRuntimeSearchMatches } from "@harness-anything/daemon/protocol";
 import {
   sessionDrillTarget,
+  sessionGroupNeedsYou,
   sessionStatusKey,
   sessionUnattributedKey,
+  settledCacheTtl,
   shortRef,
   type SessionDrillTarget,
   type SessionGroup,
@@ -22,8 +24,6 @@ import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
 import { CompletedDivider } from "../primitives/CompletedDivider.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import { CacheTimer } from "../agent-ui/CacheTimer.tsx";
-import { computePromptCacheTtlState } from "../../model/smart-attention.ts";
-import { sessionGroupAttention } from "../../sessions-model.ts";
 import type { DecisionReviewRound } from "../../model/decision-review.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
 import { dispatchStatusText, VerdictBadge } from "../decisionReview/parts.tsx";
@@ -81,6 +81,7 @@ export function SessionGroupList({
   onToggleWork,
   railHeader,
   sessionTouches,
+  sessionCacheTtlMs,
   attentionRefs,
   nowMs,
 }: {
@@ -108,6 +109,8 @@ export function SessionGroupList({
   /** 列表顶部常驻条(钻入面包屑);随列表滚动吸顶。 */
   readonly railHeader?: ReactNode;
   readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  /** 会话 → 该 provider 的缓存 TTL(查不到口径为 null):行级倒计时只对终态轮且有 TTL 的会话显示。 */
+  readonly sessionCacheTtlMs?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
 }) {
@@ -202,6 +205,7 @@ export function SessionGroupList({
                     onSelectEntity={onSelectEntity}
                     onDrill={onDrill}
                     sessionTouches={sessionTouches}
+                    sessionCacheTtlMs={sessionCacheTtlMs}
                     attentionRefs={attentionRefs}
                     nowMs={nowMs}
                   />
@@ -310,6 +314,7 @@ const GroupSection = memo(function GroupSection({
   onSelectEntity,
   onDrill,
   sessionTouches,
+  sessionCacheTtlMs,
   attentionRefs,
   nowMs = Date.now(),
 }: {
@@ -328,6 +333,8 @@ const GroupSection = memo(function GroupSection({
   readonly onSelectEntity: (ref: string) => void;
   readonly onDrill: ((target: SessionDrillTarget) => void) | undefined;
   readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  /** 会话 → 该 provider 的缓存 TTL(查不到口径为 null):行级倒计时只对终态轮且有 TTL 的会话显示。 */
+  readonly sessionCacheTtlMs?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
 }) {
@@ -349,19 +356,11 @@ const GroupSection = memo(function GroupSection({
     group.kind === "unattributed"
       ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
       : (decisionRows?.title ?? group.label);
-  const groupTouch = group.latestRound?.runtimeSessionId
-    ? (sessionTouches?.get(group.latestRound.runtimeSessionId) ?? null)
-    : null;
-  const groupAttention = sessionGroupAttention(
-    group,
-    attentionRefs ?? new Set(),
-    groupTouch !== null ? [groupTouch] : [],
-    nowMs,
-  );
+  const groupNeedsYou = sessionGroupNeedsYou(group, attentionRefs ?? new Set());
   const headerBody = (
     <DenseRow
       index={expandable ? (open ? "▾" : "▸") : drill !== null ? "›" : undefined}
-      tag={<SessionStatusTag status={group.latestStatus} needsYou={groupAttention.needsYou} />}
+      tag={<SessionStatusTag status={group.latestStatus} needsYou={groupNeedsYou} />}
       title={<span className="font-semibold">{headerLabel}</span>}
       hoverTitle={group.kind === "unattributed" ? undefined : headerLabel}
       reason={[
@@ -378,15 +377,6 @@ const GroupSection = memo(function GroupSection({
       ]
         .filter(Boolean)
         .join(" · ")}
-      action={
-        groupAttention.cacheTtl != null ? (
-          <CacheTimer
-            state={groupAttention.cacheTtl.kind}
-            remainingMs={groupAttention.cacheTtl.remainingMs}
-            testId={`group-cache-timer-${group.key}`}
-          />
-        ) : undefined
-      }
       relaxed
     />
   );
@@ -426,9 +416,7 @@ const GroupSection = memo(function GroupSection({
           decisionId={group.decisionId}
           rows={decisionRows}
           selectedId={selectedId}
-          sessionTouches={sessionTouches}
           attentionRefs={attentionRefs}
-          nowMs={nowMs}
           onSelectEntity={onSelectEntity}
         />
       )}
@@ -453,6 +441,7 @@ const GroupSection = memo(function GroupSection({
                 row={row}
                 selected={selectedId === row.runtimeSessionId}
                 sessionTouches={sessionTouches}
+                sessionCacheTtlMs={sessionCacheTtlMs}
                 attentionRefs={attentionRefs}
                 nowMs={nowMs}
                 onSelectSession={onSelectSession}
@@ -466,6 +455,7 @@ const GroupSection = memo(function GroupSection({
                 row={row}
                 selected={selectedId === row.runtimeSessionId}
                 sessionTouches={sessionTouches}
+                sessionCacheTtlMs={sessionCacheTtlMs}
                 attentionRefs={attentionRefs}
                 nowMs={nowMs}
                 onSelectSession={onSelectSession}
@@ -484,6 +474,7 @@ const GroupSection = memo(function GroupSection({
                     row={row}
                     selected={selectedId === row.runtimeSessionId}
                     sessionTouches={sessionTouches}
+                    sessionCacheTtlMs={sessionCacheTtlMs}
                     attentionRefs={attentionRefs}
                     nowMs={nowMs}
                     onSelectSession={onSelectSession}
@@ -497,6 +488,7 @@ const GroupSection = memo(function GroupSection({
                     row={row}
                     selected={selectedId === row.runtimeSessionId}
                     sessionTouches={sessionTouches}
+                    sessionCacheTtlMs={sessionCacheTtlMs}
                     attentionRefs={attentionRefs}
                     nowMs={nowMs}
                     onSelectSession={onSelectSession}
@@ -569,6 +561,7 @@ function RoundRow({
   row,
   selected,
   sessionTouches,
+  sessionCacheTtlMs,
   attentionRefs,
   nowMs = Date.now(),
   onSelectSession,
@@ -576,13 +569,14 @@ function RoundRow({
   readonly row: SessionRound;
   readonly selected: boolean;
   readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly sessionCacheTtlMs?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
   readonly onSelectSession: (runtimeSessionId: string) => void;
 }) {
   const meta = [row.agentName, row.classification, row.nextAction, row.delegation].filter(Boolean).join(" · ");
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
-  const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
+  const cacheTtl = settledCacheTtl(row.status, touch, sessionCacheTtlMs?.get(row.runtimeSessionId) ?? null, nowMs ?? 0);
   const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
 
   return (
@@ -627,6 +621,7 @@ function OrphanRow({
   row,
   selected,
   sessionTouches,
+  sessionCacheTtlMs,
   attentionRefs,
   nowMs = Date.now(),
   onSelectSession,
@@ -634,12 +629,13 @@ function OrphanRow({
   readonly row: SessionOrphan;
   readonly selected: boolean;
   readonly sessionTouches?: ReadonlyMap<string, number | null>;
+  readonly sessionCacheTtlMs?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
   readonly onSelectSession: (runtimeSessionId: string) => void;
 }) {
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
-  const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
+  const cacheTtl = settledCacheTtl(row.status, touch, sessionCacheTtlMs?.get(row.runtimeSessionId) ?? null, nowMs ?? 0);
   const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
 
   return (
@@ -710,24 +706,18 @@ function DecisionGroupBody({
   decisionId,
   rows,
   selectedId,
-  sessionTouches,
   attentionRefs,
-  nowMs = Date.now(),
   onSelectEntity,
 }: {
   readonly decisionId: string;
   readonly rows: DecisionGroupRows | undefined;
   readonly selectedId: string | null;
-  readonly sessionTouches?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
-  readonly nowMs?: number;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const completed = rows?.rounds?.filter((round) => round.dispatch.status === "succeeded") ?? [];
   const renderRound = (round: DecisionReviewRound) => {
     const needsYou = attentionRefs?.has(`decision/${decisionId}`) ?? false;
-    const touch = sessionTouches?.get(round.dispatch.runtimeSessionId) ?? null;
-    const cacheTtl = computePromptCacheTtlState(touch, nowMs ?? 0);
 
     return (
       <button
@@ -745,20 +735,6 @@ function DecisionGroupBody({
           hoverTitle={round.dispatch.runtimeSessionId}
           reason={
             round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
-          }
-          action={
-            <div
-              className="flex items-center gap-1.5"
-              data-testid={`session-card-meters-${round.dispatch.runtimeSessionId}`}
-            >
-              {cacheTtl != null && (
-                <CacheTimer
-                  state={cacheTtl.kind}
-                  remainingMs={cacheTtl.remainingMs}
-                  testId={`session-card-cache-timer-${round.dispatch.runtimeSessionId}`}
-                />
-              )}
-            </div>
           }
           selected={selectedId === round.dispatch.runtimeSessionId}
         />
