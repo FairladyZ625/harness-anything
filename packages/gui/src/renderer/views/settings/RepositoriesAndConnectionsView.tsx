@@ -360,10 +360,11 @@ function CenterConnectionPanel({
     setSaving(true);
     setStatus(null);
     try {
+      const normalizedHostname = hostname.trim();
       const result = await centerSettings.setCertificate({
         expectedVersion: settings.version,
         certificateMode: mode,
-        hostname: hostname.trim(),
+        ...(normalizedHostname ? { hostname: normalizedHostname } : {}),
         port: Number(port),
         ...(mode === "self-signed"
           ? {}

@@ -1,7 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -259,6 +261,79 @@ test("both external addresses are probed before login, and each failure names it
     },
   );
   assert.deepEqual(probes, ["center", "login"]);
+});
+
+test("login address probing preserves an authority path prefix", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-login-prefix-")),
+    keyFile = path.join(root, "login.key"),
+    certFile = path.join(root, "login.pem");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certFile,
+      "-subj",
+      "/CN=127.0.0.1",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  const requests: string[] = [],
+    server = createServer({ key: readFileSync(keyFile), cert: readFileSync(certFile) }, (request, response) => {
+      requests.push(request.url ?? "");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const invite = createEdgeJoinStore().create({
+      centerOrigin: "https://center.example:7545",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [],
+      spkiSha256: "a".repeat(64),
+      loginUrl: `https://127.0.0.1:${address.port}/auth`,
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      loginCertificate: readFileSync(certFile, "utf8"),
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    result = await joinFleetEdge(
+      { link: encodeEdgeJoinLink(invite.link) },
+      {
+        probeCenter: async () => undefined,
+        session: async () => undefined,
+        beginLogin: async (authority) => {
+          assert.equal(authority.url, `https://127.0.0.1:${address.port}/auth`);
+          return { ok: true, pending: true };
+        },
+        register: async () => undefined,
+        sync: async () => ({ ok: true }),
+      },
+    );
+
+  assert.deepEqual(result, { ok: true, pending: true, command: "edge-join" });
+  assert.deepEqual(requests, ["/auth/realms/harness"]);
 });
 
 test("the progress tap replaces a repository's phase and never mixes two joins", () => {

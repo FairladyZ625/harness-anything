@@ -197,13 +197,17 @@ async function mountView(
         kind === "certificate" ? "/tmp/selected.pem" : "/tmp/selected.key",
       ),
       setCertificate: vi.fn(async (input: Record<string, unknown>) => {
+        const currentListener = centerState.listener;
         centerState = {
           ...centerState,
           certificateMode: input.certificateMode as CenterListenerSettings["certificateMode"],
           listener: {
-            ...centerState.listener!,
-            hostname: String(input.hostname ?? centerState.listener!.hostname),
-            port: Number(input.port ?? centerState.listener!.port),
+            ...(currentListener ?? {
+              address: "127.0.0.1",
+              certificateFile: "/tmp/self-signed.pem",
+            }),
+            hostname: String(input.hostname ?? currentListener?.hostname ?? "127.0.0.1"),
+            port: Number(input.port ?? currentListener?.port ?? 8443),
             ...(input.certificateMode === "self-signed" ? {} : { certificateFile: String(input.certificateFile) }),
           },
           version: "center-v2",
@@ -454,6 +458,21 @@ describe("repositories and connections page", () => {
       certificateMode: "self-signed",
       hostname: "login.example.net",
       port: 18544,
+    });
+  });
+
+  it("omits an empty login hostname when a self-signed listener has not been configured", async () => {
+    const { container, bridge } = await mountView({ listener: null });
+    await click(container, "connection-node-center");
+    await settle(8);
+
+    await click(container, "center-certificate-save");
+    await settle(8);
+
+    expect(bridge.centerSettings.setCertificate).toHaveBeenCalledWith({
+      expectedVersion: "center-v1",
+      certificateMode: "self-signed",
+      port: 8443,
     });
   });
 

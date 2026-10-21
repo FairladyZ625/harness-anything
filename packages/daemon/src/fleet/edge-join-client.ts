@@ -198,7 +198,7 @@ export async function joinFleetEdge(
 }
 
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
-  const realmUrl = new URL(`/realms/${encodeURIComponent(authority.realm)}`, `${authority.url.replace(/\/$/u, "")}/`),
+  const realmUrl = new URL(`realms/${encodeURIComponent(authority.realm)}`, `${authority.url.replace(/\/$/u, "")}/`),
     address = new URL(authority.url).origin;
   try {
     const response = await (authority.certificate
