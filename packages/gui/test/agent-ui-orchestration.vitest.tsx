@@ -348,6 +348,252 @@ describe("AgentTree", () => {
 // ---------------------------------------------------------------------------
 
 describe("AgentLanes", () => {
+  const renderDefaultRange = (ages: readonly number[], testId: string) => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: ages.map((ageMinutes, index) => ({
+              id: `${testId}-${index}`,
+              label: `任务 ${index + 1}`,
+              startAt: BASE - ageMinutes * 60_000,
+              endAt: BASE - ageMinutes * 60_000 + 60_000,
+              status: "done" as const,
+            })),
+          },
+        ],
+        nowMs: BASE,
+        testId,
+      }),
+    );
+    return [...container.querySelectorAll<HTMLButtonElement>(`[data-testid^="${testId}-range-"]`)].find(
+      (button) => button.getAttribute("aria-pressed") === "true",
+    )?.dataset.testid;
+  };
+
+  it("keeps one older task from widening the four-task default window", () => {
+    expect(renderDefaultRange([10, 20, 40, 240], "outlier-lanes")).toBe("outlier-lanes-range-1h");
+  });
+
+  it("chooses a supported recent window for one or two tasks", () => {
+    expect(renderDefaultRange([40], "single-task-lanes")).toBe("single-task-lanes-range-1h");
+    expect(renderDefaultRange([20, 40], "two-task-lanes")).toBe("two-task-lanes-range-30m");
+  });
+
+  it("separates four concurrent tasks into non-overlapping subtracks and grows the lane", () => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: [
+              {
+                id: "overlap-1",
+                label: "任务一",
+                startAt: BASE - 20 * 60_000,
+                endAt: BASE - 10 * 60_000,
+                status: "running",
+              },
+              {
+                id: "overlap-2",
+                label: "任务二",
+                startAt: BASE - 19 * 60_000,
+                endAt: BASE - 9 * 60_000,
+                status: "running",
+              },
+              {
+                id: "overlap-3",
+                label: "任务三",
+                startAt: BASE - 18 * 60_000,
+                endAt: BASE - 8 * 60_000,
+                status: "running",
+              },
+              {
+                id: "overlap-4",
+                label: "任务四",
+                startAt: BASE - 17 * 60_000,
+                endAt: BASE - 7 * 60_000,
+                status: "running",
+              },
+            ],
+          },
+        ],
+        nowMs: BASE,
+        testId: "concurrent-lanes",
+      }),
+    );
+    const blocks = [...container.querySelectorAll<HTMLElement>('[data-testid^="concurrent-lanes-task-overlap-"]')];
+    expect(blocks).toHaveLength(4);
+    expect(blocks.map((block) => block.dataset.laneTrack)).toEqual(["0", "1", "2", "3"]);
+    expect(blocks.map((block) => Number.parseFloat(block.style.top))).toEqual([29, 69, 109, 149]);
+    expect(
+      container.querySelector('[data-testid="concurrent-lanes-track"]')?.getAttribute("data-lane-track-count"),
+    ).toBe("4");
+    const lastBlock = blocks[3]!;
+    expect(
+      Number.parseFloat(
+        container.querySelector('[data-testid="concurrent-lanes-track"]')!.getAttribute("data-height")!,
+      ),
+    ).toBeGreaterThan(Number.parseFloat(lastBlock.style.top) + Number.parseFloat(lastBlock.style.height));
+  });
+
+  it("uses a recent default window, clips older intersecting blocks and lets the user widen the range", () => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: [
+              {
+                id: "old-long",
+                label: "四小时前开始的任务",
+                startAt: BASE - 4 * 60 * 60_000,
+                endAt: BASE - 20 * 60_000,
+                status: "done",
+              },
+              {
+                id: "recent-1",
+                label: "近期一",
+                startAt: BASE - 40 * 60_000,
+                endAt: BASE - 35 * 60_000,
+                status: "done",
+              },
+              {
+                id: "recent-2",
+                label: "近期二",
+                startAt: BASE - 30 * 60_000,
+                endAt: BASE - 25 * 60_000,
+                status: "done",
+              },
+              {
+                id: "recent-3",
+                label: "近期三",
+                startAt: BASE - 20 * 60_000,
+                endAt: BASE - 15 * 60_000,
+                status: "done",
+              },
+              {
+                id: "recent-4",
+                label: "近期四",
+                startAt: BASE - 10 * 60_000,
+                endAt: BASE - 5 * 60_000,
+                status: "done",
+              },
+            ],
+          },
+        ],
+        nowMs: BASE,
+        testId: "recent-lanes",
+      }),
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('[data-testid="recent-lanes-range-1h"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    const oldBlock = container.querySelector<HTMLElement>('[data-testid="recent-lanes-task-old-long"]')!;
+    expect(Number.parseFloat(oldBlock.style.left)).toBe(0);
+    expect(Number.parseFloat(oldBlock.style.width)).toBeCloseTo((40 / 60) * 100, 5);
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="recent-lanes-range-6h"]')!.click();
+    });
+    expect(Number.parseFloat(oldBlock.style.left)).toBeCloseTo((2 / 6) * 100, 5);
+  });
+
+  it("rounds a short recent-work window down to the nearest supported range", () => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: [
+              { id: "recent-1", label: "近期一", startAt: BASE - 2 * 60_000, endAt: BASE - 60_000, status: "done" },
+              { id: "recent-2", label: "近期二", startAt: BASE - 5 * 60_000, endAt: BASE - 4 * 60_000, status: "done" },
+              {
+                id: "recent-3",
+                label: "近期三",
+                startAt: BASE - 10 * 60_000,
+                endAt: BASE - 8 * 60_000,
+                status: "done",
+              },
+            ],
+          },
+        ],
+        nowMs: BASE,
+        testId: "short-recent-lanes",
+      }),
+    );
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="short-recent-lanes-range-15m"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("aligns ruler ticks to whole minutes and hides labels that cannot fit readably", () => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "agent",
+            role: "Agent",
+            tasks: [
+              {
+                id: "tiny",
+                label: "不要截成一两个字",
+                startAt: BASE - 10 * 60_000,
+                endAt: BASE - 10 * 60_000 + 1_000,
+                status: "done",
+              },
+            ],
+          },
+        ],
+        nowMs: BASE + 46_000,
+        testId: "readable-lanes",
+      }),
+    );
+    const ticks = [...container.querySelectorAll('[data-testid="readable-lanes-tick-label"]')];
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks.map((tick) => tick.textContent).join(" ")).not.toMatch(/\d+s/u);
+    const tiny = container.querySelector<HTMLElement>('[data-testid="readable-lanes-task-tiny"]')!;
+    expect(tiny.textContent).not.toContain("不要截成一两个字");
+    expect(tiny.getAttribute("title")).toContain("不要截成一两个字");
+    expect(tiny.getAttribute("aria-label")).toContain("不要截成一两个字");
+    expect(tiny.style.minWidth).toBe("8px");
+    expect(tiny.className).toContain("justify-center px-0");
+    expect(tiny.querySelector("[aria-hidden]")).not.toBeNull();
+  });
+
+  it("keeps the label column beside the track and gives both the full expanded lane height", () => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: [
+              { id: "a", label: "a", startAt: BASE - 20 * 60_000, endAt: BASE - 10 * 60_000, status: "done" },
+              { id: "b", label: "b", startAt: BASE - 19 * 60_000, endAt: BASE - 9 * 60_000, status: "done" },
+            ],
+          },
+        ],
+        nowMs: BASE,
+        testId: "column-lanes",
+      }),
+    );
+    const labels = container.querySelector<HTMLElement>('[data-testid="column-lanes-labels"]')!;
+    const track = container.querySelector<HTMLElement>('[data-testid="column-lanes-track"]')!;
+    expect(labels.nextElementSibling).toBe(track);
+    expect(labels.className).not.toContain("absolute");
+    expect(labels.style.width).toBe("144px");
+    expect(Number.parseFloat(labels.style.height)).toBe(Number.parseFloat(track.getAttribute("data-height")!));
+    expect(Number.parseFloat(track.getAttribute("data-height")!)).toBeGreaterThan(22 + 48);
+  });
+
   it("renders task blocks per lane, handoff connectors, the awaiting badge and proportional widths with injected nowMs", () => {
     const onResolveAwaiting = vi.fn();
     const container = mount(
@@ -356,17 +602,17 @@ describe("AgentLanes", () => {
           {
             agentId: "ceo",
             role: "CEO",
-            tasks: [{ id: "t1", label: "派工侦察", startAt: 0, endAt: 60_000, status: "done" }],
+            tasks: [{ id: "t1", label: "派工侦察", startAt: 0, endAt: 60 * 60_000, status: "done" }],
           },
           {
             agentId: "w1",
             role: "Worker-1",
             tasks: [
-              { id: "t2", label: "实现泳道", startAt: 90_000, endAt: null, status: "running" },
+              { id: "t2", label: "实现泳道", startAt: 90 * 60_000, endAt: null, status: "running" },
               {
                 id: "t3",
                 label: "等业主拍板",
-                startAt: 100_000,
+                startAt: 100 * 60_000,
                 endAt: null,
                 status: "awaiting",
                 awaiting: { question: "选方案 A 还是 B？" },
@@ -375,23 +621,25 @@ describe("AgentLanes", () => {
           },
         ],
         handoffs: [{ fromTaskId: "t1", toTaskId: "t2", label: "派工" }],
-        nowMs: 120_000,
+        nowMs: 180 * 60_000,
         onResolveAwaiting,
         testId: "lanes",
       }),
     );
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="lanes-range-3h"]')!.click();
+    });
     expect(container.querySelectorAll('[data-testid^="lanes-task-"]').length).toBe(3);
     // handoff:一条虚线曲线路径 + 悬停 title 说明。
     const path = container.querySelector("svg path[d^='M ']");
     expect(path).not.toBeNull();
     expect(path!.getAttribute("stroke-dasharray")).toBe("6 4");
     expect(container.querySelector("svg title")!.textContent).toBe("派工");
-    // 时间窗:min(start)=0,max(end,now)=120_000,两侧各 5% 余量 → t0=-6_000、span=132_000。
-    // 已完成块 0→60_000:左缘落在 (0−t0)/span,宽度按时长占比 60_000/132_000。
+    // 选择 3h 窗口覆盖派工与接手:0→60m 的已完成块从窗口左缘开始,宽度占 60m/180m。
     const t1 = container.querySelector<HTMLElement>('[data-testid="lanes-task-t1"]')!;
     expect(t1.getAttribute("data-lane-status")).toBe("done");
-    expect(Number.parseFloat(t1.style.left)).toBeCloseTo((6_000 / 132_000) * 100, 10);
-    expect(Number.parseFloat(t1.style.width)).toBeCloseTo((60_000 / 132_000) * 100, 10);
+    expect(Number.parseFloat(t1.style.left)).toBe(0);
+    expect(Number.parseFloat(t1.style.width)).toBeCloseTo((60 / 180) * 100, 10);
     // 待拍板块:徽标按钮可达,点击走快捷动作。
     const resolve = container.querySelector<HTMLButtonElement>('[data-testid="lanes-resolve-t3"]')!;
     expect(resolve.getAttribute("data-tip")).toBe("选方案 A 还是 B？");

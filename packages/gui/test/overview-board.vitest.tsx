@@ -672,9 +672,11 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
       // 泳道标签列来自 sessionGroups 的 agent 分组:两条泳道各自可见。
       expect(textOf(drill)).toContain("GLM Worker");
       expect(textOf(drill)).toContain("Sol");
+      const lanes = container.querySelector('[data-testid="overview-agent-lanes"]')!;
+      // 测试明确切到近期档,让短任务有足够像素展示其可操作的待拍板入口。
+      act(() => lanes.querySelector<HTMLButtonElement>('[data-testid="overview-agent-lanes-range-15m"]')!.click());
       // 运行块随 now 生长(endAt=null);已完成块有确定终点;阻塞块挂待拍板(橙色描边语义
       // 在 AgentLanes 原语测试里直证,这里证数据接线与动作落点)。
-      const lanes = container.querySelector('[data-testid="overview-agent-lanes"]')!;
       expect(lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_1"]')).not.toBeNull();
       expect(
         lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_1"]')!.getAttribute("data-lane-status"),

@@ -140,7 +140,7 @@ export default {
       0,
       "the legacy flat WIP list must not render beside AgentLanes",
     );
-    // 隔离 lane 预置了 30 分钟前收口的一轮(task-e2e-lanes):总览 6h 窗口内必有泳道块。
+    // 隔离 lane 预置了近期收口的一轮(task-e2e-lanes):总览自动选出的近期窗口内必有泳道块。
     const lanes = page.getByTestId("overview-agent-lanes");
     await lanes.waitFor({ timeout: 15_000 });
     await page.waitForFunction(
@@ -155,9 +155,36 @@ export default {
     );
     // 已收口块必须有确定状态(不冒充运行中):夹具那一轮是 succeeded → done。
     assert.ok(blockStates.includes("done"), `the seeded settled round must render as done: ${blockStates}`);
+    const columns = await page.evaluate(() => {
+      const labels = globalThis.document.querySelector('[data-testid="overview-agent-lanes-labels"]');
+      const track = globalThis.document.querySelector('[data-testid="overview-agent-lanes-track"]');
+      const labelRect = labels.getBoundingClientRect();
+      const trackRect = track.getBoundingClientRect();
+      return {
+        adjacent: labels.nextElementSibling === track,
+        labelsRight: labelRect.right,
+        trackLeft: trackRect.left,
+      };
+    });
+    assert.ok(
+      columns.adjacent && columns.trackLeft >= columns.labelsRight - 1,
+      "the lane labels must sit beside the track",
+    );
     await shot("overview-wip-lanes");
 
     await settledWipGeometry(page);
     await shot("overview-wip-settled");
+    await page.getByTestId("overview-drill-list").evaluate((list) => {
+      list.scrollTop = list.scrollHeight;
+    });
+    await page.waitForFunction(() => {
+      const list = globalThis.document.querySelector('[data-testid="overview-drill-list"]');
+      const blocks = [...globalThis.document.querySelectorAll('[data-testid^="overview-agent-lanes-task-"]')];
+      if (list === null || blocks.length === 0) return false;
+      const viewportBottom = list.getBoundingClientRect().bottom;
+      const lastBlockBottom = Math.max(...blocks.map((block) => block.getBoundingClientRect().bottom));
+      return lastBlockBottom <= viewportBottom + 1;
+    });
+    await shot("overview-wip-lanes-bottom");
   },
 };
