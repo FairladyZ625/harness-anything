@@ -177,6 +177,55 @@ test("bootstrap reports an actionable identity error without git user.name", () 
   }
 });
 
+test("init does not append a rule an existing .gitignore glob already covers", () => {
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-bootstrap-ignore-glob-")));
+  try {
+    git(rootDir, "init", "-q");
+    const ignorePath = path.join(rootDir, ".gitignore"),
+      ignore = ".harness*/\n";
+    writeFileSync(ignorePath, ignore);
+    assert.equal(init(rootDir, false).publication.ok, true);
+    assert.deepEqual(
+      readFileSync(ignorePath, "utf8").split("\n"),
+      [".harness*/", "/harness/", "/.worktrees/", ""],
+      "git already ignores .harness through the glob; only the uncovered roots are appended",
+    );
+    assert.equal(git(rootDir, "check-ignore", "--no-index", ".harness/__probe__"), ".harness/__probe__");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("init leaves .gitignore byte-identical when existing rules already ignore every Harness root", () => {
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-bootstrap-ignore-covered-")));
+  try {
+    git(rootDir, "init", "-q");
+    const ignorePath = path.join(rootDir, ".gitignore"),
+      ignore = ".harness*/\n/harness/\n/.worktrees/\n";
+    writeFileSync(ignorePath, ignore);
+    assert.equal(init(rootDir, false).publication.ok, true);
+    assert.equal(readFileSync(ignorePath, "utf8"), ignore);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("init still writes the durable rule when only this clone's .git/info/exclude covers the root", () => {
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-bootstrap-ignore-local-")));
+  try {
+    git(rootDir, "init", "-q");
+    writeFileSync(path.join(rootDir, ".git", "info", "exclude"), ".harness*/\n/harness/\n/.worktrees/\n");
+    assert.equal(init(rootDir, false).publication.ok, true);
+    assert.deepEqual(
+      readFileSync(path.join(rootDir, ".gitignore"), "utf8").split("\n"),
+      ["/harness/", "/.harness/", "/.worktrees/", ""],
+      "a clone-local exclude does not travel to clones or CI, so .gitignore must still carry the rules",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("init ignores the task worktrees directory and undoing it removes only the rules it added", () => {
   const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-bootstrap-ignore-")));
   try {
