@@ -280,6 +280,32 @@ describe("adaptProjectionRows", () => {
     expect(adaptProjectionRows([row()], "repo-test")[0]?.pinned).toBeUndefined();
   });
 
+  it("renders a runtime session executor as a readable name, not the raw session id", () => {
+    const leased = row({
+      snapshot: {
+        ...row().snapshot,
+        lease: {
+          schema: "lease/v1",
+          taskId: "task-x",
+          executionId: "execution-holder",
+          actor: {
+            principal: { personId: "person/zeyu" },
+            executor: { kind: "agent", id: "runtime-session:runtime_7e4774a9" },
+          },
+          source: { channel: "gui" },
+          phase: "held",
+          expiresAt: "2026-08-30T01:00:00.000Z",
+          ttlMs: 900_000,
+          version: 1,
+        },
+      },
+    });
+    const [task] = adaptProjectionRows([leased], "repo-test");
+    expect(task?.leaseHolder).toBe("zeyu · 运行时会话");
+    // 原始串不丢:结构字段仍是原样的 executor id。
+    expect(task?.leaseActor?.executor?.id).toBe("runtime-session:runtime_7e4774a9");
+  });
+
   it("marks a pending projection stale but usable", () => {
     expect(adaptProjectionRows([row()], "repo-test", "pending")[0]?.freshness).toBe("stale-but-usable");
   });

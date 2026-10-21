@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   noAgentRunning,
   workDayGroups,
+  workspaceExitCriteria,
   workspaceGoalLine,
+  workspaceMissionText,
+  workspacePlanSection,
   workSubgroups,
 } from "../src/renderer/model/workspace-narrative.ts";
 import type { CadenceFeedEvent } from "../src/renderer/model/cadence.ts";
@@ -175,6 +178,41 @@ describe("workSubgroups", () => {
       ],
     });
     expect(subgroups.map(({ key }) => key)).toEqual(["gLive", "gDone"]);
+  });
+});
+
+describe("workspacePlanSection", () => {
+  it("takes one named section and stops at the next heading; section names match exactly", () => {
+    const body = "# 标题\n\n## Mission\n\n让 GUI 更精致。\n\n## Exit Criteria\n\n- [ ] 结构正义\n";
+    expect(workspacePlanSection(body, "Mission")).toEqual(["让 GUI 更精致。"]);
+    expect(workspacePlanSection(body, "Exit Criteria")).toEqual(["- [ ] 结构正义"]);
+    // 「Mission 概览」不是「Mission」;大小写与前后空格如实测。
+    expect(workspacePlanSection(body, "Mission 概览")).toBeNull();
+    expect(workspacePlanSection("##  Mission  \n\n一段。\n", "Mission")).toEqual(["一段。"]);
+  });
+});
+
+describe("workspaceMissionText", () => {
+  it("prefers the work-plan Mission section, falling back to task-plan Goal then Brief", () => {
+    expect(workspaceMissionText("## Mission\n\n让 GUI 更精致。\n\n## Goal\n\n任务目标。\n")).toBe("让 GUI 更精致。");
+    expect(workspaceMissionText("## Goal\n\n任务目标。\n")).toBe("任务目标。");
+    expect(workspaceMissionText("## Brief\n\n按原型重做。\n\n范围含顶部。\n")).toBe("按原型重做。 范围含顶部。");
+  });
+
+  it("returns null when no known goal section exists, without inventing text", () => {
+    expect(workspaceMissionText("## Context\n\n只有背景。\n")).toBeNull();
+    expect(workspaceMissionText("")).toBeNull();
+  });
+});
+
+describe("workspaceExitCriteria", () => {
+  it("strips checkbox prefixes from the work-plan Exit Criteria lines", () => {
+    const body = "## Exit Criteria\n\n- [ ] 结构正义：锚齐备。\n- [x] 使用证明：已有使用方。\n";
+    expect(workspaceExitCriteria(body)).toEqual(["结构正义：锚齐备。", "使用证明：已有使用方。"]);
+  });
+
+  it("returns null without the section — the gap stays honest", () => {
+    expect(workspaceExitCriteria("## Verification\n\n定向测试绿。\n")).toBeNull();
   });
 });
 

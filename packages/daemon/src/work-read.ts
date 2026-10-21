@@ -2,6 +2,7 @@ import { taskPresentationReads } from "./task-presentation-read.ts";
 import type {
   TaskIndexProjectionRow,
   TaskProjection,
+  TaskV2,
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { isTerminalStatus, isWorkRoot } from "@harness-anything/kernel";
@@ -11,6 +12,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   emptyScopeCounts,
   scopeStatus,
+  workRootOf,
   workRootWalk,
   workspaceStructureFromProjection,
   type WorkspaceScopeStatusCounts,
@@ -48,6 +50,42 @@ export function workListFromProjection(
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };
+}
+
+/**
+ * The one line a create receipt owes the reader: which work the task landed under (id and title), or,
+ * for a task that landed nowhere, the answer plus the work roots it could join. Both the live create
+ * paths and a replay of the create event render through this function, so a retried receipt cannot
+ * say less than the first one did.
+ */
+export function workReceiptLine(
+  projection: Pick<TaskProjection, "read" | "readTaskIndex">,
+  task: Pick<TaskV2, "taskId" | "title" | "taskClass" | "metadata">,
+): string {
+  const parentTaskId = task.metadata?.parentTaskId ?? null,
+    work = parentTaskId === null ? null : workRootOf(projection, parentTaskId);
+  if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
+  if (task.taskClass === "work")
+    return `\nwork: ${task.taskId} ${task.title} (new work root; add tasks with --work ${task.taskId})`;
+  const candidates = projection.readTaskIndex({
+    workRootsOnly: true,
+    openOnly: true,
+    activePackagesOnly: true,
+    presentationStatus: true,
+    limit: 5,
+  }).rows;
+  return [
+    "\nwork: none (standalone task)",
+    ...(candidates.length
+      ? [
+          "candidate works:",
+          ...candidates.map(
+            ({ taskId, title }) => `- ${taskId} ${title}: ha task move ${task.taskId} --parent ${taskId}`,
+          ),
+        ]
+      : []),
+    "next: ha work list",
+  ].join("\n");
 }
 
 export interface WorkIndexRow extends WorkListRow {
@@ -178,15 +216,17 @@ export function renderWorkPayload(payload: unknown): string | null {
   if (payload === null || typeof payload !== "object") return null;
   const record = payload as Record<string, unknown>;
   if (record.schema === "work-list/v1") {
+    // The title sits beside the id: a reader scanning the list must recognize the work before its
+    // counts, and every other column stays in the order the JSON row declares it.
     const rows = (record.rows as readonly WorkListRow[]).map((row) =>
       [
         row.taskId,
+        row.title,
         row.status,
         row.root,
         `${row.taskCount} tasks`,
         renderCounts(row.counts),
         row.lastActivityAt,
-        row.title,
       ].join("\t"),
     );
     return [

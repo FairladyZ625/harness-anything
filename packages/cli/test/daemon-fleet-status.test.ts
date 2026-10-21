@@ -33,10 +33,9 @@ function overview(): FleetOverview {
         online: { kind: "value", text: "running" },
         leases: [],
         replica: null,
-        replicaNote: null,
         replicaReason: "center-local-writer",
         watch: { kind: "value", text: "local canonical writer" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
       },
       {
         nodeId: "edge-caught-up",
@@ -74,10 +73,9 @@ function overview(): FleetOverview {
           lagMs: 0,
           delivery: "current",
         },
-        replicaNote: null,
         replicaReason: "replica-current",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
       },
       {
         nodeId: "edge-behind",
@@ -100,10 +98,9 @@ function overview(): FleetOverview {
           lagMs: 1_140_000,
           delivery: "delta",
         },
-        replicaNote: null,
         replicaReason: "replica-catching-up",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
       },
       {
         nodeId: "edge-never-acked",
@@ -126,10 +123,9 @@ function overview(): FleetOverview {
           lagMs: null,
           delivery: "snapshot_required",
         },
-        replicaNote: null,
         replicaReason: "replica-snapshot-required",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
       },
     ],
     links: [
@@ -209,6 +205,25 @@ test("fleet status render keeps honest three-state fields and never-acked visibl
     text,
     /notes events-attribution=current-lease \| edge-online=unavailable \| sync-internals=unavailable/u,
   );
+});
+
+test("a node with no replica row states the gap once, on the reason line", () => {
+  const data = overview();
+  data.nodes = [
+    ...data.nodes,
+    {
+      ...data.nodes[1]!,
+      nodeId: "ghost-node",
+      leases: [],
+      replica: null,
+      replicaReason: "replica-row-missing",
+    },
+  ];
+  const lines = renderDaemonFleetStatus(data as unknown as Record<string, unknown>).split("\n");
+  assert.ok(lines.includes("  sync no replica row"));
+  assert.ok(lines.includes("  reason replica-row-missing"));
+  // 同一状态只出现一个原因码:sync 行不再引用第二个码。
+  assert.equal(lines.filter((line) => line.includes("center-replica-ledger-has-no-row-for-node")).length, 0);
 });
 
 test("fleet status rejects unknown options before contacting a daemon", async () => {

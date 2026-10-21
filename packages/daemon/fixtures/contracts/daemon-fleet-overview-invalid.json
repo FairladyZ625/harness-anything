@@ -20,10 +20,9 @@
       "online": { "kind": "unavailable", "reason": "tls-session-fact-not-exposed" },
       "leases": [],
       "replica": null,
-      "replicaNote": null,
       "replicaReason": "replica-row-missing",
       "watch": { "kind": "unavailable", "reason": "edge-sync-internals-not-exposed" },
-      "lastFailure": { "kind": "unavailable", "reason": "no-replica-sync-failure-record-in-lifecycle-read" }
+      "lastFailure": { "kind": "unavailable", "reason": "no-replica-sync-failure-in-replica-status-row" }
     }
   ],
   "links": [{ "nodeId": "cc90-ubuntu", "state": "fresh", "delivery": "current", "lagRevisions": null, "lagMs": null, "ackedAt": null, "centerRevision": null }],

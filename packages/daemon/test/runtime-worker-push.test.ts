@@ -552,7 +552,7 @@ test("a workflow-scope rejection reports the dedicated code and the CEO handoff 
   );
 });
 
-test("the queued task-push receipt points the publisher at ha task pr", async (context) => {
+test("the queued task-push receipt points the publisher at gh pr create", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-receipt-")),
     bare = path.join(root, "remote.git");
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -602,8 +602,8 @@ test("the queued task-push receipt points the publisher at ha task pr", async (c
   assert.match(receipt.evidence, /Worker branch pushed: task_push_receipt @/u);
   assert.deepEqual(receipt.next, [
     {
-      command: "ha task pr task_push_receipt",
-      reason: "publish the pushed branch as the task's pull request",
+      command: "gh pr create --head task_push_receipt",
+      reason: "open the task's pull request with the machine's own gh login",
     },
   ]);
 });

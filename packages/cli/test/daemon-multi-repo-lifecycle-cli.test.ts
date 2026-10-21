@@ -36,6 +36,7 @@ import {
   median,
   register,
   run,
+  runText,
   runMaybe,
   runNoop,
   settleFollower,
@@ -146,7 +147,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       );
     assert.equal(
       lowRisk([]),
-      "would create task task-low at harness/tasks/task-low-low\nshort path: a low-risk small change can take " +
+      "would create task task-low at harness/tasks/task-low-low\nwork: none (standalone task)\n" +
+        "next: ha work list\nshort path: a low-risk small change can take " +
         "--profile lightweight on this preset — short plan and closeout, no review or consent at closeout; " +
         "a code change still lands through the PR's CI. The profile is fixed at creation.",
     );
@@ -185,6 +187,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       textPreview.stdout.trim(),
       [
         "would create task task-alpha at harness/tasks/task-alpha-alpha",
+        // The preview says where the create would land: standalone here, so it names the works list.
+        "work: none (standalone task)",
+        "next: ha work list",
         "preset: standard-task/baseline",
         "outputShape: repository-diff",
         'completionGates: ["code-doc-reconciliation"]',
@@ -558,7 +563,11 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
       "work",
     ]);
     assert.equal(work.outcome, "applied", JSON.stringify(work));
-    assert.match(String(work.summary), /work: task-parent \(new work root; add tasks with --work task-parent\)/u);
+    // A new work root's receipt carries its title too, so the reader can recognize what was created.
+    assert.match(
+      String(work.summary),
+      /work: task-parent Parent \(new work root; add tasks with --work task-parent\)/u,
+    );
     const child = run(fixture.alpha, fixture.userRoot, [
       "task",
       "create",
@@ -619,6 +628,13 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
       shown.openTasks.map(({ taskId }) => taskId),
       ["task-child"],
     );
+    // The human list carries the title beside the id, and the create help offers the same rows as
+    // --work candidates, so a create can be filed from what ha work list already reports.
+    const listText = runText(fixture.alpha, fixture.userRoot, ["work", "list"]);
+    assert.match(listText, /^works:\ntask-parent\tParent\t/u);
+    const help = runText(fixture.alpha, fixture.userRoot, ["task", "create", "--help"]);
+    assert.match(help, /Active works \(1 shown, newest activity first[^)]*\):\n  task-parent — Parent/u);
+    assert.match(help, /File this task with --work <id>/u);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     await ledgerReaders.drain();

@@ -56,12 +56,14 @@ test("the 12 ACP provider launch contracts stay pinned", () => {
   }
 });
 
-test("only Codex and Claude declare steer resume and Codex resumes before stdin input", () => {
+test("Codex and Claude declare steer resume, every ACP kind steers in place, others declare nothing", () => {
   const codex = runtimeKinds.find((entry) => entry.kindId === "codex")!,
     claude = runtimeKinds.find((entry) => entry.kindId === "claude")!;
-  assert.ok(codex.steer);
-  assert.ok(claude.steer);
-  const codexResume = codex.steer!.resumeArgs(
+  const resumeSteer = (kind: (typeof runtimeKinds)[number]) => {
+    assert.equal(kind.steer?.strategy, "interrupt-resume", `${kind.kindId} must restart through resume`);
+    return kind.steer as Extract<NonNullable<typeof kind.steer>, { strategy: "interrupt-resume" }>;
+  };
+  const codexResume = resumeSteer(codex).resumeArgs(
     ["exec", "--json", "--sandbox", "workspace-write", "--model", "o4-mini", "-"],
     "thread-123",
   );
@@ -77,18 +79,33 @@ test("only Codex and Claude declare steer resume and Codex resumes before stdin 
     "-",
   ]);
   assert.deepEqual(
-    codex.steer!.resumeArgs(["exec", "resume", "--json", "--model", "o4-mini", "thread-old", "-"], "thread-123"),
+    resumeSteer(codex).resumeArgs(["exec", "resume", "--json", "--model", "o4-mini", "thread-old", "-"], "thread-123"),
     ["exec", "resume", "--json", "--model", "o4-mini", "thread-123", "-"],
   );
-  assert.deepEqual(claude.steer!.resumeArgs(["-p", "--output-format", "stream-json"], "session-123"), [
+  assert.deepEqual(resumeSteer(claude).resumeArgs(["-p", "--output-format", "stream-json"], "session-123"), [
     "-p",
     "--output-format",
     "stream-json",
     "--resume",
     "session-123",
   ]);
-  assert.equal(runtimeKinds.filter((entry) => entry.steer).length, 2);
-  assert.equal(runtimeKinds.find((entry) => entry.kindId === "copilot")!.steer, undefined);
+  // ACP agents answer session/cancel by ending the turn, so they keep the session and reprompt;
+  // they never restart through resume args.
+  for (const kind of runtimeKinds.filter((entry) => entry.protocolFamily === "acp")) {
+    assert.deepEqual(kind.steer, { strategy: "cancel-reprompt" }, `${kind.kindId} steer strategy`);
+  }
+  // codex-acp is the kind Astra-style API workers run on; it must be steerable.
+  assert.deepEqual(runtimeKinds.find((entry) => entry.kindId === "codex-acp")!.steer, {
+    strategy: "cancel-reprompt",
+  });
+  // Non-ACP kinds without a resume contract keep refusing: agy has no steer declaration.
+  assert.equal(runtimeKinds.find((entry) => entry.kindId === "agy")!.steer, undefined);
+  assert.equal(runtimeKinds.find((entry) => entry.kindId === "zcode")!.steer, undefined);
+  assert.equal(
+    runtimeKinds.filter((entry) => entry.steer?.strategy === "interrupt-resume").length,
+    2,
+    "only the CLI resume kinds restart a process",
+  );
 });
 
 // DeepSeek Harness 0.2.1-rc.2 (2026-10-18): the desktop App's bundled CLI is the only entry

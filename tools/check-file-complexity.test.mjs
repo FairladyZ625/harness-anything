@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 const checker = path.resolve(import.meta.dirname, "check-file-complexity.mjs");
+const MAX_LINES = 2000;
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), "file-complexity-"));
@@ -23,143 +24,90 @@ function fixture(t) {
     git("add", ".");
     git("-c", "core.hooksPath=", "commit", "--quiet", "--allow-empty", "-m", "test: fixture");
   };
-  const base = () => {
-    commit();
-    git("update-ref", "refs/remotes/origin/main", "HEAD");
-  };
   const check = (expected, pattern) => {
     const result = spawnSync(process.execPath, [checker], { cwd: root, encoding: "utf8" });
     const output = result.stdout + result.stderr;
     assert.equal(result.status, expected, output);
     if (pattern) assert.match(output, pattern);
   };
-  return { root, git, write, commit, base, check };
+  return { root, git, write, commit, check };
 }
 
-for (const [file, limit] of [
-  ["packages/demo/src/file.ts", 1000],
-  ["packages/demo/test/file.ts", 1200],
-  ["packages/demo/src/file.test.ts", 1200],
-  ["tools/example.mjs", 1000],
+for (const file of [
+  "packages/demo/src/file.ts",
+  "packages/demo/test/file.ts",
+  "packages/demo/src/file.test.ts",
+  "tools/example.mjs",
 ]) {
-  test(`new ${file} respects the standard boundary`, (t) => {
+  test(`${file} passes at 2000 lines and fails at 2001 (single ceiling)`, (t) => {
     const f = fixture(t);
-    f.base();
-    f.write(file, limit);
+    f.write(file, MAX_LINES - 1);
     f.check(0);
-    f.write(file, limit + 1);
-    f.check(1, /exceeds max/);
+    f.write(file, MAX_LINES);
+    f.check(0);
+    f.write(file, MAX_LINES + 1);
+    f.check(1, new RegExp(`${MAX_LINES + 1} lines exceeds max ${MAX_LINES};`));
   });
 }
 
-test("existing source files may grow freely within the stage ceiling (no shrink-only ratchet)", (t) => {
+test("files present at the merge base get no historical allowance", (t) => {
   const f = fixture(t);
-  const file = "packages/demo/src/file.ts";
-  f.write(file, 1000);
-  f.base();
-  f.check(0);
-  f.write(file, 1050);
-  f.check(0);
-  f.write(file, 1100);
-  f.check(0);
-  f.write(file, 1101);
-  f.check(1, /1101 lines exceeds max 1100/);
-});
-
-test("existing test files may grow within the test stage ceiling", (t) => {
-  const f = fixture(t);
-  const file = "packages/demo/test/big.test.ts";
-  f.write(file, 1200);
-  f.base();
-  f.check(0);
-  f.write(file, 1500);
-  f.check(0);
-  f.write(file, 1901);
-  f.check(1, /1901 lines exceeds max 1900/);
-});
-
-test("the current stage still rejects 1101 source, 1901 test, and 1101 tool lines", (t) => {
-  const f = fixture(t);
-  for (const [file, lines] of [
-    ["packages/demo/src/file.ts", 1101],
-    ["packages/demo/test/file.ts", 1901],
-    ["tools/example.mjs", 1101],
-  ])
-    f.write(file, lines);
-  f.base();
-  f.check(1, /1101 lines exceeds max 1100/);
-  f.check(1, /1901 lines exceeds max 1900/);
-});
-
-test("uses merge-base even when origin/main advanced independently", (t) => {
-  const f = fixture(t);
-  const file = "packages/demo/src/file.ts";
-  f.base();
-  const base = f.git("rev-parse", "HEAD");
-  f.write(file, 1090);
-  f.commit();
-  f.git("update-ref", "refs/remotes/origin/main", "HEAD");
-  f.git("checkout", "--quiet", "--detach", base);
-  f.write(file, 1050);
-  f.commit();
-  f.check(1, /file.ts: 1050 lines exceeds max 1000/);
-});
-
-test("committed additions do not acquire a historical allowance", (t) => {
-  const f = fixture(t);
-  f.base();
-  f.write("packages/demo/src/fresh.ts", 1050);
-  f.commit();
-  f.check(1, /fresh.ts: 1050 lines exceeds max 1000/);
-});
-
-test("renamed paths inherit merge-base existence and keep the stage ceiling", (t) => {
-  const f = fixture(t);
-  f.write("packages/demo/src/old.ts", 1050);
-  f.base();
-  f.git("mv", "packages/demo/src/old.ts", "packages/demo/src/new name.ts");
+  f.write("packages/demo/src/existing.ts", MAX_LINES);
+  f.write("packages/demo/test/existing.test.ts", MAX_LINES);
   f.commit();
   f.check(0);
-  f.write("packages/demo/src/new name.ts", 1101);
-  f.check(1, /new name.ts: 1101 lines exceeds max 1100/);
+  f.write("packages/demo/src/existing.ts", MAX_LINES + 1);
+  f.write("packages/demo/test/existing.test.ts", MAX_LINES + 1);
+  f.check(1, /existing\.ts: 2001 lines exceeds max 2000;/);
+  f.check(1, /existing\.test\.ts: 2001 lines exceeds max 2000;/);
+});
+
+test("committed additions are scanned like untracked additions", (t) => {
+  const f = fixture(t);
+  f.write("packages/demo/src/fresh.ts", MAX_LINES + 1);
+  f.check(1, /fresh\.ts: 2001 lines exceeds max 2000;/);
+  f.commit();
+  f.check(1, /fresh\.ts: 2001 lines exceeds max 2000;/);
+});
+
+test("the checker no longer needs an origin/main base ref", (t) => {
+  const f = fixture(t);
+  const remoteRefs = f.git("for-each-ref", "--format=%(refname)", "refs/remotes");
+  assert.equal(remoteRefs, "", "fixture must have no remote-tracking refs");
+  f.write("packages/demo/src/file.ts", MAX_LINES);
+  f.check(0);
+  f.write("packages/demo/src/file.ts", MAX_LINES + 1);
+  f.check(1, /file\.ts: 2001 lines exceeds max 2000;/);
 });
 
 test("retains empty, CRLF, trailing newline and excluded-directory counting behavior", (t) => {
   const f = fixture(t);
   writeFileSync(path.join(f.root, ".gitignore"), "dist/\n");
-  f.base();
   f.write("packages/demo/src/empty.ts", 0);
-  f.write("packages/demo/src/file.ts", 1000, "\r\n");
-  f.write("packages/demo/dist/generated.ts", 2000);
-  f.write("packages/demo/src/types.d.ts", 2000);
+  f.write("packages/demo/src/file.ts", MAX_LINES, "\r\n");
+  f.write("packages/demo/dist/generated.ts", MAX_LINES + 1);
+  f.write("packages/demo/src/types.d.ts", MAX_LINES + 1);
   f.check(0);
   const file = path.join(f.root, "packages/demo/src/file.ts");
   writeFileSync(file, readFileSync(file, "utf8") + "\r\n");
-  f.check(1, /1001 lines exceeds max 1000/);
+  f.check(1, /2001 lines exceeds max 2000;/);
 });
 
 test("gitignored build output is not scanned while tracked and untracked files are", (t) => {
   const f = fixture(t);
   writeFileSync(path.join(f.root, ".gitignore"), "packages/gui/dist-electron/\n");
-  f.base();
-  f.write("packages/gui/dist-electron/preload.js", 2000);
+  f.write("packages/gui/dist-electron/preload.js", MAX_LINES + 1);
   f.check(0);
-  f.write("packages/gui/src/untracked.ts", 1001);
-  f.check(1, /untracked.ts: 1001 lines exceeds max 1000/);
+  f.write("packages/gui/src/untracked.ts", MAX_LINES + 1);
+  f.check(1, /untracked\.ts: 2001 lines exceeds max 2000;/);
   f.commit();
-  f.check(1, /untracked.ts: 1001 lines exceeds max 1000/);
+  f.check(1, /untracked\.ts: 2001 lines exceeds max 2000;/);
 });
 
 test("tracked files deleted from the worktree are skipped", (t) => {
   const f = fixture(t);
   f.write("packages/demo/src/gone.ts", 10);
-  f.base();
+  f.commit();
   rmSync(path.join(f.root, "packages/demo/src/gone.ts"));
   f.check(0);
-});
-
-test("missing origin/main fails instead of disabling the base comparison", (t) => {
-  const f = fixture(t);
-  f.commit();
-  f.check(1, /origin\/main/);
 });

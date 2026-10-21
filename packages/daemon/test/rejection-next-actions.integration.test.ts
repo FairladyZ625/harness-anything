@@ -14,7 +14,7 @@ import { withAuthorizationDecision } from "../src/repo-cell-authorization.ts";
 import { settleSquadChildAssignment } from "../src/repo-cell-squad-child.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { publishExecutedVerticalScript } from "../src/vertical-script-actions.ts";
-import { createTaskPullRequest } from "../src/runtime-task-pr.ts";
+import { readWorkerRemoteCommit } from "../src/runtime-worker-push.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { commitDelivery } from "./review-independence.fixtures.ts";
@@ -798,34 +798,33 @@ test("a host-caught rejection keeps its explanation and drops the credential", (
   assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
 });
 
-test("a non-GitHub task PR refusal names hosting instead of the GitHub credential hint", async () => {
-  // `delivery_publish_failed` has three producers and only one of them is a relayed git/gh error.
-  // The two authored ones must reach the receipt as written: a GitLab repository is not a missing
-  // GitHub credential, and telling the operator to fix one sends them to the wrong console.
-  const root = mkdtempSync(path.join(tmpdir(), "ha-task-pr-hosting-")),
-    taskId = "task_pr_hosting";
+test("a remote-triggered push refusal keeps the scrubbed remote text, not a credential hint", async () => {
+  // `delivery_publish_failed` has one remaining relayed producer: `readWorkerRemoteCommit` forwards
+  // git's own stderr through `errorDetail`, which scrubs it. The receipt must keep that sentence —
+  // it names what the remote actually said — and must not carry the token the URL embedded in it.
+  const root = mkdtempSync(path.join(tmpdir(), "ha-push-relay-"));
   try {
     execFileSync("git", ["init", "-q", root]);
-    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.com/acme/project.git"]);
-    const context = {
-      rootDir: root,
-      now: () => "2026-10-12T00:00:00Z",
-      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-      projection: { read: () => ({ snapshot: { task: { title: "Hosted elsewhere" } } }) },
-      store: { readHead: () => ({ revision: 1 }) },
-      input: {},
-    };
+    // An `ext::` transport whose helper prints a credential-bearing remote line to stderr: this is
+    // the exact shape of a git failure that relays far-end text, without needing a live network.
+    const helper = path.join(root, "relay.sh");
+    writeFileSync(
+      helper,
+      '#!/bin/sh\necho "remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git" >&2\nexit 1\n',
+    );
+    execFileSync("chmod", ["+x", helper]);
+    execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+    execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
     await assert.rejects(
-      // No provider stub: the real hosting detection must answer, which is the point of this test.
-      createTaskPullRequest(
-        context as never,
-        { kind: "task-pr", taskId, title: "feat(daemon): gitlab" },
-        { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
-      ),
+      readWorkerRemoteCommit(root, "task_push_relay"),
       (error: Error & { code?: string; message: string }) => {
         assert.equal(error.code, "delivery_publish_failed");
-        assert.match(error.message, /supported only for GitHub repositories/u, error.message);
-        assert.doesNotMatch(error.message, /credential/iu, error.message);
+        assert.match(
+          error.message,
+          /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u,
+          error.message,
+        );
+        assert.doesNotMatch(error.message, /ghp_realtokenvalue123/u, error.message);
         return true;
       },
     );

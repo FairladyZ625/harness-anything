@@ -6,6 +6,7 @@ import {
   agentDeclarationMigrationCommand,
   completionMigrationCommand,
   generationMigrationCommand,
+  writerEpochMigrationCommand,
 } from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
@@ -17,10 +18,17 @@ export type ThinHelpCatalogEntry = {
   readonly errorCode?: string;
 };
 
+/** One open work row of `ha work list`, shown by `ha task create --help` as the packs a create can join. */
+export type ThinHelpWorkEntry = {
+  readonly taskId: string;
+  readonly title: string;
+};
+
 export const clientLocalCommands = [
   generationMigrationCommand,
   completionMigrationCommand,
   agentDeclarationMigrationCommand,
+  writerEpochMigrationCommand,
   {
     id: "backup-retention",
     path: ["backup", "retention"],

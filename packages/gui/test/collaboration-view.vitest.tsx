@@ -52,10 +52,9 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
           },
         ],
         replica: null,
-        replicaNote: null,
         replicaReason: "center-local-writer",
         watch: { kind: "value", text: "local canonical writer" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
       },
       {
         nodeId: "cc90-ubuntu",
@@ -92,10 +91,9 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
           connected: true,
           syncFailure: null,
         },
-        replicaNote: null,
         replicaReason: "replica-catching-up",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
       },
     ],
     links: [
@@ -145,7 +143,6 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
         nodeId: "edge-unsynced",
         leases: [],
         replica: null,
-        replicaNote: "center-replica-ledger-has-no-row-for-node",
         replicaReason: "replica-row-missing",
       },
     ];
@@ -172,7 +169,6 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
       nodeId: "ghost-node",
       leases: [],
       replica: null,
-      replicaNote: "center-replica-ledger-has-no-row-for-node",
       replicaReason: "replica-row-missing",
     };
     const withGhost = overview();
@@ -471,7 +467,7 @@ describe("协作页舰队拓扑契约", () => {
     // 人话原因:为什么没有、何时会有。
     expect(details.textContent).toContain("中心未在此读面暴露节点 TLS 会话事实");
     expect(details.textContent).toContain("watch/pull 内部状态在边缘节点本地");
-    expect(details.textContent).toContain("生命周期读面尚无该节点的同步失败记录");
+    expect(details.textContent).toContain("副本状态行尚无该节点的同步失败记录");
     // 机器码不进可见文本,只保留在 data-reason/title 属性供测试断言。
     expect(details.textContent).not.toContain("tls-session-fact-not-exposed");
     expect(details.textContent).not.toContain("edge-sync-internals-not-exposed");
@@ -488,7 +484,6 @@ describe("协作页舰队拓扑契约", () => {
       owner: { kind: "value", text: "not-in-registry" },
       leases: [],
       replica: null,
-      replicaNote: "center-replica-ledger-has-no-row-for-node",
       replicaReason: "replica-row-missing",
     };
     data.nodes = [...data.nodes, ghost];
@@ -497,7 +492,9 @@ describe("协作页舰队拓扑契约", () => {
     const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
     expect(details.textContent).toContain("该节点从未在本中心同步过");
     expect(details.textContent).not.toContain("center-replica-ledger-has-no-row-for-node");
-    expect(details.querySelector('[data-reason="center-replica-ledger-has-no-row-for-node"]')).not.toBeNull();
+    // 同一状态只渲染一行:原因码出现一次,不再有并排的第二行说同一件事。
+    expect(details.querySelectorAll('[data-reason="replica-row-missing"]')).toHaveLength(1);
+    expect(details.querySelector('[data-reason="center-replica-ledger-has-no-row-for-node"]')).toBeNull();
     expect(details.textContent).toContain("未登记负责人");
     expect(details.textContent).not.toContain("not-in-registry");
     // 节点卡上的 owner 同样人话化。

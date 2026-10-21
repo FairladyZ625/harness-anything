@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   readOfflineLedgerEvents,
@@ -13,9 +13,13 @@ import {
   agentDeclarationMigrationCommand,
   completionMigrationCommand,
   generationMigrationCommand,
+  writerEpochMigrationCommand,
 } from "./offline-storage-command.ts";
 import { migrateAgentDeclarations } from "./agent-declaration-migration.ts";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
+import { daemonProcessAlive } from "./daemon-singleton.ts";
+import { migrateLegacyWriterEpochDatabase, WriterEpochError } from "./writer-epoch.ts";
 
 export async function runOfflineStorageCommand(argv: readonly string[]): Promise<number> {
   try {
@@ -24,6 +28,37 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
       throw new Error("--generation must be 1 or 2");
     const rootInput = option(argv, "--root") ?? process.cwd();
     const commandIndex = firstCommandIndex(argv);
+    if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "writer-epoch") {
+      try {
+        const trailing = argv.slice(commandIndex + 2).filter((argument) => argument !== "--json");
+        if (trailing.some((argument) => argument !== "--help"))
+          throw new Error("ha migrate writer-epoch does not accept arguments; run ha migrate writer-epoch --help");
+        if (trailing.includes("--help")) {
+          emitReceipt({ ok: true, usage: writerEpochMigrationCommand.usage, hint: writerEpochMigrationCommand.help });
+          return 0;
+        }
+        const userRoot = daemonUserRoot();
+        assertNoRunningDaemon(userRoot);
+        const result = migrateLegacyWriterEpochDatabase(path.join(userRoot, "fleet")),
+          exitCode = result.state === "partial" ? 1 : 0;
+        emitReceipt({ ok: exitCode === 0, exitCode, ...result });
+        return exitCode;
+      } catch (error) {
+        emitReceipt({
+          ok: false,
+          schema: "writer-epoch-migration-receipt/v1",
+          exitCode: 1,
+          code:
+            error instanceof WriterEpochError
+              ? error.code
+              : isErrorCode(error)
+                ? error.code
+                : "writer_epoch_migration_failed",
+          hint: error instanceof Error ? error.message : String(error),
+        });
+        return 1;
+      }
+    }
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "completion") {
       if (argv.includes("--help")) {
         emitReceipt({ ok: true, usage: completionMigrationCommand.usage, hint: completionMigrationCommand.help });
@@ -147,6 +182,22 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
 
 function emitReceipt(receipt: Record<string, unknown>): void {
   console.log(JSON.stringify(receipt));
+}
+function assertNoRunningDaemon(userRoot: string): void {
+  if (!existsSync(userRoot)) return;
+  const active = readdirSync(userRoot)
+    .filter((name) => /^daemon-.+\.(?:singleton\.lock|pid)$/u.test(name))
+    .map((name) => ({ name, pid: Number(readFileSync(path.join(userRoot, name), "utf8").trim()) }))
+    .find(({ pid }) => Number.isSafeInteger(pid) && pid > 0 && daemonProcessAlive(pid));
+  if (active)
+    throw new WriterEpochError(
+      "writer_epoch_daemon_running",
+      `Cannot migrate writer epochs while daemon process ${active.pid} (${active.name}) is running. ` +
+        "Run ha daemon stop for every daemon using this user root, then retry.",
+    );
+}
+function isErrorCode(error: unknown): error is Error & { readonly code: string } {
+  return error instanceof Error && "code" in error && typeof error.code === "string";
 }
 export function backupReceipt(
   backupDir: string,

@@ -10,7 +10,6 @@ import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } f
 import { pushTaskWorkerBranch, workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
-import { createTaskPullRequest, waitTaskPullRequestChecks } from "./runtime-task-pr.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 
 type QueuedPublication = ((
@@ -118,24 +117,13 @@ export function readBeforeWriteQueue(
           evidence: `Worker branch pushed: ${pushed.branch} @ ${pushed.pushedCommit}.`,
           next: [
             {
-              command: `ha task pr ${taskId}`,
-              reason: "publish the pushed branch as the task's pull request",
+              command: `gh pr create --head ${taskId}`,
+              reason: "open the task's pull request with the machine's own gh login",
             },
           ],
         } as WriteReceiptDraft);
       };
     })();
-  if (action.kind === "task-pr") {
-    // --wait-ci parks this request for the whole CI run: the poll loop runs here, outside the write
-    // queue, and the queued turn only publishes the terminal receipt.
-    if (action.waitCi === true)
-      return waitTaskPullRequestChecks(context, action, binding).then((verdict) => async () => verdict);
-    return (async () => {
-      return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
-        return createTaskPullRequest(context, _action, _binding);
-      };
-    })();
-  }
   if (action.kind === "task-adjudicate" && action.forward === true && typeof action.taskId === "string") {
     const refused = refuseAdjudicatedForwardBeforeQueue(context, action.taskId, explicitExecutionId(action));
     if (refused) return Promise.reject(refused);

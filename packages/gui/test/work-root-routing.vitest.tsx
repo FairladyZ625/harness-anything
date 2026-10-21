@@ -378,49 +378,6 @@ describe("the work page absorbs the root task", () => {
     expect(onOpenTask).toHaveBeenCalledWith("child");
   });
 
-  it("turns the subgroup tree into a filter on the tasks tab", async () => {
-    const declaredRow = {
-      ...scope.tasks[0]!,
-      taskId: "declared",
-      title: "T declared",
-      taskClass: "work" as const,
-      hasChildren: true,
-    };
-    const page = await render(
-      createElement(
-        QueryClientProvider,
-        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
-        createElement(WorkspaceView, {
-          onPreviewTask: () => undefined,
-          rootTaskOpen: false,
-          onOpenRootTask: () => undefined,
-          onCloseRootTask: () => undefined,
-          scope: {
-            ...scope,
-            groups: [declaredRow],
-            memberTaskIds: ["child", "declaredChild"],
-            tasks: [
-              ...scope.tasks,
-              {
-                ...scope.tasks[0]!,
-                taskId: "declaredChild",
-                title: "T declaredChild",
-                parentTaskId: "declared",
-              },
-            ],
-          },
-          projectName: "P",
-          onOpenTask: () => undefined,
-        }),
-      ),
-    );
-    const groupRow = page.querySelector<HTMLButtonElement>('[data-group-filter="declared"] button')!;
-    expect(groupRow).not.toBeNull();
-    await act(async () => groupRow.click());
-    expect(page.querySelector<HTMLButtonElement>("#workspace-tab-tasks")!.getAttribute("aria-selected")).toBe("true");
-    expect(page.textContent).toContain("子组：T declared");
-  });
-
   it("has no root section when the caller cannot render the root task", () => {
     const html = renderToStaticMarkup(
       createElement(

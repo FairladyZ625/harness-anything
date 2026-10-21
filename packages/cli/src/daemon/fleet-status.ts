@@ -98,10 +98,10 @@ function renderLeaseLines(leases: FleetNode["leases"]): string[] {
   return lines;
 }
 
-// Sync progress against the center's current revision; a missing replica row is stated, not hidden.
+// Sync progress against the center's current revision; a missing replica row is stated here and
+// explained once on the `reason` line above, never quoted as a second code.
 function renderSyncLine(node: FleetNode): string {
-  if (node.replica === null)
-    return `  sync no replica row (${node.replicaNote ?? "center-replica-ledger-has-no-row-for-node"})`;
+  if (node.replica === null) return "  sync no replica row";
   return (
     `  sync view=${node.replica.viewId} ack=${node.replica.ackRevision ?? "never-acked"} center=${node.replica.centerRevision} lag=${node.replica.lagRevisions}rev` +
     ` commits=${node.replica.ackSequence ?? "never-acked"}/${node.replica.centerSequence} lagCommits=${node.replica.lagCommits ?? "unknown"}` +

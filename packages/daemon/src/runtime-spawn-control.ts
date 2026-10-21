@@ -5,6 +5,7 @@ import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner } from "./runtime-spawn-adoption.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -143,9 +144,14 @@ export async function steerRuntime(
     throw runtimeSpawnError("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
   if (!active.providerSessionId)
     throw runtimeSpawnError("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
-  if (!active.process.steer)
-    throw runtimeSpawnError("runtime_steer_unsupported", "Runtime control channel is unavailable.");
+  // A recorded request nobody follows is not an applied steer: the host is the only reader of
+  // this stream, and a host that is gone cannot be steered back. Settlement retires the runtime,
+  // but the window before it does would otherwise report success into an empty room.
+  if (!runtimePidIsAlive(active.process.pid))
+    throw runtimeSpawnError("runtime_steer_unavailable", "Runtime control channel is unavailable.");
   const opId = `runtime-steer-${createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
+  // The dispatch stream is the control channel: the worker host owning the provider follows
+  // this file, so a host adopted after a daemon restart is steered like one this daemon spawned.
   appendRuntimeWorkerRecord(context.input.rootDir, header.dispatchId, {
     kind: "steer_requested",
     opId,
@@ -155,7 +161,6 @@ export async function steerRuntime(
     source: binding.source,
     prompt,
   });
-  active.process.steer(prompt);
   return {
     schema: "command-receipt/v2",
     ok: true,

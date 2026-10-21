@@ -109,7 +109,9 @@ export function BrowserView({
           spellCheck={false}
         />
       </form>
-      <div className="relative mt-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-sm border border-border bg-white">
+      {/* 网页自身表面直角(业主 2026-10-21 13:50):内容框直接裁切 guest,圆角会让网页
+          四角被切。外框(地址栏)仍走共享圆角 token。 */}
+      <div className="relative mt-2 min-h-0 min-w-0 flex-1 overflow-hidden border border-border bg-white">
         <div ref={hostRef} className="absolute inset-0" data-testid="in-app-browser-host" />
         {state.error && (
           <div

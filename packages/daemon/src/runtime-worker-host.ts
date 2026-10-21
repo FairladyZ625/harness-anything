@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import { tailRuntimeSteerCommands } from "./runtime-worker-control.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
@@ -78,18 +79,14 @@ export function runtimeWorkerProviderEnvironment(
 }
 
 export async function runRuntimeWorkerHost(): Promise<void> {
-  const control = { handler: null as ((prompt: string) => void) | null };
   const lines = createInterface({ input: process.stdin }),
     iterator = lines[Symbol.asyncIterator](),
     first = await iterator.next();
   if (first.done) throw new Error("runtime worker manifest is missing");
   const manifest = parseManifest(first.value);
-  void (async () => {
-    for await (const line of { [Symbol.asyncIterator]: () => iterator }) {
-      const value = JSON.parse(line) as { kind?: unknown; prompt?: unknown };
-      if (value.kind === "steer" && typeof value.prompt === "string") control.handler?.(value.prompt);
-    }
-  })();
+  // The control channel is the dispatch stream, not this process's stdin: the daemon that
+  // steers may be a successor that adopted the host after a restart and has no pipe to it.
+  const control = { handler: null as ((prompt: string) => void) | null };
   const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId),
     // One descriptor for the host's whole lifetime: provider output appends once per line.
     appender = openDispatchStreamAppender(stream);
@@ -98,6 +95,15 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       occurredAt: new Date().toISOString(),
       ...value,
     });
+  const steerTail = tailRuntimeSteerCommands(stream, (prompt) => {
+    if (control.handler) control.handler(prompt);
+    else
+      append({
+        kind: "steer_dropped",
+        reason: "the provider session is not established yet",
+        prompt,
+      });
+  });
   const relay = manifest.callbackRelay
     ? createRuntimeCallbackRelay({
         dispatchId: manifest.dispatchId,
@@ -145,7 +151,10 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       }
     };
     control.handler = (nextPrompt) => {
-      if (!declaration?.steer) return;
+      if (!declaration?.steer) {
+        append({ kind: "steer_dropped", reason: `${manifest.kindId ?? "this runtime"} declares no steer strategy` });
+        return;
+      }
       queuedPrompt = nextPrompt;
       if (activeTools.size === 0) interrupt();
       else if (!interruptTimer)
@@ -177,6 +186,8 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         manifest.protocolFamily === "acp" && typeof manifest.kindId === "string"
           ? runAcpProviderSession(child, manifest as RuntimeWorkerManifest & { readonly kindId: string }, append)
           : null;
+      // An ACP kind steers in place: session/cancel ends the turn, the same session reprompts.
+      if (acp) control.handler = acp.steer;
       let outputBuffer = "";
       const consumeOutput = (chunk: string, flush = false): void => {
         outputBuffer += chunk;
@@ -215,7 +226,12 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       );
       // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
       await acp?.done;
-      if (!terminationRequested && queuedPrompt !== null && declaration?.steer && providerSessionId) {
+      if (
+        !terminationRequested &&
+        queuedPrompt !== null &&
+        declaration?.steer?.strategy === "interrupt-resume" &&
+        providerSessionId
+      ) {
         clearTimeout(interruptTimer);
         interruptTimer = undefined;
         args = [...declaration.steer.resumeArgs(baseArgs, providerSessionId)];
@@ -230,6 +246,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       break;
     }
   } finally {
+    steerTail.stop();
     appender.close();
     await relay?.stop();
   }

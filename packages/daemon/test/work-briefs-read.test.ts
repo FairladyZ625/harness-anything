@@ -250,6 +250,36 @@ test("the agenda sweep aggregates every page before attributing asks", () => {
   assert.equal(read.briefs.find(({ taskId }) => taskId === "running-root")?.bucket, "waiting");
 });
 
+test("the agenda sweep follows the cursor past twenty pages instead of rejecting a legitimate read", () => {
+  // 实测同族回归(task_a610c5ec/#3869):真实数据超过固定页数预算时,提前拒绝合法的
+  // 未完成游标会把整份读面抛错;排空循环必须跟随游标直到末页,不设页数上限。
+  const read = workBriefsFromProjection({
+    projection: projection({ rows }),
+    agendaPage: agendaPage([ask("task/waiting-leaf", "深页提问", "question")], 25),
+    principalId: "person_owner",
+    now: () => new Date("2026-10-18T00:00:00.000Z"),
+  });
+  assert.equal(read.briefs.find(({ taskId }) => taskId === "waiting-root")?.bucket, "waiting");
+});
+
+test("a repeated agenda cursor is rejected instead of an endless sweep", () => {
+  assert.throws(
+    () =>
+      workBriefsFromProjection({
+        projection: projection({ rows }),
+        agendaPage: (() => ({
+          ok: true,
+          status: "ready",
+          awaitingYou: [],
+          page: { nextCursor: "cursor-stuck" },
+        })) as never,
+        principalId: "person_owner",
+        now: () => new Date("2026-10-18T00:00:00.000Z"),
+      }),
+    /cursor did not advance/u,
+  );
+});
+
 test("the latest task-branch CI run rides along for the drawer", () => {
   const read = workBriefsFromProjection({
     projection: projection({ rows }),

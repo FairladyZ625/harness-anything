@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { cliErrorMessage } from "./cli-error.ts";
-import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
+import { cliFailure, emitMeta, taskCreateHelpCatalog, taskCreateHelpWorks } from "./cli-meta.ts";
 import { cliDispatchError } from "./cli-render.ts";
 import { isRuntimeFacadeCommand, runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import {
@@ -58,7 +58,9 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     (command === "restore" && !argv.includes("--drill") && !argv.includes("--help")) ||
     command === "events" ||
     (command === "migrate" &&
-      ["ledger", "completion", "agent-declaration", "settings"].includes(argv[firstCliCommandIndex(argv) + 1] ?? ""))
+      ["ledger", "completion", "agent-declaration", "settings", "writer-epoch"].includes(
+        argv[firstCliCommandIndex(argv) + 1] ?? "",
+      ))
   ) {
     return runOfflineCommandThroughDaemonBin(argv, emit);
   }
@@ -88,11 +90,14 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
       return 2;
     }
     const rows = await taskCreateHelpCatalog(argv),
+      // `ha task create --help` is where a create is decided; it names the open works the same
+      // daemon route `ha work list` serves, so --work is chosen from facts before the write.
+      works = await taskCreateHelpWorks(argv),
       helpRenderStartedAt = cliPhaseStart();
     console.log(
-      rows.length === 0 && domain === undefined
+      rows.length === 0 && works.length === 0 && domain === undefined
         ? renderThinHelp()
-        : renderThinHelp(rows, domain, helpCommandPrefix(argv)),
+        : renderThinHelp(rows, domain, helpCommandPrefix(argv), works),
     );
     cliPhaseEnd("render", helpRenderStartedAt);
     return 0;

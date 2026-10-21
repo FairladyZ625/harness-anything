@@ -15,7 +15,6 @@ the dispatch, and uses it only for that task:
 | Command | What it does with the credential |
 | --- | --- |
 | `ha task push <task-id>` | Pushes the task branch over HTTPS git (`git push --force-with-lease`). |
-| `ha task pr <task-id>` | Runs the repository PR body gate, then creates or updates the pull request through the GitHub CLI. |
 
 The GitHub CLI (`gh`) and `git` must be on the daemon's `PATH`; a resident
 service records the installing shell's `PATH` (see
@@ -74,11 +73,9 @@ these permissions on the one repository the workspace publishes to:
 | Operation | Used by | Fine-grained PAT permission |
 | --- | --- | --- |
 | Push the task branch over HTTPS | `ha task push` | Contents: Read and write |
-| Create or update the pull request | `ha task pr` | Pull requests: Read and write |
 
 A classic personal access token covers the same operations with the `repo`
-scope. A token without push access fails at `ha task push`; a token without
-pull request access fails at `ha task pr`. Rotating
+scope. A token without push access fails at `ha task push`. Rotating
 the token means storing a new vault item and rebinding — the daemon removes a
 retired vault item only when no other instance or credential setting still
 references it.
@@ -88,11 +85,9 @@ references it.
 GitHub and GitLab task delivery are supported. GitHub tokens need repository
 contents write access for pushes; GitLab tokens need `write_repository` for
 pushes. The daemon resolves the provider-specific reference and supplies the
-token only to its own git/API operation. Workers and reviewers read checks with
-`ha task pr <task-id> --wait-ci`, which reads through the daemon-held
-credential and returns the head it judged; inspecting a failure with
-`gh run view --log-failed` needs the worker's own platform CLI session, and a
-runtime without one reads the failing job from the check URL instead. Provider
+token only to its own git push. Opening the pull request and reading checks
+(`gh pr create`, `gh pr checks --watch`, `gh run view --log-failed`) use the
+machine's own platform CLI login. Provider
 selection is inferred from
 `origin`; declare `hosting.provider` and `hosting.host` in repository settings
 for an unrecognized or self-hosted GitLab host. GitLab CI uses REST API v4 and

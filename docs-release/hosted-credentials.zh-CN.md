@@ -12,7 +12,6 @@
 | 命令 | 用凭据做什么 |
 | --- | --- |
 | `ha task push <task-id>` | 经 HTTPS git 推送任务分支（`git push --force-with-lease`）。 |
-| `ha task pr <task-id>` | 先跑仓库的 PR body 门，再经 GitHub CLI 创建或更新 pull request。 |
 
 daemon 的 `PATH` 上必须有 GitHub CLI（`gh`）与 `git`；常驻服务记录的是安装
 shell 的 `PATH`（见[常驻服务](operations-server-daemon.zh-CN.md#常驻服务macos-与-linux)）。
@@ -65,20 +64,17 @@ daemon 用这份 token 执行的是一组固定操作。只对工作区要发布
 | 操作 | 使用方 | 细粒度 PAT 权限 |
 | --- | --- | --- |
 | 经 HTTPS 推送任务分支 | `ha task push` | Contents: Read and write |
-| 创建或更新 pull request | `ha task pr` | Pull requests: Read and write |
 
 classic personal access token 用 `repo` scope 覆盖同一组操作。没有推送权限的
-token 在 `ha task push` 失败；缺 pull request 权限的 token 在 `ha task pr`
-失败。轮换 token 即存新条目并改绑；daemon 只有在
+token 在 `ha task push` 失败。轮换 token 即存新条目并改绑；daemon 只有在
 没有其他 instance 或凭据设置还引用某条目时才会删除它。
 
 ## 当前限制
 
 GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限；GitLab
 token 推送需要 `write_repository`。daemon 按 provider 解析绑定引用，仅向自身 git/API
-操作提供 token。worker 与评审都用 `ha task pr <task-id> --wait-ci` 读检查（经 daemon
-代持凭据，回执携带所判定的 head）；用 `gh run view --log-failed` 查看失败日志需要
-自己的托管平台 CLI 登录，没有登录的 runtime 改从 check URL 读失败 job。provider 默认从
+操作提供 token。开 PR 与读检查（`gh pr create`、`gh pr checks --watch`、
+`gh run view --log-failed`）用本机自己的托管平台 CLI 登录。provider 默认从
 `origin` 推断；无法识别或自建 GitLab host 时，在仓库 settings 声明
 `hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
 v4；daemon 管理的发布无需 `glab`（见

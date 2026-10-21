@@ -218,6 +218,45 @@ describe("session consumption panel (P1.3)", () => {
     expect(markup).not.toContain('data-testid="session-metrics-compacted"');
   });
 
+  it("deduplicates the detail head meter and drops the fake context-window ratio", () => {
+    // 业主截图的形态:累计 token 远超 200K 硬编码窗口,水位条显示危险红百分比。
+    const big = {
+      inputTokens: 180_000,
+      cacheReadTokens: 2_300_000,
+      outputTokens: 63_000,
+      totalTokens: 2_543_000,
+      toolCallCount: 1_271,
+      compacted: false,
+    } as const;
+    const markup = detailView({ session: { ...sessionDto, metrics: big } as typeof sessionDto });
+    // 重复位已删:详情卡头不再有第二个 meter。
+    expect(markup).not.toContain('data-testid="session-detail-context-meter"');
+    // 会话累计消耗不冒充上下文窗口占用:没有 /200K 比值与水位档。
+    expect(markup).not.toContain("/ 200K");
+    expect(markup).not.toContain('data-context-level="danger"');
+    // 唯一展示位保留:消耗卡头仍是 meter,精确数字在 KV。
+    expect(markup).toContain('data-testid="session-metrics-context-meter"');
+    expect(markup).toContain("2,543,000");
+  });
+
+  it("draws the context window the provider reported, and no ratio when it reported none", () => {
+    // 唯一展示位是详情头的窗口水位:分母就是 provider 自报的窗口(这里是 1M,不是 200K)。
+    const markup = detailView({
+      session: { ...sessionDto, context: { usedTokens: 516_976, windowTokens: 1_000_000 } } as typeof sessionDto,
+    });
+    expect(markup).toContain('data-testid="session-detail-context"');
+    expect(markup).toContain('aria-valuemax="1000000"');
+    expect(markup).toContain('aria-valuenow="516976"');
+    expect(markup).toContain("517K / 1M · 52%");
+    expect(markup).not.toContain("200K");
+    expect(markup).not.toContain('data-context-level="danger"');
+    // 没有 provider 上报:不画比值、不猜默认窗口(累计消耗仍按组成口径留在消耗卡里)。
+    const missing = detailView({ session: sessionDto });
+    expect(missing).not.toContain('data-testid="session-detail-context"');
+    expect(missing).not.toContain('data-testid="session-detail-context-meter"');
+    expect(missing).not.toContain("/ 200K");
+  });
+
   it("flags compaction with the loss-of-constraints warning", () => {
     const markup = detailView({
       session: { ...sessionDto, metrics: { ...metrics, compacted: true } } as typeof sessionDto,

@@ -49,3 +49,15 @@ export const agentDeclarationMigrationCommand = {
     { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
   ],
 } as const;
+
+export const writerEpochMigrationCommand = {
+  id: "migrate-writer-epoch",
+  path: ["migrate", "writer-epoch"],
+  usage: "ha migrate writer-epoch",
+  summary: "Import legacy writer-epoch floors into per-repository databases.",
+  help:
+    "    Stop every daemon using this user root first. The source is marked migrated only after every readable repo floor is imported. " +
+    "Unreadable repos are reported separately; restore the legacy database from a backup before retrying.",
+  helpCommand: "ha migrate writer-epoch --help",
+  inputs: [],
+} as const;

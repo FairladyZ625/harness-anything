@@ -175,7 +175,7 @@ export default {
 
     // ——— 断言面:工作页「最近进展」里的真实 DayDigest ———
     // (总览 2026-10-04 注意力返工删掉了首屏 DayDigest 区域;同一原语住在工作页时间线。)
-    const openWorkTimeline = async () => {
+    const openWorkProgress = async () => {
       await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
       const card = page
         .getByTestId("board-task-card")
@@ -184,10 +184,14 @@ export default {
       await card.waitFor({ timeout: 20_000 });
       // 工作根卡片直接路由进工作页(workspace,根任务详情只是其中一个分区),不走预览抽屉。
       await card.click();
-      await page.getByTestId("work-timeline").waitFor({ timeout: 20_000 });
+      // 概况首屏不再内嵌时间线(2026-10-21 业主 13:50 降密度);DayDigest 密度住「进展」页签。
+      const progressTab = page.getByRole("tab", { name: /^(?:进展|Progress)$/u });
+      await progressTab.waitFor({ timeout: 20_000 });
+      await progressTab.click();
+      await page.locator("#workspace-panel [data-day]").first().waitFor({ timeout: 20_000 });
     };
-    await openWorkTimeline();
-    const region = page.getByTestId("work-timeline");
+    await openWorkProgress();
+    const region = page.locator("#workspace-panel");
     const longChain = region.getByTestId("step-chain").filter({ hasText: "退回" }).last();
     await longChain.waitFor();
 
@@ -215,7 +219,7 @@ export default {
     );
 
     // 滚到末项可达;横向滚轮不误触行导航;键盘平移同理(工作页行是导航,不是选择)。
-    const onWorkPage = () => page.getByTestId("work-timeline").isVisible();
+    const onWorkPage = () => page.getByTestId("workspace-view").isVisible();
     const endState = await longChain.evaluate((node) => {
       node.scrollLeft = node.scrollWidth;
       const tags = [...node.querySelectorAll("[data-status-tone]")];
@@ -338,7 +342,7 @@ export default {
     // ——— 窄面板:重载回到工作页时间线,区域容器收到 260px,标题/状态链转上下两行 ———
     await page.reload();
     await bridgeReady(page);
-    await openWorkTimeline();
+    await openWorkProgress();
     const narrowChain = region.getByTestId("step-chain").filter({ hasText: "退回" }).last();
     await narrowChain.waitFor();
     await region.evaluate((node) => {

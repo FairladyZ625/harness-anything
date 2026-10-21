@@ -302,7 +302,7 @@ export async function openRepoCellProxy(
         flushPublications: unsupportedWrite,
         observeOutcome: unsupportedWrite,
       },
-      runtimeReads = repositoryRuntimeReads(writableProjection, readStore, input.now),
+      runtimeReads = repositoryRuntimeReads(writableProjection, readStore, input.now, input.rootDir),
       now = input.now ?? (() => new Date().toISOString());
     const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
         prepareWorktree: unsupportedWrite,
