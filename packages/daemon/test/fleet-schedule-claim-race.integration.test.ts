@@ -68,11 +68,13 @@ test(
       claimed = activeRun(winner.result);
     assert.equal(claimed.nodeId, winner.nodeId, "the recorded holder is the node that won");
     assert.match(claimed.claimFence, /^claim_[0-9a-f]{24}$/u);
-    assert.equal(
-      claimed.occurrenceId,
-      occurrenceIdFor(winner.nodeId, alpha, beta),
-      "both edges targeted one occurrence",
-    );
+    // The center rewrites the action's idempotency key to the frame opId, and an edge's opId is
+    // derived from repo+nodeId+key. Two different edges therefore derive *different* occurrence ids
+    // for the same tick; what prevents a second live run is single flight on the Schedule, not
+    // occurrence identity. Pin that: the ids differ, yet only one holder exists.
+    const perEdge = expectedOccurrenceIds();
+    assert.equal(new Set(Object.values(perEdge)).size, 2, "two edges derive two occurrence ids");
+    assert.equal(claimed.occurrenceId, perEdge[winner.nodeId], "the winner holds its own derived occurrence");
 
     // One canonical claim event, not two: a losing attempt writes no schedule event.
     assert.equal(fixture.eventCount(), before + 1, "the race appended exactly one canonical event");
@@ -127,20 +129,19 @@ function activeRun(result: ClaimResult): {
   return run;
 }
 
-/** Both edges name one occurrence because occurrence id derives from schedule/kind/time/key. */
-function occurrenceIdFor(nodeId: string, alpha: ClaimResult, beta: ClaimResult): string {
-  const observed = [alpha, beta]
-    .map(
-      (result) =>
-        (
-          result.receipt as {
-            readonly schedule?: { readonly status?: { readonly activeRun?: { occurrenceId: string } } };
-          }
-        ).schedule?.status?.activeRun?.occurrenceId,
-    )
-    .filter((id): id is string => typeof id === "string");
-  assert.equal(new Set(observed).size, 1, `both edges observe one occurrence (${nodeId} raced it)`);
-  return observed[0]!;
+/**
+ * Per-edge occurrence ids as the center derives them. `runFleetScheduleCommandClient` sends the
+ * frame opId, and the schedule ingress substitutes `{ ...frame.action, idempotencyKey: frame.opId }`
+ * before compiling, so the domain hashes the caller's op id — which carries the node id.
+ */
+function expectedOccurrenceIds(): Record<string, string> {
+  const ids: Record<string, string> = {};
+  for (const nodeId of ["edge-alpha", "edge-beta"]) {
+    const opId = `schedule-${createHash("sha256").update(`${repoId}\0${nodeId}\0${occurrenceKey}`).digest("hex").slice(0, 32)}`,
+      hash = createHash("sha256").update(`${scheduleId}\0scheduled\0${scheduledFor}\0${opId}`).digest("hex");
+    ids[nodeId] = `occurrence_${hash.slice(0, 24)}`;
+  }
+  return ids;
 }
 
 async function claimRaceFixture(t: TestContext) {
