@@ -16,6 +16,7 @@ import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts
 import { workDayGroups } from "../model/workspace-narrative.ts";
 import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
 import type { AgentHandoff, AgentLane, AgentLaneTask } from "../components/agent-ui/AgentLanes.tsx";
+import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 
 /**
  * 总览的纯派生层(2026-10-04 重构:注意力优先;2026-10-20 W2-T1 接入 Orca 五级序数与
@@ -229,10 +230,13 @@ export function runRows(
     .filter((session) => session.liveness === "live")
     .map((session) => {
       const taskId = session.associations[0]?.taskId ?? null,
-        definition = session.definitionSnapshot;
+        definition = session.definitionSnapshot,
+        // model 字段允许是候选清单的 JSON 数组文本(声明 schema 只要非空字符串):
+        // 主表面只给列表短标签(首个候选 +N),原文不上屏(X2)。解析失败/空串退化成 kindId。
+        model = definition === null ? null : runtimeModelShortLabel(definition.model);
       return {
         runtimeSessionId: session.runtimeSessionId,
-        who: definition === null ? session.kindId : `${session.kindId} · ${definition.model}`,
+        who: model === null ? session.kindId : `${session.kindId} · ${model}`,
         taskId,
         taskTitle: taskId === null ? null : (titleOf.get(taskId) ?? null),
         lastObservedAt: session.activity.lastObservedAt,
@@ -560,6 +564,7 @@ export function agentLanesOf(input: {
         const running = row.status === "running";
         tasks.push({
           id: row.dispatchId,
+          taskId: row.taskId,
           label: labelOf(row.taskId),
           startAt: Date.parse(row.startedAt),
           // CEO 派工注记第 8 条:已收口或阻塞的块必须给 endAt(只有运行中的块随 now 生长)。
@@ -593,6 +598,8 @@ export function agentLanesOf(input: {
         const blockId = round.dispatchId ?? round.runtimeSessionId;
         tasks.push({
           id: blockId,
+          // 兜底块的块 id 是派工/会话 id;跳转要用 group 上的真 taskId,没有就不给点击入口。
+          ...(group.taskId === undefined ? {} : { taskId: group.taskId }),
           label: group.taskId === undefined ? group.label : (input.taskTitles.get(group.taskId) ?? group.label),
           startAt: Date.parse(round.startedAt),
           endAt: running ? null : Date.parse(group.latestActivityAt),

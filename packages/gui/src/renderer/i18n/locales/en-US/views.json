@@ -441,7 +441,7 @@
   "views.overviewView.searchPlaceholder": "Search tasks, works, decisions, events…",
   "views.overviewView.topDaemonDown": "daemon unresponsive",
   "views.overviewView.topCiUnknown": "main CI unknown",
-  "views.overviewView.collaborationEntry": "Collaboration {total} · executing {executing}",
+  "views.overviewView.collaborationEntry": "Collaboration {total}",
   "views.overviewView.topProjectionLag": "Projection lag {lag}",
   "views.overviewView.regionCi": "CI observations",
   "views.overviewView.kindAwaitingYou": "Awaiting you",

@@ -11,6 +11,7 @@ import { Section } from "./primitives/Section";
 import { StatusTag } from "./primitives/StatusTag";
 import { TitleText } from "./primitives/TitleText";
 import { PhaseSteps } from "./taskDetail/PhaseSteps.tsx";
+import { TaskPreviewLanes } from "./taskDetail/TaskPreviewLanes.tsx";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
 import { dayKeyOf, formatDayKeyLabel, formatTime } from "../model/time.ts";
@@ -218,6 +219,10 @@ function TaskPreviewBody({
           })}
         </p>
       </Section>
+
+      {/* 执行泳道(R9):与总览/现场页同一个 AgentLanes 组件,按需在预览里展开,
+          不另造一条阶段条冒充泳道;没有派工轮次时如实说空,不给假展开入口。 */}
+      <TaskPreviewLanes task={task} />
 
       {/* 要做什么:task_plan 的 Brief 一行目标,可展开(与工作页同一提取器)。 */}
       {goal !== null && <GoalLine goal={goal} />}
