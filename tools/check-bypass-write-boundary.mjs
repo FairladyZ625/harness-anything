@@ -13,7 +13,6 @@ const targetRoots = [
   "packages/kernel/src/store",
   "packages/kernel/src/local",
   "packages/kernel/src/projection",
-  "packages/adapters/local/src",
   "packages/cli/src",
 ];
 

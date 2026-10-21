@@ -32,7 +32,7 @@ test("GUI catalog projection uses canonical inventory without source paths or pl
   );
   assert.deepEqual(
     snapshot.adapters.map((row) => row.adapterId),
-    ["local", "multica"],
+    [],
   );
   const detail = await catalog.preset({ presetId: snapshot.presets[0]!.id });
   assert.deepEqual(validateCatalogPreset(detail), []);

@@ -150,15 +150,15 @@ test("path mentions inside comments are not string literals", () => {
   });
 });
 
-test("a directory literal in an adapter source is rejected", () => {
+test("a directory literal in a cli source is rejected", () => {
   withGateRoot("ha-self-repo-paths-", (root) => {
     writeFixtureAllowlist(root);
-    writeSource(root, "packages/adapters/local/src/routing.ts", 'export const root = "packages/kernel/src/";\n');
+    writeSource(root, "packages/cli/src/routing.ts", 'export const root = "packages/kernel/src/";\n');
 
     const result = runGate(root, path.join(root, "allowlist"));
 
     assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stderr, /adapters\/local\/src\/routing\.ts:1:\d+: repo-root directory literal/u);
+    assert.match(result.stderr, /cli\/src\/routing\.ts:1:\d+: repo-root directory literal/u);
   });
 });
 

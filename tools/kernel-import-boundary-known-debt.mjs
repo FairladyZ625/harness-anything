@@ -1,13 +1,4 @@
-export const kernelImportBoundaryKnownDebt = [
-  {
-    file: "packages/adapters/local/src/index.ts",
-    specifier: "../../../kernel/src/store/index.ts",
-    target: "packages/kernel/src/store/index.ts",
-    decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
-    reason:
-      "Local adapter composition root still reaches the store implementation to construct the journaled WriteCoordinator; F6 owns the seam cleanup.",
-  },
-];
+export const kernelImportBoundaryKnownDebt = [];
 
 for (const [index, entry] of kernelImportBoundaryKnownDebt.entries()) {
   for (const field of ["file", "specifier", "target", "decision", "reason"]) {

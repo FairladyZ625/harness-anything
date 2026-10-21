@@ -81,7 +81,7 @@ function withTempRoot(fn) {
 import { spawnSync as runGate } from "node:child_process";
 import { mkdirSync as makeGateDir, writeFileSync as writeGateFile, rmSync as removeGateRoot } from "node:fs";
 
-const requiredScanRoots = ["packages/cli/src", "packages/kernel/src", "packages/adapters"];
+const requiredScanRoots = ["packages/cli/src", "packages/kernel/src"];
 for (const omitted of requiredScanRoots) {
   for (const state of ["missing", "empty", "excluded-only"]) {
     test(`check-error-classification rejects ${state} required scan root ${omitted}`, () => {

@@ -1483,7 +1483,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/**","packages/kernel/src/**","packages/adapters/**","tools/check-error-classification.mjs"],
+      "localPathGlobs": ["packages/cli/src/**","packages/kernel/src/**","tools/check-error-classification.mjs"],
       "authoritySource": [
         "packages/kernel/src/domain/errors.ts",
         "packages/cli/src/cli/thin-command.ts",
@@ -1655,7 +1655,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/store/**","packages/kernel/src/local/**","packages/kernel/src/projection/**","packages/adapters/local/src/**","packages/cli/src/**","tools/check-bypass-write-boundary.mjs","tools/check-bypass-write-boundary.test.mjs","tools/gates/test/bypass-write-boundary-allowlist-sync.test.mjs","tools/gate-allowlists/source-identity.mjs","tools/gate-allowlists/check-bypass-write-boundary.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": ["packages/kernel/src/store/**","packages/kernel/src/local/**","packages/kernel/src/projection/**","packages/cli/src/**","tools/check-bypass-write-boundary.mjs","tools/check-bypass-write-boundary.test.mjs","tools/gates/test/bypass-write-boundary-allowlist-sync.test.mjs","tools/gate-allowlists/source-identity.mjs","tools/gate-allowlists/check-bypass-write-boundary.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
       "authoritySource": [
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "task_01KWW58383X74ZK28Y068CQ2TG",
@@ -1665,7 +1665,7 @@
         "dec_5EC2631352B17EE2BF4979E37E#CH2"
       ],
       "consumerScope": [
-        "AST-classified fs write calls in packages/kernel/src/store, packages/adapters/local/src, and packages/cli/src",
+        "AST-classified fs write calls in packages/kernel/src/store and packages/cli/src",
         "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
       ],
       "githubContext": {
@@ -4427,7 +4427,7 @@
       "localPathGlobs": [
         "packages/kernel/**",
         "packages/daemon/**",
-        "packages/adapters/**",
+        
         "packages/application/**",
         "packages/preset/**",
         "tools/gates/cost-budget.mjs",

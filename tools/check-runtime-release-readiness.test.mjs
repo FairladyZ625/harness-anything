@@ -155,8 +155,6 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
     "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
-    "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
   ]) {
     const packageJson =
       packagePath === "packages/cli/package.json"

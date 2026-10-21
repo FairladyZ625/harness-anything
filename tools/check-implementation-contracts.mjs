@@ -26,8 +26,6 @@ const allowlist = loadGateAllowlist("check-implementation-contracts", {
     "localLifecycleCliTextFiles",
     "localLifecycleRequiredSnippets",
     "taskProjectionRequiredSnippets",
-    "multicaRequiredSnippets",
-    "multicaForbiddenVerbs",
     "extensionRequiredSnippets",
     "extensionSchemaPaths",
     "browserWindowRequiredPatterns",
@@ -52,8 +50,6 @@ const storeRequiredSnippets = entryValues(allowlist.storeRequiredSnippets);
 const localLifecycleCliTextFiles = entryValues(allowlist.localLifecycleCliTextFiles);
 const localLifecycleRequiredSnippets = entryValues(allowlist.localLifecycleRequiredSnippets);
 const taskProjectionRequiredSnippets = entryValues(allowlist.taskProjectionRequiredSnippets);
-const multicaRequiredSnippets = entryValues(allowlist.multicaRequiredSnippets);
-const multicaForbiddenVerbs = entryValues(allowlist.multicaForbiddenVerbs);
 const extensionRequiredSnippets = entryValues(allowlist.extensionRequiredSnippets);
 const extensionSchemaPaths = entryValues(allowlist.extensionSchemaPaths);
 const browserWindowRequiredPatterns = allowlist.browserWindowRequiredPatterns.map((entry) => new RegExp(entry.pattern));
@@ -175,9 +171,6 @@ const hasLocalLifecycleImplementation =
 const hasTaskProjectionImplementation = files.some(
   (file) => relative(file) === "packages/kernel/src/projection/rebuildable-task-projection.ts",
 );
-const hasMulticaAdapterImplementation =
-  files.some((file) => relative(file) === "packages/adapters/multica/src/index.ts") &&
-  !readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8").trim().startsWith("export {}");
 const hasExtensionModelImplementation = files.some(
   (file) => relative(file) === "packages/preset/src/preset-extension-model.ts",
 );
@@ -309,25 +302,6 @@ if (hasTaskProjectionImplementation) {
   }
 }
 
-if (hasMulticaAdapterImplementation) {
-  const multicaText = readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8");
-  for (const requiredSnippet of multicaRequiredSnippets) {
-    if (!multicaText.includes(requiredSnippet))
-      record(`Multica readonly adapter implementation must include ${requiredSnippet}`);
-  }
-  for (const forbiddenVerb of multicaForbiddenVerbs) {
-    const exposedVerb = new RegExp(`(?:readonly\\s+)?${forbiddenVerb}\\s*[?:=(:]`, "u");
-    if (exposedVerb.test(multicaText))
-      record(`Multica readonly adapter must not expose external write verb: ${forbiddenVerb}`);
-  }
-  if (/publishNote\s*\??\s*:\s*(?:\(|async|Effect|function)/u.test(multicaText)) {
-    record("Multica readonly adapter must not expose external write verb: publishNote");
-  }
-  if (/writeFileSync\s*\([^)]*tasks\//s.test(multicaText) || /renameSync\s*\([^)]*tasks\//s.test(multicaText)) {
-    record("Multica placeholder must not write authored task documents");
-  }
-}
-
 if (hasExtensionModelImplementation) {
   const extensionModelText = readFileSync(path.join(root, "packages/preset/src/preset-extension-model.ts"), "utf8");
   const extensionTestPath = "packages/preset/test/preset-extension-model.test.ts";
@@ -436,23 +410,6 @@ for (const file of files) {
     (/\bfrom\s+["']node:child_process["']/.test(text) || /\brunGit\s*\(/.test(text))
   ) {
     record(`${rel}: WriteCoordinator git process calls must stay isolated in the governed VCS implementation`);
-  }
-
-  if (rel.startsWith("packages/adapters/") && !isTestOrFixture) {
-    if (/\bcoordinator\.(?:enqueue|flush)\s*\(/.test(text)) {
-      record(
-        `${rel}: adapters must use kernel store write helpers instead of directly calling WriteCoordinator.enqueue/flush`,
-      );
-    }
-    if (/(^|[^\w])(:\s*any\b|as\s+(?:any|never|unknown|TaskSnapshot|PublishableProjection)\b|<any>)/.test(text)) {
-      record(`${rel}: adapters must decode raw input instead of returning or casting any`);
-    }
-    if (/\bJSON\.parse\s*\(/.test(text) && !/\bSchema\.decodeUnknown/.test(text)) {
-      record(`${rel}: adapter JSON.parse must be immediately paired with Effect Schema decode`);
-    }
-    if (/catchAll[\s\S]{0,240}StatusUnmapped[\s\S]{0,240}["']active["']/.test(text)) {
-      record(`${rel}: adapters must not swallow StatusUnmapped as active`);
-    }
   }
 
   if (rel.startsWith("packages/gui/src/renderer/")) {

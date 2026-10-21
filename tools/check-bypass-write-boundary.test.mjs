@@ -287,7 +287,6 @@ const requiredRoots = [
   "packages/kernel/src/store",
   "packages/kernel/src/local",
   "packages/kernel/src/projection",
-  "packages/adapters/local/src",
   "packages/cli/src",
 ];
 
@@ -339,7 +338,6 @@ function makeFixtureRoot() {
   mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/local"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
-  mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
   return root;
 }

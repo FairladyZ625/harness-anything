@@ -353,14 +353,8 @@ for (const file of packageSourceFiles) {
     }
   }
 
-  const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
   const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
-  if (
-    !isTestOrFixture &&
-    !isLocalAdapterCompositionRoot &&
-    !isKernelStoreCompositionRoot &&
-    !rel.startsWith("packages/kernel/src/store/")
-  ) {
+  if (!isTestOrFixture && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
     for (const specifier of imports) {
       if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
         record(

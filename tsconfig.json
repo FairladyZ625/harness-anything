@@ -6,8 +6,6 @@
     { "path": "./packages/preset" },
     { "path": "./packages/daemon" },
     { "path": "./packages/cli" },
-    { "path": "./packages/gui" },
-    { "path": "./packages/adapters/local" },
-    { "path": "./packages/adapters/multica" }
+    { "path": "./packages/gui" }
   ]
 }

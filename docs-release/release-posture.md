@@ -31,7 +31,7 @@ docs should link here instead of restating status tables.
 | Remote/Fleet daemon mode                          | Planned    | W3 keeps only the transport-bound `source=assignment` seam. Fleet wire, SSH relay, tunnels, TCP, HTTP, WebSocket, and remote daemon products are not shipped.                                                                                                                                                                                                                                                                          |
 | Runtime/release readiness                         | Foundation | Source checkout, Node 24 and Node 26 CI, CLI package smoke, and the exact arm64 DMG build are executable checks. The 0.0.1 assets are prepared locally but are not published by this change. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts` and the task release evidence.                                                                                                                                     |
 | Supply-chain/license gate                         | Foundation | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                             |
-| M3-M7 backlog                                     | Planned    | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                     |
+| M3-M7 backlog                                     | Planned    | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages have been retired and removed; page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                     |
 
 ## Mechanism-complete ledger
 
@@ -167,7 +167,7 @@ Current release boundaries are intentionally conservative:
 - The root product, CLI, daemon release candidate, and Electron GUI use one
   lockstep version. The current candidate is `0.1.0`; internal workspace
   libraries remain private at `0.1.0`.
-- `@harness-anything/gui`, kernel, application, and adapter workspaces are not in
+- `@harness-anything/gui`, kernel, and application workspaces are not in
   the approved npm publish set and remain private.
 - Every client must complete `protocol.hello` with the daemon's exact protocol
   major and minor version before any other command. A mismatched edge CLI or GUI

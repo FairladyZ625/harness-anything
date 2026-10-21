@@ -181,23 +181,18 @@ const guiRendererRestrictedImportPaths = ["electron", "@harness-anything/applica
 const guiRendererRestrictedImportPatterns = [
   "@harness-anything/application/*",
   "@harness-anything/kernel/*",
-  "@harness-anything/adapter-*",
-  "@harness-anything/adapter-*/*",
   "packages/application/**",
   "packages/kernel/**",
-  "packages/adapters/**",
   "**/packages/application/**",
   "**/packages/kernel/**",
-  "**/packages/adapters/**",
   "**/application/**",
   "**/kernel/**",
-  "**/adapters/**",
   "../main/**",
   "../preload/**",
   "**/main/**",
   "**/preload/**",
 ];
-const guiRendererRestrictedImportSourcePattern = String.raw`(?:^electron$|@harness-anything\/(?:application|kernel|adapter-[^/]+)(?:\/|$)|(?:^|\/)(?:packages\/)?(?:application|kernel|adapters)(?:\/|$)|(?:^|\/)(?:main|preload)(?:\/|$))`;
+const guiRendererRestrictedImportSourcePattern = String.raw`(?:^electron$|@harness-anything\/(?:application|kernel)(?:\/|$)|(?:^|\/)(?:packages\/)?(?:application|kernel)(?:\/|$)|(?:^|\/)(?:main|preload)(?:\/|$))`;
 const guiIpcRestrictedSyntax = [
   {
     selector: "MemberExpression[object.name='ipcMain'][property.name='handle']",
@@ -291,11 +286,7 @@ export default tseslint.config(
     },
   },
   {
-    files: [
-      "packages/*/src/**/*.{ts,tsx,js,mjs}",
-      "packages/adapters/*/src/**/*.{ts,tsx,js,mjs}",
-      "tools/gates/**/*.{js,mjs}",
-    ],
+    files: ["packages/*/src/**/*.{ts,tsx,js,mjs}", "tools/gates/**/*.{js,mjs}"],
     plugins: {
       ha: {
         rules: {

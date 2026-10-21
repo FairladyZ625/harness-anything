@@ -9,11 +9,6 @@
         "reason": "Application-layer service sources are product code: a repository-relative literal here can only key behavior on this checkout."
       },
       {
-        "value": "packages/adapters/",
-        "ref": "task_427b738002d4d6c9c42a4cf010",
-        "reason": "Adapter package roots (packages/adapters/*/src) ship to users; a checkout path literal cannot describe their layout."
-      },
-      {
         "value": "packages/cli/src/",
         "ref": "task_427b738002d4d6c9c42a4cf010",
         "reason": "CLI product sources run in every repository; a checkout path literal here only matches this one."

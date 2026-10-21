@@ -96,8 +96,6 @@ export interface SupplyChainReleaseReadinessPolicy {
     "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
-    "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
   ];
   readonly auditCommands: readonly [AuditCommandContract, AuditCommandContract];
   readonly sbom: SbomContract;
@@ -140,8 +138,6 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
-    "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json",
   ],
   auditCommands: [
     {

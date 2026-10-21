@@ -21,7 +21,7 @@
 | 远端纯展示 daemon 模式    | Shipped    | `remote-proxy` 让本机 GUI 通过用户管理的本地 endpoint tunnel 显示服务器仓库；本机没有工作区，开发必须 SSH 到服务器。使用 `ha daemon connection add` / `probe` 后，以 `ha daemon repo register --mode remote-proxy --connection <connection>` 注册。证据：`docs-release/operations-server-daemon.zh-CN.md`。                                                             |
 | 运行时与发布就绪          | Foundation | 源码 checkout、Node 24 和 Node 26 CI、CLI package smoke 与精确的 arm64 DMG build 都有可执行检查。0.0.1 产物已在本地准备，但本次改动不发布它们。                                                                                                                                                                                                                         |
 | 供应链与许可证 gate       | Foundation | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。                                                                                                                                              |
-| M3-M7 backlog             | Planned    | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                      |
+| M3-M7 backlog             | Planned    | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package 已退役移除；仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                      |
 
 ## 机制已完成清单
 

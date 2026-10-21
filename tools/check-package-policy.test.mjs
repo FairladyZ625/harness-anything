@@ -121,15 +121,13 @@ function writeValidFixture(root) {
     name: "harness-anything",
     version: "0.0.1",
     private: true,
-    workspaces: ["packages/*", "packages/adapters/*"],
+    workspaces: ["packages/*"],
   });
   const packages = new Map([
     ["packages/kernel/package.json", "@harness-anything/kernel"],
     ["packages/application/package.json", "@harness-anything/application"],
     ["packages/daemon/package.json", "@harness-anything/daemon"],
     ["packages/gui/package.json", "@harness-anything/gui"],
-    ["packages/adapters/local/package.json", "@harness-anything/adapter-local"],
-    ["packages/adapters/multica/package.json", "@harness-anything/adapter-multica"],
   ]);
   for (const [packagePath, name] of packages)
     writeJson(root, packagePath, {

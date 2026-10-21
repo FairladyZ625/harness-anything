@@ -1,7 +1,0 @@
-{
-  "name": "@harness-anything/adapter-local",
-  "version": "0.0.1",
-  "private": true,
-  "license": "AGPL-3.0-or-later",
-  "type": "module"
-}
