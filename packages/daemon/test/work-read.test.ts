@@ -394,6 +394,46 @@ test("receipt candidates rank the whole open pool, so a late task id with the be
   );
 });
 
+test("a nested work create never offers the task itself or its own subtree as candidates", () => {
+  const match = (taskId: string, parentTaskId: string | null) => ({
+    ...task(taskId, parentTaskId, "active", "work"),
+    title: "Receipt candidate ranking",
+  });
+  // The created nested work is itself an open declared root at receipt-render time, and by replay
+  // it can have child works below it. Moving the task under itself or any descendant is always a
+  // parent_cycle rejection, yet both match the task's own title perfectly and would rank first.
+  const nestedRows = [
+    match("w_outer", null),
+    match("w_self", "w_outer"),
+    match("w_inner", "w_self"),
+    match("w_peer", null),
+  ];
+  const line = workReceiptLine(receiptProjection(nestedRows), {
+    ...nestedRows[1]!,
+    metadata: { parentTaskId: "w_outer" },
+  } as never);
+  assert.doesNotMatch(line, /ha task move w_self --parent w_self/u);
+  assert.doesNotMatch(line, /ha task move w_self --parent w_inner/u);
+  assert.match(line, /- w_peer Receipt candidate ranking: ha task move w_self --parent w_peer/u);
+});
+
+test("a replayed standalone receipt keeps the subtree the task grew after creation out of its candidates", () => {
+  // The receipt re-renders on replay: by then the standalone task can have child works below it,
+  // which turn it into a derived work root — its own subtree must still never pose as a candidate.
+  const replayRows = [
+    { ...task("solo", null, "active"), title: "Receipt candidate ranking" },
+    { ...task("solo_work", "solo", "active", "work"), title: "Receipt candidate ranking" },
+    { ...task("w_peer", null, "active", "work"), title: "Receipt candidate ranking" },
+  ];
+  const line = workReceiptLine(receiptProjection(replayRows), {
+    ...replayRows[0]!,
+    metadata: { parentTaskId: null },
+  } as never);
+  assert.doesNotMatch(line, /ha task move solo --parent solo/u);
+  assert.doesNotMatch(line, /ha task move solo --parent solo_work/u);
+  assert.match(line, /- w_peer Receipt candidate ranking: ha task move solo --parent w_peer/u);
+});
+
 test("receipt candidates skip works whose subtree finished, even while the root itself is still open", () => {
   // Raw status planned, but every member is terminal: the kernel presents this root done, and a
   // finished work must not be offered as a "move it now" target.
