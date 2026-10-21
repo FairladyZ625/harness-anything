@@ -180,11 +180,10 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
-    // The wait is the CLI's quiet blocking command; the template must not teach worker-side polling.
-    assert.match(body, /ha task pr <task-id> --wait-ci/u);
-    assert.doesNotMatch(body, /gh pr checks <PR-number> --watch/u);
-    assert.match(body, /Do not poll checks yourself|不要自己用/u);
-    assert.match(body, /ha task pr <task-id>/u);
+    // The worker opens the PR and waits with the machine's own gh; the daemon holds no CI wait.
+    assert.match(body, /gh pr create --head <task-id>/u);
+    assert.match(body, /gh pr checks <task-id> --watch/u);
+    assert.doesNotMatch(body, /ha task pr/u);
     assert.match(body, /unverified/u);
     assert.match(body, /PR 冲突|conflicting pull request/u);
     assert.match(body, /排队|queued/u);
@@ -211,9 +210,12 @@ test("worker publication commands belong to the delivery mission while review ca
   assert.match(prompt, /PR checks for that delivery commit/u);
   assert.match(prompt, /Pending is not green/u);
   assert.doesNotMatch(prompt, /ha doc sync|ha task push|ha task pr|gh pr checks/u);
-  assert.match(delivery, /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
+  assert.match(delivery, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
   assert.doesNotMatch(delivery, /PR Body Delivery Protocol|pull_request_template\.md|check-pr-body/u);
-  assert.doesNotMatch(review, /Living Deliverable Protocol|推送后用 `ha task pr`|ha doc sync|ha task push|ha task pr/u);
+  assert.doesNotMatch(
+    review,
+    /Living Deliverable Protocol|推送后用 `gh pr create|ha doc sync|ha task push|ha task pr/u,
+  );
 });
 
 function makeRepo(context, prefix) {

@@ -35,7 +35,7 @@ export function parseTask(
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
-  if (id === "task-push" || id === "task-pr") return parseTaskPublication(id, args, rootDir, repoId, json, inputs);
+  if (id === "task-push") return parseTaskPush(args, rootDir, repoId, json, inputs);
   if (
     id === "task-assign" ||
     id === "task-unassign" ||
@@ -111,8 +111,7 @@ export function parseTask(
   );
 }
 
-function parseTaskPublication(
-  id: "task-push" | "task-pr",
+function parseTaskPush(
   args: readonly string[],
   rootDir: SafePath,
   repoId: string | undefined,
@@ -120,22 +119,10 @@ function parseTaskPublication(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const taskId = args[2];
-  if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${id.slice("task-".length)} <task-id>.`, json);
-  const flags = readFlags(id, args.slice(3), inputs);
+  if (!nonEmpty(taskId)) return rejected("missing_field", "Run ha task push <task-id>.", json);
+  const flags = readFlags("task-push", args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
-  const waitCi = flags.booleans.has("--wait-ci"),
-    timeout = flags.one.get("--timeout");
-  if (id === "task-pr" && !waitCi && !flags.booleans.has("--update") && !flags.one.has("--title"))
-    return rejected("missing_field", "Creating a task PR requires --title '<type>(<scope>): <summary>'.", json);
-  return accepted(rootDir, repoId, json, {
-    kind: id,
-    taskId,
-    ...(flags.booleans.has("--update") ? { update: true } : {}),
-    ...(flags.one.has("--title") ? { title: flags.one.get("--title") } : {}),
-    ...(waitCi ? { waitCi: true } : {}),
-    ...(timeout !== undefined ? { timeoutMinutes: Number(timeout) } : {}),
-    ...(id === "task-pr" && flags.one.has("--body-file") ? { bodyFile: flags.one.get("--body-file") } : {}),
-  });
+  return accepted(rootDir, repoId, json, { kind: "task-push", taskId });
 }
 
 function parseTaskShow(

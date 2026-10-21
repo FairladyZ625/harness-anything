@@ -119,68 +119,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
       "remote-edge": "direct" as const,
     },
   }),
-  defineCliCommand({
-    id: "task-pr",
-    actionKind: "task-pr",
-    phase: "W3",
-    path: ["task", "pr", "<task-id>"],
-    summary:
-      "Create or update a pull request for the published task branch through the daemon-held credential; " +
-      "with --wait-ci, block until that pull request's checks settle and print one line.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--update", "boolean", false, { code: "invalid_field" }, { field: "update" }),
-      cliInput(
-        "--title",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "title",
-          regex: "^(feat|fix|refactor|perf|test|docs|chore|ci)(\\([A-Za-z0-9._/-]+\\))?: [^\\r\\n]+$",
-        },
-      ),
-      cliInput(
-        "--wait-ci",
-        "boolean",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "waitCi",
-          description:
-            "block until the pull request's checks finish; exit 0 green, 1 failed, 2 timeout. " +
-            "Mutually exclusive with --title and --update",
-          conflictsWith: ["--title", "--update"],
-        },
-      ),
-      cliInput(
-        "--timeout",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "timeoutMinutes",
-          regex: "^[1-9][0-9]{0,3}$",
-          description: "minutes to wait before giving up (default 60)",
-          requires: ["--wait-ci"],
-        },
-      ),
-      cliInput(
-        "--body-file",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "bodyFile", format: workspacePathFormat },
-      ),
-    ],
-    commandClass: "repo-write" as const,
-    admission: {
-      local: "direct" as const,
-      "remote-proxy": "rejected" as const,
-      "remote-center": "direct" as const,
-      "remote-edge": "via-center-forward" as const,
-    },
-  }),
   defineCenterForwardWriteCommand({
     id: "task-progress-append",
     payloadFields: [

@@ -117,7 +117,7 @@ test("successful Decision proposals point to the canonical action explanation", 
 });
 
 test("settlement-none publication receipts render their next lane in text mode", () => {
-  // task-push and task-pr settle without canonical acceptance, so they reach the generic
+  // task-push settles without canonical acceptance, so they reach the generic
   // successful-receipt renderer instead of the accepted_durable branch that appends `next`.
   assert.deepEqual(
     renderCliReceipt({
@@ -125,11 +125,16 @@ test("settlement-none publication receipts render their next lane in text mode",
       command: "task-push",
       outcome: "applied",
       evidence: "Worker branch pushed: task_x @ 0123456789.",
-      next: [{ command: "ha task pr task_x", reason: "publish the pushed branch as the task's pull request" }],
+      next: [
+        {
+          command: "gh pr create --head task_x",
+          reason: "open the task's pull request with the machine's own gh login",
+        },
+      ],
     }),
     {
       stream: "stdout",
-      text: "task-push: applied\nnext: ha task pr task_x (publish the pushed branch as the task's pull request)",
+      text: "task-push: applied\nnext: gh pr create --head task_x (open the task's pull request with the machine's own gh login)",
     },
   );
 });
