@@ -6,7 +6,7 @@ import {
 } from "./preset-assets.ts";
 import { validateCompletionDeclaration } from "./preset-extension-model.ts";
 import { effectiveCatalog, missingPresetFailure } from "./preset-catalog.ts";
-import { listCatalog } from "./preset-discovery.ts";
+import { listCatalogWithAvailability } from "./preset-discovery.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
 import { file, presetPackageScripts } from "./preset-package.ts";
 import {
@@ -51,7 +51,7 @@ export function createRuntime(options: PresetResolverOptions): {
     if (selected && !selected.decoded)
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
     assertCanonicalVertical(assets, request.verticalId);
-    if (!selected) throw missingPresetFailure(inventory, request.verticalId, request.presetId);
+    if (!selected) throw missingPresetFailure(inventory, request.verticalId, request.presetId, assets.providers);
     const ancestry = resolveAncestry(inventory, selected, request.verticalId),
       manifests = ancestry.map((item) => item.decoded!.manifest);
     for (const manifest of manifests)
@@ -385,39 +385,9 @@ export function createRuntime(options: PresetResolverOptions): {
     list: async ({ verticalId }) => {
       const assetsRoot = options.assetsRoot ?? resolveVerticalAssetsRoot(verticalId, options.repoRoot),
         catalog = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
-        assets = loadCanonicalAssets(assetsRoot),
-        providers = new Map(assets.providers.map((item) => [item.id, item]));
+        assets = loadCanonicalAssets(assetsRoot);
       assertCanonicalVertical(assets, verticalId);
-      return listCatalog(catalog, verticalId).map((entry) => {
-        if (entry.validity !== "valid") return entry;
-        const candidate = catalog.get(key(verticalId, entry.id)),
-          imports = candidate?.decoded?.manifest.capabilityImports ?? [],
-          missingProviderIds = imports
-            .filter((item) => {
-              const provider = providers.get(item.id);
-              return (
-                (!provider || provider.kind !== item.kind || provider.version !== item.version) &&
-                (!("required" in item) || item.required)
-              );
-            })
-            .map(({ id }) => id)
-            .sort();
-        if (!missingProviderIds.length) return entry;
-        const failure = presetFailure(
-          "missing_provider",
-          `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
-          missingProviderIds,
-        );
-        return {
-          ...entry,
-          validity: "unavailable" as const,
-          errorCode: failure.code,
-          issues: [{ code: failure.code, message: failure.message }],
-          issueCount: 1,
-          nextAction: `Use a Harness build that provides ${missingProviderIds.join(", ")}, then rerun ha preset list.`,
-          missingProviderIds,
-        };
-      });
+      return listCatalogWithAvailability(catalog, verticalId, assets.providers);
     },
     resolve: async (request): Promise<PresetResolveResultV1> => {
       try {

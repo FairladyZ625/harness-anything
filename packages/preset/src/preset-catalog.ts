@@ -1,8 +1,8 @@
-import { resolveVerticalAssetsRoot } from "./preset-assets.ts";
-import { listCatalog } from "./preset-discovery.ts";
+import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { listCatalogWithAvailability } from "./preset-discovery.ts";
 import { decodePackage, parsePresetJson } from "./preset-package.ts";
 import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
-import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
+import type { Candidate, PresetFailure, Provider } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -56,17 +56,19 @@ export function effectiveCatalog(bundledRoot: string, userRoot: string): Map<str
 
 /**
  * The one preset_not_found construction. A mistyped `--preset` is only actionable when the hint
- * names what this vertical actually has, and that list comes from the same catalog projection
- * `ha preset list` renders — never a second hand-maintained list.
+ * names what this vertical can actually select, and that list is the projection `ha preset list`
+ * renders — including its `unavailable` downgrade — never a second hand-maintained list.
  */
 export function missingPresetFailure(
   catalog: ReadonlyMap<string, Candidate>,
   verticalId: string,
   presetId: string,
+  providers: readonly Provider[],
 ): PresetFailure {
   // Blocked packages (invalid manifest, invalid shadow) are not identifiers a caller can pass:
-  // they reject through their own code, so only decodable presets belong in a "use one of" list.
-  const available = listCatalog(catalog, verticalId)
+  // they reject through their own code. Packages downgraded to unavailable (a required provider
+  // is missing) are decodable but equally unselectable, so only valid presets belong in the list.
+  const available = listCatalogWithAvailability(catalog, verticalId, providers)
     .filter(({ validity }) => validity === "valid")
     .map(({ id }) => id);
   return presetFailure(
@@ -86,13 +88,12 @@ export function presetDocumentBody(input: {
   readonly verticalId: string;
   readonly presetId: string;
 }): string {
-  const catalog = effectiveCatalog(
-      input.bundledRoot ?? path.join(resolveVerticalAssetsRoot(input.verticalId, input.repoRoot), "presets"),
-      input.userRoot,
-    ),
+  const assetsRoot = resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
+    catalog = effectiveCatalog(input.bundledRoot ?? path.join(assetsRoot, "presets"), input.userRoot),
     selected = catalog.get(key(input.verticalId, input.presetId));
-  if (!selected?.decoded) throw selected?.error ?? missingPresetFailure(catalog, input.verticalId, input.presetId);
-  return selected.decoded.document.body;
+  if (selected?.decoded) return selected.decoded.document.body;
+  if (selected?.error) throw selected.error;
+  throw missingPresetFailure(catalog, input.verticalId, input.presetId, loadCanonicalAssets(assetsRoot).providers);
 }
 
 export function enumerateBundled(root: string): Candidate[] {

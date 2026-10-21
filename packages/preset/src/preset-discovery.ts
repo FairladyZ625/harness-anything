@@ -2,12 +2,13 @@ import { loadCanonicalAssets } from "./preset-assets.ts";
 import { materializeSelections } from "./preset-materialization.ts";
 import {
   defaultAssets,
+  key,
   normalizeLocale,
   presetFailure,
   requiredText,
   resolverContentHash,
 } from "./preset-resolver-common.ts";
-import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
+import type { Candidate, PresetFailure, Provider } from "./preset-resolver-types.ts";
 import type { PresetCatalogEntryV1 } from "./preset.contract.ts";
 import path from "node:path";
 
@@ -151,6 +152,49 @@ export function listCatalog(catalog: ReadonlyMap<string, Candidate>, verticalId:
             },
     )
     .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/**
+ * The projection `ha preset list` renders: catalog entries plus the missing-provider downgrade.
+ * Anything that reports "available" presets must read this projection, not raw `listCatalog`,
+ * so the hint and the list cannot disagree about whether a preset is selectable.
+ */
+export function listCatalogWithAvailability(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  providers: readonly Provider[],
+): PresetCatalogDisplayEntry[] {
+  const providerMap = new Map(providers.map((item) => [item.id, item]));
+  return listCatalog(catalog, verticalId).map((entry) => {
+    if (entry.validity !== "valid") return entry;
+    const candidate = catalog.get(key(verticalId, entry.id)),
+      imports = candidate?.decoded?.manifest.capabilityImports ?? [],
+      missingProviderIds = imports
+        .filter((item) => {
+          const provider = providerMap.get(item.id);
+          return (
+            (!provider || provider.kind !== item.kind || provider.version !== item.version) &&
+            (!("required" in item) || item.required)
+          );
+        })
+        .map(({ id }) => id)
+        .sort();
+    if (!missingProviderIds.length) return entry;
+    const failure = presetFailure(
+      "missing_provider",
+      `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
+      missingProviderIds,
+    );
+    return {
+      ...entry,
+      validity: "unavailable" as const,
+      errorCode: failure.code,
+      issues: [{ code: failure.code, message: failure.message }],
+      issueCount: 1,
+      nextAction: `Use a Harness build that provides ${missingProviderIds.join(", ")}, then rerun ha preset list.`,
+      missingProviderIds,
+    };
+  });
 }
 
 export function catalogRecovery(

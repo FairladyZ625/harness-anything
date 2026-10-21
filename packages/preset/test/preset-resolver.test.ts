@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { createCanonicalPresetResolver, installPresetPackage } from "../src/index.ts";
-import { decodePresetPackageV3 } from "../src/preset-resolver.ts";
+import { decodePresetPackageV3, presetDocumentBody } from "../src/preset-resolver.ts";
 
 import { makeFixture, write, writePackage } from "./preset-resolver.fixtures.ts";
 test("canonical resolver decodes one complete bundled package into a content-addressed snapshot", async () => {
@@ -96,6 +96,88 @@ test("resolver distinguishes unavailable verticals from unavailable presets", as
         /Preset not-installed is unavailable in software\/coding\. Available presets: standard-task\./u,
       );
     }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing preset hints exclude presets whose required provider is unavailable", async () => {
+  const fixture = makeFixture(),
+    sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source");
+  try {
+    writePackage(sourceRoot, "needs-provider", {
+      capabilityImports: [{ id: "provider:absent/v1", kind: "checker", version: "1", required: true }],
+    });
+    installPresetPackage({ source: path.join(sourceRoot, "needs-provider"), userRoot: fixture.userRoot });
+    const resolver = createCanonicalPresetResolver({
+      bundledRoot: fixture.bundledRoot,
+      userRoot: fixture.userRoot,
+      assetsRoot: fixture.assetsRoot,
+    });
+    // The projected list downgrades the package; the hint must use that same projection.
+    const listed = await resolver.list({ verticalId: "software/coding" });
+    assert.deepEqual(
+      listed.map(({ id, validity }) => ({ id, validity })),
+      [
+        { id: "needs-provider", validity: "unavailable" },
+        { id: "standard-task", validity: "valid" },
+      ],
+    );
+
+    const missingPreset = await resolver.resolve({
+      presetId: "not-installed",
+      verticalId: "software/coding",
+      locale: "en-US",
+      purpose: "inspect",
+    });
+    assert.equal(missingPreset.ok, false);
+    if (!missingPreset.ok) {
+      assert.equal(missingPreset.error.code, "preset_not_found");
+      assert.match(missingPreset.error.hint, /Available presets: standard-task\./u);
+      assert.doesNotMatch(missingPreset.error.hint, /needs-provider/u);
+    }
+
+    assert.throws(
+      () =>
+        presetDocumentBody({
+          userRoot: fixture.userRoot,
+          verticalId: "software/coding",
+          presetId: "not-installed",
+        }),
+      (error: unknown) => {
+        const failure = error as { readonly code?: string; readonly message?: string };
+        assert.equal(failure.code, "preset_not_found");
+        assert.match(failure.message ?? "", /Available presets: .*standard-task/u);
+        assert.doesNotMatch(failure.message ?? "", /needs-provider/u);
+        return true;
+      },
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing preset hint says no presets are installed for an empty catalog", async () => {
+  const fixture = makeFixture(),
+    emptyBundled = path.join(path.dirname(fixture.bundledRoot), "empty-bundled");
+  try {
+    mkdirSync(emptyBundled);
+    const missingPreset = await createCanonicalPresetResolver({
+      bundledRoot: emptyBundled,
+      userRoot: fixture.userRoot,
+      assetsRoot: fixture.assetsRoot,
+    }).resolve({
+      presetId: "not-installed",
+      verticalId: "software/coding",
+      locale: "en-US",
+      purpose: "inspect",
+    });
+    assert.equal(missingPreset.ok, false);
+    if (!missingPreset.ok)
+      assert.equal(
+        missingPreset.error.hint,
+        "Preset not-installed is unavailable in software/coding. No presets are installed for software/coding.",
+      );
   } finally {
     fixture.cleanup();
   }
