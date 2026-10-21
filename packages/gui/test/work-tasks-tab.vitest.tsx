@@ -54,11 +54,9 @@ function mount(): { host: HTMLElement; root: Root } {
     leaves,
     subgroups,
     statusFilter: "",
-    groupFilter: null,
     query: "",
     agoOf: (iso: string) => iso,
     onStatusFilter: () => undefined,
-    onGroupFilter: () => undefined,
     onOpenTask: () => undefined,
   };
   act(() => {

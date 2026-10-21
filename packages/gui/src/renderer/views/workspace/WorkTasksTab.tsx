@@ -47,11 +47,9 @@ export interface WorkTasksTabProps {
   readonly leaves: readonly WorkLeafRow[];
   readonly subgroups: readonly WorkSubgroup[];
   readonly statusFilter: string;
-  readonly groupFilter: string | null;
   readonly query: string;
   readonly agoOf: (iso: string) => string;
   readonly onStatusFilter: (status: string) => void;
-  readonly onGroupFilter: (group: string | null) => void;
   readonly onOpenTask: (taskId: string) => void;
   readonly onLoadMore?: () => void;
   readonly loadingMore?: boolean;
@@ -61,11 +59,9 @@ export function WorkTasksTab({
   leaves,
   subgroups,
   statusFilter,
-  groupFilter,
   query,
   agoOf,
   onStatusFilter,
-  onGroupFilter,
   onOpenTask,
   onLoadMore,
   loadingMore = false,
@@ -76,11 +72,10 @@ export function WorkTasksTab({
     statusMatch = statusFilter === "" ? null : (statusFilter as SnapshotStatus),
     scoped = leaves.filter(
       (leaf) =>
-        (groupFilter === null || leaf.groupKey === groupFilter) &&
         (statusMatch === null || leaf.status === statusMatch) &&
         (needle === "" || leaf.title.toLowerCase().includes(needle) || leaf.taskId.toLowerCase().includes(needle)),
     ),
-    base = groupFilter === null ? leaves : leaves.filter((leaf) => leaf.groupKey === groupFilter);
+    base = leaves;
   const chips = [
     { key: "", label: t("views.workspace.rail.all"), count: base.length },
     ...STATUS_ORDER.filter((status) => base.some((leaf) => leaf.status === status)).map((status) => ({
@@ -115,21 +110,6 @@ export function WorkTasksTab({
     <div className="min-w-0">
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
         <FilterChips chips={chips} value={statusFilter} onChange={onStatusFilter} />
-        {groupFilter !== null ? (
-          <button
-            type="button"
-            className="h-6 rounded-xs border border-accent/40 bg-accent/15 px-2.5 text-accent ui-meta"
-            onClick={() => onGroupFilter(null)}
-          >
-            {t("views.workspace.tasks.groupFilter", {
-              name:
-                groupFilter === "_loose"
-                  ? t("views.workspace.tasks.loose")
-                  : (subgroups.find((group) => group.key === groupFilter)?.title ?? groupFilter),
-            })}{" "}
-            ✕
-          </button>
-        ) : null}
         <span className="ml-auto text-text-faint ui-meta">{t("views.workspace.tasks.groupBy")}</span>
         <select
           value={groupBy}

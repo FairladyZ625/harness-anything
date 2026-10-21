@@ -20,7 +20,7 @@ import { actorDisplayName } from "../model/actor-name.ts";
 import type { SnapshotStatus } from "../model/types.ts";
 import { formatRelative, formatTime } from "../model/time.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
-import { STEP_META } from "./workspace/WorkOverview.tsx";
+import { STEP_META } from "./workspace/WorkProgressList.tsx";
 import {
   isDecisionKind,
   type AttentionSource,

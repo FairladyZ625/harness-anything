@@ -45,7 +45,9 @@ export function HtmlArtifactPreview({
   return (
     <section
       className={[
-        "overflow-hidden rounded-lg border border-border bg-surface",
+        // 内嵌网页内容区直角(业主 2026-10-21 13:50):guest 页面是网页自身表面,不走
+        // 共享圆角 token,也不被外框圆角裁切;外框只留细边线。
+        "overflow-hidden border border-border bg-surface",
         fillAvailable ? "html-artifact-preview-fill flex h-full min-h-0 min-w-0 flex-col" : "",
       ].join(" ")}
       data-testid="html-artifact-preview"

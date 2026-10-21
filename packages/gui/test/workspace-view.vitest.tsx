@@ -26,10 +26,10 @@ vi.mock("motion", async (original) => ({
 }));
 
 /**
- * 工作详情页按原型 v2(dec_AF44708E8F70F04E59FF751F9C/CH1):顶部身份 + 状态分段
- * 进度 + 标签栏(概况/任务/进展/决策与事实/检修);概况是区域板(标准 §2.1):左侧
- * 主区「等你裁决 → 阻塞与异常 → 进行中 → 接下来 → 结构与统计」各一个区域框,右列是
- * 按天收束的时间线区域;原始事件流只在检修页;实体细节进右侧抽屉。
+ * 工作详情页(业主 2026-10-21 13:50:首屏降密度、看出终点):顶部身份 + 状态分段
+ * 进度 + 标签栏(概况/任务/进展/决策与事实/检修);概况是区域板(标准 §2.1):主区
+ * 「终点与剩余 → 等你裁决(空则无)」各一个区域框,右列整列是工作说明预览;按天时间线
+ * 住进展页签,状态筛选与子组树住任务页签;原始事件流只在检修页;实体细节进右侧抽屉。
  */
 
 const SPLIT_STORAGE_KEY = "harness:gui:split-layout";
@@ -235,10 +235,10 @@ describe("work page header", () => {
     expect(html).toContain("父链不完整：task_parent");
   });
 
-  it("expands the one-line goal from the task plan Brief", async () => {
+  it("expands the one-line goal from the work plan Mission section", async () => {
     const documentSpy = vi.spyOn(harnessClient, "getTaskDocument").mockResolvedValue({
       status: "ready",
-      body: "## Brief\n\n让业主一眼看到最急的事。\n\n## Goal\n\n其余内容。",
+      body: "## Mission\n\n让业主一眼看到最急的事。\n\n## Exit Criteria\n\n- [ ] 结构正义\n\n## Context\n\n其余内容。",
       worktreeBody: null,
       uncommitted: false,
     } as never);
@@ -347,7 +347,9 @@ describe("overview narrative", () => {
       );
     const hero = host.querySelector('[data-testid="work-hero"]')!;
     expect(hero.textContent).toContain("门禁 human");
-    const attest = host.querySelector<HTMLButtonElement>('[data-task-row="task_gate"] button')!;
+    const attest = host.querySelector<HTMLButtonElement>(
+      '[data-testid="work-hero"] [data-task-row="task_gate"] button',
+    )!;
     expect(attest.textContent).toContain("签注");
     await act(async () => attest.click());
     expect(onAttest).toHaveBeenCalledWith({ taskId: "task_gate" }, "human", "approve");
@@ -374,15 +376,79 @@ describe("overview narrative", () => {
         onCloseRootTask={() => {}}
       />,
     );
-    const warn = host.querySelector('[data-testid="work-stuck"]')!;
-    expect(warn.textContent).toContain("阻塞与异常");
-    expect(warn.textContent).toContain("无 agent 1");
-    expect(warn.textContent).toContain("标着在做，但没有 agent 在跑");
-    expect(warn.textContent).toContain("T task_solo");
-    expect(warn.textContent).not.toContain("T task_leased");
+    const goal = host.querySelector('[data-testid="work-goal"]')!;
+    // 标着在做但没有 agent 的行换「无 agent」标签,答「卡在谁手上」;执行者只报人名,
+    // 不带 session 机器串(X2)。
+    expect(goal.querySelector('[data-task-row="task_solo"]')!.textContent).toContain("无 agent");
+    expect(goal.textContent).not.toMatch(/runtime[-_]session/u);
   });
 
-  it("puts every block of the overview in a region frame, with a movable timeline in its own default column", async () => {
+  it("states the end state: mission, exit criteria, progress footer and remaining tasks with stage and holder", async () => {
+    vi.spyOn(harnessClient, "getTaskDocument").mockResolvedValue({
+      status: "ready",
+      body: "## Mission\n\n让 GUI 获得更精致、更顺手的审美与交互手感。\n\n## Exit Criteria\n\n- [ ] 结构正义：锚齐备。\n- [ ] 使用证明：第一个使用方已按新路径消费。",
+      worktreeBody: null,
+      uncommitted: false,
+    } as never);
+    const host = await mount(
+      <WorkspaceView
+        scope={scope({
+          counts: { done: 39, executing: 3, pending: 1, blocked: 1, planned: 2, cancelled: 0 },
+          scope: { descendantCount: 47, executableLeafCount: 47, archivedCount: 0 },
+          memberTaskIds: ["task_wait", "task_solo", "task_run", "task_blocked", "task_next", "task_done"],
+          tasks: [
+            scopeRow("task_wait", { status: "submitted" }),
+            scopeRow("task_solo"),
+            scopeRow("task_run"),
+            scopeRow("task_blocked", { status: "blocked" }),
+            scopeRow("task_next", { status: "planned" }),
+            scopeRow("task_done", { status: "done" }),
+          ],
+        })}
+        projectName="Harness"
+        repoId="repo"
+        tasks={[
+          row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" }),
+          row("task_solo"),
+          row("task_run", { leaseHolder: "person_x" }),
+          row("task_blocked", {
+            coordinationStatus: "blocked",
+            blockers: [
+              { relationId: "rel_1", kind: "depends-on", sourceTaskId: "task_blocked", targetTaskId: "task_run" },
+            ],
+          }),
+          row("task_next", { coordinationStatus: "planned" }),
+          row("task_done", { coordinationStatus: "done" }),
+        ]}
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
+    const goal = host.querySelector('[data-testid="work-goal"]')!;
+    // Goal 原文(工作版式 Mission 节)与完成标准(Exit Criteria 节,勾选框前缀剥掉)。
+    await vi.waitFor(() =>
+      expect(goal.querySelector('[data-testid="work-goal-mission"]')?.textContent).toContain("更精致、更顺手"),
+    );
+    expect(goal.textContent).toContain("完成标准");
+    expect(goal.textContent).toContain("结构正义：锚齐备。");
+    expect(goal.textContent).not.toContain("- [ ]");
+    // 完成进度页脚与页头同一来源(39/47)。
+    expect(goal.textContent).toContain("39/47 完成 · 83%");
+    // 未完成任务清单:受阻在前、再做/待初审、再到待开工;已完成/取消不出;标题、阶段、负责人齐。
+    const rows = [...goal.querySelectorAll("[data-task-row]")].map((node) => node.getAttribute("data-task-row"));
+    expect(rows).toEqual(["task_blocked", "task_wait", "task_solo", "task_run", "task_next"]);
+    const blockedRow = goal.querySelector('[data-task-row="task_blocked"]')!;
+    expect(blockedRow.textContent).toContain("已阻塞");
+    expect(blockedRow.textContent).toContain("被「T task_run」卡住");
+    expect(goal.querySelector('[data-task-row="task_run"]')!.textContent).toContain("执行者 person_x");
+    expect(goal.querySelector('[data-task-row="task_next"]')!.textContent).toContain("计划中");
+    expect(goal.querySelector('[data-task-row="task_done"]')).toBeNull();
+  });
+
+  it("puts every block of the overview in a region frame, with the explainer in its own full column", async () => {
     const host = await mount(
       <WorkspaceView
         scope={{
@@ -423,35 +489,24 @@ describe("overview narrative", () => {
     const board = host.querySelector('[data-testid="work-overview-board"]')!;
     // 区域集合与固定顺序;每个区域都是 Region 原语(玻璃面板 + 区内滚动的行体)。
     const regions = [...board.querySelectorAll<HTMLElement>("[data-region]")];
-    expect(regions.map((region) => region.dataset.region)).toEqual([
-      "mine",
-      "stuck",
-      "run",
-      "next",
-      "structure",
-      "explainer",
-      "recent",
-    ]);
+    expect(regions.map((region) => region.dataset.region)).toEqual(["goal", "mine", "explainer"]);
     for (const region of regions) {
       const section = region.querySelector(":scope > section[data-entry-region]")!;
       expect(section.querySelector("h2")).not.toBeNull();
       expect(section.children[1]!.firstElementChild!.className).toContain("overflow-y-auto");
     }
-    // 没有散排:板上的标题、行、按天进展都在某个区域框里。
-    for (const element of board.querySelectorAll("h2, h3, [data-task-row], [data-day], [data-group-filter]"))
+    // 没有散排:板上的标题、行都在某个区域框里。
+    for (const element of board.querySelectorAll("h2, h3, [data-task-row]"))
       expect(element.closest("section[data-entry-region]")).not.toBeNull();
-    // 时间线是板上独立区域(dockview 列),不混在主区里。
-    const timeline = host.querySelector('[data-testid="work-timeline"]')!;
-    expect(timeline.closest('[data-testid="work-overview-board"]')).not.toBeNull();
-    expect(timeline.closest('[data-testid="work-overview-main"]')).toBeNull();
-    expect(timeline.querySelectorAll("[data-day]")).toHaveLength(1);
-    // 阻塞的任务进「阻塞与异常」并报卡点;有 agent 在跑的进「进行中」并报执行者。
-    const stuck = host.querySelector('[data-testid="work-stuck"]')!;
-    expect(stuck.querySelector('[data-task-row="task_blocked"]')!.textContent).toContain("被「T task_run」卡住");
-    expect(stuck.querySelector('[data-task-row="task_run"]')).toBeNull();
-    const running = host.querySelector('[data-testid="work-running"]')!;
-    expect(running.querySelector('[data-task-row="task_run"]')!.textContent).toContain("执行者 person_x");
-    expect(running.querySelector('[data-task-row="task_solo"]')).toBeNull();
+    // 工作说明预览独占右列(不再与时间线对半分),不混在主区里。
+    const explainer = host.querySelector('[data-testid="work-explainer"]')!;
+    expect(explainer.closest('[data-testid="work-overview-board"]')).not.toBeNull();
+    expect(explainer.closest('[data-testid="work-overview-main"]')).toBeNull();
+    // 受阻的任务在剩余清单里报阶段与卡点;有 agent 在跑的报执行者;概况不再有时间线。
+    const goal = host.querySelector('[data-testid="work-goal"]')!;
+    expect(goal.querySelector('[data-task-row="task_blocked"]')!.textContent).toContain("被「T task_run」卡住");
+    expect(goal.querySelector('[data-task-row="task_run"]')!.textContent).toContain("执行者 person_x");
+    expect(host.querySelector('[data-testid="work-timeline"]')).toBeNull();
   });
 
   /** 一条最小事件,喂给「最近进展」时间线让它落位。 */
@@ -466,7 +521,7 @@ describe("overview narrative", () => {
   });
 
   // 停靠分屏(task_033760e2…):把手拖到另一区域的边缘半区,方向键停靠;布局按连接+仓记忆。
-  it("docks the timeline region by handle drag and keyboard, then undoes and resets", async () => {
+  it("docks the explainer region by handle drag and keyboard, then undoes and resets", async () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(804);
     const host = await mount(
@@ -488,9 +543,9 @@ describe("overview narrative", () => {
     const handle = (id: string) => board.querySelector<HTMLElement>(`[data-testid="region-handle-${id}"]`)!;
     const defaultOrder = [...board.querySelectorAll<HTMLElement>("[data-region]")].map((node) => node.dataset.region);
 
-    // 拖时间线到「我的工作」的右半区(零几何默认右半区):放下成左右分割,遮罩消失。
+    // 拖工作说明预览到「等你裁决」的右半区(零几何默认右半区):放下成左右分割,遮罩消失。
     await act(async () => {
-      handle("recent").dispatchEvent(new Event("dragstart", { bubbles: true }));
+      handle("explainer").dispatchEvent(new Event("dragstart", { bubbles: true }));
       region("mine").dispatchEvent(
         new MouseEvent("dragover", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
       );
@@ -516,10 +571,10 @@ describe("overview narrative", () => {
     expect(flatOrder((stored!.snapshot as { grid?: { root?: unknown } }).grid?.root).sort()).toEqual(
       [...defaultOrder].sort(),
     );
-    // 时间线区域仍在板上,正文行与把手不丢。
-    expect(region("recent").querySelector('[data-testid="region-handle-recent"]')).not.toBeNull();
+    // 预览区域仍在板上,正文与把手不丢。
+    expect(region("explainer").querySelector('[data-testid="region-handle-explainer"]')).not.toBeNull();
 
-    // 撤销上一步停靠:时间线回到独立列。
+    // 撤销上一步停靠:预览回到右列(排在主区之后)。
     await act(async () => {
       board.querySelector<HTMLButtonElement>('[data-testid="work-overview-board-controls-undo"]')!.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -528,7 +583,7 @@ describe("overview narrative", () => {
       (readSplitPreferences(localStorage, "local", "repo")["work-overview"]!.snapshot as { grid?: { root?: unknown } })
         .grid?.root,
     );
-    expect(undone.indexOf("recent")).toBeGreaterThan(undone.indexOf("structure"));
+    expect(undone.indexOf("explainer")).toBeGreaterThan(undone.indexOf("mine"));
 
     // 重置:默认布局回来,本页槽位清空(重置会换 key 重挂,重查板节点)。
     await act(async () => {
@@ -562,12 +617,12 @@ describe("overview narrative", () => {
           onCloseRootTask={() => {}}
         />,
       );
-    const dockTimeline = async (host: HTMLElement) => {
+    const dockExplainer = async (host: HTMLElement) => {
       const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
-      const recent = board.querySelector<HTMLElement>('[data-region="recent"]')!;
+      const explainer = board.querySelector<HTMLElement>('[data-region="explainer"]')!;
       await act(async () => {
         board
-          .querySelector<HTMLElement>('[data-testid="region-handle-recent"]')!
+          .querySelector<HTMLElement>('[data-testid="region-handle-explainer"]')!
           .dispatchEvent(new Event("dragstart", { bubbles: true }));
         board
           .querySelector<HTMLElement>('[data-region="mine"]')!
@@ -577,10 +632,10 @@ describe("overview narrative", () => {
           .dispatchEvent(new MouseEvent("drop", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }));
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
-      expect(recent).not.toBeNull();
+      expect(explainer).not.toBeNull();
     };
     const remote = await mountOverview("remote-abc123def456");
-    await dockTimeline(remote);
+    await dockExplainer(remote);
     expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toBeDefined();
     // 重挂同一连接:停靠布局从快照恢复(快照等区域集稳定后去抖应用,等它落地)。
     const reloaded = await mountOverview("remote-abc123def456");
@@ -593,10 +648,10 @@ describe("overview narrative", () => {
     const regionsAfterReload = [...reloaded.querySelectorAll<HTMLElement>("[data-region]")].map(
       (n) => n.dataset.region,
     );
-    expect(regionsAfterReload).toContain("recent");
+    expect(regionsAfterReload).toContain("explainer");
     // 同 repoId 换连接:不沿用上一连接的停靠,后续写动也不覆盖它。
     const local = await mountOverview("local");
-    await dockTimeline(local);
+    await dockExplainer(local);
     expect(readSplitPreferences(localStorage, "local", "repo")["work-overview"]).toBeDefined();
     expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toBeDefined();
     // 重置只清当前连接的槽。
@@ -622,11 +677,14 @@ describe("overview narrative", () => {
       />,
     );
     const keys = [...host.querySelectorAll<HTMLElement>("[data-region]")].map((region) => region.dataset.region);
-    // 工作说明区域是「该有而无」的空态(未选仓库),不是可丢的空框,常驻。
-    expect(keys).toEqual(["structure", "explainer"]);
+    // 「终点与剩余」是首屏答案,常驻(没有剩余任务时给收口话);工作说明区域是「该有而
+    // 无」的空态(未选仓库),不是可丢的空框;「等你裁决」为空整块消失。
+    expect(keys).toEqual(["goal", "explainer"]);
+    expect(host.querySelector('[data-testid="work-goal"]')!.textContent).toContain("全部任务已收口");
+    expect(host.querySelector('[data-testid="work-hero"]')).toBeNull();
   });
 
-  it("collapses progress into day digests and lists planned work as two-line rows", async () => {
+  it("collapses progress into day digests on the progress tab and lists planned work in the goal region", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
     const host = await mount(
@@ -663,24 +721,27 @@ describe("overview narrative", () => {
         onCloseRootTask={() => {}}
       />,
     );
+    // 概况不再内嵌时间线(降密度);待开工进「终点与剩余」的剩余清单:两行条目,带阶段标签。
+    expect(host.querySelector('[data-testid="work-timeline"]')).toBeNull();
+    const next = host.querySelector('[data-testid="work-goal"] [data-task-row="task_next"] .grid')!;
+    expect(next.className).toContain("min-h-14");
+    expect(next.textContent).toContain("T task_next");
+    expect(next.textContent).toContain("最后活动 1 天前");
+    expect(next.textContent).toContain("计划中");
+    // 按天收束住在「进展」页签。
+    await act(async () => tab(host, "progress").click());
     const days = host.querySelectorAll("[data-day]");
     expect(days.length).toBeGreaterThanOrEqual(1);
     expect(host.textContent).toContain("完成 1 个任务");
     // 每个任务一条路径,状态标签用箭头串起。
     expect(host.textContent).toContain("开始");
     expect(host.textContent).toContain("完成");
-    // 「接下来」是区域里的两行条目(不是会溢出的标签串);全是待开工,不重复挂状态标签。
-    const next = host.querySelector('[data-testid="work-next"] [data-task-row="task_next"] .grid')!;
-    expect(next.className).toContain("min-h-14");
-    expect(next.textContent).toContain("T task_next");
-    expect(next.textContent).toContain("最后活动 1 天前");
-    expect(next.textContent).not.toContain("计划中");
   });
 
-  it("lays out every progress day on the overview (no first-2-days cap) and shows the executor on a second line", async () => {
+  it("lays out every progress day on the progress tab (no first-2-days cap) and shows the executor on a second line", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
-    // v2(标准 §1.8):概况的按天进展全部天直接铺开,不截前两天。
+    // v2(标准 §1.8):进展页签的按天进展全部天直接铺开,不截前两天。
     const day = (index: number) => [
       {
         eventId: `d${index}-1`,
@@ -708,6 +769,7 @@ describe("overview narrative", () => {
         onCloseRootTask={() => {}}
       />,
     );
+    await act(async () => tab(host, "progress").click());
     expect(host.querySelectorAll("[data-day]")).toHaveLength(3);
     // 任务页里每条都是宽松两行(§2.4):有执行者的第二行报执行者,没有的只报最近活动。
     await act(async () => host.querySelector<HTMLButtonElement>("#workspace-tab-tasks")!.click());
@@ -777,7 +839,7 @@ describe("overview narrative", () => {
     expect(lines(host, "task_dep").second).toContain("被「收口链路缺口」卡住 等 1 项");
   });
 
-  it("renders overview action entries as two lines with the reason on the faint second line", async () => {
+  it("renders overview remaining entries as two lines with the reason on the faint second line", async () => {
     const host = await mount(
       <WorkspaceView
         scope={baseScope}
@@ -790,64 +852,12 @@ describe("overview narrative", () => {
         onCloseRootTask={() => {}}
       />,
     );
-    const grid = host.querySelector('[data-testid="work-stuck"] [data-task-row="task_solo"] .grid')!;
+    const grid = host.querySelector('[data-testid="work-goal"] [data-task-row="task_solo"] .grid')!;
     expect(grid.className).toContain("min-h-14");
     expect(grid.querySelector("span.block.truncate.text-text")!.textContent).toBe("停滞任务标题");
     expect(grid.querySelector("span.block.text-text-faint")!.textContent).toMatch(
       /最后活动 \d+ (分钟|小时|天)前 · 补充说明$/u,
     );
-  });
-
-  it("keeps clickable status numbers and the subgroup tree in the structure region", async () => {
-    const host = await mount(
-      <WorkspaceView
-        scope={{
-          ...baseScope,
-          groups: [scopeRow("task_group", { title: "G 一", hasChildren: true })],
-          tasks: [
-            scopeRow("task_wait", { status: "submitted" }),
-            scopeRow("task_solo", { parentTaskId: "task_group" }),
-          ],
-        }}
-        projectName="Harness"
-        tasks={[
-          row("task_wait", { coordinationStatus: "submitted" }),
-          row("task_solo", { parentTaskId: "task_group" }),
-        ]}
-        onOpenTask={() => {}}
-        onPreviewTask={() => {}}
-        rootTaskOpen={false}
-        onOpenRootTask={() => {}}
-        onCloseRootTask={() => {}}
-      />,
-    );
-    const rail = host.querySelector('[data-testid="work-structure"]')!;
-    expect(rail.textContent).toContain("结构与统计");
-    // 状态标签完整换行显示:不用省略号截断,列宽预留整词换行(验收:标签必须完整可读)。
-    const labels = [...rail.querySelectorAll<HTMLSpanElement>("[data-status-filter] > span")];
-    expect(labels.length).toBeGreaterThan(0);
-    for (const label of labels) {
-      expect(label.className).not.toContain("truncate");
-      expect(label.className).toContain("break-words");
-    }
-    expect(labels[0]!.closest("div")!.className).toContain("minmax(6rem,1fr)");
-    expect(rail.querySelector('[data-status-filter="submitted"]')!.textContent).toContain("待初审");
-    expect(rail.querySelector('[data-status-filter="submitted"] > span')!.textContent).toContain("Submitted");
-    // 点状态数字 → 任务页按该状态筛好。
-    await act(async () => rail.querySelector<HTMLButtonElement>('[data-status-filter="submitted"]')!.click());
-    expect(host.querySelector('[data-testid="work-structure"]')).toBeNull();
-    expect(tab(host, "tasks").getAttribute("aria-selected")).toBe("true");
-    expect(host.textContent).toContain("T task_wait");
-    // 点子组 → 任务页只看该组。
-    await act(async () => tab(host, "overview").click());
-    await act(async () =>
-      host
-        .querySelector<HTMLButtonElement>('[data-testid="work-structure"] [data-group-filter="task_group"] button')!
-        .click(),
-    );
-    expect(host.textContent).toContain("子组：G 一");
-    expect(host.textContent).toContain("T task_solo");
-    expect(host.textContent).not.toContain("T task_wait");
   });
 
   it("opens a task row through the global preview route (no local drawer state)", async () => {
@@ -865,7 +875,7 @@ describe("overview narrative", () => {
       />,
     );
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[data-testid="work-stuck"] [data-task-row="task_solo"] button')!.click(),
+      host.querySelector<HTMLButtonElement>('[data-testid="work-goal"] [data-task-row="task_solo"] button')!.click(),
     );
     // 抽屉是全局 previewId 推栈(评审 F1):本页不再持有第二份本地抽屉状态。
     expect(previewCalls).toEqual(["task_solo"]);
@@ -917,7 +927,7 @@ describe("global navigation history (owner 2026-10-11): workspace drawer and roo
     const previewCalls: string[] = [];
     const host = await mount(<WorkspaceWithHistory previewCalls={previewCalls} />);
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[data-testid="work-stuck"] [data-task-row="task_solo"] button')!.click(),
+      host.querySelector<HTMLButtonElement>('[data-testid="work-goal"] [data-task-row="task_solo"] button')!.click(),
     );
     expect(previewCalls).toEqual(["task_solo"]);
     expect(history!.location.previewId).toBe("task_solo");

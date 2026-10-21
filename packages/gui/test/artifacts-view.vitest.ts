@@ -378,6 +378,9 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(preview?.classList.contains("min-h-0")).toBe(true);
     expect(preview?.classList.contains("flex-col")).toBe(true);
     expect(preview?.classList.contains("html-artifact-preview-fill")).toBe(true);
+    // 网页内容区直角(业主 2026-10-21 13:50):预览框自身不带圆角,否则 guest 的网页
+    // 四角会被外框切掉;圆角只留给承载它的区域框。
+    expect(preview?.className).not.toMatch(/\brounded-/u);
     const host = container.querySelector<HTMLElement>('[data-testid="html-artifact-host"]');
     expect(host?.classList.contains("flex-1")).toBe(true);
     expect(host?.classList.contains("min-h-0")).toBe(true);

@@ -651,9 +651,9 @@ export default {
       await resize(1440, 900);
       await page.getByTestId("task-detail-work").click();
       await page.getByTestId("work-overview-board").waitFor();
-      await checkLayout(page, shot, "work-overview-board", "structure", "recent", "work-wide");
+      await checkLayout(page, shot, "work-overview-board", "goal", "explainer", "work-wide");
       await resize(1120, 800);
-      await checkLayout(page, shot, "work-overview-board", "structure", "recent", "work-narrow");
+      await checkLayout(page, shot, "work-overview-board", "goal", "explainer", "work-narrow");
       await page.getByRole("tab", { name: /根任务|Root task/u }).click();
       await page.getByTestId("task-detail-view").waitFor();
       await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "root-narrow", () =>

@@ -11,11 +11,18 @@ import { useTaskDocumentQuery } from "../task-data.ts";
 import { cadenceEventOf } from "../model/cadence.ts";
 import { workDecisionsOf, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
 import { workspaceTitleIndex } from "../model/workspace-readable.ts";
-import { noAgentRunning, workDayGroups, workspaceGoalLine, workSubgroups } from "../model/workspace-narrative.ts";
+import {
+  noAgentRunning,
+  workDayGroups,
+  workSubgroups,
+  workspaceExitCriteria,
+  workspaceMissionText,
+} from "../model/workspace-narrative.ts";
 import { dayKeyOf, formatDayKeyLabel, formatRelative, formatTime } from "../model/time.ts";
 import { t } from "../i18n/index.tsx";
-import { WorkDayList, WorkOverview } from "./workspace/WorkOverview.tsx";
+import { WorkOverview } from "./workspace/WorkOverview.tsx";
 import { WorkExplainerDocument } from "./workspace/WorkExplainer.tsx";
+import { WorkDayList } from "./workspace/WorkProgressList.tsx";
 import { WorkTasksTab, type WorkLeafRow } from "./workspace/WorkTasksTab.tsx";
 import { waitingReason } from "./workspace/entry-lines.tsx";
 import { WorkDecisionsTab } from "./workspace/WorkDecisionsTab.tsx";
@@ -99,7 +106,6 @@ export function WorkspaceView({
 }: WorkspaceViewProps) {
   const [tab, setTab] = useState<Exclude<WorkspaceTab, "root">>("overview");
   const [statusFilter, setStatusFilter] = useState("");
-  const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -149,6 +155,25 @@ export function WorkspaceView({
           : formatDayKeyLabel(dateKey);
 
   const rootRow = tasks.find(({ taskId }) => taskId === scope.root.taskId);
+  // 工作目标原文与完成标准:goalMaterial 指到的 task_plan 一次读出,页头一行目标与
+  // 概况「终点与剩余」区共用同一查询缓存(读模型只提取,不猜缺节)。
+  const goalDocument = useTaskDocumentQuery(
+      repoId,
+      scope.goalMaterial?.taskId ?? scope.root.taskId,
+      scope.goalMaterial === null || repoId === "unselected" ? null : scope.goalMaterial.path,
+    ),
+    mission = useMemo(() => {
+      const query = goalDocument.data;
+      if (query === undefined || query.status !== "ready") return null;
+      const body = query.uncommitted && query.worktreeBody !== null ? query.worktreeBody : query.body;
+      return body === null ? null : workspaceMissionText(body);
+    }, [goalDocument.data]),
+    criteria = useMemo(() => {
+      const query = goalDocument.data;
+      if (query === undefined || query.status !== "ready") return null;
+      const body = query.uncommitted && query.worktreeBody !== null ? query.worktreeBody : query.body;
+      return body === null ? null : workspaceExitCriteria(body);
+    }, [goalDocument.data]);
   const members = useMemo(() => new Set(scope.memberTaskIds), [scope.memberTaskIds]),
     scopedTasks = useMemo(() => tasks.filter(({ taskId }) => members.has(taskId)), [tasks, members]),
     groupIds = useMemo(() => new Set(scope.groups.map(({ taskId }) => taskId)), [scope.groups]);
@@ -211,12 +236,6 @@ export function WorkspaceView({
       })),
     };
   }, [memberRows, groupIds, scope.root.taskId, scope.groups, tasks]);
-
-  const leafCounts = useMemo(() => {
-    const counts: Partial<Record<SnapshotStatus, number>> = {};
-    for (const { status } of leafRows) counts[status] = (counts[status] ?? 0) + 1;
-    return counts;
-  }, [leafRows]);
 
   const titles = useMemo(
     () =>
@@ -311,9 +330,7 @@ export function WorkspaceView({
             />
           ) : null}
         </div>
-        {repoId !== "unselected" && scope.goalMaterial !== null ? (
-          <WorkMission repoId={repoId} taskId={scope.goalMaterial.taskId} path={scope.goalMaterial.path} />
-        ) : null}
+        {repoId !== "unselected" && scope.goalMaterial !== null ? <WorkMission mission={mission} /> : null}
         <div className="mt-1 flex min-w-0 flex-wrap items-end gap-x-3.5 gap-y-1.5">
           <SegBar
             counts={{
@@ -409,15 +426,13 @@ export function WorkspaceView({
               connectionId={connectionId}
               repoId={repoId}
               rootTaskId={scope.root.taskId}
+              mission={mission}
+              criteria={criteria}
+              progress={{ done: scope.counts.done, total: scope.scope.executableLeafCount }}
               submitted={submitted}
               stalled={stalled}
               leaves={leafRows}
               lanes={lanes}
-              dayGroups={dayGroups}
-              dayLabelOf={dayLabelOf}
-              timeOf={(iso) => formatTime(iso, { style: "time" }) ?? "—"}
-              subgroups={subgroups}
-              leafCounts={leafCounts}
               agoOf={agoOf}
               feedback={feedback}
               onAdjudicate={
@@ -428,18 +443,7 @@ export function WorkspaceView({
               onAttest={onAttest}
               onConsent={onConsent}
               onOpenTask={openTask}
-              onOpenProgress={() => setTab("progress")}
               onOpenExplainer={() => setTab("explainer")}
-              onFilterStatus={(status) => {
-                setStatusFilter(status);
-                setTab("tasks");
-              }}
-              onFilterGroup={(group) => {
-                // 点一组是「看这组的任务」这个新意图,不再叠着上一个状态过滤。
-                setGroupFilter(group);
-                setStatusFilter("");
-                setTab("tasks");
-              }}
             />
           ) : null}
           {activeTab === "explainer" ? <WorkExplainerDocument repoId={repoId} taskId={scope.root.taskId} /> : null}
@@ -449,11 +453,9 @@ export function WorkspaceView({
                 leaves={leafRows}
                 subgroups={subgroups}
                 statusFilter={statusFilter}
-                groupFilter={groupFilter}
                 query={query}
                 agoOf={agoOf}
                 onStatusFilter={setStatusFilter}
-                onGroupFilter={setGroupFilter}
                 onOpenTask={openTask}
                 onLoadMore={scope.page.nextCursor === null ? undefined : onLoadMore}
                 loadingMore={loadingMore}
@@ -529,22 +531,11 @@ export function WorkspaceView({
   );
 }
 
-/** 一行目标(可展开):task_plan.md 的 Brief 段,收起时一行截断,点开看全文。 */
-function WorkMission({
-  repoId,
-  taskId,
-  path,
-}: {
-  readonly repoId: string;
-  readonly taskId: string;
-  readonly path: string;
-}) {
-  const query = useTaskDocumentQuery(repoId, taskId, path),
-    [open, setOpen] = useState(false);
-  if (query.data === undefined || query.data.status !== "ready") return null;
-  const body = query.data.uncommitted && query.data.worktreeBody !== null ? query.data.worktreeBody : query.data.body,
-    goal = body === null ? null : workspaceGoalLine(body);
-  if (goal === null) return null;
+/** 一行目标(可展开):goalMaterial 指到的 task_plan 提取的目标原文(Mission/Goal/Brief 节,
+ * 上面的统一查询),收起时一行截断,点开看全文。 */
+function WorkMission({ mission }: { readonly mission: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (mission === null) return null;
   return (
     <div
       data-testid="workspace-mission"
@@ -557,7 +548,7 @@ function WorkMission({
         open ? "" : "line-clamp-1"
       }`}
     >
-      {goal}
+      {mission}
     </div>
   );
 }
