@@ -444,6 +444,45 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
         usage: { used: 243_138, context_size: 1_000_000 },
       },
     });
+    // D3:工具调用夹具——同一派工流里写 ACP tool_call / tool_call_update(生产 deepseek
+    // adapter 发出的同形事件)。会话详情的「会话记录」卡片吃这条读路,不是页面 mock;
+    // 没有它,R4(工具调用上屏)在隔离 lane 里永远没有东西可画。
+    for (const [index, call] of [
+      { title: "Read", input: { file_path: "task_plan.md" }, output: "任务契约正文。" },
+      { title: "Bash", input: { command: "node tools/run-node-tests.mjs --tier fast" }, output: "fast: 128 passed" },
+    ].entries()) {
+      const toolCallId = `call-e2e-${index + 1}`;
+      appendRuntimeWorkerRecord(rootDir, occupancyDispatch, {
+        kind: "provider_event",
+        occurredAt: `2026-10-02T13:31:0${index + 1}.000Z`,
+        event: {
+          type: "acp.update",
+          sessionId: "session-e2e-round-4",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: call.title,
+            kind: "other",
+            status: "in_progress",
+            rawInput: call.input,
+          },
+        },
+      });
+      appendRuntimeWorkerRecord(rootDir, occupancyDispatch, {
+        kind: "provider_event",
+        occurredAt: `2026-10-02T13:31:1${index + 1}.000Z`,
+        event: {
+          type: "acp.update",
+          sessionId: "session-e2e-round-4",
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: call.output } }],
+          },
+        },
+      });
+    }
     // E:小队编排段夹具——同一小队两次 run(收敛/失败)+ 另一小队在编,证明列表中
     // 先见小队再见 run;run 行只留 phase/mission/相对时间。事件走 canonical 读面,
     // 与生产 `runtime_squad_run_observed` 同形,不 mock 视图。
@@ -1009,6 +1048,43 @@ async function assertRoundInteractions(page, shot) {
     "the readout must be the provider's fill against the provider's window",
   );
   assert.ok(!(await detail.innerText()).includes("200K"), "the detail must not print a hardcoded 200K window");
+
+  // 工具调用与结论(R4):第 4 轮的派工流里有两条真实 ACP tool_call。详情的「会话记录」
+  // 卡必须画出可读的工具卡片(不是只把「工具调用 N」当计数),且卡片真的落在详情滚动口
+  // 的可视范围内——只在 DOM 里存在不算上屏。
+  const transcript = detail.locator('[data-testid="session-transcript"]');
+  await transcript.waitFor();
+  // 同一轮里的多次调用先折叠成一个可读卡组(ToolCallGroup):组头说「调了几个、多久」,
+  // 展开后逐张 ToolCallCard 说出工具名与参数/结果。两条读出路径都要能上屏。
+  const toolGroup = transcript.locator('[data-testid="toolcall-group"]');
+  if ((await toolGroup.count()) > 0) {
+    const toggle = toolGroup.first().locator('[data-testid="toolcall-group-toggle"]');
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  }
+  const toolCards = transcript.locator('[data-testid="toolcall-card"]');
+  await toolCards.first().waitFor();
+  const toolLabels = await toolCards.allInnerTexts();
+  const joined = toolLabels.join("\n");
+  for (const label of ["Read", "Bash"]) assert.ok(joined.includes(label), `an expanded tool card must name ${label}`);
+  assert.ok(
+    !(await transcript.innerText()).includes("tool_call_update"),
+    "the transcript must not dump raw provider events",
+  );
+  // 结论:结果卡里有 daemon 下发的最终文本,不是空的「输出 / 结果」壳。
+  assert.ok(
+    (await detail.innerText()).includes("gui-e2e hierarchy fixture round-4"),
+    "the detail must show the session's final result text",
+  );
+  await transcript.scrollIntoViewIfNeeded();
+  const painted = await transcript.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return [...node.querySelectorAll('[data-testid^="toolcall-"]')].some((card) => {
+      const rect = card.getBoundingClientRect();
+      return rect.height > 0 && rect.bottom > box.top && rect.top < box.bottom;
+    });
+  });
+  assert.equal(painted, true, "at least one tool card must be painted inside the transcript viewport");
+  await shot("sessions-detail-transcript-tool-calls");
   await shot("sessions-detail-context-window");
 
   // 有累计消耗的轮次:消耗卡画组成条,但不带 meter 角色与百分比——累计 token 不是窗口占用。

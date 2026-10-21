@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
-import { sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
+import { sessionDispatchIdOf, sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { actorDisplayName } from "../../model/actor-name.ts";
 import { formatTime } from "../../model/time.ts";
@@ -110,7 +110,7 @@ export function SessionsPanel({
           transcript={
             <SessionTranscript
               repoId={repoId}
-              dispatchId={row?.kind === "round" ? row.dispatchId : null}
+              dispatchId={sessionDispatchIdOf(session, row)}
               live={LIVENESS_LIVE[session.liveness] ?? false}
               onSettled={reread}
               title={t("agentRuntime.transcript")}

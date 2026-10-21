@@ -562,6 +562,22 @@ export type SessionOrphan = {
 };
 export type SessionRow = SessionRound | SessionOrphan;
 
+/** 选中会话该读哪条派工转写:展开的轮次行自带 dispatchId;组尚未展开、或选中落在列表
+ *  之外的会话时,daemon 的 attemptChain 仍指着这条会话自己的派工——转写因此不必等用户
+ *  先展开组,也不在 GUI 里拼原始事件。只认同一会话 id 的那一条,认不出就不猜(交给转写
+ *  的「没有派工记录」空状态)。 */
+export function sessionDispatchIdOf(
+  session: Pick<AgentRuntimeSessionDto, "runtimeSessionId" | "attemptChain"> | null | undefined,
+  row: SessionRow | null,
+): string | null {
+  if (row?.kind === "round") return row.dispatchId;
+  const runtimeSessionId = session?.runtimeSessionId;
+  if (runtimeSessionId === undefined) return null;
+  return (
+    session?.attemptChain?.attempts.find((attempt) => attempt.runtimeSessionId === runtimeSessionId)?.dispatchId ?? null
+  );
+}
+
 /** 委托链展示:`leader → worker`,无委托时为 null(与 dispatch 头同源,不推断)。 */
 export function sessionDelegation(row: TaskDispatchProjectionRow): string | null {
   if (!row.delegatedByAgentId || !row.agentId) return null;
