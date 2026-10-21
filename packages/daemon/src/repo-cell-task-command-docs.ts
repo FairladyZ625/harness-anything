@@ -285,7 +285,7 @@ export async function runTaskCommandWithDocs(
   let submittedAction = taskAction,
     anchorDriftWarnings: readonly string[] = [];
   if (submittedExecutionId) {
-    const derived = readCloseoutSubmission(
+    const derived = await readCloseoutSubmission(
       cell,
       taskId,
       submittedExecutionId,

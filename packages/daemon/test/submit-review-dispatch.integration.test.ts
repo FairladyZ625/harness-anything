@@ -101,27 +101,25 @@ function createdTask(events: ReturnType<ChildFixture["events"]>, childTaskId: st
   return event.payload.task;
 }
 
-test(
-  "a submit under a review-disabled closeout profile freezes no dispatch and never launches a reviewer",
-  { timeout: 20_000 },
-  async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
-      closeoutProfile: "standard",
-      autoForward: false,
-    });
-    try {
-      await f.install();
-      assert.equal(f.launches.length, 0, "review-disabled profiles must not dispatch at submit");
-      assert.equal(
-        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
-        0,
-        "no reviewer dispatch event may be recorded for a review-disabled cut",
-      );
-    } finally {
-      await f.close();
-    }
-  },
-);
+test("a low-risk submit freezes no dispatch and never launches a reviewer", { timeout: 20_000 }, async () => {
+  const f = await fixture(false, true, true, false, false, undefined, {
+    autoForward: false,
+    autoSubmit: false,
+    create: { riskTier: "low" },
+  });
+  try {
+    await f.install();
+    await f.submit();
+    assert.equal(f.launches.length, 0, "low-risk submissions must not dispatch at submit");
+    assert.equal(
+      f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+      0,
+      "no reviewer dispatch event may be recorded for a low-risk cut",
+    );
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "submit automatically dispatches the accepted cut and complete never dispatches a reviewer",
@@ -198,7 +196,7 @@ test("submit and amend dispatch their own frozen cuts without owner forward", { 
 });
 
 test(
-  "a lightweight subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
+  "a low-risk subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
   { timeout: 30_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
@@ -212,7 +210,7 @@ test(
         f,
         "task-lightweight-child",
         "execution-lightweight-child",
-        { profileId: "lightweight" },
+        { riskTier: "low" },
         { factless: true },
       );
       const child = createdTask(f.events(), "task-lightweight-child");
@@ -288,7 +286,7 @@ test(
 );
 
 test(
-  "a lightweight subtask under a docs-task parent also resolves the repository default preset, and explicit flags still win",
+  "a low-risk subtask under a docs-task parent also resolves the repository default preset, and explicit flags still win",
   { timeout: 30_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
@@ -298,7 +296,7 @@ test(
     });
     try {
       await f.install();
-      await runChildSlice(f, "task-docs-child", "execution-docs-child", { profileId: "lightweight" });
+      await runChildSlice(f, "task-docs-child", "execution-docs-child", { riskTier: "low" });
       const docsChild = createdTask(f.events(), "task-docs-child");
       assert.equal(docsChild.metadata?.presetId, "standard-task", "a docs parent does not push its preset down");
       assert.equal(docsChild.metadata?.profileId, "lightweight");
@@ -308,7 +306,7 @@ test(
         title: "Explicit preset subtask",
         parentTaskId: taskId,
         presetId: "worker-dispatch",
-        profileId: "lightweight",
+        riskTier: "low",
       })) as Record<string, unknown>;
       assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
       const explicitChild = createdTask(f.events(), "task-explicit-child");
@@ -317,18 +315,19 @@ test(
         "worker-dispatch",
         "an explicit --preset still wins over the repository default",
       );
-      // A preset that declares no lightweight profile fails closed instead of falling back, and the
-      // rejection names its own profiles and the presets that do declare lightweight.
+      // A preset without a lightweight profile still accepts low risk and materializes its normal
+      // default package; low is a flow choice, not a requirement that every preset carry a short profile.
       const missing = (await f.run({
         kind: "task-create",
         taskId: "task-missing-profile-child",
         title: "Missing profile subtask",
         parentTaskId: taskId,
         presetId: "decision-conformance",
-        profileId: "lightweight",
+        riskTier: "low",
       })) as Record<string, unknown>;
-      assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
-      assert.equal(missing.code, "missing_profile", JSON.stringify(missing));
+      assert.equal(missing.outcome, "applied", JSON.stringify(missing));
+      const missingChild = createdTask(f.events(), "task-missing-profile-child");
+      assert.equal(missingChild.metadata?.profileId, "baseline");
       // docs-task declares lightweight too: a declaration or document fix completes under strict settings
       // with no Fact, no reviewer launch, and no consent.
       const launchesBefore = f.launches.length;
@@ -336,7 +335,7 @@ test(
         f,
         "task-docs-lightweight-child",
         "execution-docs-lightweight-child",
-        { presetId: "docs-task", profileId: "lightweight" },
+        { presetId: "docs-task", riskTier: "low" },
         { factless: true },
       );
       const docsLightweight = createdTask(f.events(), "task-docs-lightweight-child");
@@ -348,10 +347,6 @@ test(
       })) as Record<string, unknown>;
       assert.equal(docsCompleted.outcome, "applied", JSON.stringify(docsCompleted));
       assert.equal(f.launches.length, launchesBefore, "a lightweight docs-task never launches a reviewer");
-      assert.match(
-        JSON.stringify(missing),
-        /Profile lightweight is unavailable on preset decision-conformance; its profiles: baseline\. Presets that declare lightweight: docs-task, standard-task, worker-dispatch\./u,
-      );
     } finally {
       await f.close();
     }

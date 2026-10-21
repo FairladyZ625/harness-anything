@@ -20,17 +20,17 @@ before any directory is touched, not discovered halfway through a scaffold.
 The top-level shape a vertical must declare is fixed. Every field below is a
 required member of the struct (except where noted):
 
-| Field | What it declares |
-|-------|------------------|
-| `schema` | The literal `"vertical-definition/v1"` — a version stamp |
-| `id`, `title`, `version` | Identity of the vertical (`"software/coding"`, etc.) |
-| `entityKinds[]` | The kinds this domain cares about, each `lifecycle` or `schema` |
-| `contractEntityKinds[]` | Which of those kinds are load-bearing contract entities |
-| `packageScaffolds[]` | Per entity kind, the documents its package materializes |
-| `repositoryScaffold` | The top-level directory layout, seeded docs, and agents entry |
-| `scripts[]` | Declarative script entries the vertical ships |
-| `templateSelections[]` | Vertical-wide template selections outside any package |
-| `projectionSchemas[]` | The frontmatter schemas the projection validates rows against |
+| Field                    | What it declares                                                |
+| ------------------------ | --------------------------------------------------------------- |
+| `schema`                 | The literal `"vertical-definition/v1"` — a version stamp        |
+| `id`, `title`, `version` | Identity of the vertical (`"software/coding"`, etc.)            |
+| `entityKinds[]`          | The kinds this domain cares about, each `lifecycle` or `schema` |
+| `contractEntityKinds[]`  | Which of those kinds are load-bearing contract entities         |
+| `packageScaffolds[]`     | Per entity kind, the documents its package materializes         |
+| `repositoryScaffold`     | The top-level directory layout, seeded docs, and agents entry   |
+| `scripts[]`              | Declarative script entries the vertical ships                   |
+| `templateSelections[]`   | Vertical-wide template selections outside any package           |
+| `projectionSchemas[]`    | The frontmatter schemas the projection validates rows against   |
 
 The engine never invents any of these; it reads exactly what the JSON declares.
 The rest of this page walks the four parts that carry the domain: entity kinds,
@@ -48,13 +48,11 @@ completion path via `completion-readiness.ts`, rejecting unknown or duplicate
 gates. So `--ci`-style requirements come from the coding contract, not from the
 CLI globally (ADR-0027 D7).
 
-A profile may also declare `closeoutOverrides` and `archiveOnComplete`. The
-bundled `standard-task`, `worker-dispatch`, and `docs-task` presets each carry a
-`lightweight` profile for a low-risk small change: minimal plan and closeout
-templates, and a closeout that requires no review, consent, or Fact. It lifts
-no pull-request CI. `ha task create --help` lists each preset's profiles, and a
-`--profile` a preset does not declare is rejected with `missing_profile`, naming
-the preset's own profiles and the presets that do declare it.
+A profile may also declare `closeoutOverrides` and `archiveOnComplete`. A task
+created with `--risk-tier low` automatically uses a preset's short profile when
+one is declared, giving it minimal plan and closeout templates without review
+or consent. It lifts no pull-request CI; submit-time repository risk scripts may
+raise the review route. `--profile lightweight` is not a task-create choice.
 
 Completion fails closed when a real Task's preset/profile cannot resolve;
 `task-contract.json` pins the `presetSnapshotDigest` at creation so the

@@ -142,6 +142,33 @@ function validArtifactDelivery(value: unknown): boolean {
   );
 }
 
+function validRiskTierAssessment(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    exactRecord(value, [
+      "schema",
+      "declaredTier",
+      "effectiveTier",
+      "deliveryBaseSha",
+      "deliveryHeadSha",
+      "matchedPathReviewers",
+      "reasons",
+      "guiAcceptanceRequired",
+    ]) &&
+    value.schema === "task-risk-tier-assessment/v1" &&
+    ["low", "medium", "high"].includes(String(value.declaredTier)) &&
+    ["low", "medium", "high"].includes(String(value.effectiveTier)) &&
+    (value.deliveryBaseSha === null || sha(value.deliveryBaseSha)) &&
+    (value.deliveryHeadSha === null || sha(value.deliveryHeadSha)) &&
+    Array.isArray(value.matchedPathReviewers) &&
+    value.matchedPathReviewers.every(
+      (lane) => exactRecord(lane, ["agentId", "paths"]) && nonEmpty(lane.agentId) && stringArray(lane.paths),
+    ) &&
+    stringArray(value.reasons) &&
+    typeof value.guiAcceptanceRequired === "boolean"
+  );
+}
+
 export function validateGuiSubmission(value: unknown): readonly string[] {
   const arrayFields = ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const,
     fields = [
@@ -149,6 +176,7 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       ...arrayFields,
       "commitSha",
       ...(isJsonObject(value) && (value.commitSha === null || "artifacts" in value) ? ["artifacts"] : []),
+      ...(isJsonObject(value) && "riskTierAssessment" in value ? ["riskTierAssessment"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
     // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
@@ -176,6 +204,15 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   )
     errors.push(
       validationError(entityId, "completionContract", value.completionContract, "must be an object with a gates array"),
+    );
+  if (value.riskTierAssessment !== undefined && !validRiskTierAssessment(value.riskTierAssessment))
+    errors.push(
+      validationError(
+        entityId,
+        "riskTierAssessment",
+        value.riskTierAssessment,
+        "must be a task-risk-tier-assessment/v1 object",
+      ),
     );
   return errors;
 }

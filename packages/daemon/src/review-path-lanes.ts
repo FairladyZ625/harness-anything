@@ -54,16 +54,22 @@ export function reviewLaneHits(
   submission: SubmissionV1 | null,
   lanes: readonly ReviewPathLane[],
 ): ReadonlyMap<string, readonly string[]> {
-  const hits = new Map<string, string[]>();
-  if (!submission || lanes.length === 0) return hits;
+  if (!submission || lanes.length === 0) return new Map();
   const deleted = submission.outputs
     .filter((line) => line.startsWith(DELETED_OUTPUT_PREFIX))
     .map((line) => line.slice(DELETED_OUTPUT_PREFIX.length));
-  const manifest = [...submission.deliverables, ...deleted];
+  return reviewLanePaths([...submission.deliverables, ...deleted], lanes);
+}
+
+export function reviewLanePaths(
+  paths: readonly string[],
+  lanes: readonly ReviewPathLane[],
+): ReadonlyMap<string, readonly string[]> {
+  const hits = new Map<string, string[]>();
   for (const lane of lanes) {
     const matched = [
       ...new Set(
-        manifest.filter(
+        paths.filter(
           (target) => lane.files.includes(target) || lane.prefixes.some((prefix) => target.startsWith(prefix)),
         ),
       ),

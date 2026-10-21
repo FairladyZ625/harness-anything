@@ -171,10 +171,10 @@ export function taskMutation(
             workKind: value as NonNullable<TaskV2["metadata"]>["workKind"],
           },
         };
-      else if ((field === "riskTier" || field === "urgency") && ["low", "medium", "high"].includes(value))
+      else if (field === "urgency" && ["low", "medium", "high"].includes(value))
         changed = {
           ...changed,
-          metadata: { ...changed.metadata!, [field]: value },
+          metadata: { ...changed.metadata!, [field]: value as NonNullable<TaskV2["metadata"]>["urgency"] },
         };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
         changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
@@ -184,7 +184,7 @@ export function taskMutation(
         throw cell.cellCodedError(
           "invalid_amend",
           [
-            "Amend title, parentTaskId, workKind, riskTier, urgency, ",
+            "Amend title, parentTaskId, workKind, urgency, ",
             "taskClass, reviewReturnBudget (positive integer), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),

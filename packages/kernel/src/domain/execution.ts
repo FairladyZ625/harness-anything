@@ -1,6 +1,6 @@
 import { validGateRun, type GateRun } from "./gate-run.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorAxes } from "./task.ts";
-import type { ActorAxes, ContractValidationIssue } from "./task.ts";
+import type { ActorAxes, ContractValidationIssue, TaskMetadataV1 } from "./task.ts";
 import type { TaskNodeId } from "./task-graph.ts";
 import { timestamp } from "./timestamp.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
@@ -32,6 +32,16 @@ export interface ArtifactDelivery {
 export type SubmissionDelivery =
   | { readonly commitSha: string; readonly artifacts?: readonly ArtifactDelivery[] }
   | { readonly commitSha: null; readonly artifacts: readonly ArtifactDelivery[] };
+export interface TaskRiskTierAssessmentV1 {
+  readonly schema: "task-risk-tier-assessment/v1";
+  readonly declaredTier: NonNullable<TaskMetadataV1["riskTier"]>;
+  readonly effectiveTier: NonNullable<TaskMetadataV1["riskTier"]>;
+  readonly deliveryBaseSha: string | null;
+  readonly deliveryHeadSha: string | null;
+  readonly matchedPathReviewers: readonly { readonly agentId: string; readonly paths: readonly string[] }[];
+  readonly reasons: readonly string[];
+  readonly guiAcceptanceRequired: boolean;
+}
 export type SubmissionV1 = SubmissionDelivery & {
   readonly completionClaim: string;
   readonly deliverables: readonly string[];
@@ -39,6 +49,8 @@ export type SubmissionV1 = SubmissionDelivery & {
   readonly verificationNotes: readonly string[];
   readonly knownGaps: readonly string[];
   readonly residualRisks: readonly string[];
+  /** The submit-time repository risk floor and the review route it selected. */
+  readonly riskTierAssessment?: TaskRiskTierAssessmentV1;
   /** Gate requirements frozen at the execution's first submission; YAML edits never reach this cut. */
   readonly completionContract: FrozenCompletionContract;
 };
@@ -230,6 +242,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       ...required,
       ...(value.commitSha === null || value.artifacts !== undefined ? ["artifacts"] : []),
+      ...(value.riskTierAssessment !== undefined ? ["riskTierAssessment"] : []),
     ]) ||
     !isNonEmptyString(value.completionClaim) ||
     !stringArray(value.deliverables) ||
@@ -237,11 +250,43 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !stringArray(value.verificationNotes) ||
     !stringArray(value.knownGaps) ||
     !stringArray(value.residualRisks) ||
+    (value.riskTierAssessment !== undefined && !validTaskRiskTierAssessment(value.riskTierAssessment)) ||
     !validSubmissionDelivery(value)
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
   return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
+}
+
+function validTaskRiskTierAssessment(value: unknown): value is TaskRiskTierAssessmentV1 {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, [
+      "schema",
+      "declaredTier",
+      "effectiveTier",
+      "deliveryBaseSha",
+      "deliveryHeadSha",
+      "matchedPathReviewers",
+      "reasons",
+      "guiAcceptanceRequired",
+    ]) &&
+    value.schema === "task-risk-tier-assessment/v1" &&
+    ["low", "medium", "high"].includes(String(value.declaredTier)) &&
+    ["low", "medium", "high"].includes(String(value.effectiveTier)) &&
+    (value.deliveryBaseSha === null || isNativeCommitSha(value.deliveryBaseSha)) &&
+    (value.deliveryHeadSha === null || isNativeCommitSha(value.deliveryHeadSha)) &&
+    Array.isArray(value.matchedPathReviewers) &&
+    value.matchedPathReviewers.every(
+      (lane) =>
+        isRecord(lane) &&
+        hasOnlyFields(lane, ["agentId", "paths"]) &&
+        isNonEmptyString(lane.agentId) &&
+        stringArray(lane.paths),
+    ) &&
+    stringArray(value.reasons) &&
+    typeof value.guiAcceptanceRequired === "boolean"
+  );
 }
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (

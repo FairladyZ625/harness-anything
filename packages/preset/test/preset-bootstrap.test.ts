@@ -404,6 +404,7 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false });
       assert.deepEqual(compiled.snapshot.profile.completionGateIds, []);
       assert.deepEqual(compiled.lightweightPresetIds, ["docs-task", "standard-task", "worker-dispatch"]);
+      assert.equal(compiled.defaultNonLightweightProfileId, "baseline");
     }
     // A preset without the profile fails closed and names its own profiles and the presets that declare it.
     assert.throws(
