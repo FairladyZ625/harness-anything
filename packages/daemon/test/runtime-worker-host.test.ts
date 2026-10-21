@@ -408,15 +408,10 @@ test(
     );
     assert.equal(receipt.outcome, "applied");
     assert.equal(receipt.command, "runtime-steer");
-    await eventually(
-      () =>
-        readDispatchStream(rootDir, dispatchId)?.records.some(
-          (record) =>
-            record.kind === "provider_event" &&
-            (record.event as { type?: string; stopReason?: string }).type === "acp.result" &&
-            (record.event as { stopReason?: string }).stopReason === "cancelled",
-        ) === true,
-    );
+    // Wait for the steered turn's own result, not just the cancel: the second prompt is
+    // answered asynchronously, so asserting on the first frame that appears would race it.
+    await eventually(() => steeredTurnResults(rootDir, dispatchId).length === 2);
+    // The provider must have received the steering prompt as the steered turn's input.
     await eventually(() => {
       const captured = readFileSync(capture, "utf8")
         .split("\n")
@@ -424,16 +419,18 @@ test(
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       return captured.some((entry) => entry.prompt === "Focus on the failing test.");
     });
-    const records = readDispatchStream(rootDir, dispatchId)!.records,
-      results = records
-        .filter(
-          (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "acp.result",
-        )
-        .map((record) => (record.event as { stopReason?: string }).stopReason);
-    assert.deepEqual(results, ["cancelled", "end_turn"]);
+    const records = readDispatchStream(rootDir, dispatchId)!.records;
+    assert.deepEqual(steeredTurnResults(rootDir, dispatchId), ["cancelled", "end_turn"]);
     assert.equal(records.filter((record) => record.kind === "steer_requested").length, 1);
   },
 );
+
+/** The stop reasons of every acp.result recorded so far; the steer test's turn boundary. */
+function steeredTurnResults(rootDir: string, dispatchId: string): (string | undefined)[] {
+  return (readDispatchStream(rootDir, dispatchId)?.records ?? [])
+    .filter((record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "acp.result")
+    .map((record) => (record.event as { stopReason?: string }).stopReason);
+}
 
 async function eventually(check: () => boolean): Promise<void> {
   while (!check()) await new Promise<void>((resolve) => setImmediate(resolve));
