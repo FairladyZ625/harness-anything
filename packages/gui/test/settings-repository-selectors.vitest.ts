@@ -56,7 +56,7 @@ const SETTINGS_VALUES = {
   restoreDrillRetention: 3,
 };
 const SNAPSHOT = {
-  schema: "gui-catalog-snapshot/v1" as const,
+  schema: "gui-catalog-snapshot/v2" as const,
   ok: true as const,
   status: "ready" as const,
   repoId: REPO_ID,
@@ -161,7 +161,6 @@ const SNAPSHOT = {
   },
   // 验收人取值面的 bundled 层;已安装层走 agent 目录共享缓存。
   bundledAgents: ["closeout-reviewer"],
-  adapters: [],
   // 门映射描述面:与 daemon gui-catalog 同一映射,源直接 import kernel 单源。
   gateMappings: {
     adapters: [...mappedSourceIds, "none"],

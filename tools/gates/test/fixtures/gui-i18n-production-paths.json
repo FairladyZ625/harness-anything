@@ -11,7 +11,6 @@
   { "path": "packages/gui/src/renderer/components/TaskPreviewDrawer.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/components/badges.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/graph/GraphDrawer.tsx", "module": "gui" },
-  { "path": "packages/gui/src/renderer/views/AdaptersView.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/views/DecisionPoolView.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/views/DecisionsView.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/views/ExecutionEvidenceView.tsx", "module": "gui" },

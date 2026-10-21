@@ -45,7 +45,7 @@ export function isProductionPath(filePath) {
   const normalized = normalizeRepoPath(filePath);
   if (normalized === null || !SOURCE_EXTENSION.test(normalized) || isTestPath(normalized)) return false;
   return (
-    /^packages\/(?:[^/]+|adapters\/[^/]+)\/src\//u.test(normalized) ||
+    /^packages\/[^/]+\/src\//u.test(normalized) ||
     /^src\/(?:kernel|task-lifecycle|doc-sync|preset|cli|gui|daemon|authority-write-path|identity-rbac)\//u.test(
       normalized,
     ) ||
@@ -77,8 +77,7 @@ export function classifyModule(filePath) {
   if (/^packages\/cli\//u.test(normalized)) return "cli";
 
   if (/^packages\/application\//u.test(normalized)) return "task-lifecycle";
-  if (/^packages\/adapters\/local\/src\/task-/u.test(normalized)) return "task-lifecycle";
-  if (/^packages\/(?:kernel|adapters\/[^/]+)\//u.test(normalized)) return "kernel";
+  if (/^packages\/kernel\//u.test(normalized)) return "kernel";
 
   return null;
 }

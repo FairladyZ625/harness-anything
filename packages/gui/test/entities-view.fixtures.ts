@@ -146,7 +146,7 @@ export function stubBridge(
         sourceRevision: 40,
       })),
       getCatalogSnapshot: vi.fn(async () => ({
-        schema: "gui-catalog-snapshot/v1",
+        schema: "gui-catalog-snapshot/v2",
         ok: true,
         status: "ready",
         repoId: REPO_ID,
@@ -174,16 +174,6 @@ export function stubBridge(
         templates: [],
         scaffolds: { task: [], repository: [] },
         bundledAgents: [],
-        adapters: [
-          {
-            adapterId: "claude",
-            registered: true,
-            capabilities: [],
-            writability: "read-write",
-            defaultProvider: false,
-            unavailableReason: null,
-          },
-        ],
       })),
       listAgents: vi.fn(async () => ({
         schema: "agent-entity-catalog/v1",
@@ -426,7 +416,7 @@ export function stubCrudBridge(
         sourceRevision: 0,
       })),
       getCatalogSnapshot: vi.fn(async () => ({
-        schema: "gui-catalog-snapshot/v1",
+        schema: "gui-catalog-snapshot/v2",
         ok: true,
         status: "ready",
         repoId: REPO_ID,
@@ -438,7 +428,6 @@ export function stubCrudBridge(
         templates: [],
         scaffolds: { task: [], repository: [] },
         bundledAgents: [],
-        adapters: [],
       })),
       listAgents: vi.fn(async () => ({ schema: "agent-entity-catalog/v1", ok: true, agents: [] })),
       listSquads: vi.fn(async () => ({ schema: "squad-entity-catalog/v1", ok: true, squads: [] })),

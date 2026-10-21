@@ -31,14 +31,6 @@ export interface CatalogTemplateRow {
   readonly materializeAs: string;
   readonly locales: ReadonlyArray<string>;
 }
-export interface CatalogAdapterRow {
-  readonly adapterId: string;
-  readonly registered: true;
-  readonly capabilities: ReadonlyArray<string>;
-  readonly writability: "read-only" | "read-write" | "unknown";
-  readonly defaultProvider: boolean;
-  readonly unavailableReason: string | null;
-}
 /** 目录快照的门映射契约面(kernel completion-contract 投影):编辑面据此渲染合法组合。 */
 export interface CatalogGateMappingsDescriptor {
   /** 见证 adapter 取值面,含 "none"(移除已声明的门)。 */
@@ -53,7 +45,7 @@ export interface CatalogGateMappingsDescriptor {
   readonly internalGateId: string;
 }
 export interface CatalogSnapshotSuccess {
-  readonly schema: "gui-catalog-snapshot/v1";
+  readonly schema: "gui-catalog-snapshot/v2";
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly repoId: string;
@@ -85,7 +77,6 @@ export interface CatalogSnapshotSuccess {
   /** 有序设置分组(id + advanced);组名与说明文案在 locales 按 id 取。 */
   readonly settingsGroups: ReadonlyArray<{ readonly id: string; readonly advanced?: boolean }>;
   readonly gateMappings: CatalogGateMappingsDescriptor;
-  readonly adapters: ReadonlyArray<CatalogAdapterRow>;
 }
 export interface CatalogPresetDocument {
   readonly slot: string;
@@ -146,7 +137,7 @@ export function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
 function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSuccess {
   return (
     isRendererRecord(value) &&
-    value.schema === "gui-catalog-snapshot/v1" &&
+    value.schema === "gui-catalog-snapshot/v2" &&
     value.ok === true &&
     ["ready", "pending"].includes(String(value.status)) &&
     typeof value.repoId === "string" &&
@@ -154,7 +145,6 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
     Array.isArray(value.presets) &&
     Array.isArray(value.verticals) &&
     Array.isArray(value.templates) &&
-    Array.isArray(value.adapters) &&
     isRendererRecord(value.scaffolds) &&
     Array.isArray(value.scaffolds.task) &&
     Array.isArray(value.scaffolds.repository) &&

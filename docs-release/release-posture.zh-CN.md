@@ -67,7 +67,7 @@ GUI/daemon 方向有真实的 foundation 切片：
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | 已 ship 与 mechanism-complete 的 CLI 界面 | 工作流证明与完整公开文档。                                                                         | 把已 ship 的层级能力继续写成 planned 的旧文档，或隐藏写命令归属要求的文档。                               |
 | Adapter 集成                              | 真实 GitHub Issues 或 Linear 实现与证明。                                                          | 把占位 package 当成已 ship 集成。                                                                         |
-| 完整 GUI 产品                             | 持久化 GUI 写入、决策动作、全局真实 relations、非 mock terminal/adapters/presets，以及受支持分发。 | 把页面级 GUI 假设、重复 CLI/daemon 业务逻辑，或仅 state 的拖拽行为当成生命周期真相。                      |
+| 完整 GUI 产品                             | 持久化 GUI 写入、决策动作、全局真实 relations、非 mock terminal/presets，以及受支持分发。 | 把页面级 GUI 假设、重复 CLI/daemon 业务逻辑，或仅 state 的拖拽行为当成生命周期真相。                      |
 | 发布硬化                                  | 签名产物、notarization、update feeds、发布产物 SBOM、发布证据。                                    | 未签名生产产物、未经审查的 license/SBOM 缺口，或没有签名、update-feed、rollback、安全测试的 auto-update。 |
 
 ## 运行时与发布就绪

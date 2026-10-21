@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-// G5 系统组四页宽屏不变量:presets/adapters/system/settings 内容容器铺满可用宽度
+// G5 系统组三页宽屏不变量:presets/system/settings 内容容器铺满可用宽度
 // (与 overview/board/任务详情同一容器规则),不保留 mx-auto + max-w-*xl 居中收口;
 // 有意的列宽(repo 表截断列、侧栏固定轨道)保留,不受外层铺满影响。
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
-import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { settingsUpdateInputFields } from "@harness-anything/kernel";
@@ -70,7 +69,7 @@ function seedQueries(client: QueryClient): void {
     },
   });
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), {
-    schema: "gui-catalog-snapshot/v1",
+    schema: "gui-catalog-snapshot/v2",
     ok: true,
     status: "ready",
     repoId: REPO_ID,
@@ -148,14 +147,6 @@ function seedQueries(client: QueryClient): void {
       repository: ["governance/repository-scaffold.json"],
     },
     bundledAgents: ["closeout-reviewer"],
-    adapters: [1, 2, 3].map((n) => ({
-      adapterId: `adapter-g5-${n}`,
-      registered: true as const,
-      capabilities: ["task"],
-      writability: "read-only" as const,
-      defaultProvider: n === 1,
-      unavailableReason: null,
-    })),
   });
   client.setQueryData(catalogQueryKeys.preset(REPO_ID, "preset-g5", "zh-CN"), {
     schema: "gui-catalog-preset/v1",
@@ -218,7 +209,7 @@ async function mountView(element: ReturnType<typeof createElement>): Promise<HTM
   return container;
 }
 
-const FILL_TESTIDS = ["presets-content", "adapters-content", "system-content", "settings-content"] as const;
+const FILL_TESTIDS = ["presets-content", "system-content", "settings-content"] as const;
 
 async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): Promise<string> {
   const container = await mountView(
@@ -230,32 +221,25 @@ async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): P
           onExitDetail: () => undefined,
           projectName: "G5 Probe",
         })
-      : testId === "adapters-content"
-        ? createElement(AdaptersView, { repoId: REPO_ID, tasks: [] })
-        : testId === "system-content"
-          ? createElement(SystemView, {
-              activeRepoId: REPO_ID,
-              onOpenObserve: () => undefined,
-              onNavigateEntity: () => undefined,
-            })
-          : createElement(SettingsView, { repoId: REPO_ID }),
+      : testId === "system-content"
+        ? createElement(SystemView, {
+            activeRepoId: REPO_ID,
+            onOpenObserve: () => undefined,
+            onNavigateEntity: () => undefined,
+          })
+        : createElement(SettingsView, { repoId: REPO_ID }),
   );
   const el = container.querySelector(`[data-testid="${testId}"]`);
   expect(el, `${testId} 未渲染`).toBeTruthy();
   return (el as HTMLElement).className;
 }
 
-describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收口", () => {
+describe("G5 系统组三页宽屏:内容容器铺满,不保留固定宽度收口", () => {
   it.each(FILL_TESTIDS)("%s 铺满可用宽度:无 mx-auto、无视口 max-w 收口", async (testId) => {
     const className = await mountedContainerClasses(testId);
     expect(className, `${testId} 类名`).toContain("w-full");
     expect(className, `${testId} 不得再居中收口`).not.toContain("mx-auto");
     expect(className, `${testId} 不得挂固定最大宽度`).not.toMatch(/(^|\s)max-w-/u);
-  });
-
-  it("adapters 目录页按 DenseRow 信息行铺满(标准 §2.5),行容器随宽度增长", async () => {
-    const className = await mountedContainerClasses("adapters-content");
-    expect(className).toContain("w-full");
   });
 
   it("侧栏固定轨道保留(列宽有意,外层仍铺满)", async () => {

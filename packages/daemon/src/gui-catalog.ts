@@ -165,12 +165,11 @@ export function openGuiCatalog(input: {
           .map(([id]) => id),
         internalGateId: CODE_DOC_GATE_ID,
       },
-      adapters: [],
     };
     const catalogDigest = `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`;
     lastDigest = catalogDigest;
     return writeCatalogSnapshot({
-      schema: "gui-catalog-snapshot/v1",
+      schema: "gui-catalog-snapshot/v2",
       ok: true,
       status: "ready",
       repoId: input.repoId,

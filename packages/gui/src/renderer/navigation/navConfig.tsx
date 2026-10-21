@@ -57,7 +57,6 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   graph: "shell.nav.graph",
   presets: "shell.nav.presets",
   entities: "shell.nav.entities",
-  adapters: "shell.nav.adapters",
   sessions: "shell.nav.sessions",
   schedules: "shell.nav.schedules",
   artifacts: "shell.nav.artifacts",
@@ -155,7 +154,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "entities", icon: <BookOpen weight="duotone" /> },
       { id: "presets", icon: <Stack weight="duotone" /> },
-      { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
       { id: "tokenUsage", icon: <ChartLine weight="duotone" /> },
       { id: "system", icon: <Pulse weight="duotone" /> },
       { id: "settings", icon: <GearSix weight="duotone" /> },

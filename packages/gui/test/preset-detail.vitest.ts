@@ -53,7 +53,7 @@ afterEach(() => {
 
 function seedQueries(client: QueryClient): void {
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), {
-    schema: "gui-catalog-snapshot/v1",
+    schema: "gui-catalog-snapshot/v2",
     ok: true,
     status: "ready",
     repoId: REPO_ID,
@@ -81,7 +81,6 @@ function seedQueries(client: QueryClient): void {
     templates: [],
     scaffolds: { task: [], repository: [] },
     bundledAgents: [],
-    adapters: [],
   });
   client.setQueryData(catalogQueryKeys.preset(REPO_ID, PRESET_ID, "zh-CN"), {
     schema: "gui-catalog-preset/v1",

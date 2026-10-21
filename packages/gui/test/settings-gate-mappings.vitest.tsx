@@ -40,7 +40,7 @@ const SETTINGS = {
   gates: GATES,
 };
 const SNAPSHOT = {
-  schema: "gui-catalog-snapshot/v1" as const,
+  schema: "gui-catalog-snapshot/v2" as const,
   ok: true as const,
   status: "ready" as const,
   repoId: REPO_ID,
@@ -55,7 +55,6 @@ const SNAPSHOT = {
   templates: [],
   scaffolds: { task: [], repository: [] },
   bundledAgents: [],
-  adapters: [],
   gateMappings: {
     adapters: [...mappedSourceIds, "none"],
     appliesTo: [...gateAppliesTo],

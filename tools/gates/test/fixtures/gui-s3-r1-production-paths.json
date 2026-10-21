@@ -32,7 +32,6 @@
   { "path": "packages/gui/src/renderer/task-adapter.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/task-data.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/triadic-data.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/views/AdaptersView.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/views/DecisionPoolView.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/views/HomeView.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/views/PresetsView.tsx", "module": "gui" },

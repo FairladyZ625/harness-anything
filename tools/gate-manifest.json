@@ -4427,7 +4427,6 @@
       "localPathGlobs": [
         "packages/kernel/**",
         "packages/daemon/**",
-        
         "packages/application/**",
         "packages/preset/**",
         "tools/gates/cost-budget.mjs",
