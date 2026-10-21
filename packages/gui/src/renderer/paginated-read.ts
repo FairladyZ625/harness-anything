@@ -15,7 +15,7 @@ export async function drainCursorPages<Page extends { readonly page?: { readonly
   const pages: Page[] = [];
   const cursors = new Set<string>();
   let cursor: string | undefined;
-  // 终止:服务端 nextCursor 为空(最后一页);页预算兜底游标异常循环。
+  // 终止:服务端 nextCursor 为空(最后一页);重复游标表示异常循环。
   while (true) {
     const page = await readPage(cursor === undefined ? {} : { cursor });
     pages.push(page);
