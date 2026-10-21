@@ -836,9 +836,8 @@ export function createJsonRpcProtocolServer(options: {
   };
   const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const method = typeof request.method === "string" ? request.method : "";
-    // Parked waits and stream observers are observation, not work: counting one would pin a
-    // superseded daemon resident for as long as any --wait or polling client cares to watch,
-    // which is exactly what the drain exists to end.
+    // Parked waits are observations, not work: counting one would pin a superseded daemon resident
+    // for as long as any --wait client cares to watch, which is exactly what the drain exists to end.
     const fleetAction =
       isJsonObject(request.params) && isJsonObject(request.params.payload) ? request.params.payload.action : undefined;
     const fleetAwait =
@@ -860,20 +859,17 @@ export function createJsonRpcProtocolServer(options: {
         if (!handshaken || options.authContext.connectionSignal?.aborted) releaseHello();
       }
     }
-    if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail") {
+    if (isDaemonParkedWaitMethod(method) || fleetAwait) {
       const admitted = !drainActive() || (helloPending && helloContinuationAdmitted);
       releaseHello();
-      if (isDaemonParkedWaitMethod(method) || fleetAwait) {
-        // Register abandonment around authentication as well as the host read: neither phase owns work.
-        const response = await raceParkedWait(
-          run(request, frameReceivedAt, admitted),
-          parkedWaitAborts,
-          options.authContext.connectionSignal,
-          options.host.parkedWaitSignal,
-        );
-        return response === parkedWaitAbandoned ? undefined : response;
-      }
-      return run(request, frameReceivedAt, admitted);
+      // Register abandonment around authentication as well as the host read: neither phase owns work.
+      const response = await raceParkedWait(
+        run(request, frameReceivedAt, admitted),
+        parkedWaitAborts,
+        options.authContext.connectionSignal,
+        options.host.parkedWaitSignal,
+      );
+      return response === parkedWaitAbandoned ? undefined : response;
     }
     // Transfer the reservation without a zero-work interval before dispatching the next frame.
     const admittedHelloContinuation = helloPending && helloContinuationAdmitted,

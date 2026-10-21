@@ -111,33 +111,29 @@ test(
   },
 );
 
-test(
-  "observe.tail is treated as an observation and does not count toward active request work",
-  { timeout: 5_000 },
-  async () => {
-    const started: string[] = [],
-      settled: string[] = [],
-      server = parkedAwaitServer({
-        started: (method) => started.push(method),
-        settled: (method) => settled.push(method),
-      });
-    try {
-      await server.handle(helloRequest);
-      const tailResponse = await server.handle({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "observe.tail",
-        params: { repo: { repoId: "parked-wait" }, payload: { kind: "lifecycle", direction: "history" } },
-      });
-      assert.ok(tailResponse?.result?.ok);
-      // Only hello was counted as active work; observe.tail bypassed onRequestStarted/onRequestSettled.
-      assert.deepEqual(started, ["protocol.hello"]);
-      assert.deepEqual(settled, ["protocol.hello"]);
-    } finally {
-      server.close();
-    }
-  },
-);
+test("a bounded observe.tail request counts as active work while it is being served", { timeout: 5_000 }, async () => {
+  const started: string[] = [],
+    settled: string[] = [],
+    server = parkedAwaitServer({
+      started: (method) => started.push(method),
+      settled: (method) => settled.push(method),
+    });
+  try {
+    await server.handle(helloRequest);
+    const tailResponse = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "observe.tail",
+      params: { repo: { repoId: "parked-wait" }, payload: { kind: "lifecycle", direction: "history" } },
+    });
+    assert.ok(tailResponse?.result?.ok);
+    // Each polling RPC is finite work; only the truly parked wait bypasses the drain counter.
+    assert.deepEqual(started, ["protocol.hello", "observe.tail"]);
+    assert.deepEqual(settled, ["protocol.hello", "observe.tail"]);
+  } finally {
+    server.close();
+  }
+});
 
 for (const boundary of ["server", "connection"] as const) {
   test(`hello holds one work reservation until the ${boundary} closes`, async () => {
