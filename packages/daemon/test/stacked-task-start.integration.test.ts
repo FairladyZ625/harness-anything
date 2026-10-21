@@ -172,9 +172,8 @@ test("stacked integration submits and dispatches review for CEO merge-main and o
     writeFileSync(path.join(upstreamWorktree, "README.md"), "# Reviewed delivery\n");
     git(upstreamWorktree, "add", "upstream.txt", "README.md");
     git(upstreamWorktree, "commit", "-qm", "test: upstream delivery");
-    await f.submit();
     await f.install();
-    await f.forward();
+    await f.submit();
     const upstreamDispatch = stepsOf(await run({ kind: "task-dispatch-review", taskIds: [upstreamTaskId] }))[0]!;
     const reviewId = `review-${upstreamDispatch.dispatchId}`;
     assert.equal((await f.review(upstreamDispatch.runtimeSessionId, reviewId)).outcome, "applied");
@@ -237,13 +236,6 @@ test("stacked integration submits and dispatches review for CEO merge-main and o
       ["ceo.txt", "main.txt"],
       "submission must include the CEO merge-main contribution",
     );
-    await run({
-      kind: "task-adjudicate",
-      taskId: integrationTaskId,
-      executionId: integrationExecutionId,
-      forward: true,
-      reason: "Review all CEO integration commits.",
-    });
     const dispatch = stepsOf(await run({ kind: "task-dispatch-review", taskIds: [integrationTaskId] }))[0]!;
     assert.equal(dispatch.outcome, "already_dispatched");
     const prompt = f.launches.at(-1)!.prompt;
