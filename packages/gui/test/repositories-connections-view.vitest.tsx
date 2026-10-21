@@ -421,6 +421,21 @@ describe("repositories and connections page", () => {
     expect(container.querySelector('[data-testid="connection-node-count-center"]')?.textContent).toBe("0");
   });
 
+  it("keeps the center row and add connection outside the repository scroll area", async () => {
+    const { container } = await mountView();
+    const scroll = container.querySelector('[data-testid="connection-tree-scroll"]');
+    // 长仓库列表只在自己的滚动区里滚;中心行和「添加连接」是树底常驻动作,不能被滚走。
+    expect(scroll?.querySelector('[data-testid="connection-repo-local-repo"]')).not.toBeNull();
+    expect(scroll?.querySelector('[data-testid="connection-node-center"]')).toBeNull();
+    expect(scroll?.querySelector('[data-testid="connection-add-open"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="connection-tree-footer"] [data-testid="connection-node-center"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="connection-tree-footer"] [data-testid="connection-add-open"]'),
+    ).not.toBeNull();
+  });
+
   it("registers a picked folder that already has a ledger instead of bootstrapping", async () => {
     const { container, bridge } = await mountView({ repos: [] });
     expect(container.querySelector('[data-testid="local-empty-state"]')?.textContent).toContain(

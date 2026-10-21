@@ -914,7 +914,7 @@
   "views.repositories.centerCertificateConflict": "中心设置已在其他位置变更，请重新加载后再试。",
   "views.repositories.inviteTitle": "邀请边缘节点",
   "views.repositories.inviteSummary": "邀请人员加入一个或多个已启用仓库，并选择权限组。一次性链接只显示一次。",
-  "views.repositories.inviteEntryTitle": "邀请成员加入",
+  "views.repositories.inviteEntryTitle": "邀请成员",
   "views.repositories.inviteEntrySummary": "把一个人加进这些仓库:选成员、勾仓库与权限组,签发一次性链接。",
   "views.repositories.inviteEntryAction": "邀请成员加入",
   "views.repositories.inviteEntryFromCenter": "去「邀请成员加入」",

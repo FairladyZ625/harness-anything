@@ -914,7 +914,7 @@
   "views.repositories.centerCertificateConflict": "The center settings changed elsewhere. Reload and try again.",
   "views.repositories.inviteTitle": "Invite an edge node",
   "views.repositories.inviteSummary": "Invite a person to one or more enabled repositories with selected permission groups. The one-time link is shown once.",
-  "views.repositories.inviteEntryTitle": "Invite a member",
+  "views.repositories.inviteEntryTitle": "Invite people",
   "views.repositories.inviteEntrySummary": "Add a person to these repositories: pick the member, tick repositories and permission groups, then issue a one-time link.",
   "views.repositories.inviteEntryAction": "Invite a member",
   "views.repositories.inviteEntryFromCenter": "Go to Invite a member",
