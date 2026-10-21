@@ -369,6 +369,7 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       userRoot: path.join(rootDir, ".harness/presets"),
       verticalId: "software/coding",
       profileId: "lightweight",
+      riskTier: "low",
       locale: "en-US",
       actor: { principal: { personId: "person-1" }, executor: null },
       source: "local",
@@ -395,6 +396,11 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
         ["## Summary", "## Verification"],
       );
       assert.equal(compiled.event.payload.task.archiveOnComplete, true);
+      assert.equal(
+        compiled.documents.some((document) => document.relativePath === "artifacts/explainer.html"),
+        false,
+        "low risk selects the short package behavior even when profile identity is internal",
+      );
       assert.deepEqual(compiled.event.payload.task.closeoutOverrides, {
         review: false,
         consent: false,

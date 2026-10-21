@@ -5,6 +5,7 @@ import type {
   CanonicalEventStore,
   SettingsV1,
   TaskProjection,
+  TaskMetadataV1,
   TaskWorktreeBindingV1,
   ActorIdentity,
   AgentRuntimeEventV1,
@@ -283,9 +284,9 @@ export interface RemoteRuntimePersistence {
     readonly mission: (packageRoot: string) => string;
     /** The mirrored task plan body the mission inlines; explicit-prompt assembly reuses it. */
     readonly planBody: string | null;
-    /** The task's frozen profile id from the center's serving cut; null when unset. Lightweight
-     * tasks owe no living explainer page, so explicit-prompt remote dispatch gates the protocol on
-     * this value exactly like the local paths do. */
+    /** The task's frozen risk tier selects its worker mission flow. */
+    readonly riskTier: TaskMetadataV1["riskTier"];
+    /** The task's frozen profile id from the center's serving cut; it identifies preset materialization. */
     readonly profileId: string | null;
     readonly taskClass: string;
     /** The causal-context block the center assembled for this task at the serving

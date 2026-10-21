@@ -329,9 +329,9 @@ export function openFleetEdgeRuntime(input: {
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
           planPath = path.join(packageRoot, "task_plan.md"),
-          // Causal context, profile and worktree binding share the just-confirmed replica cut.
+          // Causal context, risk tier, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
-          { causalContext, profileId, worktree } = runtimeContext;
+          { causalContext, riskTier, profileId, worktree } = runtimeContext;
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -396,7 +396,7 @@ export function openFleetEdgeRuntime(input: {
             ...taskMissionSections(
               taskId,
               causalContext,
-              profileId,
+              riskTier,
               current.task?.taskClass,
               ownerReturnBody,
               review !== undefined,
@@ -412,6 +412,7 @@ export function openFleetEdgeRuntime(input: {
               }
             : {}),
           packageRoot,
+          riskTier,
           profileId,
           taskClass: current.task!.taskClass,
           ownerReturnBody,
@@ -885,6 +886,7 @@ function taskRuntimeContext(
   taskId: string,
 ): {
   readonly causalContext: string | null;
+  readonly riskTier: "low" | "medium" | "high" | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: import("./runtime-continuation-context.ts").RuntimeContinuationSeed | null;
@@ -898,6 +900,7 @@ function taskRuntimeContext(
     read.ok === true &&
     read.taskId === taskId &&
     (read.causalContext === null || typeof read.causalContext === "string") &&
+    (read.riskTier === null || ["low", "medium", "high"].includes(String(read.riskTier))) &&
     (read.profileId === null || typeof read.profileId === "string") &&
     (worktree === null ||
       (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string")) &&
@@ -906,6 +909,7 @@ function taskRuntimeContext(
   )
     return {
       causalContext: read.causalContext,
+      riskTier: read.riskTier === null ? null : (read.riskTier as "low" | "medium" | "high"),
       profileId: read.profileId === null ? null : (read.profileId as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
       continuationContext:

@@ -206,6 +206,15 @@ test(
     });
     try {
       await f.install();
+      const selectableLightweight = (await f.run({
+        kind: "task-create",
+        taskId: "task-user-selected-lightweight",
+        title: "Reject a profile flow selector",
+        riskTier: "low",
+        profileId: "lightweight",
+      })) as Record<string, unknown>;
+      assert.equal(selectableLightweight.outcome, "op_rejected", JSON.stringify(selectableLightweight));
+      assert.equal(selectableLightweight.code, "invalid_field", JSON.stringify(selectableLightweight));
       const { created, packagePath } = await runChildSlice(
         f,
         "task-lightweight-child",

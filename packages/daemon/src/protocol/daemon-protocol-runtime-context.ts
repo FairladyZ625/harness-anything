@@ -8,6 +8,7 @@ export type DaemonTaskRuntimeContextResult = {
   readonly ok: true;
   readonly taskId: string;
   readonly causalContext: string | null;
+  readonly riskTier: "low" | "medium" | "high" | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: RuntimeContinuationSeed | null;

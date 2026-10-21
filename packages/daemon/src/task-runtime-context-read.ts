@@ -17,6 +17,7 @@ export function readTaskRuntimeContext(
     ok: true as const,
     taskId,
     causalContext: assembleTaskCausalContext({ projection: projection, taskId }),
+    riskTier: task?.metadata?.riskTier ?? null,
     profileId: task?.metadata?.profileId ?? null,
     worktree: openTaskWorktreeBinding(task, presetSnapshotReader(projection)),
     continuationContext: latestRuntimeContinuationSeed(projection, taskId, executionIds),

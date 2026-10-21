@@ -48,11 +48,13 @@ completion path via `completion-readiness.ts`, rejecting unknown or duplicate
 gates. So `--ci`-style requirements come from the coding contract, not from the
 CLI globally (ADR-0027 D7).
 
-A profile may also declare `closeoutOverrides` and `archiveOnComplete`. A task
-created with `--risk-tier low` automatically uses a preset's short profile when
-one is declared, giving it minimal plan and closeout templates without review
-or consent. It lifts no pull-request CI; submit-time repository risk scripts may
-raise the review route. `--profile lightweight` is not a task-create choice.
+A profile may also declare `closeoutOverrides` and `archiveOnComplete`. Risk tier
+selects the task flow: low skips review and consent and automatically uses a
+preset's short profile when one is declared; medium is the default and receives
+one functional review; high receives full review and consent. Submit-time
+repository risk scripts inspect the actual delivery diff and may only raise the
+review tier. Pull-request CI still applies to code changes. `--profile
+lightweight` is not a task-create choice.
 
 Completion fails closed when a real Task's preset/profile cannot resolve;
 `task-contract.json` pins the `presetSnapshotDigest` at creation so the

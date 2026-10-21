@@ -121,14 +121,18 @@ export function renderThinHelp(
   const rows = [
       ...thinCliCommands.map(({ usage, summary, help }) => {
         const preferred = preferTaskActionHelp({ usage, summary, help });
-        return usage === "ha task create"
+        return usage.startsWith("ha task create ")
           ? {
               ...preferred,
               help: [
                 preferred.help,
-                "Risk tier selects the task flow: low skips review and consent (and uses a short package when available); " +
-                  "medium is the default with one functional review; high uses full review and requires consent.",
-                "Submit checks the actual delivery diff with repository-configured risk-floor scripts; they may only raise the tier.",
+                "Risk tier selects the task flow: low is for a small localized change or docs-only work and skips review and consent; " +
+                  "medium is the default for ordinary feature work and gets one functional review; high is for data, security, " +
+                  "or protected-surface changes and gets full review plus consent.",
+                'Examples: ha task create --title "Fix a typo" --risk-tier low; ha task create --title "Add a feature"; ' +
+                  'ha task create --title "Change stored data format" --risk-tier high.',
+                "Low uses a short package when the preset provides one. Submit checks the actual delivery diff with " +
+                  "repository-configured risk-floor scripts; they may only raise the tier.",
               ]
                 .filter(Boolean)
                 .join("\n"),

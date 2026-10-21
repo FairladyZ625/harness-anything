@@ -134,6 +134,7 @@ const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   typeof value.taskId === "string" &&
   value.taskId.length > 0 &&
   (value.causalContext === null || typeof value.causalContext === "string") &&
+  (value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) &&
   (value.profileId === null || typeof value.profileId === "string") &&
   (value.worktree === null ||
     (isJsonObject(value.worktree) &&

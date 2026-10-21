@@ -381,9 +381,8 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.match(prompt!, /# 台账查询引导/u);
     assertScopedGuidance(prompt!, "task_ctx_lonely");
 
-    // dec_64C2E7741F1827DADC27941FCA: a baseline task is born with a materialized explainer page
-    // its mission points at; a lightweight task is born without one and its mission carries no
-    // Living Deliverable Protocol at all.
+    // Medium tasks are born with a materialized explainer page; low-risk tasks carry no
+    // Living Deliverable Protocol even when the preset has no short profile.
     const baselinePackage = await createTask(cell, root, {
       taskId: "task_ctx_explainer",
       title: "Explainer carrier",
@@ -410,18 +409,19 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.match(prompt!, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
     assert.match(prompt!, /实时说明页/u, "the protocol names the owner-facing live page");
     assert.match(prompt!, /#now[\s\S]*#timeline/u, "mission names the fixed living sections");
-    const litePackage = await createTask(cell, root, {
+    const lowPackage = await createTask(cell, root, {
       taskId: "task_ctx_lite",
-      title: "Lightweight carrier",
-      profileId: "lightweight",
+      title: "Low risk baseline carrier",
+      riskTier: "low",
+      profileId: "baseline",
     });
     assert.equal(
-      existsSync(path.join(canonicalRoot(root), "harness", litePackage, "artifacts", "explainer.html")),
+      existsSync(path.join(canonicalRoot(root), "harness", lowPackage, "artifacts", "explainer.html")),
       false,
-      "a lightweight task materializes no explainer page",
+      "a low-risk task does not materialize an explainer based on its profile",
     );
     prompt = null;
-    const lite = await cell.spawnRuntime(
+    const low = await cell.spawnRuntime(
       {
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
@@ -430,9 +430,13 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       },
       binding,
     );
-    assert.equal(lite.outcome, "applied", JSON.stringify(lite));
-    assert.match(prompt!, /# 台账查询引导/u, "lightweight keeps the lookup guidance");
-    assert.doesNotMatch(prompt!, /# Living Deliverable Protocol/u, "lightweight owes no living deliverable");
+    assert.equal(low.outcome, "applied", JSON.stringify(low));
+    assert.match(prompt!, /# 台账查询引导/u, "low-risk missions keep the lookup guidance");
+    assert.equal(
+      existsSync(path.join(canonicalRoot(root), "harness", lowPackage, "artifacts", "explainer.html")),
+      false,
+    );
+    assert.doesNotMatch(prompt!, /# Living Deliverable Protocol/u, "low risk owes no living deliverable");
     assert.doesNotMatch(prompt!, /explainer\.html/u);
     assert.match(
       prompt!,
