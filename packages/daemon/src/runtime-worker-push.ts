@@ -362,7 +362,7 @@ export function canonicalPath(value: string): string {
 // diagnostics, so the rule lives here; owned sentences that legitimately name rootDir are not
 // routed through it. The boundary characters keep URL path segments (preceded by `:` or a word
 // character) out of the match.
-const localPath = /(^|[\s'"\[(=])(?:file:\/\/\/|[A-Za-z]:\\|\/)[^\s'"`,;:)\\]+/gu;
+const localPath = /(^|[\s'"[(=])(?:file:\/\/\/|[A-Za-z]:\\|\/)[^\s'"`,;:)\\]+/gu;
 
 function errorDetail(error: unknown): string {
   const value =
