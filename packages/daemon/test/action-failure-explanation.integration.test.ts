@@ -291,7 +291,7 @@ test("holding every action in Keycloak does not lift self-review, lease, or huma
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "action-failure-bottom-lines" });
-    const created = await cell.run({ kind: "task-create", taskId, title: "Bottom lines" }, alice);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bottom lines", riskTier: "high" }, alice);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     allowedByKeycloak(created, "create");
     await waitForFixturePublication(cell, created.opId, alice);

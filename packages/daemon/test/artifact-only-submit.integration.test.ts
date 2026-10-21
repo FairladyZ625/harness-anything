@@ -266,7 +266,7 @@ test("a documentation amendment completes with newly accepted artifact paths on 
       taskId,
       title: "Amend accepted documentation",
       presetId: "docs-task",
-      profileId: "lightweight",
+      riskTier: "low",
     });
     const packagePath = String((created as { packagePath?: string }).packagePath);
     await realizeTaskPlanFixture(
