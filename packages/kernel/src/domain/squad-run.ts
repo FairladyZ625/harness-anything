@@ -1,5 +1,5 @@
 import type { ActorIdentity, EventEnvelope } from "./write-chain.contract.ts";
-import { hasOnlyFields, isRecord, isNonEmptyString } from "./write-chain.contract.ts";
+import { hasOnlyFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
 
 export type SquadRunPhase = "planning" | "leader_running" | "workers_running" | "cancelled" | "converged" | "failed";
 export type SquadRunTrigger =

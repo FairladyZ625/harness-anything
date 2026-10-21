@@ -467,7 +467,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 : dispatchMission,
             // Scheduled Squad leaders answer the squad decision protocol; the run settles
             // the occurrence. Every dispatch still receives its own rendered dispatch id.
-            prompt = renderDispatchPrompt(assembledPrompt, newDispatchId, Boolean(trustedSchedule) && squadId === undefined);
+            prompt = renderDispatchPrompt(
+              assembledPrompt,
+              newDispatchId,
+              Boolean(trustedSchedule) && squadId === undefined,
+            );
 
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
