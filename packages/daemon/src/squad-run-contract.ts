@@ -1,5 +1,5 @@
 import type { CanonicalSquadRun, SquadRunPhase, SquadRunSubjectV1 } from "@harness-anything/kernel";
-import { validSquadRunSubject } from "@harness-anything/kernel";
+import { validSquadRunSubject } from "@harness-anything/kernel/browser";
 export type { SquadRunPhase, SquadRunSubjectV1 } from "@harness-anything/kernel";
 
 interface SquadRunObservationIdentity {
