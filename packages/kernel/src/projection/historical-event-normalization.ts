@@ -1,3 +1,7 @@
+import {
+  normalizeHistoricalSquadRunIdentity,
+  normalizePersistedCanonicalEvent,
+} from "../domain/doc-sync-canonical-events.ts";
 import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
@@ -52,39 +56,13 @@ function normalizeTaskCarrier(event: PersistedCanonicalEventV1): PersistedCanoni
     : ({ ...event, payload: { ...payload, task } } as unknown as PersistedCanonicalEventV1);
 }
 
-/**
- * Squad runs carried their task execution as flat `taskId`/`executionId` identity before the
- * `subject` discriminated task from schedule-occurrence runs. Already-accepted events keep the
- * flat shape as recorded; this read-side projection maps them onto the task subject branch so
- * cold-replayed projections validate through the current strict path.
- */
-function squadRunSubjectFromFlatIdentity(value: unknown): unknown {
-  if (!isRecord(value) || value.subject !== undefined || typeof value.taskId !== "string") return value;
-  const { taskId: task, executionId, ...rest } = value;
-  return {
-    ...rest,
-    subject: { kind: "task", taskId: task, ...(typeof executionId === "string" ? { executionId } : {}) },
-  };
-}
-
-/** The same projection for an already-stored squad run projection row. */
-export function normalizeHistoricalSquadRunState(value: unknown): unknown {
-  return squadRunSubjectFromFlatIdentity(value);
-}
+/** The registered transform also applies to already-stored projection rows. */
+export const normalizeHistoricalSquadRunState = normalizeHistoricalSquadRunIdentity;
 
 export function normalizeHistoricalEvent(event: PersistedCanonicalEventV1): PersistedCanonicalEventV1 {
-  let normalized = normalizeTaskCarrier(event);
+  let normalized = normalizeTaskCarrier(normalizePersistedCanonicalEvent(event));
   const payload = (normalized as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return normalized;
-  if (normalized.schema === "agent-runtime-event/v1" && normalized.type === "runtime_dispatch_requested") {
-    const squadRun = squadRunSubjectFromFlatIdentity(payload.squadRun);
-    if (squadRun !== payload.squadRun)
-      normalized = { ...normalized, payload: { ...payload, squadRun } } as unknown as PersistedCanonicalEventV1;
-  }
-  if (normalized.schema === "agent-runtime-event/v1" && normalized.type === "runtime_squad_run_observed") {
-    const observed = squadRunSubjectFromFlatIdentity(payload);
-    if (observed !== payload) normalized = { ...normalized, payload: observed } as unknown as PersistedCanonicalEventV1;
-  }
   if (normalized.schema === "schedule-event/v1" && isRecord(payload.schedule) && isRecord(payload.schedule.status)) {
     const status = withoutRetiredScheduleCiObserve(payload.schedule.status);
     if (status !== payload.schedule.status) {

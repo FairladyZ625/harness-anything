@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -220,7 +221,7 @@ test(
 );
 
 test(
-  "a remediation Schedule runs a Squad under its occurrence claim and reclaims its worktree",
+  "scheduler preserves a Squad occurrence through a second leader turn and reclaims its worktree",
   { timeout: 30_000 },
   async (t) => {
     const fixture = await openFixture(t, "scheduled-squad"),
@@ -269,8 +270,34 @@ test(
       initialProviderCount + 1,
       "the active occurrence owns one initial leader dispatch",
     );
+    const scheduler = makeScheduleScheduler({
+      cells: new Map([[fixture.repoId, fixture.cell]]),
+      localBinding: () => binding,
+      // Drive recovery explicitly; automatic cadence must not race this manual occurrence.
+      setTimer: () => ({ unref() {} }) as ReturnType<typeof setTimeout>,
+      clearTimer: () => {},
+    });
+    t.after(async () => scheduler.close());
+    await scheduler.start();
+    fixture.finish(state.leaderTurns[0]!.dispatchId, "Leader returned an invalid decision; retry this turn.");
+    assert.equal(
+      await eventually(() => latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2),
+      true,
+      "an invalid first decision dispatches a second leader under the same claim",
+    );
+    await scheduler.refresh();
+    const stillActive = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
+      readonly schedule: { readonly status: { readonly activeRun: { readonly claimFence: string } | null } };
+    };
+    assert.equal(
+      stillActive.schedule.status.activeRun?.claimFence,
+      state.subject.claimFence,
+      "scheduler recovery must leave Squad settlement to the coordinator after leader one exits",
+    );
+    assert.equal(existsSync(occurrenceCwd), true, "the second leader still owns its occurrence worktree");
+    const secondLeader = latestSquadStates(fixture.root).get(state.squadRunId)!.leaderTurns[1]!;
     fixture.finish(
-      state.leaderTurns[0]!.dispatchId,
+      secondLeader.dispatchId,
       JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "Schedule Squad converged." }),
     );
     assert.equal(

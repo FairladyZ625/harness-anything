@@ -1,3 +1,4 @@
+import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import {
@@ -496,7 +497,7 @@ export async function openRepoWriterCell(
       if (terminal.task) await settleExecutionLease(terminal);
       // A squad-owned scheduled dispatch settles its occurrence with the run, not with its
       // first leader session; the coordinator's terminal settlement owns the claim.
-      if (terminal.schedule && !projection.readRuntimeDispatchById(terminal.dispatchId)?.event.payload.squadRun)
+      if (terminal.schedule && scheduleOccurrenceSettlementOwner(projection, terminal.dispatchId) === "runtime-attempt")
         schedule(() => settleScheduledOutcome(terminal), terminal.binding);
       outcomeWaiters.notify();
       input.onAttemptTerminal?.(terminal);

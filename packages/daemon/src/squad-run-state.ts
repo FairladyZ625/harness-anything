@@ -1,4 +1,5 @@
 import { isTerminalStatus, validSquadRunSubject, type SquadRunSubjectV1, type TaskV2 } from "@harness-anything/kernel";
+import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
 import { readAllDispatchStreamSummaries } from "./dispatch-stream.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
@@ -67,22 +68,6 @@ export function validSquadRunId(value: unknown): value is string {
   return typeof value === "string" && /^squad_[a-f0-9]{24}$/u.test(value);
 }
 
-/**
- * Recorded run states carried their task execution as flat `taskId`/`executionId` before the
- * `subject` union; streams already on disk keep that shape, so the stream read maps them onto
- * the task subject branch before validation. New revisions always carry a subject.
- */
-function squadStateSubjectFromFlatIdentity(value: unknown): unknown {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
-  const row = value as Record<string, unknown>;
-  if (row.subject !== undefined || typeof row.taskId !== "string") return value;
-  const { taskId, executionId, ...rest } = row;
-  return {
-    ...rest,
-    subject: { kind: "task", taskId, ...(typeof executionId === "string" ? { executionId } : {}) },
-  };
-}
-
 export function squadState(value: unknown): SquadState | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Partial<SquadState>;
@@ -148,7 +133,7 @@ export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadSta
         continue;
       }
       if (record.kind !== "squad_run_state") continue;
-      const state = squadState(squadStateSubjectFromFlatIdentity(record.state));
+      const state = squadState(normalizeHistoricalSquadRunIdentity(record.state));
       if (!state) continue;
       const current = states.get(state.squadRunId);
       if (!current || current.revision < state.revision) states.set(state.squadRunId, state);

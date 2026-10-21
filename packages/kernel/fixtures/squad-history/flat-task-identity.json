@@ -1,0 +1,99 @@
+[
+  {
+    "actor": {
+      "principal": {
+        "personId": "fixture"
+      },
+      "executor": null
+    },
+    "eventId": "event-0000000000000000000000000000000000000000000000000000000000000001",
+    "occurredAt": "2026-10-08T03:17:57.255Z",
+    "opId": "historical-squad-1",
+    "payload": {
+      "agentId": "leader",
+      "agentName": "Fixture leader",
+      "attemptGroupId": "dispatch_000000000000000000000001",
+      "attemptIndex": 0,
+      "cwd": "/fixture/repo",
+      "definitionSnapshot": {
+        "authMode": "subscription",
+        "baseUrl": null,
+        "configVersion": 1,
+        "fast": false,
+        "installationId": "installation-stub",
+        "instanceId": "stub",
+        "kindId": "codex",
+        "model": "gpt-5.6-sol",
+        "providerId": "openai",
+        "reasoningEffort": "medium",
+        "schema": "agent-definition-snapshot/v1"
+      },
+      "definitionSnapshotRef": "artifact:runtime-definition/test",
+      "dispatchId": "dispatch_000000000000000000000001",
+      "executionId": "exe_000000000000000000000001",
+      "idempotencyKey": "squad_000000000000000000000001:leader:initial",
+      "installationId": "installation-stub",
+      "instanceId": "stub",
+      "kindId": "codex",
+      "runtimeSessionId": "runtime_000000000000000000000001",
+      "squadId": "fixture-squad",
+      "squadRun": {
+        "executionId": "exe_000000000000000000000001",
+        "leaderAgentId": "leader",
+        "mission": "Review fixture.",
+        "squadId": "fixture-squad",
+        "squadRunId": "squad_000000000000000000000001",
+        "taskId": "task_000000000000000000000001"
+      },
+      "startedAt": "2026-10-08T03:17:56.027Z",
+      "taskId": "task_000000000000000000000001"
+    },
+    "schema": "agent-runtime-event/v1",
+    "source": "local",
+    "type": "runtime_dispatch_requested",
+    "workspaceRevision": 150958
+  },
+  {
+    "actor": {
+      "principal": {
+        "personId": "fixture"
+      },
+      "executor": null
+    },
+    "eventId": "event-0000000000000000000000000000000000000000000000000000000000000002",
+    "occurredAt": "2026-10-08T03:17:58.411Z",
+    "opId": "historical-squad-2",
+    "payload": {
+      "currentLeaderRuntimeSessionId": "runtime_000000000000000000000001",
+      "error": null,
+      "executionId": "exe_000000000000000000000001",
+      "leaderAgentId": "leader",
+      "leaderTurns": [
+        {
+          "decision": null,
+          "dispatchId": "dispatch_000000000000000000000001",
+          "runtimeSessionId": "runtime_000000000000000000000001",
+          "trigger": {
+            "kind": "initial"
+          },
+          "turnId": "leader-1"
+        }
+      ],
+      "mission": "Review fixture.",
+      "ownerDispatchId": "dispatch_000000000000000000000001",
+      "pendingLeaderCallbackCount": 0,
+      "phase": "leader_running",
+      "runRevision": 1,
+      "squadId": "fixture-squad",
+      "squadRunId": "squad_000000000000000000000001",
+      "synthesisReportPath": null,
+      "taskId": "task_000000000000000000000001",
+      "workerAttempts": [],
+      "workerCallbackCount": 0
+    },
+    "schema": "agent-runtime-event/v1",
+    "source": "local",
+    "type": "runtime_squad_run_observed",
+    "workspaceRevision": 150960
+  }
+]

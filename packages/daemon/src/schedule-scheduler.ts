@@ -241,7 +241,10 @@ export function makeScheduleScheduler(input: {
       for (let schedule of schedules) {
         if (schedule.state !== "invalid") {
           const active = schedule.status.activeRun as ScheduleActiveRunV1 | null;
-          if (active?.runtimeSessionId) {
+          if (
+            active?.runtimeSessionId &&
+            (await cell.scheduleOccurrenceSettlementOwner(active.dispatchId)) === "runtime-attempt"
+          ) {
             let runtime: AgentRuntimeSessionResult | null = null;
             try {
               runtime = await target.readRuntimeSession(active.runtimeSessionId);

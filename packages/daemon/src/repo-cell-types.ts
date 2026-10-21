@@ -183,6 +183,10 @@ export type RepoCellTerminal = Omit<TerminalHost, "spawn" | "spawnTrusted" | "in
 };
 
 export interface RepoCell {
+  /** Settlement authority for the occurrence's linked dispatch, read from its accepted subject. */
+  readonly scheduleOccurrenceSettlementOwner: (
+    dispatchId: string | undefined,
+  ) => Promise<"runtime-attempt" | "squad-coordinator">;
   readonly hasBuiltinExecutor: (claimFence: string) => Promise<boolean>;
   readonly bootstrapReceipt?: RepoBootstrapReceipt;
   readonly run: (

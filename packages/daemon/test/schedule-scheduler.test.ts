@@ -1006,6 +1006,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
     },
   };
   const cell = {
+    scheduleOccurrenceSettlementOwner: async () => "runtime-attempt",
     hasBuiltinExecutor: async (fence: string) => fixture.liveBuiltinClaims.has(fence),
     status: () => ({
       repoId,

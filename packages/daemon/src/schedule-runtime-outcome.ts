@@ -1,4 +1,4 @@
-import type { ScheduleRunOutcome } from "@harness-anything/kernel";
+import type { TaskProjectionQueries, ScheduleRunOutcome } from "@harness-anything/kernel";
 import type { RuntimeExitOutcome } from "./runtime-provider-fault.ts";
 
 const outcomeProtocol = [
@@ -21,4 +21,14 @@ export function scheduleOutcomeFromRuntime(
   if (lastNonEmptyLine === "HARNESS-OUTCOME: succeeded") return "succeeded";
   if (lastNonEmptyLine === "HARNESS-OUTCOME: failed") return "failed";
   return "unknown";
+}
+
+/** The occurrence's dispatch subject owns settlement, even if its Schedule definition changes. */
+export function scheduleOccurrenceSettlementOwner(
+  projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById">,
+  dispatchId: string | undefined,
+): "runtime-attempt" | "squad-coordinator" {
+  return dispatchId && projection.readRuntimeDispatchById(dispatchId)?.event.payload.squadRun
+    ? "squad-coordinator"
+    : "runtime-attempt";
 }
