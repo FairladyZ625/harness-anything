@@ -96,6 +96,7 @@ interface Bridge {
   readonly repoAdmin: Record<string, ReturnType<typeof vi.fn>>;
   readonly firstRun: Record<string, ReturnType<typeof vi.fn>>;
   readonly centerSettings: Record<string, ReturnType<typeof vi.fn>>;
+  readonly access: Record<string, ReturnType<typeof vi.fn>>;
 }
 
 async function mountView(
@@ -103,18 +104,23 @@ async function mountView(
     readonly repos?: readonly SystemRepoRow[];
     readonly connections?: unknown;
     readonly probeResult?: unknown;
+    /** `null` models a machine with no login listener certificate configured yet. */
+    readonly listener?: CenterListenerSettings["listener"];
   } = {},
 ): Promise<{ container: HTMLElement; bridge: Bridge }> {
   let centerState: CenterListenerSettings = {
     ok: true,
     command: "rbac-listener",
     certificateMode: "self-signed",
-    listener: {
-      address: "127.0.0.1",
-      hostname: "127.0.0.1",
-      port: 8443,
-      certificateFile: "/tmp/self-signed.pem",
-    },
+    listener:
+      options.listener === undefined
+        ? {
+            address: "127.0.0.1",
+            hostname: "127.0.0.1",
+            port: 8443,
+            certificateFile: "/tmp/self-signed.pem",
+          }
+        : options.listener,
     version: "center-v1",
   };
   const bridge: Bridge = {
@@ -202,6 +208,25 @@ async function mountView(
         return centerState;
       }),
     },
+    access: {
+      groups: vi.fn(async () => ({
+        ok: true,
+        groups: [
+          {
+            id: "contributor",
+            displayName: "Contributor",
+            effectiveScopes: ["repo-read"],
+            version: "contributor-v1",
+          },
+        ],
+        actions: [],
+      })),
+      grants: vi.fn(async () => ({ ok: true, people: [], grants: [] })),
+      issueEdgeJoin: vi.fn(),
+      edgeJoinStatus: vi.fn(),
+      edgeJoinList: vi.fn(async () => ({ ok: true, joins: [] })),
+      revokeEdgeJoin: vi.fn(),
+    },
   };
   vi.stubGlobal("window", { harness: bridge });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -219,6 +244,7 @@ async function mountView(
           repos: options.repos ?? [localRepo, proxyRepo],
           activeRepoId: "local-repo",
           onOpenProject: () => undefined,
+          onJoinCenter: () => undefined,
         }),
       ),
     );
@@ -230,7 +256,9 @@ async function mountView(
 async function settle(rounds = 4): Promise<void> {
   for (let index = 0; index < rounds; index += 1)
     await act(async () => {
-      await Promise.resolve();
+      // 一轮 = 微任务 + 一次宏任务:react-query 的 queryFn 结果经由宏任务链落地,
+      // 只刷微任务会让依赖查询结果的详情面停在 loading。
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
     });
 }
 
@@ -343,6 +371,54 @@ describe("repositories and connections page", () => {
         .checked,
     ).toBe(true);
     expect(container.textContent).toContain("Login service certificate settings saved.");
+  });
+
+  it("shows one invite entry at the top that opens the invite form without visiting the center node", async () => {
+    const { container, bridge } = await mountView();
+    const entry = container.querySelector('[data-testid="invite-entry"]');
+    expect(entry?.textContent).toContain("Invite a member");
+    // The form is not on the page until the entry is used: no hidden duplicate invite surface.
+    expect(container.querySelector('[data-testid="edge-invite-issue"]')).toBeNull();
+    await click(container, "invite-entry-open");
+    await settle(8);
+    expect(container.querySelector('[data-testid="edge-invite-issue"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="edge-invite-person-select"]')).not.toBeNull();
+    // Reached without ever selecting the center node: the entry is the destination itself.
+    expect(container.querySelector('[data-testid="center-connection-panel"]')).toBeNull();
+    expect(bridge.centerSettings.listener).toHaveBeenCalled();
+  });
+
+  it("keeps the invite entry visible and explains the missing login certificate instead of hiding the form", async () => {
+    const { container } = await mountView({ listener: null });
+    await click(container, "invite-entry-open");
+    await settle(8);
+    const blocked = container.querySelector('[data-testid="invite-entry-blocked"]');
+    expect(blocked?.textContent).toContain("no login service certificate");
+    expect(blocked?.textContent).toContain("Configure the login service");
+    // The invite form is replaced by the explanation, not left dangling under it.
+    expect(container.querySelector('[data-testid="edge-invite-issue"]')).toBeNull();
+  });
+
+  it("sends the blocked invite entry to the panel that configures the login certificate", async () => {
+    const { container } = await mountView({ listener: null });
+    await click(container, "invite-entry-open");
+    await settle(8);
+    await click(container, "invite-entry-configure");
+    await settle(8);
+    expect(container.querySelector('[data-testid="center-connection-panel"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="center-certificate-save"]')).not.toBeNull();
+  });
+
+  it("counts repositories on the center row like every other connection row", async () => {
+    const { container } = await mountView();
+    for (const nodeId of ["local", "remote:server-b", "center"])
+      expect(
+        container.querySelector(`[data-testid="connection-node-count-${nodeId}"]`),
+        `${nodeId} 行没有仓库计数`,
+      ).not.toBeNull();
+    expect(container.querySelector('[data-testid="connection-node-count-local"]')?.textContent).toBe("1");
+    // 没有边缘/中心仓时中心行显示 0,而不是像分组标题那样什么都不显示。
+    expect(container.querySelector('[data-testid="connection-node-count-center"]')?.textContent).toBe("0");
   });
 
   it("registers a picked folder that already has a ledger instead of bootstrapping", async () => {
