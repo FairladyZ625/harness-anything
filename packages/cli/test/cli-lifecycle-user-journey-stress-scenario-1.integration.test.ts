@@ -140,11 +140,6 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         "## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
     await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", firstExecutionId], workerEnvironment);
-    await expectApplied(
-      fixture,
-      ["task", "adjudicate", taskId, "--forward", "--note", "Forward first stress cut."],
-      workerEnvironment,
-    );
     mkdirSync(path.join(packageRoot, "artifacts", "reports"), { recursive: true });
     writeFileSync(
       path.join(packageRoot, "artifacts", "reports", "cli-changes-requested.md"),
@@ -204,11 +199,6 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
     await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", secondExecutionId], workerEnvironment);
-    await expectApplied(
-      fixture,
-      ["task", "adjudicate", taskId, "--forward", "--note", "Forward second stress cut."],
-      workerEnvironment,
-    );
     writeFileSync(
       path.join(packageRoot, "artifacts", "reports", "cli-recovery-approved.md"),
       "# Review review-cli-recovery-approved\n\nThe second execution includes the requested verification note.\n",

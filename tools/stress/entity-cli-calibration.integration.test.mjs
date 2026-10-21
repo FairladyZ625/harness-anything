@@ -49,6 +49,7 @@ test(
           "--display-name",
           "Owner",
         ]);
+        f.invoke("setup.review-required-profile", ["settings", "update", "--closeout-profile", "strict"]);
         reader = makeTaskEventReader({ rootDir: f.root, repoId: "calibration" });
         const initial = reader.read();
         frame("cut-before", { seed, revision: initial.revision, eventCount: initial.events.length });
@@ -153,9 +154,6 @@ function taskChain(f, reader, index) {
       "## Same Mechanism Elsewhere\n\nTask report ownership.\n",
   );
   f.invoke("task.submit", ["task", "submit", taskId], { actor });
-  f.invoke("task.adjudicate", ["task", "adjudicate", taskId, "--forward", "--note", "Forward calibration cut."], {
-    actor,
-  });
   mkdirSync(path.join(f.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
   writeFileSync(
     path.join(f.root, "harness", packagePath, "artifacts", "reports", `${f.seed}-${index}.md`),

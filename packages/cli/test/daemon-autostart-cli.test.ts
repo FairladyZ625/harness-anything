@@ -988,6 +988,10 @@ test("semantic sources and agent execution cross the daemon before transport-bou
 
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
   register(fixture.root, fixture.userRoot, "executor-axis");
+  assert.equal(
+    run(fixture.root, fixture.userRoot, ["settings", "update", "--closeout-profile", "strict"]).outcome,
+    "applied",
+  );
   const created = run(fixture.root, fixture.userRoot, [
     "task",
     "create",
@@ -1050,15 +1054,6 @@ test("semantic sources and agent execution cross the daemon before transport-bou
   assert.equal(
     run(fixture.root, fixture.userRoot, ["task", "submit", taskId, "--execution-id", executionId], "agent:claude-code")
       .outcome,
-    "applied",
-  );
-  assert.equal(
-    run(
-      fixture.root,
-      fixture.userRoot,
-      ["task", "adjudicate", taskId, "--forward", "--note", "Forward daemon autostart cut."],
-      "agent:claude-code",
-    ).outcome,
     "applied",
   );
   assert.equal(

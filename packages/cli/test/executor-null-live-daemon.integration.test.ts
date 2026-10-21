@@ -82,6 +82,10 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
         .outcome,
       "applied",
     );
+    assert.equal(
+      run(root, userRoot, daemonId, ["settings", "update", "--closeout-profile", "strict"]).outcome,
+      "applied",
+    );
     const created = run(root, userRoot, daemonId, [
         "task",
         "create",
@@ -130,11 +134,6 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
     published(root, userRoot, daemonId, closeoutSync);
     assert.equal(
       run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId]).outcome,
-      "applied",
-    );
-    assert.equal(
-      run(root, userRoot, daemonId, ["task", "adjudicate", taskId, "--forward", "--note", "Forward executor-null cut."])
-        .outcome,
       "applied",
     );
     assert.equal(
