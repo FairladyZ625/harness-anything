@@ -18,6 +18,7 @@ const task = (
   updatedAt = "2026-09-20T00:00:00.000Z",
   packageDisposition: "active" | "archived" = "active",
   supersededBy: string | null = null,
+  presentedStatus: "planned" | "active" | "blocked" | "done" | "cancelled" | null = null,
 ) => ({
   taskId,
   parentTaskId,
@@ -32,6 +33,7 @@ const task = (
   supersededBy,
   packagePath: `tasks/${taskId}`,
   updatedAt,
+  presentedStatus,
 });
 
 const rows = [
@@ -223,19 +225,39 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
             snapshot: { task: { ...byId.get(taskId), metadata: { parentTaskId: byId.get(taskId)!.parentTaskId } } },
           }
         : { packagePath: null, snapshot: { task: null } },
-    readTaskIndex: (query: { workRootsOnly?: boolean; openOnly?: boolean } = {}) => ({
-      status: "ready",
-      rows: rowsFor.filter(
-        (row) =>
-          (!query.workRootsOnly ||
-            row.taskClass === "work" ||
-            (row.parentTaskId === null && rowsFor.some((candidate) => candidate.parentTaskId === row.taskId))) &&
-          (!query.openOnly || (row.status !== "done" && row.status !== "cancelled")),
-      ),
-      watermark: 7,
-      sourceRevision: 7,
-      warnings: [],
-    }),
+    readTaskIndex: (
+      query: {
+        workRootsOnly?: boolean;
+        openOnly?: boolean;
+        limit?: number;
+        presentationStatus?: boolean;
+      } = {},
+    ) => {
+      // Kernel contract (task-query-projection.ts): the SQL filters run on the raw event status,
+      // `limit` pages the task-id order and never ranks, and `presentationStatus` only swaps the
+      // displayed status for the subtree-derived one.
+      const matched = rowsFor
+        .filter(
+          (row) =>
+            (!query.workRootsOnly ||
+              row.taskClass === "work" ||
+              (row.parentTaskId === null && rowsFor.some((candidate) => candidate.parentTaskId === row.taskId))) &&
+            (!query.openOnly || (row.status !== "done" && row.status !== "cancelled")),
+        )
+        .sort((left, right) => (left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0))
+        .map((row) =>
+          query.presentationStatus === true && row.presentedStatus !== null
+            ? { ...row, status: row.presentedStatus }
+            : row,
+        );
+      return {
+        status: "ready" as const,
+        rows: query.limit === undefined ? matched : matched.slice(0, query.limit),
+        watermark: 7,
+        sourceRevision: 7,
+        warnings: [],
+      };
+    },
     readDocument: (documentPath: string) => {
       const taskId = /^tasks\/([^/]+)\/task_plan\.md$/u.exec(documentPath)?.[1] ?? "";
       return { document: plans[taskId] === undefined ? null : { body: plans[taskId] } };
@@ -259,7 +281,7 @@ test("a create receipt names the work it landed under by id and title", () => {
   );
 });
 
-test("a standalone create receipt lists the open work roots it could join, newest first", () => {
+test("a standalone create receipt lists the open work roots it could join", () => {
   assert.equal(
     workReceiptLine(receiptProjection(), { ...rows[6]!, metadata: { parentTaskId: null } } as never),
     [
@@ -301,11 +323,11 @@ test("receipt candidates rank works by title similarity and cap at three", () =>
     candidate("w_close", "Receipt rendering pipeline", "2026-09-24T00:00:00.000Z"),
     candidate("w_closest", "Receipt candidate ranking", "2026-09-23T00:00:00.000Z"),
     candidate("w_mid", "Receipt deduplication", "2026-09-22T00:00:00.000Z"),
-    candidate("w_also", "Receipt guidance text", "2026-09-21T00:00:00.000Z"),
+    candidate("w_also", "Guidance text appendix", "2026-09-21T00:00:00.000Z"),
   ];
   const line = workReceiptLine(receiptProjection(rankedRows), {
     ...rows[6]!,
-    title: "receipt candidate ordering",
+    title: "receipt candidate ranking pipeline",
     metadata: { parentTaskId: null },
   } as never);
   assert.equal(
@@ -335,4 +357,56 @@ test("receipt candidates match CJK titles through character bigrams", () => {
     line,
     /candidate works:\n- w_cjk 编排器派工回退治理: ha task move standalone --parent w_cjk\n- w_other storage rewrite: ha task move standalone --parent w_other/u,
   );
+});
+
+test("receipt candidates rank the whole open pool, so a late task id with the best title still tops three", () => {
+  const candidate = (taskId: string, title: string) => ({ ...task(taskId, null, "active", "work"), title });
+  // Eleven open roots with the closest title last in task-id order: a pool read through the index's
+  // paging `limit` could never rank it, which is exactly the cut this ranking must not make.
+  const rankedRows = [
+    candidate("w_00", "Receipt storage rewrite"),
+    candidate("w_01", "Receipt plumbing refactor"),
+    candidate("w_02", "Receipt deduplication"),
+    candidate("w_03", "Receipt guidance text"),
+    candidate("w_04", "Receipt cleanup"),
+    candidate("w_05", "Receipt archival"),
+    candidate("w_06", "Receipt rendering"),
+    candidate("w_07", "Receipt grouping"),
+    candidate("w_08", "Receipt candidate merge"),
+    candidate("w_09", "Unrelated storage rewrite"),
+    candidate("w_10", "Receipt candidate ranking"),
+  ];
+  const line = workReceiptLine(receiptProjection(rankedRows), {
+    ...rows[6]!,
+    title: "receipt candidate ranking pipeline",
+    metadata: { parentTaskId: null },
+  } as never);
+  assert.equal(
+    line,
+    [
+      "\nwork: none (standalone task)",
+      "candidate works:",
+      "- w_10 Receipt candidate ranking: ha task move standalone --parent w_10",
+      "- w_08 Receipt candidate merge: ha task move standalone --parent w_08",
+      "- w_00 Receipt storage rewrite: ha task move standalone --parent w_00",
+      "next: ha work list",
+    ].join("\n"),
+  );
+});
+
+test("receipt candidates skip works whose subtree finished, even while the root itself is still open", () => {
+  // Raw status planned, but every member is terminal: the kernel presents this root done, and a
+  // finished work must not be offered as a "move it now" target.
+  const finished = {
+    ...task("w_finished", null, "planned", "work", "2026-09-20T00:00:00.000Z", "active", null, "done"),
+    title: "Receipt candidate ranking",
+  };
+  const openRows = [finished, { ...task("w_open", null, "active", "work"), title: "Receipt candidate ranking" }];
+  const line = workReceiptLine(receiptProjection(openRows), {
+    ...rows[6]!,
+    title: "receipt candidate ranking",
+    metadata: { parentTaskId: null },
+  } as never);
+  assert.doesNotMatch(line, /w_finished/u);
+  assert.match(line, /- w_open Receipt candidate ranking: ha task move standalone --parent w_open/u);
 });
