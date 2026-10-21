@@ -91,6 +91,11 @@ export function NodeDetails({
         )}
       </DetailBlock>
       <DetailBlock title={t("collaboration.internalTitle")}>
+        <DetailLine
+          label={t("collaboration.fieldReason")}
+          value={reasonText(node.replicaReason)}
+          title={node.replicaReason}
+        />
         <FieldLine
           label={t("collaboration.fieldDaemon")}
           state={

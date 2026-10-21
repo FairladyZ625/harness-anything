@@ -191,6 +191,7 @@ test("edge fields the read surface cannot see are unavailable with a reason, nev
     { build: "unavailable", online: "unavailable", watch: "unavailable", lastFailure: "unavailable" },
   );
   assert.equal(edge.online.reason, "tls-session-fact-not-exposed");
+  assert.equal(edge.replicaReason, "replica-catching-up");
   // notes 是稳定 key=value 机器码;人话解释归 GUI i18n,daemon 不内嵌单语言文案。
   assert.deepEqual(result.notes, [
     "events-attribution=current-lease",
@@ -208,7 +209,20 @@ test("replica failure is carried to the node row while disconnected", () => {
   const result = buildFleetOverview(input({ replicas: [replica("cc90-ubuntu", { connected: false, syncFailure })] }));
   const edge = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
   assert.deepEqual(edge.replica?.syncFailure, syncFailure);
+  assert.equal(edge.replicaReason, "sync-failure:edge_upgrade_required");
+  assert.deepEqual(edge.lastFailure, { kind: "value", text: syncFailure.message });
   assert.deepEqual(validateFleetOverview(result), []);
+});
+
+test("replica reason remains center-observed when no failure text exists", () => {
+  const disconnected = buildFleetOverview(
+    input({ replicas: [replica("cc90-ubuntu", { connected: false, delivery: "delta", lagRevisions: 3 })] }),
+  ).nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
+  assert.equal(disconnected.replicaReason, "replica-disconnected");
+  assert.deepEqual(disconnected.lastFailure, {
+    kind: "unavailable",
+    reason: "no-replica-sync-failure-record-in-lifecycle-read",
+  });
 });
 
 test("events are attributed by the task's current lease, executor session join, else the center", () => {

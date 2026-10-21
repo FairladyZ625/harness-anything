@@ -34,6 +34,7 @@ function overview(): FleetOverview {
         leases: [],
         replica: null,
         replicaNote: null,
+        replicaReason: "center-local-writer",
         watch: { kind: "value", text: "local canonical writer" },
         lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
       },
@@ -74,6 +75,7 @@ function overview(): FleetOverview {
           delivery: "current",
         },
         replicaNote: null,
+        replicaReason: "replica-current",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
         lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
       },
@@ -99,6 +101,7 @@ function overview(): FleetOverview {
           delivery: "delta",
         },
         replicaNote: null,
+        replicaReason: "replica-catching-up",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
         lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
       },
@@ -124,6 +127,7 @@ function overview(): FleetOverview {
           delivery: "snapshot_required",
         },
         replicaNote: null,
+        replicaReason: "replica-snapshot-required",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
         lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
       },
@@ -190,6 +194,8 @@ test("fleet status render keeps honest three-state fields and never-acked visibl
     lines.some((line) => line.includes("commits=493/500 lagCommits=7") && line.includes("stream=disconnected")),
   );
   assert.ok(lines.some((line) => line.includes("ack=never-acked") && line.includes("ackedAt=never")));
+  assert.ok(lines.some((line) => line === "  reason replica-catching-up"));
+  assert.ok(lines.some((line) => line === "  reason replica-snapshot-required"));
   // redaction keeps its machine code instead of an empty cell.
   assert.ok(lines.some((line) => line.includes("doing leases redacted (insufficient_scope)")));
   assert.ok(lines.some((line) => line.includes("owner redacted (authorization_denied)")));
