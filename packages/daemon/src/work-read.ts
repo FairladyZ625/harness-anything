@@ -97,9 +97,13 @@ const WORK_RECEIPT_CANDIDATE_LIMIT = 3,
  * a work whose subtree all finished never poses as a "move it now" target even while its raw root
  * status is still planned/active — the same rule `workListFromProjection` applies. `requireOverlap`
  * keeps a landed task's receipt quiet unless some other work actually shares words with the title;
- * a standalone create always hears the open roots. The pool is every open work root: the index's
- * `limit` pages by task id, so ranking a limited read would silently hide most of the ledger behind
- * its earliest ids. Titles screen first — no document reads — and only the shortlist reads
+ * a standalone create always hears the open roots. The pool is every open work root — derived
+ * locally with the same `isWorkRoot` rule as `workRows` over one whole active-ledger read, because
+ * the task's own subtree must be excluded and a roots-only read cannot see the ancestry between
+ * roots. Moving a task under itself or any descendant is always a parent_cycle rejection, and the
+ * created task is itself a root at receipt time (a nested work create) or by replay (a standalone
+ * task that grew child works), so self-subtree candidates would rank first on a perfect title
+ * match and always fail. Titles screen first — no document reads — and only the shortlist reads
  * task_plan.md goals for a repriced rank, so goal-only matches surface without one document read
  * per work root. Equal scores keep the index's task-id order.
  */
@@ -111,17 +115,33 @@ function candidateWorkLines(
   requireOverlap: boolean,
 ): string[] {
   const titleTokens = workReceiptTokens(taskTitle),
-    shortlist = projection
-      .readTaskIndex({
-        workRootsOnly: true,
-        openOnly: true,
-        activePackagesOnly: true,
-        presentationStatus: true,
-      })
-      .rows.filter((row) => row.taskId !== excludeTaskId && !isTerminalStatus(row.status))
-      .map((row) => ({ row, titleScore: workReceiptOverlap(titleTokens, workReceiptTokens(row.title)) }))
-      .sort((left, right) => right.titleScore - left.titleScore)
-      .slice(0, WORK_RECEIPT_CANDIDATE_POOL);
+    rows = projection.readTaskIndex({ activePackagesOnly: true, presentationStatus: true }).rows,
+    children = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.parentTaskId === null) continue;
+    const siblings = children.get(row.parentTaskId);
+    if (siblings) siblings.push(row.taskId);
+    else children.set(row.parentTaskId, [row.taskId]);
+  }
+  const excluded = new Set<string>(excludeTaskId === null ? [taskId] : [taskId, excludeTaskId]),
+    walk = [taskId];
+  while (walk.length) {
+    for (const child of children.get(walk.pop()!) ?? [])
+      if (!excluded.has(child)) {
+        excluded.add(child);
+        walk.push(child);
+      }
+  }
+  const shortlist = rows
+    .filter(
+      (row) =>
+        !excluded.has(row.taskId) &&
+        isWorkRoot(row.taskClass, row.parentTaskId, children.get(row.taskId)?.length ?? 0) &&
+        !isTerminalStatus(row.status),
+    )
+    .map((row) => ({ row, titleScore: workReceiptOverlap(titleTokens, workReceiptTokens(row.title)) }))
+    .sort((left, right) => right.titleScore - left.titleScore)
+    .slice(0, WORK_RECEIPT_CANDIDATE_POOL);
   return shortlist
     .map(({ row, titleScore }) => ({
       row,
