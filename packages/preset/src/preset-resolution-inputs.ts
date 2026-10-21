@@ -5,26 +5,53 @@ import type { CapabilityRefV1, PresetProfileV3, PresetTaskManifestV3 } from "./p
 /** Capability imports carry an optional `required` flag; only resolution reads it. */
 export type CapabilityImport = CapabilityRefV1 & { readonly required?: boolean };
 
-/** Walks `extends` from the selected package up to its root, in resolution order. */
-export function resolveAncestry(
+export type PresetAncestry =
+  | { readonly ok: true; readonly ancestry: readonly Candidate[] }
+  | { readonly ok: false; readonly error: PresetFailure };
+
+/** The throwing form used by resolution: a broken chain aborts that one preset. */
+export function requireAncestry(
   catalog: ReadonlyMap<string, Candidate>,
   selected: Candidate,
   verticalId: string,
-): Candidate[] {
+): readonly Candidate[] {
+  const result = presetAncestry(catalog, selected, verticalId);
+  if (!result.ok) throw result.error;
+  return result.ancestry;
+}
+
+/**
+ * Walks `extends` from the selected package up to its root, in resolution order. A broken chain is
+ * returned as the failure `resolve()` reports, so a caller that lists a whole catalog can downgrade
+ * that one entry instead of failing every list.
+ */
+export function presetAncestry(
+  catalog: ReadonlyMap<string, Candidate>,
+  selected: Candidate,
+  verticalId: string,
+): PresetAncestry {
   const ancestry: Candidate[] = [],
     seen = new Set<string>();
   let current: Candidate | undefined = selected;
   while (current) {
-    if (seen.has(current.id)) throw presetFailure("extends_cycle", `Preset extends cycle includes ${current.id}.`);
+    if (seen.has(current.id))
+      return {
+        ok: false,
+        error: presetFailure("extends_cycle", `Preset extends cycle includes ${current.id}.`),
+      };
     seen.add(current.id);
     ancestry.unshift(current);
     const parentId = current.decoded!.manifest.extends;
-    if (!parentId) break;
+    if (!parentId) return { ok: true, ancestry };
     const parent = catalog.get(key(verticalId, parentId));
-    if (!parent?.decoded) throw presetFailure("missing_parent", `Preset parent ${parentId} is missing or invalid.`);
+    if (!parent?.decoded)
+      return {
+        ok: false,
+        error: presetFailure("missing_parent", `Preset parent ${parentId} is missing or invalid.`),
+      };
     current = parent;
   }
-  return ancestry;
+  return { ok: true, ancestry };
 }
 
 /** The presets of one vertical whose manifest declares a profile id, in id order. */

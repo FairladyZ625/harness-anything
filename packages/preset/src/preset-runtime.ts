@@ -12,7 +12,7 @@ import {
   presetAvailability,
   presetsDeclaringProfile,
   providerIndex,
-  resolveAncestry,
+  requireAncestry,
 } from "./preset-resolution-inputs.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
 import { file, presetPackageScripts } from "./preset-package.ts";
@@ -26,7 +26,6 @@ import {
   resolverContentHash,
 } from "./preset-resolver-common.ts";
 import type {
-  Candidate,
   InternalPresetResolution,
   OwnedEntrypoint,
   PresetResolverOptions,
@@ -37,7 +36,6 @@ import type {
   CanonicalPresetResolver,
   ExecutablePackageHandle,
   PresetResolveResultV1,
-  PresetTaskManifestV3,
   ResolvePresetRequestV1,
   FrozenCompletionPackage,
 } from "./preset.contract.ts";
@@ -59,7 +57,7 @@ export function createRuntime(options: PresetResolverOptions): {
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
     assertCanonicalVertical(assets, request.verticalId);
     if (!selected) throw missingPresetFailure(inventory, request.verticalId, request.presetId, assets.providers);
-    const ancestry = resolveAncestry(inventory, selected, request.verticalId),
+    const ancestry = requireAncestry(inventory, selected, request.verticalId),
       manifests = ancestry.map((item) => item.decoded!.manifest);
     for (const manifest of manifests)
       if (

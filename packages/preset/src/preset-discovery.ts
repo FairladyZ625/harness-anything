@@ -4,10 +4,9 @@ import {
   missingProviderFailure,
   presetAvailability,
   providerIndex,
-  resolveAncestry,
+  presetAncestry,
 } from "./preset-resolution-inputs.ts";
 import {
-  asFailure,
   defaultAssets,
   key,
   normalizeLocale,
@@ -178,13 +177,15 @@ export function listCatalogWithAvailability(
     if (entry.validity !== "valid") return entry;
     const candidate = catalog.get(key(verticalId, entry.id));
     if (!candidate?.decoded) return entry;
-    let ancestry: readonly Candidate[];
-    try {
-      ancestry = resolveAncestry(catalog, candidate, verticalId);
-    } catch (error) {
-      return catalogBlocked(entry, asFailure(error));
-    }
-    const { missingProviderIds } = presetAvailability({ catalog, verticalId, ancestry, providers: providerMap });
+    // A broken chain blocks this one entry; it never aborts the whole list.
+    const walk = presetAncestry(catalog, candidate, verticalId);
+    if (!walk.ok) return catalogBlocked(entry, walk.error);
+    const { missingProviderIds } = presetAvailability({
+      catalog,
+      verticalId,
+      ancestry: walk.ancestry,
+      providers: providerMap,
+    });
     if (!missingProviderIds.length) return entry;
     const failure = missingProviderFailure(missingProviderIds);
     return {
