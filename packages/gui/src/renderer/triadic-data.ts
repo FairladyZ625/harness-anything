@@ -214,8 +214,8 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 /**
  * Read the complete relation set before classifying graph membership.
  * A failed page rejects the whole read; partial edges cannot prove isolation.
- * 排空循环在 drainCursorPages 唯一实现(与 agenda 同族):沿服务端游标读到末页;
- * 重复游标异常抛错,不发布部分边集。
+ * 排空策略在 cursorStep 唯一实现(daemon 协议导出,gui 壳 drainCursorPages 与 agenda
+ * 同族):沿服务端游标读到末页;重复游标异常抛错,不发布部分边集。
  */
 export async function readCompleteRelationGraph(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,

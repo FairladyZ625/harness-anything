@@ -214,8 +214,9 @@ function asksByWorkRoot(
   agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult,
   principalId: string | undefined,
 ): ReadonlyMap<string, AgendaAwaitsRow[]> {
-  // 「等你」行的扫取:沿服务端游标排空到末页,与 #3869 的关系图完整读同法(同步形
-  // 见 ./paginated-read.ts);重复游标表示异常循环,抛错且不发布部分读面。
+  // 「等你」行的扫取:沿服务端游标排空到末页,与 #3869 的关系图完整读同一策略
+  // (cursorStep,同步壳见 ./paginated-read.ts);重复游标表示异常循环,抛错且不发布
+  // 部分读面。
   const asks: readonly AgendaAwaitsRow[] =
     principalId === undefined
       ? []
