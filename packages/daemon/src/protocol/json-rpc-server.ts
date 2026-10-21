@@ -860,20 +860,17 @@ export function createJsonRpcProtocolServer(options: {
         if (!handshaken || options.authContext.connectionSignal?.aborted) releaseHello();
       }
     }
-    if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail") {
+    if (isDaemonParkedWaitMethod(method) || fleetAwait) {
       const admitted = !drainActive() || (helloPending && helloContinuationAdmitted);
       releaseHello();
-      if (isDaemonParkedWaitMethod(method) || fleetAwait) {
-        // Register abandonment around authentication as well as the host read: neither phase owns work.
-        const response = await raceParkedWait(
-          run(request, frameReceivedAt, admitted),
-          parkedWaitAborts,
-          options.authContext.connectionSignal,
-          options.host.parkedWaitSignal,
-        );
-        return response === parkedWaitAbandoned ? undefined : response;
-      }
-      return run(request, frameReceivedAt, admitted);
+      // Register abandonment around authentication as well as the host read: neither phase owns work.
+      const response = await raceParkedWait(
+        run(request, frameReceivedAt, admitted),
+        parkedWaitAborts,
+        options.authContext.connectionSignal,
+        options.host.parkedWaitSignal,
+      );
+      return response === parkedWaitAbandoned ? undefined : response;
     }
     // Transfer the reservation without a zero-work interval before dispatching the next frame.
     const admittedHelloContinuation = helloPending && helloContinuationAdmitted,
