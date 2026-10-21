@@ -1,6 +1,5 @@
-import { closeSync, fstatSync, readSync } from "node:fs";
 import type { TaskProjection } from "@harness-anything/kernel";
-import { dispatchStreamPath, openDispatchStreamForRead, parseRecord } from "./dispatch-stream.ts";
+import { dispatchStreamPath, readLatestStreamRecord } from "./dispatch-stream.ts";
 
 /**
  * How full a session's context window currently is, as its provider reports it.
@@ -22,7 +21,6 @@ export type ContextOccupancy = {
  * 3.4 MB stream), so the backward scan normally stops inside its first chunk. The 2 MiB bound
  * matches the settled-metrics probe and keeps a pathological stream from an end-to-end scan. */
 const occupancyProbeBytes = 2 * 1024 * 1024;
-const occupancyChunkBytes = 64 * 1024;
 
 export function readRuntimeSessionContextOccupancy(
   projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch">,
@@ -39,36 +37,12 @@ export function readRuntimeSessionContextOccupancy(
  * vocabulary carries no window (or the stream is gone). */
 export function readDispatchContextOccupancy(rootDir: string, dispatchId: string): ContextOccupancy | null {
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return null;
-  const descriptor = openDispatchStreamForRead(dispatchStreamPath(rootDir, dispatchId));
-  if (descriptor === null) return null;
-  try {
-    const size = fstatSync(descriptor).size,
-      floor = Math.max(0, size - occupancyProbeBytes);
-    for (let end = size; end > floor; ) {
-      const start = Math.max(floor, end - occupancyChunkBytes),
-        length = end - start;
-      if (length <= 0) break;
-      const bytes = Buffer.alloc(length);
-      readSync(descriptor, bytes, 0, length, start);
-      const occupancy = newestOccupancyInChunk(bytes, start === 0);
-      if (occupancy !== null) return occupancy;
-      end = start;
-    }
-  } finally {
-    closeSync(descriptor);
-  }
-  return null;
-}
-
-/** Newest occupancy in one byte chunk; `wholeFile` marks a chunk that may start a line, while a
- * mid-file chunk begins in the middle of a record whose parse would be a false negative. */
-function newestOccupancyInChunk(bytes: Buffer, wholeFile: boolean): ContextOccupancy | null {
-  const lines = bytes.toString("utf8").split("\n");
-  for (let index = lines.length - 1; index >= (wholeFile ? 0 : 1); index -= 1) {
-    const occupancy = occupancyOfStreamRecord(parseRecord(lines[index]));
-    if (occupancy !== null) return occupancy;
-  }
-  return null;
+  return readLatestStreamRecord(
+    dispatchStreamPath(rootDir, dispatchId),
+    occupancyProbeBytes,
+    ["provider_event", "runtime_metrics"],
+    occupancyOfStreamRecord,
+  );
 }
 
 /** Occupancy of one persisted stream record, in any of the shapes providers produce. */

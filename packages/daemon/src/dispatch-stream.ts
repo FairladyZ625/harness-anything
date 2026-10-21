@@ -426,12 +426,13 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     }
   }
   if (value.runtimeMetrics === null) {
-    const runtimeMetrics = readLatestRecordOfKind(
+    const runtimeMetrics = readLatestStreamRecord(
       target,
-      "runtime_metrics",
-      Math.max(0, stat.size - summaryMetricsProbeLimitBytes),
+      summaryMetricsProbeLimitBytes,
+      ["runtime_metrics"],
+      (record) => (isRuntimeMetrics(record) ? record : null),
     );
-    if (runtimeMetrics && isRuntimeMetrics(runtimeMetrics)) records.push(runtimeMetrics);
+    if (runtimeMetrics) records.push(runtimeMetrics);
   }
   return summarizeDispatch(header, records, stat.mtimeMs);
 }
@@ -969,30 +970,92 @@ function readStreamRecordOfKindForward(
   return null;
 }
 
-function readLatestRecordOfKind(target: string, kind: string, start: number): Record<string, unknown> | null {
-  const descriptor = requiredDispatchStreamForRead(target),
-    size = fstatSync(descriptor).size,
-    marker = Buffer.from(`"kind":"${kind}"`),
-    chunkSize = 64 * 1024;
+// A usage frame is a few hundred bytes and a runtime_metrics record is under 1 KiB; a JSONL line
+// larger than this is a provider transcript payload, never the latest record either caller wants.
+// Buffering one just to fail JSON would bound nothing, so an oversized line yields no candidate.
+const maxScannedRecordBytes = 512 * 1024;
+
+/**
+ * Latest JSON-lines record within `probeBytes` of EOF whose kind is one of `kinds` and for which
+ * `select` returns non-null, scanning newest to oldest in 64 KiB chunks. Kind markers gate the
+ * parse, so provider transcript payloads — the vast majority of a stream — are never decoded.
+ *
+ * The newest record can straddle a chunk's start: its `"kind"` marker sits in the older chunk and
+ * its tail opens this one. Reading that tail as a record, or skipping it, falls back to an older
+ * frame and reports stale data, so that line is resolved from its true line start and read forward
+ * to its newline. It runs last within its chunk because it precedes every record starting inside
+ * the chunk. Returns null when the stream is absent or holds no matching record.
+ */
+export function readLatestStreamRecord<T>(
+  target: string,
+  probeBytes: number,
+  kinds: readonly string[],
+  select: (record: Record<string, unknown>) => T | null,
+): T | null {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const size = fstatSync(descriptor).size,
+    floor = Math.max(0, size - probeBytes),
+    chunkSize = 64 * 1024,
+    markers = kinds.map((kind) => Buffer.from(`"kind":"${kind}"`)),
+    overlap = Math.max(...markers.map((marker) => marker.length)) - 1,
+    readLineAt = (offset: number): T | null => {
+      const line = readRecordLine(descriptor, offset, size);
+      const record = line === null ? null : parseRecord(line.toString("utf8"));
+      return record === null ? null : select(record);
+    };
   try {
-    for (let end = size; end > start; ) {
-      const chunkStart = Math.max(start, end - chunkSize),
-        length = end - chunkStart,
-        bytes = Buffer.alloc(length),
-        read = readSync(descriptor, bytes, 0, length, chunkStart),
-        markerOffset = bytes.subarray(0, read).lastIndexOf(marker);
-      if (markerOffset !== -1) {
-        const lineStart = bytes.lastIndexOf(10, markerOffset) + 1,
-          lineEnd = bytes.indexOf(10, markerOffset);
-        if (lineEnd !== -1) return parseRecord(bytes.subarray(lineStart, lineEnd).toString("utf8"));
+    for (let end = size; end > floor; ) {
+      const chunkStart = Math.max(floor, end - chunkSize),
+        bytes = Buffer.alloc(end - chunkStart),
+        read = readSync(descriptor, bytes, 0, bytes.length, chunkStart),
+        chunk = bytes.subarray(0, read),
+        lineStarts = new Set<number>();
+      for (const marker of markers)
+        for (let at = chunk.lastIndexOf(marker); at !== -1; at = chunk.lastIndexOf(marker, at - 1))
+          lineStarts.add(chunkStart + chunk.lastIndexOf(10, at) + 1);
+      for (const start of [...lineStarts].sort((left, right) => right - left)) {
+        const value = readLineAt(start);
+        if (value !== null) return value;
       }
-      if (chunkStart === start) break;
-      end = chunkStart + marker.length - 1;
+      // The record whose marker sits in the older chunk is older than every in-chunk record.
+      if (chunkStart > 0) {
+        const value = readLineAt(recordLineStartBefore(descriptor, chunkStart));
+        if (value !== null) return value;
+      }
+      if (chunkStart === floor) break;
+      // Overlap the next chunk so a marker split across the edge is still found whole.
+      end = chunkStart + overlap;
     }
   } finally {
     closeSync(descriptor);
   }
   return null;
+}
+
+/** Start offset of the record containing byte `boundary - 1`, found by walking back to the
+ * preceding newline. The file head is a line start by definition; a line longer than the scan cap
+ * is not a record either caller looks for, so it starts at its own truncated head. */
+function recordLineStartBefore(descriptor: number, boundary: number): number {
+  const length = Math.min(maxScannedRecordBytes, boundary),
+    bytes = Buffer.alloc(length),
+    read = readSync(descriptor, bytes, 0, length, boundary - length);
+  if (read === 0) return boundary;
+  const newline = bytes.subarray(0, read).lastIndexOf(10);
+  return newline !== -1 ? boundary - length + newline + 1 : boundary - length === 0 ? 0 : boundary;
+}
+
+/** One record line starting at `offset`, reading past the chunk edge to its newline. A line with
+ * no newline before EOF is a complete final record; one longer than the scan cap is not a record
+ * either caller looks for and yields null. */
+function readRecordLine(descriptor: number, offset: number, size: number): Buffer | null {
+  const length = Math.min(maxScannedRecordBytes, size - offset),
+    bytes = Buffer.alloc(length),
+    read = readSync(descriptor, bytes, 0, length, offset);
+  if (read === 0) return null;
+  const newline = bytes.subarray(0, read).indexOf(10);
+  if (newline !== -1) return bytes.subarray(0, bytes[newline - 1] === 13 ? newline - 1 : newline);
+  return offset + read === size ? bytes.subarray(0, read) : null;
 }
 
 /** Read-only descriptor for a live or archived stream; the caller closes it. */

@@ -44,7 +44,6 @@ export function ContextMeter({
   highWaterRatio = CONTEXT_HIGH_WATER,
   dangerRatio = CONTEXT_DANGER,
   testId,
-  compact = false,
 }: {
   readonly segments: readonly ContextSegment[];
   /** 上下文窗口上限(Token),只接受 provider 自报值;省略即组成占比口径。 */
@@ -52,8 +51,6 @@ export function ContextMeter({
   readonly highWaterRatio?: number;
   readonly dangerRatio?: number;
   readonly testId?: string;
-  /** Inline readout + bar for dense list rows; the meter retains its full accessible value. */
-  readonly compact?: boolean;
 }) {
   const used = segments.reduce((sum, segment) => sum + segment.tokens, 0);
   // 口径由是否给了上限决定,不由上限是否为正决定:provider 报 0 仍是窗口口径(只是分母退化),
@@ -72,17 +69,11 @@ export function ContextMeter({
         : "var(--color-text-muted)";
   const visible = segments.filter((segment) => segment.tokens > 0);
   const readout = windowed
-    ? compact
-      ? percentText(ratio)
-      : `${compactTokens(used)} / ${compactTokens(denominator)} · ${percentText(ratio)}`
+    ? `${compactTokens(used)} / ${compactTokens(denominator)} · ${percentText(ratio)}`
     : compactTokens(used);
 
   return (
-    <div
-      data-testid={testId}
-      data-context-level={level ?? undefined}
-      className={`flex min-w-0 ${compact ? "items-center gap-2" : "flex-col gap-1"}`}
-    >
+    <div data-testid={testId} data-context-level={level ?? undefined} className="flex min-w-0 flex-col gap-1">
       <div
         // 无窗口就没有可报的水位:meter 角色会谎称一个 0-100% 的刻度,故只在窗口口径下出现。
         {...(windowed
@@ -106,15 +97,13 @@ export function ContextMeter({
               tabIndex: 0,
             }
           : {})}
-        className={`flex min-w-0 items-baseline gap-2 font-mono tabular-nums ui-micro ${
-          compact ? "shrink-0 whitespace-nowrap" : "justify-between"
-        }`}
+        className="flex min-w-0 items-baseline justify-between gap-2 font-mono tabular-nums ui-micro"
       >
         <span style={{ color: levelColor }}>{readout}</span>
       </div>
       <div
         aria-hidden
-        className={`h-1.5 ${compact ? "min-w-0 flex-1" : "w-full"} overflow-hidden rounded-xs border border-border`}
+        className="h-1.5 w-full overflow-hidden rounded-xs border border-border"
         style={{ background: "var(--color-surface-raised)" }}
       >
         <div className="flex h-full w-full">
@@ -135,7 +124,7 @@ export function ContextMeter({
           ))}
         </div>
       </div>
-      {!compact && visible.length > 0 && (
+      {visible.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 ui-micro text-text-faint">
           {visible.map((segment) => (
             <span key={segment.kind} className="inline-flex items-center gap-1">

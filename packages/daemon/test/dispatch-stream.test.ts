@@ -1035,3 +1035,48 @@ test("a held-descriptor appender lands schema-tagged records and reopens after c
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("a settled runtime_metrics record straddling the backward-probe edge is still the one read", () => {
+  // The summary recovers runtime_metrics when its head/tail windows missed it. The newest record
+  // may start in an older 64 KiB chunk with only its tail opening the chunk under the probe, so
+  // the scan must resolve it from its true line start instead of returning the record before it.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-metrics-straddle-"));
+  try {
+    const dispatchId = "dispatch_dddddddddddddddddddddddd",
+      writer = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: "task-straddle",
+        executionId: "execution-straddle",
+        runtimeSessionId: "runtime_dddddddddddddddddddddddd",
+        instanceId: "instance-1",
+        startedAt: "2026-09-15T00:00:00.000Z",
+      });
+    const metrics = (totalTokens: number) => ({
+        inputTokens: totalTokens,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        totalTokens,
+        toolCallCount: 0,
+        compacted: false,
+        raw: { pad: "m".repeat(700) },
+      }),
+      filler = (bytes: number) => ({ kind: "provider_event", event: { text: "f".repeat(bytes) } }),
+      target = dispatchStreamPath(rootDir, dispatchId);
+    writer.appendRuntimeMetrics?.(metrics(111), "2026-09-15T00:01:00.000Z");
+    for (let index = 0; index < 420; index += 1) appendRuntimeWorkerRecord(rootDir, dispatchId, filler(300));
+    const newestOffset = statSync(target).size;
+    writer.appendRuntimeMetrics?.(metrics(222), "2026-09-15T00:02:00.000Z");
+    const newestLength = statSync(target).size - newestOffset;
+    assert.ok(newestLength > 700, "the seeded record must be long enough to straddle a chunk edge");
+    // Pad until EOF - 64 KiB falls inside the newest record, just after its opening braces.
+    for (let pads = 0; pads < 4_000; pads += 1) {
+      const edge = statSync(target).size - 64 * 1024;
+      if (edge > newestOffset + 20 && edge < newestOffset + newestLength - 20) break;
+      appendRuntimeWorkerRecord(rootDir, dispatchId, filler(200));
+    }
+    const summary = readDispatchStreamSummary(rootDir, dispatchId);
+    assert.equal(summary?.runtimeMetrics?.totalTokens, 222);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

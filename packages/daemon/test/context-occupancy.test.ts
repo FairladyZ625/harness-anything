@@ -46,6 +46,32 @@ const acpUsage = (used: number, size: number): string =>
     },
   });
 
+/** Non-usage provider output of exactly `bytes` so a stream can be padded to a chosen size. */
+function filler(occurredAt: string, bytes: number): string {
+  const base = JSON.stringify({
+    schema: "runtime-dispatch-stream/v1",
+    kind: "provider_event",
+    occurredAt,
+    event: { type: "assistant", text: "" },
+  });
+  return base.replace('"text":""', `"text":"${"x".repeat(bytes - Buffer.byteLength(base))}"`);
+}
+
+/** Stream whose newest usage frame straddles the 64 KiB chunk edge the backward probe reads.
+ * Older genuine frames sit before it, which is what a buggy scan falls back to. */
+function straddlingStream(newest: string, older: readonly string[]): string {
+  const chunkBytes = 64 * 1024,
+    before = [filler("2026-10-21T00:02:00.000Z", 3_000), ...older];
+  // Pad until EOF - 64 KiB lands 20 bytes inside the newest frame, so its tail opens the chunk.
+  for (let pads = 0; pads < 4_000; pads += 1) {
+    const lines = [...before, newest, ...Array.from({ length: pads }, () => filler("2026-10-21T00:03:00.000Z", 200))],
+      head = Buffer.byteLength([...before].join("\n") + "\n"),
+      edge = Buffer.byteLength(lines.join("\n") + "\n") - chunkBytes;
+    if (edge > head + 20 && edge < head + Buffer.byteLength(newest) - 20) return streamRoot(lines);
+  }
+  throw new Error("could not place the chunk edge inside the newest frame");
+}
+
 test("ACP usage_update frames report the fill the provider measured, not a cumulative total", () => {
   const rootDir = streamRoot([acpUsage(9_603, 1_000_000), acpUsage(243_138, 1_000_000)]);
   try {
@@ -109,6 +135,21 @@ test("a torn or foreign line never fabricates a reading", () => {
     assert.deepEqual(occupancy, { usedTokens: 5_000, windowTokens: 200_000 });
     assert.equal(readDispatchContextOccupancy(rootDir, "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb"), null);
     assert.equal(readDispatchContextOccupancy(rootDir, "dispatch-not-an-id"), null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the newest usage frame wins when it straddles a backward-probe chunk edge", () => {
+  // The reader walks the tail in 64 KiB chunks. The newest frame started in an older chunk, so
+  // its tail opens this chunk: reading that tail as a line (or skipping it) falls back to the
+  // older frame and reports stale fill.
+  const rootDir = straddlingStream(acpUsage(243_138, 1_000_000), [acpUsage(1_000, 1_000_000)]);
+  try {
+    assert.deepEqual(readDispatchContextOccupancy(rootDir, dispatchId), {
+      usedTokens: 243_138,
+      windowTokens: 1_000_000,
+    });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
