@@ -107,9 +107,11 @@ test("the lane keys off the same cut with the agent as its own segment", () => {
     iteration: 2,
     submission: submission(["packages/kernel/src/domain/settings.ts"]),
   } as unknown as ExecutionV1;
-  const key = reviewLaneDispatchKey("data-migration", "task-path-lane", execution);
+  const key = reviewLaneDispatchKey("data-migration", "task-path-lane", execution),
+    cutKey = reviewDispatchKey("task-path-lane", execution, "reviewer-a");
   assert.match(key, /^task-review-lane:data-migration:task-path-lane:execution-path-lane:2:sha256:[0-9a-f]{64}$/u);
-  assert.notEqual(key, reviewDispatchKey("task-path-lane", execution));
+  assert.ok(cutKey.endsWith(":reviewer:reviewer-a"));
+  assert.notEqual(key, cutKey);
   assert.notEqual(key, reviewLaneDispatchKey("gui-reviewer", "task-path-lane", execution));
 });
 

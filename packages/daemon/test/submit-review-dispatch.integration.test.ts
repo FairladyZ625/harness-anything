@@ -622,6 +622,7 @@ test(
       assert.equal(typeof step.dispatchId, "string", JSON.stringify(amended));
       const dispatch = reviewDispatches().at(-1)!;
       assert.ok(dispatch.type === "runtime_dispatch_requested");
+      assert.ok(dispatch.payload.dispatchKey.endsWith(":reviewer:closeout-reviewer"));
       const shown = await f
         .cell()
         .run(

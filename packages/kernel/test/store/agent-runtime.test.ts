@@ -253,6 +253,48 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
   });
 });
 
+test("historical reviewer dispatch is indexed under its reviewer-qualified key without changing identity", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "test-repo", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store });
+    const dispatch = eventFromProviderWitness(
+      {
+        type: "runtime_dispatch_requested",
+        payload: {
+          ...(witness("runtime_dispatch_requested").payload as Record<string, unknown>),
+          dispatchId: "dispatch-original",
+          runtimeSessionId: "runtime-original",
+          dispatchKey: `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}`,
+          role: "reviewer",
+          agentId: "reviewer-b",
+          taskId: "task-a",
+          executionId: "execution-a",
+          reviewTarget: {
+            kind: "task",
+            taskId: "task-a",
+            executionId: "execution-a",
+            digest: `sha256:${"a".repeat(64)}`,
+          },
+        },
+      },
+      envelope(1),
+    );
+    assert.ok(dispatch);
+    if (!dispatch || dispatch.type !== "runtime_dispatch_requested") return;
+    store.append(bundle(dispatch));
+    projection.apply(dispatch);
+    const oldKey = dispatch.payload.dispatchKey,
+      newKey = `${oldKey}:reviewer:${dispatch.payload.agentId}`;
+    assert.equal(projection.readRuntimeDispatchByDispatchKey(oldKey), null);
+    const projected = projection.readRuntimeDispatchByDispatchKey(newKey)?.event;
+    assert.equal(projected?.opId, dispatch.opId);
+    assert.equal(projected?.payload.dispatchId, dispatch.payload.dispatchId);
+    assert.equal(projected?.payload.runtimeSessionId, dispatch.payload.runtimeSessionId);
+    projection.close();
+  });
+});
+
 test("projection reopen and rebuild preserve accepted session observations without growing the canonical log", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
