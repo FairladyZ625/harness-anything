@@ -5,12 +5,9 @@ import {
   agentLanesOf,
   awaitsByTask,
   decisionRows,
-  followUpRows,
   pinnedTaskRows,
   watchedWorks,
   workRows,
-  reviewRows,
-  reviewCounts,
   runRows,
   workHandlers,
 } from "../src/renderer/views/overview-model.ts";
@@ -19,9 +16,8 @@ import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
 import { AT, WORKS, agenda } from "./overview-board.fixtures.ts";
 
 /**
- * 总览的模型层判据(纯函数,不挂载组件):注意力分区(decisionRows/followUpRows)、
- * 关注的工作(watchedWorks/workRows)、评审执行分区与计数(reviewRows/reviewCounts)、
- * 置顶行(pinnedTaskRows),以及「进行中的任务」泳道的数据投影(agentLanesOf:
+ * 总览的模型层判据(纯函数,不挂载组件):待人决策(decisionRows)、关注的工作
+ * (watchedWorks/workRows)、置顶行(pinnedTaskRows),以及任务预览泳道的数据投影(agentLanesOf:
  * 块起点/终点/状态、待拍板问句、跨 Agent 交接边、块 id 与任务 id 的分工)。
  * 视图行为面(挂载、交互、区域排布)在 overview-board.vitest.tsx;共享夹具在
  * overview-board.fixtures.ts,两边同一份。
@@ -29,59 +25,16 @@ import { AT, WORKS, agenda } from "./overview-board.fixtures.ts";
  */
 
 describe("总览派生(纯函数)", () => {
-  it("decisionRows 只收真实待人两类,followUpRows 收跟进、返工、阻塞与审计发现", () => {
-    const read = agenda({
-      answeredForYou: [
-        {
-          relationId: "follow",
-          sourceRef: "task/task_w1",
-          title: "已答复的跟进项",
-          status: "active",
-          personId: "person_worker",
-          askKind: "question",
-          question: "下一步?",
-          answer: "继续",
-          answeredAt: AT,
-          answeredBy: "答复人甲",
-        },
-      ],
-      attentionItems: [
-        ...agenda().attentionItems,
-        {
-          ref: "relation/follow",
-          title: "已答复的跟进项",
-          kind: "answered",
-          region: "mine",
-          workTaskId: "task_w1",
-          attention: { score: 30, reasons: [] },
-        },
-        {
-          ref: "audit-finding/schedule-1/repeated-check",
-          title: "重复的结算见证误判",
-          kind: "audit-finding",
-          region: "mine",
-          workTaskId: null,
-          attention: { score: 85, reasons: [{ label: "审计发现", contribution: 85 }] },
-        },
-      ],
-    });
+  it("decisionRows 只收真实待人两类", () => {
+    const read = agenda();
     expect(
       decisionRows(read)
         .map(({ kind }) => kind)
         .sort(),
     ).toEqual(["awaiting-you", "decision"]);
-    expect(
-      followUpRows(read)
-        .map(({ kind }) => kind)
-        .sort(),
-    ).toEqual(["adjudication", "answered", "audit-finding", "blocked", "stalled"]);
-    expect(followUpRows(read).find(({ id }) => id === "audit-finding/schedule-1/repeated-check")).toMatchObject({
-      kind: "audit-finding",
-      title: "重复的结算见证误判",
-    });
   });
 
-  it("watchedWorks:置顶保留在前不受窗口限制;其余按活动窗口过滤、终态置顶只计数", () => {
+  it("watchedWorks:置顶不受窗口限制且终态置顶仍列出;其余按活动窗口过滤", () => {
     const base = agenda();
     const pinned = watchedWorks(WORKS, {
       ...base,
@@ -89,7 +42,7 @@ describe("总览派生(纯函数)", () => {
         { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
       ],
     });
-    expect(pinned.watched.map(({ work, source }) => [work.taskId, source])).toEqual([
+    expect(pinned.map(({ work, source }) => [work.taskId, source])).toEqual([
       ["task_w1", "pinned"],
       ["task_w2", "recent"],
     ]);
@@ -97,9 +50,11 @@ describe("总览派生(纯函数)", () => {
       ...base,
       pinnedEntities: [{ ref: "task/task_w_done", kind: "task", title: "已收尾的工作", status: "done", pinnedAt: AT }],
     });
-    expect(closed.pinnedClosed).toBe(1);
-    expect(closed.watched.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
-    expect(closed.watched.every(({ source }) => source === "recent")).toBe(true);
+    expect(closed.map(({ work, source }) => [work.taskId, source])).toEqual([
+      ["task_w1", "recent"],
+      ["task_w2", "recent"],
+      ["task_w_done", "pinned"],
+    ]);
     // 活动窗口(意见 4):未置顶工作只在窗口内才列,置顶不受窗口限制;W2-T1 起名下有
     // Needs you 项的工作(默认夹具 rel_1 挂在 task_w1)压过置顶——它卡在等人。
     const stale = { ...WORKS.works[1]!, lastActivityAt: "2026-09-01T00:00:00.000Z" },
@@ -114,7 +69,7 @@ describe("总览派生(纯函数)", () => {
         },
         { days: 3, now: new Date().toISOString() },
       );
-    expect(windowed.watched.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
+    expect(windowed.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
   });
 
   it("watchedWorks:活跃执行工作优先置顶,再按最新活动时间倒序,在跑工作不被窗口截断", () => {
@@ -261,7 +216,7 @@ describe("总览派生(纯函数)", () => {
     // 3. 待命中近期工作按 lastActivityAt 倒序
     //    - work_recent_newer (11:00)
     //    - work_recent_older (07:00)
-    expect(result.watched.map(({ work }) => work.taskId)).toEqual([
+    expect(result.map(({ work }) => work.taskId)).toEqual([
       "work_pinned_running",
       "work_recent_running",
       "work_recent_running_stale_activity",
@@ -270,9 +225,7 @@ describe("总览派生(纯函数)", () => {
       "work_recent_newer",
       "work_recent_older",
     ]);
-    expect(result.watched.find(({ work }) => work.taskId === "work_recent_running_stale_activity")?.source).toBe(
-      "recent",
-    );
+    expect(result.find(({ work }) => work.taskId === "work_recent_running_stale_activity")?.source).toBe("recent");
   });
 
   it("工作行排序:已收尾沉底;注意力优先于最近活动", () => {
@@ -289,29 +242,6 @@ describe("总览派生(纯函数)", () => {
       undefined,
     );
     expect(rows.map((row) => row.taskId)).toEqual(["task_live", "task_done", "task_cancel"]);
-  });
-
-  it("评审与合并的行分组保持可分辨:待派审不算已在评审也不算待点头", () => {
-    const rows = reviewRows(
-      agenda({
-        awaitingDecisionReview: [
-          {
-            decisionId: "dec_needs_review",
-            title: "Needs an independent review",
-            riskTier: "high",
-            urgency: "high",
-            proposedAt: AT,
-          },
-        ],
-        decisionReviewInProgress: [],
-        awaitingDecision: [],
-      }),
-    );
-    const decision = rows.find(({ decisionId }) => decisionId === "dec_needs_review");
-    expect(decision?.group).toBe("decisionNeedsReview");
-    expect(reviewCounts(rows).decisionNeedsReview).toBe(1);
-    expect(reviewCounts(rows).decisionReviewing).toBe(0);
-    expect(reviewCounts(rows).decisionPending).toBe(0);
   });
 
   it("agentLanesOf:成员页给真块(起点/终点/状态/待拍板),latestRound 兜底块不生长", () => {
@@ -458,6 +388,7 @@ describe("总览派生(纯函数)", () => {
       taskId: "task_w1",
       runtimeSessionId: "rs_glm_2",
       awaiting: true,
+      stage: "implementation",
     });
     expect(lanes.runningSessionIds).toEqual(["rs_glm_1"]);
     // 跨 Agent 交接:parent 会话的块在窗口内 → 画边;leader 会话不在窗口内 → 不虚构。
@@ -597,7 +528,7 @@ describe("总览派生(纯函数)", () => {
       sourceRevision: 3,
     } as unknown as AgentRuntimeOverviewResult;
     // 在跑工作活动更新(11:00 > 07:00),但 Needs you 是第 1 级:绝对排在一切运行态之前。
-    const { watched } = watchedWorks(baseWorks, read, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtime);
+    const watched = watchedWorks(baseWorks, read, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtime);
     expect(watched.map(({ work }) => work.taskId)).toEqual(["task_needs", "task_running"]);
   });
 

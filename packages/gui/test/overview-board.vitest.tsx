@@ -1785,7 +1785,7 @@ describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
     const entry = center.querySelector<HTMLButtonElement>('[data-testid="overview-collaboration-entry"]');
     expect(entry).not.toBeNull();
     expect(entry!.textContent).toContain("8");
-    expect(entry!.textContent).toContain("2");
+    expect(entry!.textContent).not.toContain("执行中");
     act(() => entry!.click());
     expect(opened).toEqual(["collaboration"]);
     unmount();
