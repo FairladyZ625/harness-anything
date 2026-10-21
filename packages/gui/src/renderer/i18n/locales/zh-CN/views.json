@@ -1811,7 +1811,6 @@
   "views.overviewView.drillLanesLoading": "正在读取 Agent 泳道…",
   "views.overviewView.drillLanesError": "Agent 泳道读取失败:",
   "views.overviewView.drillLanesAwaitingFallback": "该任务已阻塞,需要你处理",
-  "views.overviewView.drillCacheLabel": "缓存",
   "views.overviewView.drillReview": "评审执行",
   "views.overviewView.drillFollowUps": "跟进与返工",
   "views.overviewView.drillPinned": "置顶承诺",

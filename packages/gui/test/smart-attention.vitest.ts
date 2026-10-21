@@ -6,8 +6,7 @@ import {
   computePromptCacheTtlState,
   countSmartAttention,
   DONE_FRESHNESS_MS,
-  mostUrgentPromptCacheTtl,
-  PROMPT_CACHE_TTL_MS,
+  promptCacheTtlMsForKind,
   PROMPT_CACHE_TTL_WARNING_MS,
   sortBySmartAttention,
   type SmartAttentionSignal,
@@ -16,17 +15,19 @@ import {
 /**
  * 五级序数注意力与 Prompt Cache TTL 的纯函数契约(dec_C0AF8CBBFFECF71F4F34FB76F9/CH3):
  * - Needs you 永远排在 Working 之前(Reviewer 拒收条件);
- * - 无时间戳不虚构倒计时(null);
+ * - 无时间戳或无 provider 确定口径都不虚构倒计时(null);
  * - 时钟全部注入 nowMs,同输入同输出。
  */
 
 const NOW = 1_700_000_000_000;
+/** Anthropic 官方口径的 TTL(5 分钟),与 TTL 表同值,用于构造触达时间。 */
+const ANTHROPIC_TTL_MS = 300_000;
 const signal = (overrides: Partial<SmartAttentionSignal>): SmartAttentionSignal => ({
   status: "unknown",
   ...overrides,
 });
 /** 让剩余 TTL 恰好等于 desiredMs 的触达时间。 */
-const touchForRemaining = (desiredMs: number): number => NOW + desiredMs - PROMPT_CACHE_TTL_MS;
+const touchForRemaining = (desiredMs: number): number => NOW + desiredMs - ANTHROPIC_TTL_MS;
 
 describe("五级注意力分类", () => {
   it("1 Needs you:未决 awaits 证据或 blocked 状态,优先于一切", () => {
@@ -125,38 +126,58 @@ describe("分组聚合计数", () => {
 
 describe("Prompt Cache TTL", () => {
   it("阈值:大于 60s 正常、1-60s 告警、<=0 过期、无/非法时间戳隐藏(null)", () => {
-    expect(computePromptCacheTtlState(touchForRemaining(120_000), NOW)).toEqual({
+    expect(computePromptCacheTtlState(touchForRemaining(120_000), NOW, ANTHROPIC_TTL_MS)).toEqual({
       kind: "normal",
       remainingMs: 120_000,
     });
-    expect(computePromptCacheTtlState(touchForRemaining(60_001), NOW)?.kind).toBe("normal");
-    expect(computePromptCacheTtlState(touchForRemaining(60_000), NOW)).toEqual({
+    expect(computePromptCacheTtlState(touchForRemaining(60_001), NOW, ANTHROPIC_TTL_MS)?.kind).toBe("normal");
+    expect(computePromptCacheTtlState(touchForRemaining(60_000), NOW, ANTHROPIC_TTL_MS)).toEqual({
       kind: "warning",
       remainingMs: 60_000,
     });
-    expect(computePromptCacheTtlState(touchForRemaining(1), NOW)?.kind).toBe("warning");
-    expect(computePromptCacheTtlState(touchForRemaining(0), NOW)).toEqual({ kind: "expired", remainingMs: 0 });
-    expect(computePromptCacheTtlState(touchForRemaining(-5_000), NOW)?.kind).toBe("expired");
-    expect(computePromptCacheTtlState(null, NOW)).toBeNull();
-    expect(computePromptCacheTtlState(Number.NaN, NOW)).toBeNull();
+    expect(computePromptCacheTtlState(touchForRemaining(1), NOW, ANTHROPIC_TTL_MS)?.kind).toBe("warning");
+    expect(computePromptCacheTtlState(touchForRemaining(0), NOW, ANTHROPIC_TTL_MS)).toEqual({
+      kind: "expired",
+      remainingMs: 0,
+    });
+    expect(computePromptCacheTtlState(touchForRemaining(-5_000), NOW, ANTHROPIC_TTL_MS)?.kind).toBe("expired");
+    expect(computePromptCacheTtlState(null, NOW, ANTHROPIC_TTL_MS)).toBeNull();
+    expect(computePromptCacheTtlState(Number.NaN, NOW, ANTHROPIC_TTL_MS)).toBeNull();
   });
 
-  it("告警阈值与默认窗口是任务书口径的常量", () => {
-    expect(PROMPT_CACHE_TTL_MS).toBe(300_000);
+  it("TTL 表:只有公开确定口径的 runtime 有条目(Anthropic 5 分钟),其余 kind 一律 null", () => {
+    expect(promptCacheTtlMsForKind("claude")).toBe(300_000);
+    expect(promptCacheTtlMsForKind("claude-acp")).toBe(300_000);
+    // 无确定口径的 provider 不套默认窗口:OpenAI 浮动区间、DeepSeek 数小时到数天、GLM 未公布。
+    expect(promptCacheTtlMsForKind("codex")).toBeNull();
+    expect(promptCacheTtlMsForKind("codex-acp")).toBeNull();
+    expect(promptCacheTtlMsForKind("deepseek-harness")).toBeNull();
+    expect(promptCacheTtlMsForKind("zcode")).toBeNull();
+    expect(promptCacheTtlMsForKind("glm-acp")).toBeNull();
+    expect(promptCacheTtlMsForKind("agy")).toBeNull();
+    expect(promptCacheTtlMsForKind("kimi")).toBeNull();
+    // 未知/缺失 kind 与 baseUrl 第三方端点覆盖(claude 适配 GLM 等)都不成立 Anthropic 口径。
+    expect(promptCacheTtlMsForKind("does-not-exist")).toBeNull();
+    expect(promptCacheTtlMsForKind(null)).toBeNull();
+    expect(promptCacheTtlMsForKind(undefined)).toBeNull();
+    expect(promptCacheTtlMsForKind("claude", "https://third-party.example")).toBeNull();
+    expect(promptCacheTtlMsForKind("claude", null)).toBe(300_000);
+  });
+
+  it("未知 provider TTL 不虚构:触达时间再新鲜,ttlMs=null 也返回 null", () => {
+    expect(computePromptCacheTtlState(NOW - 10_000, NOW, null)).toBeNull();
+    expect(computePromptCacheTtlState(NOW - 10_000, NOW, promptCacheTtlMsForKind("deepseek-harness"))).toBeNull();
+  });
+
+  it("告警阈值是 UI 紧迫档常量,与 provider 无关", () => {
     expect(PROMPT_CACHE_TTL_WARNING_MS).toBe(60_000);
-  });
-
-  it("多会话取最早即将失效的活跃缓存;全部未知为 null", () => {
-    const early = touchForRemaining(30_000),
-      late = touchForRemaining(200_000);
-    expect(mostUrgentPromptCacheTtl([late, null, early], NOW)).toEqual({ kind: "warning", remainingMs: 30_000 });
-    expect(mostUrgentPromptCacheTtl([null, null], NOW)).toBeNull();
-    expect(mostUrgentPromptCacheTtl([], NOW)).toBeNull();
   });
 
   it("同输入同输出:时钟注入下重复计算结果一致(不读系统时钟)", () => {
     const touch = touchForRemaining(90_000);
-    expect(computePromptCacheTtlState(touch, NOW)).toEqual(computePromptCacheTtlState(touch, NOW));
+    expect(computePromptCacheTtlState(touch, NOW, ANTHROPIC_TTL_MS)).toEqual(
+      computePromptCacheTtlState(touch, NOW, ANTHROPIC_TTL_MS),
+    );
     expect(classifySmartAttention(signal({ status: "succeeded", settledAt: NOW - 1 }), NOW)).toBe(
       classifySmartAttention(signal({ status: "succeeded", settledAt: NOW - 1 }), NOW),
     );

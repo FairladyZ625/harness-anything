@@ -32,11 +32,7 @@ import { SquadRunList } from "../components/sessions/SquadRunList.tsx";
 import { SquadRunDetail } from "../components/sessions/SquadRunDetail.tsx";
 import { SessionInspector } from "../components/sessions/SessionInspector.tsx";
 import { SessionsPanel } from "../components/runtime/SessionsPanel.tsx";
-import {
-  sortBySmartAttention,
-  computePromptCacheTtlState,
-  type SmartAttentionSignal,
-} from "../model/smart-attention.ts";
+import { promptCacheTtlMsForKind, sortBySmartAttention, type SmartAttentionSignal } from "../model/smart-attention.ts";
 import { useOverviewSessionTouches } from "../overview-data.ts";
 import { useAgendaQuery } from "../agenda-data.ts";
 import type { RelationEdge } from "../model/types.ts";
@@ -44,6 +40,7 @@ import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import {
   epochMsOf,
   needsYouRefs,
+  settledCacheTtl,
   sessionGroupNeedsYou,
   sessionDecisionRefs,
   sessionOrphans,
@@ -507,15 +504,44 @@ export function SessionsView({
   }, [selectedSessionId, displayedGroups, allRows]);
 
   const sessionTouches = useOverviewSessionTouches(repoId, touchSessionIds);
-  const hasCacheTouches = useMemo(() => [...sessionTouches.values()].some((touch) => touch !== null), [sessionTouches]);
+  // 会话 → 该 provider 的缓存 TTL:展开组来自任务范围 overview 的会话(含完整历史,
+  // 轮次行的 kindId 就从这里来),详情会话随选中读补入。查不到口径为 null,不虚构倒计时。
+  const sessionCacheTtlMs = useMemo(() => {
+    const ttls = new Map<string, number | null>();
+    for (const query of taskSessionQueries) {
+      for (const session of query?.data?.sessions ?? []) {
+        ttls.set(
+          session.runtimeSessionId,
+          promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.baseUrl),
+        );
+      }
+    }
+    const selected = selectedSession.data?.session;
+    if (selected)
+      ttls.set(
+        selected.runtimeSessionId,
+        promptCacheTtlMsForKind(selected.kindId, selected.definitionSnapshot?.baseUrl),
+      );
+    return ttls;
+  }, [taskSessionQueries, selectedSession.data]);
+  const hasCacheTtl = useMemo(() => [...sessionCacheTtlMs.values()].some((ttl) => ttl !== null), [sessionCacheTtlMs]);
   useEffect(() => {
-    if (!hasCacheTouches) return;
+    if (!hasCacheTtl) return;
     const timer = setInterval(() => setNowMs(Date.now()), 1_000);
     return () => clearInterval(timer);
-  }, [hasCacheTouches]);
+  }, [hasCacheTtl]);
 
   const selectedTouch = selectedSessionId ? (sessionTouches.get(selectedSessionId) ?? null) : null;
-  const selectedSessionTtl = useMemo(() => computePromptCacheTtlState(selectedTouch, nowMs), [selectedTouch, nowMs]);
+  const selectedSessionTtl = useMemo(
+    () =>
+      settledCacheTtl(
+        selectedSession.data?.session.semanticState ?? "unavailable",
+        selectedTouch,
+        selectedSessionId === null ? null : (sessionCacheTtlMs.get(selectedSessionId) ?? null),
+        nowMs,
+      ),
+    [selectedSession.data, selectedTouch, selectedSessionId, sessionCacheTtlMs, nowMs],
+  );
   // 深链补展开只对该 session 焦点应用一次(G12 §1a):ref 记住已应用的
   // focusedSessionId,之后的组数据刷新/维度切换不再把 groupBy/range 压回深链值——
   // 用户切到 Squad/Agent/时间维度时不再被弹回 Task。
@@ -928,6 +954,7 @@ export function SessionsView({
             onToggleWork={toggleWork}
             railHeader={drillHeader}
             sessionTouches={sessionTouches}
+            sessionCacheTtlMs={sessionCacheTtlMs}
             attentionRefs={attentionRefs}
             nowMs={nowMs}
           />
