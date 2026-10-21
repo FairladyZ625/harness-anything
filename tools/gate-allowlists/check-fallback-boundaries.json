@@ -213,6 +213,7 @@
    "packages/gui/src/main/connection-admin-ipc.ts#registerConnectionAdminIpc",
    "packages/gui/src/renderer/views/settings/RepositoriesAndConnectionsView.tsx#CenterConnectionPanel",
    "packages/gui/src/renderer/views/settings/RepositoriesAndConnectionsView.tsx#saveCertificate",
+   "packages/gui/src/renderer/views/settings/RepositoriesAndConnectionsView.tsx#saveExternalAddress",
    "packages/gui/src/renderer/views/settings/RepositoriesAndConnectionsView.tsx#selectFile",
    "packages/gui/src/renderer/board-column-preferences.ts#readBoardColumnWidths",
    "packages/gui/src/renderer/board-column-preferences.ts#writeBoardColumnWidths",
