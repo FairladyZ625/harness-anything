@@ -237,13 +237,12 @@ test("runtime steer records the requesting actor and prompt without settling the
     const dispatchId = "dispatch_ffffffffffffffffffffffff",
       runtimeSessionId = "runtime_ffffffffffffffffffffffff";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer");
-    const prompts: string[] = [],
-      active = {
+    const active = {
         dispatchId,
         runtimeSessionId,
         kindId: "codex",
         providerSessionId: "provider-thread",
-        process: { steer: (prompt: string) => prompts.push(prompt) },
+        process: { pid: process.pid },
       },
       context = {
         input: { rootDir, repoId: "steer-test", now: () => "2026-09-13T00:01:00.000Z" },
@@ -255,7 +254,6 @@ test("runtime steer records the requesting actor and prompt without settling the
       binding,
     );
     assert.equal(receipt.outcome, "applied");
-    assert.deepEqual(prompts, ["Stop exploring; fix the parser."]);
     const records = readDispatchStream(rootDir, dispatchId)!.records;
     assert.deepEqual(
       records.filter((record) => record.kind === "steer_requested").map((record) => [record.actor, record.prompt]),
@@ -263,6 +261,76 @@ test("runtime steer records the requesting actor and prompt without settling the
     );
     assert.equal(
       records.some((record) => record.kind === "process_exit"),
+      false,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime steer applies to an ACP kind through the dispatch stream, adopted process included", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-steer-acp-"));
+  try {
+    const dispatchId = "dispatch_0123456789abcdef01234567",
+      runtimeSessionId = "runtime_0123456789abcdef01234567";
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-acp");
+    // An adopted process has no in-memory control handle; the dispatch stream is the channel.
+    const active = {
+        dispatchId,
+        runtimeSessionId,
+        kindId: "codex-acp",
+        providerSessionId: "provider-session",
+        process: { pid: process.pid },
+      },
+      context = {
+        input: { rootDir, repoId: "steer-acp-test", now: () => "2026-09-13T00:01:00.000Z" },
+        processes: new Map([[runtimeSessionId, active]]),
+      };
+    const receipt = await steerRuntime(
+      context as never,
+      { runtimeSessionId, prompt: "Focus on the failing test." },
+      binding,
+    );
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(receipt.runtimeSessionId, runtimeSessionId);
+    assert.deepEqual(
+      readDispatchStream(rootDir, dispatchId)!
+        .records.filter((record) => record.kind === "steer_requested")
+        .map((record) => record.prompt),
+      ["Focus on the failing test."],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime steer still refuses before the provider established a session", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-steer-unbound-"));
+  try {
+    const dispatchId = "dispatch_111111111111111111111111",
+      runtimeSessionId = "runtime_111111111111111111111111";
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-unbound");
+    const context = {
+      input: { rootDir, repoId: "steer-unbound-test", now: () => "2026-09-13T00:01:00.000Z" },
+      processes: new Map([
+        [
+          runtimeSessionId,
+          {
+            dispatchId,
+            runtimeSessionId,
+            kindId: "codex-acp",
+            providerSessionId: null,
+            process: { pid: process.pid },
+          },
+        ],
+      ]),
+    };
+    await assert.rejects(
+      steerRuntime(context as never, { runtimeSessionId, prompt: "Continue" }, binding),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_steer_unavailable",
+    );
+    assert.equal(
+      readDispatchStream(rootDir, dispatchId)!.records.some((record) => record.kind === "steer_requested"),
       false,
     );
   } finally {
@@ -284,9 +352,9 @@ test("runtime steer rejects a provider without a declared steer strategy", async
           {
             dispatchId,
             runtimeSessionId,
-            kindId: "copilot",
+            kindId: "agy",
             providerSessionId: "provider-session",
-            process: { steer: () => assert.fail("unsupported provider must not receive steer") },
+            process: { pid: process.pid },
           },
         ],
       ]),
@@ -294,6 +362,11 @@ test("runtime steer rejects a provider without a declared steer strategy", async
     await assert.rejects(
       steerRuntime(context as never, { runtimeSessionId, prompt: "Continue" }, binding),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_steer_unsupported",
+    );
+    assert.equal(
+      readDispatchStream(rootDir, dispatchId)!.records.some((record) => record.kind === "steer_requested"),
+      false,
+      "a rejected steer must not write a command record",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

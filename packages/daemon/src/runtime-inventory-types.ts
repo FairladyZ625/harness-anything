@@ -78,10 +78,15 @@ export interface RuntimeProviderDeclaration {
     readonly apiKeyArgs?: readonly string[];
     readonly fastArgs?: readonly string[];
   };
-  readonly steer?: {
-    readonly strategy: "interrupt-resume";
-    readonly resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[];
-  };
+  /** How a live turn is redirected. "interrupt-resume" restarts a CLI that only accepts a
+   * prompt at launch; "cancel-reprompt" keeps the session and uses the protocol's own cancel
+   * notification, which every ACP agent answers by ending the in-flight turn. */
+  readonly steer?:
+    | {
+        readonly strategy: "interrupt-resume";
+        readonly resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[];
+      }
+    | { readonly strategy: "cancel-reprompt" };
   readonly sessionIdentity: {
     readonly eventDiscriminator: readonly [string, string] | null;
     readonly eventIdField: string;

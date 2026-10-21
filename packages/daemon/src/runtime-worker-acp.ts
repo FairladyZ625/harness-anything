@@ -66,7 +66,7 @@ export function runAcpProviderSession(
   child: ChildProcess,
   manifest: AcpWorkerManifest,
   append: Append,
-): { readonly done: Promise<void>; readonly cancel: () => void } {
+): { readonly done: Promise<void>; readonly cancel: () => void; readonly steer: (prompt: string) => void } {
   let nextId: JsonRpcId = 1,
     buffer = "",
     // On resume the session id is known up front; tagging replayed history
@@ -76,8 +76,16 @@ export function runAcpProviderSession(
     // not this turn's output, so they must not accumulate into finalText.
     replayingHistory = manifest.providerSessionId !== undefined,
     finalText = "",
+    // A steer queue keeps the session: the protocol's session/cancel ends the in-flight
+    // turn with stopReason "cancelled", and the queued prompt starts the next one.
+    turnActive = false,
+    // A steer can land between session/new and session/prompt — before any turn exists to
+    // cancel. The cancel is then issued as soon as that turn's prompt has been written.
+    cancelOnTurnStart = false,
+    turnFinished = false,
     // Set when the child closes: from then on no request can be answered.
     exited: Error | null = null;
+  const steerQueue: string[] = [];
   const pending = new Map<JsonRpcId, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   const send = (message: Record<string, unknown>): void => {
     try {
@@ -213,6 +221,21 @@ export function runAcpProviderSession(
       }
     }, cancelGraceMs).unref();
   };
+  // A steer is a new instruction for the live session. Between turns the queued prompt is
+  // the next turn; during one, session/cancel ends it so the queued prompt starts immediately.
+  const steer = (prompt: string): void => {
+    if (turnFinished || exited) {
+      append({ kind: "steer_dropped", reason: "the provider's final turn already ended", prompt });
+      return;
+    }
+    if (sessionId === null) {
+      append({ kind: "steer_dropped", reason: "the provider session is not established yet", prompt });
+      return;
+    }
+    steerQueue.push(prompt);
+    if (turnActive) send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+    else cancelOnTurnStart = true;
+  };
   const done = (async () => {
     try {
       const initialize = (await request("initialize", {
@@ -285,20 +308,40 @@ export function runAcpProviderSession(
               ).current;
         event({ type: "acp.model", requested: manifest.model, applied: appliedModel });
       }
-      const result = (await request(
-        "session/prompt",
-        {
-          sessionId,
-          prompt: [{ type: "text", text: manifest.prompt }],
-        },
-        0,
-      )) as Record<string, unknown>;
-      event({
-        type: "acp.result",
-        stopReason: result.stopReason ?? "end_turn",
-        ...(finalText ? { finalText } : {}),
-        ...(isRecord(result.usage) ? { usage: acpResultUsage(result.usage) } : {}),
-      });
+      let promptText = manifest.prompt;
+      for (;;) {
+        turnActive = true;
+        // request() writes its frame synchronously, so by the next statement the prompt is
+        // with the provider and a queued cancel targets this turn rather than the void.
+        const pendingResult = request(
+          "session/prompt",
+          {
+            sessionId,
+            prompt: [{ type: "text", text: promptText }],
+          },
+          0,
+        );
+        if (cancelOnTurnStart) {
+          cancelOnTurnStart = false;
+          send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+        }
+        const result = (await pendingResult) as Record<string, unknown>;
+        turnActive = false;
+        event({
+          type: "acp.result",
+          stopReason: result.stopReason ?? "end_turn",
+          ...(finalText ? { finalText } : {}),
+          ...(isRecord(result.usage) ? { usage: acpResultUsage(result.usage) } : {}),
+        });
+        const next = steerQueue.shift();
+        if (next === undefined) {
+          turnFinished = true;
+          break;
+        }
+        // The previous turn's text is not the steered turn's answer.
+        promptText = next;
+        finalText = "";
+      }
     } catch (error) {
       // The failure is reported through the acp.error frame and the child is
       // terminated — the canonical error channel, not a swallow.
@@ -312,7 +355,7 @@ export function runAcpProviderSession(
       }
     }
   })();
-  return { done, cancel };
+  return { done, cancel, steer };
 }
 
 interface AcpModes {

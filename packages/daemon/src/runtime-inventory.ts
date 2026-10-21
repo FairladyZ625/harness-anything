@@ -24,6 +24,10 @@ const sharedCapabilities = {
   authentication: "supported",
 } as const;
 
+// ACP agents answer the protocol's `session/cancel` notification by ending the in-flight
+// turn, so a steer keeps the session and reprompts in place instead of restarting a CLI.
+const acpSteer = { strategy: "cancel-reprompt" } as const;
+
 function acpKind<K extends RuntimeKindId>(
   kindId: K,
   displayName: string,
@@ -75,6 +79,7 @@ function acpKind<K extends RuntimeKindId>(
       argumentTemplate,
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
+    steer: acpSteer,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "sessionId",
@@ -517,6 +522,7 @@ export const runtimeKinds = [
       argumentTemplate: ["acp", "--model", "$model"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
+    steer: acpSteer,
     sessionIdentity: {
       // Every canonical ACP frame carries the session id, so no discriminator.
       eventDiscriminator: null,
@@ -584,6 +590,7 @@ export const runtimeKinds = [
       argumentTemplate: ["acp"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
+    steer: acpSteer,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "sessionId",
@@ -653,6 +660,7 @@ export const runtimeKinds = [
       argumentTemplate: [],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
+    steer: acpSteer,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "sessionId",
@@ -717,6 +725,7 @@ export const runtimeKinds = [
       argumentTemplate: [],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
+    steer: acpSteer,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "sessionId",
@@ -864,6 +873,7 @@ export const runtimeKinds = [
       argumentTemplate: ["acp"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
+    steer: acpSteer,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "sessionId",
@@ -949,6 +959,7 @@ export const runtimeKinds = [
         "read-only": { DSH_PERMISSION_MODE: "read-only" },
       },
     },
+    steer: acpSteer,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "sessionId",

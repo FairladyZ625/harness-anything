@@ -496,14 +496,7 @@ export function launchNative(
     })}\n`,
   );
   child.unref();
-  return {
-    ...observed,
-    steer: (prompt) => {
-      if (!child.stdin?.writable)
-        throw runtimeSpawnError("runtime_steer_unavailable", "Runtime control channel is closed.");
-      child.stdin.write(`${JSON.stringify({ kind: "steer", prompt })}\n`);
-    },
-  };
+  return { ...observed };
 }
 
 export function adoptNativeProcess(

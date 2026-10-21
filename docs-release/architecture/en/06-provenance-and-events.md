@@ -116,8 +116,14 @@ session identifier. Thus `ha runtime run --resume-dispatch <dispatch-id>
 --prompt "…"` resumes without exposing or requiring a provider session id.
 For a live Codex or Claude dispatch, use `ha runtime steer <runtime-session|dispatch>
 --prompt "…"` to record a steering request and continue the same dispatch after a
-provider-safe interruption. Providers without a declared steer strategy return an
-explicit unsupported error. Use resume only after a dispatch has already ended.
+provider-safe interruption. ACP agents (Codex over ACP, Claude over ACP, Devin,
+Cursor, OpenCode, DeepSeek Harness, and the other ACP kinds) steer in place instead:
+the worker host sends the protocol's `session/cancel` to end the running turn and
+re-prompts the same provider session, so nothing is restarted. The request travels on
+the dispatch stream, which the worker host follows, so a runtime adopted after a daemon
+restart is steered exactly like one the current daemon spawned. Providers without a
+declared steer strategy return an explicit unsupported error. Use resume only after a
+dispatch has already ended.
 Resume inherits the recorded agent, working directory, permission mode, and
 model. Task workers can use `ha agent run <agent-id> --resume-dispatch
 <dispatch-id>`; a different agent and a second resume of the same source

@@ -6,8 +6,19 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
+import { steerRuntime } from "../src/runtime-spawn-control.ts";
 import { launchNative } from "../src/runtime-spawn-process.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
+import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
+
+const operatorBinding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
+
+function steerContext(rootDir: string, runtimeSessionId: string, active: unknown) {
+  return {
+    input: { rootDir, repoId: "worker-host-steer-test", now: () => new Date().toISOString() },
+    processes: new Map([[runtimeSessionId, active]]),
+  };
+}
 
 test("restricted provider environment excludes host Git and SSH credentials", () => {
   const source: NodeJS.ProcessEnv = {
@@ -198,7 +209,18 @@ test(
           (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "item.started",
         ) === true,
     );
-    runtimeProcess.steer!("follow-up prompt");
+    const receipt = await steerRuntime(
+      steerContext(rootDir, runtimeSessionId, {
+        dispatchId,
+        runtimeSessionId,
+        kindId: "codex",
+        providerSessionId: "provider-thread-stable",
+        process: runtimeProcess,
+      }) as never,
+      { dispatchId, prompt: "follow-up prompt" },
+      operatorBinding,
+    );
+    assert.equal(receipt.outcome, "applied");
     await new Promise<void>((resolve, reject) => {
       runtimeProcess.onExit((code) => (code === 0 ? resolve() : reject(new Error(`worker exited ${code}`))));
     });
@@ -289,7 +311,18 @@ test("queued steer is discarded when cancellation reaches the worker host", { ti
         (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "item.started",
       ) === true,
   );
-  runtimeProcess.steer!("queued follow-up");
+  const receipt = await steerRuntime(
+    steerContext(rootDir, runtimeSessionId, {
+      dispatchId,
+      runtimeSessionId,
+      kindId: "codex",
+      providerSessionId: "provider-thread-cancel",
+      process: runtimeProcess,
+    }) as never,
+    { runtimeSessionId, prompt: "queued follow-up" },
+    operatorBinding,
+  );
+  assert.equal(receipt.outcome, "applied");
   const exited = new Promise<void>((resolve, reject) =>
     runtimeProcess.onExit((code) => (code === null ? resolve() : reject(new Error(`worker exited ${code}`)))),
   );
@@ -305,6 +338,102 @@ test("queued steer is discarded when cancellation reaches the worker host", { ti
   const records = readDispatchStream(rootDir, dispatchId)!.records;
   assert.equal(records.filter((record) => record.kind === "steer_resumed").length, 0);
 });
+
+test(
+  "steer reaches a live ACP worker through the dispatch stream and redirects the session in place",
+  { timeout: 20_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-steer-acp-")),
+      rootDir = path.join(parent, "repo"),
+      capture = path.join(parent, "provider-trace.jsonl"),
+      executablePath = writeAcpProviderStub(path.join(parent, "codex-acp-stub"), capture, {
+        steerSemantics: true,
+      }),
+      dispatchId = "dispatch_123456789012345680901234",
+      runtimeSessionId = "runtime_123456789012345680901234";
+    mkdirSync(rootDir);
+    writeFileSync(capture, "");
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "codex-acp-test",
+      startedAt: new Date().toISOString(),
+      dispatchOpId: "dispatch-op-steer-acp-test",
+      kindId: "codex-acp",
+      permissionMode: null,
+      binding: operatorBinding,
+      cwd: rootDir,
+      prompt: "hang",
+      model: "test-model",
+      reasoningEffort: null,
+      fast: false,
+    });
+    const runtimeProcess = launchNative(
+      {
+        executablePath,
+        args: ["acp"],
+        env: runtimeWorkerProviderEnvironment(process.env),
+        cwd: rootDir,
+        prompt: "hang",
+        installation: { kindId: "codex-acp" },
+        protocolFamily: "acp",
+        acpApiKey: "test-manifest-key",
+      } as never,
+      { rootDir, dispatchId },
+    );
+    t.after(async () => {
+      await runtimeProcess.terminateTree?.();
+      rmSync(parent, { recursive: true, force: true });
+    });
+    await eventually(
+      () =>
+        readDispatchStream(rootDir, dispatchId)?.records.some(
+          (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "acp.session",
+        ) === true,
+    );
+    // Steering rides the dispatch stream: nothing on the active entry carries a control pipe,
+    // which is the shape an adopted host has after a daemon restart.
+    const receipt = await steerRuntime(
+      steerContext(rootDir, runtimeSessionId, {
+        dispatchId,
+        runtimeSessionId,
+        kindId: "codex-acp",
+        providerSessionId: "devin-acp-session",
+        process: runtimeProcess,
+      }) as never,
+      { dispatchId, prompt: "Focus on the failing test." },
+      operatorBinding,
+    );
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(receipt.command, "runtime-steer");
+    await eventually(
+      () =>
+        readDispatchStream(rootDir, dispatchId)?.records.some(
+          (record) =>
+            record.kind === "provider_event" &&
+            (record.event as { type?: string; stopReason?: string }).type === "acp.result" &&
+            (record.event as { stopReason?: string }).stopReason === "cancelled",
+        ) === true,
+    );
+    await eventually(() => {
+      const captured = readFileSync(capture, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      return captured.some((entry) => entry.prompt === "Focus on the failing test.");
+    });
+    const records = readDispatchStream(rootDir, dispatchId)!.records,
+      results = records
+        .filter(
+          (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "acp.result",
+        )
+        .map((record) => (record.event as { stopReason?: string }).stopReason);
+    assert.deepEqual(results, ["cancelled", "end_turn"]);
+    assert.equal(records.filter((record) => record.kind === "steer_requested").length, 1);
+  },
+);
 
 async function eventually(check: () => boolean): Promise<void> {
   while (!check()) await new Promise<void>((resolve) => setImmediate(resolve));
