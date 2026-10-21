@@ -6,6 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-event.ts";
+import { listDecisionRowsPage } from "../../src/projection/decision-event-projection.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -87,8 +88,11 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
     original.close();
     const stale = new DatabaseSync(projectionPath);
     stale.exec(`DROP INDEX lease_cas_execution;
+      DROP INDEX legacy_block;
+      DROP INDEX plain_block;
       ALTER TABLE lease_cas DROP COLUMN execution_id;
       ALTER TABLE task_snapshot DROP COLUMN package_disposition;
+      ALTER TABLE decision DROP COLUMN decision_sort_key;
       UPDATE projection_meta SET schema_version = ${taskProjectionSchemaVersion - 1}`);
     stale.close();
     const projection = makeTaskProjection({ rootDir, eventStore });
@@ -118,8 +122,10 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
           readonly name: string;
           readonly type: string;
         }[],
-        legacyNumber = decisionColumns.find(({ name }) => name === "legacy_number");
+        legacyNumber = decisionColumns.find(({ name }) => name === "legacy_number"),
+        decisionSortKey = decisionColumns.find(({ name }) => name === "decision_sort_key");
       assert.equal(legacyNumber?.type, "INTEGER");
+      assert.equal(decisionSortKey?.type, "TEXT");
       const decisionIndexes = db
         .prepare(
           "SELECT name, sql FROM sqlite_master WHERE type='index' AND name IN ('legacy_block', 'plain_block') ORDER BY name",
@@ -129,6 +135,8 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
         decisionIndexes.map(({ name }) => name),
         ["legacy_block", "plain_block"],
       );
+      assert.match(decisionIndexes[0]!.sql, /legacy_number, decision_sort_key, decision_id/u);
+      assert.match(decisionIndexes[1]!.sql, /decision_sort_key, decision_id/u);
       assert.match(decisionIndexes[0]!.sql, /WHERE legacy_number IS NOT NULL/u);
       assert.match(decisionIndexes[1]!.sql, /WHERE legacy_number IS NULL/u);
       for (const [part, args, expected] of [
@@ -167,6 +175,12 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
       assert.equal(db.prepare("SELECT package_disposition FROM task_snapshot").get()?.package_disposition, "archived");
     } finally {
       db.close();
+    }
+    const rebuiltDb = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.deepEqual(listDecisionRowsPage(rebuiltDb, { limit: 1 }).rows, []);
+    } finally {
+      rebuiltDb.close();
     }
   });
 });

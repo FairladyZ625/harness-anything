@@ -12,6 +12,7 @@ import { type EntityDocumentEventV1 } from "../domain/entity-document-event.ts";
 import { type RelationEventV1 } from "../domain/relation-event.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import {
+  decisionIdSortKey,
   decisionLegacyNumber,
   readDecisionDocumentState,
   reduceDecisionEvent,
@@ -376,9 +377,10 @@ export function projectMigration(
       revision = event.workspaceRevision;
     runSql(
       db,
-      "INSERT INTO decision(decision_id, legacy_number, state, title, question, risk_tier, urgency, vertical, preset, decision_class, applies_json, proposer_json, arbiter_json, proposed_at, decided_at, provenance_json, workspace_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO decision(decision_id, legacy_number, decision_sort_key, state, title, question, risk_tier, urgency, vertical, preset, decision_class, applies_json, proposer_json, arbiter_json, proposed_at, decided_at, provenance_json, workspace_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       value.decisionId,
       decisionLegacyNumber(value.decisionId),
+      decisionIdSortKey(value.decisionId),
       value.state,
       value.title,
       value.question,

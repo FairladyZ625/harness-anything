@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   createDecisionProjectionTables,
+  decisionIdSortKey,
   listDecisionRowsPage,
 } from "../../src/projection/decision-event-projection.ts";
 import {
@@ -110,7 +111,7 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
       "CREATE TABLE document(path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
     );
     const insert = db.prepare(
-      "INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, 'proposed', ?, ?, 'high', 'medium', 'performance', 'default', 'ordinary', ?, ?, NULL, ?, NULL, ?)",
+      "INSERT INTO decision(decision_id,decision_sort_key,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, ?, 'proposed', ?, ?, 'high', 'medium', 'performance', 'default', 'ordinary', ?, ?, NULL, ?, NULL, ?)",
     );
     const insertFts = db.prepare(
         "INSERT INTO decision_fts(decision_id,title,question,option_text,claim_text,body) VALUES (?, ?, ?, '', '', '')",
@@ -122,7 +123,7 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
       const id = `dec_PERF_${String(index).padStart(5, "0")}`,
         title = `Indexed Decision token${index}`,
         question = `Should token${index} ship?`;
-      insert.run(id, title, question, applies, proposer, "2026-08-13T00:00:00.000Z", index + 1);
+      insert.run(id, decisionIdSortKey(id), title, question, applies, proposer, "2026-08-13T00:00:00.000Z", index + 1);
       insertFts.run(id, title, question);
     }
     db.exec("COMMIT");

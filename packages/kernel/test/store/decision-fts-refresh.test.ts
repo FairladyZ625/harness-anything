@@ -9,7 +9,7 @@ import {
 } from "../../src/domain/migration-import-event.ts";
 import type { DocumentState } from "../../src/domain/doc-sync-types.ts";
 import { compileDecisionWrite } from "../../src/index.ts";
-import { reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
+import { decisionIdSortKey, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { refreshDecisionDocumentSearch } from "../../src/projection/decision-projection-reducer.ts";
 import { projectMigration } from "../../src/projection/rebuildable-task-projection-write-model.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -75,10 +75,11 @@ test("decision reducer materializes legacy numbers for indexed list reads", () =
         currentDocument: null,
       }).event,
     );
-    assert.equal(
-      db.prepare("SELECT legacy_number FROM decision WHERE decision_id = ?").get("dec_E42_LEGACY")?.legacy_number,
-      42,
-    );
+    const row = db
+      .prepare("SELECT legacy_number, decision_sort_key FROM decision WHERE decision_id = ?")
+      .get("dec_E42_LEGACY") as { readonly legacy_number: number; readonly decision_sort_key: string };
+    assert.equal(row.legacy_number, 42);
+    assert.equal(row.decision_sort_key, decisionIdSortKey("dec_E42_LEGACY"));
   } finally {
     db.close();
   }
@@ -146,10 +147,11 @@ test("decision migration imports materialize legacy numbers for indexed list rea
       "CREATE TABLE event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, task_id TEXT, event_json TEXT NOT NULL)",
     );
     projectMigration(db, event, JSON.stringify(event), (blobSha256) => (blobSha256 === sha256 ? bytes : null));
-    assert.equal(
-      db.prepare("SELECT legacy_number FROM decision WHERE decision_id = ?").get(decisionId)?.legacy_number,
-      43,
-    );
+    const row = db
+      .prepare("SELECT legacy_number, decision_sort_key FROM decision WHERE decision_id = ?")
+      .get(decisionId) as { readonly legacy_number: number; readonly decision_sort_key: string };
+    assert.equal(row.legacy_number, 43);
+    assert.equal(row.decision_sort_key, decisionIdSortKey(decisionId));
   } finally {
     db.close();
   }
