@@ -2,19 +2,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import {
-  createCanonicalPresetResolver,
-  installPresetPackage,
-  uninstallPresetPackage,
-} from "../src/index.ts";
+import { createCanonicalPresetResolver, installPresetPackage, uninstallPresetPackage } from "../src/index.ts";
 import { decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
-import {
-  makeFixture,
-  templateCatalog,
-  write,
-  writePackage,
-} from "./preset-resolver.fixtures.ts";
+import { makeFixture, templateCatalog, write, writePackage } from "./preset-resolver.fixtures.ts";
 test("an inherited entrypoint remains bound to the package that declared its script", async () => {
   const fixture = makeFixture();
   try {
@@ -32,10 +23,7 @@ test("an inherited entrypoint remains bound to the package that declared its scr
         },
       },
     });
-    write(
-      path.join(fixture.bundledRoot, "script-parent/scripts/run.mjs"),
-      "export {};\n",
-    );
+    write(path.join(fixture.bundledRoot, "script-parent/scripts/run.mjs"), "export {};\n");
     writePackage(fixture.bundledRoot, "script-child", {
       extends: "script-parent",
     });
@@ -52,13 +40,8 @@ test("an inherited entrypoint remains bound to the package that declared its scr
     });
     assert.equal(result.ok, true);
     if (result.ok) {
-      const parentDigest = decodePresetPackageV3(
-        path.join(fixture.bundledRoot, "script-parent"),
-      ).packageDigest;
-      assert.match(
-        result.snapshot.entrypoints.run!.commandSha256,
-        /^[0-9a-f]{64}$/u,
-      );
+      const parentDigest = decodePresetPackageV3(path.join(fixture.bundledRoot, "script-parent")).packageDigest;
+      assert.match(result.snapshot.entrypoints.run!.commandSha256, /^[0-9a-f]{64}$/u);
       assert.equal(result.package?.packageDigest, parentDigest);
       assert.notEqual(result.snapshot.provenance.packageSha256, parentDigest);
     }
@@ -121,19 +104,11 @@ test("resolver reports every missing required capability with catalog recovery f
         locale: "en-US",
         purpose: "inspect",
       }),
-      listed = (await resolver.list({ verticalId: "software/coding" })).find(
-        ({ id }) => id === "needs-provider",
-      );
+      listed = (await resolver.list({ verticalId: "software/coding" })).find(({ id }) => id === "needs-provider");
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error.code, "missing_provider");
-    assert.deepEqual(listed?.missingProviderIds, [
-      "policy:missing-a/v1",
-      "policy:missing-b/v1",
-    ]);
-    assert.match(
-      listed?.nextAction ?? "",
-      /provides policy:missing-a\/v1, policy:missing-b\/v1.*ha preset list/iu,
-    );
+    assert.deepEqual(listed?.missingProviderIds, ["policy:missing-a/v1", "policy:missing-b/v1"]);
+    assert.match(listed?.nextAction ?? "", /provides policy:missing-a\/v1, policy:missing-b\/v1.*ha preset list/iu);
   } finally {
     fixture.cleanup();
   }
@@ -190,17 +165,12 @@ test("entrypoint capability matching is exact and template catalog paths cannot 
             frontmatterSchema: "task-package/v2",
             requiredAnchors: [],
             fallbackLocale: "en-US",
-            locales: [
-              { locale: "en-US", anchors: [], bodyPath: "../escaped.md" },
-            ],
+            locales: [{ locale: "en-US", anchors: [], bodyPath: "../escaped.md" }],
           },
         ]),
       ),
     );
-    write(
-      path.join(path.dirname(fixture.assetsRoot), "escaped.md"),
-      "# Escaped\n",
-    );
+    write(path.join(path.dirname(fixture.assetsRoot), "escaped.md"), "# Escaped\n");
     const escaped = await createCanonicalPresetResolver({
       bundledRoot: fixture.bundledRoot,
       userRoot: fixture.userRoot,

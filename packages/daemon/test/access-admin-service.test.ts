@@ -866,6 +866,53 @@ test("edge invitations grant each selected repository and reject inherited permi
   signIn("person-admin");
 });
 
+test("a win32 invitation registers a win32 edge node, and an unknown platform is refused", async (t) => {
+  const { keycloak, admin, run } = await edgeJoinCenter(t, await fixture(t)),
+    issued = await run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      username: "edge-operator",
+      email: "edge@example.invalid",
+      displayName: "Edge Operator",
+      repoIds: ["repo-a"],
+      groupIds: ["edge-selected"],
+      nodeLabel: "windows-node",
+      platform: "win32",
+    }),
+    link = JSON.parse(
+      Buffer.from(String(issued.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+    ) as { readonly joinId: string; readonly token: string; readonly loginClientId: string };
+  assert.equal(issued.ok, true);
+  // Negative control: the write boundary still refuses a platform outside the shared vocabulary.
+  await assert.rejects(
+    run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      repoIds: ["repo-a"],
+      groupIds: ["edge-selected"],
+      platform: "windows",
+    }),
+    { code: "edge_join_invalid" },
+  );
+  keycloak.interactiveSession("person-invited", "edge-device", keycloakUrl, "invited-token", link.loginClientId);
+  const admitted = await admin.admitEdgeJoin({
+    joinId: link.joinId,
+    inviteToken: link.token,
+    accessToken: "invited-token",
+  });
+  assert.equal(admitted.personId, "person-invited");
+  const device = JSON.parse(
+    keycloak.nodeClients.get(`harness-node-${admitted.nodeId}`)!.attributes.harness_device!,
+  ) as { readonly platform: string; readonly systemName: string };
+  assert.deepEqual([device.platform, device.systemName], ["win32", "windows-node"]);
+  // The node projection the GUI lists carries the same win32 value back.
+  const listed = (await run({ operation: "node-list" })).nodes as {
+    readonly nodeId: string;
+    readonly platform: string;
+  }[];
+  assert.equal(listed.find((node) => node.nodeId === admitted.nodeId)?.platform, "win32");
+});
+
 test("an existing member is invited without new-user fields; an unknown person still needs them", async (t) => {
   const { keycloak, run } = await edgeJoinCenter(t, await fixture(t));
   const first = await run({

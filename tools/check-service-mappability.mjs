@@ -16,13 +16,9 @@ const allowedExternalTypeReferences = new Set([
   "Promise",
   "Readonly",
   "ReadonlyArray",
-  "Record"
+  "Record",
 ]);
-const allowedMappableKernelTypeReferences = new Set([
-  "DomainStatus",
-  "ProjectionWarning",
-  "TaskProjectionRow"
-]);
+const allowedMappableKernelTypeReferences = new Set(["DomainStatus", "ProjectionWarning", "TaskProjectionRow"]);
 
 export function evaluateServiceMappability(root = process.cwd(), options = {}) {
   const applicationPath = options.applicationPath ?? defaultApplicationPath;
@@ -41,14 +37,21 @@ export function evaluateServiceMappability(root = process.cwd(), options = {}) {
   const referencedTypes = new Set();
 
   for (const member of serviceInterface.members) {
-    if (!ts.isPropertySignature(member) || !member.type || !ts.isFunctionTypeNode(member.type) || !ts.isIdentifier(member.name)) {
+    if (
+      !ts.isPropertySignature(member) ||
+      !member.type ||
+      !ts.isFunctionTypeNode(member.type) ||
+      !ts.isIdentifier(member.name)
+    ) {
       violations.push(`${applicationPath}: LocalControllerService members must be readonly function properties`);
       continue;
     }
     const methodName = member.name.text;
     for (const parameter of member.type.parameters) {
       if (!parameter.type) {
-        violations.push(`${applicationPath}: ${methodName} parameter ${parameter.name.getText(sourceFile)} must have an explicit named type`);
+        violations.push(
+          `${applicationPath}: ${methodName} parameter ${parameter.name.getText(sourceFile)} must have an explicit named type`,
+        );
         continue;
       }
       inspectTypeNode(parameter.type, {
@@ -56,7 +59,7 @@ export function evaluateServiceMappability(root = process.cwd(), options = {}) {
         applicationPath,
         context: `${methodName} parameter ${parameter.name.getText(sourceFile)}`,
         referencedTypes,
-        violations
+        violations,
       });
     }
     if (!member.type.type) {
@@ -68,7 +71,7 @@ export function evaluateServiceMappability(root = process.cwd(), options = {}) {
       applicationPath,
       context: `${methodName} return`,
       referencedTypes,
-      violations
+      violations,
     });
   }
 
@@ -78,7 +81,7 @@ export function evaluateServiceMappability(root = process.cwd(), options = {}) {
       sourceFile,
       applicationPath,
       referencedTypes,
-      violations
+      violations,
     });
   }
 
@@ -100,7 +103,12 @@ function collectDeclarations(sourceFile) {
 }
 
 function inspectReferencedType(typeName, declarations, checkedTypes, context) {
-  if (allowedExternalTypeReferences.has(typeName) || allowedMappableKernelTypeReferences.has(typeName) || checkedTypes.has(typeName)) return;
+  if (
+    allowedExternalTypeReferences.has(typeName) ||
+    allowedMappableKernelTypeReferences.has(typeName) ||
+    checkedTypes.has(typeName)
+  )
+    return;
   checkedTypes.add(typeName);
 
   const interfaceDeclaration = declarations.interfaces.get(typeName);
@@ -109,7 +117,7 @@ function inspectReferencedType(typeName, declarations, checkedTypes, context) {
       for (const inheritedType of heritage.types) {
         inspectTypeNode(inheritedType, {
           ...context,
-          context: `${typeName} extends`
+          context: `${typeName} extends`,
         });
       }
     }
@@ -117,7 +125,7 @@ function inspectReferencedType(typeName, declarations, checkedTypes, context) {
       if (ts.isPropertySignature(member) && member.type) {
         inspectTypeNode(member.type, {
           ...context,
-          context: `${typeName}.${member.name.getText(context.sourceFile)}`
+          context: `${typeName}.${member.name.getText(context.sourceFile)}`,
         });
       }
     }
@@ -128,25 +136,33 @@ function inspectReferencedType(typeName, declarations, checkedTypes, context) {
   if (typeAlias) {
     inspectTypeNode(typeAlias.type, {
       ...context,
-      context: typeName
+      context: typeName,
     });
     return;
   }
 
-  context.violations.push(`${context.applicationPath}: ${typeName} is referenced by LocalControllerService but has no local mappability declaration`);
+  context.violations.push(
+    `${context.applicationPath}: ${typeName} is referenced by LocalControllerService but has no local mappability declaration`,
+  );
 }
 
 function inspectTypeNode(typeNode, context) {
   if (typeNode.kind === ts.SyntaxKind.AnyKeyword || typeNode.kind === ts.SyntaxKind.UnknownKeyword) {
-    context.violations.push(`${context.applicationPath}: ${context.context} uses ${typeNode.getText(context.sourceFile)}; Service surfaces must be mappable`);
+    context.violations.push(
+      `${context.applicationPath}: ${context.context} uses ${typeNode.getText(context.sourceFile)}; Service surfaces must be mappable`,
+    );
     return;
   }
   if (ts.isTypeLiteralNode(typeNode)) {
-    context.violations.push(`${context.applicationPath}: ${context.context} uses an inline object type; name the Service contract type`);
+    context.violations.push(
+      `${context.applicationPath}: ${context.context} uses an inline object type; name the Service contract type`,
+    );
     return;
   }
   if (ts.isFunctionTypeNode(typeNode)) {
-    context.violations.push(`${context.applicationPath}: ${context.context} uses an inline function type outside the Service method boundary`);
+    context.violations.push(
+      `${context.applicationPath}: ${context.context} uses an inline function type outside the Service method boundary`,
+    );
     return;
   }
   if (ts.isTypeReferenceNode(typeNode)) {

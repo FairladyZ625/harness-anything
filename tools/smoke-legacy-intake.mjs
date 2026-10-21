@@ -13,7 +13,7 @@ const retiredEntrypoints = [
   "packages/cli/src/commands/migration-scan.ts",
   "packages/cli/src/commands/migration-collision.ts",
   "packages/cli/src/cli/parse-migration-args.ts",
-  "packages/cli/src/cli/parsers/migration-diagnostics.ts"
+  "packages/cli/src/cli/parsers/migration-diagnostics.ts",
 ];
 const smokeRoot = mkdtempSync(path.join(tmpdir(), "ha-retired-legacy-intake-"));
 
@@ -22,7 +22,11 @@ try {
   if (restored.length > 0) throw new Error(`retired Legacy Intake entrypoints returned: ${restored.join(", ")}`);
 
   const receipt = runRetiredCommand();
-  if (receipt.schema !== "command-receipt/v2" || receipt.ok !== false || receipt.error?.code !== "unsupported_command") {
+  if (
+    receipt.schema !== "command-receipt/v2" ||
+    receipt.ok !== false ||
+    receipt.error?.code !== "unsupported_command"
+  ) {
     throw new Error(`retired migrate-run must be rejected by the thin parser: ${JSON.stringify(receipt)}`);
   }
   if (readdirSync(smokeRoot).length !== 0) throw new Error("retired migrate-run wrote workspace state");
@@ -37,13 +41,14 @@ function runRetiredCommand() {
     execFileSync(process.execPath, [cli, "migrate-run", "--root", smokeRoot, "--json"], {
       cwd: root,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
     });
     throw new Error("retired migrate-run unexpectedly succeeded");
   } catch (error) {
     if (error instanceof Error && error.message === "retired migrate-run unexpectedly succeeded") throw error;
     const output = String(error?.stdout ?? "").trim();
-    if (output.length === 0) throw new Error(`retired migrate-run emitted no JSON receipt: ${String(error?.stderr ?? "")}`);
+    if (output.length === 0)
+      throw new Error(`retired migrate-run emitted no JSON receipt: ${String(error?.stderr ?? "")}`);
     return JSON.parse(output);
   }
 }

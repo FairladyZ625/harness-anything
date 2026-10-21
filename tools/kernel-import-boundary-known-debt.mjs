@@ -4,7 +4,8 @@ export const kernelImportBoundaryKnownDebt = [
     specifier: "../../../kernel/src/store/index.ts",
     target: "packages/kernel/src/store/index.ts",
     decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
-    reason: "Local adapter composition root still reaches the store implementation to construct the journaled WriteCoordinator; F6 owns the seam cleanup."
+    reason:
+      "Local adapter composition root still reaches the store implementation to construct the journaled WriteCoordinator; F6 owns the seam cleanup.",
   },
 ];
 

@@ -6,11 +6,15 @@ import noSwallowedFailure from "../eslint-rules/no-swallowed-failure.js";
 
 function lint(source, baseline = []) {
   const linter = new Linter({ configType: "flat" });
-  return linter.verify(`async function run() { ${source} }`, {
-    languageOptions: { ecmaVersion: 2024, sourceType: "module" },
-    plugins: { ha: { rules: { "no-swallowed-failure": noSwallowedFailure } } },
-    rules: { "ha/no-swallowed-failure": ["error", { baseline }] }
-  }, { filename: "packages/kernel/src/new-code.js" });
+  return linter.verify(
+    `async function run() { ${source} }`,
+    {
+      languageOptions: { ecmaVersion: 2024, sourceType: "module" },
+      plugins: { ha: { rules: { "no-swallowed-failure": noSwallowedFailure } } },
+      rules: { "ha/no-swallowed-failure": ["error", { baseline }] },
+    },
+    { filename: "packages/kernel/src/new-code.js" },
+  );
 }
 
 test("G05 accepts rethrow, explicit consumption, and explicit failure returns", () => {
@@ -21,8 +25,14 @@ test("G05 accepts rethrow, explicit consumption, and explicit failure returns", 
 
 test("G05 rejects fallthrough and undefined or success projections", () => {
   assert.match(lint("try { work(); } catch (error) { report(error); }")[0].message, /can fall through/u);
-  assert.match(lint("try { work(); } catch (error) { return undefined; }")[0].message, /projected as undefined or success/u);
-  assert.match(lint("try { work(); } catch (error) { return { ok: true }; }")[0].message, /projected as undefined or success/u);
+  assert.match(
+    lint("try { work(); } catch (error) { return undefined; }")[0].message,
+    /projected as undefined or success/u,
+  );
+  assert.match(
+    lint("try { work(); } catch (error) { return { ok: true }; }")[0].message,
+    /projected as undefined or success/u,
+  );
 });
 
 test("G05 baseline fingerprints agree across LF and CRLF checkouts of the same source (#1538)", () => {

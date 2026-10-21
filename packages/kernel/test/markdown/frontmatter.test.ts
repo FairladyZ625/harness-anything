@@ -22,10 +22,7 @@ test("missing optional scalar returns empty string", () => {
 });
 
 test("missing required scalar fails closed", () => {
-  assert.throws(
-    () => readScalar("title: Demo", "missing", { required: true }),
-    /frontmatter missing missing/
-  );
+  assert.throws(() => readScalar("title: Demo", "missing", { required: true }), /frontmatter missing missing/);
 });
 
 test("reads nested scalar blocks", () => {

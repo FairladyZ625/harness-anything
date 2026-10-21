@@ -7,7 +7,7 @@ function git(args, options = {}) {
   return execFileSync("git", args, {
     cwd: process.cwd(),
     encoding: "utf8",
-    stdio: ["ignore", "pipe", options.allowFailure ? "pipe" : "inherit"]
+    stdio: ["ignore", "pipe", options.allowFailure ? "pipe" : "inherit"],
   });
 }
 
@@ -15,7 +15,7 @@ function gitStatus(args) {
   const result = execFileSync("git", args, {
     cwd: process.cwd(),
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
   return result;
 }
@@ -52,11 +52,9 @@ for (const trackedPath of explicitlyForbidden) {
   record(`forbidden tracked path: ${trackedPath}`);
 }
 
-const allTracked = git(["ls-files", "-z"])
-  .split("\0")
-  .filter(Boolean);
+const allTracked = git(["ls-files", "-z"]).split("\0").filter(Boolean);
 const allowlist = loadGateAllowlist("check-private-boundary", {
-  requiredSections: ["privateContentMarkers"]
+  requiredSections: ["privateContentMarkers"],
 });
 const privateContentMarkers = entryJoinedValues(allowlist.privateContentMarkers);
 

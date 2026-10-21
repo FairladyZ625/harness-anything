@@ -8,22 +8,26 @@ test("local gates check derives PR-required static checkers from the manifest", 
     "harness:check-alpha": "node tools/check-alpha.mjs",
     "harness:scan-beta": "node tools/scan-beta.mjs",
     "harness:smoke-package": "node tools/smoke-package.mjs",
-    "harness:check-main-only": "node tools/check-main-only.mjs"
+    "harness:check-main-only": "node tools/check-main-only.mjs",
   });
 
-  assert.deepEqual(plan.map((entry) => entry.id), ["check-alpha", "scan-beta"]);
+  assert.deepEqual(
+    plan.map((entry) => entry.id),
+    ["check-alpha", "scan-beta"],
+  );
   assert.equal(plan[0].scriptCommand, "node tools/check-alpha.mjs");
   assert.deepEqual(plan[1].workflowJobs, ["supply-chain"]);
 });
 
 test("local gates check rejects manifest static checker gates with missing package scripts", () => {
   assert.throws(
-    () => selectLocalGateChecks(makeManifest(), {
-      "harness:scan-beta": "node tools/scan-beta.mjs",
-      "harness:smoke-package": "node tools/smoke-package.mjs",
-      "harness:check-main-only": "node tools/check-main-only.mjs"
-    }),
-    /manifest gate check-alpha references missing package script harness:check-alpha/u
+    () =>
+      selectLocalGateChecks(makeManifest(), {
+        "harness:scan-beta": "node tools/scan-beta.mjs",
+        "harness:smoke-package": "node tools/smoke-package.mjs",
+        "harness:check-main-only": "node tools/check-main-only.mjs",
+      }),
+    /manifest gate check-alpha references missing package script harness:check-alpha/u,
   );
 });
 
@@ -31,8 +35,8 @@ function makeManifest() {
   return {
     surfaces: {
       rewriteCi: {
-        pullRequestGateJobs: ["boundaries", "supply-chain", "gui-build"]
-      }
+        pullRequestGateJobs: ["boundaries", "supply-chain", "gui-build"],
+      },
     },
     gates: [
       {
@@ -41,8 +45,8 @@ function makeManifest() {
         category: "boundary",
         tier: "pr-required",
         executionSurfaces: {
-          rewriteCi: { pullRequestJobs: ["boundaries"] }
-        }
+          rewriteCi: { pullRequestJobs: ["boundaries"] },
+        },
       },
       {
         id: "scan-beta",
@@ -50,8 +54,8 @@ function makeManifest() {
         category: "boundary",
         tier: "pr-required",
         executionSurfaces: {
-          rewriteCi: { pullRequestJobs: ["supply-chain"] }
-        }
+          rewriteCi: { pullRequestJobs: ["supply-chain"] },
+        },
       },
       {
         id: "test-integration",
@@ -59,8 +63,8 @@ function makeManifest() {
         category: "local-consistency",
         tier: "pr-required",
         executionSurfaces: {
-          rewriteCi: { pullRequestJobs: ["integration"] }
-        }
+          rewriteCi: { pullRequestJobs: ["integration"] },
+        },
       },
       {
         id: "smoke-package",
@@ -68,8 +72,8 @@ function makeManifest() {
         category: "smoke",
         tier: "pr-required",
         executionSurfaces: {
-          rewriteCi: { pullRequestJobs: ["gui-build"] }
-        }
+          rewriteCi: { pullRequestJobs: ["gui-build"] },
+        },
       },
       {
         id: "check-main-only",
@@ -77,9 +81,9 @@ function makeManifest() {
         category: "boundary",
         tier: "main-only",
         executionSurfaces: {
-          rewriteCi: { pullRequestJobs: [] }
-        }
-      }
-    ]
+          rewriteCi: { pullRequestJobs: [] },
+        },
+      },
+    ],
   };
 }

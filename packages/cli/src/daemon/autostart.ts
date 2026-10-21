@@ -1,5 +1,8 @@
 import path from "node:path";
-import type { DaemonAutostartResult, DaemonStartProgress } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import type {
+  DaemonAutostartResult,
+  DaemonStartProgress,
+} from "@harness-anything/daemon/internal/client/daemon-autostart";
 import {
   daemonIdFromEnv,
   daemonUserRoot,

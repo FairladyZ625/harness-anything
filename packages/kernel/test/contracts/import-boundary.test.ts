@@ -18,7 +18,7 @@ const forbiddenDomainImports = [
   "crypto",
   "sqlite",
   "better-sqlite3",
-  "effect"
+  "effect",
 ];
 
 test("domain source does not import runtime, IO, database or Effect modules", async () => {
@@ -35,15 +35,8 @@ test("domain source does not import runtime, IO, database or Effect modules", as
 });
 
 test("layout logic does not import direct physical IO modules", async () => {
-  const files = [
-    ...await readKernelSourceFilesUnder("layout")
-  ];
-  const forbiddenIoImports = [
-    "node:fs",
-    "fs",
-    "node:child_process",
-    "child_process"
-  ];
+  const files = [...(await readKernelSourceFilesUnder("layout"))];
+  const forbiddenIoImports = ["node:fs", "fs", "node:child_process", "child_process"];
 
   for (const file of files) {
     for (const moduleName of forbiddenIoImports) {

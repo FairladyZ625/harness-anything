@@ -208,6 +208,84 @@ test("all unavailable reports each declared runtime and local instance reason", 
   );
 });
 
+test("prepare keeps the declared runtimes row order when an earlier row is busier", async () => {
+  const attempts: string[] = [];
+  const selected = await prepareRuntimeInstance(
+    {
+      agent: agent(),
+      instances: [instance("devin-idle", "devin", "provider-devin"), instance("codex-busy", "codex", "provider-codex")],
+      sessions: [
+        { instanceId: "codex-busy", liveness: "live" } as never,
+        { instanceId: "codex-busy", liveness: "live" } as never,
+      ],
+      allowedInstanceIds: ["codex-busy", "devin-idle"],
+    },
+    async (id) => {
+      attempts.push(id);
+      return { prepared: id };
+    },
+  );
+  assert.equal(selected.instanceId, "codex-busy");
+  assert.deepEqual(attempts, ["codex-busy"]);
+});
+
+test("prepare spreads live load across instances of one declared runtime row", async () => {
+  const attempts: string[] = [];
+  const selected = await prepareRuntimeInstance(
+    {
+      agent: { ...agent(), runtimes: [{ type: "codex" }] },
+      instances: [instance("codex-b", "codex", "provider-codex"), instance("codex-a", "codex", "provider-codex")],
+      // The live session sits on the instance the configured order puts first, so only the
+      // live-load key can move the choice to its peer (an id tiebreak would also pick codex-a).
+      sessions: [{ instanceId: "codex-a", liveness: "live" } as never],
+      allowedInstanceIds: ["codex-a", "codex-b"],
+    },
+    async (id) => {
+      attempts.push(id);
+      return { prepared: id };
+    },
+  );
+  assert.equal(selected.instanceId, "codex-b");
+  assert.deepEqual(attempts, ["codex-b"]);
+});
+
+test("prepare keeps the configured order on an equal-load tie inside one declared row", async () => {
+  const attempts: string[] = [];
+  const selected = await prepareRuntimeInstance(
+    {
+      agent: { ...agent(), runtimes: [{ type: "codex" }] },
+      // The resolver lists codex-b before codex-a; an instance-id tiebreak would pick codex-a.
+      instances: [instance("codex-b", "codex", "provider-codex"), instance("codex-a", "codex", "provider-codex")],
+      sessions: [],
+      allowedInstanceIds: ["codex-b", "codex-a"],
+    },
+    async (id) => {
+      attempts.push(id);
+      return { prepared: id };
+    },
+  );
+  assert.equal(selected.instanceId, "codex-b");
+  assert.deepEqual(attempts, ["codex-b"]);
+});
+
+test("prepare keeps the configured order for a dispatch that declares no runtimes", async () => {
+  const attempts: string[] = [];
+  const selected = await prepareRuntimeInstance(
+    {
+      agent: null,
+      instances: [instance("codex-api", "codex", "provider-codex"), instance("zcode-glm", "zcode", "provider-zcode")],
+      sessions: [],
+      allowedInstanceIds: ["zcode-glm", "codex-api"],
+    },
+    async (id) => {
+      attempts.push(id);
+      return { prepared: id };
+    },
+  );
+  assert.equal(selected.instanceId, "zcode-glm");
+  assert.deepEqual(attempts, ["zcode-glm"]);
+});
+
 for (const firstReady of [true, false]) {
   test(`prepare selects declared runtime order; first ready=${firstReady}`, async () => {
     const attempts: string[] = [];

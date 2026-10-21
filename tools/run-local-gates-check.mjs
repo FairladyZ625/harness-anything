@@ -55,7 +55,7 @@ export function selectLocalGateChecks(manifest, packageScripts) {
       command: gate.command,
       scriptName,
       scriptCommand,
-      workflowJobs: jobs
+      workflowJobs: jobs,
     });
   }
 
@@ -81,7 +81,7 @@ function runCommand(entry) {
     cwd: repoRoot,
     env: process.env,
     shell: "/bin/sh",
-    stdio: "inherit"
+    stdio: "inherit",
   });
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
   if (result.error) {

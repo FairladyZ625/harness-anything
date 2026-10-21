@@ -1,0 +1,18 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "allowlist-ref-reachability-positive-control",
+  "entries": {
+    "paths": [
+      {
+        "value": "packages",
+        "ref": "task_00000000000000000000000000",
+        "reason": "Positive control: a well-formed but dangling ref must make the ratchet red."
+      },
+      {
+        "value": "packages",
+        "ref": "ADR-0022#D6",
+        "reason": "Reachable control: a citation verified by the evidence index must not add findings."
+      }
+    ]
+  }
+}

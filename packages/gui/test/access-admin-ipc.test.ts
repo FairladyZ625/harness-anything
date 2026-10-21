@@ -277,6 +277,34 @@ test("edge-join-create passes the daemon's pasteable string link to the renderer
   assert.equal(reply.expiresAt, "2026-10-21T00:00:00.000Z");
 });
 
+test("edge-join-create carries a win32 platform to the daemon unchanged", async () => {
+  const { sent, invoke } = fixture(),
+    api = accessAdminPreloadApi((_channel, request) => invoke(request));
+  await api.issueEdgeJoin({
+    personId: "person-gui",
+    repoIds: ["repo-a"],
+    groupIds: ["contributor"],
+    platform: "win32",
+  });
+  assert.deepEqual(sent[0], {
+    operation: "edge-join-create",
+    personId: "person-gui",
+    repoIds: ["repo-a"],
+    groupIds: ["contributor"],
+    platform: "win32",
+  });
+  // The renderer type and the main-process field table accept the platform; the daemon owns the
+  // vocabulary, so the IPC boundary passes an unknown value through rather than second-guessing it.
+  await api.issueEdgeJoin({
+    personId: "person-gui",
+    repoIds: ["repo-a"],
+    groupIds: ["contributor"],
+    platform: "linux",
+  });
+  assert.equal(sent[1]?.platform, "linux");
+  for (const params of sent) assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params }), []);
+});
+
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),
   pageSources = [
     "views/IdentityAccessView.tsx",

@@ -162,7 +162,7 @@ test("standalone changed mode derives its local PR gates from manifest path glob
   ]);
 });
 
-test("standalone changed mode selects rebuild-gates checks for the paths they read", () => {
+test("standalone changed mode selects the standalone gate jobs' checks for the paths they read", () => {
   const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "gate-manifest.json"), "utf8"));
   const plan = (changedPaths) => {
     const options = parseManifestGateArgs(["--changed", "origin/main"]);
@@ -215,6 +215,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-poll-spin-boundary": "packages/daemon/src/runtime-poll.ts",
     "check-fallback-boundaries": "tools/gates/receipt-verify.mjs",
     "check-entity-doc-contract": "packages/kernel/src/domain/entity-kind-registry.ts",
+    "check-format": "packages/cli/src/index.ts",
     lint: "packages/cli/src/index.ts",
     "check-test-tier-manifest": "packages/kernel/test/store/task-event-store.test.ts",
     "check-cli-structure": "packages/cli/src/new-command.ts",

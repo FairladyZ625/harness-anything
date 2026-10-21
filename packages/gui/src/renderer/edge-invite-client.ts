@@ -1,6 +1,7 @@
 import type {
   AccessPolicyGroup,
   EdgeJoinIssued,
+  EdgeJoinPlatform,
   EdgeJoinStatusReply,
   EdgeJoinSummary,
 } from "../api/access-admin-contract.ts";
@@ -20,7 +21,7 @@ type CreateJoinInput = {
   readonly repoIds: readonly string[];
   readonly groupIds: readonly string[];
   readonly nodeLabel?: string;
-  readonly platform?: "darwin" | "linux";
+  readonly platform?: EdgeJoinPlatform;
 };
 type AccessBridge = {
   readonly groups: () => Promise<unknown>;

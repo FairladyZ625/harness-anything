@@ -11,9 +11,9 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 // the job failed with ERR_MODULE_NOT_FOUND on main
 // (run 33112386830) because it never installed dependencies. The install step must precede the gate.
 test("derived-contracts job installs dependencies before running the gate", () => {
-  const workflow = readFileSync(path.join(rootDir, ".github/workflows/rebuild-gates.yml"), "utf8");
+  const workflow = readFileSync(path.join(rootDir, ".github/workflows/rewrite-ci.yml"), "utf8");
   const start = workflow.indexOf("  derived-contracts:");
-  const job = workflow.slice(start, workflow.indexOf("\n  evidence-contract:", start));
+  const job = workflow.slice(start, workflow.indexOf("\n  platform-smoke:", start));
   const install = job.indexOf("npm ci"),
     gate = job.indexOf("tools/gates/derived-contracts.mjs --check");
   assert.ok(install > 0 && gate > install, "npm ci must run before the derived-contracts gate");

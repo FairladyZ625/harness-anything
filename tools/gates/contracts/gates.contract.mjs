@@ -1,9 +1,10 @@
 export default Object.freeze({
   id: "rebuild-gates",
   phases: ["P2", "P4"],
-  projection: {
-    workflow: ".github/workflows/rebuild-gates.yml",
-  },
+  // The workflow projection (job and command verification against rebuild-gates.yml) retired with
+  // that workflow: its jobs merged into rewrite-ci.yml, whose job/command surface is verified
+  // bidirectionally by check-gate-surface and check-gate-manifest-invariants against
+  // tools/gate-manifest.json. This file remains the stable G-number registry.
   commands: [],
   guards: [],
   gates: [
@@ -56,7 +57,7 @@ export default Object.freeze({
       id: "G35",
       phase: "P2",
       job: "canonical-event-compat",
-      command: "node tools/gates/canonical-event-compat.mjs --check",
+      command: "npm run harness:check-canonical-event-compat",
     },
     { id: "G37", phase: "P4", job: "entity-id-links", command: "node tools/gates/entity-id-links.mjs" },
     { id: "G38", phase: "P2", job: "cost-budget", command: "node tools/gates/cost-budget.mjs" },

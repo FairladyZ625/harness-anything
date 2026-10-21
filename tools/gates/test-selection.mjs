@@ -20,7 +20,7 @@ function isGovernancePath(filePath) {
     filePath === "package.json" ||
     filePath === "package-lock.json" ||
     filePath.startsWith("tools/gates/") ||
-    filePath === ".github/workflows/rebuild-gates.yml"
+    filePath === ".github/workflows/rewrite-ci.yml"
   );
 }
 
@@ -43,7 +43,7 @@ export function selectTests(changedPaths, options = {}) {
         !filePath.startsWith("tools/gates/test/") &&
         !filePath.endsWith(".json")) ||
       filePath === "eslint.config.mjs" ||
-      filePath === ".github/workflows/rebuild-gates.yml"
+      filePath === ".github/workflows/rewrite-ci.yml"
     )
       governanceMechanismChanged = true;
     if (filePath.startsWith("tools/gates/test/")) governanceFixtureChanged = true;
