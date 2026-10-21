@@ -176,7 +176,7 @@ test("CLI submit of a pushed delivery automatically dispatches the default and m
       "repeated submit preserves both dispatch identities",
     );
   } finally {
-    await transport.close();
+    await transport.stop();
     await host.close();
     rmSync(parent, { recursive: true, force: true });
   }

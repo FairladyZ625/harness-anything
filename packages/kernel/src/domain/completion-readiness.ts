@@ -352,7 +352,7 @@ function evaluateCompletion(
       "review_missing",
       "review",
       `ha task dispatch-review ${task.taskId}`,
-      "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+      "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
     );
   if (assessment.blocker === "consent")
     return one(
