@@ -1240,10 +1240,10 @@
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/check-file-complexity.mjs",
-        "adrOrDecisionRequired": true,
-        "notes": "Current exceptions live in the checker; ADR-0023 D6 requires governed treatment for allowlist growth."
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "One ceiling applies to every scanned file; there is no path, history or inline exception to allowlist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
