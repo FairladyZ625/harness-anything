@@ -32,6 +32,15 @@ const REASON_LABELS: Readonly<Record<string, MessageKey>> = {
   "center-replica-ledger-has-no-row-for-node": "collaboration.reason.noReplicaRow",
   authorization_denied: "collaboration.reason.authorizationDenied",
   insufficient_scope: "collaboration.reason.insufficientScope",
+  "center-local-writer": "collaboration.reason.centerLocalWriter",
+  "replica-row-missing": "collaboration.reason.replicaRowMissing",
+  "replica-disconnected": "collaboration.reason.replicaDisconnected",
+  "replica-snapshot-required": "collaboration.reason.replicaSnapshotRequired",
+  "replica-catching-up": "collaboration.reason.replicaCatchingUp",
+  "replica-current": "collaboration.reason.replicaCurrent",
+};
+const REASON_PREFIX_LABELS: Readonly<Record<string, MessageKey>> = {
+  "sync-failure:": "collaboration.reason.replicaSyncFailure",
 };
 /** 值域里的 daemon 标记串(如 owner 登记表查无此人)→ 人话;标记串进 title。 */
 const VALUE_LABELS: Readonly<Record<string, MessageKey>> = {
@@ -55,7 +64,8 @@ export const READ_ERROR_LABELS: Readonly<Record<string, MessageKey>> = {
 };
 
 export function reasonText(reason: string): string {
-  const message = REASON_LABELS[reason];
+  const message =
+    REASON_LABELS[reason] ?? Object.entries(REASON_PREFIX_LABELS).find(([prefix]) => reason.startsWith(prefix))?.[1];
   return message === undefined ? t("collaboration.reason.unknown") : t(message);
 }
 

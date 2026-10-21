@@ -21,8 +21,9 @@ import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-g
  * - 在做什么 = 该节点当前租约的任务行 + 这些任务的 dispatch 行(daemon 既有读面);
  * - 事件 = canonical event 尾部只读投影,按任务**当前**租约归属节点——历史事件可能
  *   早于当前持有人,这一归属语义在结果里显式声明,不在 UI 里隐含;
- * - TLS 实时在线 session、edge 内部 watch/pull/退避、replica_sync_failed 生命周期
- *   记录当前读面不提供:字段显式 `unavailable` 带原因,不用别的信号冒充。
+ * - TLS 实时在线 session、edge 内部 watch/pull/退避当前读面不提供:字段显式
+ *   `unavailable` 带原因,不用别的信号冒充;中心副本状态中的 syncFailure 则由
+ *   `replicaReason` 与 `lastFailure` 一次投影给查看侧。
  *
  * 该查询只读,不占租约、不写事件;权限沿用 repository-read 授权与 viewer binding。
  */
@@ -140,6 +141,8 @@ export interface FleetNodeRow {
     | null;
   /** replica 为 null 时必给原因;非 null 时为 null。 */
   readonly replicaNote: string | null;
+  /** 中心根据副本状态记录的同步原因;机器码由 GUI 翻译,不在 GUI 推断。 */
+  readonly replicaReason: string;
   readonly watch: FleetFieldState;
   readonly lastFailure: FleetFieldState;
 }
@@ -190,7 +193,13 @@ const ONLINE_REASON = "tls-session-fact-not-exposed",
   EDGE_BUILD_REASON = "replica-status-has-no-build-field",
   WATCH_REASON = "edge-sync-internals-not-exposed",
   LAST_FAILURE_REASON = "no-replica-sync-failure-record-in-lifecycle-read",
-  NO_REPLICA_ROW_REASON = "center-replica-ledger-has-no-row-for-node";
+  NO_REPLICA_ROW_REASON = "center-replica-ledger-has-no-row-for-node",
+  CENTER_REPLICA_REASON = "center-local-writer",
+  REPLICA_ROW_MISSING_REASON = "replica-row-missing",
+  REPLICA_DISCONNECTED_REASON = "replica-disconnected",
+  REPLICA_SNAPSHOT_REASON = "replica-snapshot-required",
+  REPLICA_LAGGING_REASON = "replica-catching-up",
+  REPLICA_CURRENT_REASON = "replica-current";
 
 /**
  * 租约事实的读面过滤集:只有展示态 active。生命周期契约保证 snapshot.lease !== null
@@ -265,10 +274,18 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         : { redacted: input.leaseReads.code },
       replica: replica === null ? null : projectReplica(replica),
       replicaNote: isCenter || replica !== null ? null : NO_REPLICA_ROW_REASON,
+      replicaReason: isCenter
+        ? CENTER_REPLICA_REASON
+        : replica === null
+          ? REPLICA_ROW_MISSING_REASON
+          : replicaReasonOf(replica),
       watch: isCenter
         ? { kind: "value", text: "local canonical writer" }
         : { kind: "unavailable", reason: WATCH_REASON },
-      lastFailure: { kind: "unavailable", reason: LAST_FAILURE_REASON },
+      lastFailure:
+        replica?.syncFailure === null || replica === null
+          ? { kind: "unavailable", reason: LAST_FAILURE_REASON }
+          : { kind: "value", text: replica.syncFailure.message },
     };
   });
 
@@ -378,6 +395,19 @@ function projectReplica(replica: FleetReplicaStatus): NonNullable<FleetNodeRow["
   };
 }
 
+/**
+ * The center is the sole authority for why a replica is behind.  These codes are
+ * deliberately derived from the center's status row here, once, so the GUI and
+ * CLI consume the same explanation instead of inferring it from lag numbers.
+ */
+function replicaReasonOf(replica: FleetReplicaStatus): string {
+  if (replica.syncFailure !== null) return `sync-failure:${replica.syncFailure.code}`;
+  if (!replica.connected) return REPLICA_DISCONNECTED_REASON;
+  if (replica.delivery === "snapshot_required" || replica.ackRevision === null) return REPLICA_SNAPSHOT_REASON;
+  if (replica.delivery === "delta" || replica.lagRevisions > 0) return REPLICA_LAGGING_REASON;
+  return REPLICA_CURRENT_REASON;
+}
+
 function fleetEventRows(
   events: readonly FleetCanonicalEventFact[],
   leasesByNode: ReadonlyMap<string, readonly FleetLeaseFact[]>,
@@ -461,6 +491,7 @@ function validateNodeRow(node: unknown, at: string): readonly string[] {
   if (row.role !== "center" && row.role !== "edge") errors.push(`${at}.role must be center or edge`);
   for (const field of ["owner", "build", "online", "watch", "lastFailure"] as const)
     errors.push(...validateFieldState(row[field], `${at}.${field}`));
+  if (typeof row.replicaReason !== "string") errors.push(`${at}.replicaReason must be a string`);
   if (Array.isArray(row.leases)) {
     for (const [index, lease] of row.leases.entries()) {
       const entry = lease as Record<string, unknown>;
