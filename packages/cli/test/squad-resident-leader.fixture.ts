@@ -115,7 +115,7 @@ function writeMixedLeaderProvider(target: string): void {
     target,
     `const fs = require("node:fs");
 const args = process.argv.slice(2);
-if (args[0] === "--version") { console.log("claude mixed-runtime-test"); process.exit(0); }
+if (args[0] === "--version") { console.log("2.1.305 (Claude Code)"); process.exit(0); }
 if (args[0] === "auth" && args[1] === "status") process.exit(0);
 const prompt = fs.readFileSync(0, "utf8");
 const callback = prompt.includes("# Squad worker callback") || prompt.includes("# Squad leader retry");

@@ -40,7 +40,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
         installationId: "installation-claude",
         kindId: "claude",
         executablePath,
-        version: "1.0.0",
+        version: "2.1.305 (Claude Code)",
         observedAt: "2026-09-28T00:00:00.000Z",
       },
     ],

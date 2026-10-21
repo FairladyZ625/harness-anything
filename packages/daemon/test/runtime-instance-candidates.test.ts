@@ -308,6 +308,36 @@ for (const firstReady of [true, false]) {
   });
 }
 
+// An old CLI is a per-installation refusal, not a per-kind one: one node can witness two
+// installations of the same kind, and automatic selection must reach the usable one. An
+// explicit pin keeps the refusal, because it names that exact installation.
+test("automatic selection retries past a below-floor CLI while an explicit pin keeps the refusal", async () => {
+  const instances = [instance("claude-old", "claude", "anthropic"), instance("claude-current", "claude", "anthropic")],
+    input = { agent: null, instances, sessions: [], allowedInstanceIds: instances.map((row) => row.instanceId) },
+    belowFloor = () =>
+      Object.assign(new Error("Claude Code 2.1.268 is below the supported minimum 2.1.280"), {
+        code: "minimum_version_not_met",
+      });
+  const attempts: string[] = [];
+  assert.deepEqual(
+    await prepareRuntimeInstance(input, async (id) => {
+      attempts.push(id);
+      if (id === "claude-old") throw belowFloor();
+      return { prepared: id };
+    }),
+    { instanceId: "claude-current", launch: { prepared: "claude-current" } },
+  );
+  assert.deepEqual(attempts, ["claude-old", "claude-current"]);
+
+  const pinned = belowFloor();
+  await assert.rejects(
+    prepareRuntimeInstance({ ...input, requested: "claude-old" }, async () => {
+      throw pinned;
+    }),
+    (observed) => observed === pinned,
+  );
+});
+
 test("prepare exhaustion lists every attempted instance, and unknown errors propagate", async () => {
   const input = {
     agent: agent(),

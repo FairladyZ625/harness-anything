@@ -56,7 +56,9 @@ process.stdout.write(key === '${keyA}' ? 'a' : key === '${keyB}' ? 'b' : key ===
     kindId,
     installationId: `${kindId}-fixture`,
     executablePath,
-    version: "fixture",
+    // Claude's launch contract declares a CLI floor; a placeholder version cannot be shown
+    // to meet it, so this fixture reports a real Claude build for that kind.
+    version: kindId === "claude" ? "2.1.305 (Claude Code)" : "fixture",
     observedAt: "2026-10-02T00:00:00.000Z",
   }));
   const backend = vault(),

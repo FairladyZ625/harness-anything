@@ -108,6 +108,19 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
   );
 });
 
+// The floor is catalog data, not a caller-side constant: discovery, the readiness probe,
+// and the launch precheck all read this one field, so a provider that starts rejecting a
+// model alias in an older build is a one-line contract edit here. Only kinds whose CLI has
+// such a floor declare it — the absence means "no floor", never "unknown floor".
+test("Claude Code declares its minimum CLI version and no other kind invents one", () => {
+  const claude = runtimeKinds.find((entry) => entry.kindId === "claude")!;
+  assert.equal(claude.executable.minimumVersion, "2.1.280");
+  assert.deepEqual(
+    runtimeKinds.filter((entry) => entry.executable.minimumVersion !== undefined).map((entry) => entry.kindId),
+    ["claude"],
+  );
+});
+
 // DeepSeek Harness 0.2.1-rc.2 (2026-10-18): the desktop App's bundled CLI is the only entry
 // (nothing on PATH), `dsh --profile acp` takes no flags, and the sandbox/approval policy is
 // the DSH_PERMISSION_MODE environment variable (asar acp profile: sandbox-policy.mode and

@@ -28,6 +28,7 @@ test("Claude effort defaults and per-launch overrides reach the Claude Code CLI"
       installationId: "claude-effort-installation",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
   try {
     const store = openRuntimeInstanceStore({
@@ -160,6 +161,7 @@ test("persisted schema v2 records normalize permission and isolation fields once
       installationId: "claude-field-migration",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     },
     agy = {
       installationId: "agy-field-migration",
@@ -646,6 +648,7 @@ test("runtime instance update edits the base URL of an existing instance", async
       installationId: "claude-edit",
       kindId: "claude" as const,
       executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
     };
     const claudeStore = openRuntimeInstanceStore({ userRoot, discover: () => [claudeInstallation] });
     claudeStore.command({

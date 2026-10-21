@@ -78,6 +78,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       ...ingressInstallation,
       installationId: "installation-claude",
       kindId: "claude" as const,
+      // The shared witness is Codex-shaped; Claude's launch contract declares its own floor.
+      version: "2.1.305 (Claude Code)",
     };
   let launchedEnv: NodeJS.ProcessEnv | null = null,
     launchedPrompt = "",
