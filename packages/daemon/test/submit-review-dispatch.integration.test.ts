@@ -514,6 +514,10 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
     );
     assert.equal(legacy.outcome, "applied", JSON.stringify(legacy));
     assert.equal(f.launches.length, 1);
+    const legacyEvent = f
+      .events()
+      .find((event) => event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === legacyKey);
+    assert.ok(legacyEvent?.type === "runtime_dispatch_requested");
 
     const rerouted = await f.run({
       kind: "task-adjudicate",
@@ -524,6 +528,9 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
       reason: "Retry the selected reviewer on the same cut.",
     });
     assert.equal(rerouted.outcome, "applied", JSON.stringify(rerouted));
+    const rerouteStep = ((rerouted as Record<string, unknown>).steps as readonly Record<string, unknown>[]).at(-1);
+    assert.equal(rerouteStep?.dispatchId, legacyEvent.payload.dispatchId);
+    assert.equal(rerouteStep?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
     assert.equal(f.launches.length, 1, "the owner reroute must reuse the live legacy dispatch");
 
     const retry = await f.run({
@@ -532,9 +539,31 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
       agentId: "alternate-reviewer",
     });
     assert.equal(retry.outcome, "applied", JSON.stringify(retry));
-    const step = (retry as Record<string, unknown>).dispatches as { outcome: string; dispatchKey?: string }[];
+    const step = (retry as Record<string, unknown>).dispatches as {
+      outcome: string;
+      dispatchId: string;
+      runtimeSessionId: string;
+    }[];
     assert.equal(step[0]?.outcome, "already_dispatched", JSON.stringify(step[0]));
+    assert.equal(step[0]?.dispatchId, legacyEvent.payload.dispatchId);
+    assert.equal(step[0]?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
     assert.equal(f.launches.length, 1, "dispatch-review must recognize the legacy key as well");
+
+    f.failPending();
+    await f.awaitOutcome(legacyEvent.payload.runtimeSessionId);
+    const nextAttempt = await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "alternate-reviewer",
+    });
+    assert.equal(nextAttempt.outcome, "applied", JSON.stringify(nextAttempt));
+    assert.equal(f.launches.length, 2, "an ended migrated dispatch advances to its next attempt");
+    const nextEvent = f
+      .events()
+      .filter((event) => event.type === "runtime_dispatch_requested")
+      .at(-1);
+    assert.ok(nextEvent?.type === "runtime_dispatch_requested");
+    assert.match(nextEvent.payload.dispatchKey, /:reviewer:alternate-reviewer:attempt1$/u);
   } finally {
     await f.close();
   }
