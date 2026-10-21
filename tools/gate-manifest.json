@@ -3923,7 +3923,8 @@
       "authoritySource": ["task_01130d097481420c8d59e1fe08", "decision/dec_99000027E6BCC263E341D38DC0/CH2"],
       "consumerScope": [
         "path-accounting sections in tools/gate-allowlists/*.json",
-        "path fingerprints and known-debt entries in the five registered inline baseline modules"
+        "path fingerprints and known-debt entries in the five registered inline baseline modules",
+        "ref citations in tools/gate-allowlists/*.json entries, audited for reachability against the ledger-exported tools/gates/evidence-index.mjs (G-FIX-05 remainder, task_5a0e2e2ef57aaa68b0f2e23c74)"
       ],
       "githubContext": {
         "requiredContexts": [],
@@ -3941,6 +3942,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/gates/allowlist-path-existence.mjs",
+          "tools/gates/evidence-index.mjs",
           "tools/gates/test/allowlist-path-existence.test.mjs",
           "tools/gate-manifest.json"
         ]
@@ -3957,7 +3959,8 @@
         "status": "covered",
         "evidence": [
           "tools/gates/test/allowlist-path-existence.test.mjs",
-          "tools/gates/test/fixtures/allowlist-path-existence-missing.json"
+          "tools/gates/test/fixtures/allowlist-path-existence-missing.json",
+          "tools/gates/test/fixtures/allowlist-ref-reachability-missing.json"
         ]
       }
     },

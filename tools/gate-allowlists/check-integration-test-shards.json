@@ -355,7 +355,7 @@
       },
       {
         "value": "packages/daemon/test/role-binding.integration.test.ts",
-        "ref": "dec_B284A85A",
+        "ref": "dec_B284A85A2078145597CEF8D733",
         "reason": "The integration exercised the retired transport command-class authorization; AuthorizationPort contract and daemon ingress tests now cover the single authorization path."
       },
       {
