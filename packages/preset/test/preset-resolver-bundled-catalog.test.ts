@@ -195,12 +195,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       assert.match(plan, /No source tests|不要求源码测试/u);
     }
     const matrix = [
-      [
-        "standard-task",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
+      ["standard-task", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       [
         "lifecycle-blackbox-acceptance",
@@ -221,36 +216,11 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         ["task.plan", "task.closeout", "task.artifacts.keep", "task.worker.flow"],
       ],
       ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      [
-        "github-issue-repair",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
-      [
-        "legacy-migration",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
-      [
-        "create-work",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
-      [
-        "work-closeout",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
-      [
-        "decision-conformance",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
+      ["github-issue-repair", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["legacy-migration", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["create-work", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["work-closeout", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      ["decision-conformance", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
     ] as const;
     for (const [presetId, outputShape, completionGateIds, slots] of matrix) {

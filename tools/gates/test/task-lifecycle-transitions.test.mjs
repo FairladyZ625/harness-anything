@@ -440,11 +440,7 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
     ["planned", round.created.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["active", round.started.snapshot, new Set(["SubmitExecution", "TransitionTask"])],
     ["submitted", round.submitted.snapshot, new Set(["AdjudicateSubmission", "TransitionTask"])],
-    [
-      "forwarded",
-      round.forwarded.snapshot,
-      new Set(["AdjudicateSubmission", "RecordReview", "TransitionTask"]),
-    ],
+    ["forwarded", round.forwarded.snapshot, new Set(["AdjudicateSubmission", "RecordReview", "TransitionTask"])],
     [
       "approved",
       round.approved.snapshot,

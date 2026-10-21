@@ -71,7 +71,7 @@ describe("work information architecture", () => {
         executions: [],
         reviews: [],
         consents: [],
-              gateWitnesses: [],
+        gateWitnesses: [],
         [field]: [witness],
       };
       const adapted = adaptProjectionRows(

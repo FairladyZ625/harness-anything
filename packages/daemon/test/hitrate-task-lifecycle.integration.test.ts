@@ -334,7 +334,6 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
     assert.equal(amendCompleted.outcome, "op_rejected", JSON.stringify(amendCompleted));
     assert.equal(amendCompleted.code, "invalid_transition");
     assert.equal(events().length, beforeTerminalAmend, "terminal amend must not publish dirty closeout");
-
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });

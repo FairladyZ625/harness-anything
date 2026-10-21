@@ -193,9 +193,9 @@ const codeDocRequirement = {
     },
   };
 const gatedAt = (
-    gates: readonly (typeof retiredCiRequirement | typeof manualRequirement | typeof codeDocRequirement)[],
-    count: number,
-  ) =>
+  gates: readonly (typeof retiredCiRequirement | typeof manualRequirement | typeof codeDocRequirement)[],
+  count: number,
+) =>
   lifecycleFixture({ gates, complete: false })
     .events.slice(0, count)
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
@@ -439,9 +439,7 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
     index = (
       snapshot: typeof submitted,
       completionContext: typeof context & {
-        readonly closeoutGates: Readonly<
-          Record<"review" | "consent" | "fact" | "factDisposition", boolean>
-        >;
+        readonly closeoutGates: Readonly<Record<"review" | "consent" | "fact" | "factDisposition", boolean>>;
       },
     ) =>
       rematerializeTaskDocuments({

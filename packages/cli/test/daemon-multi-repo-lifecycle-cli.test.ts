@@ -192,7 +192,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         "next: ha work list",
         "preset: standard-task/baseline",
         "outputShape: repository-diff",
-        'completionGates: []',
+        "completionGates: []",
         "contract: repository-diff requires a committable public-repository diff and real CI. " +
           "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
         "next: remove --dry-run to publish this exact resolved scaffold",

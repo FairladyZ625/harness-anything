@@ -61,7 +61,7 @@ export function stackSnapshot(taskId: string, status = "in_review"): TaskLifecyc
         consentedAt: "2026-10-07T00:03:00Z",
       },
     ],
-      gateWitnesses: [],
+    gateWitnesses: [],
     edgesTaken: [],
     lease: null,
   };

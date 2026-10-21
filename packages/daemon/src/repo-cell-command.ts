@@ -42,7 +42,6 @@ export function dispatchRead<M extends RepoCellReadMethod>(
   return handlers[method](payload, binding);
 }
 
-
 export function buildCommand(
   action: RepoTaskAction,
   taskId: string,

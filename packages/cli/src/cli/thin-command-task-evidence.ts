@@ -65,4 +65,3 @@ export function parseTaskAttest(
       })
     : rejected(f.code, f.nextAction, json);
 }
-

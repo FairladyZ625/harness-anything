@@ -166,9 +166,7 @@ function readTaskReviewConsent(taskId, root) {
   if (
     typeof evidence?.task?.status !== "string" ||
     evidence.task === null ||
-    !["executions", "reviews", "consents", "gateWitnesses"].every((field) =>
-      Array.isArray(evidence[field]),
-    )
+    !["executions", "reviews", "consents", "gateWitnesses"].every((field) => Array.isArray(evidence[field]))
   ) {
     throw new Error(
       `Harness task show for ${taskId} returned no completion judgment; refusing to merge (fail closed).`,

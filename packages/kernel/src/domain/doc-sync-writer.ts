@@ -397,10 +397,10 @@ export function resolveDocRoute(path: PortableDocumentPath): {
             : taskFile === "facts.md"
               ? "ha fact record --help"
               : taskFile?.startsWith("executions/")
-                  ? "task-lifecycle"
-                  : taskFile?.startsWith("reviews/")
-                    ? "task-review-execution"
-                    : null;
+                ? "task-lifecycle"
+                : taskFile?.startsWith("reviews/")
+                  ? "task-review-execution"
+                  : null;
   if (taskRoute) return { allowed: false, requiredRoute: taskRoute };
   const denied = docRouteRegistry.find((route) => path === route.prefix || path.startsWith(route.prefix));
   return denied

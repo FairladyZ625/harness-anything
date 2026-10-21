@@ -222,7 +222,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
         review("review-other-cut", SHA_B, 1),
       ],
       consents: [consent("consent-matching", "review-matching"), consent("consent-other-cut", "review-other-cut")],
-          gateWitnesses: [gate("gate-matching", SHA_A, 0), gate("gate-other-cut", SHA_B, 1)],
+      gateWitnesses: [gate("gate-matching", SHA_A, 0), gate("gate-other-cut", SHA_B, 1)],
       edgesTaken: [],
       lease: null,
     },

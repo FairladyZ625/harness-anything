@@ -85,8 +85,7 @@ export function makeOfflineCompletionChain(input: {
         },
         presetSnapshotDigest: snapshotDigest(task.presetSnapshotDigest),
         gates,
-        closeoutGates:
-          previous?.closeoutGates ?? effectiveCloseoutGates(closeout, task.closeoutOverrides),
+        closeoutGates: previous?.closeoutGates ?? effectiveCloseoutGates(closeout, task.closeoutOverrides),
         ...(previous?.reviewer ? { reviewer: previous.reviewer } : {}),
       };
       contracts.set(identity, contract);
