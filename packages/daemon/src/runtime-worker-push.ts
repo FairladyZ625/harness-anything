@@ -360,9 +360,22 @@ export function canonicalPath(value: string): string {
 // into push diagnostics, and those diagnostics are relayed to clients and agent prompts that must
 // not receive the host layout. errorDetail is the single shaping point for remote-operation
 // diagnostics, so the rule lives here; owned sentences that legitimately name rootDir are not
-// routed through it. The boundary characters keep URL path segments (preceded by `:` or a word
-// character) out of the match.
-const localPath = /(^|[\s'"[(=])(?:file:\/\/\/|[A-Za-z]:\\|\/)[^\s'"`,;:)\\]+/gu;
+// routed through it. Every shape git prints is covered: POSIX (`/srv/…`), a drive letter with
+// either separator (`C:\…`, `C:/…`), UNC (`\\server\share\…`) and `file:///…`. Git quotes a path
+// that contains a space, so the quoted form is consumed through its closing quote instead of
+// stopping at the first blank. The leading boundary characters keep URL path segments (preceded by
+// `:` or a word character) out of the match, which is why `https://host/…` stays for the credential
+// rules; a colon inside the path body is a drive separator, not a terminator, while a colon before
+// the first slash (`https://`) is what stops a URL from matching at all.
+const localPathStart = String.raw`(?:file:\/\/\/|[A-Za-z]:[\\/]|\\\\|\/)`,
+  // A quote only opens a path when the path starts immediately; the closing quote must be on the
+  // same line, so an unbalanced quote cannot swallow the rest of the diagnostic.
+  quotedLocalPath = new RegExp(String.raw`(['"])${localPathStart}[^'"\n]*\1`, "gu"),
+  unquotedLocalPath = new RegExp(String.raw`(^|[\s'"[(=])${localPathStart}[^\s'"` + "`" + String.raw`,;)\]<>|]+`, "gu");
+
+function scrubLocalPaths(text: string): string {
+  return text.replace(quotedLocalPath, "$1<local-path>$1").replace(unquotedLocalPath, "$1<local-path>");
+}
 
 function errorDetail(error: unknown): string {
   const value =
@@ -371,7 +384,9 @@ function errorDetail(error: unknown): string {
       : error instanceof Error
         ? error.message
         : String(error);
-  const scrubbed = String(scrubProviderValue(value)).replace(localPath, "$1<local-path>").trim().replace(/\s+/gu, " ");
+  const scrubbed = scrubLocalPaths(String(scrubProviderValue(value)))
+    .trim()
+    .replace(/\s+/gu, " ");
   return scrubbed.slice(0, detailLimit) || "git push failed without diagnostics";
 }
 

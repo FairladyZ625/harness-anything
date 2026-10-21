@@ -880,6 +880,54 @@ test(
   },
 );
 
+test(
+  "a relayed refusal scrubs host paths in every shape, not only POSIX absolute paths",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    // A Windows agent's git prints drive-letter and UNC paths, and a drive path uses either
+    // separator; git also quotes a path containing spaces. Each shape must leave as `<local-path>`
+    // while the sentence that says what happened survives — otherwise the host layout reaches the
+    // CLI and an agent's prompt on the platform that ships the Windows integration shard.
+    const root = mkdtempSync(path.join(tmpdir(), "ha-push-path-shapes-"));
+    try {
+      execFileSync("git", ["init", "-q", root]);
+      const helper = path.join(root, "relay.sh");
+      writeFileSync(
+        helper,
+        String.raw`#!/bin/sh
+cat <<'EOF' >&2
+fatal: C:\Users\op\AppData\Local\Temp\ha-x\mirror.git does not appear to be a git repository
+fatal: C:/Users/op/AppData/Local/Temp/ha-x/mirror.git does not appear to be a git repository
+fatal: \\fileserver\share\mirror.git does not appear to be a git repository
+fatal: /srv/harness/mirror.git does not appear to be a git repository
+fatal: C:\Program Files\Harness\mirror.git does not appear to be a git repository
+EOF
+exit 1
+`,
+        { mode: 0o755 },
+      );
+      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
+      let thrown: (Error & { code?: string; message: string }) | undefined;
+      await assert.rejects(
+        readWorkerRemoteCommit(root, "task_push_path_shapes"),
+        (error: Error & { code?: string; message: string }) => {
+          thrown = error;
+          assert.equal(error.code, "delivery_publish_failed");
+          assert.doesNotMatch(error.message, /AppData|fileserver|share\\|Program Files|\/srv\//u, error.message);
+          assert.match(error.message, /does not appear to be a git repository/u, "the cause survives the scrub");
+          return true;
+        },
+      );
+      const explanation = String(failed("op-path-shapes", thrown).rejectionExplanation);
+      assert.doesNotMatch(explanation, /AppData|fileserver|Program Files|\/srv\//u, explanation);
+      assert.match(explanation, /does not appear to be a git repository/u, explanation);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
 test("a task push to an unusable origin explains the cause without exporting this host's paths", async () => {
   const rootDir = workspace("push-dead-origin"),
     repoId = workspaceId("push-dead-origin"),
@@ -907,8 +955,12 @@ test("a task push to an unusable origin explains the cause without exporting thi
     assert.equal(pushed.code, "delivery_publish_failed", JSON.stringify(pushed));
     const explanation = String(pushed.rejectionExplanation);
     assert.match(explanation, /does not appear to be a git repository|No such file|not found/iu, explanation);
-    assert.ok(!explanation.includes(mirror), explanation);
-    assert.ok(!explanation.includes(rootDir), explanation);
+    // Compare the leaf and the root by name, not by the platform's separator: git prints a
+    // forward-slash drive path on Windows, so a native-separator `includes` would pass while the
+    // host layout is still in the text.
+    assert.ok(!explanation.includes(path.basename(mirror)), explanation);
+    assert.ok(!explanation.includes(path.basename(rootDir)), explanation);
+    assert.ok(!/\/Users\/|\/home\/|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\/u.test(explanation), explanation);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
