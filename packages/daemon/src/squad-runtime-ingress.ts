@@ -9,6 +9,7 @@ import {
   type TaskProjectionQueries,
   type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
+import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 import { requireRuntimeDispatchOwner, runtimeDispatchTaskMatches } from "./runtime-session-action-runtime.ts";
@@ -35,7 +36,7 @@ export function requireSquadRuntimeOwner(
   requireRuntimeDispatchOwner(dispatch ?? null, binding, true);
   const context =
     dispatch?.payload.squadRun && !("ownerDispatchId" in dispatch.payload.squadRun)
-      ? (dispatch.payload.squadRun as unknown as SquadRunIdentityFields)
+      ? (normalizeHistoricalSquadRunIdentity(dispatch.payload.squadRun) as SquadRunIdentityFields)
       : null;
   const observed = action.payload as unknown as SquadRunIdentityFields;
   if (
