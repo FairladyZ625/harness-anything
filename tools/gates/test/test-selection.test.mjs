@@ -46,6 +46,17 @@ test("G25 does not inherit the tooling production label outside its governance p
   assert.match(result.proof.join("\n"), /outside G25 \(tooling\/production\)/u);
 });
 
+test("G25 treats the merged rewrite-ci workflow as gate wiring: tiers plus a fixture requirement", () => {
+  // rebuild-gates.yml merged into rewrite-ci.yml, so the governance-path and
+  // mechanism-change predicates follow the workflow file that now carries the gate jobs.
+  const wiring = selectTests([".github/workflows/rewrite-ci.yml"]);
+  assert.deepEqual(wiring.required, ["fast", "contract"]);
+  assert.match(wiring.errors.join("\n"), /require a tools\/gates\/test data fixture/u);
+
+  const withFixture = selectTests([".github/workflows/rewrite-ci.yml", "tools/gates/test/test-selection.test.mjs"]);
+  assert.equal(withFixture.ok, true, withFixture.errors.join("\n"));
+});
+
 test("G25 zero selection is green only with complete non-production proof", () => {
   const result = selectTests(["docs/rebuild.md", ".github/ISSUE_TEMPLATE/bug.yml"]);
   assert.equal(result.ok, true);

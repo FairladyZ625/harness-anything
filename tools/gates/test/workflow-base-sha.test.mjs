@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const workflowPath = path.join(process.cwd(), ".github/workflows/rebuild-gates.yml");
+const workflowPath = path.join(process.cwd(), ".github/workflows/rewrite-ci.yml");
 
 // The patterns below are written against LF. A Windows contributor's checkout has CRLF and they
 // would miss the blocks entirely, reporting a missing trigger that is right there -- #1526's

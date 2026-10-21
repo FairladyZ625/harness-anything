@@ -167,7 +167,18 @@
         "package-policy",
         "supply-chain",
         "gui-build",
-        "node26-compatibility"
+        "node26-compatibility",
+        "gate-contract-tests",
+        "derived-contracts",
+        "platform-smoke",
+        "schema-closure",
+        "canonical-event-compat",
+        "test-selection",
+        "clean-build",
+        "dependency-policy",
+        "cost-budget",
+        "lint",
+        "entity-id-links"
       ],
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": [
@@ -725,7 +736,7 @@
       ],
       "githubContext": {
         "requiredContexts": ["crlf-checkout"],
-        "workflowJobs": ["crlf-checkout"],
+        "workflowJobs": ["crlf-checkout", "lint"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -751,7 +762,7 @@
           "script": "lint"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["crlf-checkout"],
+          "pullRequestJobs": ["crlf-checkout", "lint"],
           "nonPullRequestJobs": ["full-check", "crlf-checkout"]
         },
         "branchProtection": {
@@ -3685,7 +3696,7 @@
       ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "workflowJobs": ["boundaries", "canonical-event-compat", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -3714,7 +3725,7 @@
           "script": "harness:check-canonical-event-compat"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
+          "pullRequestJobs": ["boundaries", "canonical-event-compat"],
           "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
@@ -4183,7 +4194,7 @@
       "command": "node tools/gates/entity-id-links.mjs",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G37 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml entity-id-links job, and this entry lets the changed-path local runner select it for GUI renderer changes. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "G37 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml entity-id-links job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it for GUI renderer changes. Promotion to a required context remains a CEO-controlled switch.",
       "localPathGlobs": [
         "packages/gui/src/renderer/**",
         "packages/gui/test/entity-id-links.vitest.ts",
@@ -4201,7 +4212,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "workflowJobs": ["entity-id-links"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4223,7 +4234,7 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "harness:check-entity-id-links" },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["entity-id-links"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["local", "pr"]
       },
@@ -4238,7 +4249,7 @@
       "command": "node tools/gates/derived-contracts.mjs --check",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G11 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml derived-contracts job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "G11 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml derived-contracts job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
       "localPathGlobs": [
         "packages/**/src/**",
         "tools/**/*.contract.mjs",
@@ -4255,12 +4266,11 @@
       ],
       "consumerScope": [
         "every *.contract.{mjs,ts} declaration under packages, src and tools, including the src modules they re-export from",
-        "append-only phases against HEAD^",
-        "workflow job and command projections into .github/workflows"
+        "append-only phases against HEAD^"
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "workflowJobs": ["derived-contracts"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4282,7 +4292,7 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "check:local:derived-contracts" },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["derived-contracts"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["local", "pr"]
       },
@@ -4297,7 +4307,7 @@
       "command": "node tools/gates/schema-closure.mjs --check",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G23 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml schema-closure job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "G23 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml schema-closure job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
       "localPathGlobs": [
         "packages/**",
         "tools/gates/**",
@@ -4318,7 +4328,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "workflowJobs": ["schema-closure"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4340,7 +4350,7 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "check:local:schema-closure" },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["schema-closure"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["local", "pr"]
       },
@@ -4355,7 +4365,7 @@
       "command": "node tools/gates/dependency-policy.mjs",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G31 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml dependency-policy job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "G31 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml dependency-policy job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
       "localPathGlobs": [
         "package.json",
         "package-lock.json",
@@ -4373,7 +4383,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "workflowJobs": ["dependency-policy"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4395,7 +4405,7 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "harness:check-dependency-policy" },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["dependency-policy"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["local", "pr"]
       },
@@ -4410,7 +4420,7 @@
       "command": "node tools/gates/cost-budget.mjs",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G38 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml cost-budget job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "G38 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml cost-budget job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
       "localPathGlobs": [
         "packages/kernel/**",
         "packages/daemon/**",
@@ -4436,7 +4446,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "workflowJobs": ["cost-budget"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4459,7 +4469,7 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "harness:check-cost-budget" },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["cost-budget"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["local", "pr"]
       },
@@ -4467,6 +4477,187 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/gates/test/cost-budget.test.mjs"]
+      }
+    },
+    {
+      "id": "gate-contract-tests",
+      "command": "node --test tools/gates/test/*.test.mjs",
+      "category": "meta-governance",
+      "tier": "pr-advisory",
+      "tierReason": "The gate fixture suite is not a branch-protection required context; its blocking signal is the rewrite-ci.yml gate-contract-tests job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
+      "authoritySource": [
+        "task_9a1058d01d5487ef3e44118485",
+        "tools/gates/contracts/gates.contract.mjs"
+      ],
+      "consumerScope": [
+        "every fixture suite under tools/gates/test executed by node --test in CI"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["gate-contract-tests"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The suite runs every gate fixture; there is no skip allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": ["tools/gate-manifest.json"]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["gate-contract-tests"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["the suite's own negative-control assertions, e.g. tools/gates/test/derived-contracts.test.mjs"]
+      }
+    },
+    {
+      "id": "platform-smoke",
+      "command": "node tools/gates/platform-smoke.mjs",
+      "category": "smoke",
+      "tier": "pr-advisory",
+      "tierReason": "G20 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml platform-smoke job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
+      "authoritySource": [
+        "task_9a1058d01d5487ef3e44118485",
+        "tools/gates/platform-smoke.mjs"
+      ],
+      "consumerScope": [
+        "packaged CLI boot and cold-machine refusal behavior on ubuntu-latest and windows-latest"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["platform-smoke"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every command the smoke runs is expected to fail on a cold machine; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/platform-smoke.mjs",
+          "tools/gates/test/platform-smoke.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["platform-smoke"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/platform-smoke.test.mjs"]
+      }
+    },
+    {
+      "id": "test-selection",
+      "command": "node tools/gates/test-selection.mjs --base origin/main",
+      "category": "meta-governance",
+      "tier": "pr-advisory",
+      "tierReason": "G25 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml test-selection job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
+      "authoritySource": [
+        "task_9a1058d01d5487ef3e44118485",
+        "tools/gates/test-selection.mjs"
+      ],
+      "consumerScope": [
+        "changed-path required test tier derivation for pull requests",
+        "the governance-mechanism fixture requirement for gate wiring changes"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["test-selection"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Selection is fail-closed: unnormalized paths, unmapped changes, and mechanism changes without a fixture are errors; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/test-selection.mjs",
+          "tools/gates/test/test-selection.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["test-selection"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/test-selection.test.mjs"]
+      }
+    },
+    {
+      "id": "clean-build",
+      "command": "node tools/gates/clean-build.mjs --temp",
+      "category": "smoke",
+      "tier": "pr-advisory",
+      "tierReason": "G30 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml clean-build job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
+      "authoritySource": [
+        "task_9a1058d01d5487ef3e44118485",
+        "tools/gates/clean-build.mjs"
+      ],
+      "consumerScope": [
+        "npm ci and workspace build from a clean temporary clone of the pull request tree"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["clean-build"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "A clean clone must install and build with no skipped scripts; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/clean-build.mjs",
+          "tools/gates/test/clean-build.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["clean-build"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/clean-build.test.mjs"]
       }
     }
   ]

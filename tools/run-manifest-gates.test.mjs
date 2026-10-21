@@ -162,7 +162,7 @@ test("standalone changed mode derives its local PR gates from manifest path glob
   ]);
 });
 
-test("standalone changed mode selects rebuild-gates checks for the paths they read", () => {
+test("standalone changed mode selects the standalone gate jobs' checks for the paths they read", () => {
   const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "gate-manifest.json"), "utf8"));
   const plan = (changedPaths) => {
     const options = parseManifestGateArgs(["--changed", "origin/main"]);
