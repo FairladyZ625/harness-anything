@@ -53,6 +53,7 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
         ],
         replica: null,
         replicaNote: null,
+        replicaReason: "center-local-writer",
         watch: { kind: "value", text: "local canonical writer" },
         lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
       },
@@ -92,6 +93,7 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
           syncFailure: null,
         },
         replicaNote: null,
+        replicaReason: "replica-catching-up",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
         lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
       },
@@ -144,6 +146,7 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
         leases: [],
         replica: null,
         replicaNote: "center-replica-ledger-has-no-row-for-node",
+        replicaReason: "replica-row-missing",
       },
     ];
     data.links = [
@@ -170,6 +173,7 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
       leases: [],
       replica: null,
       replicaNote: "center-replica-ledger-has-no-row-for-node",
+      replicaReason: "replica-row-missing",
     };
     const withGhost = overview();
     withGhost.nodes = [...withGhost.nodes, ghost];
@@ -364,18 +368,41 @@ describe("协作页舰队拓扑契约", () => {
       edge.replica = {
         ...edge.replica,
         connected: false,
+        // The daemon read projects this center-observed code; the renderer does not infer it from connected.
         syncFailure: {
           code: "edge_upgrade_required",
           message: "Edge must upgrade to 86d1398 before applying task event shape 2.",
         },
+      };
+      edge.replicaReason = "sync-failure:edge_upgrade_required";
+      edge.lastFailure = {
+        kind: "value",
+        text: "Edge must upgrade to 86d1398 before applying task event shape 2.",
       };
     }
     const view = renderView({ data });
     const card = view.nodeCard("cc90-ubuntu")!;
     expect(card.getAttribute("data-state")).toBe("disconnected");
     expect(card.textContent).toContain("断开");
+    expect(card.textContent).toContain("中心记录了同步失败");
     expect(card.textContent).toContain("Edge must upgrade to 86d1398");
     expect(card.textContent).not.toContain("61s");
+  });
+
+  it("卡片与详情都显示中心提供的落后原因和最近同步错误原文", () => {
+    const data = overview();
+    const edge = data.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
+    edge.replicaReason = "sync-failure:replica_sync_failed";
+    edge.lastFailure = { kind: "value", text: "认证令牌已过期，无法建立副本同步会话。" };
+    const view = renderView({ data });
+    expect(view.nodeCard("cc90-ubuntu")!.textContent).toContain("中心记录了同步失败");
+    expect(view.nodeCard("cc90-ubuntu")!.textContent).toContain("认证令牌已过期");
+    view.click(view.nodeCard("cc90-ubuntu"));
+    const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
+    expect(details.textContent).toContain("同步原因");
+    expect(details.textContent).toContain("中心记录了同步失败");
+    expect(details.textContent).toContain("认证令牌已过期，无法建立副本同步会话。");
+    expect(details.querySelector('[data-reason="sync-failure:replica_sync_failed"]')).not.toBeNull();
   });
 
   it("本地仓显示中心提示条;读失败显示失败横幅而非空拓扑", () => {
@@ -462,6 +489,7 @@ describe("协作页舰队拓扑契约", () => {
       leases: [],
       replica: null,
       replicaNote: "center-replica-ledger-has-no-row-for-node",
+      replicaReason: "replica-row-missing",
     };
     data.nodes = [...data.nodes, ghost];
     const view = renderView({ data });

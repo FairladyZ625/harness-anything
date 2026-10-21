@@ -194,8 +194,37 @@ export function hostingChecksFromGitHub(payload: unknown): HostingChecksSnapshot
   return {
     subjectUrl: typeof payload.url === "string" ? payload.url : null,
     headSha: typeof payload.headRefOid === "string" ? payload.headRefOid : null,
-    checks: rollup.map((entry) => (isRecord(entry) ? githubCheck(entry) : pendingUnknownCheck())),
+    checks: latestCheckInstances(rollup).map((entry) => (isRecord(entry) ? githubCheck(entry) : pendingUnknownCheck())),
   };
+}
+
+/** GitHub lists every check-run instance a head has carried, so a superseded run of the same
+ * check must not outvote the run that replaced it: a PR-body edit re-triggers its workflow on an
+ * unchanged SHA, and a concurrency cancel retires the older instance as a failure-shaped entry.
+ * Keeping the latest-started instance per check name reproduces the summary the pull-request
+ * page shows. Entries without a check-run start time — commit statuses, unknown shapes — pass
+ * through untouched; they are already single-instance in the rollup. */
+function latestCheckInstances(rollup: readonly unknown[]): readonly unknown[] {
+  const slots = new Map<string, { slot: number; startedAt: string }>();
+  const output: unknown[] = [];
+  for (const candidate of rollup) {
+    const record = isRecord(candidate) ? candidate : null,
+      name = typeof record?.name === "string" ? record.name : typeof record?.context === "string" ? record.context : "",
+      startedAt = typeof record?.startedAt === "string" ? record.startedAt : null;
+    if (!record || !name || startedAt === null) {
+      output.push(candidate);
+      continue;
+    }
+    const kept = slots.get(name);
+    if (kept === undefined) {
+      slots.set(name, { slot: output.length, startedAt });
+      output.push(candidate);
+    } else if (startedAt >= kept.startedAt) {
+      output[kept.slot] = candidate;
+      kept.startedAt = startedAt;
+    }
+  }
+  return output;
 }
 
 function githubCheck(entry: Readonly<Record<string, unknown>>): HostingCheck {

@@ -57,7 +57,8 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   if (
     (command === "restore" && !argv.includes("--drill") && !argv.includes("--help")) ||
     command === "events" ||
-    (command === "migrate" && ["ledger", "completion", "settings"].includes(argv[firstCliCommandIndex(argv) + 1] ?? ""))
+    (command === "migrate" &&
+      ["ledger", "completion", "agent-declaration", "settings"].includes(argv[firstCliCommandIndex(argv) + 1] ?? ""))
   ) {
     return runOfflineCommandThroughDaemonBin(argv, emit);
   }

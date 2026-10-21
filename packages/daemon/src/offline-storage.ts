@@ -9,7 +9,12 @@ import {
 import { canonicalRoot } from "./protocol/daemon-protocol-identifiers.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
 import { openReplicationSlots } from "./fleet/replication-slot.ts";
-import { completionMigrationCommand, generationMigrationCommand } from "./offline-storage-command.ts";
+import {
+  agentDeclarationMigrationCommand,
+  completionMigrationCommand,
+  generationMigrationCommand,
+} from "./offline-storage-command.ts";
+import { migrateAgentDeclarations } from "./agent-declaration-migration.ts";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 
 export async function runOfflineStorageCommand(argv: readonly string[]): Promise<number> {
@@ -32,6 +37,25 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
         });
       emitReceipt({ ok: true, schema: "completion-migration-receipt/v1", ...result });
       return 0;
+    }
+    if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "agent-declaration") {
+      if (argv.includes("--help")) {
+        emitReceipt({
+          ok: true,
+          usage: agentDeclarationMigrationCommand.usage,
+          hint: agentDeclarationMigrationCommand.help,
+        });
+        return 0;
+      }
+      const flags = commandFlags(argv.slice(commandIndex + 2), agentDeclarationMigrationCommand),
+        result = migrateAgentDeclarations({
+          source: flags.get("--source")!,
+          dryRun: flags.get("--mode") === "dry-run",
+          ...(flags.has("--destination") ? { destination: flags.get("--destination")! } : {}),
+        });
+      const exitCode = result.ok ? 0 : 1;
+      emitReceipt({ schema: "agent-declaration-migration-receipt/v1", exitCode, ...result });
+      return exitCode;
     }
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
@@ -172,7 +196,10 @@ function migrationFlags(argv: readonly string[]): {
 }
 function commandFlags(
   argv: readonly string[],
-  command: typeof generationMigrationCommand | typeof completionMigrationCommand,
+  command:
+    | typeof generationMigrationCommand
+    | typeof completionMigrationCommand
+    | typeof agentDeclarationMigrationCommand,
 ): Map<string, string> {
   const inputs = new Set<string>(command.inputs.map((input) => input.name)),
     values = new Map<string, string>();

@@ -27,8 +27,7 @@ export function useAgendaQuery(repoId: string | null) {
 /**
  * 议程读取形态:与台账读面同一纪律(与 readTaskList 同族的受控水化;议程切面小,
  * 一次刷新内沿 composite cursor 排空到读完,不把续读交给任何节拍定时器)。
- * 每页严格等上一页回来;页数上界是 drainCursorPages 的 CURSOR_READ_PAGE_BUDGET,
- * 服务端游标异常循环时 fail-closed 抛错。
+ * 每页严格等上一页回来,直到服务端返回末页;重复游标由 drainCursorPages 拒绝。
  *
  * 分组各自按实体 key 去重:composite cursor 是 per-source 的 keyset 游标,一次
  * 排空 sweep 里同一实体不会在同一分组出现两次,去重只防跨 sweep 的重放。watermark

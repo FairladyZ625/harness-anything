@@ -125,7 +125,7 @@
     "katex": "0.18.10"
   },
   "allowScripts": {
-    "node-pty@1.1.0": true
+    "node-pty@1.2.0-beta.15": true
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs}": "prettier --write"

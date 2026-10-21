@@ -133,15 +133,13 @@ export async function waitTaskPullRequestChecks(
     // same empty list. It waits like any pending state; the expired budget names it explicitly.
     if (checks.length > 0 && pending.length === 0) {
       const failed = checks.filter((check) => check.state === "failed");
-      return failed.length > 0
-        ? failedVerdict(taskId, failed, snapshot!.subjectUrl)
-        : greenVerdict(taskId, checks, snapshot!.subjectUrl);
+      return failed.length > 0 ? failedVerdict(taskId, failed, snapshot!) : greenVerdict(taskId, checks, snapshot!);
     }
     if (nowMs() >= deadline)
       return timeoutVerdict(
         taskId,
         pending.length,
-        snapshot!.subjectUrl,
+        snapshot!,
         timeoutMinutes,
         checks.length === 0,
         lastReadError === null ? null : redact(lastReadError),
@@ -150,24 +148,42 @@ export async function waitTaskPullRequestChecks(
   }
 }
 
-function greenVerdict(taskId: string, checks: readonly HostingCheck[], subjectUrl: string | null): WriteReceiptDraft {
+/** The verdict's provider fidelity: a reviewer binds the verdict to the frozen delivery SHA by
+ * comparing this head, so the receipt never asks anyone to trust an unattributed green. */
+function ciFidelity(snapshot: HostingChecksSnapshot): {
+  readonly headSha: string | null;
+  readonly subjectUrl: string | null;
+} {
+  return { headSha: snapshot.headSha, subjectUrl: snapshot.subjectUrl };
+}
+
+function greenVerdict(
+  taskId: string,
+  checks: readonly HostingCheck[],
+  snapshot: HostingChecksSnapshot,
+): WriteReceiptDraft {
   const passed = checks.filter((check) => check.state === "passed").length,
     skipped = checks.filter((check) => check.state === "skipped").length;
   return {
     outcome: "applied",
     opId: `task-pr-wait:${taskId}`,
-    evidence: subjectUrl ?? "",
+    evidence: snapshot.subjectUrl ?? "",
     summary: `all green (${String(passed)} pass, ${String(skipped)} skipped)`,
+    ci: ciFidelity(snapshot),
   } as WriteReceiptDraft;
 }
 
-function failedVerdict(taskId: string, failed: readonly HostingCheck[], subjectUrl: string | null): WriteReceiptDraft {
+function failedVerdict(
+  taskId: string,
+  failed: readonly HostingCheck[],
+  snapshot: HostingChecksSnapshot,
+): WriteReceiptDraft {
   const names = failed
       .map((check) => check.name)
       .filter(Boolean)
       .slice(0, 3)
       .join(", "),
-    url = failed.find((check) => check.url)?.url ?? subjectUrl ?? "",
+    url = failed.find((check) => check.url)?.url ?? snapshot.subjectUrl ?? "",
     line = `failed: ${names} (${String(failed.length)} failed)${url ? ` ${url}` : ""}`;
   return {
     outcome: "op_rejected",
@@ -179,13 +195,14 @@ function failedVerdict(taskId: string, failed: readonly HostingCheck[], subjectU
     rejectionExplanation: line,
     summary: line,
     exitCode: 1,
+    ci: ciFidelity(snapshot),
   } as WriteReceiptDraft;
 }
 
 function timeoutVerdict(
   taskId: string,
   pendingCount: number,
-  subjectUrl: string | null,
+  snapshot: HostingChecksSnapshot,
   timeoutMinutes: number,
   noChecksRegistered: boolean,
   lastReadError: string | null,
@@ -195,7 +212,7 @@ function timeoutVerdict(
     (noChecksRegistered
       ? "no checks registered for the head"
       : `${String(pendingCount)} check${pendingCount === 1 ? "" : "s"} still pending`) +
-    `${subjectUrl ? ` ${subjectUrl}` : ""}` +
+    `${snapshot.subjectUrl ? ` ${snapshot.subjectUrl}` : ""}` +
     `${lastReadError ? `; last read error: ${lastReadError}` : ""}`;
   return {
     outcome: "op_rejected",
@@ -207,6 +224,7 @@ function timeoutVerdict(
     rejectionExplanation: line,
     summary: line,
     exitCode: 2,
+    ci: ciFidelity(snapshot),
   } as WriteReceiptDraft;
 }
 

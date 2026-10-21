@@ -74,6 +74,7 @@ function renderNodeLines(node: FleetNode, center: FleetOverview["center"]): stri
         // overview reports online as unavailable and this render says so instead of guessing.
         `  online heartbeat-not-integrated; online is never inferred from ACK or runtime (${node.online.kind === "value" ? node.online.text : node.online.reason})`,
     ...renderLeaseLines(node.leases),
+    `  reason ${node.replicaReason}`,
     renderSyncLine(node),
     `  watch ${field(node.watch)}`,
     `  lastFailure ${field(node.lastFailure)}`,

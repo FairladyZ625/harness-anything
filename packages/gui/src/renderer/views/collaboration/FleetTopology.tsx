@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { FleetOverviewLink, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";
-import { fieldText } from "./fleet-labels.ts";
+import { fieldText, reasonText } from "./fleet-labels.ts";
 import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } from "./fleet-topology-layout.ts";
 
 /**
@@ -283,7 +283,14 @@ function TopologyNodeCard({
       <span className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-1.5 ui-micro text-text-faint">
         <span className="flex min-w-0 items-center gap-1.5">
           <i aria-hidden="true" className="fleet-state-dot" />
-          <span className="truncate">{stateLabel}</span>
+          <span
+            className="min-w-0 truncate"
+            data-testid={`collaboration-node-reason-${node.nodeId}`}
+            data-reason={node.replicaReason}
+            title={node.replicaReason}
+          >
+            {stateLabel} · {reasonText(node.replicaReason)}
+          </span>
         </span>
         {node.role === "center" ? (
           <span
@@ -293,13 +300,13 @@ function TopologyNodeCard({
           >
             {t("collaboration.centerHead")} {center.commitSha === null ? "unknown" : center.commitSha.slice(0, 8)}
           </span>
-        ) : linkState === "disconnected" && node.replica?.syncFailure ? (
+        ) : node.lastFailure.kind === "value" ? (
           <span
             className="max-w-[48%] shrink-0 truncate font-mono"
             data-testid={`collaboration-node-sync-failure-${node.nodeId}`}
-            title={node.replica.syncFailure.message}
+            title={node.lastFailure.text}
           >
-            {node.replica.syncFailure.message}
+            {fieldText(node.lastFailure)}
           </span>
         ) : linkState === "lag" && lagSeconds > 0 ? (
           <span className="shrink-0 font-mono fleet-metric-lag">{lagSeconds}s</span>

@@ -151,12 +151,7 @@ export function validateAgentEntityAction(input: {
   readonly rootDir: string;
   readonly entityStore?: EntityStore;
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
-  readonly runtimeInstances?: readonly {
-    readonly instanceId: string;
-    readonly kindId: string;
-    readonly models: readonly string[];
-    readonly enabled: boolean;
-  }[];
+  readonly runtimeInstances?: readonly AgentRuntimeInstanceView[];
 }): EntityValidationReport {
   const action = input.action,
     kind = entityKind(action.kind);
@@ -502,12 +497,7 @@ function validateEntityDeclarationSource(input: {
     | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 }
     | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string };
   readonly kind: AgentEntityKind;
-  readonly runtimeInstances?: readonly {
-    readonly instanceId: string;
-    readonly kindId: string;
-    readonly models: readonly string[];
-    readonly enabled: boolean;
-  }[];
+  readonly runtimeInstances?: readonly AgentRuntimeInstanceView[];
 }): EntityValidationReport {
   const source = "source" in input.source && input.source.source ? input.source.source : "runtime-result",
     decoded = input.source;
@@ -547,12 +537,7 @@ export function prepareAgentEntityInstall(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly rootDir: string;
   readonly entityStore?: EntityStore;
-  readonly runtimeInstances?: readonly {
-    readonly instanceId: string;
-    readonly kindId: string;
-    readonly models: readonly string[];
-    readonly enabled: boolean;
-  }[];
+  readonly runtimeInstances?: readonly AgentRuntimeInstanceView[];
   readonly projection?: Pick<TaskProjection, "getEntity">;
   readonly replay?: boolean;
 }): PreparedAgentEntityInstall {
@@ -855,16 +840,16 @@ function requiredEntityText(value: unknown, field: string): string {
 function entityError(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
 }
-function agentRuntimeSelectionIssue(
+/** The node-local runtime instances install, validate, and the declaration migration report against. */
+export interface AgentRuntimeInstanceView {
+  readonly instanceId: string;
+  readonly kindId: string;
+  readonly models: readonly string[];
+  readonly enabled: boolean;
+}
+export function agentRuntimeSelectionIssue(
   agent: AgentDeclarationV1,
-  runtimeInstances:
-    | readonly {
-        readonly instanceId: string;
-        readonly kindId: string;
-        readonly models: readonly string[];
-        readonly enabled: boolean;
-      }[]
-    | undefined,
+  runtimeInstances: readonly AgentRuntimeInstanceView[] | undefined,
 ): { readonly code: string; readonly message: string } | null {
   if (runtimeInstances === undefined) return null;
   const available = (runtimeInstances ?? []).filter((instance) => instance.enabled),

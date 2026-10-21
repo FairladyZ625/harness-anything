@@ -21,6 +21,7 @@
       "leases": [],
       "replica": null,
       "replicaNote": null,
+      "replicaReason": "replica-row-missing",
       "watch": { "kind": "unavailable", "reason": "edge-sync-internals-not-exposed" },
       "lastFailure": { "kind": "unavailable", "reason": "no-replica-sync-failure-record-in-lifecycle-read" }
     }

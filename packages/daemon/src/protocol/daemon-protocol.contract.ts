@@ -829,6 +829,7 @@ export type {
   DaemonTaskDispatchesPayload,
   DaemonTaskDispatchesResult,
   DaemonTaskDocumentListResult,
+  DaemonTaskDeliveryDiffResult,
   DaemonTaskQueryPayload,
   DaemonTaskSnapshotInvalidRow,
   DaemonTaskSnapshotListResult,

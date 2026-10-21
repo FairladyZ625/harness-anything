@@ -589,4 +589,17 @@ describe("AttestationPoolView", () => {
     expect(show).not.toHaveBeenCalled();
     show.mockRestore();
   });
+
+  it("allows switching to inbox view and renders AgentInbox items", async () => {
+    await mountPool("taskCloseout", [attestTask, consentTask, failedTask]);
+    const inboxToggle = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("收件箱视图"),
+    );
+    expect(inboxToggle).toBeTruthy();
+    await act(async () => {
+      inboxToggle!.click();
+    });
+    expect(byTestId("attestation-pool-inbox")).toBeTruthy();
+    expect(document.querySelector("[data-testid='inbox-column-needs-you']")).toBeTruthy();
+  });
 });

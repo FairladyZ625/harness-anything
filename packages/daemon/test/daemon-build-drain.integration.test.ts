@@ -19,7 +19,7 @@ import {
 import { registerDaemonRepo } from "@harness-anything/kernel";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { observeDaemonBuild } from "../src/build-identity.ts";
 import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
@@ -348,6 +348,101 @@ test("a drifted daemon exits on its own while a runtime session is live", async 
       true,
     );
   } finally {
+    await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("observe.tail on an established connection triggers build drain and resumes on the successor", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-observe-tail-build-drain-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    runtimeRoot = path.join(parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
+    repoId = "observe-tail-build-drain",
+    endpoint = localUserDaemonEndpoint(userRoot, repoId),
+    buildObserver = observeDaemonBuild(runtimeFile);
+  let daemon: RunningDaemon | undefined,
+    replacement: RunningDaemon | undefined,
+    client: Awaited<ReturnType<typeof openDaemonJsonRpcClientAt>> | undefined,
+    successorStart: Promise<void> | undefined;
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId: repoId,
+        userRoot,
+        endpoint,
+        runtimeFile,
+        buildObserver,
+        openCell: openBootstrappedRepoCell,
+        onSupersededExit: () => {
+          successorStart = (async () => {
+            replacement = runningDaemon(
+              await startDaemon({
+                daemonId: repoId,
+                userRoot,
+                endpoint,
+                runtimeFile,
+                openCell: openBootstrappedRepoCell,
+              }),
+            );
+          })();
+        },
+      }),
+    );
+    await waitUntil(async () => {
+      const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
+      const repo = (status.repos as { readonly state: string; readonly queueDepth?: number | null }[])[0];
+      return repo?.state === "attached" && repo.queueDepth === 0;
+    });
+    client = await openDaemonJsonRpcClientAt(endpoint, 2_000, 5_000);
+    const beforeDrift = await client.request("daemon.status", {}, 5_000);
+    assert.equal(beforeDrift.ok, true, JSON.stringify(beforeDrift));
+
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    const observedDuringDrift = await client.request(
+      "observe.tail",
+      { repo: { repoId }, payload: { kind: "lifecycle", direction: "history" } },
+      5_000,
+    );
+    assert.equal(observedDuringDrift.ok, true, JSON.stringify(observedDuringDrift));
+    assert.equal(buildObserver.status().drifted, true);
+
+    try {
+      await waitUntil(() => successorStart !== undefined, 5_000);
+    } catch (error) {
+      const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
+      throw new Error(
+        `the superseded daemon did not start its successor; pid=${String(readDaemonPid(userRoot, repoId))}; ` +
+          `status=${JSON.stringify(status)}`,
+        { cause: error },
+      );
+    }
+    await successorStart;
+    await waitUntil(async () => {
+      const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
+      return (
+        (status.repos as { readonly state: string }[])[0]?.state === "attached" &&
+        (status.build as Record<string, unknown>).loadedBuildId === "build-b"
+      );
+    });
+    const resumedTail = await requestDaemonJsonRpcAt(
+      endpoint,
+      "observe.tail",
+      { repo: { repoId }, payload: { kind: "lifecycle", direction: "history" } },
+      2_000,
+      5_000,
+    );
+    assert.equal(resumedTail.ok, true, JSON.stringify(resumedTail));
+    assert.ok(replacement, "the successor daemon must own the endpoint after its tail read");
+    assert.equal(readDaemonPid(userRoot, repoId), process.pid);
+  } finally {
+    client?.close();
+    await replacement?.stop();
     await daemon?.stop();
     rmSync(parent, { recursive: true, force: true });
   }
