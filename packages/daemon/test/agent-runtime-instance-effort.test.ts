@@ -242,6 +242,47 @@ test("stored effort reaches launch flags for agy and config.toml for codex when 
   }
 });
 
+test("Codex instances without a declared effort preserve the provider default", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-default-effort-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: { HOME: "/operator/home", PATH: "/bin" },
+      discover: () => [installationWitness("codex")],
+      resolveCredential: () => "instance-secret",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-default-effort",
+      name: "Codex Default Effort",
+      kindId: "codex",
+      installationId: "codex-installation-test",
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "api-key",
+      credentialRef: "credential:v1:codex-default-effort",
+    });
+    const launch = await store.prepareLaunch("codex-default-effort", {
+      cwd: "/workspace/repo",
+      prompt: "Use the instance default.",
+    });
+    assert.equal(launch.definition.reasoningEffort, null);
+    assert.doesNotMatch(
+      readFileSync(path.join(launch.env.CODEX_HOME!, "config.toml"), "utf8"),
+      /model_reasoning_effort/u,
+    );
+    const explicit = await store.prepareLaunch("codex-default-effort", {
+      cwd: "/workspace/repo",
+      prompt: "Use an explicit override.",
+      effort: "low",
+    });
+    assert.equal(explicit.definition.reasoningEffort, "low");
+    assert.ok(explicit.args.includes('model_reasoning_effort="low"'));
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 function codedAs(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }

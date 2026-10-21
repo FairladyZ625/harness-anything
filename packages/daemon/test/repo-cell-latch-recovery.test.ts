@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   createImmutableLegacyGenerationSnapshot,
+  bindWriterGenerationToken,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
   openSqliteEventStore,
@@ -25,6 +26,8 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
 import { recoveryCommandPolicy } from "../src/recovery-state.ts";
+import { enqueueRuntimePublication } from "../src/runtime-publication-queue.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
@@ -94,6 +97,120 @@ test("projection recovery names and carries the reachable rebuild command", () =
     causes: ["data-shape", "infrastructure"],
     settlesLatch: false,
   });
+});
+
+test("an infrastructure latch admits only a local unbound runtime rescue on a complete cut", async () => {
+  const repoId = "latched-runtime-rescue",
+    recoveryCalls = { count: 0 },
+    launches: string[] = [];
+  provisionPolicyTestRepository(repoId);
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+    context = runtimePublicationContext({
+      repoId,
+      causeClass: "infrastructure",
+      recoveryCalls,
+      cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+      revision: 7,
+    });
+  const receipt = await enqueueRuntimePublication(
+    context,
+    "runtime-run",
+    { kind: "runtime-spawn", taskId: null },
+    binding,
+    (authorized) => {
+      assert.equal(authorized.authorizationDecision?.outcome, "allowed");
+      launches.push("runtime-session-recorded");
+      return { runtimeSessionId: "runtime_rescue" };
+    },
+  );
+  assert.equal(receipt.runtimeSessionId, "runtime_rescue");
+  assert.deepEqual(launches, ["runtime-session-recorded"]);
+  assert.equal(recoveryCalls.count, 0, "the rescue turn must not close the current writer/projection handles");
+
+  const taskBound = runtimePublicationContext({
+    repoId,
+    causeClass: "infrastructure",
+    recoveryCalls,
+    cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+    revision: 7,
+  });
+  await assert.rejects(
+    enqueueRuntimePublication(
+      taskBound,
+      "runtime-run",
+      { kind: "runtime-spawn", taskId: "task_bound" },
+      binding,
+      () => {
+        launches.push("task-bound-should-not-launch");
+        return {};
+      },
+    ),
+    (error: Error & { code?: string }) => error.code === "repo_unavailable",
+  );
+  assert.equal(launches.length, 1);
+  assert.equal(recoveryCalls.count, 1, "task-bound dispatch stays on the normal recovery path");
+
+  const projectionLatch = runtimePublicationContext({
+    repoId,
+    causeClass: "projection",
+    recoveryCalls,
+    cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+    revision: 7,
+  });
+  await assert.rejects(
+    enqueueRuntimePublication(projectionLatch, "runtime-run", { kind: "runtime-spawn", taskId: null }, binding, () => {
+      launches.push("projection-should-not-launch");
+      return {};
+    }),
+    (error: Error & { code?: string }) => error.code === "repo_unavailable",
+  );
+  assert.equal(launches.length, 1);
+
+  const laggingProjection = runtimePublicationContext({
+    repoId,
+    causeClass: "infrastructure",
+    recoveryCalls,
+    cut: { status: "ready", watermark: 6, sourceRevision: 7 },
+    revision: 7,
+  });
+  await assert.rejects(
+    enqueueRuntimePublication(
+      laggingProjection,
+      "runtime-run",
+      { kind: "runtime-spawn", taskId: null },
+      binding,
+      () => {
+        launches.push("lagging-projection-should-not-launch");
+        return {};
+      },
+    ),
+    (error: Error & { code?: string }) => error.code === "repo_unavailable",
+  );
+  assert.equal(launches.length, 1);
+  assert.equal(recoveryCalls.count, 3, "an incomplete cut cannot use the rescue path");
+
+  const uncertainRecovery = runtimePublicationContext({
+    repoId,
+    causeClass: "infrastructure",
+    recoveryCalls,
+    cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+    revision: 7,
+    recoveryUncertain: true,
+  });
+  await assert.rejects(
+    enqueueRuntimePublication(
+      uncertainRecovery,
+      "runtime-run",
+      { kind: "runtime-spawn", taskId: null },
+      binding,
+      () => {
+        launches.push("uncertain-recovery-should-not-launch");
+        return {};
+      },
+    ),
+    (error: Error & { code?: string }) => error.code === "repo_unavailable",
+  );
+  assert.equal(launches.length, 1);
 });
 
 test("Git event-layout corruption cannot revoke SQLite acceptance or reads", async () => {
@@ -302,6 +419,41 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.email", "latch-recovery@example.invalid");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
 }
+
+function runtimePublicationContext(input: {
+  readonly repoId: string;
+  readonly causeClass: "infrastructure" | "projection";
+  readonly recoveryCalls: { count: number };
+  readonly cut: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number };
+  readonly revision: number;
+  readonly recoveryUncertain?: boolean;
+}): RepoCellApiContext {
+  const activeWriter = { workspaceId: input.repoId, generation: 1, ownerId: "latch-rescue-test" };
+  return {
+    mode: "local",
+    state: "unavailable",
+    recoveryUncertain: input.recoveryUncertain ?? false,
+    causeClass: input.causeClass,
+    queueDepth: 0,
+    tail: Promise.resolve(),
+    activeWriter,
+    writerToken: bindWriterGenerationToken(activeWriter),
+    activeWriterEpochFence: null,
+    activeWriterEpochFenceDescriptor: null,
+    input: { repoId: input.repoId },
+    projection: { readCut: () => input.cut },
+    store: { readHead: () => ({ revision: input.revision }) },
+    replica: { kick: () => undefined },
+    now: () => "2026-10-21T00:00:00.000Z",
+    operationId: () => "runtime-rescue-operation",
+    attemptRecovery: async () => {
+      input.recoveryCalls.count += 1;
+    },
+    cellCodedError,
+    latched: () => "fixture is latched",
+  } as unknown as RepoCellApiContext;
+}
+
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
