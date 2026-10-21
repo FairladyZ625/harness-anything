@@ -42,6 +42,7 @@ import {
   runtimeBaseUrl,
   runtimeInstanceKindConfig,
   sharedProviderDirectory,
+  deepseekHarnessAcpModelOption,
   deepseekHarnessApiKeyEnvironment,
   writeDeepseekHarnessPatch,
   writeCodexConfig,
@@ -310,7 +311,7 @@ export function openRuntimeInstanceStore(input: {
       acpLaunch =
         protocolFamily === "acp"
           ? {
-              model,
+              model: deepseekHarnessAcpModelOption(config, model),
               ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
             }
           : {};
