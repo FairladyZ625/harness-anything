@@ -24,6 +24,13 @@ const tokenKey = /token/iu,
   ),
   bearer = /\bBearer\s+[^\s,;]+/giu,
   knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu,
+  // Hosted-provider personal tokens have pinned prefixes: GitHub `gh[posur]_`, GitLab `glpat-`.
+  // The punctuation anchor is what keeps ordinary words from matching.
+  providerToken = /\b(?:gh[posur]_[A-Za-z0-9]{8,}|glpat-[-_A-Za-z0-9]{8,})/gu,
+  // A URL's userinfo is a credential transport (`https://user:pass@host`, `https://token@host`),
+  // and remotes other than git (proxies, API clients) print it verbatim. The host stays so the
+  // sentence still names the remote that failed.
+  urlUserInfo = /(https?:\/\/)[^\s/@]+@/giu,
   executionCredential = /harness-execution-[A-Za-z0-9._-]+:[A-Za-z0-9_-]{43}/gu,
   sensitiveAssignment =
     /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
@@ -38,8 +45,10 @@ export function scrubProviderValue(value: unknown): unknown {
     );
   if (typeof value !== "string") return value;
   return value
+    .replace(urlUserInfo, "$1[REDACTED]@")
     .replace(bearer, "Bearer [REDACTED]")
     .replace(knownToken, "[REDACTED]")
+    .replace(providerToken, "[REDACTED]")
     .replace(executionCredential, "[REDACTED]")
     .replace(sensitiveAssignment, "[REDACTED]");
 }

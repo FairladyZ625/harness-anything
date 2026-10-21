@@ -356,6 +356,14 @@ export function canonicalPath(value: string): string {
   }
 }
 
+// A local origin (a missing mirror, a bare checkout path) makes git echo this host's filesystem
+// into push diagnostics, and those diagnostics are relayed to clients and agent prompts that must
+// not receive the host layout. errorDetail is the single shaping point for remote-operation
+// diagnostics, so the rule lives here; owned sentences that legitimately name rootDir are not
+// routed through it. The boundary characters keep URL path segments (preceded by `:` or a word
+// character) out of the match.
+const localPath = /(^|[\s'"\[(=])(?:file:\/\/\/|[A-Za-z]:\\|\/)[^\s'"`,;:)\\]+/gu;
+
 function errorDetail(error: unknown): string {
   const value =
     typeof error === "object" && error !== null && "stderr" in error
@@ -363,7 +371,7 @@ function errorDetail(error: unknown): string {
       : error instanceof Error
         ? error.message
         : String(error);
-  const scrubbed = String(scrubProviderValue(value)).trim().replace(/\s+/gu, " ");
+  const scrubbed = String(scrubProviderValue(value)).replace(localPath, "$1<local-path>").trim().replace(/\s+/gu, " ");
   return scrubbed.slice(0, detailLimit) || "git push failed without diagnostics";
 }
 

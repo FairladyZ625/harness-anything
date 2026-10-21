@@ -798,38 +798,120 @@ test("a host-caught rejection keeps its explanation and drops the credential", (
   assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
 });
 
-test("a remote-triggered push refusal keeps the scrubbed remote text, not a credential hint", async () => {
-  // `delivery_publish_failed` has one remaining relayed producer: `readWorkerRemoteCommit` forwards
-  // git's own stderr through `errorDetail`, which scrubs it. The receipt must keep that sentence —
-  // it names what the remote actually said — and must not carry the token the URL embedded in it.
-  const root = mkdtempSync(path.join(tmpdir(), "ha-push-relay-"));
+test(
+  "a remote-triggered push refusal keeps the scrubbed remote text, not a credential hint",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    // `delivery_publish_failed` has one remaining relayed producer: `readWorkerRemoteCommit` forwards
+    // git's own stderr through `errorDetail`, which scrubs it. The receipt must keep that sentence —
+    // it names what the remote actually said — and must not carry the token the URL embedded in it.
+    const root = mkdtempSync(path.join(tmpdir(), "ha-push-relay-"));
+    try {
+      execFileSync("git", ["init", "-q", root]);
+      // An `ext::` transport whose helper prints a credential-bearing remote line to stderr: this is
+      // the exact shape of a git failure that relays far-end text, without needing a live network.
+      const helper = path.join(root, "relay.sh");
+      writeFileSync(
+        helper,
+        '#!/bin/sh\necho "remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git" >&2\nexit 1\n',
+        { mode: 0o755 },
+      );
+      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
+      await assert.rejects(
+        readWorkerRemoteCommit(root, "task_push_relay"),
+        (error: Error & { code?: string; message: string }) => {
+          assert.equal(error.code, "delivery_publish_failed");
+          assert.match(
+            error.message,
+            /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u,
+            error.message,
+          );
+          assert.doesNotMatch(error.message, /ghp_realtokenvalue123/u, error.message);
+          return true;
+        },
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a relayed remote refusal scrubs hosted-provider logins, not only github token prefixes",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    // GitLab is a first-class hosting provider (hosting-provider.ts, tools/git-hooks/git-askpass),
+    // and its PAT reaches git as URL userinfo (`https://oauth2:glpat-…@host`) — a shape the
+    // token-prefix rules never matched. Git strips userinfo from its own stderr, so the ext:: relay
+    // is the honest way to feed the shape a less careful remote or proxy can still print.
+    const root = mkdtempSync(path.join(tmpdir(), "ha-push-provider-"));
+    try {
+      execFileSync("git", ["init", "-q", root]);
+      const helper = path.join(root, "relay.sh");
+      writeFileSync(
+        helper,
+        "#!/bin/sh\n" +
+          "echo \"fatal: unable to access 'https://oauth2:glpat-AbCdEf1234567890xyz@gitlab.com/acme/repo.git/': " +
+          'The requested URL returned error: 403" >&2\n' +
+          'echo "remote: https://user:pa55w0rd@bitbucket.internal/team/repo.git" >&2\n' +
+          "exit 1\n",
+        { mode: 0o755 },
+      );
+      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
+      let thrown: (Error & { code?: string; message: string }) | undefined;
+      await assert.rejects(
+        readWorkerRemoteCommit(root, "task_push_provider"),
+        (error: Error & { code?: string; message: string }) => {
+          thrown = error;
+          assert.equal(error.code, "delivery_publish_failed");
+          assert.doesNotMatch(error.message, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, error.message);
+          assert.match(error.message, /gitlab\.com/u, "the remote that failed stays named");
+          return true;
+        },
+      );
+      const explanation = String(failed("op-provider", thrown).rejectionExplanation);
+      assert.doesNotMatch(explanation, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, explanation);
+      assert.match(explanation, /gitlab\.com/u, explanation);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("a task push to an unusable origin explains the cause without exporting this host's paths", async () => {
+  const rootDir = workspace("push-dead-origin"),
+    repoId = workspaceId("push-dead-origin"),
+    taskId = "task_push_dead_origin",
+    executionId = "exec-push-dead-origin",
+    holder = binding("push-dead-origin");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    execFileSync("git", ["init", "-q", root]);
-    // An `ext::` transport whose helper prints a credential-bearing remote line to stderr: this is
-    // the exact shape of a git failure that relays far-end text, without needing a live network.
-    const helper = path.join(root, "relay.sh");
-    writeFileSync(
-      helper,
-      '#!/bin/sh\necho "remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git" >&2\nexit 1\n',
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "push-dead-origin" });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Push to a dead origin" }, holder);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, holder);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
-    execFileSync("chmod", ["+x", helper]);
-    execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
-    execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
-    await assert.rejects(
-      readWorkerRemoteCommit(root, "task_push_relay"),
-      (error: Error & { code?: string; message: string }) => {
-        assert.equal(error.code, "delivery_publish_failed");
-        assert.match(
-          error.message,
-          /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u,
-          error.message,
-        );
-        assert.doesNotMatch(error.message, /ghp_realtokenvalue123/u, error.message);
-        return true;
-      },
-    );
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    // An origin that is a local path makes git echo this host's filesystem into the refusal, which
+    // cross-node surfaces and agent prompts must not receive; the remote-side cause still explains
+    // the failure. This drives the real write-queue task-push path end to end.
+    const mirror = path.join(rootDir, "missing-mirror.git");
+    git(rootDir, "remote", "add", "origin", mirror);
+    const pushed = await cell.run({ kind: "task-push", taskId }, holder);
+    assert.equal(pushed.outcome, "op_rejected", JSON.stringify(pushed));
+    assert.equal(pushed.code, "delivery_publish_failed", JSON.stringify(pushed));
+    const explanation = String(pushed.rejectionExplanation);
+    assert.match(explanation, /does not appear to be a git repository|No such file|not found/iu, explanation);
+    assert.ok(!explanation.includes(mirror), explanation);
+    assert.ok(!explanation.includes(rootDir), explanation);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
