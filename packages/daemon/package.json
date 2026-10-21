@@ -63,7 +63,7 @@
     "@openrouter/sdk": "1.4.25",
     "cron-parser": "5.10.0",
     "effect": "3.21.4",
-    "node-pty": "1.1.0",
+    "node-pty": "1.2.0-beta.15",
     "tar": "7.5.22",
     "undici": "7.30.0"
   },

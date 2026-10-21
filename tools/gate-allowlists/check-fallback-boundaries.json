@@ -205,7 +205,6 @@
    "packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch",
    "packages/daemon/src/task-witness-runner.ts#runCompletionSources",
    "packages/daemon/src/terminal-environment.ts#terminalEnvironment",
-   "packages/daemon/src/terminal-spawn-helper.ts#ensurePtySpawnHelperExecutable",
    "packages/daemon/src/writer-epoch.ts#withImmediateTransaction",
    "packages/daemon/src/writer-supervisor.ts#handleCapability",
    "packages/daemon/src/writer-supervisor.ts#request",
