@@ -68,6 +68,23 @@ test("a replayed task-create receipt still names the task", async () => {
     assert.equal(replay.outcome, "applied");
     assert.equal((replay as typeof replay & { readonly taskId?: string }).taskId, "task-replay");
     assert.match(replay.summary ?? "", /task-replay/u);
+    // A standalone replay says so in the same words the first receipt used.
+    assert.match(replay.summary ?? "", /work: none \(standalone task\)/u);
+    // A child create names its work by id and title on both the first and the replayed receipt.
+    const parent = await cell.run({ kind: "task-create", taskId: "task-replay-work", title: "Replay work" }, binding);
+    assert.equal(parent.outcome, "applied");
+    const childAction = {
+      kind: "task-create",
+      taskId: "task-replay-child",
+      title: "Replay child",
+      parentTaskId: "task-replay-work",
+    } as const;
+    const child = await cell.run(childAction, binding);
+    assert.equal(child.outcome, "applied");
+    assert.match(child.summary ?? "", /work: task-replay-work Replay work/u);
+    const childReplay = await cell.run(childAction, binding);
+    assert.equal(childReplay.outcome, "applied");
+    assert.match(childReplay.summary ?? "", /work: task-replay-work Replay work/u);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

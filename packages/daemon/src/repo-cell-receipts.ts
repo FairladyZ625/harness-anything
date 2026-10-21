@@ -10,6 +10,7 @@ import {
 import { readDocReceipt } from "./doc-sync-actions.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { receiptLayoutRoots, workspaceRelativePath } from "./receipt-guidance.ts";
+import { workReceiptLine } from "./work-read.ts";
 import type { PublicPublication, RepoCellBinding, TaskProgressReceipt } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
@@ -68,8 +69,9 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
       worktreeVisible:
         isTaskEvent(event) || isTaskBootstrapEvent(event) || event.schema === "decision-event/v1" ? true : null,
     };
-  // A task-create replay (idempotent retry or ha receipt show) must still name the task it minted;
-  // the bootstrap event carries the identity, so the receipt answers with it in both channels.
+  // A task-create replay (idempotent retry or ha receipt show) must still name the task it minted
+  // and the work it landed under; the bootstrap event carries both identities, so the receipt
+  // answers with them in both channels.
   if (isTaskBootstrapEvent(event))
     return cell.canonicalSettlement(
       {
@@ -80,7 +82,7 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
         visibility: "center",
         proof,
         taskId: event.taskId,
-        summary: `created task ${event.taskId}`,
+        summary: `created task ${event.taskId}${workReceiptLine(cell.projection, event.payload.task)}`,
       } as WriteReceipt,
       event,
     );

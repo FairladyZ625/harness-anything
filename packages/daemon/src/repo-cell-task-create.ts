@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import {
   sessionProvenance,
   taskBootstrapWritePlan,
-  type TaskV2,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "@harness-anything/preset";
@@ -10,7 +9,7 @@ import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateRece
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { receiptLayoutRoots, taskCreateGuidance, workspaceRelativePath } from "./receipt-guidance.ts";
-import { workRootOf } from "./workspace-scope-read.ts";
+import { workReceiptLine } from "./work-read.ts";
 
 export function readResult(
   cell: RepoCellOperationalContext,
@@ -181,7 +180,9 @@ export function prepareTaskCreateAt(
       taskId: idempotent.taskId,
       taskStatus: idempotent.status as TaskCreateReceipt["taskStatus"],
       packagePath: idempotent.packagePath,
-      summary: `reused task ${idempotent.taskId} for the supplied idempotency key`,
+      summary: `reused task ${idempotent.taskId} for the supplied idempotency key${
+        current.snapshot.task ? workReceiptLine(cell.projection, current.snapshot.task) : ""
+      }`,
     } as WriteReceipt;
   }
   const taskId = cell.createTaskId(canonicalAction, binding, cell.input.repoId);
@@ -294,9 +295,10 @@ export function prepareTaskCreateAt(
         canonicalVisible: false,
       }),
       commitSha: null,
-      summary: `would create task ${taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}${shortPathSummary(
-        compiled,
-      )}`,
+      summary: `would create task ${taskId} at ${workspaceRelativePath(
+        roots,
+        compiled.packagePath,
+      )}${workReceiptLine(cell.projection, compiled.event.payload.task)}${shortPathSummary(compiled)}`,
     };
     return preview;
   }
@@ -335,40 +337,16 @@ export function preparedTaskCreateReceipt(
     commitSha: publication.commitSha,
     cut: publication.cut,
     summary: proof.canonicalVisible
-      ? `created task ${fields.taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}${workSummary(
-          cell,
+      ? `created task ${fields.taskId} at ${workspaceRelativePath(
+          roots,
+          compiled.packagePath,
+        )}${workReceiptLine(cell.projection, compiled.event.payload.task)}${shortPathSummary(compiled)}`
+      : `task ${fields.taskId} is awaiting exact canonical settlement${workReceiptLine(
+          cell.projection,
           compiled.event.payload.task,
-        )}${shortPathSummary(compiled)}`
-      : `task ${fields.taskId} is awaiting exact canonical settlement`,
+        )}`,
   };
   return receipt;
-}
-
-/** Standalone task receipts point at a small set of current work roots so the next filing action is concrete. */
-function workSummary(cell: RepoCellOperationalContext, task: TaskV2): string {
-  const parentTaskId = task.metadata?.parentTaskId ?? null,
-    work = parentTaskId === null ? null : workRootOf(cell.projection, parentTaskId);
-  if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
-  if (task.taskClass === "work") return `\nwork: ${task.taskId} (new work root; add tasks with --work ${task.taskId})`;
-  const candidates = cell.projection.readTaskIndex({
-    workRootsOnly: true,
-    openOnly: true,
-    activePackagesOnly: true,
-    presentationStatus: true,
-    limit: 5,
-  }).rows;
-  return [
-    "\nwork: none (standalone task)",
-    ...(candidates.length
-      ? [
-          "candidate works:",
-          ...candidates.map(
-            ({ taskId, title }) => `- ${taskId} ${title}: ha task move ${task.taskId} --parent ${taskId}`,
-          ),
-        ]
-      : []),
-    "next: ha work list",
-  ].join("\n");
 }
 
 /** A low-risk task created on a full-ceremony profile hears about the lightweight short path; the profile is
