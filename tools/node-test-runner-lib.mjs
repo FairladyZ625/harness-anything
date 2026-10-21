@@ -1,10 +1,6 @@
 import { linkSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { dirname, posix, relative, resolve } from "node:path";
+import { dirname, posix, resolve } from "node:path";
 import { parseToolOptions, runNodeTestsCommand, toolOption, toolValue, toolValues } from "./tool-command-contract.mjs";
-
-export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
-export const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 
 export function parseRunnerArgs(args) {
   const parsed = parseToolOptions(runNodeTestsCommand, args);
@@ -43,37 +39,6 @@ function normalizeTestPrefix(value) {
 
 function normalizeTestFile(value) {
   return value;
-}
-
-export async function collectTestFiles(repoRoot, roots) {
-  const testFiles = (await Promise.all(roots.map((root) => collectFromDirectory(resolve(repoRoot, root), repoRoot))))
-    .flat()
-    .sort();
-
-  return testFiles;
-}
-
-async function collectFromDirectory(directory, repoRoot) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = [];
-
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) {
-      continue;
-    }
-
-    const entryPath = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await collectFromDirectory(entryPath, repoRoot)));
-      continue;
-    }
-
-    if (entry.isFile() && testFilePattern.test(entry.name)) {
-      files.push(relative(repoRoot, entryPath).split("\\").join("/"));
-    }
-  }
-
-  return files;
 }
 
 export function selectTestFiles(testFiles, manifest, tier) {
