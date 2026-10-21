@@ -34,14 +34,12 @@ export function selectReviewAgent(frozen?: string, argument?: string, setting?: 
   return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
 }
 
-/** A user-initiated review dispatch is keyed by the reviewed cut, never by a caller or node. */
+/** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
 export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
   const key = `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
     execution.submission!,
   )}`;
-  return reviewerId && reviewerId !== execution.submission?.completionContract.reviewer?.agentId
-    ? `${key}:reviewer:${reviewerId}`
-    : key;
+  return reviewerId ? `${key}:reviewer:${reviewerId}` : key;
 }
 
 /**
@@ -284,7 +282,10 @@ function previousReviewerContinuation(
     resume: canResume,
   };
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 1896d4277 (fix: register reviewer dispatch key migration)
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
