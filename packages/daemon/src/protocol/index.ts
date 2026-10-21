@@ -129,3 +129,9 @@ export type {
   DaemonHomeMatter,
 } from "../home/home-overview-types.ts";
 export { validateHomeOverviewResult } from "../home/home-overview-validation.ts";
+/**
+ * 排空式游标续读的策略原语(cursorStep):daemon 的同步排空(drainCursorPagesSync)与
+ * GUI 渲染侧的 async 排空(packages/gui/src/renderer/paginated-read.ts)驱动同一份
+ * 终止信号、单调量与异常语义,分页策略不留在任何一个调用壳里复制。
+ */
+export { cursorStep, type CursorPageReceipt } from "../paginated-read.ts";
