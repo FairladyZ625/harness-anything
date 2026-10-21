@@ -101,13 +101,25 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
     { key: "single-1", status: "succeeded", agent: "Astra", startedAt: "2026-10-02T11:00:00.000Z", tokens: 70_000 },
   ],
   /** 总览 AgentLanes 泳道夹具(task_097108d2):近 30 分钟收口的一轮——层次夹具的轮次都
-   *  落在 2026-10-02(总览泳道 6h 窗口外),没有它泳道在 Electron 里只能验证空窗。 */
+   *  落在 2026-10-02(总览泳道 6h 窗口外),没有它泳道在 Electron 里只能验证空窗。
+   *
+   *  第二条是**仍在跑**的一轮(无 exit/outcome 事件):sessionGroups 的组状态直接读投影里的
+   *  session.liveness,派工行状态也据此判 running,所以停机窗口种下的 live 轮次在重启后
+   *  仍是 running。没有它,总览泳道只有「已收口」的块:agent 组 runningCount=0 → 读不到
+   *  成员派工页 → 只能画组头兜底块(无 taskId、role=group),「点泳道块打开任务」这条
+   *  交付就永远没有可点的真块可验(R8)。 */
   lanesFixture = [
     {
       key: "lanes-1",
       status: "succeeded",
       agent: "GLM-5.3",
       startedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+    },
+    {
+      key: "lanes-live",
+      status: "running",
+      agent: "GLM-5.3",
+      startedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
     },
   ],
   roundIds = (rows) =>

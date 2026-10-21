@@ -298,10 +298,10 @@ export function OverviewView({
             className="glass flex h-6 shrink-0 items-center gap-1.5 rounded-xs px-2.5 text-text-muted ui-meta hover:text-text"
           >
             <span className="size-[7px] shrink-0 rounded-full bg-accent" aria-hidden="true" />
-            {t("views.overviewView.collaborationEntry", {
-              total: String(collaboration.total),
-              executing: String(collaboration.executing),
-            })}
+            {/* 只报总数:顶栏已有「进行中」(任务生命周期)与「进行中占用」(WIP)两个
+                同词计数,再放一个按 lease phase 算的「执行中」就是同一个词指两件事
+                (X4);协作页自己去解释舰队执行面。 */}
+            {t("views.overviewView.collaborationEntry", { total: String(collaboration.total) })}
           </button>
         )}
         {(health.projection.lag ?? 0) > 0 && (

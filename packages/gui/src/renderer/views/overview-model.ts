@@ -16,6 +16,7 @@ import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts
 import { workDayGroups } from "../model/workspace-narrative.ts";
 import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
 import type { AgentHandoff, AgentLane, AgentLaneTask } from "../components/agent-ui/AgentLanes.tsx";
+import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 
 /**
  * 总览的纯派生层(2026-10-04 重构:注意力优先;2026-10-20 W2-T1 接入 Orca 五级序数与
@@ -229,10 +230,13 @@ export function runRows(
     .filter((session) => session.liveness === "live")
     .map((session) => {
       const taskId = session.associations[0]?.taskId ?? null,
-        definition = session.definitionSnapshot;
+        definition = session.definitionSnapshot,
+        // model 字段允许是候选清单的 JSON 数组文本(声明 schema 只要非空字符串):
+        // 主表面只给列表短标签(首个候选 +N),原文不上屏(X2)。解析失败/空串退化成 kindId。
+        model = definition === null ? null : runtimeModelShortLabel(definition.model);
       return {
         runtimeSessionId: session.runtimeSessionId,
-        who: definition === null ? session.kindId : `${session.kindId} · ${definition.model}`,
+        who: model === null ? session.kindId : `${session.kindId} · ${model}`,
         taskId,
         taskTitle: taskId === null ? null : (titleOf.get(taskId) ?? null),
         lastObservedAt: session.activity.lastObservedAt,

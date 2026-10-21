@@ -1280,6 +1280,33 @@ describe("总览:系统状态弱化与异常提升", () => {
   });
 });
 
+describe("总览顶栏状态词表(X4:一个词只指一件事)", () => {
+  it("协作入口只报总数,不再并列一个按 lease 算的「执行中」", async () => {
+    // 顶栏同时有「进行中 {活跃任务}」与「进行中占用 {count}/{limit}」两个同词计数;
+    // 再来一个「执行中 {lease phase}」就是同一个词指两件事、数字还不一样(X4)。
+    const container = mount({ collaboration: { total: 8, executing: 2 }, onOpenCollaboration: () => undefined });
+    await flushUntil(
+      () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("协作") === true,
+    );
+    const entry = container.querySelector('[data-testid="overview-collaboration-entry"]')!;
+    expect(textOf(entry)).toContain("协作 8");
+    // 3 是入口上的总数,2 是旧的 lease 执行数:后者不许再出现。
+    expect(textOf(entry)).not.toContain("执行中");
+    expect(textOf(entry)).not.toContain("2");
+    unmount();
+  });
+
+  it("顶栏所有状态计数只用「进行中」一词,不再混入「执行中」", async () => {
+    const container = mount({ collaboration: { total: 8, executing: 2 }, onOpenCollaboration: () => undefined });
+    await flushUntil(
+      () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("进行中") === true,
+    );
+    const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
+    expect(textOf(topbar)).not.toContain("执行中");
+    unmount();
+  });
+});
+
 describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
   it("非纯本地仓给真实摘要入口,点击落到协作页;纯本地(null)不渲染入口", () => {
     const opened: string[] = [];
@@ -1289,8 +1316,9 @@ describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
     });
     const entry = center.querySelector<HTMLButtonElement>('[data-testid="overview-collaboration-entry"]');
     expect(entry).not.toBeNull();
+    // 只报总数:再并列一个按 lease phase 算的「执行中 2」就是同一个词指两件事(X4)。
     expect(entry!.textContent).toContain("8");
-    expect(entry!.textContent).toContain("2");
+    expect(entry!.textContent).not.toContain("执行中");
     act(() => entry!.click());
     expect(opened).toEqual(["collaboration"]);
     unmount();

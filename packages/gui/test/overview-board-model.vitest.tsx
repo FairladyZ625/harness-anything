@@ -11,6 +11,8 @@ import {
   workRows,
   reviewRows,
   reviewCounts,
+  runRows,
+  workHandlers,
 } from "../src/renderer/views/overview-model.ts";
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
@@ -640,5 +642,63 @@ describe("总览派生(纯函数)", () => {
       ],
     });
     expect(pinnedTaskRows(read, WORKS).map(({ taskId }) => taskId)).toEqual(["task_go", "task_high", "task_low"]);
+  });
+});
+
+describe("关注的工作处理者:模型元组不上屏(X2)", () => {
+  // 会话型运行时把候选模型清单以 JSON 数组文本写进 definitionSnapshot.model(声明 schema
+  // 只要求非空字符串)。主表面必须只给列表短标签:首个候选 +N;原文/方括号/引号一个
+  // 都不能出现在 who 里,否则关注工作的行会把底层配置字面量直接摊给业主。
+  const runtime = {
+    ok: true,
+    status: "ready",
+    installations: [],
+    instances: [],
+    sessions: [
+      {
+        runtimeSessionId: "rs_tuple",
+        kindId: "deepseek-harness",
+        liveness: "live",
+        definitionSnapshot: { model: '["deepseek-official","DeepSeek-V4.1-Flash","DeepSeek-V3.2"]' },
+        associations: [{ taskId: "task_m1" }],
+        activity: { lastObservedAt: AT },
+      },
+    ],
+    watermark: 3,
+    sourceRevision: 3,
+  } as unknown as AgentRuntimeOverviewResult;
+
+  it("runRows 的 who 用短标签,不残留候选清单 JSON 原文", () => {
+    const [row] = runRows(runtime, undefined);
+    expect(row!.who).toBe("deepseek-harness · deepseek-official +2");
+    expect(row!.who).not.toContain("[");
+    expect(row!.who).not.toContain('"');
+  });
+
+  it("workHandlers 透传同一短标签(关注工作的「处理者」直接消费它)", () => {
+    expect(workHandlers(runtime, "task_m1", [])).toEqual(["deepseek-harness · deepseek-official +2"]);
+  });
+
+  it("普通模型名与缺失快照都不加戏:名字原样,快照缺失退化成 kindId", () => {
+    const plain = {
+      ...runtime,
+      sessions: [
+        {
+          ...runtime.sessions[0]!,
+          runtimeSessionId: "rs_plain",
+          definitionSnapshot: { model: "glm-5.3" },
+        },
+        {
+          ...runtime.sessions[0]!,
+          runtimeSessionId: "rs_none",
+          definitionSnapshot: null,
+        },
+      ],
+    } as unknown as AgentRuntimeOverviewResult;
+    expect(
+      runRows(plain, undefined)
+        .map(({ who }) => who)
+        .sort(),
+    ).toEqual(["deepseek-harness", "deepseek-harness · glm-5.3"]);
   });
 });
