@@ -165,14 +165,8 @@ test("reviewer task reads are repository-wide", () => {
   assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-show", taskId: "task-other" }));
 });
 
-test("reviewer reaches the write family only as the CI wait on its reviewed task", () => {
+test("reviewer cannot reach the delivery write family on its reviewed task", () => {
   const p = { ...principal(), role: "reviewer" as const };
-  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-pr", taskId: p.taskId, waitCi: true }));
-  // Pull-request create/edit and waits on another task stay delivery actions.
-  assert.throws(() => requireExecutionActionScope(p, { kind: "task-pr", taskId: p.taskId }), {
-    code: "execution_credential_rejected",
-  });
-  assert.throws(() => requireExecutionActionScope(p, { kind: "task-pr", taskId: "task-other", waitCi: true }));
   assert.throws(() => requireExecutionActionScope(p, { kind: "task-push", taskId: p.taskId }), {
     code: "execution_credential_rejected",
   });

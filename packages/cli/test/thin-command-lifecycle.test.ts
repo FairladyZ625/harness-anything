@@ -20,39 +20,6 @@ test("binding health carries the same workspace target as login", () => {
   }
 });
 
-test("task pr carries an optional --body-file alongside the required title", () => {
-  const withBody = parseThinCommand([
-    "task",
-    "pr",
-    "task-channel",
-    "--title",
-    "fix(daemon): pure channel",
-    "--body-file",
-    "harness/tasks/task-channel-pr/body.md",
-  ]);
-  assert.equal(withBody.ok, true);
-  if (withBody.ok)
-    assert.deepEqual(withBody.command.action, {
-      kind: "task-pr",
-      taskId: "task-channel",
-      title: "fix(daemon): pure channel",
-      bodyFile: "harness/tasks/task-channel-pr/body.md",
-    });
-  const withoutBody = parseThinCommand(["task", "pr", "task-channel", "--title", "fix(daemon): closeout default"]);
-  assert.equal(withoutBody.ok, true);
-  if (withoutBody.ok)
-    assert.deepEqual(withoutBody.command.action, {
-      kind: "task-pr",
-      taskId: "task-channel",
-      title: "fix(daemon): closeout default",
-    });
-  assert.equal(
-    parseThinCommand(["task", "pr", "task-channel", "--title", "fix(daemon): x", "--body-file"]).ok,
-    false,
-    "a --body-file without a value is rejected",
-  );
-});
-
 test("task release accepts owner force-takeover only with an audit reason", () => {
   const reason = "The dispatched worker session ended.";
   const release = parseThinCommand(["task", "release", "task-1", "--force-takeover", "--reason", reason]),

@@ -139,13 +139,13 @@ test("taskPlanSection names the package root once and carries the body trimmed a
 test("PR publication rides one sentence and no repository-specific body protocol", () => {
   for (const profileId of ["baseline", "lightweight"] as const) {
     const mission = explicitPromptMission("task_x", null, "Go.", profileId);
-    assert.match(mission, /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
+    assert.match(mission, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
     assert.doesNotMatch(mission, /# PR Body Delivery Protocol/u);
     assert.doesNotMatch(mission, /pull_request_template\.md|Production-Delta|check-pr-body|task\.pr-body/u);
   }
   assert.doesNotMatch(
     explicitPromptMission(null, null, "Go.", "baseline"),
-    /ha task pr/u,
+    /gh pr create/u,
     "unbound prompts carry no publication note",
   );
 });
@@ -165,14 +165,14 @@ test("reviewer task-bound missions keep the guidance and Reviewer Role but omit 
   assert.match(reviewerMission, /# 台账查询引导/u, "the lookup guidance is not reviewer-specific");
   assert.doesNotMatch(reviewerMission, /# Living Deliverable Protocol/u);
   assert.doesNotMatch(reviewerMission, /explainer\.html/u);
-  assert.doesNotMatch(reviewerMission, /ha task pr/u);
+  assert.doesNotMatch(reviewerMission, /gh pr create/u);
   assert.doesNotMatch(reviewerMission, /# Owner rework instruction|Fix the implementation first./u);
   assert.doesNotMatch(reviewerMission, /ha task push/u, "reviewers never publish the task branch");
   assert.ok(reviewerMission.endsWith("Review the submitted cut."), "explicit caller text stays intact");
 
   const workerPrompt = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Do the work.", "baseline"));
   assert.match(workerPrompt, /# Living Deliverable Protocol/u, "worker dispatches keep the living protocol");
-  assert.match(workerPrompt, /ha task pr/u, "worker dispatches keep the PR publication note");
+  assert.match(workerPrompt, /gh pr create/u, "worker dispatches keep the PR publication note");
 });
 
 test("work missions omit the task maintenance protocol because work explainers are derived", () => {

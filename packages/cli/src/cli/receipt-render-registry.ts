@@ -464,7 +464,7 @@ function renderSuccessfulReceipt(receipt: Record<string, unknown>): string {
       receipt.summary ??
       `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`,
   );
-  // Settlement-none publications (task-push, task-pr) never reach the accepted_durable branch
+  // Settlement-none publications (task-push) never reach the accepted_durable branch
   // that renders `next` after the acceptance line, so they get the lane here instead.
   if (receipt.status === "accepted_durable") return text;
   return [text, ...renderReceiptNext(receipt.next, text)].join("\n");

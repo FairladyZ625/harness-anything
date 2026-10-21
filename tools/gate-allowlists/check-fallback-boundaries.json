@@ -19,12 +19,6 @@
    "task": "task_1103403e13bb17aa06cc3ebb10",
    "errors": "runtime_instance_disabled, runtime_instance_not_found, runtime_installation_not_found, runtime_credential_unavailable, runtime_subscription_required, runtime_auth_in_progress, runtime_auth_probe_failed, invalid_runtime_model",
    "reason": "Only automatic declaration selection consumes named pre-launch unavailability to try the next local candidate. Installation and login state can change after configuration writes; explicit instance and resume requests preserve the original error. Owner iteration-4 inventory authorization, 2026-10-09.",
-  "packages/daemon/src/runtime-task-pr.ts#waitTaskPullRequestChecks": {
-   "task": "task_304b2182cddabb68f2f5fadfed",
-   "decision": null,
-   "errors": "transient hosting-provider read failures after the first successful snapshot",
-   "reason": "ha task pr --wait-ci is the single daemon-side CI wait loop (owner-approved direction, 2026-10-19): it polls the provider port on a fixed interval until the PR head's checks settle or a constant budget expires. A mid-wait read failure is recorded into the terminal timeout receipt's last-read-error line instead of failing the wait; the first read and any ci_pull_request_missing rethrow. Coordinator-authorized entry, 2026-10-19."
-  },
   "packages/daemon/src/agent-declaration-migration.ts#readRuntimeInstanceViews": {
    "task": "task_9cc5c52b4f0fc7ef8fd82401ac",
    "decision": null,
@@ -93,7 +87,6 @@
    "packages/daemon/src/daemon-singleton.ts#readPidFile",
    "packages/daemon/src/daemon-singleton.ts#releaseIfHeld",
       "packages/daemon/src/decision-point-executor.ts#settle",
-   "packages/daemon/src/runtime-task-pr.ts#waitTaskPullRequestChecks",
    "packages/daemon/src/decision-surface-actions.ts#jsonEqual",
    "packages/daemon/src/decision-surface-actions.ts#jsonObject",
    "packages/daemon/src/decision-surface-actions.ts#unquoteDecisionScalar",

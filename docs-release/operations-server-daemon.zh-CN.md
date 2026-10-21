@@ -149,12 +149,12 @@ worker 在其中提交，并经 daemon 代办的命令发布，绝不使用本�
 
 ```bash
 ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
-ha task pr <task-id>          # 创建 pull request（--update 更新已有）
+gh pr create --head <task-id> # 用本机 gh 登录开 pull request
+gh pr checks <task-id> --watch  # 阻塞到 PR head 的检查出结论
 ```
 
-Worker 用 `ha task pr <task-id> --wait-ci` 等待检查并只读它的一行结论（退出 0 绿 /
-1 红 / 2 超时）；checks 尚未注册时按等待计，绝不读作绿。结论会点明它判定的 head，
-评审据此确认 checks 属于冻结的交付提交。失败时在自己 runtime 有平台登录的情况下用
+等待中的检查绝不读作绿。评审用 `gh pr view <task-id> --json headRefOid` 确认 checks
+属于冻结的交付提交。失败时在自己 runtime 有平台登录的情况下用
 `gh run view <run-id> --log-failed` 查看日志，否则打开结论给出的 check URL。
 
 每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
@@ -234,10 +234,9 @@ NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
 | `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                          |
 | `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                               |
 | `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                                   |
-| `ha task pr` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定托管凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
 | provider key 命令的 `runtime_credential_unavailable` | 原生凭据库不可用（例如 Linux keyring 未解锁） | 按 [Provider API keys](provider-credentials.md#linux-without-a-desktop) 的无桌面 keyring 设置处理。 |
 | `ha task push` 的 `delivery_publish_failed` | 任务分支推送被拒绝或被远端拒绝（检出在别的分支、git 身份缺失或非本仓身份、CAS 切点丢失、网络） | 读回执里的原因，在本地修正点名的问题后重试 `ha task push <task-id>`。 |
-| 点名 `task push` / `task pr` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试。 |
+| 点名 `task push` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试。 |
 
 ## registry v2 硬切
 

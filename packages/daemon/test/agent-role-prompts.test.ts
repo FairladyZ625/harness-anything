@@ -73,9 +73,8 @@ for (const role of ["worker", "commander", "reviewer"] as const)
     assert.match(prompt, /report the exact request/u);
     assert.match(prompt, /label unchecked items unverified/u);
     assert.doesNotMatch(prompt, /Hard prohibitions|hard prohibition|ha relation relate/u);
-    // Publication never rides a static role baseline. A reviewer reaches the write family only
-    // through the CI wait, which reads the daemon-held credential and publishes a verdict.
-    assert.doesNotMatch(prompt, /ha task push|ha task pr <task-id>(?! --wait-ci)/u);
+    // Publication never rides a static role baseline.
+    assert.doesNotMatch(prompt, /ha task push|ha task pr/u);
   });
 
 const writeGrants = [
@@ -118,10 +117,8 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   );
   assert.match(prompt, /code repository is read-only.*Do not modify code, stage files, create commits/u);
   assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
-  assert.match(prompt, /read the PR checks with `ha task pr <task-id> --wait-ci`/u);
-  assert.match(prompt, /daemon-held hosting credential/u);
-  assert.match(prompt, /`ci\.headSha` and `ci\.subjectUrl`/u);
-  assert.match(prompt, /that head must equal the pinned delivery commit/u);
+  assert.match(prompt, /read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with/u);
+  assert.match(prompt, /both reads must equal the pinned delivery commit/u);
   assert.match(prompt, /Pending checks are not green/u);
   assert.match(prompt, /dispatch-assigned artifacts\/reports paths/u);
   assert.match(prompt, /For a Task use ha task review-execution; for a Decision use ha decision review/u);

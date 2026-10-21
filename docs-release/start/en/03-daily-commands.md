@@ -87,8 +87,8 @@ personal Git login:
 
 ```bash
 ha task push <task-id>        # publish the task branch through the daemon-held credential
-ha task pr <task-id>          # create the pull request (--update edits the existing one)
-ha task pr <task-id> --wait-ci  # block until checks settle; one line, exit 0/1/2
+gh pr create --head <task-id> # open the pull request with the machine's gh login
+gh pr checks <task-id> --watch  # block until the PR head's checks settle
 ```
 
 Direct-push protection limits any push from the worktree to the task's own

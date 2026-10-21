@@ -93,7 +93,7 @@ export async function hostingCredentialDispatchNotice(
 ): Promise<string | null> {
   const { provider, configuredInstanceIds } = await hostingCredentialSnapshot(rootDir, instances);
   if (!provider || configuredInstanceIds.length > 0) return null;
-  return `No enabled runtime instance binds a ${provider} hosting credential; the dispatched worker cannot publish its branch, open the task PR, or read CI until the operator configures one: ${hostingCredentialConfigurationAdvice(provider)}.`;
+  return `No enabled runtime instance binds a ${provider} hosting credential; the dispatched worker cannot publish its branch until the operator configures one: ${hostingCredentialConfigurationAdvice(provider)}.`;
 }
 
 /**

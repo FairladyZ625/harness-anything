@@ -345,8 +345,8 @@ always copy the live repository template for a real PR.
 
 This section is the external-contributor path: it uses the contributor's own
 Git credentials. A different model exists for dispatched, task-bound workers in
-a registered Harness workspace — they publish through the daemon with
-`ha task push <task-id>` and `ha task pr <task-id>`, with direct-push
+a registered Harness workspace — they publish the branch through the daemon with
+`ha task push <task-id>`, open the PR with `gh pr create --head <task-id>`, with direct-push
 protection limiting any push to the task's own branch. Read hosted checks and
 failure logs directly with the hosting platform CLI and your own platform
 credentials. If your session runs as such a worker, use those publishing
