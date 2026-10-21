@@ -82,10 +82,9 @@ export function cellErrorMessage(error: unknown): string {
 // that is only safe because every producer of a *relayed* payload authors or redacts its own
 // sentence before throwing. The audit behind this boundary (478 `cellCodedError` /
 // `cellCriterionError` call sites across `packages/*/src`) found no code whose message is only
-// foreign text: the seven that were once denied now either name the stable code and the actionable
-// field (`childRefusal`, `publishExecutedVerticalScript`, `fleet-squad-coordinator`, the two
-// `runtime-task-pr` refusals) or redact the remote detail where it is produced
-// (`runtime-task-pr.ts`'s `redact`, `runtime-worker-push.ts`'s `errorDetail`).
+// foreign text: the codes that were once denied now either name the stable code and the actionable
+// field (`childRefusal`, `publishExecutedVerticalScript`, `fleet-squad-coordinator`) or redact the
+// remote detail where it is produced (`runtime-worker-push.ts`'s `errorDetail`).
 //
 // So this boundary no longer denies codes: denying a whole code also discarded the authored half of
 // a mixed message, which replaced an operator's only clue with a sentence that could be factually
