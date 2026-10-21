@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, type TestContext } from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { unattendedRulingContract } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import { renderDispatchPrompt } from "@harness-anything/daemon/internal/runtime-spawn-prompt";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -463,6 +465,11 @@ export async function eventuallyRuntimeReaderReuse(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`runtime status wait did not park one daemon await: ${JSON.stringify(observed)}`);
+}
+/** The archived mission is the prompt as the worker received it, so the ruling artifact path's
+ * dispatch token is already rendered to the dispatch id (runtime-spawn-prompt renders at launch). */
+export function renderedRulingContract(dispatchId: string): string {
+  return renderDispatchPrompt(unattendedRulingContract, dispatchId, false);
 }
 export function assertTaskMissionPrompt(
   prompt: string,
