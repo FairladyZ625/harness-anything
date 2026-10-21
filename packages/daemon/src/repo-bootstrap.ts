@@ -670,8 +670,7 @@ function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRo
   if (existsSync(ignorePath) && (!lstatSync(ignorePath).isFile() || lstatSync(ignorePath).isSymbolicLink()))
     throw repoBootstrapError("reserved_path", ".gitignore must be a regular file.");
   const existing = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "",
-    lines = new Set(existing.split(/\r?\n/u)),
-    missing = projectPaths.map((target) => `/${target}/`).filter((rule) => !lines.has(rule));
+    missing = projectPaths.filter((target) => !projectGitIgnores(projectRoot, target)).map((target) => `/${target}/`);
   if (missing.length)
     writeFileSync(
       ignorePath,
@@ -679,6 +678,29 @@ function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRo
       "utf8",
     );
   git(projectRoot, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...projectPaths]);
+}
+/**
+ * Whether this repository's own `.gitignore` already ignores the Harness root, decided by git
+ * instead of by matching the literal rule bootstrap appends: an existing dot-directory glob already
+ * covers the root. The probe is a phantom child path, so a root that does not exist yet is judged by
+ * its ignore rules. Excludes that live only in this clone (`.git/info/exclude`, the user's global
+ * excludesFile) are not repository rules and would not reach clones or CI, so they do not suppress
+ * the durable rule.
+ */
+function projectGitIgnores(projectRoot: string, target: string): boolean {
+  let reported: string;
+  try {
+    reported = git(projectRoot, ["check-ignore", "--no-index", "-v", "--", `${target}/__bootstrap_probe__`]);
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "status" in error && error.status === 1) return false;
+    throw error;
+  }
+  // git reports `<source>:<line>:<pattern>\t<path>`; the path holds no tab, so the head is the pattern.
+  const source = /^(?<source>.*):\d+:/u.exec(reported.split("\t")[0] ?? "")?.groups?.source,
+    resolved = source === undefined ? undefined : path.resolve(projectRoot, source);
+  if (resolved === undefined || path.basename(resolved) !== ".gitignore") return false;
+  const relative = path.relative(projectRoot, resolved);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 /** Removes exactly the ignore rules bootstrap added for these Harness roots; other user rules stay. */
 export function removeHarnessIgnoreRules(rootDir: string, authoredRoot: string, localRoot: string): void {
