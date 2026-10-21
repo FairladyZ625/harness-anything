@@ -300,6 +300,7 @@ for (const mode of ["resume", "fresh"] as const)
           taskId,
           forward: true,
           reason: "Review.",
+          reviewer: "closeout-reviewer",
           runtimeInstanceId: "reviewer-only-instance",
         },
         binding,

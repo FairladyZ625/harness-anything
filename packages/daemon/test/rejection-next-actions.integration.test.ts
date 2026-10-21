@@ -82,7 +82,14 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward submit-exit cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward submit-exit cut.",
+          },
           holder,
         )
       ).outcome,

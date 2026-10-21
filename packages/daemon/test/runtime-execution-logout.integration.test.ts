@@ -317,6 +317,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     taskId,
     executionId,
     forward: true,
+    reviewer: "closeout-reviewer",
     reason: "Review isolated logout evidence.",
   });
   assert.equal(forward.outcome, "applied", JSON.stringify(forward));

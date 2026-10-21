@@ -227,6 +227,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
               taskId,
               executionId: firstExecutionId,
               forward: true,
+              reviewer: "closeout-reviewer",
               reason: "Forward first runtime cut.",
             },
             auth,
@@ -358,6 +359,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
               taskId,
               executionId: secondExecutionId,
               forward: true,
+              reviewer: "closeout-reviewer",
               reason: "Forward second runtime cut.",
             },
             auth,
@@ -467,7 +469,14 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         (
           await host.run(
             repoId,
-            { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward the frozen cut." },
+            {
+              kind: "task-adjudicate",
+              taskId,
+              executionId,
+              forward: true,
+              reviewer: "closeout-reviewer",
+              reason: "Forward the frozen cut.",
+            },
             auth,
           )
         ).outcome,
@@ -589,7 +598,14 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           (
             await host.run(
               repoId,
-              { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward for review." },
+              {
+                kind: "task-adjudicate",
+                taskId,
+                executionId,
+                forward: true,
+                reviewer: "closeout-reviewer",
+                reason: "Forward for review.",
+              },
               auth,
             )
           ).outcome,

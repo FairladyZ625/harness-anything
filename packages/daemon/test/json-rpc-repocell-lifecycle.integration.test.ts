@@ -219,7 +219,17 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
       "Lifecycle output is ready.",
     );
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "submitted/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
-    const forwarded = await cell.run({ kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward lifecycle fixture." }, binding);
+    const forwarded = await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId,
+        forward: true,
+        reviewer: "closeout-reviewer",
+        reason: "Forward lifecycle fixture.",
+      },
+      binding,
+    );
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withPolicyGroup({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "maintainer");
     const reviewReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports"); mkdirSync(reviewReportDir, { recursive: true }); writeFileSync(path.join(reviewReportDir, "life.md"), "# Review life\n\nPhysical review findings.\n");
@@ -524,7 +534,14 @@ async function prepareReadyCompletion(
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
   const forwarded = await cell.run(
-    { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward ready lifecycle fixture." },
+    {
+      kind: "task-adjudicate",
+      taskId,
+      executionId,
+      forward: true,
+      reviewer: "closeout-reviewer",
+      reason: "Forward ready lifecycle fixture.",
+    },
     binding,
   );
   assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));

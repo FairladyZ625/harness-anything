@@ -306,6 +306,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
           taskId,
           executionId,
           forward: true,
+          reviewer: "closeout-reviewer",
           reason: "Owner forwards the final amended cut for independent review.",
         },
         holder,

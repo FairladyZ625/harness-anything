@@ -105,7 +105,14 @@ test("review-consent derives the recorded Review digests without a packet and re
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Owner forwards the cut.",
+          },
           closer,
         )
       ).outcome,
@@ -285,6 +292,7 @@ test("review-consent derives the recorded Review digests without a packet and re
             taskId: ambiguousTaskId,
             executionId: ambiguousExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Owner forwards the ambiguous-review fixture.",
           },
           closer,
@@ -353,7 +361,14 @@ test("only the task owner can consent to a changes_requested review, and overrid
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Review this cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Review this cut.",
+          },
           ownerBinding,
         )
       ).outcome,
@@ -476,6 +491,7 @@ test("review-execution without --execution-id derives the sole current submitted
             taskId,
             executionId: firstExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Owner forwards round one.",
           },
           owner,
@@ -536,6 +552,7 @@ test("review-execution without --execution-id derives the sole current submitted
             taskId,
             executionId: secondExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Owner forwards round two.",
           },
           owner,
@@ -622,6 +639,7 @@ test("review-execution without --execution-id names the resubmission command whi
             taskId,
             executionId: firstExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Owner forwards the selection fixture.",
           },
           owner,
@@ -713,7 +731,14 @@ test("review-execution and review-consent require a substantive physical report 
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Owner forwards the cut.",
+          },
           owner,
         )
       ).outcome,

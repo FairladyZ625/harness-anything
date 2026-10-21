@@ -131,6 +131,7 @@ test(
         taskId: created.taskId,
         executionId,
         forward: true,
+        reviewer: "closeout-reviewer",
         reason: "Review this iteration.",
       });
       assert.equal(forward.outcome, "applied", JSON.stringify(forward));

@@ -181,7 +181,14 @@ test("declare-executor traces the authoring dispatch across executions and never
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId: authoringExecutionId, forward: true, reason: "Forward cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: authoringExecutionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward cut.",
+          },
           spawnOperator,
         )
       ).outcome,
@@ -289,6 +296,7 @@ test("declare-executor traces the authoring dispatch across executions and never
             taskId,
             executionId: recoveryExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward recovery.",
           },
           spawnOperator,
@@ -398,7 +406,14 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward reviewer-only cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward reviewer-only cut.",
+          },
           spawnOperator,
         )
       ).outcome,

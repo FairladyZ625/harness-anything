@@ -191,7 +191,13 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       "applied",
     );
     const noteless = await cell.run(
-      { kind: "task-adjudicate", taskId: "task_review", executionId: "exe_review", forward: true },
+      {
+        kind: "task-adjudicate",
+        taskId: "task_review",
+        executionId: "exe_review",
+        forward: true,
+        reviewer: "closeout-reviewer",
+      },
       binding,
     );
     assert.equal(noteless.outcome, "op_rejected", JSON.stringify(noteless));
@@ -204,6 +210,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
             taskId: "task_review",
             executionId: "exe_review",
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward agenda review cut.",
           },
           binding,
@@ -243,6 +250,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
             taskId: "task_returned",
             executionId: "exe_returned",
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward agenda rework cut.",
           },
           binding,
@@ -459,6 +467,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
             taskId: "task_rework",
             executionId: "exe_rework",
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward agenda rework cut.",
           },
           binding,
@@ -594,6 +603,7 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
               taskId,
               executionId: `exe_${taskId}`,
               forward: true,
+              reviewer: "closeout-reviewer",
               reason: "Forward archived agenda cut.",
             },
             binding,
