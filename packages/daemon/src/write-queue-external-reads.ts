@@ -59,7 +59,7 @@ export function readBeforeWriteQueue(
       (sourceResolution) => (action, binding) =>
         context.executeAction({ ...action, [artifactImportSourceResolution]: sourceResolution }, binding),
     );
-  if (action.kind === "task-push")
+  if (action.kind === "task-push") {
     // Everything, including the preflight, runs inside the async body: the caller turns a rejection
     // into an `op_rejected` receipt (`failAction`), while a synchronous throw would escape `run` as a
     // raw transport error — the operator would get no receipt, no code and no next action.
@@ -124,6 +124,7 @@ export function readBeforeWriteQueue(
         } as WriteReceiptDraft);
       };
     })();
+  }
   if (action.kind === "task-adjudicate" && action.forward === true && typeof action.taskId === "string") {
     const refused = refuseAdjudicatedForwardBeforeQueue(context, action.taskId, explicitExecutionId(action));
     if (refused) return Promise.reject(refused);
