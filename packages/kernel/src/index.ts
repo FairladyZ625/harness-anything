@@ -165,6 +165,7 @@ export {
   classifyTextualArtifactPath,
   mediaTypeForBinaryPath,
   DOC_SYNC_INLINE_MAX_BYTES,
+  type DocCandidateClassification,
   type OpaqueTextualMediaType,
   OPAQUE_TEXTUAL_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,

@@ -56,11 +56,11 @@ const textualFileTypes: readonly {
  * directories, authored architecture models, and the walls manifest are opaque regardless of
  * their content type; prose semantics apply everywhere else only to Markdown
  * and plain-text documents. Other supported textual formats are whole-file
- * documents. A binary-claiming artifact name is never textual; `classifyDocCandidate` is the entry
- * that turns those, and text names with undecodable bytes, into raw content.
+ * documents. This is the path-shape judgment only: `classifyDocCandidate` is the one entry that
+ * reads bytes to choose raw content, so a binary name that already holds a persisted text
+ * document still answers with that policy instead of becoming unwritable.
  */
 export function classifyTextualArtifactPath(value: string): TextualArtifactClassification | null {
-  if (taskArtifactSubtreePath(value) && isBinaryArtifactPath(value)) return null;
   if (artifactPath(value) || architectureModelPath(value) || value === "governance/walls/walls.json")
     return classifyOpaqueTextualArtifactPath(value);
   const fileType = textualFileType(value);

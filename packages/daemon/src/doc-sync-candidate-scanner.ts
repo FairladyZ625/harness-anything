@@ -29,6 +29,7 @@ import {
   taskIsDescendantOf,
   type ActorIdentity,
   type CanonicalEventStore,
+  type DocCandidateClassification,
   type DocWriteIntent,
   type LedgerCutIdentity,
   type TaskProjection,
@@ -53,6 +54,9 @@ export interface ScannedDocCandidate extends DocCandidateRow {
   readonly rejectionCode: string | null;
   readonly requiredRoute: string | null;
   readonly regionId: string | null;
+  // The verdict this scan already settled. Submit builds its intent from it instead of asking the
+  // byte classifier a second time, which could answer raw for a row this scan kept textual.
+  readonly classification: DocCandidateClassification | null;
 }
 export interface DocCandidateScan {
   readonly baseLedgerSha: LedgerCutIdentity;
@@ -187,9 +191,9 @@ export function scanDocCandidates(input: {
       classified = classifyDocCandidate(logical, rawBytes),
       // A path that already holds a text document keeps that policy: undecodable bytes there are a
       // rejected edit (decideDocWrite answers with the typed-binary route), not a new artifact at the
-      // same name. Updating an existing raw artifact stays a raw candidate.
+      // same name. The byte verdict cannot speak for a persisted text row, so the path judgment does.
       effective =
-        classified?.kind === "raw-artifact" &&
+        (classified === null || classified.kind === "raw-artifact") &&
         projected.document !== null &&
         projected.document.policyId !== RAW_ARTIFACT_POLICY_ID
           ? classifyTextualArtifactPath(logical)
@@ -410,6 +414,7 @@ export function scanDocCandidates(input: {
         rejectionCode,
         requiredRoute,
         regionId,
+        classification: state === "eligible" || state === "clean" ? effective : null,
       };
     }
   }
@@ -457,7 +462,7 @@ export function intentFromScan(
         executionId: scan.executionId,
         baseLedgerSha: scan.baseLedgerSha,
         changes: eligible.map((row) => {
-          const classification = classifyDocCandidate(row.path, row.bytes);
+          const classification = row.classification;
           if (classification === null || row.candidateBlobSha256 === null || row.size === null)
             throw new Error(`eligible scan row is not a supported artifact: ${row.path}`);
           return {
@@ -485,8 +490,14 @@ export function publicScan(scan: DocCandidateScan): {
   return {
     baseLedgerSha: scan.baseLedgerSha,
     rows: scan.rows.map(
-      ({ bytes: _bytes, rejectionCode: _rejectionCode, requiredRoute: _requiredRoute, regionId: _regionId, ...row }) =>
-        row,
+      ({
+        bytes: _bytes,
+        rejectionCode: _rejectionCode,
+        requiredRoute: _requiredRoute,
+        regionId: _regionId,
+        classification: _classification,
+        ...row
+      }) => row,
     ),
   };
 }
