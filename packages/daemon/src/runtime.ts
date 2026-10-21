@@ -88,6 +88,7 @@ export async function startDaemon(input: {
   let fleetDrainDeadline: ReturnType<typeof setTimeout> | undefined;
   let fleetDrainExpired = false;
   const runtimeProcessPids = new Map<string, number>();
+  const buildDraining = (): boolean => input.buildSupersessionEnabled !== false && buildSupersessionObserved;
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
     return {
@@ -174,7 +175,7 @@ export async function startDaemon(input: {
       recordLifecycle,
       oidc,
       onRepoStatusChange: requestDrainCheck,
-      buildDraining: () => input.buildSupersessionEnabled !== false && buildSupersessionObserved,
+      buildDraining,
     });
     // One sink for the daemon; the protocol server is created per connection and reports into it.
     requestLog = openDaemonRequestLog({
@@ -223,6 +224,7 @@ export async function startDaemon(input: {
           recordRequest: requestLog!.record,
           recordTraffic: connLog.request,
           buildDrainStatus,
+          buildDraining,
           stopping: () => stopping,
           onRequestStarted: () => {
             activeRequests += 1;

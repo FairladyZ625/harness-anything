@@ -90,6 +90,8 @@ export function createJsonRpcProtocolServer(options: {
   readonly recordTraffic?: (entry: DaemonTrafficLogEntry) => void;
   readonly requestShutdown?: () => void;
   readonly buildDrainStatus?: () => DaemonBuildDrainStatus;
+  /** True after build drift closes normal RPC admission and until the old daemon exits. */
+  readonly buildDraining?: () => boolean;
   readonly stopping?: () => boolean;
   readonly onRequestStarted?: (method: string) => void;
   readonly onRequestSettled?: (method: string) => void;
@@ -98,11 +100,17 @@ export function createJsonRpcProtocolServer(options: {
   let handshaken = false;
   // Hello and its next frame are one admitted exchange. A host status callback can request
   // supersession in the wire gap between them, so retain the work until the frame or disconnect.
-  let helloPending = false;
+  let helloPending = false,
+    helloReservationHeld = false,
+    helloContinuationAdmitted = false;
+  const drainActive = (): boolean => options.stopping?.() === true || options.buildDraining?.() === true;
   const releaseHello = (): void => {
     if (!helloPending) return;
     helloPending = false;
-    options.onRequestSettled?.("protocol.hello");
+    const reservationHeld = helloReservationHeld;
+    helloReservationHeld = false;
+    helloContinuationAdmitted = false;
+    if (reservationHeld) options.onRequestSettled?.("protocol.hello");
   };
   options.authContext.connectionSignal?.addEventListener("abort", releaseHello);
   let executionCredential: string | undefined;
@@ -121,7 +129,11 @@ export function createJsonRpcProtocolServer(options: {
   // Abandonment hooks for parked waits: called when this server closes, so a parked reply never
   // holds the shutdown drain window open.
   const parkedWaitAborts = new Set<() => void>();
-  const run = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
+  const run = async (
+    request: JsonRpcRequest,
+    frameReceivedAt = Date.now(),
+    admittedBeforeBuildDrain = false,
+  ): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null,
       startedAt = Date.now(),
       dispatchDelayMs = Math.max(0, startedAt - frameReceivedAt);
@@ -220,7 +232,10 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
-    const stoppingRefusal = daemonStoppingRefusal(method, options.stopping?.() === true);
+    const stoppingRefusal = daemonStoppingRefusal(
+      method,
+      options.stopping?.() === true || (options.buildDraining?.() === true && !admittedBeforeBuildDrain),
+    );
     if (stoppingRefusal) return reply(method, stoppingRefusal);
     // These daemon controls use the transport boundary, so center startup cannot block them.
     const daemonControl = method === "daemon.status" || method === "daemon.stop";
@@ -833,8 +848,11 @@ export function createJsonRpcProtocolServer(options: {
       fleetAction.method === "repo.agentRuntime.sessions.await";
     if (method === "protocol.hello") {
       if (!helloPending) {
+        const admitted = !drainActive();
         helloPending = true;
-        options.onRequestStarted?.(method);
+        helloReservationHeld = admitted;
+        helloContinuationAdmitted = admitted;
+        if (admitted) options.onRequestStarted?.(method);
       }
       try {
         return await run(request, frameReceivedAt);
@@ -843,26 +861,29 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail") {
+      const admitted = !drainActive() || (helloPending && helloContinuationAdmitted);
       releaseHello();
       if (isDaemonParkedWaitMethod(method) || fleetAwait) {
         // Register abandonment around authentication as well as the host read: neither phase owns work.
         const response = await raceParkedWait(
-          run(request, frameReceivedAt),
+          run(request, frameReceivedAt, admitted),
           parkedWaitAborts,
           options.authContext.connectionSignal,
           options.host.parkedWaitSignal,
         );
         return response === parkedWaitAbandoned ? undefined : response;
       }
-      return run(request, frameReceivedAt);
+      return run(request, frameReceivedAt, admitted);
     }
     // Transfer the reservation without a zero-work interval before dispatching the next frame.
-    options.onRequestStarted?.(method);
+    const admittedHelloContinuation = helloPending && helloContinuationAdmitted,
+      admitted = !drainActive() || admittedHelloContinuation;
+    if (admitted) options.onRequestStarted?.(method);
     releaseHello();
     try {
-      return await run(request, frameReceivedAt);
+      return await run(request, frameReceivedAt, admitted);
     } finally {
-      options.onRequestSettled?.(method);
+      if (admitted) options.onRequestSettled?.(method);
     }
   };
   return {
