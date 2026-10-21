@@ -36,6 +36,34 @@ The invitation expires after 72 hours and can be consumed once. The **Invitation
 Pending / Consumed / Expired / Revoked, and a pending invitation can be withdrawn with **Revoke**. Do not post the link
 publicly.
 
+### Configure addresses reachable by edge nodes
+
+In **Settings → Repos & connections → Center node**, configure the center service address and sign-in service address
+separately. Enter a complete HTTPS origin for the center (for example, `https://center.example.com:7545`). The sign-in
+address comes from the hostname and port in the login service certificate settings. They may use different hosts and
+ports. These client-facing addresses are separate from the daemon and Keycloak bind addresses. The center TLS
+certificate SAN must cover the center host; the login certificate must cover the sign-in hostname. The sign-in
+hostname is also the Keycloak issuer, so changing it requires existing sessions to authenticate again.
+
+Both addresses must resolve and be reachable from the edge network, with working DNS, routing, firewall rules, and NAT
+port forwarding. The center attempts a reachability check when its address is saved, but hairpin NAT can cause a false
+warning. Before sign-in, the join wizard checks the center and sign-in services separately and identifies which one
+failed. The product does not relay traffic: a public address without a working port mapping remains unreachable.
+
+If the center has only private network addresses, create SSH local forwards on the edge machine. The invitation
+hostnames must point to the local forwarding addresses on that machine, and the sign-in certificate must still be
+trusted:
+
+```bash
+ssh -N \
+  -L <center-host-from-invite>:<center-port>:<center-private-host>:<center-port> \
+  -L <login-host-from-invite>:<login-port>:<login-private-host>:<login-port> \
+  <jump-host-login>
+```
+
+If an invitation hostname is not already a local address on the edge machine, map it to the SSH listener with a local
+loopback alias or local DNS/hosts entry first. Forwarded ports must match the invitation URLs.
+
 ## 3. Join from the invitation link
 
 Either way works:

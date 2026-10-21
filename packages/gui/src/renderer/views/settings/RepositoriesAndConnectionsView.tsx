@@ -324,18 +324,19 @@ function CenterConnectionPanel({
   const [port, setPort] = useState("8443");
   const [certificateFile, setCertificateFile] = useState("");
   const [certificateKeyFile, setCertificateKeyFile] = useState("");
+  const [externalUrl, setExternalUrl] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!centerSettings) return;
-    void centerSettings
-      .listener()
-      .then((value) => {
+    void Promise.all([centerSettings.listener(), centerSettings.externalAddress()])
+      .then(([value, address]) => {
         setSettings(value);
         setMode(value.certificateMode);
         setHostname(value.listener?.hostname ?? "");
         setPort(String(value.listener?.port ?? 8443));
         setCertificateFile(value.listener?.certificateFile ?? "");
+        setExternalUrl(address.externalUrl ?? "");
       })
       .catch((error: unknown) => {
         setStatus(error instanceof Error ? error.message : String(error));
@@ -362,11 +363,11 @@ function CenterConnectionPanel({
       const result = await centerSettings.setCertificate({
         expectedVersion: settings.version,
         certificateMode: mode,
+        hostname: hostname.trim(),
+        port: Number(port),
         ...(mode === "self-signed"
           ? {}
           : {
-              hostname: hostname.trim(),
-              port: Number(port),
               certificateFile,
               certificateKeyFile,
             }),
@@ -383,6 +384,20 @@ function CenterConnectionPanel({
       setStatus(t("views.repositories.centerCertificateSaved"));
       const refreshed = await centerSettings.listener();
       setSettings(refreshed);
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      consumeKnownError(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const saveExternalAddress = async () => {
+    if (!centerSettings) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const result = await centerSettings.setExternalAddress({ externalUrl: externalUrl.trim() });
+      setStatus(result.warning || t("views.repositories.centerExternalAddressSaved"));
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : String(error));
       consumeKnownError(error);
@@ -418,7 +433,33 @@ function CenterConnectionPanel({
           </div>
         </dl>
         <div className="border-t border-border px-3 py-3">
+          <h3 className="ui-meta font-medium text-text">{t("views.repositories.centerExternalAddressTitle")}</h3>
+          <p className="mt-1 ui-micro text-text-muted">{t("views.repositories.centerExternalAddressHint")}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              type="url"
+              data-testid="center-external-address"
+              className="min-w-[18rem] flex-1 rounded border border-border bg-surface px-2 py-1 font-mono ui-meta"
+              value={externalUrl}
+              onChange={(event) => setExternalUrl(event.target.value)}
+              placeholder="https://center.example.com:7545"
+            />
+            {centerSettings ? (
+              <button
+                type="button"
+                data-testid="center-external-address-save"
+                disabled={saving || externalUrl.trim() === ""}
+                className="rounded bg-accent px-3 py-1.5 ui-meta text-white disabled:opacity-50"
+                onClick={() => void saveExternalAddress()}
+              >
+                {saving
+                  ? t("views.repositories.centerExternalAddressSaving")
+                  : t("views.repositories.centerExternalAddressSave")}
+              </button>
+            ) : null}
+          </div>
           <h3 className="ui-meta font-medium text-text">{t("views.repositories.centerCertificateTitle")}</h3>
+          <p className="mt-1 ui-micro text-text-muted">{t("views.repositories.centerLoginAddressHint")}</p>
           <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Login service certificate type">
             {(
               [
@@ -457,64 +498,69 @@ function CenterConnectionPanel({
               </label>
             ))}
           </div>
-          {mode !== "self-signed" ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <label className="ui-meta">
-                {t("views.repositories.centerCertificateHostname")}
-                <input
-                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
-                  value={hostname}
-                  onChange={(event) => setHostname(event.target.value)}
-                  placeholder="center.example.com"
-                />
-              </label>
-              <label className="ui-meta">
-                {t("views.repositories.centerCertificatePort")}
-                <input
-                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
-                  value={port}
-                  onChange={(event) => setPort(event.target.value)}
-                  inputMode="numeric"
-                />
-              </label>
-              <div className="ui-meta">
-                {t("views.repositories.centerCertificateFile")}
-                <div className="mt-1 flex gap-2">
-                  <span className="min-w-0 flex-1 truncate rounded border border-border px-2 py-1 font-mono ui-micro">
-                    {certificateFile || t("views.repositories.centerCertificateNoFile")}
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="center-certificate-file-choose"
-                    className="rounded border border-border px-2 py-1"
-                    onClick={() => void selectFile("certificate")}
-                  >
-                    {t("views.repositories.centerCertificateChoose")}
-                  </button>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <label className="ui-meta">
+              {t("views.repositories.centerCertificateHostname")}
+              <input
+                data-testid="center-login-hostname"
+                className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                value={hostname}
+                onChange={(event) => setHostname(event.target.value)}
+                placeholder="login.example.com"
+              />
+            </label>
+            <label className="ui-meta">
+              {t("views.repositories.centerCertificatePort")}
+              <input
+                data-testid="center-login-port"
+                className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                inputMode="numeric"
+              />
+            </label>
+            {mode !== "self-signed" ? (
+              <>
+                <div className="ui-meta">
+                  {t("views.repositories.centerCertificateFile")}
+                  <div className="mt-1 flex gap-2">
+                    <span className="min-w-0 flex-1 truncate rounded border border-border px-2 py-1 font-mono ui-micro">
+                      {certificateFile || t("views.repositories.centerCertificateNoFile")}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="center-certificate-file-choose"
+                      className="rounded border border-border px-2 py-1"
+                      onClick={() => void selectFile("certificate")}
+                    >
+                      {t("views.repositories.centerCertificateChoose")}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="ui-meta">
-                {t("views.repositories.centerCertificateKey")}
-                <div className="mt-1 flex gap-2">
-                  <span className="min-w-0 flex-1 truncate rounded border border-border px-2 py-1 font-mono ui-micro">
-                    {certificateKeyFile
-                      ? t("views.repositories.centerCertificateSelected")
-                      : t("views.repositories.centerCertificateNoFile")}
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="center-certificate-key-choose"
-                    className="rounded border border-border px-2 py-1"
-                    onClick={() => void selectFile("private-key")}
-                  >
-                    {t("views.repositories.centerCertificateChoose")}
-                  </button>
+                <div className="ui-meta">
+                  {t("views.repositories.centerCertificateKey")}
+                  <div className="mt-1 flex gap-2">
+                    <span className="min-w-0 flex-1 truncate rounded border border-border px-2 py-1 font-mono ui-micro">
+                      {certificateKeyFile
+                        ? t("views.repositories.centerCertificateSelected")
+                        : t("views.repositories.centerCertificateNoFile")}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="center-certificate-key-choose"
+                      className="rounded border border-border px-2 py-1"
+                      onClick={() => void selectFile("private-key")}
+                    >
+                      {t("views.repositories.centerCertificateChoose")}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ) : (
+              </>
+            ) : null}
+          </div>
+          {mode === "self-signed" ? (
             <p className="mt-2 ui-micro text-text-muted">{t("views.repositories.centerCertificateGeneratedHint")}</p>
-          )}
+          ) : null}
           {centerSettings ? (
             <button
               type="button"

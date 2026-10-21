@@ -1,5 +1,6 @@
 import path from "node:path";
-import { saveFleetCenterConfig } from "./fleet-center-config.ts";
+import { readFileSync } from "node:fs";
+import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "./fleet-center-config.ts";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
@@ -18,6 +19,7 @@ import {
   type FleetCenterAdmissionRequest,
   type FleetEdgeSyncRequest,
 } from "./fleet-center-admission.ts";
+import { probeTlsAddress, validateCertificateNames } from "./tls-listener-admission.ts";
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -70,6 +72,24 @@ export function createDaemonHostRuntimeApi(
     codedError: context.hostCodedError,
   });
   let centerStarting = false;
+  const authorizeCenterConfiguration = async (repoId: string, auth: Parameters<typeof context.binding>[1]) => {
+    const authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+      (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+        repo.repoId === repoId &&
+        repo.state === "enabled" &&
+        repo.mode !== "remote-proxy" &&
+        repo.canonicalRoot !== null,
+    );
+    if (!authorityRepo)
+      throw context.hostCodedError("repo_namespace_unknown", "Saved fleet center authority repository is not enabled.");
+    await requireAuthorizedHostAction({
+      kind: "daemon-fleet-center-start",
+      repoId: authorityRepo.repoId,
+      binding: await context.binding(authorityRepo.canonicalRoot, auth),
+      actionId: `daemon-fleet-center-address:${authorityRepo.repoId}`,
+      evaluatedAtCut: "fleet-center:current",
+    });
+  };
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
@@ -257,6 +277,48 @@ export function createDaemonHostRuntimeApi(
       });
     },
     fleet: {
+      readCenterExternalAddress: async (auth) => {
+        const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
+        if (!config) return { ok: true, externalUrl: null };
+        await authorizeCenterConfiguration(config.repoId, auth);
+        return { ok: true, externalUrl: config.externalUrl ?? null };
+      },
+      setCenterExternalAddress: async (payload, auth) => {
+        if (centerStarting)
+          throw context.hostCodedError(
+            "fleet_center_running",
+            "Fleet center configuration is already changing on this daemon; wait for that operation to finish.",
+          );
+        centerStarting = true;
+        try {
+          const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
+          if (!config)
+            throw context.hostCodedError(
+              "fleet_center_unavailable",
+              "Start the fleet center before setting its external address.",
+            );
+          await authorizeCenterConfiguration(config.repoId, auth);
+          const externalUrl = parseFleetCenterExternalUrl(String(payload.externalUrl));
+          validateCertificateNames(readFileSync(config.certPath), [
+            new URL(externalUrl).hostname.replace(/^\[|\]$/gu, ""),
+          ]);
+          saveFleetCenterConfig(context.input.userRoot, context.input.daemonId, { ...config, externalUrl });
+          const reachable = await probeTlsAddress(externalUrl);
+          return {
+            ok: true,
+            externalUrl,
+            ...(reachable
+              ? { warning: null }
+              : {
+                  warning:
+                    `The center could not reach ${externalUrl} from this machine. This can be caused by hairpin NAT; ` +
+                    "the address is saved, but each edge node must still be able to reach it.",
+                }),
+          };
+        } finally {
+          centerStarting = false;
+        }
+      },
       startCenter: async (payload, auth) => {
         if (centerStarting)
           throw context.hostCodedError(
@@ -265,7 +327,10 @@ export function createDaemonHostRuntimeApi(
           );
         centerStarting = true;
         try {
-          const request = payload as unknown as FleetCenterAdmissionRequest["payload"],
+          const rawRequest = payload as unknown as FleetCenterAdmissionRequest["payload"],
+            request = rawRequest.externalUrl
+              ? { ...rawRequest, externalUrl: parseFleetCenterExternalUrl(rawRequest.externalUrl) }
+              : rawRequest,
             authorityRepoId = request.repoId,
             authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
               (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
@@ -322,6 +387,7 @@ export function createDaemonHostRuntimeApi(
               saveFleetCenterConfig(context.input.userRoot, context.input.daemonId, {
                 port: started.center.port,
                 bind: request.bind ?? "127.0.0.1",
+                ...(request.externalUrl ? { externalUrl: request.externalUrl } : {}),
                 keyPath: path.resolve(request.keyPath),
                 certPath: path.resolve(request.certPath),
                 repoId: request.repoId,
@@ -333,6 +399,9 @@ export function createDaemonHostRuntimeApi(
               throw error;
             }
             context.fleetCenter = started.center;
+            const externalAddressReachable = request.externalUrl
+              ? await probeTlsAddress(request.externalUrl)
+              : undefined;
             return {
               schema: "command-receipt/v2",
               ok: true,
@@ -340,6 +409,14 @@ export function createDaemonHostRuntimeApi(
               outcome: "applied",
               port: started.center.port,
               bind: request.bind ?? "127.0.0.1",
+              ...(request.externalUrl ? { externalUrl: request.externalUrl } : {}),
+              ...(externalAddressReachable === false
+                ? {
+                    externalAddressWarning:
+                      `The center could not reach ${request.externalUrl} from this machine. This can be caused by hairpin NAT; ` +
+                      "the address is saved, but each edge node must still be able to reach it.",
+                  }
+                : {}),
               stateRoot: started.stateRoot,
               quotaBytes: request.quotaBytes,
               replicas: started.center.status().replicas,

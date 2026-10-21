@@ -65,13 +65,12 @@ export class EdgeJoinAdminService {
     this.#assertRepositories(repoIds);
     const config = readFleetCenterConfig(this.#userRoot, this.#daemonId);
     if (!config) throw coded("fleet_center_unavailable", "Start the fleet center before issuing an edge invitation.");
-    if (config.bind === "0.0.0.0" || config.bind === "::")
+    if (!config.externalUrl)
       throw coded(
         "fleet_center_address_unavailable",
-        "Bind the fleet center to the reachable address used by edge nodes.",
+        "Set the center's externally reachable HTTPS address with `ha daemon fleet center start --external-url https://center.example:7545`, then issue a new invitation.",
       );
-    const bind = config.bind.includes(":") && !config.bind.startsWith("[") ? `[${config.bind}]` : config.bind,
-      centerOrigin = new URL(`https://${bind}:${config.port}`).origin,
+    const centerOrigin = config.externalUrl,
       certificate = new X509Certificate(readFileSync(config.certPath)),
       spkiSha256 = createHash("sha256")
         .update(certificate.publicKey.export({ type: "spki", format: "der" }))

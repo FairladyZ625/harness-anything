@@ -4,10 +4,12 @@
 // first sync. The credential lands only in fleet-edge.json (0600); the receipt never carries it. An
 // invitation bound to another person is refused.
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { createHash, X509Certificate } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createServer } from "node:https";
 import test from "node:test";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { FleetFault } from "../src/fleet/center-types.ts";
@@ -30,9 +32,23 @@ test(
       spkiSha256 = createHash("sha256")
         .update(new X509Certificate(cert).publicKey.export({ type: "spki", format: "der" }))
         .digest("hex"),
+      loginCertificate = cert.toString(),
+      loginServer = createServer({ cert, key: readFileSync(path.join(f.root, "tls.key")) }, (request, response) => {
+        if (request.url !== "/realms/harness") {
+          response.writeHead(404).end();
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/json" }).end("{}");
+      }),
+      loginListening = once(loginServer, "listening"),
       invites = createEdgeJoinStore(),
-      loginUrl = "https://keycloak.fixture",
       harnessYaml = readFileSync(path.join(f.repo, "harness/harness.yaml"), "utf8");
+    loginServer.listen(0, "::");
+    await loginListening;
+    t.after(
+      () => new Promise<void>((resolve, reject) => loginServer.close((error) => (error ? reject(error) : resolve()))),
+    );
+    const loginUrl = `https://localhost:${(loginServer.address() as { port: number }).port}`;
     // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
     const center = await f.openCenter(f.host, undefined, {
       edgeJoin: ({ joinId, inviteToken, accessToken }) => {
@@ -68,6 +84,7 @@ test(
         loginUrl,
         loginRealm: "harness",
         loginClientId: "harness-cli",
+        loginCertificate,
         createdBy: "person-center",
         ttlMs: 600_000,
       });
@@ -81,7 +98,12 @@ test(
           registerBeforeOpen: false,
           writeEdgeConfig: false,
           oidcPorts: {
-            loginAuthority: async () => ({ url: loginUrl, realm: "harness", clientId: "harness-cli" }),
+            loginAuthority: async () => ({
+              url: loginUrl,
+              realm: "harness",
+              clientId: "harness-cli",
+              certificate: loginCertificate,
+            }),
           },
         }),
         workspaceRoot = path.join(mkdtempSync(path.join(tmpdir(), "ha-edge-join-")), "workspace");

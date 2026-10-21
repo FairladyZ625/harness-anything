@@ -187,6 +187,12 @@ async function mountView(
     },
     centerSettings: {
       listener: vi.fn(async () => centerState),
+      externalAddress: vi.fn(async () => ({ ok: true as const, externalUrl: "https://center.example.com:7545" })),
+      setExternalAddress: vi.fn(async ({ externalUrl }: { readonly externalUrl: string }) => ({
+        ok: true as const,
+        externalUrl,
+        warning: null,
+      })),
       selectFile: vi.fn(async (kind: "certificate" | "private-key") =>
         kind === "certificate" ? "/tmp/selected.pem" : "/tmp/selected.key",
       ),
@@ -194,15 +200,12 @@ async function mountView(
         centerState = {
           ...centerState,
           certificateMode: input.certificateMode as CenterListenerSettings["certificateMode"],
-          listener:
-            input.certificateMode === "self-signed"
-              ? centerState.listener
-              : {
-                  ...centerState.listener!,
-                  hostname: String(input.hostname),
-                  port: Number(input.port),
-                  certificateFile: String(input.certificateFile),
-                },
+          listener: {
+            ...centerState.listener!,
+            hostname: String(input.hostname ?? centerState.listener!.hostname),
+            port: Number(input.port ?? centerState.listener!.port),
+            ...(input.certificateMode === "self-signed" ? {} : { certificateFile: String(input.certificateFile) }),
+          },
           version: "center-v2",
         };
         return centerState;
@@ -434,6 +437,38 @@ describe("repositories and connections page", () => {
     expect(
       container.querySelector('[data-testid="connection-tree-footer"] [data-testid="connection-add-open"]'),
     ).not.toBeNull();
+  });
+
+  it("lets administrators set the login address while using a generated certificate", async () => {
+    const { container, bridge } = await mountView();
+    await click(container, "connection-node-center");
+    await settle(8);
+
+    await type(container, "center-login-hostname", "login.example.net");
+    await type(container, "center-login-port", "18544");
+    await click(container, "center-certificate-save");
+    await settle(8);
+
+    expect(bridge.centerSettings.setCertificate).toHaveBeenCalledWith({
+      expectedVersion: "center-v1",
+      certificateMode: "self-signed",
+      hostname: "login.example.net",
+      port: 18544,
+    });
+  });
+
+  it("saves the center external service address separately from the login listener", async () => {
+    const { container, bridge } = await mountView();
+    await click(container, "connection-node-center");
+    await settle(8);
+    const input = container.querySelector('[data-testid="center-external-address"]') as HTMLInputElement;
+    expect(input.value).toBe("https://center.example.com:7545");
+    await click(container, "center-external-address-save");
+    await settle(6);
+    expect(bridge.centerSettings.setExternalAddress).toHaveBeenCalledWith({
+      externalUrl: "https://center.example.com:7545",
+    });
+    expect(container.textContent).toContain("Center service address saved.");
   });
 
   it("registers a picked folder that already has a ledger instead of bootstrapping", async () => {

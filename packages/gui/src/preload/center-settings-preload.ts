@@ -10,6 +10,14 @@ export function centerSettingsPreloadApi(
 ): CenterSettingsApi {
   return {
     listener: () => invoke(CENTER_SETTINGS_CHANNEL, { operation: "listener" }) as Promise<CenterListenerSettings>,
+    externalAddress: () =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "external-address" }) as ReturnType<
+        CenterSettingsApi["externalAddress"]
+      >,
+    setExternalAddress: (input) =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "external-address-set", ...input }) as ReturnType<
+        CenterSettingsApi["setExternalAddress"]
+      >,
     setCertificate: (input) => invoke(CENTER_SETTINGS_CHANNEL, { operation: "listener-set", ...input }),
     selectFile: (kind: "certificate" | "private-key") =>
       invoke(CENTER_SETTINGS_CHANNEL, { operation: "select-file", kind }) as Promise<string | null>,

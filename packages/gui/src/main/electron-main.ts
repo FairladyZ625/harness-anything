@@ -386,6 +386,7 @@ export async function startGuiApp(): Promise<void> {
   });
   registerCenterSettingsIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
+    fleetRequest: (method, params) => requestDaemonAdminRpc(method, params),
     dialog: {
       selectFile: async (kind) => {
         const selected = await dialog.showOpenDialog({

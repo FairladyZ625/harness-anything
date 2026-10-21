@@ -248,6 +248,30 @@ describe("edge join wizard", () => {
     expect(byTestId(container, "edge-join-error-detail")?.textContent).toContain("ECONNREFUSED");
   });
 
+  it("shows both unreachable external addresses from the first join probe", async () => {
+    installBridge({
+      begin: vi.fn(async () => ({
+        ok: false,
+        code: "edge_join_addresses_unreachable",
+        rejectionExplanation:
+          "Center service address check failed: https://center.example:7545. Sign-in service address check failed: https://login.example:18544.",
+      })),
+    });
+    const { container } = await mount();
+    await act(async () => setInputValue(byTestId(container, "edge-join-link-input") as HTMLInputElement, LINK));
+    await settle(1);
+    await click(container, "edge-join-start");
+    await settle();
+
+    expect(byTestId(container, "edge-join-error-message")?.textContent).toContain(
+      "The center and sign-in service addresses could not be reached.",
+    );
+    expect(container.textContent).toContain("Check both addresses");
+    const detail = byTestId(container, "edge-join-error-detail")?.textContent ?? "";
+    expect(detail).toContain("center.example:7545");
+    expect(detail).toContain("login.example:18544");
+  });
+
   it("keeps waiting when the sign-in service is unreachable and finishes once it recovers", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const begin = vi

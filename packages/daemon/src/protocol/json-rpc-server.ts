@@ -481,15 +481,22 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
-    if (method === "daemon.fleet.center.start" || method === "daemon.fleet.edge.sync") {
+    if (
+      method === "daemon.fleet.center.start" ||
+      method === "daemon.fleet.center.external-address.read" ||
+      method === "daemon.fleet.center.external-address.set" ||
+      method === "daemon.fleet.edge.sync"
+    ) {
       try {
-        return reply(
-          method,
-          await (method === "daemon.fleet.center.start" ? options.host.fleet.startCenter : options.host.fleet.edgeSync)(
-            params.payload,
-            options.authContext,
-          ),
-        );
+        const result =
+          method === "daemon.fleet.center.start"
+            ? await options.host.fleet.startCenter(params.payload, options.authContext)
+            : method === "daemon.fleet.center.external-address.read"
+              ? await options.host.fleet.readCenterExternalAddress(options.authContext)
+              : method === "daemon.fleet.center.external-address.set"
+                ? await options.host.fleet.setCenterExternalAddress(params.payload, options.authContext)
+                : await options.host.fleet.edgeSync(params.payload, options.authContext);
+        return reply(method, result);
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

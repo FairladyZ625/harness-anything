@@ -30,6 +30,8 @@ const expectedMethods = Object.freeze([
 // fleet handler must be declared here with a validated params shape.
 const expectedFleetMethods = Object.freeze([
   { method: "daemon.fleet.center.start" },
+  { method: "daemon.fleet.center.external-address.read" },
+  { method: "daemon.fleet.center.external-address.set" },
   { method: "daemon.fleet.edge.sync" },
   { method: "daemon.fleet.task.run" },
   { method: "daemon.fleet.doc.sync" },

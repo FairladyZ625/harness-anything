@@ -366,6 +366,7 @@ async function fleetControl(
     repoId: flag("--repo"),
     quotaBytes: Number(flag("--quota-bytes")),
     ...(flag("--bind") ? { bind: flag("--bind") } : {}),
+    ...(flag("--external-url") ? { externalUrl: flag("--external-url") } : {}),
     ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
   });
   const edgePayload = () => ({

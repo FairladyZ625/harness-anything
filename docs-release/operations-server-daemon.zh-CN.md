@@ -260,13 +260,13 @@ ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-边缘同步服务需要将 Fleet listener 设为可达地址，并确保其证书 SAN 覆盖公开主机名。使用 `listener-set`；daemon 会在打开 listener 前校验证书 SAN，地址占用、不可用或权限不足等绑定失败会返回对应错误码：
+边缘同步服务通过 Fleet TLS listener 配置监听地址和独立的 HTTPS 对外 origin。证书 SAN 必须覆盖对外 origin 的主机名；监听地址可以是 `0.0.0.0`。使用 `--external-url` 启动或替换 Fleet listener：
 
 ```bash
-ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 9443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+ha daemon fleet center start --bind 0.0.0.0 --port 7545 --external-url https://center.example.test:7545 --key /etc/harness/fleet-key.pem --cert /etc/harness/fleet.pem --repo <repo-id> --quota-bytes 1073741824
 ```
 
-每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，直到它们信任新的 listener 证书。
+daemon 会在监听前校验具体绑定地址（若适用）及对外 origin 主机名的证书 SAN。也可以在 GUI「设置 → 仓库与连接 → 中心」设置中心服务对外地址。登录服务 hostname 与 issuer 仍由上面的 Keycloak listener 独立配置。同一私钥重签 Fleet 证书时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，直到它们信任新的 listener 证书。
 
 新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付 `harness-edge://join/...` 链接。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
 

@@ -17,6 +17,12 @@ export interface CenterListenerSettings {
 
 export interface CenterSettingsApi {
   readonly listener: () => Promise<CenterListenerSettings>;
+  readonly externalAddress: () => Promise<{ readonly ok: true; readonly externalUrl: string | null }>;
+  readonly setExternalAddress: (input: { readonly externalUrl: string }) => Promise<{
+    readonly ok: true;
+    readonly externalUrl: string;
+    readonly warning?: string | null;
+  }>;
   readonly setCertificate: (input: {
     readonly expectedVersion: string;
     readonly certificateMode: CertificateMode;

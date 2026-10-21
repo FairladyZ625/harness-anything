@@ -10,7 +10,11 @@ import test, { type TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { fleetCenterConfigPath, readFleetCenterConfig } from "../src/fleet-center-config.ts";
+import {
+  fleetCenterConfigPath,
+  parseFleetCenterExternalUrl,
+  readFleetCenterConfig,
+} from "../src/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -132,6 +136,34 @@ test("successful starts persist actual ports and restore separate daemon identit
     records.some((r) => r.event === "fleet_center_restore_failed"),
     false,
   );
+});
+
+test("wildcard listeners use a separately configured external origin covered by the certificate", async (t) => {
+  const f = await fixture(t),
+    host = await f.open("external-address"),
+    port = await unusedPort(),
+    externalUrl = `https://localhost:${port}`,
+    started = await host.fleet.startCenter({ ...f.request, port, bind: "0.0.0.0", externalUrl }, auth);
+  assert.equal(started.ok, true);
+  assert.equal(started.bind, "0.0.0.0");
+  assert.equal(readFleetCenterConfig(f.userRoot, "external-address")?.externalUrl, externalUrl);
+  await handshake(port, f.certPath);
+  await assert.rejects(
+    host.fleet.startCenter(
+      { ...f.request, port: await unusedPort(), bind: "0.0.0.0", externalUrl: "https://uncovered.invalid:7545" },
+      auth,
+    ),
+    /TLS certificate SAN does not cover uncovered\.invalid/u,
+  );
+  const saved = await host.fleet.setCenterExternalAddress({ externalUrl }, auth);
+  assert.equal(saved.externalUrl, externalUrl);
+  assert.equal((await host.fleet.readCenterExternalAddress(auth)).externalUrl, externalUrl);
+  const unreachableUrl = `https://127.0.0.1:${await unusedPort()}`,
+    unreachable = await host.fleet.setCenterExternalAddress({ externalUrl: unreachableUrl }, auth);
+  assert.equal(unreachable.externalUrl, unreachableUrl);
+  assert.match(String(unreachable.warning), /could not reach/u);
+  assert.equal(readFleetCenterConfig(f.userRoot, "external-address")?.externalUrl, unreachableUrl);
+  assert.throws(() => parseFleetCenterExternalUrl("https://[::]:7545"), /complete HTTPS origin/u);
 });
 
 test("an unenabled successor does not listen and invalid saved references report restore failure", async (t) => {
