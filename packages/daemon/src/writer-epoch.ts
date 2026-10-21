@@ -33,7 +33,13 @@ export interface PersistentWriterEpoch {
   readonly close: () => void;
 }
 export class WriterEpochError extends Error {
-  readonly code: "writer_epoch_stale" | "writer_epoch_invalid";
+  readonly code:
+    | "writer_epoch_stale"
+    | "writer_epoch_invalid"
+    | "writer_epoch_migration_required"
+    | "writer_epoch_legacy_unreadable"
+    | "writer_epoch_legacy_unsupported"
+    | "writer_epoch_daemon_running";
   constructor(code: WriterEpochError["code"], message: string) {
     super(message);
     this.name = "WriterEpochError";
@@ -197,45 +203,205 @@ function openRepoEpochAuthority(options: {
   };
 }
 
-/** Import legacy fencing floors before the split database layout becomes authoritative. */
-function migrateLegacyWriterEpochDatabase(stateRoot: string): void {
+type LegacyWriterEpochFloor = { readonly repo_id: unknown; readonly floor: unknown };
+export interface LegacyWriterEpochMigrationResult {
+  readonly schema: "writer-epoch-migration-receipt/v1";
+  readonly state: "not-needed" | "already-migrated" | "migrated" | "partial";
+  readonly migratedRepos: readonly string[];
+  readonly rejectedRepos: readonly {
+    readonly repoId: string;
+    readonly code: "writer_epoch_legacy_unreadable";
+    readonly hint: string;
+  }[];
+}
+
+const legacyFloorSql =
+  "SELECT repo_id, MAX(epoch_floor) AS floor FROM (" +
+  "SELECT repo_id, epoch AS epoch_floor FROM writer_epoch_history UNION ALL " +
+  "SELECT repo_id, epoch AS epoch_floor FROM writer_epochs UNION ALL " +
+  "SELECT repo_id, version AS epoch_floor FROM writer_epochs) GROUP BY repo_id ORDER BY repo_id";
+
+function safeFloorNumber(value: unknown, repoId: string): number {
+  if (typeof value === "bigint") {
+    if (value < 1n || value > BigInt(Number.MAX_SAFE_INTEGER))
+      throw new WriterEpochError(
+        "writer_epoch_legacy_unreadable",
+        `legacy writer epoch floor is outside the safe integer range for repo ${repoId}`,
+      );
+    return Number(value);
+  }
+  const floor = Number(value);
+  if (!Number.isSafeInteger(floor) || floor < 1)
+    throw new WriterEpochError(
+      "writer_epoch_legacy_unreadable",
+      `legacy writer epoch floor is not a safe positive integer for repo ${repoId}`,
+    );
+  return floor;
+}
+
+function legacyFloorForRepo(database: DatabaseSync, repoId: string): number | null {
+  const statement = database.prepare(
+    "SELECT MAX(epoch_floor) AS floor FROM (" +
+      "SELECT epoch AS epoch_floor FROM writer_epoch_history WHERE repo_id=? UNION ALL " +
+      "SELECT epoch AS epoch_floor FROM writer_epochs WHERE repo_id=? UNION ALL " +
+      "SELECT version AS epoch_floor FROM writer_epochs WHERE repo_id=?)",
+  );
+  statement.setReadBigInts(true);
+  const row = statement.get(repoId, repoId, repoId) as { readonly floor: unknown };
+  if (row.floor === null) return null;
+  return safeFloorNumber(row.floor, repoId);
+}
+
+function legacyUnreadable(repoId: string, legacyPath: string, detail: string): WriterEpochError {
+  return new WriterEpochError(
+    "writer_epoch_legacy_unreadable",
+    `Cannot read a safe legacy writer-epoch floor for repo ${repoId} from ${legacyPath}: ${detail}. ` +
+      `Restore writer-epochs.sqlite from a backup, then run \`ha migrate writer-epoch\`; do not remove it or ` +
+      "attach this repo with a reset epoch.",
+  );
+}
+
+function targetEpochFloor(databasePath: string, repoId: string): number | null {
+  if (!existsSync(databasePath)) return null;
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const statement = database.prepare(
+      "SELECT MAX(epoch_floor) AS floor FROM (" +
+        "SELECT epoch AS epoch_floor FROM writer_epoch_history WHERE repo_id=? UNION ALL " +
+        "SELECT epoch AS epoch_floor FROM writer_epochs WHERE repo_id=? UNION ALL " +
+        "SELECT version AS epoch_floor FROM writer_epochs WHERE repo_id=?)",
+    );
+    statement.setReadBigInts(true);
+    const row = statement.get(repoId, repoId, repoId) as { readonly floor: unknown };
+    return row.floor === null ? null : safeFloorNumber(row.floor, repoId);
+  } finally {
+    database.close();
+  }
+}
+
+function assertLegacyWriterEpochRepoMigrated(stateRoot: string, repoId: string, databasePath: string): void {
   const legacyPath = path.join(stateRoot, "writer-epochs.sqlite");
   if (!existsSync(legacyPath)) return;
 
-  const legacy = new DatabaseSync(legacyPath);
-  legacy.exec("PRAGMA busy_timeout=5000");
-  let transactionOpen = false;
+  const legacy = new DatabaseSync(legacyPath, { readOnly: true });
   try {
-    const readUserVersion = (): number =>
-      Number((legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version);
-    let userVersion = readUserVersion();
+    const userVersion = Number(
+      (legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version,
+    );
     if (userVersion === 1) return;
     if (userVersion > 1)
       throw new WriterEpochError(
-        "writer_epoch_invalid",
-        `legacy writer epoch database version ${userVersion} is newer than supported version 1`,
+        "writer_epoch_legacy_unsupported",
+        `legacy writer epoch database version ${userVersion} is newer than supported version 1 for repo ${repoId}; ` +
+          `restore a compatible backup before attaching this repo`,
+      );
+    if (userVersion === 0) {
+      let floor: number | null;
+      try {
+        floor = legacyFloorForRepo(legacy, repoId);
+      } catch (error) {
+        if (error instanceof WriterEpochError) throw legacyUnreadable(repoId, legacyPath, error.message);
+        throw legacyUnreadable(repoId, legacyPath, error instanceof Error ? error.message : String(error));
+      }
+      if (floor === null) return;
+      const importedFloor = targetEpochFloor(databasePath, repoId);
+      if (importedFloor === null || importedFloor < floor)
+        throw new WriterEpochError(
+          "writer_epoch_migration_required",
+          `Legacy writer-epoch state for repo ${repoId} has not been migrated. Run \`ha migrate writer-epoch\` ` +
+            "with this daemon stopped, then retry the repository attach.",
+        );
+    }
+  } catch (error) {
+    if (error instanceof WriterEpochError) throw error;
+    throw legacyUnreadable(repoId, legacyPath, error instanceof Error ? error.message : String(error));
+  } finally {
+    legacy.close();
+  }
+}
+
+/** Convert the legacy shared authority as an explicit offline operation. */
+export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWriterEpochMigrationResult {
+  const legacyPath = path.join(stateRoot, "writer-epochs.sqlite");
+  if (!existsSync(legacyPath))
+    return { schema: "writer-epoch-migration-receipt/v1", state: "not-needed", migratedRepos: [], rejectedRepos: [] };
+
+  const legacy = new DatabaseSync(legacyPath);
+  let transactionOpen = false;
+  try {
+    legacy.exec("PRAGMA busy_timeout=5000");
+    let userVersion = Number(
+      (legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version,
+    );
+    if (userVersion === 1)
+      return {
+        schema: "writer-epoch-migration-receipt/v1",
+        state: "already-migrated",
+        migratedRepos: [],
+        rejectedRepos: [],
+      };
+    if (userVersion > 1)
+      throw new WriterEpochError(
+        "writer_epoch_legacy_unsupported",
+        `legacy writer epoch database version ${userVersion} is newer than supported version 1; ` +
+          "restore a compatible backup before migrating",
       );
     legacy.exec("BEGIN IMMEDIATE");
     transactionOpen = true;
-    userVersion = readUserVersion();
+    userVersion = Number(
+      (legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version,
+    );
+    if (userVersion === 1) {
+      legacy.exec("COMMIT");
+      transactionOpen = false;
+      return {
+        schema: "writer-epoch-migration-receipt/v1",
+        state: "already-migrated",
+        migratedRepos: [],
+        rejectedRepos: [],
+      };
+    }
     if (userVersion > 1)
       throw new WriterEpochError(
-        "writer_epoch_invalid",
-        `legacy writer epoch database version ${userVersion} is newer than supported version 1`,
+        "writer_epoch_legacy_unsupported",
+        `legacy writer epoch database version ${userVersion} is newer than supported version 1; ` +
+          "restore a compatible backup before migrating",
       );
-    if (userVersion === 0) {
-      const floors = legacy
-        .prepare(
-          "SELECT repo_id, MAX(epoch_floor) AS floor FROM (" +
-            "SELECT repo_id, epoch AS epoch_floor FROM writer_epoch_history UNION ALL " +
-            "SELECT repo_id, epoch AS epoch_floor FROM writer_epochs UNION ALL " +
-            "SELECT repo_id, version AS epoch_floor FROM writer_epochs" +
-            ") GROUP BY repo_id ORDER BY repo_id",
-        )
-        .all() as unknown as readonly { readonly repo_id: string; readonly floor: number }[];
-      for (const { repo_id: repoId, floor } of floors) {
-        if (!repoIdPattern.test(repoId) || !Number.isSafeInteger(floor) || floor < 1)
-          throw new WriterEpochError("writer_epoch_invalid", `legacy writer epoch row is invalid for ${repoId}`);
+
+    let floors: readonly LegacyWriterEpochFloor[];
+    try {
+      const statement = legacy.prepare(legacyFloorSql);
+      statement.setReadBigInts(true);
+      floors = statement.all() as unknown as readonly LegacyWriterEpochFloor[];
+    } catch (error) {
+      throw legacyUnreadable("<unknown>", legacyPath, error instanceof Error ? error.message : String(error));
+    }
+    const migratedRepos: string[] = [],
+      rejectedRepos: LegacyWriterEpochMigrationResult["rejectedRepos"][number][] = [];
+    for (const row of floors) {
+      const repoId = typeof row.repo_id === "string" ? row.repo_id : String(row.repo_id);
+      if (!repoIdPattern.test(repoId)) {
+        rejectedRepos.push({
+          repoId,
+          code: "writer_epoch_legacy_unreadable",
+          hint: legacyUnreadable(repoId, legacyPath, "the repo id is invalid").message,
+        });
+        continue;
+      }
+      let floor: number;
+      try {
+        floor = safeFloorNumber(row.floor, repoId);
+      } catch (error) {
+        if (!(error instanceof WriterEpochError)) throw error;
+        consumeKnownError(error);
+        rejectedRepos.push({
+          repoId,
+          code: "writer_epoch_legacy_unreadable",
+          hint: legacyUnreadable(repoId, legacyPath, error.message).message,
+        });
+        continue;
+      }
+      try {
         const migrated = openRepoEpochAuthority({
           databasePath: path.join(stateRoot, "writer-epochs", `${repoId}.sqlite`),
           repoId,
@@ -244,11 +410,25 @@ function migrateLegacyWriterEpochDatabase(stateRoot: string): void {
           initialEpochFloor: floor,
         });
         migrated.close();
+        migratedRepos.push(repoId);
+      } catch (error) {
+        consumeKnownError(error);
+        rejectedRepos.push({
+          repoId,
+          code: "writer_epoch_legacy_unreadable",
+          hint: legacyUnreadable(repoId, legacyPath, error instanceof Error ? error.message : String(error)).message,
+        });
       }
-      legacy.exec("PRAGMA user_version=1");
     }
+    if (rejectedRepos.length === 0) legacy.exec("PRAGMA user_version=1");
     legacy.exec("COMMIT");
     transactionOpen = false;
+    return {
+      schema: "writer-epoch-migration-receipt/v1",
+      state: rejectedRepos.length > 0 ? "partial" : "migrated",
+      migratedRepos,
+      rejectedRepos,
+    };
   } finally {
     try {
       if (transactionOpen) legacy.exec("ROLLBACK");
@@ -264,7 +444,6 @@ export function openPersistentWriterEpoch(options: {
   readonly now?: () => string;
 }): PersistentWriterEpoch {
   mkdirSync(options.stateRoot, { recursive: true });
-  migrateLegacyWriterEpochDatabase(options.stateRoot);
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
     authorities = new Map<string, ReturnType<typeof openRepoEpochAuthority>>();
@@ -279,8 +458,10 @@ export function openPersistentWriterEpoch(options: {
       throw new WriterEpochError("writer_epoch_invalid", `repoId ${repoId} is invalid for a writer epoch database`);
     let authority = authorities.get(repoId);
     if (!authority) {
+      const databasePath = path.join(options.stateRoot, "writer-epochs", `${repoId}.sqlite`);
+      assertLegacyWriterEpochRepoMigrated(options.stateRoot, repoId, databasePath);
       authority = openRepoEpochAuthority({
-        databasePath: path.join(options.stateRoot, "writer-epochs", `${repoId}.sqlite`),
+        databasePath,
         repoId,
         holderId,
         now,

@@ -6,6 +6,7 @@ import {
   agentDeclarationMigrationCommand,
   completionMigrationCommand,
   generationMigrationCommand,
+  writerEpochMigrationCommand,
 } from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
@@ -21,6 +22,7 @@ export const clientLocalCommands = [
   generationMigrationCommand,
   completionMigrationCommand,
   agentDeclarationMigrationCommand,
+  writerEpochMigrationCommand,
   {
     id: "backup-retention",
     path: ["backup", "retention"],

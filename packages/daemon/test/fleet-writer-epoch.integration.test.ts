@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   compileTaskLifecycleWrite,
   makeTaskEventStore,
@@ -23,6 +23,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   closeWriterEpochFenceDescriptors,
+  migrateLegacyWriterEpochDatabase,
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,
@@ -98,6 +99,151 @@ const probeBinding = (writerEpochFence: {
     },
     "contributor",
   );
+
+const cli = fileURLToPath(new URL("../../cli/src/index.ts", import.meta.url));
+
+function migrateWriterEpochs(userRoot: string) {
+  return spawnSync(process.execPath, [cli, "migrate", "writer-epoch", "--json"], {
+    encoding: "utf8",
+    env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot },
+  });
+}
+
+function seedFrozenLegacyWriterEpochSample(stateRoot: string): void {
+  const database = new DatabaseSync(path.join(stateRoot, "writer-epochs.sqlite"));
+  try {
+    database.exec(readFileSync(new URL("./fixtures/writer-epochs-v0.sql", import.meta.url), "utf8"));
+  } finally {
+    database.close();
+  }
+}
+
+test("legacy writer epochs require explicit migration before current-layout reads", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-cli-migrate-")),
+    userRoot = path.join(root, "user"),
+    stateRoot = path.join(userRoot, "fleet");
+  mkdirSync(stateRoot, { recursive: true });
+  try {
+    seedFrozenLegacyWriterEpochSample(stateRoot);
+    const before = openPersistentWriterEpoch({ stateRoot, holderId: "before-migration" });
+    try {
+      assert.throws(
+        () => before.acquire("repo-current", 0),
+        (error: unknown) =>
+          (error as { readonly code?: string }).code === "writer_epoch_migration_required" &&
+          (error as Error).message.includes("ha migrate writer-epoch"),
+      );
+    } finally {
+      before.close();
+    }
+
+    const activeDaemon = path.join(userRoot, "daemon-test.singleton.lock");
+    writeFileSync(activeDaemon, `${process.pid}\n`);
+    const stopped = migrateWriterEpochs(userRoot),
+      stopReceipt = JSON.parse(stopped.stdout.trim()) as { readonly code: string };
+    assert.equal(stopped.status, 1);
+    assert.equal(stopReceipt.code, "writer_epoch_daemon_running");
+    rmSync(activeDaemon);
+
+    const migrated = migrateWriterEpochs(userRoot);
+    assert.equal(migrated.status, 0, `${migrated.stdout}\n${migrated.stderr}`);
+    const receipt = JSON.parse(migrated.stdout.trim()) as {
+      readonly schema: string;
+      readonly migratedRepos: readonly string[];
+      readonly rejectedRepos: readonly unknown[];
+    };
+    assert.equal(receipt.schema, "writer-epoch-migration-receipt/v1");
+    assert.deepEqual(receipt.migratedRepos, ["repo-current", "repo-history", "repo-retired"], migrated.stdout);
+    assert.deepEqual(receipt.rejectedRepos, []);
+
+    const current = openPersistentWriterEpoch({ stateRoot, holderId: "after-migration" });
+    try {
+      const lease = current.acquire("repo-current", 0);
+      assert.ok(lease.epoch > 45, `epoch ${lease.epoch} did not exceed the legacy version floor 45`);
+      assert.deepEqual(current.current("repo-current"), lease);
+      assert.ok(current.highWatermark("repo-current") >= lease.epoch);
+    } finally {
+      current.close();
+    }
+    const legacy = new DatabaseSync(path.join(stateRoot, "writer-epochs.sqlite"));
+    assert.equal((legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version, 1);
+    legacy.exec("DROP TABLE writer_epoch_history; DROP TABLE writer_epochs");
+    legacy.close();
+    const reopened = openPersistentWriterEpoch({ stateRoot, holderId: "after-source-retirement" });
+    try {
+      assert.ok(reopened.acquire("repo-current", 0).epoch > 46);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("writer-epoch migration isolates an unreadable repo floor and rejects empty legacy databases", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-partial-migrate-")),
+    userRoot = path.join(root, "user"),
+    stateRoot = path.join(userRoot, "fleet");
+  mkdirSync(stateRoot, { recursive: true });
+  try {
+    seedFrozenLegacyWriterEpochSample(stateRoot);
+    const legacy = new DatabaseSync(path.join(stateRoot, "writer-epochs.sqlite"));
+    legacy.exec(
+      "INSERT INTO writer_epochs(repo_id, holder_id, epoch, version, issued_at) " +
+        "VALUES ('repo-bad', 'old', 9007199254740992, 1, '2026-08-19T00:00:00.000Z')",
+    );
+    legacy.close();
+
+    const migrated = migrateWriterEpochs(userRoot);
+    assert.equal(migrated.status, 1, migrated.stdout);
+    const receipt = JSON.parse(migrated.stdout.trim()) as {
+      readonly migratedRepos: readonly string[];
+      readonly rejectedRepos: readonly { readonly repoId: string; readonly code: string; readonly hint: string }[];
+    };
+    assert.deepEqual(receipt.migratedRepos, ["repo-current", "repo-history", "repo-retired"], migrated.stdout);
+    assert.deepEqual(
+      receipt.rejectedRepos.map(({ repoId, code }) => ({ repoId, code })),
+      [{ repoId: "repo-bad", code: "writer_epoch_legacy_unreadable" }],
+    );
+    assert.match(receipt.rejectedRepos[0]?.hint ?? "", /ha migrate writer-epoch/u);
+
+    const authority = openPersistentWriterEpoch({ stateRoot, holderId: "partial-migration" });
+    try {
+      assert.ok(authority.acquire("repo-current", 0).epoch > 45);
+      assert.throws(
+        () => authority.acquire("repo-bad", 0),
+        (error: unknown) =>
+          (error as { readonly code?: string }).code === "writer_epoch_legacy_unreadable" &&
+          (error as Error).message.includes("repo-bad") &&
+          (error as Error).message.includes("ha migrate writer-epoch"),
+      );
+    } finally {
+      authority.close();
+    }
+    const unmarked = new DatabaseSync(path.join(stateRoot, "writer-epochs.sqlite"));
+    assert.equal((unmarked.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version, 0);
+    unmarked.close();
+
+    const emptyRoot = path.join(root, "empty"),
+      emptyLegacy = path.join(emptyRoot, "writer-epochs.sqlite");
+    mkdirSync(emptyRoot, { recursive: true });
+    writeFileSync(emptyLegacy, "");
+    const emptyAuthority = openPersistentWriterEpoch({ stateRoot: emptyRoot, holderId: "empty-legacy" });
+    try {
+      assert.throws(
+        () => emptyAuthority.acquire("repo-empty", 0),
+        (error: unknown) =>
+          (error as { readonly code?: string }).code === "writer_epoch_legacy_unreadable" &&
+          (error as Error).message.includes("repo-empty") &&
+          /restore/iu.test((error as Error).message),
+      );
+    } finally {
+      emptyAuthority.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function childEpoch(
   source: string,
@@ -208,6 +354,7 @@ test("per-repository epoch databases import legacy floors and then retire the ol
         { repoId: "repo-retired", epoch: 31 },
       ],
     });
+    assert.equal(migrateLegacyWriterEpochDatabase(root).state, "migrated");
     const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: "sqlite" }),
       previousEpochs = new Map([
         ["repo-current", 42],
@@ -248,6 +395,7 @@ test("remote-edge lease allocation with ledger floor zero stays above a legacy e
         { repoId: "edge-repo", epoch: 42 },
       ],
     });
+    assert.equal(migrateLegacyWriterEpochDatabase(root).state, "migrated");
     const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: "remote-edge" });
     try {
       assert.ok(authority.acquire("edge-repo", 0).epoch > 42);

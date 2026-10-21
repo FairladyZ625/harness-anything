@@ -202,6 +202,7 @@ test("an unknown command domain reports unknown with the available set instead o
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
   assert.match(logs[0] ?? "", /migrate ledger/u);
+  assert.match(logs[0] ?? "", /migrate writer-epoch/u);
 });
 
 test("repo lifecycle commands validate cache and destructive purge inputs", () => {
@@ -545,6 +546,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "migrate-completion",
       "migrate-import",
       "migrate-ledger",
+      "migrate-writer-epoch",
       "vertical-declaration-migrate",
     ],
     preset: [
