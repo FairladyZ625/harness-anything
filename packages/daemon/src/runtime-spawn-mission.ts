@@ -383,13 +383,12 @@ export function taskPlanSection(planBody: string, packageRoot?: string): string 
  * after reading in, rewrites `#now` and appends to `#timeline` on every material change, and
  * freezes the page at closeout. Fixed text the daemon injects on every qualifying task mission
  * (derived, explicit-prompt, and fleet-edge alike); the task-explainer-html template carries the
- * authoring instructions. Lightweight-profile tasks owe no explainer page — their creation
- * materializes none, so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2).
+ * authoring instructions. Low-risk tasks owe no explainer page, so their missions carry no protocol.
  * Non-task dispatches never see it.
  */
-export function livingDeliverableProtocol(profileId: string | null | undefined, taskClass?: string): string | null {
+export function livingDeliverableProtocol(riskTier: string | null | undefined, taskClass?: string): string | null {
   if (taskClass === "work") return null;
-  if (profileId === "lightweight") return null;
+  if (riskTier === "low") return null;
   return [
     "# Living Deliverable Protocol",
     "- `artifacts/explainer.html` 是业主在任务进行中看的实时说明页：业主不读你的 session，task_plan 只是开工时的计划，" +
@@ -426,12 +425,12 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
 export function taskMissionSections(
   taskId: string,
   causalContext: string | null,
-  profileId: string | null | undefined,
+  riskTier: string | null | undefined,
   taskClass: string | undefined,
   ownerReturnBody: string | null,
   reviewerBinding: boolean,
 ): string[] {
-  const living = reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass);
+  const living = reviewerBinding ? null : livingDeliverableProtocol(riskTier, taskClass);
   return [
     taskQueryGuidance(taskId),
     ...(living === null ? [] : [living]),
@@ -453,7 +452,7 @@ export function explicitPromptMission(
   taskId: string | null,
   causalContext: string | null,
   prompt: string,
-  profileId: string | null | undefined = undefined,
+  riskTier: string | null | undefined = undefined,
   taskClass?: string,
   ownerReturnBody: string | null = null,
   reviewerBinding: boolean = false,
@@ -465,7 +464,7 @@ export function explicitPromptMission(
       ? causalContext === null
         ? []
         : [causalContext]
-      : taskMissionSections(taskId, causalContext, profileId, taskClass, ownerReturnBody, reviewerBinding)),
+      : taskMissionSections(taskId, causalContext, riskTier, taskClass, ownerReturnBody, reviewerBinding)),
     prompt,
   ].join("\n\n");
 }
@@ -511,7 +510,7 @@ export function deriveTaskMission(
       ...taskMissionSections(
         taskId,
         causalContextResolved,
-        snapshot.task?.metadata?.profileId,
+        snapshot.task?.metadata?.riskTier,
         snapshot.task?.taskClass,
         reviewerBinding ? null : priorOwnerReturnBody(projection, taskId),
         reviewerBinding,
@@ -688,9 +687,9 @@ export function resolveRuntimeMission(input: {
           ? null
           : assembleTaskCausalContext({ projection, taskId })
         : remoteTask.causalContext,
-    // The profile is frozen at creation: locally from the projection, remotely from the center's
+    // The risk tier is frozen at creation: locally from the projection, remotely from the center's
     // serving read. It gates the Living Deliverable Protocol on every task-bound path.
-    missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
+    missionRiskTier = remoteTask?.riskTier ?? taskSnapshot?.task?.metadata?.riskTier ?? null,
     // A re-dispatched worker answers the latest owner return, so its mission carries the managed
     // rework record verbatim — from the center's serving read remotely, from the projection
     // locally. Reviewers bind to a submitted cut instead, so their missions never carry it, and
@@ -717,7 +716,7 @@ export function resolveRuntimeMission(input: {
             taskId,
             causalContext,
             explicitMission,
-            missionProfileId,
+            missionRiskTier,
             remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             ownerReturnBody,
             input.reviewerBinding,

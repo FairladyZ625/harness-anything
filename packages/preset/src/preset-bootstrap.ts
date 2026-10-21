@@ -212,7 +212,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
   const explainer =
-    metadata.profileId === "lightweight" || input.taskClass === "work"
+    metadata.riskTier === "low" || input.taskClass === "work"
       ? null
       : {
           slot: "task.explainer",

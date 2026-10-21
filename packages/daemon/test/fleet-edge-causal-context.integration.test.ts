@@ -491,10 +491,11 @@ test(
     // dec_57370FF2021DADF04E3B21724D CH1: one read carries what the launching node needs from the center.
     const context = await fixture.host.read(repoId, "repo.tasks.runtimeContext.read", { taskId }, fixture.auth);
     assert.deepEqual(
-      { schema: context.schema, taskId: context.taskId, worktree: context.worktree },
+      { schema: context.schema, taskId: context.taskId, riskTier: context.riskTier, worktree: context.worktree },
       {
         schema: "task-runtime-context-read/v1",
         taskId,
+        riskTier: "medium",
         worktree: { branch: taskId, path: `.worktrees/${taskId}` },
       },
     );

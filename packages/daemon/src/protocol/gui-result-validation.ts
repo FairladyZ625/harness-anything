@@ -128,12 +128,13 @@ export const validateDaemonSettingsRead: ResultValidator = (value) =>
       ];
 const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 7 &&
+  Object.keys(value).length === 8 &&
   value.schema === "task-runtime-context-read/v1" &&
   value.ok === true &&
   typeof value.taskId === "string" &&
   value.taskId.length > 0 &&
   (value.causalContext === null || typeof value.causalContext === "string") &&
+  (value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) &&
   (value.profileId === null || typeof value.profileId === "string") &&
   (value.worktree === null ||
     (isJsonObject(value.worktree) &&

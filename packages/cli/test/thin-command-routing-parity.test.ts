@@ -836,7 +836,29 @@ test("task-create help renders recommended presets only from effective catalog r
     /profile=baseline — outputShape=repository-diff.*completionGates=\["ci","code-doc-reconciliation"\]/su,
   );
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
-  assert.match(renderThinHelp([], "task", "ha task create"), /--profile — optional; value; format: <profile/u);
+  const createHelp = renderThinHelp([], "task", "ha task create");
+  assert.match(createHelp, /--profile — optional; value; format: <profile/u);
+  assert.match(
+    createHelp,
+    /small localized change or docs-only work[\s\S]*ordinary feature work[\s\S]*data, security/u,
+  );
+  assert.match(createHelp, /ha task create --title "Fix a typo" --risk-tier low/u);
+  assert.match(createHelp, /repository-configured risk-floor scripts; they may only raise the tier/u);
+  const lightweightChoice = parseThinCommand([
+    "task",
+    "create",
+    "--title",
+    "A low-risk task",
+    "--risk-tier",
+    "low",
+    "--profile",
+    "lightweight",
+  ]);
+  assert.equal(lightweightChoice.ok, false);
+  if (!lightweightChoice.ok) {
+    assert.equal(lightweightChoice.code, "invalid_field");
+    assert.match(lightweightChoice.nextAction, /--risk-tier low/u);
+  }
   // The one-focus title advice rides --title help in both create commands (task and work alias).
   for (const help of [renderThinHelp([], "task", "ha task create"), renderThinHelp([], "work", "ha work create")]) {
     assert.match(help, /--title — (optional|required); value; format: <one focus only — move the explanation/u);
