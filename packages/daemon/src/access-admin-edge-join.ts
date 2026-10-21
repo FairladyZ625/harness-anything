@@ -11,7 +11,13 @@ import { KeycloakPolicyAdapter, type KeycloakGrant } from "./keycloak-policy-ada
 import type { AccessAdminPorts, AccessAdminRequest } from "./access-admin-contract.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
-import { createEdgeJoinStore, encodeEdgeJoinLink, type EdgeJoinRecord } from "./fleet/edge-join.ts";
+import {
+  createEdgeJoinStore,
+  edgeJoinPlatforms,
+  encodeEdgeJoinLink,
+  isEdgeJoinPlatform,
+  type EdgeJoinRecord,
+} from "./fleet/edge-join.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
 
@@ -54,8 +60,8 @@ export class EdgeJoinAdminService {
     if (groupIds.length === 0) throw coded("edge_join_invalid", "Select at least one permission group.");
     if (repoIds.some((repoId) => !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)))
       throw coded("edge_join_invalid", "Repository ids must use lowercase letters, digits, and hyphens.");
-    if (platform !== undefined && platform !== "darwin" && platform !== "linux")
-      throw coded("edge_join_invalid", "The edge platform must be darwin or linux.");
+    if (platform !== undefined && !isEdgeJoinPlatform(platform))
+      throw coded("edge_join_invalid", `The edge platform must be one of ${edgeJoinPlatforms.join(", ")}.`);
     this.#assertRepositories(repoIds);
     const config = readFleetCenterConfig(this.#userRoot, this.#daemonId);
     if (!config) throw coded("fleet_center_unavailable", "Start the fleet center before issuing an edge invitation.");
