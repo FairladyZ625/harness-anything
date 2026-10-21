@@ -144,6 +144,8 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
+  const sourceDispatchKey =
+    isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event.payload.dispatchKey : undefined;
   event = normalizeHistoricalEvent(event);
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
@@ -507,7 +509,9 @@ export function applyEvent(
       event.opId,
       event.workspaceRevision,
       taskId,
-      eventJson,
+      event.type === "runtime_dispatch_requested" && event.payload.dispatchKey !== sourceDispatchKey
+        ? canonicalJson(event)
+        : eventJson,
     );
     const installation = reduceRuntimeInstallation(
       event.type === "runtime_installation_observed" ? readRuntimeInstallation(db, event.payload.installationId) : null,

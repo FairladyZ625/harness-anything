@@ -33,14 +33,12 @@ export function selectReviewAgent(frozen?: string, argument?: string, setting?: 
   return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
 }
 
-/** The cut key gains a reviewer suffix only for a replacement reviewer. */
+/** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
 export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
   const key = `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
     execution.submission!,
   )}`;
-  return reviewerId && reviewerId !== execution.submission?.completionContract.reviewer?.agentId
-    ? `${key}:reviewer:${reviewerId}`
-    : key;
+  return reviewerId ? `${key}:reviewer:${reviewerId}` : key;
 }
 
 /**
@@ -283,31 +281,6 @@ function previousReviewerContinuation(
     resume: canResume,
   };
 }
-
-function matchingLegacyCutReviewDispatch(
-  cell: RepoCellOperationalContext,
-  input: {
-    readonly taskId: string;
-    readonly execution: ExecutionV1;
-    readonly reviewerId: string;
-    readonly currentKey: string;
-  },
-) {
-  const key = reviewDispatchKey(input.taskId, input.execution);
-  if (key === input.currentKey) return null;
-  const event = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
-  if (
-    event?.payload.role !== "reviewer" ||
-    event.payload.agentId !== input.reviewerId ||
-    event.payload.taskId !== input.taskId ||
-    event.payload.executionId !== input.execution.executionId
-  )
-    return null;
-  const ids = reviewDispatchIds(cell.input.repoId, key);
-  if (reviewAttemptEnded(cell, ids.runtimeSessionId)) return null;
-  return { key, ids: { ...ids, dispatchOpId: event.opId }, event };
-}
-
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
@@ -461,15 +434,6 @@ export async function spawnCutReviewDispatch(
     ids = reviewDispatchIds(cell.input.repoId, key);
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
-  if (key === cutReviewKey) {
-    const legacy = matchingLegacyCutReviewDispatch(cell, {
-      taskId: input.taskId,
-      execution: input.execution,
-      reviewerId: input.reviewerId,
-      currentKey: key,
-    });
-    if (legacy !== null) return { outcome: "already_dispatched", ids: legacy.ids };
-  }
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -670,19 +634,11 @@ async function dispatchPathReviewLanes(
 }
 
 /** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
-function reviewDispatchAttempt(
-  cell: RepoCellOperationalContext,
-  baseKey: string,
-  legacyReview?: { readonly taskId: string; readonly execution: ExecutionV1; readonly reviewerId: string },
-) {
+function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string) {
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  if (existing === null && legacyReview !== undefined) {
-    const legacy = matchingLegacyCutReviewDispatch(cell, { ...legacyReview, currentKey: key });
-    if (legacy !== null) return { ...legacy, existing: legacy.event };
-  }
   while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
@@ -929,11 +885,7 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
-    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId), {
-      taskId,
-      execution,
-      reviewerId,
-    });
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.

@@ -10,6 +10,7 @@ import {
   withoutRetiredScheduleCiObserve,
   withoutRetiredSettings,
   withoutRetiredVerticalHostedCi,
+  withReviewerQualifiedDispatchKey,
 } from "../domain/event-shape-migration-event.ts";
 export { withoutRetiredFactCloseoutOverride } from "../domain/event-shape-migration-event.ts";
 
@@ -60,7 +61,9 @@ function normalizeTaskCarrier(event: PersistedCanonicalEventV1): PersistedCanoni
 export const normalizeHistoricalSquadRunState = normalizeHistoricalSquadRunIdentity;
 
 export function normalizeHistoricalEvent(event: PersistedCanonicalEventV1): PersistedCanonicalEventV1 {
-  let normalized = normalizeTaskCarrier(normalizePersistedCanonicalEvent(event));
+  let normalized = normalizeTaskCarrier(
+    withReviewerQualifiedDispatchKey(normalizePersistedCanonicalEvent(event)) as PersistedCanonicalEventV1,
+  );
   const payload = (normalized as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return normalized;
   if (normalized.schema === "schedule-event/v1" && isRecord(payload.schedule) && isRecord(payload.schedule.status)) {
