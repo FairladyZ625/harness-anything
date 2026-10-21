@@ -433,7 +433,15 @@ export async function spawnCutReviewDispatch(
     key = input.dispatchKey ?? cutReviewKey,
     ids = reviewDispatchIds(cell.input.repoId, key);
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
+  if (existing !== null)
+    return {
+      outcome: "already_dispatched",
+      ids: {
+        dispatchId: existing.payload.dispatchId,
+        runtimeSessionId: existing.payload.runtimeSessionId,
+        dispatchOpId: existing.opId,
+      },
+    };
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -639,13 +647,24 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
+  while (existing !== null && reviewAttemptEnded(cell, existing.payload.runtimeSessionId)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
     ids = reviewDispatchIds(cell.input.repoId, key);
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   }
-  return { key, ids, existing };
+  return {
+    key,
+    ids:
+      existing === null
+        ? ids
+        : {
+            dispatchId: existing.payload.dispatchId,
+            runtimeSessionId: existing.payload.runtimeSessionId,
+            dispatchOpId: existing.opId,
+          },
+    existing,
+  };
 }
 
 /**
