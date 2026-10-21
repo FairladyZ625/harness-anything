@@ -22,10 +22,12 @@ const reviewerDiscipline = [
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
-  "- For a Task delivery, read the PR checks directly with the hosting-platform CLI and your own platform credentials; " +
-    "for GitHub use `gh pr checks <PR-number>` and `gh run view <run-id> --log-failed`. Confirm the checks are for " +
-    "the pinned delivery commit. Pending checks are not green; when the platform CLI cannot read them, label the " +
-    "check unverified.",
+  "- For a Task delivery, read the PR checks with `ha task pr <task-id> --wait-ci`: it reads through the " +
+    "daemon-held hosting credential, prints one line, and exits 0 green, 1 failed, 2 timeout. Its receipt carries " +
+    "`ci.headSha` and `ci.subjectUrl`; that head must equal the pinned delivery commit. Pending checks are not " +
+    "green, and neither is an expired wait budget. `gh run view <run-id> --log-failed` reads a failure's log only " +
+    "when the hosting-platform CLI holds its own login. When the wait reports `runtime_credential_unavailable`, " +
+    "or the checks cannot be read at all, record the exact error and label the check unverified.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
     "changes_requested against the pinned target and digest, and stop if that cut changes.",

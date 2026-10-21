@@ -171,8 +171,11 @@ ha task pr <task-id>          # create the pull request (--update edits the exis
 
 Workers wait for checks with `ha task pr <task-id> --wait-ci` and read only its
 one-line verdict (exit 0 green, 1 failed, 2 timeout; a head whose checks are not
-registered yet waits under the same budget and is never read as green). On a
-failure, inspect it with `gh run view <run-id> --log-failed`.
+registered yet waits under the same budget and is never read as green). The
+verdict names the head it judged, so a reviewer confirms the checks belong to
+the frozen delivery commit. On a failure, inspect it with
+`gh run view <run-id> --log-failed` when the runtime holds its own platform
+login, or open the check URL the verdict names.
 
 Every bound worker gets `ha` from the CLI bin directory belonging to the
 running daemon's installation, with its dispatched repository root and daemon

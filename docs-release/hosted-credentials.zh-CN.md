@@ -1,8 +1,8 @@
 # 托管 Git 凭据
 
-任务分支推送与创建 pull request 都经 daemon 完成。Worker 使用托管平台 CLI
-和自己的平台凭据直接读取 CI 检查。Daemon 使用机器操作者按 runtime instance
-一次性配置的 GitHub 或 GitLab token。本页是操作者配置说明；面向 worker 的命令见
+任务分支推送、创建 pull request 与读取 CI 检查都经 daemon 完成。Daemon 使用
+机器操作者按 runtime instance 一次性配置的 GitHub 或 GitLab token；runtime
+进程拿不到它。本页是操作者配置说明；面向 worker 的命令见
 [任务分支发布与 direct-push 保护](operations-server-daemon.zh-CN.md#任务分支发布与-direct-push-保护)。
 
 ## 这份凭据驱动什么
@@ -76,9 +76,10 @@ token 在 `ha task push` 失败；缺 pull request 权限的 token 在 `ha task 
 
 GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限；GitLab
 token 推送需要 `write_repository`。daemon 按 provider 解析绑定引用，仅向自身 git/API
-操作提供 token。Worker 用 `ha task pr <task-id> --wait-ci` 等检查（经 daemon
-代持凭据，无需自己的平台登录）；用 `gh run view --log-failed` 查看失败日志时需要
-自己的托管平台 CLI 登录。provider 默认从 `origin` 推断；无法识别或自建 GitLab host 时，
-在仓库 settings 声明 `hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
+操作提供 token。worker 与评审都用 `ha task pr <task-id> --wait-ci` 读检查（经 daemon
+代持凭据，回执携带所判定的 head）；用 `gh run view --log-failed` 查看失败日志需要
+自己的托管平台 CLI 登录，没有登录的 runtime 改从 check URL 读失败 job。provider 默认从
+`origin` 推断；无法识别或自建 GitLab host 时，在仓库 settings 声明
+`hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
 v4；daemon 管理的发布无需 `glab`（见
 [Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)）。

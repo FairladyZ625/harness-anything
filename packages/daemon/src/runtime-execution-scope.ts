@@ -89,6 +89,10 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     if (p.role === "reviewer" && action.taskId === p.taskId) return;
     throw executionCredentialRejected("write-other-task");
   }
+  // A reviewer's one reach into the write family is the CI wait on its own reviewed task:
+  // --wait-ci only reads the hosting provider through the daemon-held credential and publishes
+  // the verdict receipt, while pull-request create and edit stay delivery actions.
+  if (action.kind === "task-pr" && action.waitCi === true && action.taskId === p.taskId) return;
   if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
     throw executionCredentialRejected("self-approval");
   if (repositoryWriteActions.has(action.kind) || (commandClass === "repo-write" && action.taskId === undefined))

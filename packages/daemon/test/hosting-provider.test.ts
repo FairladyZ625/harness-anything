@@ -108,6 +108,59 @@ test("github check rollup maps completed, pending, skipped, and status contexts"
   assert.equal(stateOf("mystery"), "pending");
 });
 
+test("a superseded check-run instance does not outvote its replacement", () => {
+  // The live race from PR #3851: fixing a rejected PR body re-triggers pr-body.yml on the
+  // unchanged head, and the rollup then carries both instances — the stale failure must not
+  // hold the wait red (a concurrency cancel retires the older instance the same way).
+  const snapshot = hostingChecksFromGitHub({
+    url: pullUrl,
+    headRefOid: "abc123",
+    statusCheckRollup: [
+      {
+        __typename: "CheckRun",
+        name: "pr-body-lint",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        startedAt: "2026-10-21T02:00:00Z",
+        detailsUrl: "https://example.test/superseded",
+      },
+      {
+        __typename: "CheckRun",
+        name: "pr-body-lint",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        startedAt: "2026-10-21T02:40:00Z",
+        detailsUrl: "https://example.test/replacement",
+      },
+      {
+        __typename: "CheckRun",
+        name: "cancelled-shard",
+        status: "COMPLETED",
+        conclusion: "CANCELED",
+        startedAt: "2026-10-21T02:00:00Z",
+        detailsUrl: "https://example.test/cancelled",
+      },
+      {
+        __typename: "CheckRun",
+        name: "cancelled-shard",
+        status: "IN_PROGRESS",
+        conclusion: null,
+        startedAt: "2026-10-21T02:05:00Z",
+        detailsUrl: "https://example.test/restarted",
+      },
+      { __typename: "StatusContext", context: "commit-status", state: "SUCCESS", targetUrl: null },
+    ],
+  });
+  const stateOf = (name: string) => snapshot.checks.find((check) => check.name === name)?.state,
+    countOf = (name: string) => snapshot.checks.filter((check) => check.name === name).length;
+  assert.equal(countOf("pr-body-lint"), 1);
+  assert.equal(stateOf("pr-body-lint"), "passed");
+  assert.equal(countOf("cancelled-shard"), 1);
+  assert.equal(stateOf("cancelled-shard"), "pending");
+  // Entries without a check-run start time pass through untouched.
+  assert.equal(stateOf("commit-status"), "passed");
+});
+
 test("an unregistered GitHub rollup folds to the empty not-ready snapshot", () => {
   // The wait reads an empty check list as "checks not registered yet" — never as green — so the
   // fold's empty output for an empty, null, or absent rollup is the not-ready signal itself.
