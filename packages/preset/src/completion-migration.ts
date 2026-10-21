@@ -1,4 +1,8 @@
-import { decodeVerticalDefinition, parseVerticalDeclarationDocument } from "@harness-anything/kernel";
+import {
+  decodeVerticalDefinition,
+  isRetiredCodeDocRequirement,
+  parseVerticalDeclarationDocument,
+} from "@harness-anything/kernel";
 import { isPresetResolutionRecord as record } from "./preset-resolver-common.ts";
 
 // Frozen conversion of software-coding-standard, not the installed version's evolving defaults.
@@ -51,8 +55,12 @@ export function convertCompletionManifest(value: unknown) {
         checkerProfile !== "software-coding-standard"
       )
         throw new Error(`No completion migration mapping for checkerProfile ${String(checkerProfile)}.`);
+      // Both hosted CI and code/doc requirements are retired; conversion drops each so the result
+      // resolves without a gate that no longer exists.
       if (value.vertical === "software/coding" && Array.isArray(current.completionGates))
-        current.completionGates = current.completionGates.filter((gate) => gate !== "ci");
+        current.completionGates = current.completionGates.filter(
+          (gate) => gate !== "ci" && !isRetiredCodeDocRequirement(String(gate)),
+        );
       return current;
     }),
   };

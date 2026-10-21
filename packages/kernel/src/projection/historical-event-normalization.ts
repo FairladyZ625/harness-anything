@@ -6,6 +6,7 @@ import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import {
+  withoutRetiredCloseoutCodeDoc,
   withoutRetiredFactCloseoutOverride,
   withoutRetiredScheduleCiObserve,
   withoutRetiredSettings,
@@ -83,7 +84,8 @@ export function normalizeHistoricalEvent(event: PersistedCanonicalEventV1): Pers
   if (normalized.schema === "vertical-declaration-event/v1" && isRecord(payload.declaration)) {
     const declaration = payload.declaration;
     if (isRecord(declaration) && isRecord(declaration.definition)) {
-      const definition = withoutRetiredVerticalHostedCi(declaration.definition);
+      const declared = withoutRetiredCloseoutCodeDoc(declaration.definition),
+        definition = withoutRetiredVerticalHostedCi(declared);
       if (definition !== declaration.definition)
         normalized = {
           ...normalized,
@@ -102,11 +104,12 @@ export function normalizeHistoricalScheduleValue(value: unknown): unknown {
 
 export function normalizeHistoricalVerticalDocument(value: unknown): unknown {
   if (!isRecord(value) || !isRecord(value.definition)) return value;
-  const definition = withoutRetiredVerticalHostedCi(value.definition);
+  const declared = withoutRetiredCloseoutCodeDoc(value.definition),
+    definition = withoutRetiredVerticalHostedCi(declared);
   return definition === value.definition ? value : { ...value, definition };
 }
 
 /** Preset snapshots carry the same vertical completion declaration at their root. */
 export function normalizeHistoricalPresetSnapshot(value: unknown): unknown {
-  return withoutRetiredVerticalHostedCi(value);
+  return withoutRetiredVerticalHostedCi(withoutRetiredCloseoutCodeDoc(value));
 }

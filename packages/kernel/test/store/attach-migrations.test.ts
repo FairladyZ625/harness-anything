@@ -96,7 +96,16 @@ test("attach migration registry covers each retired historical field and is idem
     envelope("settings-event/v1", { settings: { ci: { workflows: ["rewrite-ci"] } } }, "old-settings"),
     envelope(
       "vertical-declaration-event/v1",
-      { declaration: { definition: { completion: { sources: { ci: { kind: "github-actions" } } } } } },
+      {
+        declaration: {
+          definition: {
+            completion: {
+              sources: { ci: { kind: "github-actions" } },
+              closeoutDefaults: { codeDoc: true },
+            },
+          },
+        },
+      },
       "old-vertical",
     ),
     {
@@ -358,4 +367,28 @@ test("historical projection normalizes each registered retired field without cha
       completion: { sources: { manual: { kind: "manual" } }, gates: { manual: { source: "manual" } } },
     },
   );
+});
+
+test("the retired code/doc closeout default never makes an accepted declaration unreadable", () => {
+  // Accepted `vertical.json`, every ledger preset snapshot and the bundled 1.4.0 vertical still
+  // name `closeoutDefaults.codeDoc`; removing the field from the schema must normalize it away.
+  const legacy = {
+    schema: "preset-snapshot/v1",
+    completion: { sources: {}, gates: {}, closeoutDefaults: { review: false, codeDoc: true } },
+  };
+  assert.deepEqual(normalizeHistoricalPresetSnapshot(legacy), {
+    schema: "preset-snapshot/v1",
+    completion: { sources: {}, gates: {}, closeoutDefaults: { review: false } },
+  });
+  const declaration = {
+    schema: "repository-vertical-declaration/v1",
+    definition: { completion: { sources: {}, gates: {}, closeoutDefaults: { codeDoc: true } } },
+  };
+  assert.deepEqual(normalizeHistoricalVerticalDocument(declaration), {
+    schema: "repository-vertical-declaration/v1",
+    definition: { completion: { sources: {}, gates: {}, closeoutDefaults: {} } },
+  });
+  // A record without the retired field is returned unchanged, so normalization stays a no-op.
+  const current = { schema: "preset-snapshot/v1", completion: { sources: {}, gates: {}, closeoutDefaults: {} } };
+  assert.equal(normalizeHistoricalPresetSnapshot(current), current);
 });

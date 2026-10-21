@@ -1,6 +1,7 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import type { PresetSnapshotClaim } from "../domain/task-bootstrap-event.ts";
 import type { VerticalCompletionDeclaration } from "../domain/completion-source.ts";
+import { isRetiredCodeDocRequirement } from "../domain/code-doc-retirement.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
 
 interface HistoricalSnapshot extends Record<string, unknown> {
@@ -25,8 +26,8 @@ export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uin
     gates: Record<string, VerticalCompletionDeclaration["gates"][string]> = {};
   for (const gateId of original.profile.completionGateIds) {
     // Retired from live contracts. Keep the historical gate id in its profile snapshot, while
-    // leaving the converted declaration free of a hosted source and execution mapping.
-    if (gateId === "ci") continue;
+    // leaving the converted declaration free of a witness source and execution mapping.
+    if (gateId === "ci" || isRetiredCodeDocRequirement(gateId)) continue;
     throw new Error(`historical snapshot ${claim.digest} has no accepted declaration for gate ${gateId}`);
   }
   const completion: VerticalCompletionDeclaration = {

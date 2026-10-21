@@ -29,6 +29,7 @@ export const retiredPersistedSchemaFields = Object.freeze([
   "Settings.ci.workflows",
   "RuntimeDispatchRequested.payload.dispatchKey",
   "Vertical.completion.sources.*.kind",
+  "Vertical.completion.closeoutDefaults.codeDoc",
 ] as const);
 
 export type EventShapeMigrationEventV1 = EventEnvelope<
@@ -233,4 +234,17 @@ export function withReviewerQualifiedDispatchKey(value: unknown): unknown {
       dispatchKey: `${prefix}${match[1]}:${match[2]}:reviewer:${payload.agentId}${match[3]}`,
     },
   };
+}
+
+/**
+ * Retired 2026-10-21 with the code/doc reconciliation mechanism: this default only ever forced the
+ * code/doc gate on. Accepted vertical declarations and preset snapshots still carry it, so reads
+ * normalize it away instead of rejecting the record that named it.
+ */
+export function withoutRetiredCloseoutCodeDoc(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.completion) || !isRecord(value.completion.closeoutDefaults)) return value;
+  const defaults = value.completion.closeoutDefaults;
+  if (!Object.hasOwn(defaults, "codeDoc")) return value;
+  const { codeDoc: _retired, ...rest } = defaults;
+  return { ...value, completion: { ...value.completion, closeoutDefaults: rest } };
 }

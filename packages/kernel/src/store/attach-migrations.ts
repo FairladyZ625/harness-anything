@@ -5,6 +5,7 @@ import {
   isEventShapeMigrationEvent,
   retiredPersistedSchemaFields,
   withReviewerQualifiedDispatchKey,
+  withoutRetiredCloseoutCodeDoc,
   withoutRetiredVerticalHostedCi,
   type EventShapeMigrationEventV1,
   type EventShapeMigrationName,
@@ -94,14 +95,15 @@ function hasRetiredVerticalHostedCi(
     return (
       isRecord(declaration) &&
       isRecord(declaration.definition) &&
-      withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition
+      (withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition ||
+        withoutRetiredCloseoutCodeDoc(declaration.definition) !== declaration.definition)
     );
   }
   if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
   const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
   if (!bytes) return false;
   const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  return withoutRetiredVerticalHostedCi(snapshot) !== snapshot;
+  return withoutRetiredVerticalHostedCi(snapshot) !== snapshot || withoutRetiredCloseoutCodeDoc(snapshot) !== snapshot;
 }
 
 function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean {
@@ -128,7 +130,7 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
   },
   {
     name: "vertical.completion.sources",
-    fields: ["Vertical.completion.sources.*.kind"],
+    fields: ["Vertical.completion.sources.*.kind", "Vertical.completion.closeoutDefaults.codeDoc"],
     matches: hasRetiredVerticalHostedCi,
   },
 ]);
