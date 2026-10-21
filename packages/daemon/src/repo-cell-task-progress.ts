@@ -596,7 +596,7 @@ function assertForwardUpgradeServable(cell: RepoCellOperationalContext, action: 
 /**
  * The owner's adjudication (owner ruling 2026-09-19): one command, two orders. `--forward`
  * applies the kernel transition and then dispatches the independent reviewer for the forwarded
- * cut through `dispatchInReviewCutReview`, shared with an in-review amendment; `--return` applies the owner's rework
+ * cut through `dispatchInReviewCutReview`, shared with submit and amend; `--return` applies the owner's rework
  * order. A dispatch failure never undoes the durable forward: it lands as the receipt's step
  * with the manual `ha task dispatch-review` retry lane, which is idempotent on the same key.
  */

@@ -153,8 +153,8 @@ test("strict profile read side keeps demanding review and consent", () => {
     codeDoc: true,
   });
   assert.equal(Object.hasOwn(context.closeoutGates, "fact"), false);
-  // The strict cut sits in `submitted`: the blocker names the owner's triage, not a reviewer.
-  assert.equal(taskCompletionNext(submitted, context).blocker?.code, "not_in_review");
+  assert.equal(strictSubmitted.task?.status, "in_review");
+  assert.equal(taskCompletionNext(strictSubmitted, context).blocker?.code, "review_missing");
 });
 
 test("a repository without a settings entity reads the standard default gates", () => {
@@ -359,7 +359,7 @@ test("merge evidence retires only the CI gate and does not lift review or consen
 
   assert.equal(results.find(({ gateId }) => gateId === "ci")?.status, "passed");
   assert.equal(results.find(({ gateId }) => gateId === "quality")?.status, "missing");
-  assert.equal(taskCompletionNext(strictSubmitted, { ...context, delivery }).blocker?.code, "not_in_review");
+  assert.equal(taskCompletionNext(strictSubmitted, { ...context, delivery }).blocker?.code, "review_missing");
 
   const approvedWithoutConsent = lifecycleFixture().events.slice(0, 5).reduce(reduceTaskEvent, {
     revision: 0,
