@@ -3,6 +3,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
 import { readCompleteRelationGraph } from "../src/renderer/triadic-data.ts";
+import { assertPreloadPayload } from "../src/preload/allowlist.ts";
+import {
+  parseDaemonRpcParams,
+  validateDaemonRelationGraph,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { harnessClient } from "../src/renderer/api-client.ts";
 
 type Edge = RelationGraphSuccess["edges"][number];
 type Fact = RelationGraphSuccess["facts"][number];
@@ -29,6 +35,70 @@ const page = (
 });
 
 describe("关系图按界限读取", () => {
+  it("drains 27,837 relations through the actual client payload and bridge contract across 56 pages", async () => {
+    const calls: { repoId: string; limit: number; cursor?: string }[] = [];
+    vi.stubGlobal("window", {
+      harness: {
+        request: async (method: string, payload: { repoId: string; limit: number; cursor?: string }) => {
+          expect(method).toBe("getRelationGraph");
+          assertPreloadPayload(method, payload);
+          const { repoId, ...query } = payload;
+          expect(parseDaemonRpcParams("repo.triadic.relationGraph", { repo: { repoId }, payload: query }).ok).toBe(
+            true,
+          );
+          calls.push(payload);
+          const offset = Number(query.cursor ?? 0),
+            end = Math.min(offset + query.limit, 27_837),
+            result = {
+              ...page(
+                {
+                  edges: Array.from({ length: end - offset }, (_, index) => ({
+                    relationId: `rel_${offset + index}`,
+                    workspaceRevision: 1,
+                    sourceRef: "task/source",
+                    targetRef: `task/target_${offset + index}`,
+                    relationType: "relates",
+                    direction: "undirected",
+                    strength: "weak",
+                    origin: "declared",
+                    state: "active",
+                    targetObservedVersion: null,
+                    currentTargetVersion: null,
+                    freshness: "current",
+                    rationale: "Graph pagination regression",
+                    ownerRef: "task/source",
+                    sourcePath: "events/relation.json",
+                    recordIndex: 0,
+                    current: true,
+                  })),
+                },
+                end < 27_837 ? String(end) : null,
+                query.cursor ?? null,
+              ),
+              status: "ready",
+              watermark: 1,
+              sourceRevision: 1,
+            };
+          expect(validateDaemonRelationGraph(result)).toEqual([]);
+          return result;
+        },
+      },
+    });
+    try {
+      const graph = await readCompleteRelationGraph((payload) =>
+        harnessClient.getRelationGraph({ repoId: "canonical", ...payload }),
+      );
+      expect(calls).toHaveLength(56);
+      expect(calls[0]).toEqual({ repoId: "canonical", limit: 500 });
+      expect(calls.at(-1)).toEqual({ repoId: "canonical", limit: 500, cursor: "27500" });
+      expect(graph.edges).toHaveLength(27_837);
+      expect(graph.edges.at(-1)?.relationId).toBe("rel_27836");
+      expect(graph.page?.nextCursor).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("读取后续页才能判定关系,并合并重复的关联实体", async () => {
     const calls: unknown[] = [];
     const first = page(
@@ -71,17 +141,20 @@ describe("关系图按界限读取", () => {
     ).rejects.toThrow("unavailable");
   });
 
-  it("fails closed at the 50-page budget when the server keeps returning a cursor", async () => {
-    // 服务端游标异常循环(永不为空的 nextCursor):已读页数每轮严格 +1,到 50 页
-    // (独立字面量,不引用生产常量)必须安全终止并抛错,部分边不能冒充完整图。
+  it.each([
+    ["again", "again"],
+    ["first", "second", "first"],
+  ])("rejects repeated continuation cursors %j", async (...cursors) => {
+    // 游标由读面产生,写入边界无法约束;重复或循环续读仍须拒绝,不返回部分图。
     let calls = 0;
     await expect(
       readCompleteRelationGraph(async () => {
-        calls += 1;
-        return page({ edges: [edge(`r${calls}`)] }, "again");
+        const next = cursors[calls++];
+        if (next === undefined) throw new Error("unexpected extra read");
+        return page({ edges: [edge(`r${calls}`)] }, next);
       }),
-    ).rejects.toThrow(/budget/);
-    expect(calls).toBe(50);
+    ).rejects.toThrow("relation graph: cursor did not advance");
+    expect(calls).toBe(cursors.length);
   });
 
   it("没有分页信息的回答只读一次", async () => {
@@ -102,7 +175,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useActiveEdgesQuery, usePaletteFactsQuery } from "../src/renderer/triadic-data.ts";
 import { useFactFacetStats } from "../src/renderer/entities-data.ts";
 import { FactFacetLive, FactTypeVocabulary } from "../src/renderer/components/entityDoc/FactVocabularySections.tsx";
-import { harnessClient } from "../src/renderer/api-client.ts";
 
 it("facet hooks fetch one page on mount and retain rows through explicit continuation and failure", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;

@@ -107,6 +107,27 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("agenda read discipline", () => {
+  it("drains more than 50 valid pages before publishing the complete agenda", async () => {
+    for (let index = 0; index < 56; index += 1)
+      pages.push(
+        page({
+          inFlight: [row(`task-${index}`)],
+          page: {
+            sourceLimit: 100,
+            cursor: index === 0 ? null : String(index),
+            nextCursor: index === 55 ? null : String(index + 1),
+          },
+        }),
+      );
+    const result = await readAgenda("repo-a");
+    expect(result.inFlight).toHaveLength(56);
+    expect(result.inFlight.at(-1)?.taskId).toBe("task-55");
+    expect(result.status).toBe("ready");
+    expect(result.page.nextCursor).toBeNull();
+    expect(harnessClient.getAgenda).toHaveBeenCalledTimes(56);
+    expect(harnessClient.getAgenda).toHaveBeenLastCalledWith({ repoId: "repo-a", limit: 100, cursor: "55" });
+  });
+
   it("drains the whole cursor window inside one read and joins it into the settled aspect", async () => {
     pages.push(
       page({

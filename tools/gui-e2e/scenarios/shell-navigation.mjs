@@ -15,6 +15,14 @@ export default {
     await page.getByRole("button", { name: /^(?:关系图|Graph)$/u }).click();
     await page.getByTestId("territory-chip").or(page.getByTestId("triadic-graph-empty-state")).first().waitFor();
     await shot("shell-graph");
+    const modes = page.getByTestId("entity-workspace-mode-bar");
+    await modes.getByRole("button", { name: "聚光灯", exact: true }).click();
+    await page.getByTestId("ego-panel").or(page.getByTestId("triadic-graph-empty-state")).waitFor();
+    await shot("shell-graph-spotlight");
+    await modes.getByRole("button", { name: /^演化史/u }).click();
+    await page.getByTestId("genealogy-timeline").or(page.getByTestId("genealogy-empty")).waitFor();
+    await shot("shell-graph-lineage");
+    await modes.getByRole("button", { name: "领地", exact: true }).click();
     await nav(page, /^(?:看板|Board)$/u, "board-task-card");
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
     await nav(page, /^(?:Agent · 含 Squad|Agents · Squads)$/u, "agent-squad-view");
