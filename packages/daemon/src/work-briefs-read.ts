@@ -1,6 +1,7 @@
 import { isTerminalStatus, relationIsCurrent } from "@harness-anything/kernel";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
+import { drainCursorPagesSync } from "./paginated-read.ts";
 import type { AgendaAwaitsRow } from "./protocol/daemon-protocol-gui-types.ts";
 import type { DaemonAgendaResult } from "./protocol/daemon-protocol.contract.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
@@ -71,8 +72,7 @@ const DONE_FOLD_DAYS = 7,
   SENTENCE_PART_LIMIT = 2,
   OPEN_TASK_LIMIT = 50,
   DELIVERED_TASK_LIMIT = 10,
-  AGENDA_SWEEP_PAGE_LIMIT = 500,
-  AGENDA_SWEEP_PAGE_MAX = 20;
+  AGENDA_SWEEP_PAGE_SIZE = 500;
 
 export interface WorkBriefsReadResult {
   readonly schema: "daemon.work-briefs/v1";
@@ -86,7 +86,7 @@ export interface WorkBriefsReadResult {
 
 export function workBriefsFromProjection(input: {
   readonly projection: TaskProjection;
-  /** 议程读面的同源入口;分页在内部扫完,扫不完如实报 pending。 */
+  /** 议程读面的同源入口;分页在内部沿游标排空到末页,游标停滞抛错不发布部分读面。 */
   readonly agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult;
   /** 读者的 person id;缺省时不过滤(单仓单业主仍是全集,多业主仓必须传)。 */
   readonly principalId?: string;
@@ -214,18 +214,15 @@ function asksByWorkRoot(
   agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult,
   principalId: string | undefined,
 ): ReadonlyMap<string, AgendaAwaitsRow[]> {
-  const asks: AgendaAwaitsRow[] = [];
-  let cursor: string | undefined,
-    complete = true;
-  if (principalId !== undefined)
-    for (let page = 0; page < AGENDA_SWEEP_PAGE_MAX; page += 1) {
-      const read = agendaPage({ limit: AGENDA_SWEEP_PAGE_LIMIT, ...(cursor === undefined ? {} : { cursor }) });
-      asks.push(...read.awaitingYou);
-      cursor = read.page.nextCursor ?? undefined;
-      if (cursor === undefined) break;
-      if (page === AGENDA_SWEEP_PAGE_MAX - 1) complete = false;
-    }
-  if (!complete) throw new Error(`work briefs could not finish the agenda sweep in ${AGENDA_SWEEP_PAGE_MAX} pages`);
+  // 「等你」行的扫取:沿服务端游标排空到末页,与 #3869 的关系图完整读同法(同步形
+  // 见 ./paginated-read.ts);重复游标表示异常循环,抛错且不发布部分读面。
+  const asks: readonly AgendaAwaitsRow[] =
+    principalId === undefined
+      ? []
+      : drainCursorPagesSync(
+          (facets) => agendaPage({ limit: AGENDA_SWEEP_PAGE_SIZE, ...facets }),
+          "work briefs agenda sweep",
+        ).flatMap((page) => page.awaitingYou);
   const workOfTask = new Map<string, string>();
   for (const work of works)
     for (const taskId of [work.taskId, ...work.memberTaskIds]) workOfTask.set(taskId, work.taskId);
