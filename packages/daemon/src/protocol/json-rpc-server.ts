@@ -836,9 +836,8 @@ export function createJsonRpcProtocolServer(options: {
   };
   const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const method = typeof request.method === "string" ? request.method : "";
-    // Parked waits and stream observers are observation, not work: counting one would pin a
-    // superseded daemon resident for as long as any --wait or polling client cares to watch,
-    // which is exactly what the drain exists to end.
+    // Parked waits are observations, not work: counting one would pin a superseded daemon resident
+    // for as long as any --wait client cares to watch, which is exactly what the drain exists to end.
     const fleetAction =
       isJsonObject(request.params) && isJsonObject(request.params.payload) ? request.params.payload.action : undefined;
     const fleetAwait =
