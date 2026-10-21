@@ -32,7 +32,8 @@ import { SquadRunList } from "../components/sessions/SquadRunList.tsx";
 import { SquadRunDetail } from "../components/sessions/SquadRunDetail.tsx";
 import { SessionInspector } from "../components/sessions/SessionInspector.tsx";
 import { SessionsPanel } from "../components/runtime/SessionsPanel.tsx";
-import { promptCacheTtlMsForKind, sortBySmartAttention, type SmartAttentionSignal } from "../model/smart-attention.ts";
+import { sortBySmartAttention, type SmartAttentionSignal } from "../model/smart-attention.ts";
+import { sessionCacheTtlOf, useTaskSessionCacheTtl } from "../model/use-session-cache-ttl.ts";
 import { useOverviewSessionTouches } from "../overview-data.ts";
 import { useAgendaQuery } from "../agenda-data.ts";
 import type { RelationEdge } from "../model/types.ts";
@@ -274,13 +275,16 @@ export function SessionsView({
       staleTime: 4_000,
     })),
   });
-  const taskSessionQueries = useQueries({
-    queries: expandedTasks.map((group) => ({
-      queryKey: runtimeQueryKeys.overview(repoId, group.taskId),
-      queryFn: () => agentRuntimeClient.overview(repoId, group.taskId),
-      staleTime: 4_000,
-    })),
-  });
+  // TTL 口径的任务集:非钻入 = 已展开的任务组,钻入 = 钻入窗口的任务组(钻入行来自
+  // 派工行,自身不带 kindId)——读面与口径合写在 model/use-session-cache-ttl.ts。
+  const ttlTaskIds = useMemo(
+    () =>
+      drill === null
+        ? expandedTasks.map((group) => group.taskId)
+        : related.groups.flatMap((group) => (group.taskId !== undefined ? [group.taskId] : [])),
+    [drill, expandedTasks, related.groups],
+  );
+  const taskSessionsByTask = useTaskSessionCacheTtl(repoId, ttlTaskIds);
   const groupRows = useMemo(() => {
     const rows = new Map<
       string,
@@ -293,7 +297,6 @@ export function SessionsView({
     >();
     expandedTasks.forEach((group, index) => {
       const roundsQuery = roundsQueries[index],
-        sessionsQuery = taskSessionQueries[index],
         dispatches = roundsQuery?.data?.dispatches;
       if (dispatches === undefined && !roundsQuery?.isError) {
         rows.set(group.key, { ...GROUP_ROWS_PENDING, pending: true, error: null });
@@ -310,13 +313,13 @@ export function SessionsView({
       const rounds = sessionRounds(group.taskId, group.label, dispatches ?? []);
       rows.set(group.key, {
         rounds,
-        orphans: sessionOrphans(group.taskId, group.label, sessionsQuery?.data?.sessions ?? [], rounds),
+        orphans: sessionOrphans(group.taskId, group.label, taskSessionsByTask.get(group.taskId) ?? [], rounds),
         pending: false,
         error: null,
       });
     });
     return rows;
-  }, [expandedTasks, roundsQueries, taskSessionQueries]);
+  }, [expandedTasks, roundsQueries, taskSessionsByTask]);
 
   // 钻入的轮次来自同一批派工行:按任务组分好即挂到组体,点开组头不再二次读。
   const drillRowsByGroup = useMemo(() => {
@@ -377,7 +380,7 @@ export function SessionsView({
 
   // 注意力排序与倒计时共用一根秒针:nowMs=0 会让 Done 新鲜度窗口永久成立
   // (0 - settledAt 恒小于窗口),旧完成组永远压在 Working 之上,排序必须用真实时钟。
-  // 秒针 effect 在下方,只在确有缓存触达证据时才走(与 OverviewView 同口径)。
+  // 秒针 effect 在下方,闸门见彼处注释。
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const groupSignal = useCallback(
@@ -504,32 +507,20 @@ export function SessionsView({
   }, [selectedSessionId, displayedGroups, allRows]);
 
   const sessionTouches = useOverviewSessionTouches(repoId, touchSessionIds);
-  // 会话 → 该 provider 的缓存 TTL:展开组来自任务范围 overview 的会话(含完整历史,
-  // 轮次行的 kindId 就从这里来),详情会话随选中读补入。查不到口径为 null,不虚构倒计时。
-  const sessionCacheTtlMs = useMemo(() => {
-    const ttls = new Map<string, number | null>();
-    for (const query of taskSessionQueries) {
-      for (const session of query?.data?.sessions ?? []) {
-        ttls.set(
-          session.runtimeSessionId,
-          promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.baseUrl),
-        );
-      }
-    }
-    const selected = selectedSession.data?.session;
-    if (selected)
-      ttls.set(
-        selected.runtimeSessionId,
-        promptCacheTtlMsForKind(selected.kindId, selected.definitionSnapshot?.baseUrl),
-      );
-    return ttls;
-  }, [taskSessionQueries, selectedSession.data]);
-  const hasCacheTtl = useMemo(() => [...sessionCacheTtlMs.values()].some((ttl) => ttl !== null), [sessionCacheTtlMs]);
+  const sessionCacheTtlMs = useMemo(
+    () => sessionCacheTtlOf(taskSessionsByTask, selectedSession.data?.session),
+    [taskSessionsByTask, selectedSession.data],
+  );
+  // 秒针闸门是「确有缓存触达证据」,不是「确有已知 TTL」:nowMs 同时喂排序的 Done
+  // 新鲜度窗(300s)与倒计时,而触达轮询窗恰好同宽(300s)——有触达的页面才有会随
+  // 时间变化的排序或倒计时;舰队主力 provider 无已知 TTL 时时钟不能停,否则已完成
+  // 组永久压在 Working 之上(返工 F2)。
+  const hasCacheTouches = useMemo(() => [...sessionTouches.values()].some((touch) => touch !== null), [sessionTouches]);
   useEffect(() => {
-    if (!hasCacheTtl) return;
+    if (!hasCacheTouches) return;
     const timer = setInterval(() => setNowMs(Date.now()), 1_000);
     return () => clearInterval(timer);
-  }, [hasCacheTtl]);
+  }, [hasCacheTouches]);
 
   const selectedTouch = selectedSessionId ? (sessionTouches.get(selectedSessionId) ?? null) : null;
   const selectedSessionTtl = useMemo(

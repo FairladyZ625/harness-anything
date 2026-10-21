@@ -734,6 +734,176 @@ describe("runtime entry split (W6 IA)", () => {
     expect(counts).toContain("2 task groups / 2 sessions · all sessions of terra");
   });
 
+  // 返工 F1:钻入行来自派工行,自身不带 kindId;行级倒计时的 TTL 口径只能从钻入窗口
+  // 任务组的任务范围 overview 会话行读来——不补这条读,钻入后除选中行外全部收口轮
+  // 的倒计时整段消失。
+  it("counts down a settled claude round inside an agent drill from the drill window's task overview", async () => {
+    const now = Date.now();
+    const claudeSession = {
+      ...session("runtime-claude", "task-bound"),
+      kindId: "claude",
+      definitionSnapshot: { ...definition, kindId: "claude" },
+    };
+    // 90 秒前收口:5 分钟 TTL 剩余恒落 3m 段,断言不受用例执行耗时漂移影响。
+    const claudeSettledAt = new Date(now - 90_000).toISOString();
+    const claudeDispatch = {
+      ...boundDispatch,
+      dispatchId: "dispatch_claude",
+      runtimeSessionId: "runtime-claude",
+      status: "succeeded" as const,
+      startedAt: claudeSettledAt,
+      endedAt: claudeSettledAt,
+    };
+    const container = await mountSessions(null, {}, undefined, drilledGroups);
+    const overview = vi
+      .spyOn(agentRuntimeClient, "overview")
+      .mockImplementation(
+        async (_repoId, taskId?: string) =>
+          (taskId === "task-bound"
+            ? { ...sessionGroups, sessions: [claudeSession] }
+            : { ...sessionGroups, sessions: [] }) as never,
+      );
+    vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+      if (!("agentId" in payload) && !("squadId" in payload)) throw new Error("unexpected non-member dispatch read");
+      return {
+        ok: true,
+        status: "ready",
+        agentId: "terra",
+        dispatches: [claudeDispatch, boundDispatch],
+        groups: [sessionGroups.groups[0]],
+        taskLabels: [{ taskId: "task-bound", title: "Bound task title" }],
+        totals: { groups: 1, sessions: 2 },
+        truncated: false,
+        outcome: "unknown",
+        exitCode: 1,
+        watermark: 1,
+        sourceRevision: 1,
+      } as never;
+    });
+    vi.spyOn(agentRuntimeClient, "events").mockImplementation(
+      async (_repoId, runtimeSessionId: string) =>
+        ({
+          ok: true,
+          runtimeSessionId,
+          events:
+            runtimeSessionId === "runtime-claude"
+              ? [
+                  {
+                    cursor: "lifecycle:1",
+                    runtimeSessionId,
+                    type: "runtime_session_outcome_observed",
+                    occurredAt: claudeSettledAt,
+                  },
+                ]
+              : [],
+          cursor: "lifecycle:1",
+          sourceCursor: "lifecycle:1",
+          done: true,
+        }) as never,
+    );
+
+    await click("session-group-drill-agent-terra");
+    // 钻入组初始折叠(轮次已随批量读返回,点开不再二次读):展开后才见轮次行。
+    await click("session-group-toggle-task-bound");
+    await flushEffects();
+
+    expect(overview).toHaveBeenCalledWith("repo-a", "task-bound");
+    const timer = container.querySelector('[data-testid="session-card-cache-timer-runtime-claude"]');
+    expect(timer?.getAttribute("data-cache-state")).toBe("normal");
+    expect(timer?.textContent).toContain("3m");
+  });
+
+  // 返工 F2:秒针闸门是「确有触达」而非「确有已知 TTL」——舰队主力 provider(本用例
+  // 全 codex,无已知 TTL)时钟也必须走,否则 Done 新鲜度窗(300s)冻结在挂载时刻,
+  // 已完成组长期压在 Working 之上。触达轮询窗与新鲜度窗同宽(300s),触达存在即
+  // 证明页面还有会随时间变化的排序。
+  it("keeps the shared clock running without any known provider TTL so fresh-done groups age below working", async () => {
+    const mountAt = Date.parse("2026-10-21T10:00:00.000Z");
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"], now: mountAt });
+    try {
+      const doneGroup = {
+        key: "task-done",
+        kind: "task" as const,
+        label: "Done task",
+        taskId: "task-done",
+        latestStatus: "succeeded" as const,
+        latestActivityAt: new Date(mountAt - 4 * 60_000).toISOString(),
+        runningCount: 0,
+        sessionCount: 1,
+        roundCount: 1,
+        latestRound: {
+          runtimeSessionId: "runtime-done",
+          dispatchId: "dispatch_done",
+          agentName: "terra",
+          instanceId: "w4c-verify-codex",
+          status: "succeeded" as const,
+          startedAt: new Date(mountAt - 4 * 60_000).toISOString(),
+        },
+      };
+      const runningGroup = {
+        ...doneGroup,
+        key: "task-run",
+        label: "Running task",
+        taskId: "task-run",
+        latestStatus: "running" as const,
+        latestActivityAt: new Date(mountAt - 30 * 60_000).toISOString(),
+        runningCount: 1,
+        latestRound: {
+          ...doneGroup.latestRound,
+          runtimeSessionId: "runtime-bound",
+          dispatchId: "dispatch_bbb",
+          status: "running" as const,
+          startedAt: new Date(mountAt - 30 * 60_000).toISOString(),
+        },
+      };
+      vi.spyOn(agentRuntimeClient, "events").mockImplementation(
+        async (_repoId, runtimeSessionId: string) =>
+          ({
+            ok: true,
+            runtimeSessionId,
+            events: [
+              {
+                cursor: "lifecycle:1",
+                runtimeSessionId,
+                type:
+                  runtimeSessionId === "runtime-done" ? "runtime_session_outcome_observed" : "runtime_session_started",
+                occurredAt:
+                  runtimeSessionId === "runtime-done"
+                    ? new Date(mountAt - 4 * 60_000).toISOString()
+                    : new Date(mountAt - 30 * 60_000).toISOString(),
+              },
+            ],
+            cursor: "lifecycle:1",
+            sourceCursor: "lifecycle:1",
+            done: true,
+          }) as never,
+      );
+      const container = await mountSessions(null, {}, undefined, {
+        ...sessionGroups,
+        totals: { groups: 2, sessions: 2 },
+        groups: [doneGroup, runningGroup],
+      } as never);
+      const railOrder = () =>
+        [...container.querySelectorAll('[data-testid^="session-group-toggle-"]')].map((node) =>
+          node.getAttribute("data-testid"),
+        );
+      // 挂载时:done 收口 4 分钟,仍在新鲜度窗(5 分钟)内 → Done 压在 Working 之上。
+      expect(railOrder()).toEqual(["session-group-toggle-task-done", "session-group-toggle-task-run"]);
+
+      // 同步逐秒推进(async 推进与 React act 的宏任务会互相等待):120 次秒针回调
+      // 全部落在同一个 act 里,状态批量结算后 DOM 一次到位。
+      await act(async () => {
+        for (let second = 0; second < 120; second += 1) vi.advanceTimersByTime(1_000);
+      });
+
+      // 收口满 6 分钟超窗 → Done 沉底,Working 回到最上;全程没有任何已知 TTL。
+      expect(railOrder()).toEqual(["session-group-toggle-task-run", "session-group-toggle-task-done"]);
+      expect(container.querySelector('[data-testid^="session-card-cache-timer-"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("defaults the squad segment to 30d and opens the flow detail from a run row (G12 §2a/§2b/§2c)", async () => {
     await mountSessions(null, {}, undefined, sessionGroups, async () => squadRunsListFixture);
     const squadSegment = [...byTestId("sessions-view").querySelectorAll("button")].find((button) =>
