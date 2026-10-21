@@ -102,7 +102,7 @@ export function runVerticalDiscoveryAction(
   throw presetFailure("unsupported_command", `No builtin discovery contract exists for ${action.kind}.`);
 }
 
-export function listCatalog(catalog: Map<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
+export function listCatalog(catalog: ReadonlyMap<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
   return [...catalog.values()]
     .filter((item) => item.verticalId === verticalId)
     .map(

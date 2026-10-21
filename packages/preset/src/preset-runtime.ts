@@ -5,7 +5,7 @@ import {
   resolveVerticalAssetsRoot,
 } from "./preset-assets.ts";
 import { validateCompletionDeclaration } from "./preset-extension-model.ts";
-import { effectiveCatalog } from "./preset-catalog.ts";
+import { effectiveCatalog, missingPresetFailure } from "./preset-catalog.ts";
 import { listCatalog } from "./preset-discovery.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
 import { file, presetPackageScripts } from "./preset-package.ts";
@@ -51,7 +51,7 @@ export function createRuntime(options: PresetResolverOptions): {
     if (selected && !selected.decoded)
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
     assertCanonicalVertical(assets, request.verticalId);
-    if (!selected) throw presetFailure("preset_not_found", `Preset ${request.presetId} is not installed.`);
+    if (!selected) throw missingPresetFailure(inventory, request.verticalId, request.presetId);
     const ancestry = resolveAncestry(inventory, selected, request.verticalId),
       manifests = ancestry.map((item) => item.decoded!.manifest);
     for (const manifest of manifests)

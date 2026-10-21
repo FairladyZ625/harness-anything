@@ -87,7 +87,15 @@ test("resolver distinguishes unavailable verticals from unavailable presets", as
       purpose: "inspect",
     });
     assert.equal(missingPreset.ok, false);
-    if (!missingPreset.ok) assert.equal(missingPreset.error.code, "preset_not_found");
+    if (!missingPreset.ok) {
+      assert.equal(missingPreset.error.code, "preset_not_found");
+      const listed = (await resolver.list({ verticalId: "software/coding" })).map(({ id }) => id).sort();
+      assert.deepEqual(listed, ["standard-task"]);
+      assert.match(
+        missingPreset.error.hint,
+        /Preset not-installed is unavailable in software\/coding\. Available presets: standard-task\./u,
+      );
+    }
   } finally {
     fixture.cleanup();
   }

@@ -1,7 +1,8 @@
 import { resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { listCatalog } from "./preset-discovery.ts";
 import { decodePackage, parsePresetJson } from "./preset-package.ts";
 import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
-import type { Candidate } from "./preset-resolver-types.ts";
+import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -53,6 +54,30 @@ export function effectiveCatalog(bundledRoot: string, userRoot: string): Map<str
   return result;
 }
 
+/**
+ * The one preset_not_found construction. A mistyped `--preset` is only actionable when the hint
+ * names what this vertical actually has, and that list comes from the same catalog projection
+ * `ha preset list` renders — never a second hand-maintained list.
+ */
+export function missingPresetFailure(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  presetId: string,
+): PresetFailure {
+  // Blocked packages (invalid manifest, invalid shadow) are not identifiers a caller can pass:
+  // they reject through their own code, so only decodable presets belong in a "use one of" list.
+  const available = listCatalog(catalog, verticalId)
+    .filter(({ validity }) => validity === "valid")
+    .map(({ id }) => id);
+  return presetFailure(
+    "preset_not_found",
+    `Preset ${presetId} is unavailable in ${verticalId}. ` +
+      (available.length
+        ? `Available presets: ${available.join(", ")}.`
+        : `No presets are installed for ${verticalId}.`),
+  );
+}
+
 /** Returns the selected package's PRESET.md body without running a full preset resolution. */
 export function presetDocumentBody(input: {
   readonly bundledRoot?: string;
@@ -61,12 +86,12 @@ export function presetDocumentBody(input: {
   readonly verticalId: string;
   readonly presetId: string;
 }): string {
-  const selected = effectiveCatalog(
-    input.bundledRoot ?? path.join(resolveVerticalAssetsRoot(input.verticalId, input.repoRoot), "presets"),
-    input.userRoot,
-  ).get(key(input.verticalId, input.presetId));
-  if (!selected?.decoded)
-    throw selected?.error ?? presetFailure("preset_not_found", `Preset ${input.presetId} is not installed.`);
+  const catalog = effectiveCatalog(
+      input.bundledRoot ?? path.join(resolveVerticalAssetsRoot(input.verticalId, input.repoRoot), "presets"),
+      input.userRoot,
+    ),
+    selected = catalog.get(key(input.verticalId, input.presetId));
+  if (!selected?.decoded) throw selected?.error ?? missingPresetFailure(catalog, input.verticalId, input.presetId);
   return selected.decoded.document.body;
 }
 
