@@ -76,6 +76,9 @@ export async function fleetReplicationFixture(
     emptyPath = path.join(root, "empty-path");
   const edgeChildren: ChildProcess[] = [];
   const trackedClosers: Array<() => void> = [];
+  // Center-side transport faults, as the daemon's own listener would report them: a peer that drops
+  // mid-stream is not one of these; an unreadable registry or a broken handler is.
+  const transportErrors: { readonly nodeId: string | null; readonly error: unknown }[] = [];
   let center: FleetTlsCenter | null = null;
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
@@ -159,6 +162,7 @@ export async function fleetReplicationFixture(
     owners,
     auth,
     localAuth,
+    transportErrors,
     ledgerPath: sqliteLedgerPath(repo),
     centerReader: () => makeTaskProjectionReader({ rootDir: repo }),
     /** The listening port of the currently open center (real or reopened). */
@@ -188,6 +192,7 @@ export async function fleetReplicationFixture(
         nodeOwner: owners.nodeOwner,
         verifyHuman: owners.verifyHuman,
         revokeDeviceSessions: (nodeId: string) => new OidcSessionService(userRoot).revokeDeviceSessions(nodeId),
+        onError: (entry) => transportErrors.push({ nodeId: entry.nodeId, error: entry.error }),
       });
       center = opened;
       return opened;
