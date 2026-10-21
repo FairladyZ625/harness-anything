@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
 import { readCompleteRelationGraph } from "../src/renderer/triadic-data.ts";
 import { assertPreloadPayload } from "../src/preload/allowlist.ts";
-import { parseDaemonRpcParams, validateDaemonRelationGraph } from "@harness-anything/daemon/protocol";
+import {
+  parseDaemonRpcParams,
+  validateDaemonRelationGraph,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { harnessClient } from "../src/renderer/api-client.ts";
 
 type Edge = RelationGraphSuccess["edges"][number];
