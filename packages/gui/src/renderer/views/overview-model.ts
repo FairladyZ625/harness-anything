@@ -337,7 +337,8 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
  * 2. 静止待命中置顶优先:均无 live 会话在跑时,显式置顶的非终态工作保留在前,近期活跃工作列于其后;
  * 3. 最新活动倒序:同等状态组内(同为在跑、同为待命置顶、同为待命近期),按最近活动时间(lastActivityAt)倒序排列(新活动在前);
  * 4. 稳定兜底:时间相同时平滑回退至注意力最高分降序、本人卡点数与 taskId 定序。
- * 此外:处于活跃执行状态的工作即使超出活动窗口天数,也绝不被截断隐藏。已收尾的置顶工作不进列表,只计数提及。
+ * 此外:处于活跃执行状态的工作即使超出活动窗口天数,也绝不被截断隐藏;已收尾的置顶工作
+ * 仍然列出(业主 2026-10-21:不管 pin 什么,总览上都要能看到),只是按终态沉到后面。
  */
 export interface WatchedWork {
   readonly work: WorkRow;
@@ -354,7 +355,7 @@ export function watchedWorks(
   agenda: AgendaSuccess | undefined,
   activity?: { readonly days: number; readonly now: string },
   runtime?: AgentRuntimeOverviewResult | undefined,
-): { readonly watched: readonly WatchedWork[]; readonly pinnedClosed: number } {
+): readonly WatchedWork[] {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
   const needsYouIds = needsYouWorkIds(agenda);
@@ -363,10 +364,6 @@ export function watchedWorks(
       .filter((entity) => entity.kind === "task")
       .map((entity) => entity.ref.replace(/^task\//u, "")),
   );
-  const pinnedClosed = [...pinnedIds].filter((id) => {
-    const row = rows.find((entry) => entry.taskId === id);
-    return row !== undefined && TERMINAL_WORK.has(row.status);
-  }).length;
   const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000;
   const runningOf = (taskId: string, memberTaskIds: readonly string[]): number =>
     workHandlers(runtime, taskId, memberTaskIds).length > 0 ? 1 : 0;
@@ -376,9 +373,8 @@ export function watchedWorks(
     memberTaskIds: members.get(work.taskId) ?? [],
   });
 
-  const pinnedEntries = rows
-    .filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status))
-    .map(entryOf("pinned"));
+  // 置顶的工作根一律列出,含已收尾的:pin 是业主的显式承诺,终态只影响排序,不隐藏。
+  const pinnedEntries = rows.filter((row) => pinnedIds.has(row.taskId)).map(entryOf("pinned"));
   const recentEntries = rows
     .filter((row) => {
       if (pinnedIds.has(row.taskId) || TERMINAL_WORK.has(row.status)) return false;
@@ -389,6 +385,11 @@ export function watchedWorks(
     .map(entryOf("recent"));
 
   const watched = [...pinnedEntries, ...recentEntries].sort((left, right) => {
+    // -1. 已收尾的置顶工作仍列出,但沉到非终态之后:它们不再需要注意力,只是仍被 pin 住。
+    const leftTerminal = TERMINAL_WORK.has(left.work.status) ? 1 : 0;
+    const rightTerminal = TERMINAL_WORK.has(right.work.status) ? 1 : 0;
+    if (rightTerminal !== leftTerminal) return leftTerminal - rightTerminal;
+
     // 0. Needs you 绝对顶置(Orca 五级序数的第 1 级,dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):
     //    名下有 awaiting-you/待点头项的工作排在一切运行态之前——它卡在等人,不是在干活。
     const leftNeedsYou = needsYouIds.has(left.work.taskId) ? 1 : 0;
@@ -425,7 +426,7 @@ export function watchedWorks(
     );
   });
 
-  return { watched, pinnedClosed };
+  return watched;
 }
 
 /**

@@ -329,7 +329,7 @@ describe("总览:右下「等你处理的事」含任务侧人签", () => {
 });
 
 describe("总览:左下「关注的工作」", () => {
-  it("置顶的非终态工作保留在前,其余近期工作随后;已收尾的置顶工作只计数", () => {
+  it("置顶的工作保留在前(含已收尾的),其余近期工作随后", () => {
     const container = mount({
       agenda: agenda({
         pinnedEntities: [
@@ -339,12 +339,14 @@ describe("总览:左下「关注的工作」", () => {
       }),
     });
     const works = container.querySelector('[data-testid="overview-region-works"]')!;
-    expect(textOf(works)).toContain("置顶 1 项");
+    // 块头「置顶 N 项」数的是本块列出的置顶工作行,含已收尾的那一项。
+    expect(textOf(works)).toContain("置顶 2 项 · 3");
     expect(textOf(works)).toContain("代码质量长期检验");
-    expect(textOf(works)).toContain("1 项置顶工作已收尾");
-    // 置顶在前,近期有活动的工作随后(意见 4 的默认口径),已收尾的不进列表。
+    // 已收尾的置顶工作仍列名可见(业主 2026-10-21:不管 pin 什么,总览上都要能看到),
+    // 只是排在非终态置顶与其后的近期工作之后。
+    expect(textOf(works)).toContain("已收尾的工作");
     const cards = [...works.querySelectorAll("[data-work-card]")].map((card) => card.getAttribute("data-work-card"));
-    expect(cards).toEqual(["task_w1", "task_w2"]);
+    expect(cards).toEqual(["task_w1", "task_w2", "task_w_done"]);
     unmount();
   });
 
@@ -1052,7 +1054,7 @@ describe("总览派生(纯函数)", () => {
     expect(whoOf.get("rs_nosnap")).toBe("codex");
   });
 
-  it("watchedWorks:置顶保留在前不受窗口限制;其余按活动窗口过滤、终态置顶只计数", () => {
+  it("watchedWorks:置顶保留在前不受窗口限制;其余按活动窗口过滤;终态置顶仍列出但沉后", () => {
     const base = agenda();
     const pinned = watchedWorks(WORKS, {
       ...base,
@@ -1060,17 +1062,18 @@ describe("总览派生(纯函数)", () => {
         { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
       ],
     });
-    expect(pinned.watched.map(({ work, source }) => [work.taskId, source])).toEqual([
+    expect(pinned.map(({ work, source }) => [work.taskId, source])).toEqual([
       ["task_w1", "pinned"],
       ["task_w2", "recent"],
     ]);
+    // 已收尾的置顶工作仍列出(业主:不管 pin 什么总览都要能看到),只是沉到非终态之后。
     const closed = watchedWorks(WORKS, {
       ...base,
       pinnedEntities: [{ ref: "task/task_w_done", kind: "task", title: "已收尾的工作", status: "done", pinnedAt: AT }],
     });
-    expect(closed.pinnedClosed).toBe(1);
-    expect(closed.watched.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
-    expect(closed.watched.every(({ source }) => source === "recent")).toBe(true);
+    expect(closed.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2", "task_w_done"]);
+    expect(closed.filter(({ source }) => source === "pinned").map(({ work }) => work.taskId)).toEqual(["task_w_done"]);
+    expect(closed.some(({ work }) => work.taskId === "task_w_done")).toBe(true);
     // 活动窗口(意见 4):未置顶工作只在窗口内才列,置顶不受窗口限制;W2-T1 起名下有
     // Needs you 项的工作(默认夹具 rel_1 挂在 task_w1)压过置顶——它卡在等人。
     const stale = { ...WORKS.works[1]!, lastActivityAt: "2026-09-01T00:00:00.000Z" },
@@ -1085,7 +1088,7 @@ describe("总览派生(纯函数)", () => {
         },
         { days: 3, now: new Date().toISOString() },
       );
-    expect(windowed.watched.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
+    expect(windowed.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
   });
 
   it("watchedWorks:活跃执行工作优先置顶,再按最新活动时间倒序,在跑工作不被窗口截断", () => {
@@ -1232,7 +1235,7 @@ describe("总览派生(纯函数)", () => {
     // 3. 待命中近期工作按 lastActivityAt 倒序
     //    - work_recent_newer (11:00)
     //    - work_recent_older (07:00)
-    expect(result.watched.map(({ work }) => work.taskId)).toEqual([
+    expect(result.map(({ work }) => work.taskId)).toEqual([
       "work_pinned_running",
       "work_recent_running",
       "work_recent_running_stale_activity",
@@ -1241,9 +1244,7 @@ describe("总览派生(纯函数)", () => {
       "work_recent_newer",
       "work_recent_older",
     ]);
-    expect(result.watched.find(({ work }) => work.taskId === "work_recent_running_stale_activity")?.source).toBe(
-      "recent",
-    );
+    expect(result.find(({ work }) => work.taskId === "work_recent_running_stale_activity")?.source).toBe("recent");
   });
 
   it("工作行排序:已收尾沉底;注意力优先于最近活动", () => {
@@ -1727,7 +1728,7 @@ describe("总览派生(纯函数)", () => {
       sourceRevision: 3,
     } as unknown as AgentRuntimeOverviewResult;
     // 在跑工作活动更新(11:00 > 07:00),但 Needs you 是第 1 级:绝对排在一切运行态之前。
-    const { watched } = watchedWorks(baseWorks, read, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtime);
+    const watched = watchedWorks(baseWorks, read, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtime);
     expect(watched.map(({ work }) => work.taskId)).toEqual(["task_needs", "task_running"]);
   });
 

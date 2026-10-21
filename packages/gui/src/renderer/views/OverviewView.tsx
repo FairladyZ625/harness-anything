@@ -41,7 +41,6 @@ import {
   OverviewPinsBody,
   OverviewRunningBody,
   OverviewWorksBody,
-  decisionsUrgentCount,
   type OverviewBoardDeps,
 } from "./overview-regions.tsx";
 
@@ -135,7 +134,7 @@ export function OverviewView({
       ? value
       : WATCHED_ACTIVITY_DAYS_DEFAULT;
   }, [settingsQuery.data]);
-  const { watched, pinnedClosed } = useMemo(
+  const watched = useMemo(
     () => watchedWorks(works, agenda, { days: activityDays, now }, runtimeQuery.data),
     [works, agenda, activityDays, now, runtimeQuery.data],
   );
@@ -410,7 +409,6 @@ export function OverviewView({
                   >
                     <OverviewWorksBody
                       watched={watched}
-                      pinnedClosed={pinnedClosed}
                       activityDays={activityDays}
                       handlersOf={(entry) => workHandlers(runtimeQuery.data, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
@@ -435,14 +433,9 @@ export function OverviewView({
                         label={
                           // 数的是块里列出的两类(本人决策 + 人签),与行数一致;总池里没列出的
                           // 其余待办由块内「待裁池」指针带条数说明,不混进这个数。
-                          decisionsUrgentCount(decisions) > 0
-                            ? t("views.overviewView.mineUrgentOf", {
-                                urgent: String(decisionsUrgentCount(decisions)),
-                                count: String(decisions.length + signoffs.length),
-                              })
-                            : t("views.overviewView.decisionsPendingCount", {
-                                count: String(decisions.length + signoffs.length),
-                              })
+                          t("views.overviewView.decisionsPendingCount", {
+                            count: String(decisions.length + signoffs.length),
+                          })
                         }
                       />
                     }

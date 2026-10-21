@@ -55,11 +55,6 @@ export interface OverviewBoardDeps {
 
 /* ------------------------------------------------------------------ 右下:等你处理的事 */
 
-/** 块内行的急件数(注意力 ≥80):块头标签用它,与侧栏待办签发同一阈值口径。 */
-export function decisionsUrgentCount(rows: readonly DecisionRow[]): number {
-  return rows.filter(({ score }) => score >= 80).length;
-}
-
 /** 人签三类的块内标签;门名与同类项计数在行原因里如实给。 */
 const SIGNOFF_KIND_LABEL: Readonly<Record<AttestationPendingRow["kind"], MessageKey>> = {
   gate: "views.overviewView.signoffGate",
@@ -443,15 +438,12 @@ const STAGE_ORDER: readonly SnapshotStatus[] = ["done", "active", "submitted", "
 
 export function OverviewWorksBody({
   watched,
-  pinnedClosed,
   activityDays,
   handlersOf,
   recentOf,
   deps,
 }: {
   readonly watched: readonly WatchedWork[];
-  /** 已收尾的置顶工作数:不进列表,如实计数提及(收尾工作去侧栏置顶块管理)。 */
-  readonly pinnedClosed: number;
   /** 近期窗口天数(设置项「关注的工作活动天数」);行内展示与列表口径一致。 */
   readonly activityDays: number;
   readonly handlersOf: (entry: WatchedWork) => readonly string[];
@@ -482,11 +474,6 @@ export function OverviewWorksBody({
             {t("views.overviewView.worksPickAction")}
           </button>
         </div>
-      )}
-      {pinnedClosed > 0 && (
-        <p className="px-3.5 pb-1 pt-2 text-text-faint ui-micro">
-          {t("views.overviewView.worksPinnedClosed", { count: String(pinnedClosed) })}
-        </p>
       )}
       {watched.map((entry) => {
         const { work } = entry,
