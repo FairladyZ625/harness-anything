@@ -102,7 +102,7 @@ export function runVerticalDiscoveryAction(
   throw presetFailure("unsupported_command", `No builtin discovery contract exists for ${action.kind}.`);
 }
 
-export function listCatalog(catalog: Map<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
+export function listCatalog(catalog: ReadonlyMap<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
   return [...catalog.values()]
     .filter((item) => item.verticalId === verticalId)
     .map(
@@ -151,6 +151,36 @@ export function listCatalog(catalog: Map<string, Candidate>, verticalId: string)
             },
     )
     .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export type PresetResolutionAttempt = (
+  presetId: string,
+) => { readonly ok: true } | { readonly ok: false; readonly error: PresetFailure };
+
+/**
+ * The projection `ha preset list` renders: catalog entries plus an actual resolver attempt for every
+ * decodable candidate. The resolver remains the only authority for whether a preset is selectable;
+ * this projection only maps its failure into the catalog's display vocabulary.
+ */
+export function listCatalogWithResolution(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  resolveAttempt: PresetResolutionAttempt,
+): PresetCatalogDisplayEntry[] {
+  return listCatalog(catalog, verticalId).map((entry): PresetCatalogDisplayEntry => {
+    if (entry.validity !== "valid") return entry;
+    const attempt = resolveAttempt(entry.id);
+    if (attempt.ok) return entry;
+    const failure = attempt.error;
+    return {
+      ...entry,
+      validity: failure.code === "missing_provider" ? ("unavailable" as const) : ("blocked" as const),
+      errorCode: failure.code,
+      issues: [{ code: failure.code, message: failure.message }],
+      issueCount: 1,
+      ...catalogRecovery(entry, failure),
+    };
+  });
 }
 
 export function catalogRecovery(

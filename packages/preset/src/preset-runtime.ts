@@ -5,8 +5,15 @@ import {
   resolveVerticalAssetsRoot,
 } from "./preset-assets.ts";
 import { validateCompletionDeclaration } from "./preset-extension-model.ts";
-import { effectiveCatalog } from "./preset-catalog.ts";
-import { listCatalog } from "./preset-discovery.ts";
+import { effectiveCatalog, missingPresetFailure } from "./preset-catalog.ts";
+import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
+import {
+  missingProviderFailure,
+  presetAvailability,
+  presetsDeclaringProfile,
+  providerIndex,
+  requireAncestry,
+} from "./preset-resolution-inputs.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
 import { file, presetPackageScripts } from "./preset-package.ts";
 import {
@@ -19,9 +26,9 @@ import {
   resolverContentHash,
 } from "./preset-resolver-common.ts";
 import type {
-  Candidate,
   InternalPresetResolution,
   OwnedEntrypoint,
+  PresetFailure,
   PresetResolverOptions,
   ResolverScaffoldSelection,
 } from "./preset-resolver-types.ts";
@@ -30,12 +37,26 @@ import type {
   CanonicalPresetResolver,
   ExecutablePackageHandle,
   PresetResolveResultV1,
-  PresetTaskManifestV3,
   ResolvePresetRequestV1,
   FrozenCompletionPackage,
 } from "./preset.contract.ts";
 import { mergeScaffoldOverlay } from "./scaffold-overlay.ts";
 import path from "node:path";
+
+type ResolutionAttempt =
+  | { readonly ok: true; readonly resolution: InternalPresetResolution }
+  | { readonly ok: false; readonly error: PresetFailure };
+
+function attemptResolution(
+  resolveInternal: (request: ResolvePresetRequestV1) => InternalPresetResolution,
+  request: ResolvePresetRequestV1,
+): ResolutionAttempt {
+  try {
+    return { ok: true, resolution: resolveInternal(request) };
+  } catch (error) {
+    return { ok: false, error: asFailure(error) };
+  }
+}
 
 export function createRuntime(options: PresetResolverOptions): {
   readonly resolver: CanonicalPresetResolver;
@@ -51,8 +72,12 @@ export function createRuntime(options: PresetResolverOptions): {
     if (selected && !selected.decoded)
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
     assertCanonicalVertical(assets, request.verticalId);
-    if (!selected) throw presetFailure("preset_not_found", `Preset ${request.presetId} is not installed.`);
-    const ancestry = resolveAncestry(inventory, selected, request.verticalId),
+    if (!selected)
+      throw missingPresetFailure(inventory, request.verticalId, request.presetId, (presetId) => {
+        const attempt = attemptResolution(resolveInternal, { ...request, presetId });
+        return attempt.ok ? { ok: true } : attempt;
+      });
+    const ancestry = requireAncestry(inventory, selected, request.verticalId),
       manifests = ancestry.map((item) => item.decoded!.manifest);
     for (const manifest of manifests)
       if (
@@ -66,37 +91,16 @@ export function createRuntime(options: PresetResolverOptions): {
         );
     const leaf = ancestry.at(-1)!.decoded!,
       leafManifest = manifests.at(-1)!,
-      profiles = manifests.map((manifest, index) =>
-        index === manifests.length - 1
-          ? profileFor(
-              manifest,
-              request.profileId,
-              request.profileId ? presetsDeclaringProfile(inventory, request.verticalId, request.profileId) : [],
-            )
-          : profileFor(manifest),
-      ),
-      profile = profiles.at(-1)!,
-      imports = manifests.flatMap((manifest, index) => [
-        ...manifest.capabilityImports,
-        ...(profiles[index]!.capabilityImports ?? []),
-      ]),
-      providerMap = new Map(assets.providers.map((item) => [item.id, item]));
-    let requiredTaskClass: "work" | undefined;
-    const missingProviderIds: string[] = [];
-    for (const imported of imports) {
-      const provider = providerMap.get(imported.id);
-      if (!provider || provider.kind !== imported.kind || provider.version !== imported.version) {
-        if (!("required" in imported) || imported.required) missingProviderIds.push(imported.id);
-        continue;
-      }
-      requiredTaskClass = provider.requiredTaskClass ?? requiredTaskClass;
-    }
-    if (missingProviderIds.length)
-      throw presetFailure(
-        "missing_provider",
-        `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
-        missingProviderIds,
-      );
+      providerMap = providerIndex(assets.providers),
+      { profiles, imports, missingProviderIds, requiredTaskClass } = presetAvailability({
+        catalog: inventory,
+        verticalId: request.verticalId,
+        ancestry,
+        providers: providerMap,
+        ...(request.profileId ? { requestedProfile: request.profileId } : {}),
+      }),
+      profile = profiles.at(-1)!;
+    if (missingProviderIds.length) throw missingProviderFailure(missingProviderIds);
     const taskPackageScaffold = assets.compiledVertical.definition.packageScaffolds.find(
       (item) => item.entityKind === "task",
     );
@@ -385,117 +389,75 @@ export function createRuntime(options: PresetResolverOptions): {
     list: async ({ verticalId }) => {
       const assetsRoot = options.assetsRoot ?? resolveVerticalAssetsRoot(verticalId, options.repoRoot),
         catalog = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
-        assets = loadCanonicalAssets(assetsRoot),
-        providers = new Map(assets.providers.map((item) => [item.id, item]));
+        assets = loadCanonicalAssets(assetsRoot);
       assertCanonicalVertical(assets, verticalId);
-      return listCatalog(catalog, verticalId).map((entry) => {
-        if (entry.validity !== "valid") return entry;
-        const candidate = catalog.get(key(verticalId, entry.id)),
-          imports = candidate?.decoded?.manifest.capabilityImports ?? [],
-          missingProviderIds = imports
-            .filter((item) => {
-              const provider = providers.get(item.id);
-              return (
-                (!provider || provider.kind !== item.kind || provider.version !== item.version) &&
-                (!("required" in item) || item.required)
-              );
-            })
-            .map(({ id }) => id)
-            .sort();
-        if (!missingProviderIds.length) return entry;
-        const failure = presetFailure(
-          "missing_provider",
-          `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
-          missingProviderIds,
-        );
-        return {
-          ...entry,
-          validity: "unavailable" as const,
-          errorCode: failure.code,
-          issues: [{ code: failure.code, message: failure.message }],
-          issueCount: 1,
-          nextAction: `Use a Harness build that provides ${missingProviderIds.join(", ")}, then rerun ha preset list.`,
-          missingProviderIds,
-        };
-      });
+      const resolveAttempt: PresetResolutionAttempt = (presetId) => {
+        const attempt = attemptResolution(resolveInternal, {
+          presetId,
+          verticalId,
+          locale: "en-US",
+          purpose: "inspect",
+        });
+        return attempt.ok ? { ok: true } : attempt;
+      };
+      return listCatalogWithResolution(catalog, verticalId, resolveAttempt);
     },
     resolve: async (request): Promise<PresetResolveResultV1> => {
-      try {
-        const resolved = resolveInternal(request);
-        const packageHandle: ExecutablePackageHandle | null =
+      const attempt = attemptResolution(resolveInternal, request);
+      if (!attempt.ok)
+        return {
+          ok: false,
+          error: {
+            code: attempt.error.code,
+            hint: attempt.error.message,
+            nextAction: attempt.error.message,
+          },
+        };
+      const { resolution: resolved } = attempt,
+        packageHandle: ExecutablePackageHandle | null =
           request.purpose === "script-run"
             ? {
                 packageDigest: resolved.packageDigest,
                 opaque: Symbol("preset-package"),
               }
             : null;
-        return {
-          ok: true,
-          snapshot: resolved.snapshot,
-          package: packageHandle,
-        };
-      } catch (error) {
-        const known = asFailure(error);
-        return {
-          ok: false,
-          error: {
-            code: known.code,
-            hint: known.message,
-            nextAction: known.message,
-          },
-        };
-      }
+      return {
+        ok: true,
+        snapshot: resolved.snapshot,
+        package: packageHandle,
+      };
     },
   };
   return { resolver, resolveInternal };
 }
 
-export function profileFor(
-  manifest: PresetTaskManifestV3,
-  requested?: string,
-  declaredElsewhere: readonly string[] = [],
-) {
-  const id = requested ?? manifest.defaultProfile,
-    profile = manifest.profiles.find((item) => item.id === id);
-  if (!profile)
-    throw presetFailure(
-      "missing_profile",
-      `Profile ${id} is unavailable on preset ${manifest.id}; its profiles: ` +
-        `${manifest.profiles.map((item) => item.id).join(", ")}.` +
-        (declaredElsewhere.length ? ` Presets that declare ${id}: ${declaredElsewhere.join(", ")}.` : ""),
-    );
-  return profile;
-}
-
-/** The presets of one vertical whose manifest declares a profile id, in id order. */
-export function presetsDeclaringProfile(
-  catalog: ReadonlyMap<string, Candidate>,
-  verticalId: string,
-  profileId: string,
-): string[] {
-  const prefix = key(verticalId, "");
-  return [...catalog]
-    .filter(
-      ([catalogKey, item]) =>
-        catalogKey.startsWith(prefix) && item.decoded?.manifest.profiles.some(({ id }) => id === profileId),
-    )
-    .map(([, item]) => item.id)
-    .sort();
-}
-
-export function resolveAncestry(catalog: Map<string, Candidate>, selected: Candidate, verticalId: string): Candidate[] {
-  const ancestry: Candidate[] = [],
-    seen = new Set<string>();
-  let current: Candidate | undefined = selected;
-  while (current) {
-    if (seen.has(current.id)) throw presetFailure("extends_cycle", `Preset extends cycle includes ${current.id}.`);
-    seen.add(current.id);
-    ancestry.unshift(current);
-    const parentId = current.decoded!.manifest.extends;
-    if (!parentId) break;
-    const parent = catalog.get(key(verticalId, parentId));
-    if (!parent?.decoded) throw presetFailure("missing_parent", `Preset parent ${parentId} is missing or invalid.`);
-    current = parent;
-  }
-  return ancestry;
+export function presetDocumentBody(input: {
+  readonly bundledRoot?: string;
+  readonly repoRoot?: string;
+  readonly userRoot: string;
+  readonly verticalId: string;
+  readonly presetId: string;
+}): string {
+  const assetsRoot = resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
+    bundledRoot = input.bundledRoot ?? path.join(assetsRoot, "presets"),
+    catalog = effectiveCatalog(bundledRoot, input.userRoot),
+    selected = catalog.get(key(input.verticalId, input.presetId));
+  if (selected?.decoded) return selected.decoded.document.body;
+  if (selected?.error) throw selected.error;
+  const runtime = createRuntime({
+      bundledRoot,
+      userRoot: input.userRoot,
+      assetsRoot,
+      ...(input.repoRoot ? { repoRoot: input.repoRoot } : {}),
+    }),
+    resolveAttempt: PresetResolutionAttempt = (presetId) => {
+      const attempt = attemptResolution(runtime.resolveInternal, {
+        presetId,
+        verticalId: input.verticalId,
+        locale: "en-US",
+        purpose: "inspect",
+      });
+      return attempt.ok ? { ok: true } : attempt;
+    };
+  throw missingPresetFailure(catalog, input.verticalId, input.presetId, resolveAttempt);
 }

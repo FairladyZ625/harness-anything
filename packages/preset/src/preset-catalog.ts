@@ -1,7 +1,7 @@
-import { resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
 import { decodePackage, parsePresetJson } from "./preset-package.ts";
 import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
-import type { Candidate } from "./preset-resolver-types.ts";
+import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -53,21 +53,27 @@ export function effectiveCatalog(bundledRoot: string, userRoot: string): Map<str
   return result;
 }
 
-/** Returns the selected package's PRESET.md body without running a full preset resolution. */
-export function presetDocumentBody(input: {
-  readonly bundledRoot?: string;
-  readonly repoRoot?: string;
-  readonly userRoot: string;
-  readonly verticalId: string;
-  readonly presetId: string;
-}): string {
-  const selected = effectiveCatalog(
-    input.bundledRoot ?? path.join(resolveVerticalAssetsRoot(input.verticalId, input.repoRoot), "presets"),
-    input.userRoot,
-  ).get(key(input.verticalId, input.presetId));
-  if (!selected?.decoded)
-    throw selected?.error ?? presetFailure("preset_not_found", `Preset ${input.presetId} is not installed.`);
-  return selected.decoded.document.body;
+/**
+ * The one preset_not_found construction. A mistyped `--preset` is only actionable when the hint
+ * names what this vertical can actually select, and that list is the projection `ha preset list`
+ * renders — including its `unavailable` downgrade — never a second hand-maintained list.
+ */
+export function missingPresetFailure(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  presetId: string,
+  resolveAttempt: PresetResolutionAttempt,
+): PresetFailure {
+  const available = listCatalogWithResolution(catalog, verticalId, resolveAttempt)
+    .filter(({ validity }) => validity === "valid")
+    .map(({ id }) => id);
+  return presetFailure(
+    "preset_not_found",
+    `Preset ${presetId} is unavailable in ${verticalId}. ` +
+      (available.length
+        ? `Available presets: ${available.join(", ")}.`
+        : `No presets are installed for ${verticalId}.`),
+  );
 }
 
 export function enumerateBundled(root: string): Candidate[] {

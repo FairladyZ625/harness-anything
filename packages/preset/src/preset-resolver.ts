@@ -8,7 +8,7 @@ export { seedPresetPackages } from "./preset-installation.ts";
 export { installPresetPackage } from "./preset-installation.ts";
 export { uninstallPresetPackage } from "./preset-installation.ts";
 export { createRuntime } from "./preset-runtime.ts";
-export { presetDocumentBody } from "./preset-catalog.ts";
+export { presetDocumentBody } from "./preset-runtime.ts";
 export { decodePresetPackageV3 } from "./preset-package.ts";
 export { migrateCompletion } from "./preset-installation.ts";
 export type { DecodedPresetPackageV3 } from "./preset-resolver-types.ts";
