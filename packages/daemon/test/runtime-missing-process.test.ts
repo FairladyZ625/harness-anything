@@ -373,6 +373,43 @@ test("runtime steer rejects a provider without a declared steer strategy", async
   }
 });
 
+test("runtime steer refuses a dispatch whose worker host is already gone", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-steer-dead-host-"));
+  try {
+    const dispatchId = "dispatch_dddddddddddddddddddddddd",
+      runtimeSessionId = "runtime_dddddddddddddddddddddddd";
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-dead-host");
+    const context = {
+      input: { rootDir, repoId: "steer-dead-host-test", now: () => "2026-09-13T00:01:00.000Z" },
+      processes: new Map([
+        [
+          runtimeSessionId,
+          {
+            dispatchId,
+            runtimeSessionId,
+            kindId: "codex-acp",
+            providerSessionId: "provider-session",
+            // A pid that cannot exist: the request would land in a stream nobody follows, so the
+            // command must be refused rather than reported as applied.
+            process: { pid: 2_147_483_646 },
+          },
+        ],
+      ]),
+    };
+    await assert.rejects(
+      steerRuntime(context as never, { runtimeSessionId, prompt: "Continue" }, binding),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_steer_unavailable",
+    );
+    assert.equal(
+      readDispatchStream(rootDir, dispatchId)!.records.some((record) => record.kind === "steer_requested"),
+      false,
+      "a refused steer must not leave a command record behind",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function openMissingProcessStream(rootDir: string, dispatchId: string, runtimeSessionId: string, dispatchOpId: string) {
   openDispatchStream(rootDir, {
     dispatchId,
