@@ -10,8 +10,6 @@ const expectedPackages = new Map([
   ["packages/daemon/package.json", "@harness-anything/daemon"],
   ["packages/cli/package.json", "@harness-anything/cli"],
   ["packages/gui/package.json", "@harness-anything/gui"],
-  ["packages/adapters/local/package.json", "@harness-anything/adapter-local"],
-  ["packages/adapters/multica/package.json", "@harness-anything/adapter-multica"],
 ]);
 
 const violations = [];
@@ -27,12 +25,8 @@ function record(message) {
 const rootPackage = readJson("package.json");
 if (rootPackage.name !== "harness-anything") record("root package name must remain harness-anything");
 if (rootPackage.private !== true) record("root package must remain private until an explicit publish task");
-if (
-  !Array.isArray(rootPackage.workspaces) ||
-  !rootPackage.workspaces.includes("packages/*") ||
-  !rootPackage.workspaces.includes("packages/adapters/*")
-) {
-  record("root workspaces must include packages/* and packages/adapters/*");
+if (!Array.isArray(rootPackage.workspaces) || !rootPackage.workspaces.includes("packages/*")) {
+  record("root workspaces must include packages/*");
 }
 
 for (const [relativePath, expectedName] of expectedPackages.entries()) {
@@ -71,8 +65,6 @@ for (const relativePath of [
   "packages/daemon/.git",
   "packages/cli/.git",
   "packages/gui/.git",
-  "packages/adapters/local/.git",
-  "packages/adapters/multica/.git",
 ]) {
   if (existsSync(path.join(root, relativePath))) record(`package-level Git repository is forbidden: ${relativePath}`);
 }

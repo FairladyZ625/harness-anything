@@ -484,13 +484,12 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       settingsFields: "array",
       settingsGroups: "array",
       gateMappings: "object",
-      adapters: "array",
     },
     "catalog snapshot",
   );
   if (!record(value)) return errors;
   if (
-    value.schema !== "gui-catalog-snapshot/v1" ||
+    value.schema !== "gui-catalog-snapshot/v2" ||
     !["ready", "pending"].includes(String(value.status)) ||
     !digest(value.catalogDigest)
   )
@@ -626,29 +625,6 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       errors.push("catalog scaffold paths are invalid");
   }
   if (!stringArray(value.bundledAgents)) errors.push("catalog bundled agent ids are invalid");
-  for (const row of Array.isArray(value.adapters) ? value.adapters : []) {
-    errors.push(
-      ...closed(
-        row,
-        {
-          adapterId: "string",
-          registered: "boolean",
-          capabilities: "array",
-          writability: "string",
-          defaultProvider: "boolean",
-          unavailableReason: "null-string",
-        },
-        "catalog adapter",
-      ),
-    );
-    if (
-      record(row) &&
-      (row.registered !== true ||
-        !stringArray(row.capabilities) ||
-        !["read-only", "read-write", "unknown"].includes(String(row.writability)))
-    )
-      errors.push("catalog adapter state is invalid");
-  }
   return errors;
 }
 export function validateCatalogPreset(value: unknown): readonly string[] {

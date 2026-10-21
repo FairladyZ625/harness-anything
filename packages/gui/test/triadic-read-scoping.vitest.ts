@@ -197,7 +197,7 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
       warnings: [],
     }),
     getCatalogSnapshot: async () => ({
-      schema: "gui-catalog-snapshot/v1",
+      schema: "gui-catalog-snapshot/v2",
       ok: true,
       status: "ready",
       repoId: REPO_ID,
@@ -208,7 +208,6 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
       templates: [],
       scaffolds: { task: [], repository: [] },
       bundledAgents: [],
-      adapters: [],
     }),
     getAgenda: async (payload) => {
       calls.push({ method: "getAgenda", payload: payload ?? null });

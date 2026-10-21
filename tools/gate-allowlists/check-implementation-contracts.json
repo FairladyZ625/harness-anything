@@ -113,16 +113,6 @@
     ],
     "expectedWorkspaceTsconfigs": [
       {
-        "value": "packages/adapters/local/tsconfig.json",
-        "ref": "ADR-0023#D6",
-        "reason": "Workspace TypeScript references are a governed package boundary list."
-      },
-      {
-        "value": "packages/adapters/multica/tsconfig.json",
-        "ref": "ADR-0023#D6",
-        "reason": "Workspace TypeScript references are a governed package boundary list."
-      },
-      {
         "value": "packages/application/tsconfig.json",
         "ref": "ADR-0023#D6",
         "reason": "Workspace TypeScript references are a governed package boundary list."
@@ -572,60 +562,6 @@
         "value": "releaseLease",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W2/W3 SQLite is a disposable event-derived projection with lease CAS and bounded catch-up."
-      }
-    ],
-    "multicaRequiredSnippets": [
-      {
-        "value": "readonly: true",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 removes adapter write paths; placeholder provider metadata must remain explicitly read-only and capability-empty."
-      },
-      {
-        "value": "writable: false",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 removes adapter write paths; placeholder provider metadata must remain explicitly read-only and capability-empty."
-      },
-      {
-        "value": "capabilities: []",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 removes adapter write paths; placeholder provider metadata must remain explicitly read-only and capability-empty."
-      }
-    ],
-    "multicaForbiddenVerbs": [
-      {
-        "value": "transition",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
-      },
-      {
-        "value": "assign",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
-      },
-      {
-        "value": "rerun",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
-      },
-      {
-        "value": "cancel",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
-      },
-      {
-        "value": "comment",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
-      },
-      {
-        "value": "externalWrite",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
-      },
-      {
-        "value": "writeExternal",
-        "ref": "ADR-0022#D6",
-        "reason": "Multica readonly adapter must not expose external write verbs."
       }
     ],
     "extensionRequiredSnippets": [

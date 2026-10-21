@@ -39,9 +39,9 @@ test("integrity single-source check rejects duplicate stable hash helpers", () =
 
 test("integrity single-source check rejects duplicate frontmatter scalar helpers", () => {
   const root = makeGateRoot("ha-integrity-single-source-");
-  mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
+  mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
   writeFileSync(
-    path.join(root, "packages/adapters/local/src/bad.ts"),
+    path.join(root, "packages/cli/src/bad.ts"),
     "export function readScalar(frontmatter, key) { return frontmatter + key; }\n",
     "utf8",
   );

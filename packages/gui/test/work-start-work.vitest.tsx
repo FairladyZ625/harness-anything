@@ -69,7 +69,7 @@ const TASKS = [
 ];
 
 const CATALOG: CatalogSnapshotSuccess = {
-  schema: "gui-catalog-snapshot/v1",
+  schema: "gui-catalog-snapshot/v2",
   ok: true,
   status: "ready",
   repoId: REPO_ID,
@@ -114,14 +114,12 @@ const CATALOG: CatalogSnapshotSuccess = {
   settingsFields: [],
   settingsGroups: [],
   gateMappings: {
-    adapters: [],
     appliesTo: [],
     adapterFields: {},
     governanceFields: [],
     governableAdapters: [],
     internalGateId: "code-doc-reconciliation",
   },
-  adapters: [],
 };
 
 const PRESET_DETAIL: CatalogPresetSuccess = {

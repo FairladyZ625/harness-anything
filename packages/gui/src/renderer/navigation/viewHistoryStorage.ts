@@ -59,7 +59,6 @@ const VIEW_ID_LIST = [
   "graph",
   "presets",
   "entities",
-  "adapters",
   "sessions",
   "schedules",
   "artifacts",

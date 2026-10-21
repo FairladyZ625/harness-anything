@@ -62,7 +62,7 @@ const SETTINGS_VALUES = {
   overviewWatchedActivityDays: 3,
 };
 const SNAPSHOT = {
-  schema: "gui-catalog-snapshot/v1" as const,
+  schema: "gui-catalog-snapshot/v2" as const,
   ok: true as const,
   status: "ready" as const,
   repoId: REPO_ID,
@@ -103,7 +103,6 @@ const SNAPSHOT = {
   templates: [],
   scaffolds: { task: ["governance/task-scaffold.json"], repository: ["governance/repository-scaffold.json"] },
   bundledAgents: ["closeout-reviewer"],
-  adapters: [],
   gateMappings: {
     adapters: [...mappedSourceIds, "none"],
     appliesTo: [...gateAppliesTo],

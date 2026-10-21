@@ -21,7 +21,6 @@ import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import type { DecisionRow } from "../src/renderer/model/types.ts";
 import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
-import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { TokenUsageView } from "../src/renderer/views/TokenUsageView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
@@ -164,7 +163,6 @@ function seedRuntimeQueries(client: QueryClient): void {
     verticals: [],
     templates: [],
     scaffolds: { task: [], repository: [] },
-    adapters: [],
   });
   client.setQueryData(["catalog", REPO_ID, "preset", "preset-g10", "zh-CN"], {
     preset: { id: "preset-g10", verticalId: "g10", extends: null, capabilityImports: [] },
@@ -772,7 +770,6 @@ const VIEW_RENDERERS = {
       onExitDetail: noop,
       projectName: FIXTURE_PROJECT.name,
     }),
-  adapters: () => createElement(AdaptersView, { repoId: REPO_ID, tasks: FIXTURE_TASKS }),
   sessions: () =>
     createElement(SessionsView, {
       repoId: REPO_ID,

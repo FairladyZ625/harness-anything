@@ -266,7 +266,6 @@ export interface DaemonControlReceipt {
 }
 import type { CatalogPresetSuccess, CatalogRereadReceipt, CatalogSnapshotSuccess } from "./api-client-catalog.ts";
 export type {
-  CatalogAdapterRow,
   CatalogPresetDocument,
   CatalogPresetRow,
   CatalogPresetSuccess,

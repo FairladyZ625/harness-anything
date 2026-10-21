@@ -20,7 +20,6 @@ import { CadenceView } from "./views/CadenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { EntitiesView } from "./views/EntitiesView.tsx";
-import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
 import { IdentityAccessView } from "./views/IdentityAccessView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
@@ -909,8 +908,6 @@ function AppShell() {
                   onOpenView={goto}
                   projectName={project.name}
                 />
-              ) : view === "adapters" ? (
-                <AdaptersView repoId={projectId} tasks={projectTasks} />
               ) : view === "sessions" ? (
                 <SessionsView
                   repoId={projectId}

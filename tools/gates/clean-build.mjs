@@ -142,9 +142,7 @@ function createArchiveTree(rootDir) {
       for (const entry of readdirSync(scopeSource)) {
         const workspaceTarget = existsSync(path.join(tempRoot, "packages", entry))
           ? path.join(tempRoot, "packages", entry)
-          : existsSync(path.join(tempRoot, "packages/adapters", entry.replace(/^adapter-/u, "")))
-            ? path.join(tempRoot, "packages/adapters", entry.replace(/^adapter-/u, ""))
-            : null;
+          : null;
         if (workspaceTarget) {
           symlinkSync(
             workspaceTarget,

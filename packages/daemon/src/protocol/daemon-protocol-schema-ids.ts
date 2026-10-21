@@ -293,7 +293,7 @@ export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
     id: "daemon-control-receipt/v1",
   }),
   GUI_CATALOG_SNAPSHOT_SCHEMA = Object.freeze({
-    id: "gui-catalog-snapshot/v1",
+    id: "gui-catalog-snapshot/v2",
   }),
   GUI_CATALOG_PRESET_SCHEMA = Object.freeze({ id: "gui-catalog-preset/v1" }),
   CATALOG_REREAD_RECEIPT_SCHEMA = Object.freeze({

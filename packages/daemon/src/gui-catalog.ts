@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { localAdapterProviderMetadata } from "../../adapters/local/src/index.ts";
-import { multicaAdapterProviderMetadata } from "../../adapters/multica/src/index.ts";
 import {
   CODE_DOC_GATE_ID,
   gateAppliesTo,
@@ -40,17 +38,6 @@ type PresetEntry = {
   readonly issues: readonly JsonObject[];
   readonly shadows?: { readonly layer: "bundled"; readonly title: string };
 };
-
-function nodeCatalogAdapters() {
-  return [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
-    adapterId: adapter.id,
-    registered: true,
-    capabilities: [...adapter.capabilities],
-    writability: adapter.writable ? "read-write" : adapter.readonly ? "read-only" : "unknown",
-    defaultProvider: "defaultProvider" in adapter ? adapter.defaultProvider : false,
-    unavailableReason: null,
-  }));
-}
 
 export function catalogRereadReceipt(input: {
   readonly repoId: string;
@@ -178,12 +165,11 @@ export function openGuiCatalog(input: {
           .map(([id]) => id),
         internalGateId: CODE_DOC_GATE_ID,
       },
-      adapters: nodeCatalogAdapters(),
     };
     const catalogDigest = `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`;
     lastDigest = catalogDigest;
     return writeCatalogSnapshot({
-      schema: "gui-catalog-snapshot/v1",
+      schema: "gui-catalog-snapshot/v2",
       ok: true,
       status: "ready",
       repoId: input.repoId,

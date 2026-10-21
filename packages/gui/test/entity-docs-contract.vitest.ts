@@ -34,7 +34,7 @@ const factEventSchema = JSON.parse(
  */
 const KERNEL_KINDS: readonly string[] = projectedEntityKinds();
 /** 说明面额外收录的目录层实体(不是 kernel 生命周期 kind)。 */
-const CATALOG_KINDS: readonly string[] = ["preset", "adapter"];
+const CATALOG_KINDS: readonly string[] = ["preset"];
 
 function fieldsOf(kind: string): readonly EntityFieldDoc[] {
   const doc = CURATED_ENTITY_DOC_BY_KIND.get(kind);
@@ -43,7 +43,7 @@ function fieldsOf(kind: string): readonly EntityFieldDoc[] {
 }
 
 describe("entity docs cover the registered entity universe", () => {
-  it("catalog kinds are exactly kernel kinds plus the two catalog planes", () => {
+  it("catalog kinds are exactly kernel kinds plus the catalog plane", () => {
     expect([...entityDocKinds()].sort()).toEqual([...KERNEL_KINDS, ...CATALOG_KINDS].sort());
   });
 

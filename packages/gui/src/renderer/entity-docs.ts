@@ -45,7 +45,7 @@ export interface EntityKernelContract {
 
 export interface EntityKindDoc {
   readonly kind: string;
-  /** kernel `explainEntityKind(kind).documentSchema.id`;目录实体(preset/adapter)为 null。 */
+  /** kernel `explainEntityKind(kind).documentSchema.id`;目录实体(preset)为 null。 */
   readonly schemaId: string | null;
   /** canonical ref 模板,如 task/{id};relation 是 relation/rel_<16hex>。 */
   readonly refTemplate: string | null;
@@ -65,7 +65,7 @@ export interface EntityKindDoc {
   /** GUI 里看实况的入口;null = 当前没有专页(如实说明,不硬造)。 */
   readonly guiEntry: { readonly view: ViewId; readonly note: string } | null;
   /** 本仓活行数的读取面;null = 没有廉价的既有读面,不显示计数。 */
-  readonly liveCount: "tasks" | "decisions" | "agents" | "squads" | "schedules" | "presets" | "adapters" | null;
+  readonly liveCount: "tasks" | "decisions" | "agents" | "squads" | "schedules" | "presets" | null;
 }
 
 export interface EntityDocGroup {
@@ -342,7 +342,7 @@ export const RELATION_TYPE_WORDS: readonly string[] = Object.freeze([
 ]);
 // entity-kind-contract:generated:end
 
-/** kernel 半:登记过的 kind 从生成区块取;目录层实体(preset/adapter)自带。 */
+/** kernel 半:登记过的 kind 从生成区块取;目录层实体(preset)自带。 */
 const kernelContract = (kind: keyof typeof KERNEL_ENTITY_CONTRACT): EntityKernelContract =>
   KERNEL_ENTITY_CONTRACT[kind];
 
@@ -754,27 +754,6 @@ const personDoc: EntityKindDoc = {
   liveCount: null,
 };
 
-const adapterDoc: EntityKindDoc = {
-  kind: "adapter",
-  schemaId: null,
-  refTemplate: null,
-  storage: "adapter 注册表(引擎接入面)",
-  definition:
-    "外部 issue tracker 适配器:local / multica 的接入与可写性。它不代表 agent runtime provider；外部系统管理的任务 GUI 只读。",
-  fields: [
-    field("adapterId", true, "string", "引擎 ID。"),
-    field("capabilities", true, "array", "能力清单。"),
-    field("writability", true, "enum", "read-only / read-write / unknown。"),
-    field("registered", true, "const", "是否已注册。"),
-  ],
-  nestedFields: noNested,
-  statuses: [],
-  edges: [],
-  actions: [],
-  guiEntry: { view: "adapters", note: "引擎适配器页" },
-  liveCount: "adapters",
-};
-
 /**
  * 声明实体的说明条目:**由声明派生**,不手写。内建 kind 的「它是什么」那一半是人写的
  * 策展文案(代码拥有语义,文档写不出来);vertical 声明出来的 kind 没有这样的作者——
@@ -854,8 +833,8 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
   {
     id: "catalog",
     title: "目录与配置",
-    summary: "脚手架、默认值、人员与引擎接入面。",
-    docs: [presetDoc, settingsDoc, personDoc, adapterDoc],
+    summary: "脚手架、默认值与人员。",
+    docs: [presetDoc, settingsDoc, personDoc],
   },
 ];
 

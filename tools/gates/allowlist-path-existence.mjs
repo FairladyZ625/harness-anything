@@ -42,8 +42,6 @@ const jsonPolicies = Object.freeze({
       "storeRequiredSnippets",
       "localLifecycleRequiredSnippets",
       "taskProjectionRequiredSnippets",
-      "multicaRequiredSnippets",
-      "multicaForbiddenVerbs",
       "extensionRequiredSnippets",
       "browserWindowRequiredPatterns",
     ],

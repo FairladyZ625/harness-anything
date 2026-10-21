@@ -14,7 +14,7 @@ import type { RelationFactSummaryRow } from "./api-client.ts";
  * 没人看这个面就不请求(与 triadic 读面同一纪律)。
  */
 
-export type EntityLiveCountSource = "tasks" | "decisions" | "agents" | "squads" | "schedules" | "presets" | "adapters";
+export type EntityLiveCountSource = "tasks" | "decisions" | "agents" | "squads" | "schedules" | "presets";
 
 export interface EntityLiveCount {
   /** 读失败 = 该面缺席,不冒充 0;视图如实显示读取失败。 */
@@ -64,7 +64,6 @@ export function useEntityLiveCounts(repoId: string): EntityLiveCounts {
     squads: of(squads, (data) => countOf((data as unknown[]).length)),
     schedules: of(schedules, (data) => countOf((data as { schedules: unknown[] }).schedules.length)),
     presets: of(catalog, (data) => countOf((data as { presets: unknown[] }).presets.length)),
-    adapters: of(catalog, (data) => countOf((data as { adapters: unknown[] }).adapters.length)),
   };
 }
 

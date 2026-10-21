@@ -221,7 +221,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-cli-structure": "packages/cli/src/new-command.ts",
     "check-cli-help-contract": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     "check-cli-error-codes": "packages/cli/src/new-command.ts",
-    "check-error-classification": "packages/adapters/local/src/index.ts",
+    "check-error-classification": "packages/cli/src/cli/thin-command.ts",
     "check-import-boundaries": "packages/daemon/package.json",
     "check-bypass-write-boundary": "packages/kernel/src/store/task-event-store.ts",
     "check-kernel-dead-exports": "packages/daemon/src/repo-cell.ts",

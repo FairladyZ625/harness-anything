@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
-const defaultScanRoots = ["packages/cli/src", "packages/kernel/src", "packages/adapters"];
+const defaultScanRoots = ["packages/cli/src", "packages/kernel/src"];
 
 const forbiddenPatterns = [
   {
