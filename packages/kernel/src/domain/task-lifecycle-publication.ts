@@ -14,6 +14,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
+import { retiredCodeDocDocumentPaths } from "./code-doc-retirement.ts";
 import { completionGateIds, gateResults } from "./closeout-readiness.ts";
 import { taskCompletionAction, type CompletionReadinessContext } from "./completion-readiness.ts";
 export interface LifecycleDocumentState {
@@ -44,6 +45,12 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
   if (event.type === "execution_annotated")
     return [`${packagePath}/executions/${event.payload.execution.executionId}.md`];
   if (event.payload.execution === undefined) return base;
+  // Retired 2026-10-21: accepted code/doc events claimed their anchor file besides the two lifecycle
+  // records, and cold rebuild compares persisted claims to this list verbatim. Reproduce the retired
+  // shape from the one module that still knows the names; current admission rejects both types, so
+  // no new write reaches this branch.
+  if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed")
+    return retiredCodeDocDocumentPaths(event.payload.execution.executionId, packagePath);
   const paths = [`${packagePath}/INDEX.md`, `${packagePath}/executions/${event.payload.execution.executionId}.md`];
   if (
     event.type === "review_recorded" ||

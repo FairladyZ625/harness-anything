@@ -16,6 +16,14 @@ export const retiredCodeDocEventTypes = ["code_doc_reconciled", "code_doc_repoin
 export const retiredCodeDocAnchorFile = "code-doc-anchors.json";
 export type RetiredCodeDocEventType = (typeof retiredCodeDocEventTypes)[number];
 
+/**
+ * Historical accept-only values of the retired repoint record. Not a live status vocabulary: the
+ * event type is rejected by current admission and only the retired payload validator reads this
+ * field, so the values stay module-private instead of re-entering the entity status register.
+ */
+const retiredCodeDocDispositions = ["repointed", "known-invalid"] as const;
+type RetiredCodeDocDisposition = (typeof retiredCodeDocDispositions)[number];
+
 /** The exact historical witness value, kept only so accepted replay can type its payload. */
 export interface RetiredCodeDocWitnessV1 {
   readonly schema: "code-doc-witness/v1";
@@ -36,17 +44,13 @@ export interface RetiredCodeDocRepointV1 {
   readonly commitSha: string;
   readonly iteration: number;
   readonly paths: readonly string[];
-  readonly disposition: "repointed" | "known-invalid";
+  readonly disposition: RetiredCodeDocDisposition;
   readonly reason: string;
   readonly repointedAt: string;
 }
 
 export function isRetiredCodeDocEventType(type: string): type is RetiredCodeDocEventType {
   return (retiredCodeDocEventTypes as readonly string[]).includes(type);
-}
-
-export function isRetiredCodeDocEvent(event: { readonly type: string }): boolean {
-  return isRetiredCodeDocEventType(event.type);
 }
 
 export function isRetiredCodeDocRequirement(gateId: string): boolean {
@@ -84,7 +88,8 @@ export function validateRetiredCodeDocPayload(
     Number.isSafeInteger(record.iteration) &&
     Array.isArray(record.paths) &&
     record.paths.every((value) => typeof value === "string") &&
-    (type === "code_doc_reconciled" || record.disposition === "repointed" || record.disposition === "known-invalid") &&
+    (type === "code_doc_reconciled" ||
+      (retiredCodeDocDispositions as readonly string[]).includes(record.disposition as string)) &&
     isRecord(record.actor) &&
     isRecord(record.actor.principal) &&
     typeof record.actor.principal.personId === "string" &&

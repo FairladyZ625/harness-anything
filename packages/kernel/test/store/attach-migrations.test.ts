@@ -77,8 +77,10 @@ test("attach migration registry covers each retired historical field and is idem
       "schedule.ciObserve",
       "squad-run.subject",
       "settings.ci",
+      "settings.closeout.codeDoc",
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
+      "vertical.completion.closeoutCodeDoc",
     ],
   );
   assert.deepEqual(
@@ -94,6 +96,11 @@ test("attach migration registry covers each retired historical field and is idem
       "old-squad-dispatch",
     ),
     envelope("settings-event/v1", { settings: { ci: { workflows: ["rewrite-ci"] } } }, "old-settings"),
+    envelope(
+      "settings-event/v1",
+      { settings: { closeout: { overrides: { codeDoc: true, review: false } } } },
+      "old-closeout-settings",
+    ),
     envelope(
       "vertical-declaration-event/v1",
       {
@@ -137,13 +144,15 @@ test("attach migration registry covers each retired historical field and is idem
     "schedule.ciObserve",
     "squad-run.subject",
     "settings.ci",
+    "settings.closeout.codeDoc",
     "runtime.reviewDispatchKey",
     "vertical.completion.sources",
+    "vertical.completion.closeoutCodeDoc",
   ]);
-  assert.equal(events.length, 12);
+  assert.equal(events.length, 13);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 12);
+  assert.equal(events.length, 13);
   assert.equal(reads.queryEvents, 0, "attach migration scans use bounded event batches");
   assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
 });
@@ -167,6 +176,43 @@ test("attach migration scan reports monotonic progress while paging historical e
   ]);
   assert.equal(reads.queryEvents, 0);
   assert.equal(reads.readBatch, 3);
+});
+
+test("a retired codeDoc step still runs on a ledger that already applied its parent step", () => {
+  // Ledgers that installed the code/doc mechanism before 2026-10-21 already recorded
+  // `settings.ci` / `vertical.completion.sources`; folding the new field into either step would
+  // skip it wholesale and leave the retired value unrecorded. Each field owns its own step name.
+  const migrationEvent = (migration: string) =>
+    ({
+      schema: "event-shape-migration/v1",
+      eventId: `event-upgrade-${migration}`,
+      workspaceRevision: 1,
+      opId: `upgrade-${migration}`,
+      type: "event_shape_migration_applied",
+      actor,
+      source: "local",
+      occurredAt: "2026-10-20T00:00:00.000Z",
+      payload: { migration, version: 1, sourceRevision: 0, affectedEvents: 1 },
+    }) as unknown as PersistedCanonicalEventV1;
+  const { store, events } = fakeStore([
+    migrationEvent("settings.ci"),
+    migrationEvent("vertical.completion.sources"),
+    envelope(
+      "settings-event/v1",
+      { settings: { closeout: { overrides: { codeDoc: true } } } },
+      "old-closeout-settings",
+    ),
+    envelope(
+      "vertical-declaration-event/v1",
+      { declaration: { definition: { completion: { closeoutDefaults: { codeDoc: true } } } } },
+      "old-vertical",
+    ),
+  ]);
+  assert.deepEqual(applyAttachMigrations({ store }).applied, [
+    "settings.closeout.codeDoc",
+    "vertical.completion.closeoutCodeDoc",
+  ]);
+  assert.equal(events.length, 6);
 });
 
 test("historical reviewer dispatch key normalization preserves all dispatch identities and ignores other lanes", () => {

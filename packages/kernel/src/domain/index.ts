@@ -79,7 +79,7 @@ export {
   currentSubmittedExecutions,
   isRetiredCiRequirement,
 } from "./closeout-readiness.ts";
-export { isRetiredCodeDocRequirement, retiredCodeDocGateId } from "./code-doc-retirement.ts";
+export { isRetiredCodeDocRequirement } from "./code-doc-retirement.ts";
 export {
   completionEvidenceBasis,
   judgeCompletionEvidence,

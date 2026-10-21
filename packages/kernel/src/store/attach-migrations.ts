@@ -70,12 +70,26 @@ function settingsAt(
   return isRecord(current) ? current : {};
 }
 
+const retiredSettingsCodeDocPath = ["closeout", "overrides", "codeDoc"] as const;
+
+/** The settings paths retired by the `settings.ci` step; `closeout.overrides.codeDoc` has its own step. */
+const retiredSettingsCiPaths = RETIRED_SETTINGS_PATHS.filter(
+  (path) => path.join(".") !== retiredSettingsCodeDocPath.join("."),
+);
+
+function hasRetiredSettingsCloseoutCodeDoc(event: PersistedCanonicalEventV1): boolean {
+  if (event.schema !== "settings-event/v1") return false;
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload) || !isRecord(payload.settings)) return false;
+  return Object.hasOwn(settingsAt(payload.settings, retiredSettingsCodeDocPath), "codeDoc");
+}
+
 function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   if (event.schema !== "settings-event/v1") return false;
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload) || !isRecord(payload.settings)) return false;
   const settings = payload.settings;
-  if (RETIRED_SETTINGS_PATHS.some((path) => Object.hasOwn(settingsAt(settings, path), path.at(-1)!))) return true;
+  if (retiredSettingsCiPaths.some((path) => Object.hasOwn(settingsAt(settings, path), path.at(-1)!))) return true;
   return (
     Array.isArray(settings.gates) &&
     settings.gates.some(
@@ -95,15 +109,41 @@ function hasRetiredVerticalHostedCi(
     return (
       isRecord(declaration) &&
       isRecord(declaration.definition) &&
-      (withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition ||
-        withoutRetiredCloseoutCodeDoc(declaration.definition) !== declaration.definition)
+      withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition
     );
   }
   if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
   const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
   if (!bytes) return false;
   const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  return withoutRetiredVerticalHostedCi(snapshot) !== snapshot || withoutRetiredCloseoutCodeDoc(snapshot) !== snapshot;
+  return withoutRetiredVerticalHostedCi(snapshot) !== snapshot;
+}
+
+/**
+ * The retired code/doc closeout default is a field of its own step, never folded into
+ * `vertical.completion.sources`: a step name that was already applied on a ledger is skipped
+ * wholesale, so a field added to that entry afterwards would never run there. The same rule bans
+ * reusing `settings.ci` for the settings-side `closeout.overrides.codeDoc` path.
+ */
+function hasRetiredVerticalCloseoutCodeDoc(
+  event: PersistedCanonicalEventV1,
+  readContentBlob?: (sha256: string) => Uint8Array | null,
+): boolean {
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload)) return false;
+  if (event.schema === "vertical-declaration-event/v1" && isRecord(payload.declaration)) {
+    const declaration = payload.declaration;
+    return (
+      isRecord(declaration) &&
+      isRecord(declaration.definition) &&
+      withoutRetiredCloseoutCodeDoc(declaration.definition) !== declaration.definition
+    );
+  }
+  if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
+  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
+  if (!bytes) return false;
+  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  return withoutRetiredCloseoutCodeDoc(snapshot) !== snapshot;
 }
 
 function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean {
@@ -124,14 +164,24 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     matches: hasRetiredSettingsCi,
   },
   {
+    name: "settings.closeout.codeDoc",
+    fields: ["Settings.closeout.overrides.codeDoc"],
+    matches: hasRetiredSettingsCloseoutCodeDoc,
+  },
+  {
     name: "runtime.reviewDispatchKey",
     fields: ["RuntimeDispatchRequested.payload.dispatchKey"],
     matches: hasLegacyReviewerDispatchKey,
   },
   {
     name: "vertical.completion.sources",
-    fields: ["Vertical.completion.sources.*.kind", "Vertical.completion.closeoutDefaults.codeDoc"],
+    fields: ["Vertical.completion.sources.*.kind"],
     matches: hasRetiredVerticalHostedCi,
+  },
+  {
+    name: "vertical.completion.closeoutCodeDoc",
+    fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
+    matches: hasRetiredVerticalCloseoutCodeDoc,
   },
 ]);
 
