@@ -92,13 +92,16 @@ const WORK_RECEIPT_CANDIDATE_LIMIT = 3,
   WORK_RECEIPT_CANDIDATE_POOL = 8;
 
 /**
- * Open work roots a create could move to, most title/goal-similar first, each rendered as the move
- * command that re-hangs the task. `requireOverlap` keeps a landed task's receipt quiet unless some
- * other work actually shares words with the title; a standalone create always hears the open roots.
- * The pool is every open work root: the index's `limit` pages by task id, so ranking a limited read
- * would silently hide most of the ledger behind its earliest ids. Titles screen first — no document
- * reads — and only the shortlist reads task_plan.md goals for a repriced rank, so goal-only matches
- * surface without one document read per work root. Equal scores keep the index's task-id order.
+ * Open, unfinished work roots a create could move to, most title/goal-similar first, each rendered
+ * as the move command that re-hangs the task. The terminal filter runs on the presented status, so
+ * a work whose subtree all finished never poses as a "move it now" target even while its raw root
+ * status is still planned/active — the same rule `workListFromProjection` applies. `requireOverlap`
+ * keeps a landed task's receipt quiet unless some other work actually shares words with the title;
+ * a standalone create always hears the open roots. The pool is every open work root: the index's
+ * `limit` pages by task id, so ranking a limited read would silently hide most of the ledger behind
+ * its earliest ids. Titles screen first — no document reads — and only the shortlist reads
+ * task_plan.md goals for a repriced rank, so goal-only matches surface without one document read
+ * per work root. Equal scores keep the index's task-id order.
  */
 function candidateWorkLines(
   projection: Pick<TaskProjection, "readTaskIndex" | "read" | "readDocument">,
@@ -115,7 +118,7 @@ function candidateWorkLines(
         activePackagesOnly: true,
         presentationStatus: true,
       })
-      .rows.filter((row) => row.taskId !== excludeTaskId)
+      .rows.filter((row) => row.taskId !== excludeTaskId && !isTerminalStatus(row.status))
       .map((row) => ({ row, titleScore: workReceiptOverlap(titleTokens, workReceiptTokens(row.title)) }))
       .sort((left, right) => right.titleScore - left.titleScore)
       .slice(0, WORK_RECEIPT_CANDIDATE_POOL);
