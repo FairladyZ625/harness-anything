@@ -17,6 +17,10 @@ export function writeAcpProviderStub(
     /** Extra fields merged into the session/new and session/load results —
      * e.g. a spec `models` block or `configOptions` model selector. */
     readonly session?: Record<string, unknown>;
+    /** Real-agent steer semantics: session/cancel answers the pending prompt with
+     * stopReason "cancelled" and every answered prompt text is recorded to the
+     * capture file, so steering round trips are assertable. */
+    readonly steerSemantics?: boolean;
   } = {},
 ): string {
   return writeProviderExecutable(
@@ -50,14 +54,16 @@ const sessionExtras = ${JSON.stringify(
       },
     )};
 const editorHostPid = Number(process.env.WINDSURF_EXT_HOST_PID ?? 0);
+const steerSemantics = ${JSON.stringify(options.steerSemantics === true)};
 const editorHostGone = () => {
   if (!editorHostPid) return false;
   try { process.kill(editorHostPid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
 };
-let buffer = "", authenticated = false, pendingPromptId = null;
+let buffer = "", authenticated = false, pendingPromptId = null, pendingPromptText = "";
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 const update = (update) => send({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
-const finishPrompt = (id) => {
+const finishPrompt = (id, text) => {
+  if (steerSemantics) record({ prompt: text });
   update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking hard" } });
   update({ sessionUpdate: "tool_call", toolCallId: "tc-1", title: "Edit file", kind: "edit", status: "in_progress" });
   update({ sessionUpdate: "tool_call_update", toolCallId: "tc-1", status: "completed" });
@@ -76,10 +82,21 @@ process.stdin.on("data", (chunk) => {
     buffer = buffer.slice(index + 1);
     if (!line) continue;
     const message = JSON.parse(line);
-    if (message.method === "session/cancel") { record({ cancel: message.params?.sessionId ?? null }); continue; }
+    if (message.method === "session/cancel") {
+      record({ cancel: message.params?.sessionId ?? null });
+      if (steerSemantics && pendingPromptId !== null) {
+        const id = pendingPromptId;
+        pendingPromptId = null;
+        send({ jsonrpc: "2.0", id, result: { stopReason: "cancelled" } });
+      }
+      continue;
+    }
     if (message.id === "perm-1" && message.result) {
       record({ permission: message.result.outcome ?? null });
-      const id = pendingPromptId; pendingPromptId = null; finishPrompt(id); continue;
+      const id = pendingPromptId, text = pendingPromptText;
+      pendingPromptId = null; pendingPromptText = "";
+      finishPrompt(id, text);
+      continue;
     }
     if (message.id === undefined || typeof message.method !== "string") continue;
     const reply = (result) => send({ jsonrpc: "2.0", id: message.id, result });
@@ -111,13 +128,15 @@ process.stdin.on("data", (chunk) => {
       const text = message.params?.prompt?.[0]?.text ?? "";
       if (text === "permission-probe") {
         pendingPromptId = message.id;
+        pendingPromptText = text;
         send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: { sessionId, toolCall: { toolCallId: "tc-9", title: "Write file" }, options: [{ optionId: "deny", kind: "reject_once", name: "Deny" }, { optionId: "allow", kind: "allow_once", name: "Allow" }] } });
       } else if (text === "hang") {
         pendingPromptId = message.id;
+        pendingPromptText = text;
       } else if (text === "exit-mid-prompt") {
         update({ sessionUpdate: "tool_call", toolCallId: "tc-2", title: "Read file", kind: "read", status: "in_progress" });
         process.stdout.write("", () => process.exit(0));
-      } else finishPrompt(message.id);
+      } else finishPrompt(message.id, text);
     } else fail("unsupported");
   }
 });

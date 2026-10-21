@@ -78,8 +78,12 @@ artifact；终态 dispatch artifact 保留流引用和 provider session id。因
 `ha runtime run --resume-dispatch <dispatch-id> --prompt "…"` 可以续跑，不必暴露或手工查找
 provider session id。
 Codex 或 Claude 派工仍在运行时，使用 `ha runtime steer <runtime-session|dispatch>
---prompt "…"` 记录纠偏请求，并在 provider 安全中断后续跑同一派工。不支持 steer 的 provider
-会明确报错；只有派工已经结束时才使用 resume。
+--prompt "…"` 记录纠偏请求，并在 provider 安全中断后续跑同一派工。ACP 运行时（ACP 版 Codex、
+ACP 版 Claude、Devin、Cursor、OpenCode、DeepSeek Harness 等）改为原地纠偏：worker host 发出
+协议的 `session/cancel` 结束当前轮，然后用同一个 provider session 重新下提示词，不重启进程。
+纠偏指令走 dispatch stream，由持有 provider 的 worker host 跟随，因此 daemon 重启后收养的运行时
+与当前 daemon 亲自拉起的运行时一样可纠偏。不支持 steer 的 provider 会明确报错；只有派工已经
+结束时才使用 resume。
 续跑默认继承已记录的 agent、工作目录、permission mode 与 model。task worker 可用
 `ha agent run <agent-id> --resume-dispatch <dispatch-id>`；换 agent 或再次续跑同一来源 dispatch
 都会被拒绝。额度中断显示为 `provider_quota`；provider 给出重置时间时同时显示该时间，并在

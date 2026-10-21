@@ -271,6 +271,98 @@ test("acp worker session sends session/cancel before terminating the child", asy
   }
 });
 
+test("acp worker session steer cancels the in-flight turn and reprompts on the same session", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "devin-stub"), capture, { steerSemantics: true });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "hang",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    // Wait until the turn is in flight (session frame seen) before steering.
+    const seenSession = () =>
+      records.some(
+        (record) =>
+          record.kind === "provider_event" &&
+          (record.event as Record<string, unknown> | undefined)?.type === "acp.session",
+      );
+    for (let waited = 0; !seenSession() && waited < 10_000; waited += 10)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(seenSession(), "acp.session frame must precede steer");
+    session.steer("redirected course");
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const captured = capturedEntries(capture);
+    assert.deepEqual(
+      captured.filter((entry) => entry.cancel !== undefined),
+      [{ cancel: "devin-acp-session" }],
+    );
+    assert.deepEqual(
+      captured.filter((entry) => entry.prompt !== undefined),
+      [{ prompt: "redirected course" }],
+    );
+    const frames = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>);
+    const results = frames.filter((frame) => frame.type === "acp.result");
+    assert.deepEqual(
+      results.map((frame) => frame.stopReason),
+      ["cancelled", "end_turn"],
+    );
+    assert.equal(results[0]!.finalText, undefined, "a cancelled turn carries no final text");
+    assert.equal(results.at(-1)!.finalText, "devin live content");
+    assert.ok(
+      frames.every((frame) => frame.sessionId === "devin-acp-session"),
+      "the steered turn runs on the same provider session",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker session steer after the final turn records the drop instead of applying it", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "devin-stub"), capture, { steerSemantics: true });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        { kindId: "devin", cwd: "/tmp", env: { HOME: parent }, prompt: "do work", acpApiKey: "test-manifest-key" },
+        append,
+      );
+    await session.done;
+    session.steer("too late");
+    assert.equal(
+      records.some(
+        (record) =>
+          record.kind === "steer_dropped" &&
+          /final turn/u.test(String((record as { readonly reason?: unknown }).reason)),
+      ),
+      true,
+    );
+    assert.deepEqual(
+      capturedEntries(capture).filter((entry) => entry.prompt !== undefined),
+      [{ prompt: "do work" }],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("acp worker session selects the declared auth method and authenticates without a key", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
     capture = path.join(parent, "capture.jsonl"),
