@@ -81,6 +81,15 @@ export function ApprovalCard({
   decided = null,
   onDecide,
   testId = "approval-card",
+  approveLabel,
+  denyLabel,
+  approveTestId = "approval-approve",
+  denyTestId = "approval-deny",
+  approveDisabled = false,
+  denyDisabled = false,
+  extraActions,
+  hideDefaultActions = false,
+  children,
 }: {
   readonly title: string;
   readonly summary?: string;
@@ -94,6 +103,15 @@ export function ApprovalCard({
   readonly decided?: ApprovalDecision | null;
   readonly onDecide?: (decision: ApprovalDecision) => void;
   readonly testId?: string;
+  readonly approveLabel?: string;
+  readonly denyLabel?: string;
+  readonly approveTestId?: string;
+  readonly denyTestId?: string;
+  readonly approveDisabled?: boolean;
+  readonly denyDisabled?: boolean;
+  readonly extraActions?: ReactNode;
+  readonly hideDefaultActions?: boolean;
+  readonly children?: ReactNode;
 }) {
   const [attention, setAttention] = useState(false);
   const resolvedRef = useRef<HTMLDivElement>(null);
@@ -111,16 +129,26 @@ export function ApprovalCard({
     decide("denied", "timeout"),
   );
 
-  // 键盘裁决:Enter 批准,Esc / Shift+Enter 拒绝。焦点在按钮上时让按钮原生激活,不重复拍板。
+  // 键盘裁决:Enter 批准,Esc / Shift+Enter 拒绝。焦点在按钮/输入框上时让其原生激活,不重复拍板。
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (decided !== null) return;
-    const onButton = (event.target as HTMLElement).tagName === "BUTTON";
+    const targetTag = (event.target as HTMLElement).tagName;
+    const onButton = targetTag === "BUTTON";
+    const onInput = targetTag === "INPUT" || targetTag === "TEXTAREA";
     if (event.key === "Escape") {
+      if (denyDisabled) return;
       event.preventDefault();
       decide("denied", "user");
-    } else if (event.key === "Enter" && !onButton) {
-      event.preventDefault();
-      decide(event.shiftKey ? "denied" : "approved", "user");
+    } else if (event.key === "Enter" && !onButton && !onInput) {
+      if (event.shiftKey) {
+        if (denyDisabled) return;
+        event.preventDefault();
+        decide("denied", "user");
+      } else {
+        if (approveDisabled) return;
+        event.preventDefault();
+        decide("approved", "user");
+      }
     }
   };
 
@@ -167,17 +195,31 @@ export function ApprovalCard({
               {previewKind === "command" ? previewLines.map((line) => `$ ${line}`).join("\n") : previewLines.join("\n")}
             </pre>
           )}
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono ui-micro text-text-faint">{t("agentUi.approval.kbdHint")}</span>
-            <div className="flex shrink-0 gap-2">
-              <Button variant="ghost" testId="approval-deny" onClick={() => decide("denied", "user")}>
-                {t("agentUi.approval.deny")}
-              </Button>
-              <Button variant="primary" testId="approval-approve" onClick={() => decide("approved", "user")}>
-                {t("agentUi.approval.approve")}
-              </Button>
+          {children}
+          {!hideDefaultActions && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono ui-micro text-text-faint">{t("agentUi.approval.kbdHint")}</span>
+              <div className="flex shrink-0 items-center gap-2">
+                {extraActions}
+                <Button
+                  variant="ghost"
+                  testId={denyTestId}
+                  disabled={denyDisabled}
+                  onClick={() => decide("denied", "user")}
+                >
+                  {denyLabel ?? t("agentUi.approval.deny")}
+                </Button>
+                <Button
+                  variant="primary"
+                  testId={approveTestId}
+                  disabled={approveDisabled}
+                  onClick={() => decide("approved", "user")}
+                >
+                  {approveLabel ?? t("agentUi.approval.approve")}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : (
         <div

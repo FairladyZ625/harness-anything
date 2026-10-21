@@ -320,6 +320,22 @@ export function installBridge({
       watermark: 7,
       sourceRevision: 7,
     })),
+    getTaskDeliveryDiff: vi.fn(async ({ taskId }: { taskId: string }) => ({
+      ok: true,
+      status: "ready",
+      taskId,
+      baseline: "a".repeat(40),
+      commitSha: "b".repeat(40),
+      files: [
+        {
+          filePath: "delivery-review.txt",
+          lines: [{ kind: "add", newLineNo: 1, text: "delivery diff is observable" }],
+        },
+      ],
+      truncated: false,
+      watermark: 7,
+      sourceRevision: 7,
+    })),
     getTaskDispatches: vi.fn(async () => ({
       ok: true,
       status: "ready",
@@ -473,6 +489,7 @@ export async function mount(
     readonly task?: TaskRow;
     readonly onComplete?: () => Promise<unknown>;
     readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+    readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
     readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
     readonly work?: { readonly taskId: string; readonly title: string } | null;
     readonly onOpenWork?: (taskId: string) => void;
@@ -507,6 +524,7 @@ export async function mount(
       initialDocFocus: overrides.initialDocFocus,
       onComplete: overrides.onComplete,
       onAdjudicate: overrides.onAdjudicate,
+      onReturnNote: overrides.onReturnNote,
       onConsentReview: overrides.onConsentReview,
       work: overrides.work,
       onOpenWork: overrides.onOpenWork,

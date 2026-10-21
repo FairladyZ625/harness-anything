@@ -33,6 +33,7 @@ import type {
   WorkIndexRead,
   WorkBriefsRead,
   TaskCompletionRead,
+  TaskDeliveryDiffRead,
   WorkspaceSummaryRead,
   WorkspaceScopeRead,
   SettingsRead,
@@ -49,6 +50,8 @@ import type { SettingsFieldValue } from "./settings-form.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
+import { readTaskDeliveryDiffResult } from "./api-client-task-delivery-diff.ts";
+import { readTaskDocumentListResult } from "./api-client-task-documents.ts";
 import { readCatalogPreset, readCatalogRereadReceipt, readCatalogSnapshot } from "./api-client-catalog.ts";
 import {
   readDecisionControlList,
@@ -352,6 +355,9 @@ export const harnessClient = {
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> {
     return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload, "getTaskDocuments"));
   },
+  async getTaskDeliveryDiff(payload: RepoScope & { readonly taskId: string }): Promise<TaskDeliveryDiffRead> {
+    return readTaskDeliveryDiffResult(await invoke("repo.tasks.deliveryDiff.read", payload, "getTaskDeliveryDiff"));
+  },
   async getTaskDispatches(payload: RepoScope & DaemonTaskDispatchesPayload): Promise<TaskDispatchesRead> {
     return readTaskDispatchesResult(
       await invoke(
@@ -575,30 +581,6 @@ export const harnessClient = {
     return readCatalogRereadReceipt(await invoke("repo.gui.catalog.reread", payload, "rereadCatalog"));
   },
 };
-
-function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionRead {
-  const result = value as Partial<TaskDocumentListProjectionRead>;
-  if (
-    !result ||
-    result.ok !== true ||
-    (result.status !== "ready" && result.status !== "pending") ||
-    typeof result.taskId !== "string" ||
-    !Array.isArray(result.documents) ||
-    result.documents.some(
-      (doc) =>
-        !isRendererRecord(doc) ||
-        typeof doc.path !== "string" ||
-        typeof doc.blobSha256 !== "string" ||
-        !Number.isInteger(doc.size) ||
-        typeof doc.mediaType !== "string" ||
-        typeof doc.uncommitted !== "boolean",
-    ) ||
-    !Number.isInteger(result.watermark) ||
-    !Number.isInteger(result.sourceRevision)
-  )
-    throw new Error(localErrorHint(value, "Task document list bridge returned an invalid result."));
-  return result as TaskDocumentListProjectionRead;
-}
 
 function readSettingsResult(value: unknown): SettingsSuccess {
   if (!isSettingsSuccess(value)) throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));

@@ -165,6 +165,20 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
     id: "daemon.task-document-list/v1",
     required: Object.freeze(["ok", "status", "taskId", "documents", "watermark", "sourceRevision"]),
   }),
+  DAEMON_TASK_DELIVERY_DIFF_SCHEMA = Object.freeze({
+    id: "daemon.task-delivery-diff/v1",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "taskId",
+      "baseline",
+      "commitSha",
+      "files",
+      "truncated",
+      "watermark",
+      "sourceRevision",
+    ]),
+  }),
   DAEMON_PROTOCOL_ERROR_SCHEMA = Object.freeze({
     id: "daemon.protocol-error/v1",
     required: Object.freeze([

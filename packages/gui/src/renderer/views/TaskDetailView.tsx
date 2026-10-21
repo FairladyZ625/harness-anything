@@ -23,7 +23,12 @@ import { PageRegions, RegionDragHandle } from "../components/primitives/page-reg
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import { TASK_EXPLAINER_DOC, useTaskDocumentListQuery, useTaskDocumentQuery } from "../task-data.ts";
+import {
+  TASK_EXPLAINER_DOC,
+  useTaskDeliveryDiffQuery,
+  useTaskDocumentListQuery,
+  useTaskDocumentQuery,
+} from "../task-data.ts";
 import { workspaceGoalLine } from "../model/workspace-narrative.ts";
 import { t } from "../i18n/index.tsx";
 import { AwaitsAskStrip } from "../components/AwaitsAskStrip.tsx";
@@ -65,6 +70,7 @@ export function TaskDetailView({
   onSubmit,
   onComplete,
   onAdjudicate,
+  onReturnNote,
   onConsentReview,
   onAttest,
   onSetPin,
@@ -103,6 +109,7 @@ export function TaskDetailView({
   /** 收口销账写通道(`ha task complete` 同一动作);缺省时完成面板只读。 */
   onComplete?: () => Promise<unknown>;
   onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注写通道(`ha task attest` 同一动作);缺省时签注卡只读。 */
   onAttest?: (
@@ -141,6 +148,7 @@ export function TaskDetailView({
 
   const explicitLanding = initialTab !== undefined || initialRecordFocus !== undefined || initialDocFocus !== undefined;
   const documentList = useTaskDocumentListQuery(task.projectId, task.taskId);
+  const deliveryDiff = useTaskDeliveryDiffQuery(task.projectId, task.taskId);
   const explainerDefault =
     !explicitLanding &&
     documentList.data?.status === "ready" &&
@@ -533,6 +541,7 @@ export function TaskDetailView({
                     ) : activeTab === "closeout" ? (
                       <TaskCloseoutTab
                         task={task}
+                        diffFiles={deliveryDiff.data?.files}
                         onNavigateEntity={onNavigateEntity}
                         focusedRecordRef={focusedRecordRef}
                         mutationFeedback={mutationFeedback}
@@ -540,6 +549,7 @@ export function TaskDetailView({
                         onSubmit={onSubmit}
                         onComplete={onComplete}
                         onAdjudicate={onAdjudicate}
+                        onReturnNote={onReturnNote}
                         onConsentReview={onConsentReview}
                         onAttest={onAttest}
                       />

@@ -2,6 +2,12 @@ import type { DaemonHomeOverviewResult } from "../home/home-overview-types.ts";
 import type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
 export type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
 import type { DaemonTaskCompletionResult } from "./daemon-protocol-task-completion.ts";
+import type { DaemonTaskDeliveryDiffResult } from "./daemon-protocol-task-delivery-diff.ts";
+export type {
+  DaemonTaskDeliveryDiffFile,
+  DaemonTaskDeliveryDiffLine,
+  DaemonTaskDeliveryDiffResult,
+} from "./daemon-protocol-task-delivery-diff.ts";
 import type { TaskDispatchRow } from "./task-dispatch-contract.ts";
 export type { TaskDispatchRow } from "./task-dispatch-contract.ts";
 import type {
@@ -406,6 +412,7 @@ type DaemonGuiReadDataMap = {
    * query against their authorized replica cut. */
   readonly "repo.tasks.runtimeContext.read": DaemonTaskRuntimeContextResult;
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
+  readonly "repo.tasks.deliveryDiff.read": DaemonTaskDeliveryDiffResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
@@ -485,6 +492,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.tasks.completion.read": { readonly taskId: string };
   readonly "repo.tasks.runtimeContext.read": { readonly taskId: string };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
+  readonly "repo.tasks.deliveryDiff.read": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
   readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };
   readonly "repo.agentRuntime.overview": {

@@ -18,11 +18,14 @@ import { IdText } from "../IdText.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
 import { Section } from "../primitives/Section";
+import { Button } from "../primitives/Button.tsx";
+import { AnnotateDiffViewer, type DiffFile } from "../agent-ui/AnnotateDiffViewer.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
 import { ReadError, Timestamp } from "./TaskDetailSections.tsx";
 
-const asideClass = "grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
+const asideClass =
+  "grid content-start gap-7 border-t border-border pt-6 @[1100px]:border-t-0 @[1100px]:border-l @[1100px]:pt-0 @[1100px]:pl-6";
 
 /** recordRef(execution/<id> 等)→ 收口记录行的 DOM 锚点:斜杠转连字符,getElementById 直取。 */
 export function closeoutRecordDomId(recordRef: string): string {
@@ -40,6 +43,8 @@ export interface TaskActionProps {
   readonly onComplete?: () => Promise<unknown>;
   /** CEO 初审送审/打回与终审打回。 */
   readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  /** 批量 Diff 批注的结构化返工说明直接预填入统一打回对话框。 */
+  readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   /** CEO 终审批准:对指定已批准评审记录同意。 */
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注:manual-attest 打勾(approve)或失败关卡特批(override)。 */
@@ -53,17 +58,20 @@ export interface TaskActionProps {
 
 export function TaskCloseoutTab({
   task,
+  diffFiles,
   focusedRecordRef = null,
   mutationFeedback,
   onProgress,
   onSubmit,
   onComplete,
   onAdjudicate,
+  onReturnNote,
   onConsentReview,
   onAttest,
   onNavigateEntity,
 }: {
   readonly task: TaskRow;
+  readonly diffFiles?: readonly DiffFile[];
   readonly focusedRecordRef?: string | null;
   readonly onNavigateEntity: (ref: string) => void;
 } & TaskActionProps) {
@@ -106,21 +114,24 @@ export function TaskCloseoutTab({
     return () => cancelAnimationFrame(frame);
   }, [focusedRecordRef, completion.isPending]);
   return (
-    <section data-testid="task-closeout-tab">
-      <Section title="收口与门" note="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示">
-        <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
+    <section data-testid="task-closeout-tab" className="@container min-w-0">
+      <span data-testid="task-delivery-diff-count" className="sr-only" aria-hidden="true">
+        {diffFiles?.length ?? 0}
+      </span>
+      <Section title={t("components.taskCloseout.sectionTitle")} note={t("components.taskCloseout.sectionNote")}>
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-8 @[1100px]:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-8">
             <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
               <CloseoutBadge value={task.closeoutReadiness} />
               {task.siblingResolution ? (
                 <div data-testid="task-sibling-resolution" className="text-sm">
                   <strong>
-                    由{" "}
+                    {t("components.taskCloseout.resolvedByPrefix")}
                     <EntityRefLink
                       entityRef={`task/${task.siblingResolution.sourceTaskId}`}
                       onNavigate={onNavigateEntity}
-                    />{" "}
-                    解决
+                    />
+                    {t("components.taskCloseout.resolvedBySuffix")}
                   </strong>
                   <span className="ml-2">{task.siblingResolution.rationale}</span>
                   <EntityRefLink
@@ -147,9 +158,11 @@ export function TaskCloseoutTab({
             </div>
             <CompletionPanel
               task={task}
+              diffFiles={diffFiles}
               completionBlocker={completion.data?.completionBlocker ?? null}
               onComplete={onComplete}
               onAdjudicate={onAdjudicate}
+              onReturnNote={onReturnNote}
               onConsentReview={onConsentReview}
             />
             <AuditGroup title="Review" count={reviews.length}>
@@ -236,14 +249,18 @@ export function TaskCloseoutTab({
 function CompletionPanel({
   task,
   completionBlocker,
+  diffFiles,
   onComplete,
   onAdjudicate,
+  onReturnNote,
   onConsentReview,
 }: {
   readonly task: TaskRow;
   readonly completionBlocker: TaskCompletionRead["completionBlocker"];
+  readonly diffFiles?: readonly DiffFile[];
   readonly onComplete?: () => Promise<unknown>;
   readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
 }) {
   const code = completionBlocker?.code,
@@ -255,80 +272,87 @@ function CompletionPanel({
           : code === undefined || code === null
             ? ("ready" as const)
             : ("other" as const);
-  if (!["submitted", "in_review"].includes(task.coordinationStatus) || stage === "other") return null;
-  const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
-    buttonClass =
-      "rounded-sm bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
-      "hover:bg-accent/85 disabled:opacity-50";
+  const hasDeliveryDiff = diffFiles !== undefined && diffFiles.length > 0;
+  if (!["submitted", "in_review"].includes(task.coordinationStatus) || (stage === "other" && !hasDeliveryDiff))
+    return null;
+  const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1);
+  const sendReturnNote =
+    onReturnNote ?? ((reason: string, reviewId?: string) => onAdjudicate?.("return", reason, reviewId));
+
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
-      <h3 className="ui-body font-semibold text-text">完成销账</h3>
+      <h3 className="ui-body font-semibold text-text">{t("components.taskCloseout.completionTitle")}</h3>
       <p className="mt-1 ui-meta text-text-muted">
         {stage === "review"
-          ? "独立评审尚未记录结论:评审员只查验,结论回流后由任务 owner 裁决;裁决前完成不可用。"
+          ? t("components.taskCloseout.stageReviewDesc")
           : stage === "consent"
-            ? "独立评审已批准:owner 终审批准即按已评审内容记录同意;同意后完成是纯机械动作。"
-            : "终审批准已记录:结项是纯机械动作,立即封存。"}
+            ? t("components.taskCloseout.stageConsentDesc")
+            : t("components.taskCloseout.stageReadyDesc")}
       </p>
+      {diffFiles && diffFiles.length > 0 && (
+        <div className="mt-3">
+          <AnnotateDiffViewer
+            files={diffFiles}
+            onBatchSend={(prompt) => {
+              void sendReturnNote?.(prompt, approved?.reviewId);
+            }}
+          />
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         {task.coordinationStatus === "submitted" ? (
           <>
-            <button
-              type="button"
-              data-testid="task-triage-forward"
+            <Button
+              testId="task-triage-forward"
               disabled={!onAdjudicate}
+              variant="primary"
               onClick={() =>
                 void onAdjudicate?.("forward", "Owner initial review accepted this cut for independent review.")
               }
-              className={buttonClass}
             >
-              送独立评审
-            </button>
-            <button
-              type="button"
-              data-testid="task-triage-return"
+              {t("components.taskCloseout.triageForward")}
+            </Button>
+            <Button
+              testId="task-triage-return"
               disabled={!onAdjudicate}
+              variant="plain"
               onClick={() => void onAdjudicate?.("return", "Owner initial review returned this cut for rework.")}
-              className={buttonClass}
             >
-              初审打回
-            </button>
+              {t("components.taskCloseout.triageReturn")}
+            </Button>
           </>
         ) : null}
         {task.coordinationStatus === "in_review" && approved ? (
-          <button
-            type="button"
-            data-testid="task-review-return"
+          <Button
+            testId="task-review-return"
             disabled={!onAdjudicate}
+            variant="plain"
             onClick={() =>
               void onAdjudicate?.("return", "Owner final review returned this cut for rework.", approved.reviewId)
             }
-            className={buttonClass}
           >
-            终审打回
-          </button>
+            {t("components.taskCloseout.reviewReturn")}
+          </Button>
         ) : null}
         {stage === "consent" ? (
-          <button
-            type="button"
-            data-testid="task-completion-consent"
+          <Button
+            testId="task-completion-consent"
             disabled={!onConsentReview || !approved}
+            variant="primary"
             onClick={() => approved && void onConsentReview?.(approved.reviewId)}
-            className={buttonClass}
           >
-            终审批准
-          </button>
+            {t("components.taskCloseout.completionConsent")}
+          </Button>
         ) : null}
-        <button
-          type="button"
-          data-testid="task-completion-complete"
+        <Button
+          testId="task-completion-complete"
           disabled={stage !== "ready" || !onComplete}
-          title={stage === "ready" ? undefined : "先终审批准,再机械结项"}
+          tip={stage === "ready" ? undefined : t("components.taskCloseout.completionCompleteTip")}
+          variant="primary"
           onClick={() => void onComplete?.()}
-          className={buttonClass}
         >
-          机械结项
-        </button>
+          {t("components.taskCloseout.completionComplete")}
+        </Button>
       </div>
     </section>
   );
@@ -350,7 +374,9 @@ function AuditGroup({
         <span className="font-mono ui-micro text-text-faint">{count}</span>
       </div>
       {count === 0 ? (
-        <p className="border-t border-border py-3 ui-meta text-text-faint">暂无记录。</p>
+        <p className="border-t border-border py-3 ui-meta text-text-faint">
+          {t("components.taskCloseout.emptyAuditRecords")}
+        </p>
       ) : (
         <div className="divide-y divide-border border-y border-border">{children}</div>
       )}
@@ -429,7 +455,7 @@ function ExecutionOutputsGroup({
   readonly focusedRecordRef?: string | null;
 }) {
   return (
-    <AuditGroup title="Execution 输出" count={executions.length}>
+    <AuditGroup title={t("components.taskCloseout.executionOutputsTitle")} count={executions.length}>
       {executions.map((execution) => {
         const recordRef = `execution/${execution.executionId}`;
         return (
@@ -461,7 +487,7 @@ function ExecutionOutputsGroup({
               </span>
             </div>
             {execution.outputs.length === 0 ? (
-              <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
+              <p className="ui-meta text-text-faint">{t("components.taskCloseout.emptyOutputs")}</p>
             ) : (
               <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
                 {execution.outputs.map((output, index) => {
@@ -528,7 +554,12 @@ function AuditRow({
       time={<Timestamp value={at} />}
       action={
         recordRef !== undefined ? (
-          <CopyContextButton compact label="复制" title="复制完整记录引用" buildText={() => recordRef} />
+          <CopyContextButton
+            compact
+            label={t("components.taskCloseout.copyRecordRef")}
+            title={t("components.taskCloseout.copyRecordRefTitle")}
+            buildText={() => recordRef}
+          />
         ) : undefined
       }
     />

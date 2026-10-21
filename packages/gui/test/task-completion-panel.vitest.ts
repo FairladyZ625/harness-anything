@@ -2,6 +2,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import {
   byTestId,
@@ -15,7 +16,10 @@ import {
 
 beforeAll(prepareDetailEnvironment);
 
-afterEach(cleanupMountedDetail);
+afterEach(async () => {
+  setActiveLocale("zh-CN");
+  await cleanupMountedDetail();
+});
 
 describe("Task completion panel", () => {
   it("shows the panel for an in_review task and waits while the review blocker stands", async () => {
@@ -51,6 +55,35 @@ describe("Task completion panel", () => {
       consent!.click();
     });
     expect(consents).toEqual(["review-w3"]);
+  });
+
+  it("sends delivery diff annotations to the return-note entry point", async () => {
+    installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
+    const notes: Array<[string, string | undefined]> = [];
+    await mount({
+      task: {
+        ...task,
+        coordinationStatus: "submitted",
+        canonicalStatus: "submitted",
+        ...projectedTaskFields("submitted"),
+      },
+      onReturnNote: (reason, reviewId) => (notes.push([reason, reviewId]), Promise.resolve()),
+    });
+    await clickTab("收口");
+    const viewer = byTestId("annotate-diff");
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-add-new-1"]')!.click());
+    const input = viewer.querySelector<HTMLTextAreaElement>('[data-testid="annotate-composer-text"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "补充回归测试");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-composer-save"]')!.click());
+    expect(viewer.querySelector('[data-testid="annotate-pending-count"]')?.textContent).toBe("1");
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-send"]')!.click());
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.[0]).toContain("请按以下 1 条批注一次性完成修订");
+    expect(notes[0]?.[0]).toContain("补充回归测试");
+    expect(notes[0]?.[1]).toBe("review-w3");
   });
 
   it("routes submitted triage and in-review return through owner adjudication", async () => {
@@ -116,5 +149,49 @@ describe("Task completion panel", () => {
     // blocker 不在 review/consent 阶段(默认 closeout_placeholder)时,面板只给指引,不给按钮。
     expect(document.querySelector('[data-testid="task-completion-submit"]')).toBeNull();
     expect(document.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
+  });
+
+  it("renders buttons and guidance correctly under en-US locale", async () => {
+    setActiveLocale("en-US");
+    try {
+      // 1. submitted: check triage forward and triage return buttons in en-US
+      installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
+      await mount({
+        task: {
+          ...task,
+          coordinationStatus: "submitted",
+          canonicalStatus: "submitted",
+          ...projectedTaskFields("submitted"),
+        },
+      });
+      await clickTab("Closeout");
+      const fwd = byTestId("task-triage-forward");
+      const ret = byTestId("task-triage-return");
+      const completeSubmitted = byTestId("task-completion-complete");
+      expect(fwd.textContent?.trim()).toBe("Forward to Review");
+      expect(ret.textContent?.trim()).toBe("Return Initial Review");
+      expect(completeSubmitted.textContent?.trim()).toBe("Complete Task");
+      expect(completeSubmitted.getAttribute("data-tip")).toBe("Approve final review first before mechanical closeout");
+
+      // 2. in_review with consent_missing: check review return, consent, and complete buttons
+      await cleanupMountedDetail();
+      installBridge({
+        completionBlocker: { code: "consent_missing", gate: "consent" },
+      });
+      await mount();
+      await clickTab("Closeout");
+      const panel = byTestId("task-completion-panel");
+      expect(panel.textContent).toContain("Closeout Settlement");
+      expect(panel.textContent).toContain("Independent review approved");
+      const reviewRet = byTestId("task-review-return");
+      const consentBtn = byTestId("task-completion-consent");
+      const completeConsent = byTestId("task-completion-complete");
+      expect(reviewRet.textContent?.trim()).toBe("Return Final Review");
+      expect(consentBtn.textContent?.trim()).toBe("Approve Final Review");
+      expect(completeConsent.textContent?.trim()).toBe("Complete Task");
+      expect(completeConsent.getAttribute("data-tip")).toBe("Approve final review first before mechanical closeout");
+    } finally {
+      setActiveLocale("zh-CN");
+    }
   });
 });

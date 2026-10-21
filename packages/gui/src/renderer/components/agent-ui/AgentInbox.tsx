@@ -31,6 +31,10 @@ export interface InboxItem {
   readonly recentSteps?: readonly string[];
   /** 行内动作;kind 决定默认文案与档位。 */
   readonly actions?: readonly InboxItemAction[];
+  /** 自定义外层行 testId(如 my-asks-row-${id})。 */
+  readonly testId?: string;
+  /** 点击整行触发的导航/抽屉选择。 */
+  readonly onSelect?: (item: InboxItem) => void;
 }
 
 export interface InboxItemAction {
@@ -83,6 +87,8 @@ function InboxRow({
   readonly onToggle: (next: boolean) => void;
   readonly testId: string;
 }): ReactNode {
+  const rowTestId = testId;
+  const outerTestId = item.testId ?? testId;
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Esc 收起展开并把焦点还给行触发按钮(无障碍约束:焦点归位)。
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -100,10 +106,13 @@ function InboxRow({
       <button
         ref={triggerRef}
         type="button"
-        data-testid={`${testId}-toggle`}
+        data-testid={`${rowTestId}-toggle`}
         aria-expanded={expanded}
-        aria-controls={`${testId}-body`}
-        onClick={() => onToggle(!expanded)}
+        aria-controls={`${rowTestId}-body`}
+        onClick={() => {
+          onToggle(!expanded);
+          item.onSelect?.(item);
+        }}
         className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface"
       >
         <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${LANE_META[item.lane].dotClass}`} />
@@ -115,7 +124,7 @@ function InboxRow({
             {item.title}
           </span>
           {item.note !== undefined && (
-            <span data-testid={`${testId}-note`} className="block truncate font-mono ui-micro text-text-faint">
+            <span data-testid={`${rowTestId}-note`} className="block truncate font-mono ui-micro text-text-faint">
               {item.note}
             </span>
           )}
@@ -129,13 +138,13 @@ function InboxRow({
       </button>
       {expanded && (
         <div
-          id={`${testId}-body`}
+          id={`${rowTestId}-body`}
           role="region"
           aria-label={t("agentUi.inbox.stepsAria")}
           className="flex flex-col gap-2 border-t border-border px-2.5 py-2"
         >
           {item.recentSteps !== undefined && item.recentSteps.length > 0 ? (
-            <ol data-testid={`${testId}-steps`} className="flex flex-col gap-0.5 pl-1">
+            <ol data-testid={`${rowTestId}-steps`} className="flex flex-col gap-0.5 pl-1">
               {item.recentSteps.map((step, index) => (
                 <li key={index} className="truncate ui-micro leading-relaxed text-text-muted">
                   <span className="mr-1.5 font-mono text-text-faint">{index + 1}.</span>
@@ -153,7 +162,7 @@ function InboxRow({
                   key={action.kind}
                   size="sm"
                   variant={ACTION_META[action.kind].variant}
-                  testId={`${testId}-action-${action.kind}`}
+                  testId={`${rowTestId}-action-${action.kind}`}
                   onClick={() => action.onTrigger(item)}
                 >
                   {action.label ?? t(ACTION_META[action.kind].labelKey)}
@@ -170,7 +179,7 @@ function InboxRow({
   // 键盘归位挂在两种分支上,与动效偏好无关。
   if (!enabled || reduced)
     return (
-      <div data-testid={testId} data-lane={item.lane} className={className} onKeyDown={onKeyDown}>
+      <div data-testid={outerTestId} data-lane={item.lane} className={className} onKeyDown={onKeyDown}>
         {body}
       </div>
     );
@@ -178,7 +187,7 @@ function InboxRow({
     <motion.div
       layoutId={`inbox-item-${item.id}`}
       layout
-      data-testid={testId}
+      data-testid={outerTestId}
       data-lane={item.lane}
       onKeyDown={onKeyDown}
       transition={{ duration: MOTION_DURATION.controlSlide, ease: MOTION_EASE.out }}

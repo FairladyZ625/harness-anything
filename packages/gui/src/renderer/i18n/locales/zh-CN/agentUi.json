@@ -124,5 +124,6 @@
   "agentUi.diff.splitAria": "{file} 分栏视图差异",
   "agentUi.diff.filesEmpty": "没有待批注的差异",
   "agentUi.diff.promptHeader": "请按以下 {count} 条批注一次性完成修订(同一轮内全部处理,不要逐条回复):",
-  "agentUi.diff.promptCommentLabel": "批注:"
+  "agentUi.diff.promptCommentLabel": "批注:",
+  "agentUi.diff.truncated": "还有 {count} 行差异已折叠"
 }

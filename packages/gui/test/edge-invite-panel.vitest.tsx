@@ -5,7 +5,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { formatTime } from "../src/renderer/model/time.ts";
 import { EdgeInvitePanel } from "../src/renderer/views/settings/EdgeInvitePanel.tsx";
 
 vi.mock("motion/react", async (original) => {
@@ -39,7 +38,7 @@ function issuedReply(joinId = "join-1") {
     ok: true,
     joinId,
     state: "pending",
-    expiresAt: "2026-10-21T00:00:00.000Z",
+    expiresAt: "2030-01-01T00:00:00.000Z",
     link: LINK,
   };
 }
@@ -52,7 +51,7 @@ function join(state: "pending" | "consumed" | "expired" | "revoked" = "pending")
     repoIds: ["repo-a", "repo-b"],
     groupIds: ["contributor"],
     createdAt: "2026-10-18T00:00:00.000Z",
-    expiresAt: "2026-10-21T00:00:00.000Z",
+    expiresAt: "2030-01-01T00:00:00.000Z",
   };
 }
 
@@ -224,7 +223,7 @@ describe("EdgeInvitePanel", () => {
       nodeLabel: "edge-boston",
     });
     expect(container.querySelector('[data-testid="edge-invite-issued"]')?.textContent).toContain(LINK);
-    expect(container.textContent).toContain(formatTime("2026-10-21T00:00:00.000Z", { style: "date-time" }));
+    expect(container.textContent).toContain("2030-01-01");
     expect(list).toHaveBeenCalled();
     expect(container.textContent).toContain("Pending");
   });

@@ -64,6 +64,7 @@ import { readEntityContent, type EntityContentSource } from "./entity-content-re
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
+import { readTaskDeliveryDiff } from "./task-delivery-diff-read.ts";
 import { decisionFullListRows, decisionReviewSummaryRow } from "./decision-review-read.ts";
 import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.ts";
 import {
@@ -425,6 +426,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       readTaskRuntimeContext(context.rootDir, context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
+    "repo.tasks.deliveryDiff.read": (payload) =>
+      readTaskDeliveryDiff(context.rootDir, context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.artifacts.list": (payload) =>
       readArtifactsGui(
         { rootDir: context.rootDir, projection: context.projection, input: { repoId: context.input.repoId } },

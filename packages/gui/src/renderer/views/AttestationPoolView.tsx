@@ -8,7 +8,7 @@ import type { GateAttestMode } from "../components/taskDetail/TaskGateAttestCard
 import { DecisionsView } from "./DecisionsView.tsx";
 import { DecisionPoolSection } from "./decision-pool-section.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
-import { type DecisionRow, type FactRef, type RelationEdge, type TaskRow } from "../model/types.ts";
+import { isTerminal, type DecisionRow, type FactRef, type RelationEdge, type TaskRow } from "../model/types.ts";
 import {
   deriveAttestationLanes,
   TASK_CLOSEOUT_TABS,
@@ -23,6 +23,9 @@ import { Section } from "../components/primitives/Section.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
+import { Button } from "../components/primitives/Button.tsx";
+import { SegCtl } from "../components/primitives/SegCtl.tsx";
+import { AgentInbox, type InboxItem } from "../components/agent-ui/AgentInbox.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 
 type RelationState = "ready" | "loading" | "error";
@@ -148,10 +151,149 @@ export function AttestationPoolView({
 
   const inDecisionDomain = poolTab === "decisions",
     // 专注裁决是决策域的模式:整个池体让位给 DecisionsView(J/K 键盘流 + 判定历史)。
-    [focusMode, setFocusMode] = useState(false);
+    [focusMode, setFocusMode] = useState(false),
+    [viewMode, setViewMode] = useState<"lanes" | "inbox">("lanes");
   const showGates = poolTab === "taskCloseout" || poolTab === "gates",
     showConsents = poolTab === "taskCloseout" || poolTab === "consents",
     showBreakGlass = poolTab === "taskCloseout" || poolTab === "breakGlass";
+
+  const inboxItems: InboxItem[] = useMemo(() => {
+    const items: InboxItem[] = [];
+    const seenTaskIds = new Set<string>();
+
+    for (const gate of lanes.gates) {
+      seenTaskIds.add(gate.taskId);
+      items.push({
+        id: `gate-${gate.taskId}-${gate.gateId}`,
+        title: gate.taskTitle,
+        agentName: gate.adapterId ?? gate.gateId,
+        lane: "needs-you",
+        note: `${gate.gateId} (${gate.gateStatus})${gate.detail ? ` · ${gate.detail}` : ""}`,
+        actions: [
+          ...(onAttest
+            ? [
+                {
+                  kind: gate.mode === "approve" ? ("approve" as const) : ("reject" as const),
+                  label: t(
+                    gate.mode === "approve" ? "views.attestationPoolView.attest" : "views.attestationPoolView.override",
+                  ),
+                  onTrigger: () => {
+                    void onAttest({ taskId: gate.taskId }, gate.gateId, gate.mode);
+                  },
+                },
+              ]
+            : []),
+          ...(onNavigateTask
+            ? [
+                {
+                  kind: "open" as const,
+                  label: t("views.attestationPoolView.openTask"),
+                  onTrigger: () => onNavigateTask(gate.taskId),
+                },
+              ]
+            : []),
+        ],
+        onSelect: onNavigateTask ? () => onNavigateTask(gate.taskId) : undefined,
+      });
+    }
+
+    for (const consent of lanes.consents) {
+      seenTaskIds.add(consent.taskId);
+      const task = tasks.find((c) => c.taskId === consent.taskId);
+      const approved = (task?.reviews ?? []).filter((r) => r.verdict === "approved").at(-1);
+      items.push({
+        id: `consent-${consent.taskId}`,
+        title: consent.taskTitle,
+        agentName: "consent",
+        lane: "needs-you",
+        note: t("views.attestationPoolView.consentHint"),
+        actions: [
+          ...(onConsentReview && task && approved
+            ? [
+                {
+                  kind: "approve" as const,
+                  label: t("views.attestationPoolView.consentApprove"),
+                  onTrigger: () => {
+                    void onConsentReview(task, approved.reviewId);
+                  },
+                },
+              ]
+            : []),
+          ...(onNavigateTask
+            ? [
+                {
+                  kind: "open" as const,
+                  label: t("views.attestationPoolView.openTask"),
+                  onTrigger: () => onNavigateTask(consent.taskId),
+                },
+              ]
+            : []),
+        ],
+        onSelect: onNavigateTask ? () => onNavigateTask(consent.taskId) : undefined,
+      });
+    }
+
+    for (const bg of lanes.breakGlass) {
+      const id = `breakglass-${bg.taskId}-${bg.gateId}`;
+      if (!items.some((i) => i.id === id)) {
+        seenTaskIds.add(bg.taskId);
+        items.push({
+          id,
+          title: bg.taskTitle,
+          agentName: bg.adapterId ?? bg.gateId,
+          lane: "needs-you",
+          note: `${bg.gateId} (${bg.gateStatus})`,
+          actions: [
+            ...(onAttest
+              ? [
+                  {
+                    kind: "reject" as const,
+                    label: t("views.attestationPoolView.override"),
+                    onTrigger: () => {
+                      void onAttest({ taskId: bg.taskId }, bg.gateId, bg.mode);
+                    },
+                  },
+                ]
+              : []),
+            ...(onNavigateTask
+              ? [
+                  {
+                    kind: "open" as const,
+                    label: t("views.attestationPoolView.openTask"),
+                    onTrigger: () => onNavigateTask(bg.taskId),
+                  },
+                ]
+              : []),
+          ],
+          onSelect: onNavigateTask ? () => onNavigateTask(bg.taskId) : undefined,
+        });
+      }
+    }
+
+    for (const task of tasks) {
+      if (seenTaskIds.has(task.taskId)) continue;
+      const isDone = isTerminal(task);
+      items.push({
+        id: `task-${task.taskId}`,
+        title: task.title,
+        agentName: task.origin ?? task.engine,
+        lane: isDone ? "done" : "running",
+        updatedAt: task.lastKnownAt,
+        actions: onNavigateTask
+          ? [
+              {
+                kind: "open" as const,
+                label: t("views.attestationPoolView.openTask"),
+                onTrigger: () => onNavigateTask(task.taskId),
+              },
+            ]
+          : undefined,
+        onSelect: onNavigateTask ? () => onNavigateTask(task.taskId) : undefined,
+      });
+    }
+
+    return items;
+  }, [lanes, tasks, onAttest, onConsentReview, onNavigateTask]);
 
   if (inDecisionDomain && focusMode && onJudge) {
     return (
@@ -186,17 +328,17 @@ export function AttestationPoolView({
         }
         actions={
           inDecisionDomain && onJudge ? (
-            <button
-              type="button"
-              data-testid="attestation-pool-focus-entry"
+            <Button
+              testId="attestation-pool-focus-entry"
               onClick={() => setFocusMode(true)}
-              title={t("views.attestationPoolView.focusEntryTitle")}
-              className="inline-flex h-7 items-center gap-1.5 rounded-xs border border-border bg-text/5 px-2.5 ui-meta text-text transition-colors duration-100 hover:bg-text/10"
+              tip={t("views.attestationPoolView.focusEntryTitle")}
+              variant="plain"
+              size="sm"
             >
               <Crosshair weight="bold" aria-hidden />
               {t("views.attestationPoolView.focusEntry")}
               <b className="font-mono font-medium tabular-nums">{counts.decisions}</b>
-            </button>
+            </Button>
           ) : undefined
         }
       />
@@ -257,91 +399,109 @@ export function AttestationPoolView({
           </div>
         ) : (
           <>
-            <div className="flex-none px-5 pt-3 md:px-7" data-testid="attestation-pool-lane-chips">
-              <FilterChips
-                value={poolTab}
-                onChange={pickTab}
-                chips={TASK_CLOSEOUT_TABS.map((id) => ({
-                  key: id,
-                  label: t(LANE_LABEL_KEY[id]),
-                  count: counts[id],
-                }))}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-3 md:px-7">
+              <div data-testid="attestation-pool-lane-chips">
+                <FilterChips
+                  value={poolTab}
+                  onChange={pickTab}
+                  chips={TASK_CLOSEOUT_TABS.map((id) => ({
+                    key: id,
+                    label: t(LANE_LABEL_KEY[id]),
+                    count: counts[id],
+                  }))}
+                />
+              </div>
+              <SegCtl
+                label={t("views.attestationPoolView.viewAria")}
+                value={viewMode}
+                onChange={(mode) => setViewMode(mode)}
+                options={[
+                  { value: "lanes", label: t("views.attestationPoolView.viewLanes") },
+                  { value: "inbox", label: t("views.attestationPoolView.viewInbox") },
+                ]}
               />
             </div>
             <div className="min-h-0 flex-1 overflow-auto px-5 pb-10 pt-1 md:px-7">
-              <div>
-                {taskCloseoutCount === 0 ? (
-                  <p data-testid="pool-closeout-clear" className="flex items-center gap-2 py-2 text-text-faint ui-body">
-                    <StatusTag tone="done" label={t("views.attestationPoolView.allClear")} />
-                    {t("views.attestationPoolView.closeoutAllClear")}
-                  </p>
-                ) : null}
-                {showGates && lanes.gates.length > 0 && (
-                  <Section
-                    variant="hero"
-                    title={t("views.attestationPoolView.tabGates")}
-                    count={lanes.gates.length}
-                    note={t("views.attestationPoolView.gatesHint")}
-                  >
-                    {lanes.gates.map((item) => (
-                      <GateLaneRow
-                        key={`${item.taskId}:${item.gateId}`}
-                        item={item}
-                        feedback={taskFeedback?.(item.taskId)}
-                        onAttest={onAttest}
-                        onNavigateTask={onNavigateTask}
-                      />
-                    ))}
-                  </Section>
-                )}
-                {showConsents && lanes.consents.length > 0 && (
-                  <Section
-                    variant="hero"
-                    title={t("views.attestationPoolView.tabConsents")}
-                    count={lanes.consents.length}
-                    note={t("views.attestationPoolView.consentHint")}
-                  >
-                    {lanes.consents.map((item) => {
-                      const task = tasks.find((candidate) => candidate.taskId === item.taskId),
-                        feedback = taskFeedback?.(item.taskId),
-                        approved = (task?.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
-                        consentFeedback = feedback?.kind === "adjudicate" ? feedback : undefined;
-                      return (
-                        <ConsentLaneRow
-                          key={item.taskId}
+              {viewMode === "inbox" ? (
+                <AgentInbox items={inboxItems} testId="attestation-pool-inbox" />
+              ) : (
+                <div>
+                  {taskCloseoutCount === 0 ? (
+                    <p
+                      data-testid="pool-closeout-clear"
+                      className="flex items-center gap-2 py-2 text-text-faint ui-body"
+                    >
+                      <StatusTag tone="done" label={t("views.attestationPoolView.allClear")} />
+                      {t("views.attestationPoolView.closeoutAllClear")}
+                    </p>
+                  ) : null}
+                  {showGates && lanes.gates.length > 0 && (
+                    <Section
+                      variant="hero"
+                      title={t("views.attestationPoolView.tabGates")}
+                      count={lanes.gates.length}
+                      note={t("views.attestationPoolView.gatesHint")}
+                    >
+                      {lanes.gates.map((item) => (
+                        <GateLaneRow
+                          key={`${item.taskId}:${item.gateId}`}
                           item={item}
-                          approvedReviewId={approved?.reviewId ?? null}
-                          pending={consentFeedback?.state === "pending" || !task || !approved}
-                          onConsentReview={
-                            onConsentReview && task && approved
-                              ? () => void onConsentReview(task, approved.reviewId)
-                              : undefined
-                          }
+                          feedback={taskFeedback?.(item.taskId)}
+                          onAttest={onAttest}
                           onNavigateTask={onNavigateTask}
                         />
-                      );
-                    })}
-                  </Section>
-                )}
-                {showBreakGlass && lanes.breakGlass.length > 0 && (
-                  <Section
-                    variant="warn"
-                    title={t("views.attestationPoolView.tabBreakGlass")}
-                    count={lanes.breakGlass.length}
-                    note={t("views.attestationPoolView.breakGlassHint")}
-                  >
-                    {lanes.breakGlass.map((item) => (
-                      <GateLaneRow
-                        key={`${item.taskId}:${item.gateId}`}
-                        item={item}
-                        feedback={taskFeedback?.(item.taskId)}
-                        onAttest={onAttest}
-                        onNavigateTask={onNavigateTask}
-                      />
-                    ))}
-                  </Section>
-                )}
-              </div>
+                      ))}
+                    </Section>
+                  )}
+                  {showConsents && lanes.consents.length > 0 && (
+                    <Section
+                      variant="hero"
+                      title={t("views.attestationPoolView.tabConsents")}
+                      count={lanes.consents.length}
+                      note={t("views.attestationPoolView.consentHint")}
+                    >
+                      {lanes.consents.map((item) => {
+                        const task = tasks.find((candidate) => candidate.taskId === item.taskId),
+                          feedback = taskFeedback?.(item.taskId),
+                          approved = (task?.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
+                          consentFeedback = feedback?.kind === "adjudicate" ? feedback : undefined;
+                        return (
+                          <ConsentLaneRow
+                            key={item.taskId}
+                            item={item}
+                            approvedReviewId={approved?.reviewId ?? null}
+                            pending={consentFeedback?.state === "pending" || !task || !approved}
+                            onConsentReview={
+                              onConsentReview && task && approved
+                                ? () => void onConsentReview(task, approved.reviewId)
+                                : undefined
+                            }
+                            onNavigateTask={onNavigateTask}
+                          />
+                        );
+                      })}
+                    </Section>
+                  )}
+                  {showBreakGlass && lanes.breakGlass.length > 0 && (
+                    <Section
+                      variant="warn"
+                      title={t("views.attestationPoolView.tabBreakGlass")}
+                      count={lanes.breakGlass.length}
+                      note={t("views.attestationPoolView.breakGlassHint")}
+                    >
+                      {lanes.breakGlass.map((item) => (
+                        <GateLaneRow
+                          key={`${item.taskId}:${item.gateId}`}
+                          item={item}
+                          feedback={taskFeedback?.(item.taskId)}
+                          onAttest={onAttest}
+                          onNavigateTask={onNavigateTask}
+                        />
+                      ))}
+                    </Section>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -384,9 +544,6 @@ function LaneActionRow({
   );
 }
 
-const laneActionClass =
-  "inline-flex h-6 items-center gap-1 rounded-xs border px-2.5 ui-meta font-medium disabled:pointer-events-none disabled:opacity-50";
-
 /** 门禁 lane 行:待签(approve)/可特批失败(override)共用,按 item.mode 分支交互;签发表单进抽屉。 */
 function GateLaneRow({
   item,
@@ -426,19 +583,15 @@ function GateLaneRow({
           })}${item.adapterId ? ` · ${item.adapterId}` : ""}${item.detail ? ` · ${item.detail}` : ""}`}
           state={attestFeedback}
         >
-          <button
-            type="button"
-            data-testid={`pool-gate-${mode}-${item.taskId}-${item.gateId}`}
+          <Button
+            testId={`pool-gate-${mode}-${item.taskId}-${item.gateId}`}
             onClick={() => setOpen(true)}
             disabled={pending}
-            className={`${laneActionClass} ${
-              approve
-                ? "border-status-submitted/45 bg-status-submitted/15 text-status-submitted"
-                : "border-status-blocked/45 bg-status-blocked/15 text-status-blocked"
-            }`}
+            variant={approve ? "plain" : "danger"}
+            size="sm"
           >
             {t(approve ? "views.attestationPoolView.attest" : "views.attestationPoolView.override")}
-          </button>
+          </Button>
         </LaneActionRow>
       </div>
       <Drawer
@@ -462,14 +615,12 @@ function GateLaneRow({
         </p>
         {item.detail ? <p className="mt-1 ui-meta text-text-muted">{item.detail}</p> : null}
         {onNavigateTask ? (
-          <button
-            type="button"
-            onClick={() => onNavigateTask(item.taskId)}
-            className="mt-2 inline-flex items-center gap-1 text-accent hover:underline ui-meta"
-          >
-            {t("views.attestationPoolView.openTask")}
-            <ArrowRight weight="bold" aria-hidden />
-          </button>
+          <div className="mt-2">
+            <Button variant="ghost" size="sm" onClick={() => onNavigateTask(item.taskId)}>
+              {t("views.attestationPoolView.openTask")}
+              <ArrowRight weight="bold" aria-hidden />
+            </Button>
+          </div>
         ) : null}
         <div className="mt-3">
           <GateAttestForm
@@ -511,24 +662,20 @@ function ConsentLaneRow({
         reason={t("views.attestationPoolView.consentHint")}
       >
         {onNavigateTask ? (
-          <button
-            type="button"
-            onClick={() => onNavigateTask(item.taskId)}
-            className={`${laneActionClass} border-border bg-text/5 text-text-muted hover:text-text`}
-          >
+          <Button variant="ghost" size="sm" onClick={() => onNavigateTask(item.taskId)}>
             {t("views.attestationPoolView.openTask")}
-          </button>
+          </Button>
         ) : null}
-        <button
-          type="button"
-          data-testid={`pool-consent-approve-${item.taskId}`}
+        <Button
+          testId={`pool-consent-approve-${item.taskId}`}
           disabled={!onConsentReview || pending || approvedReviewId === null}
           onClick={onConsentReview}
-          className={`${laneActionClass} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
+          variant="primary"
+          size="sm"
         >
           <Handshake weight="bold" aria-hidden />
           {t("views.attestationPoolView.consentApprove")}
-        </button>
+        </Button>
       </LaneActionRow>
     </div>
   );
