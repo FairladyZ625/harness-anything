@@ -228,6 +228,41 @@ it("persists the docked layout through remount and isolates connection, reposito
   expect(layoutTree()).toEqual(["progress", "files", "plan"]);
 });
 
+it("persists a sash resize and restores it after remount (switching away and back keeps the size)", async () => {
+  injectGeometry([["plan", "progress"], ["files"]], 1000, 600);
+  render();
+  await settle();
+  const before = leafSizes();
+  expect(before).toEqual({});
+  // 拖分隔条:pointerdown 在 sash 上,pointermove/up 由 dockview 挂在 document 上。
+  const sash = host.querySelector<HTMLElement>(".dv-sash")!;
+  expect(sash).not.toBeNull();
+  await act(async () => {
+    sash.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: 500, clientY: 300 }),
+    );
+    document.dispatchEvent(
+      new PointerEvent("pointermove", { bubbles: true, cancelable: true, clientX: 560, clientY: 300 }),
+    );
+    document.dispatchEvent(
+      new PointerEvent("pointerup", { bubbles: true, cancelable: true, clientX: 560, clientY: 300 }),
+    );
+    // 落盘挂在 onDidLayoutChange(AsapEvent,微任务)→ 让一层宏任务把它冲出来。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  // 尺寸真的变了,而且变了就落盘(用户改动 = touched,不是默认布局)。
+  const resized = leafSizes();
+  expect(Object.keys(resized).sort()).toEqual(["files", "plan", "progress"]);
+  expect(resized).not.toEqual(before);
+  const persisted = resized;
+  // 切走再回来(卸载重挂同一连接+仓+页面槽):尺寸从偏好恢复,不回默认布局。
+  act(() => root.unmount());
+  root = createRoot(host);
+  render();
+  await settle();
+  expect(leafSizes()).toEqual(persisted);
+});
+
 it("reconciles region sets without rebuilding the untouched layout", async () => {
   const withFiles = regions.filter((item) => item.id !== "files");
   render({ regions: withFiles, columns: [["plan", "progress"]] });

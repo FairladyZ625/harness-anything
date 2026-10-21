@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ChatCircleDots } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
@@ -15,7 +15,10 @@ import { ACTIVITY_COLOR, ACTIVITY_KEY, ACTIVITY_TONE, type AgentActivity } from 
  */
 
 export interface AgentLaneTask {
+  /** 块 id:派工/运行会话 id,不是任务 id。 */
   readonly id: string;
+  /** 块背后的任务 id;缺省表示该块没有可打开的任务(纯展示)。 */
+  readonly taskId?: string;
   readonly label: string;
   /** 开始时间(ms epoch)。 */
   readonly startAt: number;
@@ -175,6 +178,7 @@ export function AgentLanes({
   handoffs = [],
   nowMs,
   onResolveAwaiting,
+  onOpenTask,
   testId,
 }: {
   readonly lanes: readonly AgentLane[];
@@ -183,6 +187,8 @@ export function AgentLanes({
   readonly nowMs?: number;
   /** 待拍板快捷动作;缺省时徽标退化为纯展示。 */
   readonly onResolveAwaiting?: (taskId: string) => void;
+  /** 点任务块跳转对应任务详情;缺省(或块无 taskId)时块保持纯展示。 */
+  readonly onOpenTask?: (taskId: string) => void;
   readonly testId?: string;
 }) {
   const reducedMotion = useReducedMotion();
@@ -412,17 +418,37 @@ export function AgentLanes({
                         (task.awaiting !== undefined
                           ? `${t("agentUi.lanes.awaitingSuffix")}: ${task.awaiting.question}`
                           : "");
+                      // 块 id 是派工/运行会话 id,不是任务 id:只有带真 taskId 的块才能跳转,
+                      // 没有任务的块保持可聚焦的分组(纯展示),不给假入口。
+                      const blockTaskId = task.taskId;
+                      const openTask = onOpenTask;
+                      const openDetail =
+                        blockTaskId === undefined || openTask === undefined ? undefined : () => openTask(blockTaskId);
+                      const resolveAwaiting = onResolveAwaiting;
                       return (
                         <div
                           key={task.id}
                           tabIndex={0}
-                          role="group"
+                          role={openDetail === undefined ? "group" : "button"}
+                          onClick={openDetail}
+                          onKeyDown={
+                            openDetail === undefined
+                              ? undefined
+                              : (event: KeyboardEvent<HTMLDivElement>) => {
+                                  // 只认块自身发起的键事件:块内「待拍板」是原生 button,自带激活。
+                                  if (event.target !== event.currentTarget) return;
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openDetail();
+                                  }
+                                }
+                          }
                           title={ariaLabel}
                           aria-label={ariaLabel}
                           data-testid={testId !== undefined ? `${testId}-task-${task.id}` : undefined}
                           data-lane-status={task.status}
                           data-lane-track={placement.trackIndex}
-                          className={`absolute flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border ${showDetails ? "px-2" : "justify-center px-0"}`}
+                          className={`absolute flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border ${openDetail === undefined ? "" : "cursor-pointer hover:brightness-110 active:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"} ${showDetails ? "px-2" : "justify-center px-0"}`}
                           style={{
                             left: `${leftPct}%`,
                             width: `${widthPct}%`,
@@ -460,13 +486,14 @@ export function AgentLanes({
                             />
                           )}
                           {showDetails && task.awaiting !== undefined && (
-                            <span className="ml-auto inline-flex shrink-0">
+                            // 待拍板是块内的一等动作:点它只开答复面板,不冒泡成「打开任务」。
+                            <span className="ml-auto inline-flex shrink-0" onClick={(event) => event.stopPropagation()}>
                               <Button
                                 size="sm"
                                 tip={task.awaiting.question}
                                 testId={testId !== undefined ? `${testId}-resolve-${task.id}` : undefined}
-                                onClick={onResolveAwaiting !== undefined ? () => onResolveAwaiting(task.id) : undefined}
-                                disabled={onResolveAwaiting === undefined}
+                                onClick={resolveAwaiting === undefined ? undefined : () => resolveAwaiting(task.id)}
+                                disabled={resolveAwaiting === undefined}
                               >
                                 <ChatCircleDots aria-hidden />
                                 {t("agentUi.lanes.awaiting")}

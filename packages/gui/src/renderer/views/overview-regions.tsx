@@ -571,6 +571,7 @@ export function OverviewDrillBody({
                   lanes={lanes}
                   handoffs={handoffs}
                   onResolveAwaiting={onResolveAwaiting}
+                  onOpenTask={onOpenTask}
                   testId="overview-agent-lanes"
                 />
               </div>

@@ -560,6 +560,7 @@ export function agentLanesOf(input: {
         const running = row.status === "running";
         tasks.push({
           id: row.dispatchId,
+          taskId: row.taskId,
           label: labelOf(row.taskId),
           startAt: Date.parse(row.startedAt),
           // CEO 派工注记第 8 条:已收口或阻塞的块必须给 endAt(只有运行中的块随 now 生长)。
@@ -593,6 +594,8 @@ export function agentLanesOf(input: {
         const blockId = round.dispatchId ?? round.runtimeSessionId;
         tasks.push({
           id: blockId,
+          // 兜底块的块 id 是派工/会话 id;跳转要用 group 上的真 taskId,没有就不给点击入口。
+          ...(group.taskId === undefined ? {} : { taskId: group.taskId }),
           label: group.taskId === undefined ? group.label : (input.taskTitles.get(group.taskId) ?? group.label),
           startAt: Date.parse(round.startedAt),
           endAt: running ? null : Date.parse(group.latestActivityAt),
