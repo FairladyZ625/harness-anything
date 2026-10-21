@@ -221,22 +221,35 @@ const legacyFloorSql =
   "SELECT repo_id, epoch AS epoch_floor FROM writer_epochs UNION ALL " +
   "SELECT repo_id, version AS epoch_floor FROM writer_epochs) GROUP BY repo_id ORDER BY repo_id";
 
-function safeFloorNumber(value: unknown, repoId: string): number {
+function parseSafeFloorNumber(
+  value: unknown,
+  repoId: string,
+): { readonly floor: number } | { readonly error: WriterEpochError } {
   if (typeof value === "bigint") {
     if (value < 1n || value > BigInt(Number.MAX_SAFE_INTEGER))
-      throw new WriterEpochError(
-        "writer_epoch_legacy_unreadable",
-        `legacy writer epoch floor is outside the safe integer range for repo ${repoId}`,
-      );
-    return Number(value);
+      return {
+        error: new WriterEpochError(
+          "writer_epoch_legacy_unreadable",
+          `legacy writer epoch floor is outside the safe integer range for repo ${repoId}`,
+        ),
+      };
+    return { floor: Number(value) };
   }
   const floor = Number(value);
   if (!Number.isSafeInteger(floor) || floor < 1)
-    throw new WriterEpochError(
-      "writer_epoch_legacy_unreadable",
-      `legacy writer epoch floor is not a safe positive integer for repo ${repoId}`,
-    );
-  return floor;
+    return {
+      error: new WriterEpochError(
+        "writer_epoch_legacy_unreadable",
+        `legacy writer epoch floor is not a safe positive integer for repo ${repoId}`,
+      ),
+    };
+  return { floor };
+}
+
+function safeFloorNumber(value: unknown, repoId: string): number {
+  const result = parseSafeFloorNumber(value, repoId);
+  if ("error" in result) throw result.error;
+  return result.floor;
 }
 
 function legacyFloorForRepo(database: DatabaseSync, repoId: string): number | null {
@@ -388,37 +401,24 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
         });
         continue;
       }
-      let floor: number;
-      try {
-        floor = safeFloorNumber(row.floor, repoId);
-      } catch (error) {
-        if (!(error instanceof WriterEpochError)) throw error;
-        consumeKnownError(error);
+      const parsedFloor = parseSafeFloorNumber(row.floor, repoId);
+      if ("error" in parsedFloor) {
         rejectedRepos.push({
           repoId,
           code: "writer_epoch_legacy_unreadable",
-          hint: legacyUnreadable(repoId, legacyPath, error.message).message,
+          hint: legacyUnreadable(repoId, legacyPath, parsedFloor.error.message).message,
         });
         continue;
       }
-      try {
-        const migrated = openRepoEpochAuthority({
-          databasePath: path.join(stateRoot, "writer-epochs", `${repoId}.sqlite`),
-          repoId,
-          holderId: "legacy-migration",
-          now: () => new Date().toISOString(),
-          initialEpochFloor: floor,
-        });
-        migrated.close();
-        migratedRepos.push(repoId);
-      } catch (error) {
-        consumeKnownError(error);
-        rejectedRepos.push({
-          repoId,
-          code: "writer_epoch_legacy_unreadable",
-          hint: legacyUnreadable(repoId, legacyPath, error instanceof Error ? error.message : String(error)).message,
-        });
-      }
+      const migrated = openRepoEpochAuthority({
+        databasePath: path.join(stateRoot, "writer-epochs", `${repoId}.sqlite`),
+        repoId,
+        holderId: "legacy-migration",
+        now: () => new Date().toISOString(),
+        initialEpochFloor: parsedFloor.floor,
+      });
+      migrated.close();
+      migratedRepos.push(repoId);
     }
     if (rejectedRepos.length === 0) legacy.exec("PRAGMA user_version=1");
     legacy.exec("COMMIT");
