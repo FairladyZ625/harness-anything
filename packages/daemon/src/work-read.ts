@@ -88,14 +88,17 @@ export function workReceiptLine(
 
 /** How many open works a receipt offers as move candidates; enough to choose, few enough to scan. */
 const WORK_RECEIPT_CANDIDATE_LIMIT = 3,
-  /** Rank over a slightly wider pool than the cap so similarity, not recency alone, picks the top. */
+  /** Title-screened works that earn a goal read, so relevance spans the pool while reads stay bounded. */
   WORK_RECEIPT_CANDIDATE_POOL = 8;
 
 /**
  * Open work roots a create could move to, most title/goal-similar first, each rendered as the move
  * command that re-hangs the task. `requireOverlap` keeps a landed task's receipt quiet unless some
  * other work actually shares words with the title; a standalone create always hears the open roots.
- * Equal scores keep the activity order the task index returned.
+ * The pool is every open work root: the index's `limit` pages by task id, so ranking a limited read
+ * would silently hide most of the ledger behind its earliest ids. Titles screen first — no document
+ * reads — and only the shortlist reads task_plan.md goals for a repriced rank, so goal-only matches
+ * surface without one document read per work root. Equal scores keep the index's task-id order.
  */
 function candidateWorkLines(
   projection: Pick<TaskProjection, "readTaskIndex" | "read" | "readDocument">,
@@ -104,22 +107,22 @@ function candidateWorkLines(
   excludeTaskId: string | null,
   requireOverlap: boolean,
 ): string[] {
-  const titleTokens = workReceiptTokens(taskTitle);
-  return projection
-    .readTaskIndex({
-      workRootsOnly: true,
-      openOnly: true,
-      activePackagesOnly: true,
-      presentationStatus: true,
-      limit: WORK_RECEIPT_CANDIDATE_POOL,
-    })
-    .rows.filter((row) => row.taskId !== excludeTaskId)
-    .map((row) => ({
+  const titleTokens = workReceiptTokens(taskTitle),
+    shortlist = projection
+      .readTaskIndex({
+        workRootsOnly: true,
+        openOnly: true,
+        activePackagesOnly: true,
+        presentationStatus: true,
+      })
+      .rows.filter((row) => row.taskId !== excludeTaskId)
+      .map((row) => ({ row, titleScore: workReceiptOverlap(titleTokens, workReceiptTokens(row.title)) }))
+      .sort((left, right) => right.titleScore - left.titleScore)
+      .slice(0, WORK_RECEIPT_CANDIDATE_POOL);
+  return shortlist
+    .map(({ row, titleScore }) => ({
       row,
-      score: workReceiptOverlap(
-        titleTokens,
-        workReceiptTokens(`${row.title} ${workGoal(projection, row.taskId) ?? ""}`),
-      ),
+      score: titleScore + workReceiptOverlap(titleTokens, workReceiptTokens(workGoal(projection, row.taskId) ?? "")),
     }))
     .sort((left, right) => right.score - left.score)
     .filter((entry) => entry.score > 0 || !requireOverlap)
