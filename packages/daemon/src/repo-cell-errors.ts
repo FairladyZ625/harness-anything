@@ -78,40 +78,27 @@ export function cellErrorMessage(error: unknown): string {
   return normalizeDomainError(error).message;
 }
 
-// A rejected action is self-describing by default: the sentence its own guard threw is the
-// explanation. That default is only safe where the daemon authored the sentence. These codes are
-// the measured exceptions — their message is a foreign payload it merely relayed (a remote's
-// stderr, a child process's JSON dump), so forwarding it would hand whatever the far end printed
-// to the CLI, the GUI and an agent's prompt. They answer with a sentence this module owns instead.
-// Adding a code here is the deliberate act; the default stays open so ordinary refusals keep
-// explaining themselves.
+// A rejected action is self-describing: the sentence its own guard threw is the explanation, and
+// that is only safe because every producer of a *relayed* payload authors or redacts its own
+// sentence before throwing. The audit behind this boundary (478 `cellCodedError` /
+// `cellCriterionError` call sites across `packages/*/src`) found no code whose message is only
+// foreign text: the seven that were once denied now either name the stable code and the actionable
+// field (`childRefusal`, `publishExecutedVerticalScript`, `fleet-squad-coordinator`, the two
+// `runtime-task-pr` refusals) or redact the remote detail where it is produced
+// (`runtime-task-pr.ts`'s `redact`, `runtime-worker-push.ts`'s `errorDetail`).
 //
-// The bar is "the message is only relayed text", not "the topic sounds sensitive". A code whose
-// message is an authored diagnostic stays out even when it mentions a credential: `repo_unavailable`
-// names the latch's real failure and `review_dispatch_failed` carries the recovery command, and
-// tests on both assert that text — dropping it would trade an operator's only clue for safety it
-// does not need, since the scrubber below already removes any credential from what is kept.
-const foreignMessageCodes: ReadonlyMap<string, string> = new Map([
-  [
-    "delivery_publish_failed",
-    "The delivery could not be published to the remote. Check the GitHub credential and push access, then retry.",
-  ],
-  ["script_reported_failure", "The vertical script reported a failure. Read the script's own report, then retry."],
-  ["squad_control_failed", "The squad control action did not complete. Check the squad run's own log, then retry."],
-  ["squad_child_create_failed", "The squad child task was not created. Check the child action's own code, then retry."],
-  ["squad_child_document_failed", "The squad child document was not published. Check the child action's own code."],
-  ["squad_child_release_failed", "The squad child lease was not released. Check the child action's own code."],
-  ["squad_child_closeout_failed", "The squad child task was not closed out. Check the child action's own code."],
-]);
+// So this boundary no longer denies codes: denying a whole code also discarded the authored half of
+// a mixed message, which replaced an operator's only clue with a sentence that could be factually
+// wrong. What no producer may bypass is the credential scrubber — it runs here, in
+// `withAuthorizationDecision`, and in `rejectHostAction`. A new code whose message really is only a
+// remote's bytes must redact at its producer, and this comment is where that exception is recorded.
 
 /**
- * The sentence a rejected receipt carries. Secrets are scrubbed for every code, and a code that
- * only relays foreign text is answered by its own sentence instead of that text.
+ * The sentence a rejected receipt carries. Every code keeps its own sentence; credentials are
+ * removed here because this is the last boundary before the CLI, the GUI and an agent's prompt.
  */
 export function rejectionExplanation(error: unknown): string {
-  const code = cellErrorCode(error),
-    denied = foreignMessageCodes.get(code);
-  return denied ?? scrubSecretText(cellErrorMessage(error));
+  return scrubSecretText(cellErrorMessage(error));
 }
 
 export function publishGeneratedArtifact(input: {

@@ -60,25 +60,28 @@ export function readBeforeWriteQueue(
       (sourceResolution) => (action, binding) =>
         context.executeAction({ ...action, [artifactImportSourceResolution]: sourceResolution }, binding),
     );
-  if (action.kind === "task-push") {
-    const taskId = typeof action.taskId === "string" ? action.taskId : null;
-    if (taskId === null) throw context.cellCodedError("invalid_command", "Task branch push requires a task id.");
-    const task = context.projection.read(taskId).snapshot.task,
-      worktree = taskWorktreeBinding(task, presetSnapshotReader(context.projection));
-    if (!worktree)
-      throw context.cellCodedError(
-        "delivery_publish_failed",
-        `Task ${taskId} has no Harness-managed repository worktree branch to publish.`,
-      );
-    const cwd = path.join(context.rootDir, worktree.path);
-    if (binding.executionPrincipal)
-      requireCurrentExecutionScope({
-        action,
-        binding,
-        projection: context.projection,
-        now: context.now(),
-      });
+  if (action.kind === "task-push")
+    // Everything, including the preflight, runs inside the async body: the caller turns a rejection
+    // into an `op_rejected` receipt (`failAction`), while a synchronous throw would escape `run` as a
+    // raw transport error — the operator would get no receipt, no code and no next action.
     return (async () => {
+      const taskId = typeof action.taskId === "string" ? action.taskId : null;
+      if (taskId === null) throw context.cellCodedError("invalid_command", "Task branch push requires a task id.");
+      const task = context.projection.read(taskId).snapshot.task,
+        worktree = taskWorktreeBinding(task, presetSnapshotReader(context.projection));
+      if (!worktree)
+        throw context.cellCodedError(
+          "delivery_publish_failed",
+          `Task ${taskId} has no Harness-managed repository worktree branch to publish.`,
+        );
+      const cwd = path.join(context.rootDir, worktree.path);
+      if (binding.executionPrincipal)
+        requireCurrentExecutionScope({
+          action,
+          binding,
+          projection: context.projection,
+          now: context.now(),
+        });
       const instanceId = binding.executionPrincipal
           ? context.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
           : undefined,
@@ -122,7 +125,6 @@ export function readBeforeWriteQueue(
         } as WriteReceiptDraft);
       };
     })();
-  }
   if (action.kind === "task-pr") {
     // --wait-ci parks this request for the whole CI run: the poll loop runs here, outside the write
     // queue, and the queued turn only publishes the terminal receipt.

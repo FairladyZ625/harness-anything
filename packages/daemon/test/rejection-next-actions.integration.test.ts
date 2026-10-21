@@ -9,7 +9,12 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { rejectHostAction } from "../src/daemon-host-errors.ts";
+import { withAuthorizationDecision } from "../src/repo-cell-authorization.ts";
+import { settleSquadChildAssignment } from "../src/repo-cell-squad-child.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
+import { publishExecutedVerticalScript } from "../src/vertical-script-actions.ts";
+import { createTaskPullRequest } from "../src/runtime-task-pr.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { commitDelivery } from "./review-independence.fixtures.ts";
@@ -581,7 +586,7 @@ test("task reads against a task id the projection does not have answer task_not_
   }
 });
 
-test("a business refusal keeps its own sentence while a refusal carrying foreign text is answered by its code", async () => {
+test("a business refusal keeps its own sentence and no refusal can carry a credential out", async () => {
   const rootDir = workspace("explanation-exposure"),
     repoId = workspaceId("explanation-exposure"),
     actor = binding("explanation-exposure");
@@ -603,8 +608,11 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
     assert.equal(rejected.code, "entity_not_found", JSON.stringify(rejected));
     assert.match(String(rejected.rejectionExplanation), /task-explanation-missing does not exist/u);
 
-    // Half two: a code whose message is a foreign payload (a remote's stderr, a child's JSON dump)
-    // is answered by a sentence the daemon owns, never by the intercepted text.
+    // Half two: `delivery_publish_failed` is a *mixed* code. Its push producers author the detail
+    // ("no Harness-managed worktree branch", "supported only for GitHub repositories") and the git/gh
+    // relay branch redacts what it forwards, so the boundary must keep the authored sentence instead
+    // of replacing it with a generic one that names the wrong cause. A credential inside it still
+    // cannot leave.
     const leaked = failed(
       "op-leak",
       Object.assign(
@@ -618,13 +626,12 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
     assert.equal(leaked.outcome, "op_rejected", JSON.stringify(leaked));
     assert.equal(leaked.code, "delivery_publish_failed");
     const leakedText = String(leaked.rejectionExplanation);
-    assert.doesNotMatch(leakedText, /ghp_realtokenvalue123|Authentication failed|git push failed/u);
-    assert.match(leakedText, /GitHub|credential|authenticate/iu);
+    assert.doesNotMatch(leakedText, /ghp_realtokenvalue123/u, leakedText);
+    assert.match(leakedText, /git push failed/u, "the relayed cause survives, minus the credential");
 
     // The lock's message nests a Git error under the workspace path, which is exactly where a
-    // remote URL with an embedded credential surfaces. `writer_rejected` is a mixed code: its
-    // authored frame is the operator's only clue to who holds the lock, so the frame stays and the
-    // credential inside it is scrubbed.
+    // remote URL with an embedded credential surfaces. The authored frame is the operator's only
+    // clue to who holds the lock, so the frame stays and the credential inside it is scrubbed.
     const locked = failed(
       "op-lock",
       Object.assign(
@@ -636,7 +643,7 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
     assert.doesNotMatch(lockedText, /abcdefghijklmnop/u, lockedText);
     assert.match(lockedText, /Workspace writer lock is held/u, "the operator's diagnostic survives");
 
-    // A code that is allowed to describe itself still cannot carry a credential through the boundary.
+    // The same rule for any other code: the sentence stays, the token goes.
     const scrubbed = failed(
       "op-scrub",
       Object.assign(new Error("Settings write refused: Authorization: Bearer sk-live-abcdefghijklmnop"), {
@@ -647,10 +654,8 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
     assert.match(scrubbedText, /Settings write refused/u, "the authored sentence survives");
     assert.doesNotMatch(scrubbedText, /sk-live-abcdefghijklmnop/u, scrubbedText);
 
-    // A mixed code keeps its authored diagnostic. `repo_unavailable` names the latch's real
-    // failure, which is what tells an operator whether to reattach or fix the store; a GUI read
-    // test asserts that text, so replacing it would trade the only clue for safety it does not
-    // need — the scrubber above already removes any credential from what is kept.
+    // A latch's real failure is what tells an operator whether to reattach or fix the store; a GUI
+    // read test asserts that text, so the boundary has to keep it.
     const latched = failed(
       "op-latch",
       Object.assign(new Error("Repository projection is unavailable: task bootstrap event identity is invalid"), {
@@ -661,6 +666,171 @@ test("a business refusal keeps its own sentence while a refusal carrying foreign
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// Every denylisted code used to be asserted only through a synthetic `failed()` call, so a producer
+// that authored a *better* sentence could be silently replaced by the denylist and no test noticed.
+// These drive the real producers and assert the sentence that reaches the receipt.
+test("a task with no managed worktree publishes a refusal naming the missing branch, not a credential hint", async () => {
+  const rootDir = workspace("push-no-worktree"),
+    repoId = workspaceId("push-no-worktree"),
+    taskId = "task_push_no_worktree",
+    actor = binding("push-no-worktree");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "push-no-worktree" });
+    // `task-package-artifact` has no repository-diff output shape, so `taskWorktreeBinding` is null
+    // and the push refuses before it ever reads a credential or shells out to git.
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Push without a worktree", presetId: "docs-task" },
+      actor,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const pushed = await cell.run({ kind: "task-push", taskId }, actor);
+    assert.equal(pushed.outcome, "op_rejected", JSON.stringify(pushed));
+    assert.equal(pushed.code, "delivery_publish_failed", JSON.stringify(pushed));
+    const explanation = String(pushed.rejectionExplanation);
+    // The operator's cause: no managed worktree branch, not a GitHub credential problem.
+    assert.match(explanation, /has no Harness-managed repository worktree branch to publish/u, explanation);
+    assert.doesNotMatch(explanation, /Check the GitHub credential and push access/u, explanation);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a squad child refusal names the child's own code instead of dumping its receipt", async () => {
+  // `settleSquadChildAssignment` is the real producer of the four child codes. A released child whose
+  // release is refused must report the daemon's sentence plus the child's code — never the child
+  // receipt, which carries raw evidence and sometimes a remote's stderr.
+  const taskId = "task_squad_child_release",
+    cell = {
+      projection: {
+        read: () => ({
+          snapshot: {
+            task: { taskId, status: "active" },
+            lease: { executionId: "exec-child", version: 1 },
+          },
+        }),
+      },
+      taskSurfaceWrite: () => ({
+        outcome: "op_rejected",
+        code: "invalid_transition",
+        evidence: "raw",
+        message: "remote: ghp_realtokenvalue123",
+        summary: "lease release refused by the remote",
+      }),
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    } as never;
+  await assert.rejects(
+    settleSquadChildAssignment(
+      cell,
+      { taskId, runtimeSessionId: null, reason: "stage ended" },
+      { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
+      async () => ({}) as never,
+    ),
+    (error: Error & { code?: string; message: string }) => {
+      assert.equal(error.code, "invalid_transition");
+      assert.match(error.message, /The squad child lease was not released\./u);
+      assert.match(error.message, /\(code: invalid_transition\)/u);
+      assert.doesNotMatch(error.message, /ghp_realtokenvalue123|raw/u, error.message);
+      return true;
+    },
+  );
+});
+
+test("a vertical script rejection names the status and report keys, never the report values", () => {
+  // `publishExecutedVerticalScript` is the producer; its report can echo authored file contents, so
+  // it reduces the report to its key names. Drive the real function with a failing plan.
+  const prepared = {
+      action: { scriptId: "vertical:software-coding:decision-conformance", dryRun: false },
+      writePatterns: [],
+      producePatterns: [],
+    },
+    stdout = JSON.stringify({
+      schema: "vertical-script-plan/v1",
+      scriptId: "vertical:software-coding:decision-conformance",
+      ok: false,
+      status: "rejected",
+      report: { decisionCount: 3, findings: [{ path: "harness/secret.md", body: "ghp_realtokenvalue123" }] },
+      warnings: [],
+      changes: [],
+    });
+  assert.throws(
+    () => publishExecutedVerticalScript({} as never, { prepared: prepared as never, stdout }),
+    (error: Error & { code?: string; message: string }) => {
+      assert.equal(error.code, "script_reported_failure");
+      assert.match(error.message, /reported status rejected/u);
+      assert.match(error.message, /report fields: decisionCount, findings/u);
+      assert.doesNotMatch(error.message, /ghp_realtokenvalue123|harness\/secret\.md/u, error.message);
+      return true;
+    },
+  );
+});
+
+test("the receipt boundary scrubs an explanation a caller hands over directly", () => {
+  // `withAuthorizationDecision` is the last write for a durable receipt and accepts an explanation
+  // from its caller. The executor-claim catch used to pass the raw thrown message through it, which
+  // is how a remote URL reached the receipt; the boundary now scrubs whatever it is given.
+  const receipt = withAuthorizationDecision(
+    failed(
+      "op-executor-claim",
+      Object.assign(new Error("executor binding failed"), { code: "executor_binding_invalid" }),
+    ),
+    { outcome: "allowed", policyRef: "policy/repository", nextActions: [], reasonCodes: [] },
+    [],
+    "git push failed: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git",
+  );
+  const explanation = String(receipt.rejectionExplanation);
+  assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
+  assert.match(explanation, /git push failed/u, "the caller's sentence survives the scrub");
+});
+
+test("a host-caught rejection keeps its explanation and drops the credential", () => {
+  const receipt = rejectHostAction(
+    { kind: "task-push", taskId: "task_host_reject" },
+    "repo_unavailable",
+    "attach failed fetching https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git",
+  );
+  const explanation = String(receipt.rejectionExplanation);
+  assert.match(explanation, /attach failed fetching/u);
+  assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
+});
+
+test("a non-GitHub task PR refusal names hosting instead of the GitHub credential hint", async () => {
+  // `delivery_publish_failed` has three producers and only one of them is a relayed git/gh error.
+  // The two authored ones must reach the receipt as written: a GitLab repository is not a missing
+  // GitHub credential, and telling the operator to fix one sends them to the wrong console.
+  const root = mkdtempSync(path.join(tmpdir(), "ha-task-pr-hosting-")),
+    taskId = "task_pr_hosting";
+  try {
+    execFileSync("git", ["init", "-q", root]);
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.com/acme/project.git"]);
+    const context = {
+      rootDir: root,
+      now: () => "2026-10-12T00:00:00Z",
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      projection: { read: () => ({ snapshot: { task: { title: "Hosted elsewhere" } } }) },
+      store: { readHead: () => ({ revision: 1 }) },
+      input: {},
+    };
+    await assert.rejects(
+      // No provider stub: the real hosting detection must answer, which is the point of this test.
+      createTaskPullRequest(
+        context as never,
+        { kind: "task-pr", taskId, title: "feat(daemon): gitlab" },
+        { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
+      ),
+      (error: Error & { code?: string; message: string }) => {
+        assert.equal(error.code, "delivery_publish_failed");
+        assert.match(error.message, /supported only for GitHub repositories/u, error.message);
+        assert.doesNotMatch(error.message, /credential/iu, error.message);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

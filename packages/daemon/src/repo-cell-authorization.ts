@@ -1,5 +1,6 @@
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { scrubSecretText } from "./secret-scrub.ts";
 import { verifyRuntimeExecutionPrincipal, executionCredentialRejected } from "./runtime-execution-credential.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
@@ -934,10 +935,14 @@ export function withAuthorizationDecision(
   receipt: WriteReceiptDraft,
   authorizationDecision: AuthorizationDecision,
   unmetCriteria: readonly EntityActionUnmetCriterionV1[] = receipt.unmetCriteria ?? [],
-  rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
+  explanation: string | undefined = receipt.rejectionExplanation ?? undefined,
 ): WriteReceipt {
   const summary = (receipt as WriteReceipt & Readonly<{ readonly summary?: unknown }>).summary,
-    summaryExplanation = typeof summary === "string" && summary.trim() ? summary : undefined;
+    summaryExplanation = typeof summary === "string" && summary.trim() ? summary : undefined,
+    // This is the last write for a durable receipt, and callers supply explanations they derived
+    // themselves — an executor-claim failure forwards the thrown message. Scrub here so a caller
+    // handing over unfiltered text cannot bypass the outbound rule.
+    rejectionExplanation = explanation === undefined ? undefined : scrubSecretText(explanation);
   return {
     acceptance: null,
     projection: { state: "pending", cut: null },
