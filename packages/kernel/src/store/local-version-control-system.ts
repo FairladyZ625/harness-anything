@@ -566,7 +566,19 @@ export const localGitWorktreeSettlement = Object.freeze({
           .split("\0")
           .filter(Boolean),
   changesFingerprint: (repoRoot: string, scope: string, ignored: ReadonlySet<string> = new Set()): string | null => {
-    const entries = runGit(repoRoot, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", scope)
+    // --no-optional-locks keeps this read from opportunistically rewriting the index: a write
+    // here could overwrite the settlement worker's update-index with the older snapshot this
+    // read started from (F-B9DAA193).
+    const entries = runGit(
+      repoRoot,
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "-z",
+      "--",
+      scope,
+    )
       .split("\0")
       .filter(Boolean)
       .map((entry) => {

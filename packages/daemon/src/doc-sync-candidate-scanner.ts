@@ -669,7 +669,18 @@ function dirtyPaths(
 }
 
 function gitStatusNames(repoRoot: string, scope: string): string[] {
-  const entries = gitNames(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", scope]),
+  // A plain status opportunistically writes the refreshed index, so a scan overlapping the
+  // settlement worker's update-index would overwrite the freshly settled index with the older
+  // snapshot it read and keep doc status BLOCKED until the next ledger write (F-B9DAA193).
+  const entries = gitNames(repoRoot, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--",
+      scope,
+    ]),
     paths: string[] = [];
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]!;
