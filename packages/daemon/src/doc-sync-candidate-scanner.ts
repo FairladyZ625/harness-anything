@@ -6,18 +6,15 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "n
 import path from "node:path";
 import {
   artifactSubtreePath,
-  classifyOpaqueTextualArtifactPath,
+  classifyDocCandidate,
   classifyTextualArtifactPath,
-  classifyRawArtifactPath,
-  consumeKnownError,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
-  isOpaqueTextualMediaType,
-  OPAQUE_TEXTUAL_POLICY_ID,
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
+  RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
@@ -37,11 +34,10 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "@harness-anything/kernel";
-import { blockedCandidateNextAction, formatShellCommand } from "./doc-sync-details.ts";
+import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
-type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
 export interface DocCandidateRow {
   readonly path: string;
   readonly state: DocCandidateState;
@@ -49,7 +45,7 @@ export interface DocCandidateRow {
   readonly baseBlobSha256: string | null;
   readonly candidateBlobSha256: string | null;
   readonly size: number | null;
-  readonly mediaType: TextualArtifactMediaType | null;
+  readonly mediaType: string | null;
   readonly conflicts: readonly string[];
 }
 export interface ScannedDocCandidate extends DocCandidateRow {
@@ -97,9 +93,6 @@ export function scanDocCandidates(input: {
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
-    // artifactSource resolves --source against the product repository root, which is not
-    // the ledger Git top level when the authored root is its own nested repository.
-    sourcePrefix = relative(input.rootDir, layout.authoredRoot),
     task = input.taskId === undefined ? null : input.projection.read(input.taskId),
     taskPrefix =
       input.taskId === undefined
@@ -180,36 +173,10 @@ export function scanDocCandidates(input: {
       conflicts = inventoried?.conflicts ?? conflictsByPath.get(logical) ?? [],
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
-      classification = classifyTextualArtifactPath(logical),
-      rawClassification = classifyRawArtifactPath(document),
-      rawTaskArtifactCandidate = rawClassification !== null,
-      taskArtifactAddAction =
-        claimingTaskId !== null &&
-        taskDirectory !== null &&
-        /^tasks\/[^/]+\/artifacts\//u.test(document) &&
-        baseDocumentIsNew(projected)
-          ? formatShellCommand("ha", [
-              "task",
-              "artifact",
-              "add",
-              claimingTaskId,
-              "--source",
-              `${sourcePrefix ? `${sourcePrefix}/` : ""}${logical}`,
-              "--destination",
-              logical.slice(`tasks/${taskDirectory}/`.length),
-            ])
-          : null,
-      taskArtifactCandidate =
-        rawTaskArtifactCandidate &&
-        fileSize !== null &&
-        fileSize > DOC_SYNC_INLINE_MAX_BYTES &&
-        fileSize <= RAW_ARTIFACT_MAX_BYTES &&
-        taskArtifactAddAction !== null,
-      existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
       // Artifacts-subtree content rides the <=50,000,000 byte blob content contract
       // (dec_776B4D61DF711D9F31126D375D CH4), not the inline prose channel: the scanner reads it
-      // whole so a system-published dispatch report past the inline cap still scans, compares, and
-      // submits like any other candidate instead of wedging completion. Prose keeps the
+      // whole so a system-published dispatch report or binary image past the inline cap still scans,
+      // compares, and submits like any other candidate instead of wedging completion. Prose keeps the
       // descriptor-frame cap the doc-sync channel is sized for.
       readCap = artifactSubtreePath(logical) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES,
       rawBytes = inventoried
@@ -217,21 +184,22 @@ export function scanDocCandidates(input: {
         : fileSize !== null && fileSize <= readCap && safe && existsSync(target)
           ? readCandidate(target)
           : null,
-      // A path the extension table does not claim is still a doc candidate when
-      // its bytes are textual: the opaque whole-file policy carries any text
-      // inside the inline cap, so `.py`/`.tsv`/`.json` land instead of sitting
-      // dirty forever. Binary bytes keep the not-a-textual-document verdict.
-      probed =
-        classification === null && rawBytes !== null && textualBytes(rawBytes)
-          ? classifyOpaqueTextualArtifactPath(logical)
-          : null,
-      effective = classification ?? probed,
+      classified = classifyDocCandidate(logical, rawBytes),
+      // A path that already holds a text document keeps that policy: undecodable bytes there are a
+      // rejected edit (decideDocWrite answers with the typed-binary route), not a new artifact at the
+      // same name. Updating an existing raw artifact stays a raw candidate.
+      effective =
+        classified?.kind === "raw-artifact" &&
+        projected.document !== null &&
+        projected.document.policyId !== RAW_ARTIFACT_POLICY_ID
+          ? classifyTextualArtifactPath(logical)
+          : classified,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
     if (!route.allowed) {
       if (safe && candidate !== null && candidate === base)
-        return scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null);
+        return scannedCandidateRow("clean", null, bytes, base, candidate, effective?.mediaType ?? null);
       // A route-owned document is a pure projection of its owning event route: local bytes are
       // never an input to this channel (the Git-less edge already drops them), so drift is
       // repaired by rebuilding the worktree copy from the canonical projection instead of
@@ -254,7 +222,7 @@ export function scanDocCandidates(input: {
           rebuilt,
           base,
           base,
-          classification?.mediaType ?? null,
+          effective?.mediaType ?? null,
         );
       }
       return scannedCandidateRow(
@@ -271,31 +239,17 @@ export function scanDocCandidates(input: {
     if (input.taskId === undefined && taskDirectory !== null && claimingTaskId === null)
       return scannedCandidateRow(
         "blocked",
-        `tasks/${taskDirectory} is not the package path of any projected task; publish task artifacts with ` +
-          "ha task artifact add <task-id> --source <file> --destination artifacts/<name> and remove the stray copy",
+        `tasks/${taskDirectory} is not the package path of any projected task; move the file into its owning ` +
+          "task's artifacts/ subtree and submit it there — no command publishes a package the projection does not own",
         bytes,
         base,
         candidate,
-        classification?.mediaType ?? null,
+        effective?.mediaType ?? null,
         "task_package_unregistered",
-        "ha task artifact add",
+        "doc-sync",
       );
-    if (taskArtifactCandidate) {
-      return scannedCandidateRow(
-        "inapplicable",
-        `task artifact is outside doc sync; publish it with ${taskArtifactAddAction}`,
-        bytes,
-        base,
-        candidate,
-        classification?.mediaType ?? null,
-        null,
-        null,
-        null,
-        fileSize,
-      );
-    }
     if (effective === null && candidate !== null && candidate === base)
-      return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
+      return scannedCandidateRow("clean", null, bytes, base, candidate, null);
     // A non-textual type with no canonical document at the path is not doc-sync
     // business at all — inapplicable, not blocked: blocked stays the "a human must
     // resolve this" signal. A canonical document that IS projected here keeps
@@ -390,7 +344,12 @@ export function scanDocCandidates(input: {
               path: logical,
               baseBlobSha256: base,
               policyId,
-              candidate: { ref: `doc-sync-claims/${candidate}`, sha256: candidate, size: bytes.byteLength, mediaType },
+              candidate: {
+                ref: `doc-sync-claims/${candidate}`,
+                sha256: candidate,
+                size: bytes.byteLength,
+                mediaType,
+              },
             },
           ],
         },
@@ -414,22 +373,7 @@ export function scanDocCandidates(input: {
         ...(execution.runtimeDelegatedTaskId ? { runtimeDelegatedTaskId: execution.runtimeDelegatedTaskId } : {}),
       });
     if (decision.accepted) return scannedCandidateRow("eligible", null, bytes, base, candidate, mediaType);
-    const unresolved = decision.detail.unresolvedTouches,
-      nonTextualArtifact =
-        base === null &&
-        effective.kind === "opaque-textual" &&
-        decision.code === "unresolved_touch" &&
-        unresolved.length === 1 &&
-        unresolved[0]?.requiredRoute === "typed-binary-content";
-    if (nonTextualArtifact)
-      return scannedCandidateRow(
-        "inapplicable",
-        "non-textual artifact is outside doc sync; publish it with ha task artifact add",
-        bytes,
-        base,
-        candidate,
-        mediaType,
-      );
+    const unresolved = decision.detail.unresolvedTouches;
     return scannedCandidateRow(
       decision.code === "deletion_forbidden" ? "deletion" : "blocked",
       unresolved[0]?.reason ?? decision.code,
@@ -469,10 +413,6 @@ export function scanDocCandidates(input: {
       };
     }
   }
-}
-
-function baseDocumentIsNew(projected: ReturnType<TaskProjection["readDocument"]>): boolean {
-  return projected.document === null;
 }
 
 export function validateSelectedDocPaths(selected: readonly string[], scan: DocCandidateScan): void {
@@ -517,13 +457,9 @@ export function intentFromScan(
         executionId: scan.executionId,
         baseLedgerSha: scan.baseLedgerSha,
         changes: eligible.map((row) => {
-          const classification =
-            classifyTextualArtifactPath(row.path) ??
-            (row.mediaType !== null && isOpaqueTextualMediaType(row.mediaType)
-              ? { kind: "opaque-textual" as const, mediaType: row.mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID }
-              : null);
+          const classification = classifyDocCandidate(row.path, row.bytes);
           if (classification === null || row.candidateBlobSha256 === null || row.size === null)
-            throw new Error(`eligible scan row is not a textual artifact: ${row.path}`);
+            throw new Error(`eligible scan row is not a supported artifact: ${row.path}`);
           return {
             path: row.path,
             baseBlobSha256: row.baseBlobSha256,
@@ -724,20 +660,6 @@ function directFile(authoredRoot: string, logical: string): boolean {
   }
   return !existsSync(target) || lstatSync(target).isFile();
 }
-// The byte-side textual probe the path table cannot answer: valid UTF-8 with
-// no NUL byte inside the inline cap is a document; anything else is binary and
-// keeps the not-a-supported-textual-document verdict.
-function textualBytes(bytes: Uint8Array): boolean {
-  if (bytes.includes(0)) return false;
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return true;
-  } catch (error) {
-    consumeKnownError(error);
-    return false;
-  }
-}
-
 function canonicalProseBytes(bytes: Uint8Array, policyId: string | undefined): Uint8Array {
   if (policyId !== DOC_POLICY_ID || !bytes.includes(13)) return bytes;
   try {

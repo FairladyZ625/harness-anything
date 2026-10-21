@@ -71,9 +71,6 @@ function statusSummary(scan: DocCandidateScan): string {
 }
 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {
-  const nextAction = scan.rows
-    .filter((row) => row.reason?.includes("ha task artifact add"))
-    .map((row) => row.reason!.slice(row.reason!.indexOf("ha task artifact add")))[0];
   return {
     kind: "doc_sync",
     code,
@@ -107,7 +104,6 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
         baseBlobSha256: row.baseBlobSha256!,
         source: "intent" as const,
       })),
-    ...(nextAction === undefined ? {} : { nextAction }),
   };
 }
 

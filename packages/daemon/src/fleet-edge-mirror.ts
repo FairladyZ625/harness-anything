@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
+  artifactSubtreePath,
+  classifyDocCandidate,
   classifyRawArtifactPath,
-  classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
+  RAW_ARTIFACT_MAX_BYTES,
   documentPath,
   makeTaskProjectionReader,
   openSqliteEventStore,
@@ -39,7 +41,7 @@ export interface FleetMirrorDirtyFile {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly baseBlobSha256: string | null;
-  readonly mediaType: "text/markdown" | "text/plain";
+  readonly mediaType: string;
 }
 export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
@@ -240,9 +242,14 @@ export function scanFleetMirrorWorktree(
     const file = path.join(root, ...logical.split("/")),
       bytes = readFileSync(file),
       base = view.entries.get(logical);
-    if (!logical.endsWith(".md") && !logical.endsWith(".txt")) {
-      // An unchanged accepted artifact is not a document candidate. New binary
-      // artifacts use artifact add; replacing canonical text still blocks submission.
+    // Raw artifacts — a PNG, a PDF, a log with stray bytes — are doc-sync candidates inside a task
+    // package's artifacts subtree. Everything else on the edge keeps the canonical-prose scope: only
+    // `.md`/`.txt` documents travel this channel.
+    const docClass = classifyDocCandidate(logical, bytes),
+      rawArtifact = docClass?.kind === "raw-artifact";
+    if (!rawArtifact && !logical.endsWith(".md") && !logical.endsWith(".txt")) {
+      // An unchanged accepted artifact is not a document candidate; replacing canonical text still
+      // blocks submission.
       if (
         base?.mediaType.startsWith("text/") &&
         classifyRawArtifactPath(logical) &&
@@ -250,23 +257,23 @@ export function scanFleetMirrorWorktree(
       )
         blocked.push({
           path: logical,
-          size: statSync(file).size,
+          size: bytes.byteLength,
           reason: "non-textual artifact is outside doc sync",
           code: "raw_artifact_outside_doc_sync",
           requiredRoute: "typed-binary-content",
         });
       continue;
     }
-    const route = resolveDocRoute(documentPath(logical));
-    if ((!route || !route.allowed) && classifyTextualArtifactPath(logical)?.kind !== "opaque-textual") {
+    if (!docClass || !resolveDocRoute(documentPath(logical)).allowed) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
     }
-    if (bytes.byteLength > DOC_SYNC_INLINE_MAX_BYTES) {
+    const maxBytes = artifactSubtreePath(logical) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES;
+    if (bytes.byteLength > maxBytes) {
       blocked.push({
         path: logical,
         size: bytes.byteLength,
-        maxInlineBytes: DOC_SYNC_INLINE_MAX_BYTES,
+        maxInlineBytes: maxBytes,
         reason: "document exceeds inline limit",
         code: "doc_candidate_too_large",
         requiredRoute: "blob-content",
@@ -280,7 +287,7 @@ export function scanFleetMirrorWorktree(
         path: logical,
         bytes,
         baseBlobSha256: base?.sha256 ?? null,
-        mediaType: logical.endsWith(".md") ? "text/markdown" : "text/plain",
+        mediaType: docClass.mediaType,
       });
   }
   const deletedPaths = [...view.entries.keys()].filter(

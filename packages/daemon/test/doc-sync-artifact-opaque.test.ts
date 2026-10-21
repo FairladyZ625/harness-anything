@@ -1030,22 +1030,16 @@ test("doc status uses the configured authored root and quotes artifact source pa
         readonly candidateBlobSha256: string | null;
       }[];
     };
-    // Artifact-subtree bytes ride the content object contract, so the scan reads them whole within
-    // the cap and can report the candidate digest even for an inapplicable raw artifact.
+    // Artifact-subtree bytes ride the content object contract: the scan reads them whole within the
+    // cap and reports the candidate digest for a raw artifact that is directly submittable.
     assert.deepEqual(
       [rows.rows[0]?.state, rows.rows[0]?.size, rows.rows[0]?.candidateBlobSha256],
-      ["inapplicable", bytes.byteLength, sha256Bytes(bytes)],
+      ["eligible", bytes.byteLength, sha256Bytes(bytes)],
       JSON.stringify(rows),
     );
-    assert.match(
-      rows.rows[0]?.reason ?? "",
-      /'ledger\/tasks\/task-configured-configured-root\/artifacts\/report \(final\)\.pdf'/u,
-    );
-    assert.equal(
-      (status.detail as { readonly nextAction?: string }).nextAction,
-      "ha task artifact add task-configured --source 'ledger/tasks/task-configured-configured-root/artifacts/report (final).pdf' " +
-        "--destination 'artifacts/report (final).pdf'",
-    );
+    assert.equal(rows.rows[0]?.reason, null);
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -1092,7 +1086,7 @@ test("oversized textual task artifacts sync through the blob content contract", 
   }
 });
 
-test("doc status nextAction round-trips when the authored root is its own nested Git repository", async () => {
+test("doc sync directly submits raw task artifacts when the authored root is its own nested Git repository", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-nested-ledger-"));
   initRawBytesRepo(rootDir);
   // Canonical layout: the authored root is an independent Git repository nested inside the
@@ -1121,26 +1115,22 @@ test("doc status nextAction round-trips when the authored root is its own nested
       bytes = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(DOC_SYNC_INLINE_MAX_BYTES + 1, 0xff)]);
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, bytes);
-    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>,
-      nextAction = String((status.detail as { readonly nextAction?: string }).nextAction),
-      routed = /^ha task artifact add (\S+) --source ('[^']*'|\S+) --destination ('[^']*'|\S+)$/u.exec(nextAction),
-      unquote = (token: string): string => token.replace(/^'(.*)'$/u, "$1");
-    assert.ok(routed, nextAction);
-    assert.equal(unquote(routed[2]!), `harness/${logical}`, nextAction);
-    assert.equal(unquote(routed[3]!), "artifacts/report.pdf", nextAction);
-    const added = (await cell.run(
+    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>;
+    const statusRows = JSON.parse(String(status.evidence).slice("doc-scan:".length)) as {
+      readonly rows: readonly { readonly state: string; readonly size: number | null }[];
+    };
+    assert.equal(statusRows.rows[0]?.state, "eligible");
+    assert.equal(statusRows.rows[0]?.size, bytes.byteLength);
+    const submitted = (await cell.run(
       {
-        kind: "task-artifact-add",
-        taskId: routed[1]!,
-        source: unquote(routed[2]!),
-        destination: unquote(routed[3]!),
+        kind: "doc-submit",
+        paths: [logical],
       },
       binding,
     )) as Record<string, unknown>;
-    assert.equal(added.outcome, "applied", JSON.stringify(added));
-    assert.equal(added.source, `harness/${logical}`);
-    assert.deepEqual(readFileSync(target), bytes, "same-path takeover preserves the original bytes");
-    await waitForFixturePublication(cell, String(added.opId), binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.deepEqual(readFileSync(target), bytes, "direct submit preserves the original bytes");
+    await waitForFixturePublication(cell, String(submitted.opId), binding);
     assert.deepEqual(gitBytes(ledgerRoot, logical), bytes, "the nested ledger Git cut holds the same bytes");
   } finally {
     await cell.close();

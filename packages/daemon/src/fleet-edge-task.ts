@@ -19,7 +19,7 @@ import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
-  classifyTextualArtifactPath,
+  classifyDocCandidate,
   classifyRawArtifactPath,
   resolveDocRoute,
   documentPath,
@@ -268,7 +268,7 @@ export async function runFleetEdgeTask(
                 path: change.path,
                 body: Buffer.from(change.bytes),
                 baseBlobSha256: change.baseBlobSha256,
-                policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+                policyId: classifyDocCandidate(change.path, change.bytes)?.policyId ?? DOC_POLICY_ID,
                 mediaType: change.mediaType,
               })),
             })
@@ -534,7 +534,7 @@ export async function runFleetEdgeTask(
       docChanges: candidates.map((change, index) => ({
         path: change.path,
         baseBlobSha256: change.baseBlobSha256,
-        policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+        policyId: classifyDocCandidate(change.path, change.bytes)?.policyId ?? DOC_POLICY_ID,
         candidate: descriptors[index]!,
       })),
       mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },

@@ -160,11 +160,11 @@ export {
 } from "./domain/doc-sync.contract.ts";
 export {
   artifactSubtreePath,
-  classifyOpaqueTextualArtifactPath,
+  classifyDocCandidate,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
+  mediaTypeForBinaryPath,
   DOC_SYNC_INLINE_MAX_BYTES,
-  isOpaqueTextualMediaType,
   type OpaqueTextualMediaType,
   OPAQUE_TEXTUAL_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,
