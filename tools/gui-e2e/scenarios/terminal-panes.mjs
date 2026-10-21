@@ -15,7 +15,10 @@ export default {
     const before = await page.locator("[data-pane-id]").count();
     // The keyboard shortcut is covered by the renderer unit test. Use the pane action here so the
     // isolated Electron journey remains stable when xterm owns focus or the host intercepts chords.
-    await page.getByRole("button", { name: /向右分屏|Split right/u }).first().click();
+    await page
+      .getByRole("button", { name: /向右分屏|Split right/u })
+      .first()
+      .click();
     await page.waitForFunction(
       (count) => globalThis.document.querySelectorAll("[data-pane-id]").length > count,
       before,

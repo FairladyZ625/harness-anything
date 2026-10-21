@@ -24,8 +24,16 @@ test("#1587: read-side path resolution stays total for ids that were never publi
 
 test("#1587: the separators actually in use stay distinct", () => {
   const dispatch = `runtime-spawn-${"a".repeat(32)}`;
-  const targets = ["installation", "started", "outcome", "outcome-unknown", "provider", "task", "cancelled", "exited"]
-    .map((suffix) => eventObjectTarget(`${dispatch}-${suffix}`));
+  const targets = [
+    "installation",
+    "started",
+    "outcome",
+    "outcome-unknown",
+    "provider",
+    "task",
+    "cancelled",
+    "exited",
+  ].map((suffix) => eventObjectTarget(`${dispatch}-${suffix}`));
   assert.equal(new Set(targets).size, targets.length);
   for (const target of targets) assert.doesNotMatch(target.slice("harness/events/".length), /[:<>"|?*\\]/u, target);
 });

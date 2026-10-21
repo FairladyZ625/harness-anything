@@ -21,7 +21,7 @@ async function walk(directory: URL): Promise<ReadonlyArray<URL>> {
 
     const entryUrl = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, directory);
     if (entry.isDirectory()) {
-      files.push(...await walk(entryUrl));
+      files.push(...(await walk(entryUrl)));
       continue;
     }
 
@@ -35,16 +35,20 @@ async function walk(directory: URL): Promise<ReadonlyArray<URL>> {
 
 export async function readKernelSourceFiles(): Promise<ReadonlyArray<SourceFile>> {
   const files = await walk(new URL("src/", kernelRoot));
-  return Promise.all(files.map(async (file) => ({
-    path: relative(repoRoot.pathname, file.pathname),
-    text: await readFile(file, "utf8")
-  })));
+  return Promise.all(
+    files.map(async (file) => ({
+      path: relative(repoRoot.pathname, file.pathname),
+      text: await readFile(file, "utf8"),
+    })),
+  );
 }
 
 export async function readKernelSourceFilesUnder(subdirectory: string): Promise<ReadonlyArray<SourceFile>> {
   const files = await walk(new URL(`src/${subdirectory}/`, kernelRoot));
-  return Promise.all(files.map(async (file) => ({
-    path: relative(repoRoot.pathname, file.pathname),
-    text: await readFile(file, "utf8")
-  })));
+  return Promise.all(
+    files.map(async (file) => ({
+      path: relative(repoRoot.pathname, file.pathname),
+      text: await readFile(file, "utf8"),
+    })),
+  );
 }

@@ -14,29 +14,29 @@ test("ESLint rejects new kernel/application physical I/O imports outside explici
   const cases = [
     {
       filePath: "packages/kernel/src/domain/port-boundary-fixture.ts",
-      source: 'import { readFileSync } from "node:fs";\nexport const value = readFileSync;\n'
+      source: 'import { readFileSync } from "node:fs";\nexport const value = readFileSync;\n',
     },
     {
       filePath: "packages/application/src/port-boundary-fixture.ts",
-      source: 'import { execFileSync } from "node:child_process";\nexport const value = execFileSync;\n'
+      source: 'import { execFileSync } from "node:child_process";\nexport const value = execFileSync;\n',
     },
     {
       filePath: "packages/kernel/src/domain/port-boundary-dynamic-fixture.ts",
-      source: 'export const load = () => import("node:fs/promises");\n'
+      source: 'export const load = () => import("node:fs/promises");\n',
     },
     {
       filePath: "packages/application/src/port-boundary-require-fixture.js",
-      source: 'const cp = require("child_process");\nexport const value = cp;\n'
-    }
+      source: 'const cp = require("child_process");\nexport const value = cp;\n',
+    },
   ];
 
   for (const testCase of cases) {
     const [result] = await eslint.lintText(testCase.source, {
-      filePath: path.join(repoRoot, testCase.filePath)
+      filePath: path.join(repoRoot, testCase.filePath),
     });
     assert.ok(
       result.messages.some((message) => message.message.includes(boundaryMessage)),
-      `${testCase.filePath} should report the physical I/O boundary`
+      `${testCase.filePath} should report the physical I/O boundary`,
     );
   }
 });
@@ -46,12 +46,12 @@ test("ESLint preserves precise file-level physical I/O exemptions", async () => 
   const [result] = await eslint.lintText(
     'import { execFileSync } from "node:child_process";\nexport const value = execFileSync;\n',
     {
-      filePath: path.join(repoRoot, "packages/kernel/src/store/local-version-control-system.ts")
-    }
+      filePath: path.join(repoRoot, "packages/kernel/src/store/local-version-control-system.ts"),
+    },
   );
 
   assert.equal(
     result.messages.some((message) => message.message.includes(boundaryMessage)),
-    false
+    false,
   );
 });

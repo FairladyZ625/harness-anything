@@ -1,12 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  REPLAY_TASK_GRAPH,
-  type ExecutionV1,
-  type TaskLifecycleSnapshot,
-  type TaskV2,
-} from "@harness-anything/kernel";
+import { REPLAY_TASK_GRAPH, type ExecutionV1, type TaskLifecycleSnapshot, type TaskV2 } from "@harness-anything/kernel";
 import { buildCommand } from "../src/repo-cell-command.ts";
 
 const taskId = "task-code-doc-source",

@@ -25,13 +25,18 @@ const ACTIVATABLE_SELECTOR = "button, a, [role='link'], [role='button']";
  * 只为兜住非 fixture 实体的组合引用;单词形 id(如 prose 里的 task/list)
  * 不命中,避免把文案误判成引用。
  */
-const CANONICAL_REF_PATTERN = /(?:task|decision|fact|agent|squad|provider|session)\/[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]/gu;
+const CANONICAL_REF_PATTERN =
+  /(?:task|decision|fact|agent|squad|provider|session)\/[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]/gu;
 
 function looksLikeMachineId(idSegment: string): boolean {
   return idSegment.length >= 4 && /[_0-9-]/u.test(idSegment);
 }
 
-interface Occurrence { readonly start: number; readonly end: number; readonly needle: string; }
+interface Occurrence {
+  readonly start: number;
+  readonly end: number;
+  readonly needle: string;
+}
 
 function collectOccurrences(text: string, fixtureNeedles: readonly string[]): Occurrence[] {
   const occurrences: Occurrence[] = [];

@@ -3,7 +3,13 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseToolOptions, renderToolHelp, testHermeticPreflightCommand, toolOption, toolValue } from "./tool-command-contract.mjs";
+import {
+  parseToolOptions,
+  renderToolHelp,
+  testHermeticPreflightCommand,
+  toolOption,
+  toolValue,
+} from "./tool-command-contract.mjs";
 
 export function assessHermeticConfig({ userRoot, daemonId, userRootSource, home = homedir() }) {
   const failures = [];
@@ -15,11 +21,15 @@ export function assessHermeticConfig({ userRoot, daemonId, userRootSource, home 
   } else if (path.resolve(userRoot) === defaultUserRoot) {
     failures.push(`user-root path: ${defaultUserRoot} is the default daemon root; choose a dedicated directory.`);
   } else if (userRootSource !== "flag") {
-    failures.push("user-root source: pass --user-root explicitly; an environment-only value is not an auditable isolation boundary.");
+    failures.push(
+      "user-root source: pass --user-root explicitly; an environment-only value is not an auditable isolation boundary.",
+    );
   }
 
   if (userRoot !== undefined && path.resolve(userRoot) === defaultUserRoot && effectiveDaemonId === "default") {
-    failures.push("socket namespace: the default user-root with daemon-id default resolves to the user's default daemon endpoint.");
+    failures.push(
+      "socket namespace: the default user-root with daemon-id default resolves to the user's default daemon endpoint.",
+    );
   }
 
   return { ok: failures.length === 0, failures, effectiveDaemonId };
@@ -56,7 +66,9 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     for (const failure of result.failures) console.error(`FAIL ${failure}`);
     return 1;
   }
-  console.log(`PASS hermetic test configuration: user-root=${path.resolve(config.userRoot)} daemon-id=${result.effectiveDaemonId} socket-namespace=derived-from-user-root-and-daemon-id`);
+  console.log(
+    `PASS hermetic test configuration: user-root=${path.resolve(config.userRoot)} daemon-id=${result.effectiveDaemonId} socket-namespace=derived-from-user-root-and-daemon-id`,
+  );
   return 0;
 }
 

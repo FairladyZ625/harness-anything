@@ -50,15 +50,20 @@ export function validateEvidenceBody(body) {
   const errors = [];
   for (const [index, claim] of claims.entries()) {
     const label = `claim ${index + 1}`;
-    if (!new Set(["ci", "performance"]).has(claim.type)) errors.push(`${label}: Evidence-Type must be ci or performance`);
+    if (!new Set(["ci", "performance"]).has(claim.type))
+      errors.push(`${label}: Evidence-Type must be ci or performance`);
     for (const field of COMMON_FIELDS) {
-      if (claim.fields[field] === undefined || claim.fields[field].length === 0) errors.push(`${label}: missing ${field}`);
+      if (claim.fields[field] === undefined || claim.fields[field].length === 0)
+        errors.push(`${label}: missing ${field}`);
     }
-    if (claim.fields["run-url"] !== undefined && !validRunUrl(claim.fields["run-url"])) errors.push(`${label}: run-url must be an HTTPS CI run URL`);
-    if (claim.fields["commit-sha"] !== undefined && !SHA.test(claim.fields["commit-sha"])) errors.push(`${label}: commit-sha must be a full 40-character SHA`);
+    if (claim.fields["run-url"] !== undefined && !validRunUrl(claim.fields["run-url"]))
+      errors.push(`${label}: run-url must be an HTTPS CI run URL`);
+    if (claim.fields["commit-sha"] !== undefined && !SHA.test(claim.fields["commit-sha"]))
+      errors.push(`${label}: commit-sha must be a full 40-character SHA`);
     if (claim.type === "performance") {
       for (const field of PERFORMANCE_FIELDS) {
-        if (claim.fields[field] === undefined || claim.fields[field].length === 0) errors.push(`${label}: missing ${field}`);
+        if (claim.fields[field] === undefined || claim.fields[field].length === 0)
+          errors.push(`${label}: missing ${field}`);
       }
       if (claim.fields.baseline !== undefined && !validBaseline(claim.fields.baseline)) {
         errors.push(`${label}: baseline must identify a paired SHA or evidence URL`);

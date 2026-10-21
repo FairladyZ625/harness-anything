@@ -25,7 +25,7 @@ export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
     return {
       ...baseCommand,
       requiresXvfb: true,
-      missingXvfb: true
+      missingXvfb: true,
     };
   }
 
@@ -33,7 +33,7 @@ export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
     command: "xvfb-run",
     args: ["--auto-servernum", "npm", ...baseCommand.args],
     requiresXvfb: true,
-    shell: false
+    shell: false,
   };
 }
 
@@ -47,7 +47,7 @@ function main() {
   const selected = selectGuiE2eCommand({
     platform: process.platform,
     display: process.env.DISPLAY,
-    hasXvfbRun: binaryExists("xvfb-run", process.platform)
+    hasXvfbRun: binaryExists("xvfb-run", process.platform),
   });
 
   if (selected.missingXvfb) {
@@ -59,7 +59,7 @@ function main() {
     cwd: repoRoot,
     env: process.env,
     stdio: "inherit",
-    shell: selected.shell
+    shell: selected.shell,
   });
 
   if (result.error) {

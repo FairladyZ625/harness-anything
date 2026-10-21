@@ -4,14 +4,16 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-  validateReceiptSchema,
-  verifyReceipt
-} from "../receipt-verify.mjs";
+import { validateReceiptSchema, verifyReceipt } from "../receipt-verify.mjs";
 
 const fixtureDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/receipts");
 const readFixture = (name) => JSON.parse(readFileSync(path.join(fixtureDir, name), "utf8"));
-const expectations = { scope: "module:kernel", kind: "line-budget", minimumLimit: 20000, now: new Date("2026-08-11T00:00:00Z") };
+const expectations = {
+  scope: "module:kernel",
+  kind: "line-budget",
+  minimumLimit: 20000,
+  now: new Date("2026-08-11T00:00:00Z"),
+};
 
 test("decision receipt schema and signature verify", () => {
   const receipt = readFixture("valid-line-budget.json");

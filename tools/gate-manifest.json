@@ -63,6 +63,7 @@
         "check-cli-error-codes",
         "check-error-classification",
         "check-entity-doc-contract",
+        "check-format",
         "check-import-boundaries",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
@@ -115,6 +116,7 @@
         "check-cli-error-codes",
         "check-error-classification",
         "check-entity-doc-contract",
+        "check-format",
         "check-import-boundaries",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
@@ -1263,6 +1265,44 @@
         "status": "covered",
         "evidence": ["tools/check-file-complexity.test.mjs"]
       }
+    },
+    {
+      "id": "check-format",
+      "command": "npm run harness:check-format",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": ["**/*.js","**/*.mjs","**/*.ts","**/*.tsx","prettier.config.mjs","package.json"],
+      "authoritySource": ["prettier.config.mjs", "package.json:lint-staged", "tools/check-format.mjs"],
+      "consumerScope": [
+        "every tracked source and test file in the lint-staged extension set, checked against prettier.config.mjs"
+      ],
+      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The only exclusions are .gitignore entries, which Prettier's own CLI honours; the gate has no private skip list."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-format.mjs",
+          "package.json:scripts.harness:check-format",
+          "prettier.config.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": true, "checkPr": true, "script": "harness:check-format" },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["full-check", "boundaries"] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": { "status": "covered", "evidence": ["tools/check-format.test.mjs"] }
     },
     {
       "id": "check-cli-structure",

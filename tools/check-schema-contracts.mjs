@@ -20,7 +20,7 @@ const expectedSchemaIds = [
   "sqlite-task-row",
   "harness-check-report",
   "docs-release-promotion-bundle",
-  "subtask-plan"
+  "subtask-plan",
 ];
 const violations = [];
 

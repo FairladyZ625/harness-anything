@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readObserveTail } from "../src/observe-tail.ts";
-import {
-  validateObserveTailPayload,
-  validateObserveTailResult,
-} from "../src/protocol/daemon-protocol-gui-types.ts";
+import { validateObserveTailPayload, validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-types.ts";
 
 const fixture = new URL("../fixtures/runtime/dispatch-replay-ended.jsonl", import.meta.url);
 const dispatchId = "dispatch_96e06fd9ca6917fc922e6d58";
@@ -59,7 +56,10 @@ test("ended dispatch replay exposes sanitized provider turns and can continue fr
       direction: "follow",
       cursor: latest.liveCursor,
     });
-    assert.deepEqual(followed.items.map((record) => record.event.message.content[0].text), ["Followed."]);
+    assert.deepEqual(
+      followed.items.map((record) => record.event.message.content[0].text),
+      ["Followed."],
+    );
     assert.equal(followed.done, true);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -97,7 +97,10 @@ test("dispatch replay shares newest-first history pagination and reports a missi
       direction: "history",
       cursor: latest.historyCursor,
     });
-    assert.deepEqual(older.items.map(textOf), Array.from({ length: 6 }, (_, index) => `record ${index + 1}`));
+    assert.deepEqual(
+      older.items.map(textOf),
+      Array.from({ length: 6 }, (_, index) => `record ${index + 1}`),
+    );
     assert.equal(older.done, true);
 
     const missing = await replay(rootDir, {
@@ -117,10 +120,9 @@ test("dispatch replay input requires a canonical dispatch id", () => {
   assert.deepEqual(validateObserveTailPayload({ kind: "dispatch", direction: "history" }), [
     "observe tail dispatch id is invalid",
   ]);
-  assert.deepEqual(
-    validateObserveTailPayload({ kind: "events", direction: "history", dispatchId }),
-    ["observe tail dispatch id is only valid for dispatch tails"],
-  );
+  assert.deepEqual(validateObserveTailPayload({ kind: "events", direction: "history", dispatchId }), [
+    "observe tail dispatch id is only valid for dispatch tails",
+  ]);
 });
 
 function replay(rootDir, payload) {

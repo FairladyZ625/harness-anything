@@ -12,8 +12,9 @@ test("W3 removes session provenance materializers from the production applicatio
     "provenance-binding.ts",
     "provenance-session-exporter.ts",
     "runtime-session-logs.ts",
-    "session-entity-reader.ts"
-  ]) assert.equal(existsSync(path.join(applicationRoot, retired)), false, `${retired} must remain retired`);
+    "session-entity-reader.ts",
+  ])
+    assert.equal(existsSync(path.join(applicationRoot, retired)), false, `${retired} must remain retired`);
 
   assert.equal("makeEnvironmentCurrentSessionProbe" in application, false);
   assert.equal("makeHumanFallbackSessionProbe" in application, false);
