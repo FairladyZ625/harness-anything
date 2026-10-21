@@ -1,4 +1,5 @@
 import type { PersistedCanonicalEventV1 } from "./doc-sync.contract.ts";
+import { squadRunSubjectEntityIdentity } from "./squad-run.ts";
 
 export type CanonicalEventSummary = Readonly<Record<string, unknown>> & {
   readonly eventId: string;
@@ -19,6 +20,7 @@ const SUMMARY_TEXT_LIMIT = 280;
 export function canonicalEventSummary(event: PersistedCanonicalEventV1): CanonicalEventSummary {
   const source = event as unknown as Readonly<Record<string, unknown>>,
     payload = recordOf(source.payload),
+    subjectIdentity = squadRunSubjectEntityIdentity(payload?.subject),
     actor = recordOf(source.actor),
     executor = recordOf(actor?.executor),
     witness = recordOf(payload?.witness),
@@ -40,7 +42,7 @@ export function canonicalEventSummary(event: PersistedCanonicalEventV1): Canonic
     ...optionalText("decisionId", source.decisionId),
     ...(executor && textOf(executor.id) ? { actor: { executor: { id: textOf(executor.id)! } } } : {}),
     payload: compact({
-      taskId: textOf(payload?.taskId),
+      taskId: textOf(payload?.taskId) ?? subjectIdentity.taskId,
       statement: clippedText(payload?.statement),
       text: clippedText(payload?.text),
       title: clippedText(payload?.title),

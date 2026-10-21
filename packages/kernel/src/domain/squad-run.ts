@@ -22,6 +22,30 @@ export type SquadRunSubjectV1 =
       readonly occurrenceId: string;
       readonly claimFence: string;
     };
+
+export type SquadRunSubjectEntityIdentity = Readonly<{
+  readonly taskId?: string;
+  readonly executionId?: string;
+  readonly scheduleId?: string;
+  readonly occurrenceId?: string;
+}>;
+
+/** Extract the entity identity carried by either Squad run subject branch for projections. */
+export function squadRunSubjectEntityIdentity(value: unknown): SquadRunSubjectEntityIdentity {
+  if (!isRecord(value)) return {};
+  if (value.kind === "task")
+    return {
+      ...(isNonEmptyString(value.taskId) ? { taskId: value.taskId } : {}),
+      ...(isNonEmptyString(value.executionId) ? { executionId: value.executionId } : {}),
+    };
+  if (value.kind === "schedule-occurrence")
+    return {
+      ...(isNonEmptyString(value.scheduleId) ? { scheduleId: value.scheduleId } : {}),
+      ...(isNonEmptyString(value.occurrenceId) ? { occurrenceId: value.occurrenceId } : {}),
+    };
+  return {};
+}
+
 export interface SquadRunIdentity {
   readonly squadRunId: string;
   readonly squadId: string;

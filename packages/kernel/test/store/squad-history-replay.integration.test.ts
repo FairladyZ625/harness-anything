@@ -87,6 +87,26 @@ test("frozen flat events pass canonical staging and fresh projection catch-up", 
       assert.equal(historicalIdentity.taskId, "task_000000000000000000000001");
       assert.equal(historicalIdentity.executionId, "exe_000000000000000000000001");
       assert.equal("subject" in historicalIdentity, false, "event reads preserve the original canonical bytes");
+      const taskEvents = projection.readEventList({ entity: "task/task_000000000000000000000001", limit: 50 });
+      const executionEvents = projection.readEventList({ entity: "execution/exe_000000000000000000000001", limit: 50 });
+      assert.deepEqual(
+        taskEvents.rows.filter(({ type }) => type.startsWith("runtime_squad_run")).map(({ revision }) => revision),
+        [150960],
+        "historical Squad observations remain indexed by their task after cold replay",
+      );
+      assert.deepEqual(
+        executionEvents.rows.filter(({ type }) => type.startsWith("runtime_squad_run")).map(({ revision }) => revision),
+        [150960],
+        "historical Squad observations remain indexed by their execution after cold replay",
+      );
+      const observationSummary = projection
+        .readEventSummaries(150959, 10)
+        .events.find(({ type }) => type === "runtime_squad_run_observed");
+      assert.equal(observationSummary?.payload.taskId, "task_000000000000000000000001");
+      assert.deepEqual(taskEvents.rows.find(({ revision }) => revision === 150960)?.entityRefs, [
+        "task/task_000000000000000000000001",
+        "execution/exe_000000000000000000000001",
+      ]);
     } finally {
       projection.close();
     }
