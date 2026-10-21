@@ -194,7 +194,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
   }
 });
 
-test("per-repository epoch databases import the maximum legacy current or history epoch", () => {
+test("per-repository epoch databases import legacy floors and then retire the old source", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-fresh-"));
   try {
     seedLegacyWriterEpochDatabase(root, {
@@ -222,6 +222,16 @@ test("per-repository epoch databases import the maximum legacy current or histor
       }
     } finally {
       authority.close();
+    }
+    const legacy = new DatabaseSync(path.join(root, "writer-epochs.sqlite"));
+    assert.equal((legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version, 1);
+    legacy.exec("DROP TABLE writer_epoch_history; DROP TABLE writer_epochs");
+    legacy.close();
+    const reopened = openPersistentWriterEpoch({ stateRoot: root, holderId: "after-migration" });
+    try {
+      assert.equal(reopened.acquire("repo-current", 0).epoch, 44);
+    } finally {
+      reopened.close();
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
