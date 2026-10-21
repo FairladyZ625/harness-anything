@@ -39,7 +39,12 @@ export function makeFleetSquadCoordinator(input: {
       input.peer.readAccessToken,
     );
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
-      throw Object.assign(new Error(JSON.stringify(receipt)), { code: receipt.code ?? "squad_control_failed" });
+      // The center's receipt carries the child action's own evidence and message; only its stable
+      // code crosses the edge boundary, so a remote's prose never lands in an edge operator's log.
+      throw Object.assign(
+        new Error(`The center refused this squad control action with code ${receipt.code ?? "squad_control_failed"}.`),
+        { code: receipt.code ?? "squad_control_failed" },
+      );
     return receipt as JsonObject;
   };
   const coordinator = makeSquadCoordinator({

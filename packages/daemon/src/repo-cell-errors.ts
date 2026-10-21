@@ -9,6 +9,7 @@ import {
   type EntityActionCriterionFailure,
   type ReceiptDiagnostic,
 } from "@harness-anything/kernel";
+import { scrubSecretText } from "./secret-scrub.ts";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
@@ -75,6 +76,42 @@ export function cellErrorCode(error: unknown): string {
 
 export function cellErrorMessage(error: unknown): string {
   return normalizeDomainError(error).message;
+}
+
+// A rejected action is self-describing by default: the sentence its own guard threw is the
+// explanation. That default is only safe where the daemon authored the sentence. These codes are
+// the measured exceptions — their message is a foreign payload it merely relayed (a remote's
+// stderr, a child process's JSON dump, an absolute host path), so forwarding it would hand
+// whatever the far end printed to the CLI, the GUI and an agent's prompt. They answer with a
+// sentence this module owns instead. Adding a code here is the deliberate act; the default stays
+// open so ordinary refusals keep explaining themselves.
+const foreignMessageCodes: ReadonlyMap<string, string> = new Map([
+  [
+    "delivery_publish_failed",
+    "The delivery could not be published to the remote. Check the GitHub credential and push access, then retry.",
+  ],
+  [
+    "writer_rejected",
+    "The repository writer lock refused this write. Retry once the writer holding the lock releases it.",
+  ],
+  ["repo_unavailable", "The repository is unavailable on this node. Reattach or reopen it, then retry."],
+  ["review_dispatch_failed", "The review dispatch did not complete. Read the reviewer runtime's own log, then retry."],
+  ["script_reported_failure", "The vertical script reported a failure. Read the script's own report, then retry."],
+  ["squad_control_failed", "The squad control action did not complete. Check the squad run's own log, then retry."],
+  ["squad_child_create_failed", "The squad child task was not created. Check the child action's own code, then retry."],
+  ["squad_child_document_failed", "The squad child document was not published. Check the child action's own code."],
+  ["squad_child_release_failed", "The squad child lease was not released. Check the child action's own code."],
+  ["squad_child_closeout_failed", "The squad child task was not closed out. Check the child action's own code."],
+]);
+
+/**
+ * The sentence a rejected receipt carries. Secrets are scrubbed for every code, and a code that
+ * only relays foreign text is answered by its own sentence instead of that text.
+ */
+export function rejectionExplanation(error: unknown): string {
+  const code = cellErrorCode(error),
+    denied = foreignMessageCodes.get(code);
+  return denied ?? scrubSecretText(cellErrorMessage(error));
 }
 
 export function publishGeneratedArtifact(input: {

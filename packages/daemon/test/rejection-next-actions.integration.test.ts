@@ -9,6 +9,7 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { failed } from "../src/repo-cell-settlement.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { commitDelivery } from "./review-independence.fixtures.ts";
@@ -574,6 +575,75 @@ test("task reads against a task id the projection does not have answer task_not_
       assert.equal(dispatches?.code, "task_not_found", String(dispatches));
       assert.match(String(dispatches?.message), new RegExp(taskId, "u"));
     }
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a business refusal keeps its own sentence while a refusal carrying foreign text is answered by its code", async () => {
+  const rootDir = workspace("explanation-exposure"),
+    repoId = workspaceId("explanation-exposure"),
+    actor = binding("explanation-exposure");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "explanation-exposure" });
+    // Half one, end to end: an ordinary guard rejection stays self-describing. The report is what
+    // makes the refusal actionable, so it has to survive the outbound boundary verbatim.
+    const rejected = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: "task/task-explanation-missing",
+        targetRef: "task/task-explanation-other",
+        relationType: "depends-on",
+        expectedVersion: 0,
+      },
+      actor,
+    );
+    assert.equal(rejected.code, "entity_not_found", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /task-explanation-missing does not exist/u);
+
+    // Half two: a code whose message is a foreign payload (a remote's stderr, a child's JSON dump)
+    // is answered by a sentence the daemon owns, never by the intercepted text.
+    const leaked = failed(
+      "op-leak",
+      Object.assign(
+        new Error(
+          "git push failed: remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git\n" +
+            "fatal: Authentication failed for 'https://github.com/acme/repo.git/'",
+        ),
+        { code: "delivery_publish_failed" },
+      ),
+    );
+    assert.equal(leaked.outcome, "op_rejected", JSON.stringify(leaked));
+    assert.equal(leaked.code, "delivery_publish_failed");
+    const leakedText = String(leaked.rejectionExplanation);
+    assert.doesNotMatch(leakedText, /ghp_realtokenvalue123|Authentication failed|git push failed/u);
+    assert.match(leakedText, /GitHub|credential|authenticate/iu);
+
+    // The lock's message nests a Git error under the workspace path, which is exactly where a
+    // remote URL with an embedded credential surfaces.
+    const locked = failed(
+      "op-lock",
+      Object.assign(
+        new Error(`Workspace writer lock is held for ${rootDir}: fetch failed for Bearer abcdefghijklmnop`),
+        { code: "writer_rejected" },
+      ),
+    );
+    const lockedText = String(locked.rejectionExplanation);
+    assert.doesNotMatch(lockedText, /abcdefghijklmnop|fetch failed/u);
+    assert.match(lockedText, /lock/iu);
+
+    // A code that is allowed to describe itself still cannot carry a credential through the boundary.
+    const scrubbed = failed(
+      "op-scrub",
+      Object.assign(new Error("Settings write refused: Authorization: Bearer sk-live-abcdefghijklmnop"), {
+        code: "settings_write_requires_principal",
+      }),
+    );
+    const scrubbedText = String(scrubbed.rejectionExplanation);
+    assert.match(scrubbedText, /Settings write refused/u, "the authored sentence survives");
+    assert.doesNotMatch(scrubbedText, /sk-live-abcdefghijklmnop/u, scrubbedText);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

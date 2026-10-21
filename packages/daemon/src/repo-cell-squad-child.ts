@@ -24,6 +24,16 @@ import { publishDocIntent } from "./doc-sync-publication.ts";
 import { noChanges } from "./entity-action-write-helpers.ts";
 
 /**
+ * A refused squad child step reports what it was doing and the code the child returned. The
+ * child's receipt also carries raw message and evidence — sometimes a remote's stderr or a foreign
+ * JSON dump — so only the stable code crosses this boundary; the daemon's own sentence says what
+ * the operator can act on.
+ */
+function childRefusal(summary: string, receipt: { readonly code?: string }): string {
+  return receipt.code === undefined ? summary : `${summary} (code: ${receipt.code})`;
+}
+
+/**
  * Keep the parent's readiness contract while applying the commander's authored assignment.
  * Missing parent sections stay missing; an assignment cannot make an incomplete parent plan ready.
  */
@@ -102,7 +112,10 @@ export async function createSquadChild(
     taskId = (receipt as typeof receipt & { readonly taskId?: string }).taskId;
   // A retried assignment reuses its child task through the idempotency key and writes nothing.
   if ((receipt.outcome !== "applied" && receipt.outcome !== "no_changes") || !taskId)
-    throw cell.cellCodedError(receipt.code ?? "squad_child_create_failed", JSON.stringify(receipt));
+    throw cell.cellCodedError(
+      receipt.code ?? "squad_child_create_failed",
+      childRefusal("The squad child task was not created.", receipt),
+    );
   return taskId;
 }
 
@@ -162,7 +175,10 @@ export async function publishSquadChildDocument(
       lease,
     );
   if (receipt.outcome !== "applied")
-    throw cell.cellCodedError(receipt.code ?? "squad_child_document_failed", JSON.stringify(receipt));
+    throw cell.cellCodedError(
+      receipt.code ?? "squad_child_document_failed",
+      childRefusal("The squad child document was not published.", receipt),
+    );
 }
 
 export async function reacquireSquadTaskLease(input: {
@@ -257,7 +273,10 @@ export async function settleSquadChildAssignment(
       await authorize(release, binding, `squad-settle:${child.taskId}:${snapshot.lease.version}:release`),
     );
     if (released.outcome !== "applied")
-      throw cell.cellCodedError(released.code ?? "squad_child_release_failed", JSON.stringify(released));
+      throw cell.cellCodedError(
+        released.code ?? "squad_child_release_failed",
+        childRefusal("The squad child lease was not released.", released),
+      );
   }
   const cancel = {
     kind: "task-transition",
@@ -272,7 +291,10 @@ export async function settleSquadChildAssignment(
     await authorize(cancel, binding, `squad-settle:${child.taskId}:cancel`),
   );
   if (cancelled.outcome !== "applied")
-    throw cell.cellCodedError(cancelled.code ?? "squad_child_closeout_failed", JSON.stringify(cancelled));
+    throw cell.cellCodedError(
+      cancelled.code ?? "squad_child_closeout_failed",
+      childRefusal("The squad child task was not closed out.", cancelled),
+    );
 }
 
 /** Both local and fleet observations settle here, inside the center's existing serial queue. */
