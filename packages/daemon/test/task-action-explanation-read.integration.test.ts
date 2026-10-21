@@ -84,7 +84,12 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       1,
     );
     // dec_4190D5EA63D9DD208CE946F133 adds Task-owned claim, publish, revoke and re-run.
-    assert.equal(one.subjects[0]!.actions.length, 23);
+    // Owner 2026-10-21 B3 deletes task-code-doc-reconcile and task-code-doc-repoint with the mechanism.
+    assert.equal(one.subjects[0]!.actions.length, 21);
+    assert.equal(
+      one.subjects[0]!.actions.some(({ action }) => action.kind.startsWith("task-code-doc-")),
+      false,
+    );
     assert.deepEqual(one.subjects[0]!.actions[0]!.authorizationDecision?.actor, actor);
     assert.doesNotThrow(() => parseDaemonGuiReadResult(method, fiveHundred));
 
