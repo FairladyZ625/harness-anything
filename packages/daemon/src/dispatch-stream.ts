@@ -27,6 +27,9 @@ import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fa
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 import { writeFileDurably } from "./durable-file.ts";
+import { scrubProviderValue } from "./secret-scrub.ts";
+
+export { scrubProviderValue } from "./secret-scrub.ts";
 
 const streamSchema = "runtime-dispatch-stream/v1" as const;
 // Byte caps on one retained dispatch stream. They bound a runaway provider transcript's disk
@@ -36,29 +39,6 @@ const streamSchema = "runtime-dispatch-stream/v1" as const;
 const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
-// A key naming a token carries a credential when its value is a string, and LLM usage telemetry
-// (input_tokens, totalTokens, token_count) when it is a number or a structure of numbers. The value
-// type is the line: the durable replay path re-feeds persisted provider events after a daemon
-// restart, so dropping the counters would erase an adopted session's usage at settlement, while a
-// string under any token-named key (id_token, github_token, a bare token) never reaches disk.
-const tokenKey = /token/iu;
-const forbiddenKey = new RegExp(
-  [
-    "credential",
-    "password",
-    "secret",
-    "authorization",
-    "executablepath",
-    "api[-_ ]?key",
-    "private[-_ ]?key",
-    "cookie",
-  ].join("|"),
-  "iu",
-);
-const bearer = /\bBearer\s+[^\s,;]+/giu;
-const knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu;
-const sensitiveAssignment =
-  /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
 
 export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly handoffEnabled?: boolean;
@@ -640,22 +620,6 @@ export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
     .split(path.sep)
     .join("/");
   return `file:${relative}`;
-}
-
-export function scrubProviderValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(scrubProviderValue);
-  if (value !== null && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key, entry]) => !forbiddenKey.test(key) && !(tokenKey.test(key) && typeof entry === "string"))
-        .map(([key, entry]) => [key, scrubProviderValue(entry)]),
-    );
-  if (typeof value !== "string") return value;
-  return value
-    .replace(bearer, "Bearer [REDACTED]")
-    .replace(knownToken, "[REDACTED]")
-    .replace(/harness-execution-[A-Za-z0-9._-]+:[A-Za-z0-9_-]{43}/gu, "[REDACTED]")
-    .replace(sensitiveAssignment, "[REDACTED]");
 }
 
 export function dispatchStreamPath(rootDir: string, dispatchId: string): string {

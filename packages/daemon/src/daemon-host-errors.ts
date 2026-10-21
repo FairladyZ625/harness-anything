@@ -6,6 +6,7 @@ import {
 export { diagnosticForError } from "./receipt-guidance.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell.ts";
+import { scrubSecretText } from "./secret-scrub.ts";
 
 export function rejectHostAction(
   action: RepoTaskAction,
@@ -20,8 +21,9 @@ export function rejectHostAction(
     origin: "daemon",
     evidence: `rejection:${errorCode}`,
     diagnostic: diagnostic ?? { kind: "failure", code: errorCode },
-    // The same receipt field every other rejection path uses; a host-caught error keeps its message.
-    rejectionExplanation: explanation,
+    // The same receipt field every other rejection path uses; a host-caught error keeps its message,
+    // minus any credential, because this path does not pass through `rejectionExplanation()`.
+    rejectionExplanation: scrubSecretText(explanation),
   };
 }
 
@@ -33,7 +35,7 @@ export function rejectPresetRun(runId: string, code: string, rejectionExplanatio
     phase: "op_rejected" as const,
     phases: ["op_rejected"] as const,
     code,
-    rejectionExplanation,
+    rejectionExplanation: scrubSecretText(rejectionExplanation),
   };
 }
 

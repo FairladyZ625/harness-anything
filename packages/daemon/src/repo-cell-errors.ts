@@ -9,6 +9,7 @@ import {
   type EntityActionCriterionFailure,
   type ReceiptDiagnostic,
 } from "@harness-anything/kernel";
+import { scrubSecretText } from "./secret-scrub.ts";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
@@ -75,6 +76,29 @@ export function cellErrorCode(error: unknown): string {
 
 export function cellErrorMessage(error: unknown): string {
   return normalizeDomainError(error).message;
+}
+
+// A rejected action is self-describing: the sentence its own guard threw is the explanation, and
+// that is only safe because every producer of a *relayed* payload authors or redacts its own
+// sentence before throwing. The audit behind this boundary (470 `cellCodedError` /
+// `cellCriterionError` call sites across `packages/daemon/src`) found no code whose message is
+// only foreign text: the codes that were once denied now either name the stable code and the
+// actionable field (`childRefusal`, `publishExecutedVerticalScript`, `fleet-squad-coordinator`) or
+// redact the remote detail where it is produced (`runtime-worker-push.ts`'s `errorDetail`, which
+// strips URL userinfo, hosted-provider tokens and local host paths from the relayed diagnostics).
+//
+// So this boundary no longer denies codes: denying a whole code also discarded the authored half of
+// a mixed message, which replaced an operator's only clue with a sentence that could be factually
+// wrong. What no producer may bypass is the credential scrubber — it runs here, in
+// `withAuthorizationDecision`, and in `rejectHostAction`. A new code whose message really is only a
+// remote's bytes must redact at its producer, and this comment is where that exception is recorded.
+
+/**
+ * The sentence a rejected receipt carries. Every code keeps its own sentence; credentials are
+ * removed here because this is the last boundary before the CLI, the GUI and an agent's prompt.
+ */
+export function rejectionExplanation(error: unknown): string {
+  return scrubSecretText(cellErrorMessage(error));
 }
 
 export function publishGeneratedArtifact(input: {

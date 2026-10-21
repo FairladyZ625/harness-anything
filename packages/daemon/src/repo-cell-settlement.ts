@@ -11,7 +11,7 @@ import {
   cellCodedError,
   cellCriterionError,
   cellErrorCode,
-  cellErrorMessage,
+  rejectionExplanation,
 } from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
@@ -139,7 +139,7 @@ export function failed(
     // A rejected guard's thrown message is its own explanation; forward it so the receipt is
     // self-describing instead of falling back to a code-only sentence downstream. Indeterminate
     // outcomes keep their retry guidance untouched — they were never a guard rejection.
-    message = receipt.outcome === "op_rejected" ? cellErrorMessage(error) : "",
+    message = receipt.outcome === "op_rejected" ? rejectionExplanation(error) : "",
     explained = message ? { ...diagnosed, rejectionExplanation: message } : diagnosed,
     criterionFailure = actionCriterionFailure(error);
   if (criterionFailure === null) return explained;

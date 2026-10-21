@@ -9,6 +9,12 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { rejectHostAction } from "../src/daemon-host-errors.ts";
+import { withAuthorizationDecision } from "../src/repo-cell-authorization.ts";
+import { settleSquadChildAssignment } from "../src/repo-cell-squad-child.ts";
+import { failed } from "../src/repo-cell-settlement.ts";
+import { publishExecutedVerticalScript } from "../src/vertical-script-actions.ts";
+import { readWorkerRemoteCommit } from "../src/runtime-worker-push.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { commitDelivery } from "./review-independence.fixtures.ts";
@@ -574,6 +580,387 @@ test("task reads against a task id the projection does not have answer task_not_
       assert.equal(dispatches?.code, "task_not_found", String(dispatches));
       assert.match(String(dispatches?.message), new RegExp(taskId, "u"));
     }
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a business refusal keeps its own sentence and no refusal can carry a credential out", async () => {
+  const rootDir = workspace("explanation-exposure"),
+    repoId = workspaceId("explanation-exposure"),
+    actor = binding("explanation-exposure");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "explanation-exposure" });
+    // Half one, end to end: an ordinary guard rejection stays self-describing. The report is what
+    // makes the refusal actionable, so it has to survive the outbound boundary verbatim.
+    const rejected = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: "task/task-explanation-missing",
+        targetRef: "task/task-explanation-other",
+        relationType: "depends-on",
+        expectedVersion: 0,
+      },
+      actor,
+    );
+    assert.equal(rejected.code, "entity_not_found", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /task-explanation-missing does not exist/u);
+
+    // Half two: `delivery_publish_failed` is a *mixed* code. Its push producers author the detail
+    // ("no Harness-managed worktree branch", "supported only for GitHub repositories") and the git/gh
+    // relay branch redacts what it forwards, so the boundary must keep the authored sentence instead
+    // of replacing it with a generic one that names the wrong cause. A credential inside it still
+    // cannot leave.
+    const leaked = failed(
+      "op-leak",
+      Object.assign(
+        new Error(
+          "git push failed: remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git\n" +
+            "fatal: Authentication failed for 'https://github.com/acme/repo.git/'",
+        ),
+        { code: "delivery_publish_failed" },
+      ),
+    );
+    assert.equal(leaked.outcome, "op_rejected", JSON.stringify(leaked));
+    assert.equal(leaked.code, "delivery_publish_failed");
+    const leakedText = String(leaked.rejectionExplanation);
+    assert.doesNotMatch(leakedText, /ghp_realtokenvalue123/u, leakedText);
+    assert.match(leakedText, /git push failed/u, "the relayed cause survives, minus the credential");
+
+    // The lock's message nests a Git error under the workspace path, which is exactly where a
+    // remote URL with an embedded credential surfaces. The authored frame is the operator's only
+    // clue to who holds the lock, so the frame stays and the credential inside it is scrubbed.
+    const locked = failed(
+      "op-lock",
+      Object.assign(
+        new Error(`Workspace writer lock is held for ${rootDir}: fetch failed for Bearer abcdefghijklmnop`),
+        { code: "writer_rejected" },
+      ),
+    );
+    const lockedText = String(locked.rejectionExplanation);
+    assert.doesNotMatch(lockedText, /abcdefghijklmnop/u, lockedText);
+    assert.match(lockedText, /Workspace writer lock is held/u, "the operator's diagnostic survives");
+
+    // The same rule for any other code: the sentence stays, the token goes.
+    const scrubbed = failed(
+      "op-scrub",
+      Object.assign(new Error("Settings write refused: Authorization: Bearer sk-live-abcdefghijklmnop"), {
+        code: "settings_write_requires_principal",
+      }),
+    );
+    const scrubbedText = String(scrubbed.rejectionExplanation);
+    assert.match(scrubbedText, /Settings write refused/u, "the authored sentence survives");
+    assert.doesNotMatch(scrubbedText, /sk-live-abcdefghijklmnop/u, scrubbedText);
+
+    // A latch's real failure is what tells an operator whether to reattach or fix the store; a GUI
+    // read test asserts that text, so the boundary has to keep it.
+    const latched = failed(
+      "op-latch",
+      Object.assign(new Error("Repository projection is unavailable: task bootstrap event identity is invalid"), {
+        code: "repo_unavailable",
+      }),
+    );
+    assert.match(String(latched.rejectionExplanation), /task bootstrap event identity is invalid/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// Every denylisted code used to be asserted only through a synthetic `failed()` call, so a producer
+// that authored a *better* sentence could be silently replaced by the denylist and no test noticed.
+// These drive the real producers and assert the sentence that reaches the receipt.
+test("a task with no managed worktree publishes a refusal naming the missing branch, not a credential hint", async () => {
+  const rootDir = workspace("push-no-worktree"),
+    repoId = workspaceId("push-no-worktree"),
+    taskId = "task_push_no_worktree",
+    actor = binding("push-no-worktree");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "push-no-worktree" });
+    // `task-package-artifact` has no repository-diff output shape, so `taskWorktreeBinding` is null
+    // and the push refuses before it ever reads a credential or shells out to git.
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Push without a worktree", presetId: "docs-task" },
+      actor,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const pushed = await cell.run({ kind: "task-push", taskId }, actor);
+    assert.equal(pushed.outcome, "op_rejected", JSON.stringify(pushed));
+    assert.equal(pushed.code, "delivery_publish_failed", JSON.stringify(pushed));
+    const explanation = String(pushed.rejectionExplanation);
+    // The operator's cause: no managed worktree branch, not a GitHub credential problem.
+    assert.match(explanation, /has no Harness-managed repository worktree branch to publish/u, explanation);
+    assert.doesNotMatch(explanation, /Check the GitHub credential and push access/u, explanation);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a squad child refusal names the child's own code instead of dumping its receipt", async () => {
+  // `settleSquadChildAssignment` is the real producer of the four child codes. A released child whose
+  // release is refused must report the daemon's sentence plus the child's code — never the child
+  // receipt, which carries raw evidence and sometimes a remote's stderr.
+  const taskId = "task_squad_child_release",
+    cell = {
+      projection: {
+        read: () => ({
+          snapshot: {
+            task: { taskId, status: "active" },
+            lease: { executionId: "exec-child", version: 1 },
+          },
+        }),
+      },
+      taskSurfaceWrite: () => ({
+        outcome: "op_rejected",
+        code: "invalid_transition",
+        evidence: "raw",
+        message: "remote: ghp_realtokenvalue123",
+        summary: "lease release refused by the remote",
+      }),
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    } as never;
+  await assert.rejects(
+    settleSquadChildAssignment(
+      cell,
+      { taskId, runtimeSessionId: null, reason: "stage ended" },
+      { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
+      async () => ({}) as never,
+    ),
+    (error: Error & { code?: string; message: string }) => {
+      assert.equal(error.code, "invalid_transition");
+      assert.match(error.message, /The squad child lease was not released\./u);
+      assert.match(error.message, /\(code: invalid_transition\)/u);
+      assert.doesNotMatch(error.message, /ghp_realtokenvalue123|raw/u, error.message);
+      return true;
+    },
+  );
+});
+
+test("a vertical script rejection names the status and report keys, never the report values", () => {
+  // `publishExecutedVerticalScript` is the producer; its report can echo authored file contents, so
+  // it reduces the report to its key names. Drive the real function with a failing plan.
+  const prepared = {
+      action: { scriptId: "vertical:software-coding:decision-conformance", dryRun: false },
+      writePatterns: [],
+      producePatterns: [],
+    },
+    stdout = JSON.stringify({
+      schema: "vertical-script-plan/v1",
+      scriptId: "vertical:software-coding:decision-conformance",
+      ok: false,
+      status: "rejected",
+      report: { decisionCount: 3, findings: [{ path: "harness/secret.md", body: "ghp_realtokenvalue123" }] },
+      warnings: [],
+      changes: [],
+    });
+  assert.throws(
+    () => publishExecutedVerticalScript({} as never, { prepared: prepared as never, stdout }),
+    (error: Error & { code?: string; message: string }) => {
+      assert.equal(error.code, "script_reported_failure");
+      assert.match(error.message, /reported status rejected/u);
+      assert.match(error.message, /report fields: decisionCount, findings/u);
+      assert.doesNotMatch(error.message, /ghp_realtokenvalue123|harness\/secret\.md/u, error.message);
+      return true;
+    },
+  );
+});
+
+test("the receipt boundary scrubs an explanation a caller hands over directly", () => {
+  // `withAuthorizationDecision` is the last write for a durable receipt and accepts an explanation
+  // from its caller. The executor-claim catch used to pass the raw thrown message through it, which
+  // is how a remote URL reached the receipt; the boundary now scrubs whatever it is given.
+  const receipt = withAuthorizationDecision(
+    failed(
+      "op-executor-claim",
+      Object.assign(new Error("executor binding failed"), { code: "executor_binding_invalid" }),
+    ),
+    { outcome: "allowed", policyRef: "policy/repository", nextActions: [], reasonCodes: [] },
+    [],
+    "git push failed: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git",
+  );
+  const explanation = String(receipt.rejectionExplanation);
+  assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
+  assert.match(explanation, /git push failed/u, "the caller's sentence survives the scrub");
+});
+
+test("a host-caught rejection keeps its explanation and drops the credential", () => {
+  const receipt = rejectHostAction(
+    { kind: "task-push", taskId: "task_host_reject" },
+    "repo_unavailable",
+    "attach failed fetching https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git",
+  );
+  const explanation = String(receipt.rejectionExplanation);
+  assert.match(explanation, /attach failed fetching/u);
+  assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
+});
+
+test(
+  "a remote-triggered push refusal keeps the scrubbed remote text, not a credential hint",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    // `delivery_publish_failed` has one remaining relayed producer: `readWorkerRemoteCommit` forwards
+    // git's own stderr through `errorDetail`, which scrubs it. The receipt must keep that sentence —
+    // it names what the remote actually said — and must not carry the token the URL embedded in it.
+    const root = mkdtempSync(path.join(tmpdir(), "ha-push-relay-"));
+    try {
+      execFileSync("git", ["init", "-q", root]);
+      // An `ext::` transport whose helper prints a credential-bearing remote line to stderr: this is
+      // the exact shape of a git failure that relays far-end text, without needing a live network.
+      const helper = path.join(root, "relay.sh");
+      writeFileSync(
+        helper,
+        '#!/bin/sh\necho "remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git" >&2\nexit 1\n',
+        { mode: 0o755 },
+      );
+      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
+      await assert.rejects(
+        readWorkerRemoteCommit(root, "task_push_relay"),
+        (error: Error & { code?: string; message: string }) => {
+          assert.equal(error.code, "delivery_publish_failed");
+          assert.match(
+            error.message,
+            /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u,
+            error.message,
+          );
+          assert.doesNotMatch(error.message, /ghp_realtokenvalue123/u, error.message);
+          return true;
+        },
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a relayed remote refusal scrubs hosted-provider logins, not only github token prefixes",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    // GitLab is a first-class hosting provider (hosting-provider.ts, tools/git-hooks/git-askpass),
+    // and its PAT reaches git as URL userinfo (`https://oauth2:glpat-…@host`) — a shape the
+    // token-prefix rules never matched. Git strips userinfo from its own stderr, so the ext:: relay
+    // is the honest way to feed the shape a less careful remote or proxy can still print.
+    const root = mkdtempSync(path.join(tmpdir(), "ha-push-provider-"));
+    try {
+      execFileSync("git", ["init", "-q", root]);
+      const helper = path.join(root, "relay.sh");
+      writeFileSync(
+        helper,
+        "#!/bin/sh\n" +
+          "echo \"fatal: unable to access 'https://oauth2:glpat-AbCdEf1234567890xyz@gitlab.com/acme/repo.git/': " +
+          'The requested URL returned error: 403" >&2\n' +
+          'echo "remote: https://user:pa55w0rd@bitbucket.internal/team/repo.git" >&2\n' +
+          "exit 1\n",
+        { mode: 0o755 },
+      );
+      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
+      let thrown: (Error & { code?: string; message: string }) | undefined;
+      await assert.rejects(
+        readWorkerRemoteCommit(root, "task_push_provider"),
+        (error: Error & { code?: string; message: string }) => {
+          thrown = error;
+          assert.equal(error.code, "delivery_publish_failed");
+          assert.doesNotMatch(error.message, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, error.message);
+          assert.match(error.message, /gitlab\.com/u, "the remote that failed stays named");
+          return true;
+        },
+      );
+      const explanation = String(failed("op-provider", thrown).rejectionExplanation);
+      assert.doesNotMatch(explanation, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, explanation);
+      assert.match(explanation, /gitlab\.com/u, explanation);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a relayed refusal scrubs host paths in every shape, not only POSIX absolute paths",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    // A Windows agent's git prints drive-letter and UNC paths, and a drive path uses either
+    // separator; git also quotes a path containing spaces. Each shape must leave as `<local-path>`
+    // while the sentence that says what happened survives — otherwise the host layout reaches the
+    // CLI and an agent's prompt on the platform that ships the Windows integration shard.
+    const root = mkdtempSync(path.join(tmpdir(), "ha-push-path-shapes-"));
+    try {
+      execFileSync("git", ["init", "-q", root]);
+      const helper = path.join(root, "relay.sh");
+      writeFileSync(
+        helper,
+        String.raw`#!/bin/sh
+cat <<'EOF' >&2
+fatal: C:\Users\op\AppData\Local\Temp\ha-x\mirror.git does not appear to be a git repository
+fatal: C:/Users/op/AppData/Local/Temp/ha-x/mirror.git does not appear to be a git repository
+fatal: \\fileserver\share\mirror.git does not appear to be a git repository
+fatal: /srv/harness/mirror.git does not appear to be a git repository
+fatal: C:\Program Files\Harness\mirror.git does not appear to be a git repository
+EOF
+exit 1
+`,
+        { mode: 0o755 },
+      );
+      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
+      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
+      let thrown: (Error & { code?: string; message: string }) | undefined;
+      await assert.rejects(
+        readWorkerRemoteCommit(root, "task_push_path_shapes"),
+        (error: Error & { code?: string; message: string }) => {
+          thrown = error;
+          assert.equal(error.code, "delivery_publish_failed");
+          assert.doesNotMatch(error.message, /AppData|fileserver|share\\|Program Files|\/srv\//u, error.message);
+          assert.match(error.message, /does not appear to be a git repository/u, "the cause survives the scrub");
+          return true;
+        },
+      );
+      const explanation = String(failed("op-path-shapes", thrown).rejectionExplanation);
+      assert.doesNotMatch(explanation, /AppData|fileserver|Program Files|\/srv\//u, explanation);
+      assert.match(explanation, /does not appear to be a git repository/u, explanation);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("a task push to an unusable origin explains the cause without exporting this host's paths", async () => {
+  const rootDir = workspace("push-dead-origin"),
+    repoId = workspaceId("push-dead-origin"),
+    taskId = "task_push_dead_origin",
+    executionId = "exec-push-dead-origin",
+    holder = binding("push-dead-origin");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "push-dead-origin" });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Push to a dead origin" }, holder);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, holder);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
+    );
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    // An origin that is a local path makes git echo this host's filesystem into the refusal, which
+    // cross-node surfaces and agent prompts must not receive; the remote-side cause still explains
+    // the failure. This drives the real write-queue task-push path end to end.
+    const mirror = path.join(rootDir, "missing-mirror.git");
+    git(rootDir, "remote", "add", "origin", mirror);
+    const pushed = await cell.run({ kind: "task-push", taskId }, holder);
+    assert.equal(pushed.outcome, "op_rejected", JSON.stringify(pushed));
+    assert.equal(pushed.code, "delivery_publish_failed", JSON.stringify(pushed));
+    const explanation = String(pushed.rejectionExplanation);
+    assert.match(explanation, /does not appear to be a git repository|No such file|not found/iu, explanation);
+    // Compare the leaf and the root by name, not by the platform's separator: git prints a
+    // forward-slash drive path on Windows, so a native-separator `includes` would pass while the
+    // host layout is still in the text.
+    assert.ok(!explanation.includes(path.basename(mirror)), explanation);
+    assert.ok(!explanation.includes(path.basename(rootDir)), explanation);
+    assert.ok(!/\/Users\/|\/home\/|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\/u.test(explanation), explanation);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

@@ -85,7 +85,13 @@ export function publishExecutedVerticalScript(
   const { prepared, stdout } = execution,
     plan = acceptBuiltinVerticalScriptPlan(prepared, stdout);
   if (!plan.ok)
-    throw verticalScriptActionError("script_reported_failure", `${plan.status}: ${JSON.stringify(plan.report)}`);
+    throw verticalScriptActionError(
+      "script_reported_failure",
+      // The script's report can echo an authored file's contents, so the refusal names the status
+      // and the keys it reported, never the values.
+      `The ${prepared.action.scriptId} vertical script reported status ${plan.status}` +
+        ` (report fields: ${Object.keys(plan.report).sort().join(", ") || "none"}).`,
+    );
   const result = scriptResult(prepared.action.dryRun, plan);
   if (prepared.action.dryRun || !plan.changes.length) {
     const revision = input.store.readHead()?.revision ?? 0,
