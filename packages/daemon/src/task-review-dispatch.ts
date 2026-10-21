@@ -34,10 +34,13 @@ export function selectReviewAgent(frozen?: string, argument?: string, setting?: 
 }
 
 /** A user-initiated review dispatch is keyed by the reviewed cut, never by a caller or node. */
-export function reviewDispatchKey(taskId: string, execution: ExecutionV1): string {
-  return `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
+export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
+  const key = `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
     execution.submission!,
   )}`;
+  return reviewerId && reviewerId !== execution.submission?.completionContract.reviewer?.agentId
+    ? `${key}:reviewer:${reviewerId}`
+    : key;
 }
 
 /**
@@ -639,9 +642,8 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
 
 /**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
- * cut without a current review: the owner's forward, and an amendment of an in-review cut (which
- * replaces the submission digest and so the dispatch key). Returns null when the task is not at
- * the in-review gate — an amendment before owner triage waits for the forward. A dispatch failure
+ * cut without a current review: submit, amend, resumed submit, and an owner's explicit reviewer
+ * selection. Returns null outside the in-review gate. A dispatch failure
  * never undoes the durable write: it lands as the returned step with the idempotent
  * `ha task dispatch-review` retry lane.
  */
@@ -677,6 +679,7 @@ export async function dispatchInReviewCutReview(
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
       reviewerId,
+      dispatchKey: reviewDispatchKey(taskId, execution, reviewerId),
       ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
       // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
       // would otherwise land on an unpredictable default instance.
@@ -810,8 +813,8 @@ export async function dispatchTaskReview(
     if (snapshot.task?.status !== "in_review") {
       fail(
         snapshot.task?.status === "submitted"
-          ? `Task ${taskId} still awaits its owner's triage. Run ha task adjudicate ${taskId} --forward ` +
-              "--note <why>; the forward order dispatches the independent reviewer."
+          ? `Task ${taskId} has no automatic review requirement. Complete it, or explicitly request review with ` +
+              `ha task adjudicate ${taskId} --forward --reviewer ${reviewerId} --note <why>.`
           : `Task ${taskId} is not at the in-review gate.`,
       );
       continue;
@@ -874,7 +877,7 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
-    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution));
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.

@@ -696,7 +696,7 @@ test("task dispatch wait rides one sessions.await request", async () => {
     assert.equal(
       result.receipt.nextAction,
       `read the report (ha task dispatches ${taskId} lists reportPath) before acting on it; ` +
-        `once the task is submitted, run ha task adjudicate ${taskId} --forward.`,
+        "submit automatically dispatches required reviewers; wait for their verdict before owner consent.",
     );
   } finally {
     invocation.stop();

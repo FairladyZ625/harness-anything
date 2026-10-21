@@ -1006,7 +1006,7 @@ export type DaemonAgendaResult = {
   readonly stalled: readonly AgendaTaskRow[];
   /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。 */
   readonly awaitingRework: readonly AgendaTaskRow[];
-  /** 提交待派审:task 状态 submitted、未被 approved 评审了结的 execution 行;下一步 `ha task adjudicate --forward`。 */
+  /** 无自动评审要求或历史待转交的 submitted execution；按冻结契约处理。 */
   readonly awaitingAdjudication: readonly AgendaExecutionRow[];
   /** 评审中/等 consent:task 状态 in_review、未被 approved 评审了结的 execution 行;报告就绪后 `ha task review-consent`。 */
   readonly underReview: readonly AgendaExecutionRow[];

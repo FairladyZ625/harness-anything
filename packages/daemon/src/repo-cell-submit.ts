@@ -375,18 +375,16 @@ function ownerResumeLanes(
 }
 
 /**
- * An amendment replaces the in-review cut, so the prior review no longer covers it: the center
- * dispatches the reviewer for the new cut through the forward's own path. Before owner triage the
- * amendment dispatches nothing; the forward will.
+ * Initial submissions, amendments, and resumed submissions share the in-review dispatch port.
+ * The frozen review requirement determines the task phase; review-disabled cuts dispatch nothing.
  */
-async function amendedCutReview(
+async function submittedCutReview(
   cell: RepoCellOperationalContext,
   taskId: string,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
-  if (action.amend !== true) return { steps: [], warnings: [] };
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
   return dispatched
     ? { steps: [dispatched.step, ...dispatched.laneSteps], warnings: dispatched.laneWarnings }
@@ -481,10 +479,8 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    // The submitted cut now waits for the owning CEO's triage (owner adjudication 2026-09-19):
-    // a first submit dispatches nothing; evidence preparation still rides with the worker.
     const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
-      review = await amendedCutReview(cell, taskId, action, binding, receipt);
+      review = await submittedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
       ...(review.warnings.length ? { warnings: review.warnings } : {}),
@@ -561,10 +557,12 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
+      review = await submittedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
+      ...(review.warnings.length ? { warnings: review.warnings } : {}),
+      steps: [...steps, ...review.steps],
     } as WriteReceiptDraft;
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
@@ -572,7 +570,7 @@ export async function submitTask(
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
   const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
-    review = await amendedCutReview(cell, taskId, action, binding, receipt),
+    review = await submittedCutReview(cell, taskId, action, binding, receipt),
     warnings = [...anchorDriftWarnings, ...review.warnings];
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),

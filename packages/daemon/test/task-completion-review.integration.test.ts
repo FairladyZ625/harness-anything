@@ -41,6 +41,7 @@ async function recordReview(
   reviewId: string,
   verdict: "approved" | "changes_requested",
   reviewExecutionId = executionId,
+  binding: typeof owner | ReturnType<typeof reviewerActor> = reviewerActor(sessionId),
 ) {
   const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`,
     report = `${f.packagePath}/artifacts/reports/${reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId}.md`;
@@ -62,11 +63,11 @@ async function recordReview(
       reviewId,
       fromFile: `harness/${packet}`,
     },
-    reviewerActor(sessionId),
+    binding,
   );
 }
 
-test("owner forward is the only path from submitted into independent review and completion is mechanical", async () => {
+test("submit enters independent review automatically and completion still requires owner consent", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
     autoForward: false,
@@ -75,22 +76,19 @@ test("owner forward is the only path from submitted into independent review and 
     await f.install();
     const submitted = await f.submit();
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.deepEqual(await taskStatus(f), { status: "submitted", iteration: 0 });
-    assert.equal(f.launches.length, 0, "submit must not dispatch a reviewer");
+    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
+    assert.equal(f.launches.length, 1, "submit dispatches the reviewer");
 
     const stopped = (await f.complete()) as Receipt;
     assert.equal(stopped.outcome, "op_rejected", JSON.stringify(stopped));
-    assert.equal(f.launches.length, 0, "complete must not repair a missing owner forward");
+    assert.equal(f.launches.length, 1, "complete must not dispatch another reviewer");
 
-    const premature = await recordReview(f, "unbound-reviewer", "review-before-forward", "approved");
-    assert.equal(premature.outcome, "op_rejected", JSON.stringify(premature));
-    assert.equal(premature.code, "invalid_transition", JSON.stringify(premature));
+    const selfReview = await recordReview(f, "implementer", "review-self", "approved", executionId, owner);
+    assert.equal(selfReview.outcome, "op_rejected", JSON.stringify(selfReview));
+    assert.equal(selfReview.code, "actor_unauthorized", JSON.stringify(selfReview));
 
-    const forwarded = await f.forward();
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
-    assert.equal(f.launches.length, 1, "the owner forward dispatches exactly one reviewer");
-    const reviewed = await f.review(runtimeSessionId(forwarded), "review-approved");
+    const reviewed = await f.review(runtimeSessionId(submitted), "review-approved");
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
 
     const noConsent = await f.complete();
@@ -174,7 +172,12 @@ test("changes requested remains in review until the owner returns the cut with i
 
     // A mistaken forward on the already-reviewed cut is refused before the write queue (2026-09-28
     // defect: it waited minutes behind a stalled publication) and names the same-cut return order.
-    const mistaken = (await f.forward("Owner mistakenly re-forwards the reviewed cut.")) as Receipt;
+    const mistaken = (await f.run({
+      kind: "task-adjudicate",
+      taskId,
+      forward: true,
+      reason: "Owner mistakenly re-forwards the reviewed cut.",
+    })) as Receipt;
     assert.equal(mistaken.outcome, "op_rejected", JSON.stringify(mistaken));
     assert.equal(mistaken.code, "invalid_transition", JSON.stringify(mistaken));
     assert.match(
@@ -225,20 +228,12 @@ test("manual review return succeeds even after reaching the review return budget
       });
       assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     };
+    // Submit dispatches each round's reviewer automatically; only the returns stay manual.
     assert.equal((await f.submit()).outcome, "applied");
-    assert.equal((await f.forward()).outcome, "applied");
     await dispatchReview(executionId, "review-budget-1");
     for (const [index, roundExecutionId] of ["execution-review-budget-2", "execution-review-budget-3"].entries()) {
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })).outcome, "applied");
       assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundExecutionId })).outcome, "applied");
-      const forwarded = await f.run({
-        kind: "task-adjudicate",
-        taskId,
-        executionId: roundExecutionId,
-        forward: true,
-        reason: `Forward round ${roundExecutionId}.`,
-      });
-      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
       await dispatchReview(roundExecutionId, `review-budget-${index + 2}`);
     }
     assert.equal(f.events().filter((event) => event.type === "submission_returned").length, 3);

@@ -55,7 +55,7 @@ const commanderDiscipline = `<very_important>
 - Your delivery contract with the CEO: which packages you split the mission into, which agent each was dispatched to, and what each returned, so every conclusion traces from dispatch to receipt.
 - Synthesize by filtering: verify the worker judgments you rely on, mark the rest unverified, and never forward a worker claim as an established fact.
 - Report upward when a ruling is needed: the mission goal or risk level changes, budget or attempt limits break, defensible paths need information only the CEO has, or evidence shows the plan itself leads to the wrong result. Attach the evidence and your recommendation.
-- Include combined child evidence in the delivery; dispatch the ledger reviewer with ha task adjudicate --forward, track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.
+- Include combined child evidence in the delivery; submit automatically dispatches the required ledger reviewers; track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.
 </very_important>`;
 
 export function agentRolePrompt(role: AgentRole | undefined): string {

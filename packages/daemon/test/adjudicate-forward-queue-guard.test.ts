@@ -40,7 +40,7 @@ test("a forward order on a cut already in review is refused before the write que
       assert.ok(failure, "the refusal is attributed to the adjudicate contract criterion");
       assert.equal(failure.actionId, "adjudicate");
       assert.equal(failure.criterionRef, "task-lifecycle-adjudication-transitions/adjudicate.validate");
-      assert.match((error as Error).message, /Task task-1 is in review/u);
+      assert.match((error as Error).message, /Task task-1 is already in review/u);
       assert.match((error as Error).message, /ha task adjudicate task-1 --return --review-id review-execution/u);
       assert.deepEqual(failure.nextActions, [
         `ha task adjudicate task-1 --return --review-id review-execution --note "<the owner's rework instruction>"`,
@@ -50,13 +50,13 @@ test("a forward order on a cut already in review is refused before the write que
   );
 });
 
-test("a forward order on a cut still awaiting triage proceeds into the write queue", async () => {
+test("an explicit reviewer selection proceeds into the write queue", async () => {
   const submitted = fixture.events.slice(0, 3).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
-  assert.equal(submitted.task?.status, "submitted");
+  assert.equal(submitted.task?.status, "in_review");
   assert.equal(
-    readBeforeWriteQueue(context(submitted), forward, binding, neverFetch),
+    readBeforeWriteQueue(context(submitted), { ...forward, reviewer: "other-reviewer" }, binding, neverFetch),
     null,
-    "the queued kernel validation stays the authority for the triage state",
+    "the queued owner adjudication handles explicit reviewer selection",
   );
 });
 
