@@ -120,7 +120,9 @@ function SessionFacts({
                 className="text-accent hover:underline"
               />
             </KVRow>
-            <KVRow name="dispatch">{row.kind === "round" ? row.dispatchId : "—"}</KVRow>
+            <KVRow name="dispatch" title={row.kind === "round" ? row.dispatchId : undefined}>
+              {row.kind === "round" ? shortRef(row.dispatchId, 16) : "—"}
+            </KVRow>
             <KVRow name="status">{t(sessionStatusKey[row.status] as never)}</KVRow>
           </KV>
           <button

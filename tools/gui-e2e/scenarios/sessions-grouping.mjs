@@ -627,16 +627,15 @@ export default {
     const layouts = [];
     for (const width of [1100, 1440]) {
       await page.setViewportSize({ width, height: originalViewport.height });
-      await page
-        .getByTestId(width === 1100 ? "sessions-status-filter-menu" : "sessions-status-failed")
-        .waitFor({ state: "visible" });
+      // 状态筛选收成四档(业主 2026-10-21 13:50):任何宽度都是同一排四个按钮,没有窄容器下拉。
+      await page.getByTestId("sessions-status-failed").waitFor({ state: "visible" });
       layouts.push({
         viewportWidth: width,
         layout: await assertUnscrolledLayout(page.getByTestId("sessions-toolbar"), "button, input"),
       });
       await shot(`sessions-toolbar-${width}`);
       // 状态筛选:开启后列表只剩该状态,计数行把「筛选已开」说出来。
-      await toggleFailedFilter(page);
+      await selectStatusFilter(page, "failed");
       await page.getByTestId("session-group-unattributed:no-task").waitFor();
       assert.equal(
         await page.getByTestId(`session-group-${FIXTURE_TASK}`).count(),
@@ -651,8 +650,8 @@ export default {
       const counts = await page.getByTestId("sessions-counts").innerText();
       assert.match(counts, /已按状态筛选|filtered to/u, "the counts line must say the status filter is on");
 
-      // 关掉筛选:列表回到全部桶。
-      await toggleFailedFilter(page);
+      // 回「全部」:列表回到全部桶。四档是单选,不是集合开关。
+      await selectStatusFilter(page, "all");
       await page.getByTestId(`session-group-${FIXTURE_TASK}`).waitFor();
       await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
     }
@@ -744,15 +743,36 @@ export default {
   },
 };
 
-async function toggleFailedFilter(page) {
-  const inline = page.getByTestId("sessions-status-failed");
-  if (await inline.isVisible()) {
-    await inline.click();
-    return;
-  }
-  await page.getByTestId("sessions-status-filter-menu").click();
-  await page.getByTestId("sessions-status-menu-failed").click();
-  await page.keyboard.press("Escape");
+/**
+ * 详情选中的会话怎么看:卡头面包屑显示短码,完整运行时 id 只在悬停 title 里
+ * (视觉基线 v2:机器编号不当主文字)。所以按 title 认,不按正文。
+ */
+async function detailSessionShown(page, runtimeSessionId) {
+  return page
+    .getByTestId("sessions-detail")
+    .evaluate(
+      (node, id) =>
+        [...node.querySelectorAll("button")].some((button) => (button.getAttribute("title") ?? "").includes(id)),
+      runtimeSessionId,
+    );
+}
+
+async function waitForDetailSession(page, runtimeSessionId) {
+  await page.waitForFunction(
+    (args) => {
+      const detail = globalThis.document.querySelector('[data-testid="sessions-detail"]');
+      if (detail === null) return false;
+      return [...detail.querySelectorAll("button")].some((button) =>
+        (button.getAttribute("title") ?? "").includes(args.id),
+      );
+    },
+    { id: runtimeSessionId },
+  );
+}
+
+/** 四档状态筛选是单选:选中一个桶,回「全部」取消筛选。 */
+async function selectStatusFilter(page, bucket) {
+  await page.getByTestId(`sessions-status-${bucket}`).click();
 }
 
 /** 默认分组是「工作」:任何离开会话页再回来的动作(主题切换)都会重挂页面并回到
@@ -944,20 +964,15 @@ async function assertRoundInteractions(page, shot) {
   const round2 = body.locator(`[data-testid="rail-session-${round2Id}"]`);
   assert.match(await round2.innerText(), /第 2 轮|Round 2/u);
   await round2.click();
-  await page.waitForFunction(
-    (id) => globalThis.document.querySelector('[data-testid="sessions-detail"]')?.textContent?.includes(id),
-    round2Id,
-  );
+  // 详情的会话短码不上完整运行时 id(视觉基线 v2):以卡头链接的悬停 title 识别选中。
+  await waitForDetailSession(page, round2Id);
   assert.equal(await round2.getAttribute("aria-current"), "true");
   assert.equal(await round2.locator("[data-dense-row]").getAttribute("data-selected"), "true");
 
   // 收起不误选:组体卸载,右侧详情仍是第 2 轮的会话。
   await page.getByTestId(`session-group-toggle-${ROUNDS_TASK}`).click();
   await page.getByTestId(`session-group-body-${ROUNDS_TASK}`).waitFor({ state: "detached" });
-  assert.ok(
-    (await page.getByTestId("sessions-detail").textContent())?.includes(round2Id),
-    "collapsing the group must not change the selected session",
-  );
+  assert.ok(await detailSessionShown(page, round2Id), "collapsing the group must not change the selected session");
   await expandGroup(page, ROUNDS_TASK);
 
   // 上下文水位唯一且诚实:详情头只有一个窗口 meter,分母是 provider 自报的 1M(不是 GUI 的
@@ -970,10 +985,7 @@ async function assertRoundInteractions(page, shot) {
     "a session whose provider reported no window must not draw a context ratio",
   );
   await body.locator(`[data-testid="rail-session-${ROUNDS["round-4"].runtimeSessionId}"]`).click();
-  await page.waitForFunction(
-    (id) => globalThis.document.querySelector('[data-testid="sessions-detail"]')?.textContent?.includes(id),
-    ROUNDS["round-4"].runtimeSessionId,
-  );
+  await waitForDetailSession(page, ROUNDS["round-4"].runtimeSessionId);
   // 读面返回后详情头才有窗口 meter:等它出现再断言(不靠 count() 的空窗抢跑)。
   const windowMeter = detail.locator('[data-testid="session-detail-context-meter"] [role="meter"]');
   await windowMeter.waitFor();
@@ -1001,10 +1013,7 @@ async function assertRoundInteractions(page, shot) {
 
   // 有累计消耗的轮次:消耗卡画组成条,但不带 meter 角色与百分比——累计 token 不是窗口占用。
   await body.locator(`[data-testid="rail-session-${round1Id}"]`).click();
-  await page.waitForFunction(
-    (id) => globalThis.document.querySelector('[data-testid="sessions-detail"]')?.textContent?.includes(id),
-    round1Id,
-  );
+  await waitForDetailSession(page, round1Id);
   assert.equal(
     await detail.locator('[data-testid="session-metrics-context-meter"] [role="meter"]').count(),
     0,

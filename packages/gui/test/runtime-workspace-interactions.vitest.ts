@@ -487,7 +487,9 @@ describe("runtime entry split (W6 IA)", () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-bound");
     expect(byTestId("sessions-detail").contains(byTestId("session-detail"))).toBe(true);
-    expect(container.querySelector('[data-testid="sessions-status-filter"]')?.textContent).not.toMatch(/\d/u);
+    // 四档筛选的按钮文字是固定词,不带计数。
+    const statusGroup = container.querySelector('[aria-label="Status"]');
+    expect(statusGroup?.textContent).not.toMatch(/\d/u);
   });
 
   it("titles a collapsed decision-review group from the decision read, not its raw id", async () => {
@@ -566,7 +568,9 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(byTestId("session-group-toggle-task-bound").getAttribute("aria-expanded")).toBe("true");
     expect(byTestId("rail-session-runtime-sibling").getAttribute("aria-current")).toBe("true");
-    expect(byTestId("session-detail").textContent).toContain("runtime-sibling");
+    // 详情正文只上短码;完整运行时 id 收进卡头链接的悬停 title(视觉基线 v2)。
+    expect(byTestId("session-detail").textContent).toContain("runtime-siblin…");
+    expect(byTestId("session-detail").querySelector('button[title*="runtime-sibling"]')).toBeTruthy();
     expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-sibling");
   });
 
@@ -613,42 +617,37 @@ describe("runtime entry split (W6 IA)", () => {
 
   it("narrows by status through the daemon read and keys the cache by the selection (G12 §4d)", async () => {
     await mountSessions("session/runtime-bound");
-    const statusChip = (label: string) =>
-      [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
-        (button) => button.textContent === label,
-      ) as HTMLButtonElement;
-    // 词表就是 daemon 的十个状态,前端不另立分类。
-    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(10);
+    // 状态筛选收成四档(业主 2026-10-21 13:50):内部十词不再逐个上屏,单选取值。
+    const statusGroup = document.querySelector('[aria-label="Status"]');
+    const statusButtons = [...(statusGroup?.querySelectorAll("button") ?? [])];
+    expect(statusButtons.map((button) => button.textContent)).toEqual(["Running", "Succeeded", "Failed", "All"]);
     const firstCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).not.toHaveProperty("status");
 
-    await act(async () => statusChip("Failed").click());
-    await flushEffects();
+    await click("sessions-status-failed");
     // 切筛选必须重新读:query key 含状态选择,否则会命中未筛选的缓存。
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBeGreaterThan(firstCallCount);
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["failed"] });
-    expect(statusChip("Failed").getAttribute("aria-pressed")).toBe("true");
-
-    // 集合语义:第二个状态是「或」,不是替换。
-    await act(async () => statusChip("Lost").click());
-    await flushEffects();
+    // 「失败」档覆盖全部「结束但没做成」的内部词,顺序取 daemon 词表。
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({
-      status: ["failed", "lost"],
+      status: ["failed", "cancelled", "stopped", "ended-indeterminate", "unavailable", "unknown", "lost"],
     });
+    expect(byTestId("sessions-status-failed").getAttribute("aria-pressed")).toBe("true");
     // 计数条说清这是筛后的数,而不是会话消失了。
-    expect(byTestId("sessions-view").textContent).toContain("filtered to Failed / Lost");
+    expect(byTestId("sessions-view").textContent).toContain("filtered to Failed");
 
-    // 去掉一个状态仍是新的选择,所以是一次新读。
-    await act(async () => statusChip("Failed").click());
-    await flushEffects();
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["lost"] });
-    // 清空选择回到不筛:那个 key 首读就缓存过,命中缓存不再发读,计数条的筛选说明消失。
-    const lostOnlyCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
-    await act(async () => statusChip("Lost").click());
-    await flushEffects();
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBe(lostOnlyCallCount);
+    // 「运行中」档 = 在飞 + 受阻待裁决(等的是人的决定,不是结局)。
+    await click("sessions-status-running");
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({
+      status: ["running", "blocked"],
+    });
+    expect(byTestId("sessions-view").textContent).toContain("filtered to Running");
+
+    // 回「全部」:该 key 首读就缓存过,命中缓存不再发读,计数条的筛选说明消失。
+    const runningCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
+    await click("sessions-status-all");
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBe(runningCallCount);
     expect(byTestId("sessions-view").textContent).not.toContain("filtered to");
-    expect(statusChip("Failed").getAttribute("aria-pressed")).toBe("false");
+    expect(byTestId("sessions-status-failed").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("keeps a dimension switch sticky while a session focus exists (G12 §1a)", async () => {
@@ -806,31 +805,16 @@ describe("runtime entry split (W6 IA)", () => {
     expect(document.querySelector(".catalog-split")!.getAttribute("data-detail-open")).toBe("false");
   });
 
-  it("collapses the status filter into a menu driving the same read; the toolbar wraps instead of scrolling (B1)", async () => {
+  it("renders the four status buckets inline at any width; the toolbar wraps instead of scrolling (B1)", async () => {
     await mountSessions("session/runtime-bound");
-    // 工具条不再用自身横向滚动容纳控件(标准 §1.9②):允许换行,状态词表窄容器收进下拉。
+    // 工具条不再用自身横向滚动容纳控件(标准 §1.9②):允许换行。四档在任何宽度都平铺,
+    // 窄容器不再另做一个下拉(业主 2026-10-21 13:50)。
     const toolbar = byTestId("sessions-toolbar");
     expect(toolbar.className).toContain("flex-wrap");
     // Real wrapping and control containment: sessions-grouping Electron scenario.
     expect(toolbar.className).not.toMatch(/overflow-x-(?:auto|scroll|overlay)/u);
-    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(10);
-
-    await click("sessions-status-filter-menu");
-    const menuButtons = byTestId("sessions-status-filter-menu-panel").querySelectorAll("button");
-    expect(menuButtons).toHaveLength(10);
-    const menuFailed = [...menuButtons].find((button) => button.textContent === "Failed");
-    expect(menuFailed).toBeInstanceOf(HTMLButtonElement);
-    await act(async () => {
-      (menuFailed as HTMLButtonElement).click();
-    });
-    await flushEffects();
-    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["failed"] });
-    expect(menuFailed?.getAttribute("aria-pressed")).toBe("true");
-    // 下拉与平铺是同一选择集的两份呈现。
-    const inlineFailed = [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
-      (button) => button.textContent === "Failed",
-    );
-    expect(inlineFailed?.getAttribute("aria-pressed")).toBe("true");
+    expect([...toolbar.querySelectorAll('[aria-label="Status"] button')]).toHaveLength(4);
+    expect(document.querySelector('[data-testid="sessions-status-filter-menu"]')).toBeNull();
   });
 
   it("keeps the page header and filter row on the unified layout (§2.3): bare header, search fills the row's tail", async () => {

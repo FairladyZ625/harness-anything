@@ -276,6 +276,52 @@ describe("session consumption panel (P1.3)", () => {
   });
 });
 
+// 会话详情可读面(业主 2026-10-21 13:50 定案):详情回答「这次会话做成了什么」,
+// 原始哈希、运行时 id、模型元组字符串不上屏;结论文本与转写(工具调用)是主角。
+describe("session detail readable surface", () => {
+  it("renders the readable model label instead of the raw candidate-list tuple", () => {
+    const tuple = '["deepseek-official","Deepseek-V4.1-Flash"]';
+    const markup = detailView({
+      session: { ...sessionDto, definitionSnapshot: { ...definition, model: tuple } } as typeof sessionDto,
+    });
+    expect(markup).toContain("deepseek-official / Deepseek-V4.1-Flash");
+    expect(markup).not.toContain(tuple);
+    expect(markup).not.toContain('["');
+  });
+
+  it("shows the final result text it is given", () => {
+    const markup = detailView({ result: "Delivered the fix; all targeted tests green." });
+    expect(markup).toContain("Delivered the fix; all targeted tests green.");
+  });
+
+  it("shortens the session breadcrumb; the full runtime id lives only in hover titles", () => {
+    const longId = "runtime_eb17a3274ac2ff920a09f37b";
+    const markup = detailView({ session: { ...sessionDto, runtimeSessionId: longId } as typeof sessionDto });
+    expect(markup).toContain(`>session/${longId.slice(0, 14)}…<`);
+    expect(markup).not.toContain(`>${longId}<`);
+  });
+
+  it("keeps raw fields off the facts table: provider UUID, snapshot sha, auth, lease, result ref", () => {
+    const markup = detailView();
+    for (const raw of [
+      "Provider session",
+      "Definition snapshot",
+      "provider-1",
+      "artifact:runtime-definition/test",
+      "Auth",
+      "subscription",
+      "Lease",
+      "held",
+      "2026-08-23T01:00:00.000Z",
+      "Result ref",
+    ])
+      expect(markup).not.toContain(raw);
+    // 可读行仍在:实例、模型、结局、持有人、最近活动。
+    for (const readable of ["Instance", "Model", "Outcome", "Holder", "Last activity", "w4c-verify-codex"])
+      expect(markup).toContain(readable);
+  });
+});
+
 describe("session transcript replay", () => {
   const records = [
     {

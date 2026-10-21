@@ -2,7 +2,6 @@ import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { isAvailableSquadRunSummary } from "@harness-anything/daemon/protocol";
-import { Popover } from "../components/Popover.tsx";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
@@ -49,8 +48,9 @@ import {
   sessionOrphans,
   sessionRounds,
   sessionRoundsByTask,
+  sessionStatusFilterKey,
   sessionStatusFilterWords,
-  sessionStatusKey,
+  sessionStatusesInBucket,
   sessionWorkGroups,
   sessionWorkKeyForTask,
   type SessionDrillTarget,
@@ -58,7 +58,7 @@ import {
   type SessionGroupBy,
   type SessionOrphan,
   type SessionRound,
-  type SessionStatus,
+  type SessionStatusFilter,
 } from "../sessions-model.ts";
 import { NO_WORKS, type WorkIndex } from "../model/work-collections.ts";
 
@@ -145,8 +145,9 @@ export function SessionsView({
   const range = rangeBySegment[segment],
     setRange = (value: Range) => setRangeBySegment((current) => ({ ...current, [segment]: value }));
   const [search, setSearch] = useState("");
-  // 状态筛选是集合:排障常要「失败或丢失」,而检索框的词之间是 AND,写不出这个。
-  const [statusFilter, setStatusFilter] = useState<ReadonlySet<SessionStatus>>(new Set());
+  // 状态筛选收成四档(业主 2026-10-21 13:50):单选取值,内部状态词由 sessions-model 的
+  // 唯一映射折算成 daemon 读参;旧的十词多选集不再上屏。
+  const [statusFilter, setStatusFilter] = useState<SessionStatusFilter>("all");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
@@ -223,8 +224,8 @@ export function SessionsView({
 
   const scopedTaskId =
     taskRouteId ?? (sessionTaskScope?.runtimeSessionId === focusedSessionId ? sessionTaskScope.taskId : undefined);
-  // 词表顺序取自 daemon,选择集只做筛选不做排序;空集合 = 不筛。
-  const status = useMemo(() => sessionStatusFilterWords.filter((word) => statusFilter.has(word)), [statusFilter]);
+  // 词表顺序取自 daemon,选择集只做筛选不做排序;空数组 = 不筛。
+  const status = useMemo(() => sessionStatusesInBucket(statusFilter), [statusFilter]);
   const workspace = useSessionsWorkspace(repoId, {
     groupBy,
     range,
@@ -619,14 +620,6 @@ export function SessionsView({
       return next;
     });
   }, []);
-  const toggleStatusFilter = useCallback((word: SessionStatus) => {
-    setStatusFilter((current) => {
-      const next = new Set(current);
-      if (next.has(word)) next.delete(word);
-      else next.add(word);
-      return next;
-    });
-  }, []);
   const toggleWork = useCallback((key: string) => {
     setWorkExpandedKeys((current) => {
       const next = new Set(current);
@@ -712,10 +705,10 @@ export function SessionsView({
                 })) +
             // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
             // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
-            (status.length === 0
+            (statusFilter === "all"
               ? ""
               : t("agentRuntime.sessionsStatusFilterNote", {
-                  statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
+                  statuses: t(sessionStatusFilterKey[statusFilter] as never),
                 })) +
             " · " +
             t("agentRuntime.liveSessions", { count: liveCount })
@@ -806,57 +799,19 @@ export function SessionsView({
           />
         )}
         {segment === "sessions" && drill === null && (
-          <>
-            {/* 状态词表实测 ~795px:容器 ≥1100px 时平铺(放不下时换行,不横向滚动);
-                更窄时平铺 + 检索放不进一行,收纳进下拉让工具条一行放下(标准 §1.9②)。 */}
-            <span
-              role="group"
-              aria-label={t("agentRuntime.sessionsStatusLabel")}
-              data-testid="sessions-status-filter"
-              className="hidden min-w-24 gap-1 py-1 @min-[1100px]:inline-flex [&>button]:shrink-0"
-            >
-              {sessionStatusFilterWords.map((word) => (
-                <StatusFilterButton
-                  key={word}
-                  word={word}
-                  pressed={statusFilter.has(word)}
-                  onToggle={toggleStatusFilter}
-                  testId={`sessions-status-${word}`}
-                />
-              ))}
-            </span>
-            <Popover
-              label={t("agentRuntime.sessionsStatusLabel")}
-              testId="sessions-status-filter-menu"
-              panelClassName="w-60"
-              triggerClassName={
-                "@min-[1100px]:hidden inline-flex h-7 items-center gap-1.5 rounded-xs border px-3 ui-meta " +
-                (status.length === 0
-                  ? "border-border bg-text/5 text-text-muted hover:bg-surface"
-                  : "border-accent/40 bg-accent/15 font-semibold text-accent")
-              }
-              trigger={
-                <>
-                  {t("agentRuntime.sessionsStatusLabel")}
-                  {status.length > 0 ? ` · ${status.length}` : ""}
-                  <span aria-hidden>▾</span>
-                </>
-              }
-            >
-              {() =>
-                sessionStatusFilterWords.map((word) => (
-                  <StatusFilterButton
-                    key={word}
-                    word={word}
-                    pressed={statusFilter.has(word)}
-                    onToggle={toggleStatusFilter}
-                    testId={`sessions-status-menu-${word}`}
-                    className="mb-1 w-full text-left"
-                  />
-                ))
-              }
-            </Popover>
-          </>
+          // 状态筛选收成四档(业主 2026-10-21 13:50):四个可数选择取代十个内部状态词,
+          // 窄容器不再另做一个下拉——四档在任何宽度都放得下(标准 §1.9②)。
+          // 每档覆盖哪些内部状态只由 sessions-model 的 sessionStatusBucket 映射决定。
+          <SegCtl
+            label={t("agentRuntime.sessionsStatusLabel")}
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(value)}
+            options={sessionStatusFilterWords.map((bucket) => ({
+              value: bucket,
+              label: t(sessionStatusFilterKey[bucket] as never),
+              testId: `sessions-status-${bucket}`,
+            }))}
+          />
         )}
         {drill === null && (
           <input
@@ -1027,36 +982,5 @@ export function SessionsView({
         </CatalogSplit>
       )}
     </section>
-  );
-}
-
-/** 状态筛选钮:平铺与下拉共用一份;集合语义(空集 = 不筛)。 */
-function StatusFilterButton({
-  word,
-  pressed,
-  onToggle,
-  testId,
-  className = "",
-}: {
-  readonly word: SessionStatus;
-  readonly pressed: boolean;
-  readonly onToggle: (word: SessionStatus) => void;
-  readonly testId: string;
-  readonly className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-pressed={pressed}
-      onClick={() => onToggle(word)}
-      className={`h-7 whitespace-nowrap rounded-xs border px-3 ui-meta ${className} ${
-        pressed
-          ? "border-accent/40 bg-accent/15 font-semibold text-accent"
-          : "border-border bg-text/5 text-text-muted hover:bg-surface"
-      }`}
-    >
-      {t(sessionStatusKey[word] as never)}
-    </button>
   );
 }

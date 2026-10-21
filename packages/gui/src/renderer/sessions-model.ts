@@ -189,8 +189,43 @@ export const sessionStatusKey: Readonly<Record<SessionStatus, string>> = {
   "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
   unavailable: "agentRuntime.sessionStatusUnavailable",
 };
-/** 状态筛选控件的词序:与 daemon 的状态词表同一份,前端不另立顺序或分类。 */
-export const sessionStatusFilterWords = agentRuntimeSessionGroupStatusWords;
+/**
+ * 状态筛选收成三档 + 全部(业主 2026-10-21 13:50 定案):内部状态词只以这三档上屏,
+ * 不再逐个当按钮。映射只此一处;daemon 词表新增成员时 `Record` 会报缺位。
+ * - 运行中:在飞,以及受阻等人裁决(等的是人的决定,不是结局);
+ * - 成功:有成功结局;
+ * - 失败:结束但没做成——失败、失联、取消、停手、无法判定、状态不可用/未知。
+ *   取消与停手不藏进「全部」:用户点「失败」要看的正是「哪些没做成」。
+ */
+export type SessionStatusBucket = "running" | "succeeded" | "failed";
+export type SessionStatusFilter = SessionStatusBucket | "all";
+export const sessionStatusBucketOf: Readonly<Record<SessionStatus, SessionStatusBucket>> = {
+  running: "running",
+  blocked: "running",
+  succeeded: "succeeded",
+  failed: "failed",
+  lost: "failed",
+  cancelled: "failed",
+  stopped: "failed",
+  "ended-indeterminate": "failed",
+  unavailable: "failed",
+  unknown: "failed",
+};
+/** 控件词序:固定四档,不随 daemon 词表长度变化。 */
+export const sessionStatusFilterWords: readonly SessionStatusFilter[] = ["running", "succeeded", "failed", "all"];
+/** 四档的展示词:词条落在 i18n 目录,与内部状态词(会话事实里仍保留)分开。 */
+export const sessionStatusFilterKey: Readonly<Record<SessionStatusFilter, string>> = {
+  running: "agentRuntime.sessionsBucketRunning",
+  succeeded: "agentRuntime.sessionsBucketSucceeded",
+  failed: "agentRuntime.sessionsBucketFailed",
+  all: "agentRuntime.sessionsBucketAll",
+};
+/** 该档的 daemon 状态词:空数组 = 不筛(全部);顺序取 daemon 词表,不另立顺序。 */
+export function sessionStatusesInBucket(bucket: SessionStatusFilter): readonly SessionStatus[] {
+  return bucket === "all"
+    ? []
+    : agentRuntimeSessionGroupStatusWords.filter((word) => sessionStatusBucketOf[word] === bucket);
+}
 /**
  * 未归属桶按缺失原因分名:daemon 侧一个桶三种成因(无任务绑定 / 无小队 / 无派工记录),
  * 前端此前把三者一律显示成「未归属」。key 是 daemon 给的稳定判别式,label 走 i18n。
