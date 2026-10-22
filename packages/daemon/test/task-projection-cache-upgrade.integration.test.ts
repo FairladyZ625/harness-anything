@@ -11,7 +11,7 @@ import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 
 const oldSnapshotSchemaVersion = 37;
 
-test("an existing schema-37 cache with codeDocWitnesses rebuilds before guiTasks reads it", async (t) => {
+test("an existing schema-37 cache with retired codeDoc fields rebuilds before guiTasks reads it", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const taskId = "task-cache-upgrade",
@@ -38,8 +38,13 @@ test("an existing schema-37 cache with codeDocWitnesses rebuilds before guiTasks
         | { readonly snapshot_json: string }
         | undefined;
       assert.ok(row);
-      const snapshot = JSON.parse(row.snapshot_json) as Record<string, unknown>;
-      snapshot.codeDocWitnesses = [];
+      const snapshot = JSON.parse(row.snapshot_json) as {
+        readonly task: Record<string, unknown>;
+      };
+      // Both retired carriers an older cache can hold: the witness projection and the codeDoc key
+      // that this delivery narrowed out of the closeout override vocabulary.
+      snapshot.task.closeoutOverrides = { codeDoc: true };
+      (snapshot as unknown as Record<string, unknown>).codeDocWitnesses = [];
       legacyCache
         .prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?")
         .run(JSON.stringify(snapshot), taskId);

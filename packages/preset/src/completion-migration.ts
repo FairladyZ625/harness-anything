@@ -67,6 +67,13 @@ export function convertCompletionManifest(value: unknown) {
         current.completionGates = current.completionGates.filter(
           (gate) => gate !== "ci" && !isRetiredCodeDocRequirement(String(gate)),
         );
+      // The same retirement removed `codeDoc` from the profile override vocabulary; an installed
+      // object still carries it, so conversion removes the key instead of handing it to the reader.
+      if (record(current.closeoutOverrides) && Object.hasOwn(current.closeoutOverrides, "codeDoc")) {
+        const { codeDoc: _retired, ...overrides } = current.closeoutOverrides;
+        if (Object.keys(overrides).length > 0) current.closeoutOverrides = overrides;
+        else delete current.closeoutOverrides;
+      }
       return current;
     }),
   };
