@@ -173,7 +173,8 @@ test("six real Codex samples reclassify only the drained-reconnect tails", () =>
 function withoutReconnectEvidence(runtime: ActiveRuntime): ActiveRuntime {
   return {
     ...runtime,
-    providerReconnects: [],
+    providerReconnectCount: 0,
+    lastProviderReconnect: null,
     successfulToolCallAfterReconnect: false,
     finalAgentMessageAfterReconnect: false,
   };

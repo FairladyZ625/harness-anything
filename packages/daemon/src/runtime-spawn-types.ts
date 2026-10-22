@@ -191,14 +191,16 @@ export type ActiveRuntime = {
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
-  /** Provider stream reconnects observed on this attempt, in arrival order. Codex reports an
-   * exhausted reconnect budget as a plain `error` frame and then keeps answering, so the last
-   * entry and whether a successful tool ran after it decide whether the tail is provider-caused. */
-  providerReconnects: ProviderReconnect[];
+  /** How many provider stream reconnects this attempt saw, and the provider's own last one.
+   * Codex reports a reconnect as a plain `error` frame and then keeps answering, so this count
+   * plus the tool/message flags below decide whether the attempt's tail is provider-caused.
+   * Scalar state on purpose: an attempt can reconnect many times and nothing needs the history. */
+  providerReconnectCount: number;
+  lastProviderReconnect: ProviderReconnect | null;
   /** Reset on every reconnect; a completed, non-failed tool call sets it. A failed command is an
    * answered-but-red result and does not prove the provider resumed serving the attempt. */
   successfulToolCallAfterReconnect: boolean;
-  /** Whether the provider delivered an agent message after the latest reconnect. */
+  /** Whether an agent message arrived after the latest reconnect. */
   finalAgentMessageAfterReconnect: boolean;
   inputTokens: number;
   cacheReadTokens: number;

@@ -178,19 +178,18 @@ export type RuntimeExitOutcome = "succeeded" | "failed" | "unknown" | "cancelled
  * attempt answered from a drained stream; the message it wrote is a symptom, never the cause. */
 function reconnectExhaustedTail(active: ActiveRuntime): boolean {
   return (
-    (active.providerReconnects?.length ?? 0) > 0 &&
+    (active.providerReconnectCount ?? 0) > 0 &&
     active.finalAgentMessageAfterReconnect === true &&
     active.successfulToolCallAfterReconnect !== true
   );
 }
 
 function reconnectExhaustedReason(active: ActiveRuntime): string {
-  const reconnects = active.providerReconnects!,
-    last = reconnects[reconnects.length - 1]!;
+  const last = active.lastProviderReconnect,
+    diagnostic = last ? ` (${String(last.attempt)}/${String(last.limit)}): ${last.diagnostic}` : ".";
   return (
-    `Provider stream reconnected ${String(reconnects.length)} time(s) and the attempt ` +
-    `closed after the last reconnect (${String(last.attempt)}/${String(last.limit)}) without a successful ` +
-    `tool call: ${last.diagnostic}`
+    `Provider stream reconnected ${String(active.providerReconnectCount)} time(s) and the attempt ` +
+    `closed after the last reconnect without a successful tool call${diagnostic}`
   );
 }
 
@@ -224,7 +223,8 @@ function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): s
 
 export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame): void {
   if (frame.providerReconnect) {
-    active.providerReconnects.push(frame.providerReconnect);
+    active.providerReconnectCount = (active.providerReconnectCount ?? 0) + 1;
+    active.lastProviderReconnect = frame.providerReconnect;
     // A reconnect re-opens the window: only tool calls issued after it prove the provider served
     // this attempt again, and only messages after it can be the drained stream's tail.
     active.successfulToolCallAfterReconnect = false;
@@ -237,7 +237,7 @@ export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame
   }
   if (frame.finalText?.trim()) {
     active.nonEmptyAgentOutputObserved = true;
-    if (active.providerReconnects.length > 0) active.finalAgentMessageAfterReconnect = true;
+    if ((active.providerReconnectCount ?? 0) > 0) active.finalAgentMessageAfterReconnect = true;
   }
   if (frame.providerUsageEmpty !== undefined) active.providerUsageEmpty = frame.providerUsageEmpty;
   if (frame.providerFault) active.providerFault = frame.providerFault;

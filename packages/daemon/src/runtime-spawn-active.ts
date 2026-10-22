@@ -26,7 +26,8 @@ type ActiveRuntimeBase = Omit<
   | "nonEmptyAgentOutputObserved"
   | "providerUsageEmpty"
   | "providerFault"
-  | "providerReconnects"
+  | "providerReconnectCount"
+  | "lastProviderReconnect"
   | "successfulToolCallAfterReconnect"
   | "finalAgentMessageAfterReconnect"
   | "inputTokens"
@@ -68,7 +69,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
     providerFault: null,
-    providerReconnects: [],
+    providerReconnectCount: 0,
+    lastProviderReconnect: null,
     successfulToolCallAfterReconnect: false,
     finalAgentMessageAfterReconnect: false,
     inputTokens: 0,
