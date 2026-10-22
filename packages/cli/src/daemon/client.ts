@@ -65,6 +65,18 @@ export function daemonServeEntry(): string {
     throw new Error("The installed daemon must provide the 0.0.1 harness-anything-daemon bin.");
   return path.resolve(path.dirname(manifestPath), bin);
 }
+/** The daemon is detached so it outlives the command that started it. Inside a `node --test`
+ *  child that command is a test file process, and the detach is exactly what lets the daemon
+ *  outlive the test: the runner names that process in HARNESS_DAEMON_OWNER_PID, and a file run
+ *  outside the runner (a worker's direct `node --test <path>`) has no preload to name it. The
+ *  test child's own parent is the process whose death must end the daemon, so the launch names
+ *  it here instead of requiring every entry point to remember the preload. Outside a test run
+ *  the variable is left exactly as the operator set it (normally unset), so the resident
+ *  daemon's lifetime is unchanged. */
+export function daemonLaunchOwnerPid(env: NodeJS.ProcessEnv, invokerPid: number): string | undefined {
+  if (env.HARNESS_DAEMON_OWNER_PID) return env.HARNESS_DAEMON_OWNER_PID;
+  return env.NODE_TEST_CONTEXT ? String(invokerPid) : undefined;
+}
 export function cliDaemonServeLaunch(
   userRoot: string,
   daemonId: string,
@@ -74,6 +86,9 @@ export function cliDaemonServeLaunch(
 ): DaemonLaunchSpec {
   const env = { ...process.env };
   for (const key of daemonRuntimeScopedEnvironmentKeys) delete env[key];
+  const ownerPid = daemonLaunchOwnerPid(process.env, process.ppid);
+  if (ownerPid === undefined) delete env.HARNESS_DAEMON_OWNER_PID;
+  else env.HARNESS_DAEMON_OWNER_PID = ownerPid;
   return {
     command: execPath,
     args: [entry, mode, "--user-root", userRoot, "--daemon-id", daemonId],

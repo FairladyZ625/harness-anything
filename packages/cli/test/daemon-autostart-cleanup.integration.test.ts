@@ -48,6 +48,54 @@ test("intentional failure after daemon launch", () => {
   }
 });
 
+// The runner's preload names the owner for test files it starts; a test file started directly with
+// `node --test <path>` gets no preload, and its detached daemon then outlived the file. The launch
+// seam names the test file process, so the same kill still ends the daemon. This arm carries no
+// preload on purpose: it is the leak that was reported, reproduced.
+test("a daemon started by a directly-run test file exits when that file is killed", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-direct-owner-")),
+    witness = path.join(parent, "witness.json"),
+    childTest = path.join(parent, "direct-owner-killed.test.mjs"),
+    fixtureModule = new URL("./daemon-autostart-cli.fixture.ts", import.meta.url).href;
+  let fixture: { parent: string; root: string; userRoot: string; pid: number } | undefined;
+  try {
+    writeFileSync(
+      childTest,
+      `import test from "node:test";
+import { writeFileSync } from "node:fs";
+import { setup, run, readDaemonPid } from ${JSON.stringify(fixtureModule)};
+test("directly-run test file owns the daemon it starts", () => {
+  const fixture = setup();
+  run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]);
+  writeFileSync(${JSON.stringify(witness)}, JSON.stringify({ ...fixture, pid: readDaemonPid(fixture.userRoot, "default") }));
+  process.kill(process.pid, "SIGKILL");
+});
+`,
+    );
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    delete env.HARNESS_DAEMON_OWNER_PID;
+    const child = spawnSync(process.execPath, ["--test", childTest], { encoding: "utf8", env, timeout: 30_000 });
+    assert.equal(existsSync(witness), true, `${child.stderr}\n${child.stdout}`);
+    fixture = JSON.parse(readFileSync(witness, "utf8"));
+    assert.ok(fixture);
+    assert.equal(child.status, 1, `${child.stderr}\n${child.stdout}`);
+    await waitForProcessExit(fixture.pid, 10_000);
+    assert.equal(
+      daemonProcessAlive(fixture.pid),
+      false,
+      `daemon ${fixture.pid} outlived the directly-run test file that started it`,
+    );
+  } finally {
+    if (fixture) {
+      stop(fixture.root, fixture.userRoot);
+      await waitForProcessExit(fixture.pid);
+      rmSync(fixture.parent, { recursive: true, force: true });
+    }
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 // The owner is named by the preload the test runner gives every test child, not by this fixture:
 // a test file that knows nothing about daemon ownership is covered the same way.
 test("daemon exits when its fixture owner is killed", async () => {
