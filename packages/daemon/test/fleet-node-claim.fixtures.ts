@@ -31,7 +31,10 @@ export async function fleetNodeClaimFixture(
   now?: () => string,
   loginAuthority?: Parameters<typeof listenFleetTls>[0]["loginAuthority"],
   seedCenterSettings = false,
-  runtimeOptions: Pick<Parameters<typeof openDaemonHost>[0], "runtimeDiscover" | "runtimeLaunch"> = {},
+  runtimeOptions: Pick<
+    Parameters<typeof openDaemonHost>[0],
+    "runtimeDiscover" | "runtimeLaunch" | "sshTunnels" | "edgeJoins"
+  > = {},
   seedRepository?: (rootDir: string) => Promise<void>,
   revokeDeviceSessions?: Parameters<typeof listenFleetTls>[0]["revokeDeviceSessions"],
 ) {
@@ -193,6 +196,7 @@ export async function fleetNodeClaimFixture(
   const eventCount = (): number => fleetLedgerRevision(repo, "lease-repo");
   return {
     root,
+    userRoot,
     repo,
     stateRoot,
     writerEpochStateRoot: path.join(userRoot, "fleet"),
@@ -226,7 +230,7 @@ function isExpectedStaleWriterClose(reason: unknown): boolean {
   );
 }
 
-function localAuthFixture() {
+export function localAuthFixture() {
   return {
     transportKind: "unix-socket" as const,
     unixSocketOwnerBoundary: {

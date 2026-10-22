@@ -299,6 +299,8 @@ export interface AccessAdminApi {
     readonly groupIds: readonly string[];
     readonly nodeLabel?: string;
     readonly platform?: EdgeJoinPlatform;
+    readonly transport?: "direct" | "ssh-reverse";
+    readonly sshTarget?: string;
   }) => Reply<EdgeJoinIssued>;
   readonly edgeJoinStatus: (input: { readonly joinId: string }) => Reply<EdgeJoinStatusReply>;
   readonly edgeJoinList: () => Reply<{ readonly joins: readonly EdgeJoinSummary[] }>;

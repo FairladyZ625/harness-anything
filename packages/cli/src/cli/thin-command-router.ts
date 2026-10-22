@@ -32,6 +32,8 @@ function edgeJoinFields(f: SuccessfulFlags): Record<string, unknown> {
     ...(f.many.get("--join-repo") ? { repoIds: f.many.get("--join-repo") } : {}),
     ...(f.many.get("--join-group") ? { groupIds: f.many.get("--join-group") } : {}),
     ...(f.one.get("--node-label") ? { nodeLabel: f.one.get("--node-label") } : {}),
+    ...(f.one.get("--transport") ? { transport: f.one.get("--transport") } : {}),
+    ...(f.one.get("--ssh-target") ? { sshTarget: f.one.get("--ssh-target") } : {}),
   };
 }
 

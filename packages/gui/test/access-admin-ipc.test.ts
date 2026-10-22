@@ -84,7 +84,13 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.withdrawPermissionRequest({ requestId: "request-1", requestVersion: 1 });
   // The member picker invites an existing person by identity alone; the new-user fields stay
   // with the renderer until a new member is created (the link test below carries that shape).
-  await api.issueEdgeJoin({ personId: "person-gui", repoIds: ["repo-a", "repo-b"], groupIds: ["contributor"] });
+  await api.issueEdgeJoin({
+    personId: "person-gui",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["contributor"],
+    transport: "ssh-reverse",
+    sshTarget: "macbook-air-via-tencent-prod",
+  });
   await api.edgeJoinStatus({ joinId: "invite-1" });
   await api.edgeJoinList();
   await api.revokeEdgeJoin({ joinId: "invite-1" });
@@ -140,7 +146,14 @@ test("every preload method reaches the daemon as one operation the protocol cont
     { operation: "device-remove", ...device, operationId: "operation-15" },
     { operation: "device-logout-all", expectedVersion: "list-v2", operationId: "operation-16" },
     // The center signs and journals the invitation; an existing member arrives by identity only.
-    { operation: "edge-join-create", personId: "person-gui", repoIds: ["repo-a", "repo-b"], groupIds: ["contributor"] },
+    {
+      operation: "edge-join-create",
+      personId: "person-gui",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["contributor"],
+      transport: "ssh-reverse",
+      sshTarget: "macbook-air-via-tencent-prod",
+    },
     { operation: "edge-join-status", joinId: "invite-1" },
     { operation: "edge-join-list" },
     { operation: "edge-join-revoke", joinId: "invite-1" },
@@ -303,6 +316,42 @@ test("edge-join-create carries a win32 platform to the daemon unchanged", async 
   });
   assert.equal(sent[1]?.platform, "linux");
   for (const params of sent) assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params }), []);
+});
+
+test("edge-join-create carries SSH transport and target to the daemon unchanged and passes wire validation", async () => {
+  const { sent, invoke } = fixture(),
+    api = accessAdminPreloadApi((_channel, request) => invoke(request));
+  await api.issueEdgeJoin({
+    personId: "person-gui",
+    repoIds: ["repo-a"],
+    groupIds: ["contributor"],
+    transport: "ssh-reverse",
+    sshTarget: "macbook-air-via-tencent-prod",
+  });
+  assert.deepEqual(sent[0], {
+    operation: "edge-join-create",
+    personId: "person-gui",
+    repoIds: ["repo-a"],
+    groupIds: ["contributor"],
+    transport: "ssh-reverse",
+    sshTarget: "macbook-air-via-tencent-prod",
+  });
+  for (const params of sent) assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params }), []);
+  // Negative control: invalid transport or unknown fields fail daemon RPC validation.
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "daemon.rbac.manage",
+      params: { ...sent[0], transport: "invalid-transport" },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "daemon.rbac.manage",
+      params: { ...sent[0], unknownField: "unexpected" },
+    }),
+    [],
+  );
 });
 
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),

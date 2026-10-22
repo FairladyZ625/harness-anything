@@ -105,7 +105,7 @@ export class AccessAdminService {
       journal: managedRbacReceiptJournal(userRoot),
       ...ports,
     };
-    this.#edgeJoinTunnels = new EdgeJoinSshTunnelManager();
+    this.#edgeJoinTunnels = ports.sshTunnels ?? new EdgeJoinSshTunnelManager();
     this.#edgeJoinAdmin = new EdgeJoinAdminService({
       oidc,
       userRoot,
@@ -114,6 +114,7 @@ export class AccessAdminService {
       journal: this.#ports.journal,
       session: () => this.#session(),
       sshTunnels: this.#edgeJoinTunnels,
+      ...(ports.edgeJoins ? { joins: ports.edgeJoins } : {}),
     });
   }
 

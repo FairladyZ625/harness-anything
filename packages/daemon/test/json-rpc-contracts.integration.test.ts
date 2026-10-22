@@ -49,6 +49,8 @@ test("edge invitation fields cross the shared daemon.rbac.manage wire contract",
     repoIds: ["repo-a", "repo-b"],
     groupIds: ["contributor"],
     nodeLabel: "edge-west",
+    transport: "ssh-reverse",
+    sshTarget: "macbook-air-via-tencent-prod",
   });
   assert.equal(result.ok, true, result.ok ? "" : result.errors.join("; "));
 });

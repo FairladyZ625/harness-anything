@@ -57,7 +57,7 @@ test("SSH tunnel uses only the validated target and requests two loopback remote
       spawn: ((command: string, argv: readonly string[]) => {
         assert.equal(command, "ssh");
         assert.ok(argv.includes("BatchMode=yes"));
-        assert.ok(argv.includes("ClearAllForwardings=yes"));
+        assert.ok(!argv.includes("ClearAllForwardings=yes"));
         assert.ok(argv.includes("ForwardAgent=no"));
         assert.equal(argv.at(-1), "macbook-air-via-tencent-prod");
         assert.equal(argv.filter((value) => value === "-R").length, 2);

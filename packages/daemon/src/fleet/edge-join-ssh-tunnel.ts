@@ -292,8 +292,6 @@ function sshTunnelArgs(entry: TunnelEntry): string[] {
     "-o",
     "ExitOnForwardFailure=yes",
     "-o",
-    "ClearAllForwardings=yes",
-    "-o",
     "ForwardAgent=no",
     "-o",
     "ConnectTimeout=15",

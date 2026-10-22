@@ -190,6 +190,35 @@ test("ha bootstrap exposes edge invitation, status, list, and revoke operations 
       repoIds: ["repo-a"],
       groupIds: ["contributor"],
     });
+  const sshJoin = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "edge-join-create",
+      "--person-id",
+      "person-edge",
+      "--join-repo",
+      "repo-a",
+      "--join-group",
+      "contributor",
+      "--transport",
+      "ssh-reverse",
+      "--ssh-target",
+      "macbook-air-via-tencent-prod",
+    ],
+    "/repo",
+  );
+  assert.equal(sshJoin.ok, true);
+  if (sshJoin.ok)
+    assert.deepEqual(sshJoin.command.action, {
+      kind: "rbac-bootstrap",
+      operation: "edge-join-create",
+      personId: "person-edge",
+      repoIds: ["repo-a"],
+      groupIds: ["contributor"],
+      transport: "ssh-reverse",
+      sshTarget: "macbook-air-via-tencent-prod",
+    });
   assert.equal(
     parseThinCommand(["bootstrap", "--operation", "edge-join-create", "--join-repo", "repo-a"], "/repo").ok,
     false,

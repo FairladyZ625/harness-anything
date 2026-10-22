@@ -38,6 +38,7 @@ export type { DeviceLoginRequest, OidcLoginAuthority, OidcSessionPorts } from ".
 interface RbacConfig {
   readonly url: string;
   readonly realm: string;
+  readonly clientId?: string;
   readonly listener?: ManagedRbacListener;
 }
 
@@ -865,7 +866,7 @@ export class OidcSessionService {
     return {
       url: config.url,
       realm: config.realm,
-      clientId: "harness-gui",
+      clientId: config.clientId ?? "harness-gui",
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
       ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
     };

@@ -49,6 +49,7 @@ export class EdgeJoinAdminService {
     readonly session: () => Promise<Session>;
     readonly sshTunnels: EdgeJoinSshTunnelManager;
     readonly schedule?: Schedule;
+    readonly joins?: ReturnType<typeof createEdgeJoinStore>;
   }) {
     this.#oidc = input.oidc;
     this.#userRoot = input.userRoot;
@@ -56,7 +57,7 @@ export class EdgeJoinAdminService {
     this.#now = input.now;
     this.#session = input.session;
     this.#sshTunnels = input.sshTunnels;
-    this.#joins = restoreEdgeJoinStore(input.journal, input.now);
+    this.#joins = input.joins ?? restoreEdgeJoinStore(input.journal, input.now);
     this.#schedule =
       input.schedule ??
       ((callback, delayMs) => {

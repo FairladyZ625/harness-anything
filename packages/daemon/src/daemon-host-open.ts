@@ -100,6 +100,8 @@ import { runtimeInstanceCredentialService } from "./runtime-instance-credentials
 import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
+import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
+import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
@@ -129,6 +131,8 @@ export interface DaemonHostOpenInput {
   readonly openCell?: (
     input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
   ) => Promise<RepoCell>;
+  readonly sshTunnels?: EdgeJoinSshTunnelManager;
+  readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;
 }
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
@@ -698,6 +702,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     daemonId: input.daemonId,
     onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
+    ...(input.sshTunnels ? { sshTunnels: input.sshTunnels } : {}),
+    ...(input.edgeJoins ? { edgeJoins: input.edgeJoins } : {}),
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);

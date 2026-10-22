@@ -1,4 +1,6 @@
 import type { managedRbacReceiptJournal } from "./managed-rbac-service.ts";
+import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
+import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 
 import type { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 
@@ -41,4 +43,6 @@ export interface AccessAdminPorts {
   readonly journal: ReturnType<typeof managedRbacReceiptJournal>;
   readonly daemonId?: string;
   readonly onNodeRemoved?: (nodeId: string) => void;
+  readonly sshTunnels?: EdgeJoinSshTunnelManager;
+  readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;
 }

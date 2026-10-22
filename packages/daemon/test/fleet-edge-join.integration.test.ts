@@ -4,18 +4,21 @@
 // first sync. The credential lands only in fleet-edge.json (0600); the receipt never carries it. An
 // invitation bound to another person is refused.
 import assert from "node:assert/strict";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
+import type { ChildProcess } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:https";
 import test from "node:test";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { FleetFault } from "../src/fleet/center-types.ts";
-import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
+import { createEdgeJoinStore, decodeEdgeJoinLink, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
+import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
+import { EdgeJoinSshTunnelManager } from "../src/fleet/edge-join-ssh-tunnel.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
-import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
+import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 
 test(
   "two edges join with their own invitations and see center tasks; another person's invitation is refused",
@@ -23,7 +26,44 @@ test(
     timeout: 240_000,
   },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    const invites = createEdgeJoinStore();
+    const fakeChild = (argv: readonly string[]) => {
+      const emitter = new EventEmitter() as ChildProcess;
+      let stderrListener: ((chunk: string) => void) | undefined;
+      const stream = {
+        setEncoding() {
+          return stream;
+        },
+        on(event: string, listener: (chunk: string) => void) {
+          if (event === "data") stderrListener = listener;
+          return stream;
+        },
+      };
+      emitter.stdout = stream as never;
+      emitter.stderr = stream as never;
+      emitter.kill = () => true;
+      const lines: string[] = [];
+      for (let i = 0; i < argv.length; i++) {
+        if (argv[i] === "-R") {
+          const match = /^127\.0\.0\.1:(?:0|\d+):127\.0\.0\.1:(\d+)$/u.exec(argv[i + 1] ?? "");
+          if (match) {
+            const port = match[1];
+            lines.push(`Allocated port ${port} for remote forward to 127.0.0.1:${port}\n`);
+          }
+        }
+      }
+      setTimeout(() => {
+        for (const line of lines) stderrListener?.(line);
+      }, 5);
+      return emitter;
+    };
+    const sshTunnels = new EdgeJoinSshTunnelManager({
+      spawn: ((_cmd: string, argv: readonly string[]) => fakeChild(argv)) as never,
+    });
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true, {
+      edgeJoins: invites,
+      sshTunnels,
+    });
     assert.equal(
       (await f.command("center-node", { kind: "task-create", taskId: "joined-0", title: "Joined 0" })).outcome,
       "applied",
@@ -41,7 +81,6 @@ test(
         response.writeHead(200, { "content-type": "application/json" }).end("{}");
       }),
       loginListening = once(loginServer, "listening"),
-      invites = createEdgeJoinStore(),
       harnessYaml = readFileSync(path.join(f.repo, "harness/harness.yaml"), "utf8");
     loginServer.listen(0, "::");
     await loginListening;
@@ -62,7 +101,7 @@ test(
         f.owners.keycloak.interactiveSession(
           personId,
           issuedNodeId,
-          f.owners.url,
+          loginUrl,
           `device-token-${issuedNodeId}`,
           "harness-cli",
         );
@@ -75,23 +114,50 @@ test(
         };
       },
     });
-    const link = (personId: string, pin = spkiSha256, sshReverse = false) => {
-      const created = invites.create({
-        centerOrigin: sshReverse ? `https://127.0.0.1:${center.port}` : `https://localhost:${center.port}`,
-        ...(sshReverse ? { centerServername: "localhost", transport: "ssh-reverse" as const } : {}),
-        repoIds: ["lease-repo"],
-        personId,
-        permissionSnapshot: [{ groupId: "contributor", version: "scope-digest" }],
-        spkiSha256: pin,
-        loginUrl: sshReverse ? `https://127.0.0.1:${loginPort}` : loginUrl,
-        ...(sshReverse ? { loginServername: "localhost", loginBrowserUrl: loginUrl } : {}),
-        loginRealm: "harness",
-        loginClientId: "harness-cli",
-        loginCertificate,
-        createdBy: "person-center",
-        ttlMs: 600_000,
-      });
-      return { joinId: created.record.joinId, link: encodeEdgeJoinLink(created.link) };
+    saveFleetCenterConfig(f.userRoot, "lease-center", {
+      port: center.port,
+      bind: "127.0.0.1",
+      repoId: "lease-repo",
+      keyPath: path.join(f.root, "tls.key"),
+      certPath: path.join(f.root, "tls.crt"),
+      stateRoot: f.stateRoot,
+      quotaBytes: 1024 * 1024,
+      externalUrl: `https://localhost:${center.port}`,
+    });
+    const rbacConfigFile = path.join(f.userRoot, "rbac", "config.json");
+    const rbacConfig = JSON.parse(readFileSync(rbacConfigFile, "utf8")) as Record<string, unknown>;
+    writeFileSync(
+      rbacConfigFile,
+      JSON.stringify({
+        ...rbacConfig,
+        clientId: "harness-cli",
+        listener: {
+          certificateFile: path.join(f.root, "tls.crt"),
+          port: loginPort,
+          hostname: "localhost",
+        },
+      }),
+    );
+    const link = async (personId: string, pin = spkiSha256, sshReverse = false) => {
+      const response = (await f.host.manageRbac(
+        {
+          operation: "edge-join-create",
+          personId,
+          repoIds: ["lease-repo"],
+          groupIds: ["contributor"],
+          ...(sshReverse
+            ? { transport: "ssh-reverse", sshTarget: "macbook-air-via-tencent-prod" }
+            : { transport: "direct" }),
+        },
+        localAuthFixture(),
+      )) as Record<string, unknown>;
+      assert.equal(response.ok, true, JSON.stringify(response));
+      let linkStr = response.link as string;
+      if (pin !== spkiSha256) {
+        const parsed = decodeEdgeJoinLink(linkStr);
+        linkStr = encodeEdgeJoinLink({ ...parsed, spkiSha256: pin });
+      }
+      return { joinId: response.joinId as string, link: linkStr };
     };
 
     const join = async (nodeId: string, invitation: string, sshReverse = false) => {
@@ -121,14 +187,8 @@ test(
     };
 
     for (const nodeName of ["node-one", "node-two"]) {
-      const invitation = link("person-one", spkiSha256, nodeName === "node-one");
-      f.owners.keycloak.interactiveSession(
-        "person-one",
-        nodeName,
-        f.owners.url,
-        `device-token-${nodeName}`,
-        "harness-cli",
-      );
+      const invitation = await link("person-one", spkiSha256, nodeName === "node-one");
+      f.owners.keycloak.interactiveSession("person-one", nodeName, loginUrl, `device-token-${nodeName}`, "harness-cli");
       const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
@@ -160,11 +220,11 @@ test(
       );
     }
 
-    const wrongPin = link("person-one", "f".repeat(64));
+    const wrongPin = await link("person-one", "f".repeat(64));
     f.owners.keycloak.interactiveSession(
       "person-one",
       "node-three",
-      f.owners.url,
+      loginUrl,
       "device-token-node-three",
       "harness-cli",
     );
@@ -177,14 +237,9 @@ test(
     );
     assert.equal(existsSync(path.join(pinRefused.workspaceRoot, "lease-repo", "fleet-edge.json")), false);
 
-    const wrongPerson = link("person-two");
-    f.owners.keycloak.interactiveSession(
-      "person-one",
-      "node-four",
-      f.owners.url,
-      "device-token-node-four",
-      "harness-cli",
-    );
+    f.owners.keycloak.account("person-two");
+    const wrongPerson = await link("person-two");
+    f.owners.keycloak.interactiveSession("person-one", "node-four", loginUrl, "device-token-node-four", "harness-cli");
     const refused = await join("node-four", wrongPerson.link);
     assert.equal("result" in refused.response && (refused.response.result as { ok?: unknown }).ok === true, false);
     assert.match(JSON.stringify(refused.response), /person_mismatch|another person/u);
