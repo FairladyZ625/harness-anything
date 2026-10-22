@@ -36,6 +36,7 @@ import {
   taskBoardColumnWords,
   taskCapabilityIdWords,
   taskCapabilityReasonWords,
+  taskDeliveryStageWords,
   taskPhaseReasonWords,
   taskPhaseStepWords,
   relationStrengthWords,
@@ -411,6 +412,7 @@ const taskSnapshotListRowFields = [
   "snapshotAvailability",
   "closeoutAssessment",
   "blockingAssessment",
+  "deliveryStage",
   "placement",
   "executionEvidence",
   "board",
@@ -449,6 +451,8 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
     errors.push(...snapshotFailurePaths(value.snapshot, value.snapshotAvailability).map(error));
   if (!closeoutAssessment(value.closeoutAssessment)) errors.push(error("closeoutAssessment"));
   if (!blockingAssessment(value.blockingAssessment)) errors.push(error("blockingAssessment"));
+  if (value.deliveryStage !== null && !statusWord(taskDeliveryStageWords, value.deliveryStage))
+    errors.push(error("deliveryStage"));
   if (!placement(value.placement)) errors.push(error("placement"));
   if (!boardPlacement(value.board)) errors.push(error("board"));
   if (

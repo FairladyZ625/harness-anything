@@ -37,6 +37,7 @@ import {
 } from "./decision-review-read.ts";
 import type { DispatchStreamHeader } from "./dispatch-stream.ts";
 import { readRepositorySettings } from "./repo-cell-settings-state.ts";
+import { taskDeliveryStage } from "./task-delivery-stage.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import {
   isolateDaemonTaskSnapshotRows,
@@ -312,6 +313,12 @@ export function makeTaskQueryReadModel(input: {
             ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
             : ("unknown" as const),
           closeoutAssessment = closeout(row.snapshot, snapshotAvailability),
+          deliveryStage = taskDeliveryStage({
+            status: coordinationStatus,
+            snapshot: row.snapshot,
+            closeout: closeoutAssessment,
+            blocking: blockingAssessment,
+          }),
           // dec_5B135F46 CH4: the board / visibility / capability judgments are the kernel's. This
           // read passes the row and the assessments it already has and returns what comes back.
           boardRow = {
@@ -327,6 +334,7 @@ export function makeTaskQueryReadModel(input: {
           snapshotAvailability,
           closeoutAssessment,
           blockingAssessment,
+          deliveryStage,
           placement,
           executionEvidence: row.snapshot.executions.map((execution) =>
             projectExecutionEvidence(row.taskId, execution, origin),

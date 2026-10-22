@@ -11,6 +11,7 @@ import type {
   UseCaseProjectionName as KernelUseCaseProjectionName,
   taskPhaseSteps,
 } from "@harness-anything/kernel";
+import type { TaskDeliveryStage } from "./daemon-protocol-gui-types.ts";
 
 export const AGENDA_PIN_CRITERIA = "blocking an active work or awaiting owner decision; otherwise leave unpinned";
 
@@ -143,6 +144,20 @@ export const taskPhaseStepWords = Object.freeze([
 
 export const taskPhaseStepWordsAreExact: [typeof taskPhaseSteps] extends [typeof taskPhaseStepWords] ? true : never =
   true;
+
+/** The live floor's delivery-stage judgment; the daemon owns both the words and the derivation. */
+export const taskDeliveryStageWords = Object.freeze([
+  "implementing",
+  "rework",
+  "delivered",
+  "reviewing",
+  "awaiting_owner",
+  "merge_ready",
+] as const satisfies readonly TaskDeliveryStage[]);
+
+export const taskDeliveryStageWordsAreExact: [TaskDeliveryStage] extends [(typeof taskDeliveryStageWords)[number]]
+  ? true
+  : never = true;
 
 export const blockingLabelWords = Object.freeze([
   "relations",

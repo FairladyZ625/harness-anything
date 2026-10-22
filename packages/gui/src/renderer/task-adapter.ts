@@ -93,6 +93,7 @@ function adaptProjectionRow(
     lastKnownAt: row.updatedAt,
     gates,
     ...(row.closeoutAssessment.blocker ? { closeoutBlocker: row.closeoutAssessment.blocker } : {}),
+    deliveryStage: row.deliveryStage ?? null,
     snapshotAvailability: row.snapshotAvailability,
     reviews: row.snapshot.reviews,
     consents: row.snapshot.consents,

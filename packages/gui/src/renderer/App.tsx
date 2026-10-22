@@ -580,7 +580,14 @@ function AppShell() {
                   openProjectInNewWindow={openProjectInNewWindow}
                 />
               ) : redesignView === "liveFloor" ? (
-                <LiveFloorView repoId={projectId} taskTitles={taskTitles} works={works} onOpenTask={openTaskDetail} />
+                <LiveFloorView
+                  repoId={projectId}
+                  tasks={tasks}
+                  taskTitles={taskTitles}
+                  works={works}
+                  onOpenTask={openTaskDetail}
+                  onNavigateEntity={navigateToEntity}
+                />
               ) : ledgerUnavailable ? (
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (

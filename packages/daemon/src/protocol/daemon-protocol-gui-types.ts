@@ -820,6 +820,20 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
       }
   );
 
+/**
+ * The daemon-owned delivery-stage judgment for the live floor (task-delivery-stage.ts):
+ * where a task sits on the 实现 → 交付/PR·CI → 评审 → 等业主 → 可合并 main path.
+ * `null` = off the path (queued, waiting upstream, terminal); the renderer then reads
+ * the row's own status words instead of a second word for the same fact.
+ */
+export type TaskDeliveryStage =
+  | "implementing"
+  | "rework"
+  | "delivered"
+  | "reviewing"
+  | "awaiting_owner"
+  | "merge_ready";
+
 export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
@@ -833,6 +847,7 @@ export type DaemonTaskSnapshotListResult = {
     };
     readonly closeoutAssessment: import("@harness-anything/kernel/internal/domain/closeout-readiness").CloseoutAssessment;
     readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
+    readonly deliveryStage: TaskDeliveryStage | null;
     readonly placement: TaskPlacementSupplement;
     readonly executionEvidence: readonly ExecutionEvidenceProjection[];
     readonly board: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskBoardPlacement;

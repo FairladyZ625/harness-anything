@@ -62,6 +62,7 @@ const row = {
   snapshotAvailability: { consents: "known", gateWitnesses: "known" },
   closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] },
   blockingAssessment: { taskId: "task-repoint", state: "clear", label: "none", blockers: [], warnings: [] },
+  deliveryStage: null,
   placement: {
     productLines: [],
     spawningDecisionIds: [],

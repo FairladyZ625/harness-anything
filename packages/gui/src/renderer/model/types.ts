@@ -215,6 +215,12 @@ interface TaskRowFields {
     readonly directChildCount: number;
     readonly threshold: number;
   };
+  /**
+   * 交付阶段判定(daemon `task-delivery-stage.ts`,`repo.tasks.list` 逐行投影):现场页
+   * 流水线消费;null = 不在交付主路径(排队/等上游/终态),读行自身状态词。undefined
+   * 仅出现在未投影该字段的旧 daemon 构建上。
+   */
+  deliveryStage?: "implementing" | "rework" | "delivered" | "reviewing" | "awaiting_owner" | "merge_ready" | null;
 }
 
 /** Renderer task state is an immutable view over one projection cut. */
