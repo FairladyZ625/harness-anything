@@ -204,7 +204,9 @@ function deriveCloseoutSubmissionData(
             (unclaimedPublishedMerge ||
               git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok))
         : baseline === undefined && bound === commitSha;
-  let deliverables: readonly string[], commitOutputs: readonly string[], riskBaseSha: string | null = null;
+  let deliverables: readonly string[],
+    commitOutputs: readonly string[],
+    riskBaseSha: string | null = null;
   // An unchanged published HEAD is a delivery only when this task's record owns it: another
   // execution's cut, or this execution's own frozen cut — an amendment re-derived at its merged
   // tip froze that merge's second parent. The execution baseline detects new work; task history,

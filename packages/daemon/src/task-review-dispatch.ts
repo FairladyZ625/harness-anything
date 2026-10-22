@@ -16,7 +16,7 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "./review-path-lanes.ts";
+import { reviewLaneDispatchKey, reviewLanePrompt } from "./review-path-lanes.ts";
 import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";

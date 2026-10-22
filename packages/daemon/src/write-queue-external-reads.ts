@@ -160,10 +160,10 @@ function refuseAdjudicatedForwardBeforeQueue(
     "invalid_transition",
     snapshot.task.status === "in_review"
       ? `Task ${taskId} is already in review after submit. Use --forward --reviewer <agent> only to select a reviewer. ` +
-        `Adjudicate the recorded verdict on the same review cut with ${returnOrder}.`
+          `Adjudicate the recorded verdict on the same review cut with ${returnOrder}.`
       : `Task ${taskId} is at the review gate. Submit dispatches the frozen reviewer automatically; ` +
-        `--forward requires an explicit --reviewer to select or replace the reviewer.` +
-        (review ? ` Adjudicate the recorded verdict on the same cut with ${returnOrder}.` : ""),
+          `--forward requires an explicit --reviewer to select or replace the reviewer.` +
+          (review ? ` Adjudicate the recorded verdict on the same cut with ${returnOrder}.` : ""),
     "adjudicate",
     ADJUDICATE_VALIDATE_CRITERION,
     [forwardOrder, ...(review ? [`${returnOrder} --note "<the owner's rework instruction>"`] : [])],
