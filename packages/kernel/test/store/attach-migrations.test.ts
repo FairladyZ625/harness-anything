@@ -152,10 +152,10 @@ test("attach migration registry covers each retired historical field and is idem
     "vertical.completion.sources",
     "vertical.completion.closeoutCodeDoc",
   ]);
-  assert.equal(events.length, 13);
+  assert.equal(events.length, 17);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 13);
+  assert.equal(events.length, 17);
   assert.equal(reads.queryEvents, 0, "attach migration scans use bounded event batches");
   assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
 });
