@@ -12,6 +12,7 @@ import {
   sha256Text,
   submissionDigest,
 } from "@harness-anything/kernel";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
@@ -774,6 +775,115 @@ test(
       assert.equal(step.instanceId, "review-first");
       assert.notEqual(step.runtimeSessionId, first.payload.runtimeSessionId);
       assert.equal(f.launches.length, 2);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a re-review resumes the prior reviewer provider session for the same task lane",
+  { timeout: 30_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoSubmit: false,
+      autoForward: false,
+      autoProviderSession: true,
+    });
+    try {
+      await f.install();
+      assert.equal((await f.submit()).outcome, "applied");
+      const firstReceipt = await f.forward();
+      assert.equal(firstReceipt.outcome, "applied", JSON.stringify(firstReceipt));
+      const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(first?.type === "runtime_dispatch_requested");
+      const reviewId = `review-${first.payload.dispatchId}`;
+      f.failPending();
+      await f.awaitOutcome(first.payload.runtimeSessionId);
+      const reviewed = await f.review(first.payload.runtimeSessionId, reviewId);
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      assert.equal((await f.returnCut("Revise the submitted cut.", reviewId)).outcome, "applied");
+      const nextExecution = "execution-review-resume-next";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: nextExecution })).outcome, "applied");
+      assert.equal((await f.submit(nextExecution)).outcome, "applied");
+      const secondReceipt = await f.forward("Forward the revised cut.", nextExecution);
+      assert.equal(secondReceipt.outcome, "applied", JSON.stringify(secondReceipt));
+      const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+      const second = dispatches.at(-1)!;
+      assert.equal(second.type, "runtime_dispatch_requested");
+      assert.equal(second.payload.resumedFromDispatchId, first.payload.dispatchId);
+      await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
+      await f.waitForProviderBinding(second.payload.dispatchId, "review-provider-session");
+      const firstProvider = readDispatchStream(f.root, first.payload.dispatchId),
+        secondProvider = readDispatchStream(f.root, second.payload.dispatchId);
+      assert.equal(firstProvider?.providerSessionId, "review-provider-session");
+      assert.equal(secondProvider?.providerSessionId, firstProvider?.providerSessionId);
+      assert.ok(
+        f.launches.at(-1)!.args.includes("review-provider-session"),
+        "the provider argv resumes the same session",
+      );
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a rejected reviewer resume starts a fresh session with the previous registered report in its scope",
+  { timeout: 30_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoSubmit: false,
+      autoForward: false,
+      autoProviderSession: true,
+      failProviderResume: true,
+    });
+    try {
+      await f.install();
+      assert.equal((await f.submit()).outcome, "applied");
+      assert.equal((await f.forward()).outcome, "applied");
+      const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(first?.type === "runtime_dispatch_requested");
+      const reviewId = `review-${first.payload.dispatchId}`;
+      await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
+      f.failPending();
+      await f.awaitOutcome(first.payload.runtimeSessionId);
+      assert.equal((await f.review(first.payload.runtimeSessionId, reviewId)).outcome, "applied");
+      assert.equal((await f.returnCut("Revise the submitted cut.", reviewId)).outcome, "applied");
+      const nextExecution = "execution-review-fallback-next";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: nextExecution })).outcome, "applied");
+      assert.equal((await f.submit(nextExecution)).outcome, "applied");
+      const secondReceipt = await f.forward("Forward the revised cut.", nextExecution);
+      assert.equal(secondReceipt.outcome, "applied", JSON.stringify(secondReceipt));
+      const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested"),
+        second = dispatches.at(-1)!;
+      assert.equal(second.type, "runtime_dispatch_requested");
+      assert.equal(
+        secondReceipt.dispatchId,
+        second.payload.dispatchId,
+        "receipt must name the fresh fallback dispatch",
+      );
+      assert.equal(secondReceipt.runtimeSessionId, second.payload.runtimeSessionId);
+      assert.equal(second.payload.resumedFromDispatchId, undefined, "fallback must own a fresh dispatch");
+      assert.match(second.payload.dispatchKey, /execution-review-fallback-next/u);
+      await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
+      await f.waitForProviderBinding(second.payload.dispatchId, "review-provider-session-new");
+      assert.equal(f.launches.length, 3, "initial launch, rejected resume, then fresh fallback");
+      const fallback = f.launches.at(-1)!;
+      assert.ok(
+        !fallback.args.includes("review-provider-session"),
+        "fallback argv must not resume the rejected session",
+      );
+      assert.ok(fallback.prompt.includes("harness/tasks/") && fallback.prompt.includes("ha doc show --path"));
+      assert.ok(fallback.prompt.includes(`${first.payload.dispatchId}.md`), "fallback must name the prior report");
+      assert.ok(
+        fallback.prompt.includes("verify each previous finding") && fallback.prompt.includes("only the new diff"),
+        "fallback keeps the re-review scope bounded",
+      );
+      const stream = readDispatchStream(f.root, second.payload.dispatchId);
+      assert.equal(stream?.providerSessionId, "review-provider-session-new");
     } finally {
       await f.close();
     }

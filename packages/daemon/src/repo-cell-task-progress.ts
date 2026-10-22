@@ -37,7 +37,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
-import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import { prepareReturnedWorker, dispatchReturnedWorker } from "./task-return-dispatch.ts";
 
 /** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
@@ -607,6 +607,20 @@ export async function adjudicateTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId");
   if (action.forward === true) assertForwardUpgradeServable(cell, action, taskId);
+  if (action.return === true) {
+    const snapshot = cell.projection.read(taskId).snapshot,
+      task = snapshot.task,
+      budget = readEffectiveReviewReturnBudget(cell.projection, task).value,
+      revision = cell.store.readHead()?.revision ?? 0,
+      returns = snapshot.executions.filter((execution) => execution.state === "changes_requested").length;
+    if (returns >= budget)
+      throw cell.cellCodedError(
+        "invalid_transition",
+        `Task ${taskId} has reached reviewReturnBudget=${budget}; the third or later changes_requested return stays ` +
+          `in_review for CEO attention. Decide manually; no automatic worker return or reviewer dispatch is allowed. ` +
+          `(revision ${revision})`,
+      );
+  }
   const continuation = action.return === true ? prepareReturnedWorker(cell, action, taskId) : null,
     receipt = await cell.lifecycleAction(action, binding);
   if (receipt.outcome !== "applied") return receipt;
@@ -628,9 +642,15 @@ export async function adjudicateTask(
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
   if (!dispatched)
     throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);
+  const dispatchIdentity = dispatched.step as {
+    readonly dispatchId?: string;
+    readonly runtimeSessionId?: string;
+  };
   const result = {
     ...receipt,
     ...dispatched.selection,
+    ...(dispatchIdentity.dispatchId === undefined ? {} : { dispatchId: dispatchIdentity.dispatchId }),
+    ...(dispatchIdentity.runtimeSessionId === undefined ? {} : { runtimeSessionId: dispatchIdentity.runtimeSessionId }),
     ...(dispatched.laneWarnings.length ? { warnings: dispatched.laneWarnings } : {}),
     steps: [
       ...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []),

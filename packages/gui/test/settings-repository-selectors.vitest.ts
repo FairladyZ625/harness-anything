@@ -45,7 +45,7 @@ const SETTINGS_VALUES = {
   defaultPreset: "standard-task",
   defaultProfile: "baseline",
   reviewIndependence: "execution",
-  reviewReturnBudget: 3,
+  reviewReturnBudget: 2,
   taskScaffold: "governance/task-scaffold.json",
   repositoryScaffold: "governance/repository-scaffold.json",
   closeoutProfile: "standard",
@@ -368,7 +368,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(select(container, "settings-reviewIndependence-select").value).toBe("execution");
     expect(
       (container.querySelector('[data-testid="settings-reviewReturnBudget-input"]') as HTMLInputElement).value,
-    ).toBe("3");
+    ).toBe("2");
     // closeout 档位与四个门也来自契约(此前由 CloseoutRows 硬编码渲染)。
     expect(optionValues(select(container, "settings-closeoutProfile-select"))).toEqual(["standard", "strict"]);
     await act(async () => {
@@ -379,7 +379,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(lastUpdatePayload()).toMatchObject({
       roles: { defaultReviewer: "arch-reviewer" },
       reviewIndependence: "execution",
-      reviewReturnBudget: 3,
+      reviewReturnBudget: 2,
       closeoutProfile: "standard",
       closeoutReview: false,
       restoreDrillRetention: 3,

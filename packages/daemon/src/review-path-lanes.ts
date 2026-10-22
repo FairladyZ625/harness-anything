@@ -107,6 +107,8 @@ export function reviewLanePrompt(input: {
       "is the authoritative delivery. Read the delivery diff yourself (deliveryBaseline -> submission " +
       "commit). Your own Agent declaration defines this lane's review focus, required output, and " +
       "verdict rules; apply it to the delivery as dispatched.",
+    "On the first review, list every blocking finding visible in the frozen cut; do not defer a visible blocker " +
+      "to a later round. On a re-review, verify the previous findings and inspect only the new diff.",
     `Write this lane's review report to harness/${report} and review input to harness/${packet}.`,
     `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
       `--review-id review-${dispatchId} --from-file harness/${packet}. ` +

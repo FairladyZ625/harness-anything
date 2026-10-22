@@ -18,7 +18,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -133,6 +133,8 @@ export async function fixture(
     readonly providerInputLimit?: number;
     /** False stops after submit: the cut awaits the owner's triage. */
     readonly autoForward?: boolean;
+    readonly autoProviderSession?: boolean;
+    readonly failProviderResume?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
     readonly keycloakSession?: Parameters<typeof openRepoCell>[0]["keycloakSession"];
     readonly create?: Readonly<Record<string, unknown>>;
@@ -154,7 +156,7 @@ export async function fixture(
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
-  const launches: { prompt: string; instanceId: string; model: string }[] = [],
+  const launches: { prompt: string; instanceId: string; model: string; args: readonly string[] }[] = [],
     launchWaiters = new Set<() => void>();
   const pendingProviders: {
     output?: (chunk: string) => void;
@@ -162,7 +164,9 @@ export async function fixture(
   }[] = [];
   let instancesAvailable = available,
     remainingProviderFailures =
-      typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0;
+      typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0,
+    failProviderResume = options.failProviderResume === true,
+    providerSessionStarted = false;
   const open = () =>
     openRepoCell({
       repoId,
@@ -197,7 +201,9 @@ export async function fixture(
         } satisfies AgentDefinitionSnapshot,
         installation,
         executablePath: installation.executablePath,
-        args: ["exec", "--json", "-"],
+        args: request.providerSessionId
+          ? ["exec", "resume", "--json", "--dangerously-bypass-approvals-and-sandbox", request.providerSessionId, "-"]
+          : ["exec", "--json", "--sandbox", "danger-full-access", "-"],
         env: {},
         cwd: request.cwd,
         prompt: request.prompt,
@@ -205,11 +211,19 @@ export async function fixture(
       runtimeLaunch: (prepared, persistence): RuntimeProcess => {
         if (options.providerInputLimit !== undefined && prepared.prompt.length > options.providerInputLimit)
           throw new Error(`input_too_large: ${prepared.prompt.length} > ${options.providerInputLimit}`);
+        const providerSessionId = prepared.args.includes("review-provider-session")
+          ? "review-provider-session"
+          : providerSessionStarted
+            ? "review-provider-session-new"
+            : "review-provider-session";
+        providerSessionStarted = true;
         launches.push({
           prompt: prepared.prompt,
           instanceId: prepared.definition.instanceId,
           model: prepared.definition.model,
+          args: prepared.args,
         });
+        providerSessionStarted = true;
         for (const notify of launchWaiters) notify();
         // The real launcher records its worker pid; without the record, post-restart adoption treats
         // a still-live reviewer as lost.
@@ -226,6 +240,16 @@ export async function fixture(
           pid: process.pid,
           onOutput: (listener) => {
             pending.output = listener;
+            if (options.autoProviderSession) {
+              const reportedSession =
+                failProviderResume && prepared.args.includes("review-provider-session")
+                  ? "provider-rejected-resume"
+                  : providerSessionId;
+              if (reportedSession !== providerSessionId) failProviderResume = false;
+              setImmediate(() =>
+                listener(`${JSON.stringify({ type: "thread.started", thread_id: reportedSession })}\n`),
+              );
+            }
           },
           onErrorOutput: () => undefined,
           terminate: () => undefined,
@@ -312,7 +336,7 @@ export async function fixture(
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     delivery = `${delivery} artifact:${report}@${accepted.revision}`;
   }
-  const submit = async () => {
+  const submit = async (roundExecutionId = executionId) => {
     writeFileSync(
       path.join(root, "harness", packagePath, "closeout.md"),
       `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
@@ -328,7 +352,7 @@ export async function fixture(
     const receipt = await run({
       kind: "task-submit",
       taskId,
-      executionId,
+      executionId: roundExecutionId,
       ...(commitSha ? { commitSha } : {}),
     });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -336,13 +360,13 @@ export async function fixture(
   };
   // The owner's forward order opens the review gate and dispatches the independent reviewer
   // (owner adjudication 2026-09-19); submit alone leaves the cut awaiting triage.
-  const forward = async (reason = "Owner forwards the cut for independent review.") =>
-    run({ kind: "task-adjudicate", taskId, executionId, forward: true, reason });
-  const returnCut = async (reason: string, reviewId?: string) =>
+  const forward = async (reason = "Owner forwards the cut for independent review.", roundExecutionId = executionId) =>
+    run({ kind: "task-adjudicate", taskId, executionId: roundExecutionId, forward: true, reason });
+  const returnCut = async (reason: string, reviewId?: string, roundExecutionId = executionId) =>
     run({
       kind: "task-adjudicate",
       taskId,
-      executionId,
+      executionId: roundExecutionId,
       return: true,
       workerMode: "none",
       reason,
@@ -590,6 +614,14 @@ export async function fixture(
         };
         launchWaiters.add(waiter);
       });
+    },
+    waitForProviderBinding: async (dispatchId: string, expected: string) => {
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        if (readDispatchStream(root, dispatchId)?.providerSessionId === expected) return;
+        if (Date.now() >= deadline) throw new Error(`provider binding ${expected} was not recorded for ${dispatchId}`);
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
     },
     /** Provider-success driver for a dispatched decision reviewer: the reviewer authored its own
      * artifacts under the Decision package, so the settlement only needs the provider turn. */
