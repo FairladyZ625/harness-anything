@@ -37,6 +37,7 @@ import { assertUnscrolledLayout, nav } from "./helpers.mjs";
  * 缺 blob 会让那条读红。
  */
 const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`).digest("hex"),
+  taskSquadSubject = (taskId, executionId) => ({ kind: "task", taskId, executionId }),
   // 派工行读面要求 dispatch_[a-f0-9]{24};会话 id 用 runtime_ + 24 hex,与 runtimeIngress 同一形状。
   SESSION_NOTASK = `runtime_${identity("no-task").slice(24, 48)}`,
   SESSION_FREE = `runtime_${identity("free").slice(24, 48)}`,
@@ -356,8 +357,7 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
                 squadRun: {
                   squadRunId: squadRunIds[row.squadRunKey],
                   squadId: squadRunFixtures[row.squadRunKey].squadId,
-                  taskId: task,
-                  executionId: `exe-${row.key}`,
+                  subject: taskSquadSubject(task, `exe-${row.key}`),
                   mission: squadRunFixtures[row.squadRunKey].mission,
                   leaderAgentId: row.agent === "Astra" ? "astra" : "glm",
                 },
@@ -504,8 +504,7 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
       append("runtime_squad_run_observed", {
         squadRunId: squadRunIds[runKey],
         squadId: run.squadId,
-        taskId: ROUNDS_TASK,
-        executionId: `exe-${ownerRound[runKey]}`,
+        subject: taskSquadSubject(ROUNDS_TASK, `exe-${ownerRound[runKey]}`),
         mission: run.mission,
         leaderAgentId: "glm",
         ownerDispatchId: owner.dispatchId,
@@ -544,8 +543,8 @@ export async function seedGuiE2eSessionTasks(endpoint, repoId) {
   // 工作层夹具:根任务 + 两个成员任务;工作索引会把两个任务组归到根任务的工作下。
   await create(WORK_TASK, "GUI 会话页工作层");
   for (const [taskId, title] of [
-    [ROUNDS_TASK, "恢复可用的性能统计窗口"],
-    [SINGLE_TASK, "页面分区换位与紧凑布局"],
+    [ROUNDS_TASK, "恢复可用的性能统计窗口与完整多轮派工追踪历史"],
+    [SINGLE_TASK, "页面分区换位与紧凑布局的任务标题截断检查样本"],
     [LANES_TASK, "并行 Agent 泳道时间线"],
   ])
     await create(taskId, title, WORK_TASK);
