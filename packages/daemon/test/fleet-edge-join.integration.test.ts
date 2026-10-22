@@ -103,7 +103,7 @@ test(
           issuedNodeId,
           loginUrl,
           `device-token-${issuedNodeId}`,
-          "harness-cli",
+          "harness-gui",
         );
         return {
           joinId: invite.joinId,
@@ -130,7 +130,6 @@ test(
       rbacConfigFile,
       JSON.stringify({
         ...rbacConfig,
-        clientId: "harness-cli",
         listener: {
           certificateFile: path.join(f.root, "tls.crt"),
           port: loginPort,
@@ -171,7 +170,7 @@ test(
               url: sshReverse ? `https://127.0.0.1:${loginPort}` : loginUrl,
               ...(sshReverse ? { servername: "localhost", browserUrl: loginUrl } : {}),
               realm: "harness",
-              clientId: "harness-cli",
+              clientId: "harness-gui",
               certificate: loginCertificate,
             }),
           },
@@ -188,7 +187,7 @@ test(
 
     for (const nodeName of ["node-one", "node-two"]) {
       const invitation = await link("person-one", spkiSha256, nodeName === "node-one");
-      f.owners.keycloak.interactiveSession("person-one", nodeName, loginUrl, `device-token-${nodeName}`, "harness-cli");
+      f.owners.keycloak.interactiveSession("person-one", nodeName, loginUrl, `device-token-${nodeName}`, "harness-gui");
       const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
@@ -204,7 +203,7 @@ test(
         config = readFleetEdgeConfig(repoWorkspace);
       assert.equal(config?.nodeId, issuedNodeId);
       assert.equal(config?.credential, `secret-${issuedNodeId}`);
-      assert.equal(config?.humanClientId, "harness-cli");
+      assert.equal(config?.humanClientId, "harness-gui");
       if (nodeName === "node-one") {
         assert.equal(config?.host, "127.0.0.1");
         assert.equal(config?.servername, "localhost");
@@ -226,7 +225,7 @@ test(
       "node-three",
       loginUrl,
       "device-token-node-three",
-      "harness-cli",
+      "harness-gui",
     );
     const pinRefused = await join("node-three", wrongPin.link);
     assert.match(JSON.stringify(pinRefused.response), /pin_mismatch/u);
@@ -239,7 +238,7 @@ test(
 
     f.owners.keycloak.account("person-two");
     const wrongPerson = await link("person-two");
-    f.owners.keycloak.interactiveSession("person-one", "node-four", loginUrl, "device-token-node-four", "harness-cli");
+    f.owners.keycloak.interactiveSession("person-one", "node-four", loginUrl, "device-token-node-four", "harness-gui");
     const refused = await join("node-four", wrongPerson.link);
     assert.equal("result" in refused.response && (refused.response.result as { ok?: unknown }).ok === true, false);
     assert.match(JSON.stringify(refused.response), /person_mismatch|another person/u);

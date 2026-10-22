@@ -260,6 +260,36 @@ test("device login survives transient transport loss and replaces a code invalid
   assert.equal(tokenRequests, 3);
 });
 
+test("device authorization signs in as harness-gui even when the rbac config names the resource server", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-login-client-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // A managed install writes the resource server into config.clientId; the login client stays harness-gui.
+  mkdirSync(path.join(root, "rbac"));
+  writeFileSync(
+    path.join(root, "rbac/config.json"),
+    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" }),
+  );
+  let deviceRequest: URLSearchParams | undefined;
+  const service = new OidcSessionService(root, {
+    now: () => 0,
+    fetch: (async (input, init) => {
+      if (String(input).endsWith("/auth/device")) {
+        deviceRequest = new URLSearchParams(String(init?.body));
+        return Response.json({
+          device_code: "private-device",
+          user_code: "ABCD-EFGH",
+          verification_uri: "http://127.0.0.1:8080/realms/harness/device",
+          expires_in: 600,
+          interval: 5,
+        });
+      }
+      throw new Error(`unexpected request ${String(input)}`);
+    }) as typeof fetch,
+  });
+  await service.beginDevice();
+  assert.equal(deviceRequest?.get("client_id"), "harness-gui");
+});
+
 test("first device authorization reports an unreachable authority with the same code as polling", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-begin-transport-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

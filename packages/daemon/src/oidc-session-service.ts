@@ -866,7 +866,7 @@ export class OidcSessionService {
     return {
       url: config.url,
       realm: config.realm,
-      clientId: config.clientId ?? "harness-gui",
+      clientId: "harness-gui",
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
       ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
     };
