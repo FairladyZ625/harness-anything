@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
+import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { steerRuntime } from "../src/runtime-spawn-control.ts";
 import { launchNative } from "../src/runtime-spawn-process.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
@@ -191,12 +192,15 @@ test(
     const runtimeProcess = launchNative(
       {
         executablePath,
-        args: ["exec", "--json", "--model", "test-model", "-"],
+        // Production fresh-exec argv: the steer resume path must be proven against the argv a
+        // dispatch really launches with, which carries the fresh `--sandbox` block.
+        args: codexHostLaunchArgs("read-only"),
         env: { ...runtimeWorkerProviderEnvironment(process.env), STEER_TRACE: tracePath },
         cwd: rootDir,
         prompt: "initial prompt",
         installation: { kindId: "codex" },
         protocolFamily: "codex",
+        permissionMode: "read-only",
       } as never,
       { rootDir, dispatchId },
     );
@@ -242,11 +246,16 @@ test(
       "exec",
       "resume",
       "--json",
+      "--config",
+      'sandbox_mode="read-only"',
       "--model",
       "test-model",
       "provider-thread-stable",
       "-",
     ]);
+    // The pre-existing steer path had the same defect the compaction continuation was built on:
+    // its resume argv carried the fresh `--sandbox` block and the real CLI exited 2.
+    assert.equal(invocations[1]!.args.includes("--sandbox"), false);
     const records = readDispatchStream(rootDir, dispatchId)!.records;
     assert.equal(records.filter((record) => record.kind === "steer_resumed").length, 1);
     assert.equal(records.filter((record) => record.kind === "process_exit").length, 1);
@@ -433,10 +442,38 @@ function steeredTurnResults(rootDir: string, dispatchId: string): (string | unde
     .map((record) => (record.event as { stopReason?: string }).stopReason);
 }
 
-// The exact warning Codex 0.163.0 emits right after it replaces history with a compaction
-// summary (codex-rs/core/src/compact.rs), recorded verbatim in the incident's dispatch stream
-// as item.completed with item.type "error". exec never forwards the ContextCompaction item, so
-// this frame plus the absence of a later agent message is the whole observable signature.
+/** Production fresh-launch argv for a codex dispatch, from the same builder `prepareLaunch` uses.
+ * A hand-written argv here is what hid the fresh `--sandbox` block from the first iteration's
+ * fixture: the host only ever sees production argv, so the test must see it too. */
+function codexHostLaunchArgs(mode: "bypass" | "workspace-write" | "read-only"): string[] {
+  return launchArgs(
+    {
+      schemaVersion: 2,
+      instanceId: "codex-host-test",
+      name: "Codex Host Test",
+      kindId: "codex",
+      installationId: "codex-installation",
+      providerId: "openai",
+      models: ["test-model"],
+      defaultModel: "test-model",
+      enabled: true,
+      isolationState: "enforced",
+      auth: { mode: "subscription" },
+      codex: {},
+    },
+    "test-model",
+    "initial prompt",
+    undefined,
+    null,
+    mode,
+    false,
+  );
+}
+
+/** The exact warning Codex 0.163.0 emits right after it replaces history with a compaction
+ * summary (codex-rs/core/src/compact.rs), recorded verbatim in the incident's dispatch stream
+ * as item.completed with item.type "error". exec never forwards the ContextCompaction item, so
+ * this frame plus the absence of a later agent message is the whole observable signature. */
 const codexCompactionWarning =
   "Heads up: Long threads and multiple compactions can cause the model to be less accurate. Start a new thread when possible to keep threads small and targeted.";
 
@@ -491,7 +528,10 @@ async function driveCodexWorker(
   const runtimeProcess = launchNative(
     {
       executablePath,
-      args: ["exec", "--json", "--model", "test-model", "-"],
+      // Production fresh-exec argv, built by the same `launchArgs` the daemon uses: the first
+      // iteration's fixture hand-wrote `exec --json --model … -`, which no launch ever produces, so
+      // it could not observe the fresh `--sandbox` block leaking into the resume argv.
+      args: codexHostLaunchArgs("bypass"),
       env: {
         ...runtimeWorkerProviderEnvironment(process.env),
         STEER_TRACE: tracePath,
@@ -502,6 +542,7 @@ async function driveCodexWorker(
       prompt: "initial prompt",
       installation: { kindId: "codex" },
       protocolFamily: "codex",
+      permissionMode: "bypass",
     } as never,
     { rootDir, dispatchId },
   );
@@ -555,11 +596,16 @@ test(
         "exec",
         "resume",
         "--json",
+        // The resume subcommand parser rejects the fresh `--sandbox` block, so the continuation
+        // must carry the mode's declared resume form. This assertion is the one the first
+        // iteration lacked: its fixture argv had no permission block at all.
+        "--dangerously-bypass-approvals-and-sandbox",
         "--model",
         "test-model",
         "provider-thread-compaction",
         "-",
       ]);
+      assert.equal(read.invocations[1]!.args.includes("--sandbox"), false);
       assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 1);
       assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
       // The resumed turn's own frames reach the daemon unchanged: no synthetic outcome.

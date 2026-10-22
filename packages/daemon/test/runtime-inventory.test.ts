@@ -1,6 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { runtimeKinds } from "../src/runtime-inventory.ts";
 
 /**
@@ -63,24 +68,44 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
     assert.equal(kind.steer?.strategy, "interrupt-resume", `${kind.kindId} must restart through resume`);
     return kind.steer as Extract<NonNullable<typeof kind.steer>, { strategy: "interrupt-resume" }>;
   };
-  const codexResume = resumeSteer(codex).resumeArgs(
-    ["exec", "--json", "--sandbox", "workspace-write", "--model", "o4-mini", "-"],
-    "thread-123",
-  );
+  // The mode matrix has its own test below; this one pins the declaration itself and the shape
+  // transitions both call sites perform, so it uses the production builder rather than a toy argv.
+  const codexResume = resumeSteer(codex).resumeArgs(codexLaunchArgs("workspace-write"), "thread-123");
+  // `codex exec resume` has its own parser and rejects `--sandbox` (exit 2), so the fresh
+  // permission block must be replaced by the declared resume block for the same mode.
   assert.deepEqual(codexResume, [
     "exec",
     "resume",
     "--json",
-    "--sandbox",
-    "workspace-write",
+    "--config",
+    'sandbox_mode="workspace-write"',
+    "--config",
+    "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+    "--config",
+    "sandbox_workspace_write.exclude_slash_tmp=true",
     "--model",
-    "o4-mini",
+    "gpt-5.6-sol",
+    "--config",
+    'model_reasoning_effort="high"',
     "thread-123",
     "-",
   ]);
+  assert.equal(codexResume.includes("--sandbox"), false, "codex resume must never carry --sandbox");
+  // A dispatch already resumed (steered a second time) keeps the mode's resume block and has its
+  // session id replaced; the block is not appended twice.
   assert.deepEqual(
-    resumeSteer(codex).resumeArgs(["exec", "resume", "--json", "--model", "o4-mini", "thread-old", "-"], "thread-123"),
-    ["exec", "resume", "--json", "--model", "o4-mini", "thread-123", "-"],
+    codexResumeArgs([
+      "exec",
+      "resume",
+      "--json",
+      "--config",
+      'sandbox_mode="read-only"',
+      "--model",
+      "o4-mini",
+      "thread-old",
+      "-",
+    ]),
+    ["exec", "resume", "--json", "--config", 'sandbox_mode="read-only"', "--model", "o4-mini", "thread-123", "-"],
   );
   assert.deepEqual(resumeSteer(claude).resumeArgs(["-p", "--output-format", "stream-json"], "session-123"), [
     "-p",
@@ -106,6 +131,153 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
     2,
     "only the CLI resume kinds restart a process",
   );
+});
+
+/** Production fresh-launch argv for one codex permission mode: what `prepareLaunch` hands the
+ * worker host. Driving the real builder keeps this test off a hand-written toy argv. */
+function codexLaunchArgs(mode: "bypass" | "workspace-write" | "read-only"): readonly string[] {
+  return launchArgs(
+    {
+      schemaVersion: 2,
+      instanceId: "codex-open",
+      name: "Codex Open",
+      kindId: "codex",
+      installationId: "codex-installation",
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "enforced",
+      auth: { mode: "subscription" },
+      codex: { reasoningEffort: "high" },
+    },
+    "gpt-5.6-sol",
+    "mission",
+    undefined,
+    "high",
+    mode,
+    false,
+  );
+}
+
+const codexResumeArgs = (args: readonly string[], thread = "thread-123"): readonly string[] => {
+  const kind = runtimeKinds.find((entry) => entry.kindId === "codex")!;
+  return (kind.steer as Extract<NonNullable<typeof kind.steer>, { strategy: "interrupt-resume" }>).resumeArgs(
+    args,
+    thread,
+  );
+};
+
+test("Codex resume rebuilds each mode's declared resume permission block instead of the fresh one", () => {
+  // Whole expected argv, not a slice patch: the assertion must fail on any positional drift, and
+  // the production builder is what supplies the language-neutral tokens around the block.
+  const expected = {
+    bypass: [
+      "exec",
+      "resume",
+      "--json",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--model",
+      "gpt-5.6-sol",
+      "--config",
+      'model_reasoning_effort="high"',
+      "thread-123",
+      "-",
+    ],
+    "workspace-write": [
+      "exec",
+      "resume",
+      "--json",
+      "--config",
+      'sandbox_mode="workspace-write"',
+      "--config",
+      "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+      "--config",
+      "sandbox_workspace_write.exclude_slash_tmp=true",
+      "--model",
+      "gpt-5.6-sol",
+      "--config",
+      'model_reasoning_effort="high"',
+      "thread-123",
+      "-",
+    ],
+    "read-only": [
+      "exec",
+      "resume",
+      "--json",
+      "--config",
+      'sandbox_mode="read-only"',
+      "--model",
+      "gpt-5.6-sol",
+      "--config",
+      'model_reasoning_effort="high"',
+      "thread-123",
+      "-",
+    ],
+  } as const;
+  for (const mode of ["bypass", "workspace-write", "read-only"] as const) {
+    const fresh = codexLaunchArgs(mode),
+      resumed = codexResumeArgs(fresh);
+    // The launch the dispatch actually made still carries the fresh block; the resume argv swaps
+    // exactly that block for the mode's declared resume block, at the same position.
+    assert.equal(fresh.includes("--sandbox"), true, `${mode} fresh argv carries --sandbox`);
+    assert.deepEqual(resumed, expected[mode], `${mode} resume argv`);
+    assert.equal(resumed.includes("--sandbox"), false, `${mode} resume must not carry the fresh --sandbox flag`);
+    // Steering an in-flight resume is the second call site: rewriting must be idempotent, or a
+    // second steer would duplicate the mode's config overrides.
+    assert.deepEqual(codexResumeArgs(resumed), resumed, `${mode} resume of a resume argv`);
+  }
+});
+
+// The shape above is only correct if the real subcommand parser accepts it. `--help` is the
+// cheapest honest probe: the parser runs to completion and prints usage without starting a
+// session or needing credentials, so a rejected flag still exits 2.
+test(
+  "the real Codex CLI parses every declared resume argv and rejects the fresh permission block",
+  {
+    timeout: 30_000,
+    skip: codexBinary() === null ? "requires the codex CLI on PATH to exercise its subcommand parser" : false,
+  },
+  () => {
+    const binary = codexBinary()!;
+    for (const mode of ["bypass", "workspace-write", "read-only"] as const) {
+      const resumed = codexResumeArgs(codexLaunchArgs(mode)),
+        accepted = spawnSync(binary, [...resumed, "--help"], { encoding: "utf8", env: codexProbeEnvironment() });
+      assert.equal(
+        accepted.status,
+        0,
+        `${mode} resume argv must parse: ${accepted.stderr.split("\n")[0] ?? ""} :: ${JSON.stringify(resumed)}`,
+      );
+    }
+    // Negative control: the shape the first iteration produced. If the CLI ever starts accepting
+    // --sandbox on resume, this arm turns red and the swap above is no longer needed.
+    const rejected = spawnSync(
+      binary,
+      ["exec", "resume", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "thread-123", "-", "--help"],
+      { encoding: "utf8", env: codexProbeEnvironment() },
+    );
+    assert.equal(rejected.status, 2, "the fresh --sandbox flag must stay outside the resume parser");
+    assert.match(rejected.stderr, /unexpected argument '--sandbox'/u);
+  },
+);
+
+/** The Codex executable discovery would find, or null when this host has none. */
+function codexBinary(): string | null {
+  const found = spawnSync(process.platform === "win32" ? "where" : "which", ["codex"], { encoding: "utf8" });
+  const first = found.status === 0 ? found.stdout.trim().split(/\r?\n/u)[0] : "";
+  return first && existsSync(first) ? first : null;
+}
+
+/** A throwaway CODEX_HOME so the probe never reads or writes the operator's session state. */
+function codexProbeEnvironment(): NodeJS.ProcessEnv {
+  const home = mkdtempSync(path.join(tmpdir(), "ha-codex-parser-probe-"));
+  probeHomes.push(home);
+  return { ...process.env, CODEX_HOME: home, RUST_LOG: "off" };
+}
+const probeHomes: string[] = [];
+test.after(() => {
+  for (const home of probeHomes) rmSync(home, { recursive: true, force: true });
+  probeHomes.length = 0;
 });
 
 // The floor is catalog data, not a caller-side constant: discovery, the readiness probe,
