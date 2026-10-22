@@ -19,6 +19,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { actor } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { workerLedgerPath } from "../src/worktree-setup.ts";
 
 const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor"),
   definition: AgentDefinitionSnapshot = {
@@ -123,20 +124,22 @@ test("a real worktree dispatch hands the worker an openable path for every priva
 
   // The premise stands: the referenced files are absent under the worker root.
   assert.equal(existsSync(path.join(prepared!.cwd, standard)), false, "a worktree checks out no private ledger");
-  // And the delivered prompt carries the absolute path that opens each one.
+  // And the delivered prompt carries the path that opens each one — the same `workerLedgerPath`
+  // port Required Skills uses, so a private file has exactly one path in the prompt.
   assert.match(prompt, /# Private Ledger Paths \(read-only\)/u);
   for (const reference of [standard, skill]) {
-    const absolute = path.join(root, reference);
-    assert.equal(existsSync(absolute), true, `${reference} must exist in the canonical ledger`);
+    const readable = workerLedgerPath(root, prepared!.cwd, path.join(root, reference));
+    assert.equal(existsSync(readable), true, `${reference} must be openable at ${readable}`);
     assert.match(
       prompt,
-      new RegExp(`${reference.replaceAll("/", "\\/")} -> ${absolute.replaceAll("/", "\\/")}`, "u"),
+      new RegExp(`${reference.replaceAll("/", "\\/")} -> ${readable.replaceAll("/", "\\/")}`, "u"),
       `${reference} must be paired with its openable path`,
     );
+    const occurrences = prompt.split(`: ${readable}`).length - 1 + (prompt.split(`-> ${readable}`).length - 1);
+    assert.equal(occurrences, 1, `${reference} must appear under one path, not two (got ${String(occurrences)})`);
   }
-  assert.match(prompt, /never copy one into the checkout, never write through one/u);
+  assert.match(prompt, /never copy one in, never write through one/u);
   assert.match(prompt, /ha doc show --path <ledger path> --raw/u, "read-set locators name their opening command");
-  assert.equal(prompt.includes(root), true);
   t.diagnostic(`worktree=${prepared!.cwd} prompt bytes=${String(prompt.length)}`);
 });
 

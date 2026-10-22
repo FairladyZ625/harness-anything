@@ -459,7 +459,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             readOnlyDispatch = effectivePermissionMode === "read-only",
             dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
             // A worktree checks out no private ledger, so every `harness/…` reference the agent
-            // declaration or the mission carries is answered with the absolute path that opens it.
+            // declaration or the mission carries is answered with the path this worker can open.
             privateReads = privateLedgerReadSection(
               resolvePrivateLedgerReads({
                 rootDir: input.rootDir,

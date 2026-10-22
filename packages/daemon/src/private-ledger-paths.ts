@@ -1,28 +1,31 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { workerLedgerPath } from "./worktree-setup.ts";
 
 /**
- * Private ledger files a dispatch points at, as the worker can actually open them.
+ * A private ledger reference a dispatch points at, next to the path this worker can open.
  *
  * `harness/` is a separate private subrepository, so a task worktree checks out none of it. A
  * mission or a declared prompt that names `harness/governance/standards/…` therefore addresses a
  * path that does not exist under the worker's root, and the worker spends its opening calls
- * retrying it. The authored root is readable by the same user, so the readable form of every such
- * reference is its canonical absolute path — read-only, never copied into the checkout (a copy
- * would duplicate a 12–20 KiB standard per dispatch and go stale the moment the ledger moves).
+ * retrying it. Resolving goes through the same port Required Skills already uses —
+ * `workerLedgerPath` — so one file has exactly one path in the prompt and keeps that port's
+ * write-isolation policy. A directory is a pointer the worker lists, not a file it opens, so it
+ * keeps its canonical absolute path instead of being copied.
  */
-export interface PrivateLedgerReadPath {
+export interface PrivateLedgerRead {
   /** The reference as the prompt wrote it, e.g. `harness/governance/standards/testing-standard.md`. */
   readonly asWritten: string;
-  /** The canonical absolute path that exists and that the worker can open. */
+  /** The path that exists for this worker and that it can open. */
   readonly readable: string;
+  /** True when this answers a glob or names a directory: list it, never treat it as a file. */
+  readonly directory: boolean;
 }
 
 const LEDGER_REFERENCE = /(?:^|[^A-Za-z0-9._/-])harness\/[A-Za-z0-9._\-/{},*]+/gu,
   // A trailing `}` is part of a brace group, not prose punctuation, so it is never stripped here.
-  TRAILING_PROSE = /[.,;:)\]>'"`]+$/u,
-  APPENDIX_LIMIT = 24;
+  TRAILING_PROSE = /[.,;:)\]>'"`]+$/u;
 
 /** Every distinct `harness/…` reference in one text, in first-seen order, prose punctuation stripped. */
 export function privateLedgerReferences(text: string): readonly string[] {
@@ -34,71 +37,87 @@ export function privateLedgerReferences(text: string): readonly string[] {
   return [...references];
 }
 
-/** A reference with its braces and glob segments expanded into the concrete paths it names. */
-export function expandLedgerReference(reference: string, authoredRoot: string): readonly string[] {
+/** `harness/a/{b,c}.md` enumerates two concrete files; a brace group is not a wildcard. */
+function braceVariants(reference: string): readonly string[] {
   const brace = /^(.*?)\{([^{}]+)\}(.*)$/u.exec(reference);
-  if (brace)
-    return brace[2]!.split(",").flatMap((part) => expandLedgerReference(`${brace[1]}${part}${brace[3]}`, authoredRoot));
-  if (!reference.startsWith("harness/")) return [];
-  const walk = (relative: string, rest: readonly string[]): readonly string[] => {
-    const [head, ...tail] = rest;
-    if (head === undefined) return [relative];
-    if (!head.includes("*")) return walk(relative === "" ? head : `${relative}/${head}`, tail);
-    const directory = path.join(authoredRoot, relative),
-      [prefix, suffix] = head.split("*");
-    if (!existsSync(directory)) return [];
-    return readdirSync(directory)
-      .filter((entry) => entry.startsWith(prefix!) && entry.endsWith(suffix ?? ""))
-      .sort()
-      .flatMap((entry) => walk(relative === "" ? entry : `${relative}/${entry}`, tail));
-  };
-  return walk("", reference.slice("harness/".length).split("/")).map((relative) => `harness/${relative}`);
+  if (!brace) return [reference];
+  return brace[2]!.split(",").flatMap((part) => braceVariants(`${brace[1]}${part}${brace[3]}`));
 }
 
 /**
- * Resolve the private references in these texts to canonical read-only paths. References that name
+ * The directory a glob names, e.g. `harness/agents/*.json` -> `harness/agents`. A glob's fan-out is
+ * unbounded (`harness/governance/standards/*.md` is 25 files; `harness/tasks/*` is 2.4 GiB), and a
+ * list that size either truncates — withholding the very file the mission said to read first — or
+ * drowns the reference the worker actually needs. The directory is the one thing that always fits.
+ */
+function globRoot(reference: string): string | null {
+  const segments = reference.split("/"),
+    root: string[] = [];
+  for (const segment of segments) {
+    if (segment.includes("*")) break;
+    root.push(segment);
+  }
+  return root.length === segments.length ? null : root.join("/");
+}
+
+/**
+ * Resolve the private references in these texts to paths this worker can open. References that name
  * nothing on disk are prose, not reads, and are dropped rather than sent to the worker as 404s.
  */
 export function resolvePrivateLedgerReads(input: {
   readonly rootDir: string;
   readonly cwd: string;
+  /** Source priority: declared prompts first, then instructions, then the mission. */
   readonly texts: readonly (string | null | undefined)[];
-}): readonly PrivateLedgerReadPath[] {
+}): readonly PrivateLedgerRead[] {
   const authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
     // A cwd that contains the authored root resolves every relative reference already; only a
-    // dispatch rooted elsewhere (a task worktree, a package directory) needs the absolute form.
-    reachableRelative = !path.relative(path.resolve(input.cwd), path.resolve(authoredRoot)).startsWith(".."),
-    reads = new Map<string, PrivateLedgerReadPath>();
+    // dispatch rooted elsewhere (a task worktree, a package directory) needs a resolved path.
+    reachableRelative = !path.relative(path.resolve(input.cwd), path.resolve(authoredRoot)).startsWith("..");
   if (reachableRelative || !existsSync(authoredRoot)) return [];
+  const reads = new Map<string, PrivateLedgerRead>();
+  const record = (asWritten: string, readable: string, directory: boolean): void => {
+    if (!reads.has(readable)) reads.set(readable, { asWritten, readable, directory });
+  };
   for (const text of input.texts) {
     if (!text) continue;
     for (const reference of privateLedgerReferences(text))
-      for (const expanded of expandLedgerReference(reference, authoredRoot)) {
-        const readable = path.join(authoredRoot, expanded.slice("harness/".length)),
-          entry = statSync(readable, { throwIfNoEntry: false });
-        if (!entry || reads.has(expanded)) continue;
-        reads.set(expanded, { asWritten: expanded, readable });
+      for (const variant of braceVariants(reference)) {
+        const root = globRoot(variant);
+        if (root !== null) {
+          const directory = path.resolve(authoredRoot, root.slice("harness/".length));
+          if (statSync(directory, { throwIfNoEntry: false })?.isDirectory()) record(reference, directory, true);
+          continue;
+        }
+        const target = path.join(authoredRoot, variant.slice("harness/".length)),
+          entry = statSync(target, { throwIfNoEntry: false });
+        // A file is opened, so it goes through the port that hands the worker a readable copy. A
+        // directory is only listed: copying one is unbounded (`harness/tasks` is 2.4 GiB), so it
+        // keeps its canonical absolute path.
+        if (entry?.isFile()) record(variant, workerLedgerPath(input.rootDir, input.cwd, target), false);
+        else if (entry?.isDirectory()) record(variant, path.resolve(target), true);
       }
   }
-  return [...reads.values()].sort((left, right) => left.asWritten.localeCompare(right.asWritten));
+  return [...reads.values()];
 }
 
 /**
- * The prompt section that makes those reads actionable. Every `harness/…` reference in the mission
- * and in the declared prompts is listed with the absolute path that resolves it; read-set locators
- * are ledger-relative, so the same section names their opening command instead of a checkout path.
+ * The prompt section that makes those reads actionable. Every reference is listed — nothing is
+ * truncated, because a truncated list silently withholds the file the declaration said to read
+ * first, and the cut lands on whatever sorts last.
  */
-export function privateLedgerReadSection(reads: readonly PrivateLedgerReadPath[]): string | null {
+export function privateLedgerReadSection(reads: readonly PrivateLedgerRead[]): string | null {
   if (reads.length === 0) return null;
-  const listed = reads.slice(0, APPENDIX_LIMIT),
-    remaining = reads.length - listed.length,
-    roots = [...new Set(reads.map((read) => path.dirname(read.readable)))];
   return [
     "# Private Ledger Paths (read-only)",
     "The private ledger is a separate subrepository, so this checkout does not contain it: every `harness/…` " +
-      "reference in this prompt names a path that is absent here. Open the absolute path below instead. These " +
-      "paths are outside the repository: never copy one into the checkout, never write through one.",
-    ...listed.map((read) => `- ${read.asWritten} -> ${read.readable}`),
-    ...(remaining > 0 ? [`- ${String(remaining)} more under ${roots.join(", ")}`] : []),
+      "reference in this prompt names a path that is absent here. Open the path below instead. A file is a " +
+      "worker-local read-only copy, so edits to it never reach the canonical ledger; a directory is canonical " +
+      "and read-only. Neither is part of this repository: never copy one in, never write through one.",
+    ...reads.map((read) =>
+      read.directory
+        ? `- ${read.asWritten} -> ${read.readable} (directory: list it; a glob is not a file list)`
+        : `- ${read.asWritten} -> ${read.readable}`,
+    ),
   ].join("\n");
 }
