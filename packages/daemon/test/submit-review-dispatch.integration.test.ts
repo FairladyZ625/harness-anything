@@ -8,6 +8,7 @@ import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -123,7 +124,7 @@ test(
 );
 
 test(
-  "submit leaves the accepted cut at owner triage and complete never dispatches a reviewer",
+  "submit automatically dispatches the accepted cut and complete never dispatches a reviewer",
   { timeout: 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
@@ -131,73 +132,70 @@ test(
       await f.install();
       const submitted = (await f.submit()) as Record<string, unknown>;
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-      assert.equal(f.launches.length, 0);
+      assert.equal(f.launches.length, 1, "submit must dispatch the reviewer without owner forward");
       assert.equal(
         f.events().filter((event) => event.type === "execution_submitted").length,
         1,
-        "the accepted submission is recorded before owner triage",
+        "the accepted submission is recorded before dispatch",
       );
+      const resumed = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+      assert.equal(f.launches.length, 1, "resumed submit shares the cut dispatch identity");
       const completed = await f.complete();
-      assert.equal(completed.code, "not_in_review", JSON.stringify(completed));
-      assert.equal(f.launches.length, 0);
+      assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
+      assert.equal(f.launches.length, 1);
     } finally {
       await f.close();
     }
   },
 );
 
-test(
-  "an amended submission remains at owner triage and only the forwarded cut dispatches",
-  { timeout: 20_000 },
-  async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
-    try {
-      await f.install();
-      const reportPath = path.join(f.root, "harness", f.packagePath, "artifacts", "independent.md");
-      writeFileSync(reportPath, "Corrected job=41; SQL range 0–336h.\n");
-      await f.submit();
-      assert.equal(f.launches.length, 0);
-      const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
-      writeFileSync(
-        closeoutPath,
-        readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Amended reviewed delivery "),
-      );
-      let amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
-      for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
-        await waitForFixturePublication(f.cell(), amended.opId, owner);
-        amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
-      }
-      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-      assert.equal(f.launches.length, 0, "amend must not dispatch before owner triage");
-      assert.equal((await f.forward()).outcome, "applied");
-      assert.equal(f.launches.length, 1, "only the owner-forwarded cut dispatches");
-      const dispatches = f
-        .events()
-        .filter(
-          (event) => event.type === "runtime_dispatch_requested" && !event.payload.dispatchKey.includes(":fallback:"),
-        );
-      assert.equal(dispatches.length, 1);
-      const dispatch = dispatches[0]!;
-      assert.ok(dispatch.type === "runtime_dispatch_requested");
-      const read = await f
-        .cell()
-        .run(
-          { kind: "doc-show", path: `${f.packagePath}/artifacts/independent.md`, raw: true },
-          reviewerExecutionBinding(dispatch.payload.runtimeSessionId, dispatch.payload.dispatchId),
-        );
-      assert.equal(read.outcome, "applied", JSON.stringify(read));
-      assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
-      assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
-      assert.doesNotMatch(
-        f.launches[0]!.prompt,
-        /# Living Deliverable Protocol|推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u,
-        "reviewer dispatches carry no worker delivery protocols",
-      );
-    } finally {
-      await f.close();
+test("submit and amend dispatch their own frozen cuts without owner forward", { timeout: 20_000 }, async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  try {
+    await f.install();
+    const reportPath = path.join(f.root, "harness", f.packagePath, "artifacts", "independent.md");
+    writeFileSync(reportPath, "Corrected job=41; SQL range 0–336h.\n");
+    await f.submit();
+    assert.equal(f.launches.length, 1);
+    const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
+    writeFileSync(
+      closeoutPath,
+      readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Amended reviewed delivery "),
+    );
+    let amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+    for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
+      await waitForFixturePublication(f.cell(), amended.opId, owner);
+      amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
     }
-  },
-);
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    assert.equal(f.launches.length, 2, "amend dispatches the replacement cut through the same port");
+    const dispatches = f
+      .events()
+      .filter(
+        (event) => event.type === "runtime_dispatch_requested" && !event.payload.dispatchKey.includes(":fallback:"),
+      );
+    assert.equal(dispatches.length, 2);
+    const dispatch = dispatches[1]!;
+    assert.ok(dispatch.type === "runtime_dispatch_requested");
+    const read = await f
+      .cell()
+      .run(
+        { kind: "doc-show", path: `${f.packagePath}/artifacts/independent.md`, raw: true },
+        reviewerExecutionBinding(dispatch.payload.runtimeSessionId, dispatch.payload.dispatchId),
+      );
+    assert.equal(read.outcome, "applied", JSON.stringify(read));
+    assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
+    assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
+    assert.doesNotMatch(
+      f.launches[0]!.prompt,
+      /# Living Deliverable Protocol|推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u,
+      "reviewer dispatches carry no worker delivery protocols",
+    );
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "a lightweight subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
@@ -360,40 +358,28 @@ test(
   },
 );
 
-test(
-  "a baseline-profile sibling under strict settings waits for owner forward before reviewer dispatch",
-  { timeout: 30_000 },
-  async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
-      autoSubmit: false,
-      closeoutProfile: "strict",
-      create: { presetId: "standard-task" },
-    });
-    try {
-      await f.install();
-      await runChildSlice(f, "task-standard-child", "execution-standard-child", {});
-      const child = createdTask(f.events(), "task-standard-child");
-      assert.equal(child.closeoutOverrides, undefined, "the baseline child freezes no closeout override");
-      assert.equal(child.completionGateIds.includes("code-doc-reconciliation"), true);
-      assert.equal(
-        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
-        0,
-        "the standard sibling must wait at owner triage",
-      );
-      const forwarded = await f.run({
-        kind: "task-adjudicate",
-        taskId: "task-standard-child",
-        executionId: "execution-standard-child",
-        forward: true,
-        reason: "The owner accepts the direction and sends the cut to independent review.",
-      });
-      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-      assert.equal(f.launches.length, 1, "owner forward launches the standard sibling reviewer");
-    } finally {
-      await f.close();
-    }
-  },
-);
+test("a baseline-profile sibling under strict settings dispatches at submit", { timeout: 30_000 }, async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    autoSubmit: false,
+    closeoutProfile: "strict",
+    create: { presetId: "standard-task" },
+  });
+  try {
+    await f.install();
+    await runChildSlice(f, "task-standard-child", "execution-standard-child", {});
+    const child = createdTask(f.events(), "task-standard-child");
+    assert.equal(child.closeoutOverrides, undefined, "the baseline child freezes no closeout override");
+    assert.equal(child.completionGateIds.includes("code-doc-reconciliation"), true);
+    assert.equal(
+      f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+      1,
+      "the standard sibling dispatches automatically",
+    );
+    assert.equal(f.launches.length, 1, "submit launches the standard sibling reviewer");
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "forward's explicit reviewer overrides the cut's frozen claim and reports the argument source",
@@ -430,8 +416,161 @@ test(
   },
 );
 
+test("explicit reviewer selection dispatches beside the automatic reviewer and retries reuse its identity", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  try {
+    await f.install();
+    assert.equal(
+      (
+        await f.run({
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "alternate-reviewer",
+            name: "Alternate reviewer",
+            instructions: "Independently inspect the submitted cut.",
+            runtimes: [{ type: "codex", model: "review-model" }],
+            instance: "review-first",
+            role: "reviewer",
+          },
+        })
+      ).outcome,
+      "applied",
+    );
+    await f.submit();
+    assert.equal(f.launches.length, 1);
+    const action = {
+      kind: "task-adjudicate",
+      taskId,
+      forward: true,
+      reviewer: "alternate-reviewer",
+      reason: "Request an additional independent reviewer.",
+    };
+    const selected = await f.run(action);
+    assert.equal(selected.outcome, "applied", JSON.stringify(selected));
+    assert.equal(f.launches.length, 2);
+    assert.equal((await f.run(action)).outcome, "applied");
+    const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "alternate-reviewer" });
+    assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+    assert.equal(
+      f.launches.length,
+      2,
+      "both owner selection and dispatch-review reuse the selected reviewer's dispatch",
+    );
+    const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+    assert.deepEqual(
+      dispatches.map((event) => event.payload.agentId),
+      ["closeout-reviewer", "alternate-reviewer"],
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("legacy base-key dispatch for an alternate reviewer is reused by reroute and dispatch-review", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    autoSubmit: false,
+    closeoutProfile: "strict",
+  });
+  try {
+    const configured = await f.runPrincipal({
+      kind: "settings-update",
+      roles: { defaultReviewer: "missing-reviewer" },
+      dispatchKey: "freeze-missing-reviewer",
+    });
+    assert.equal(configured.outcome, "applied", JSON.stringify(configured));
+    await f.submit();
+    assert.equal(f.launches.length, 0, "the frozen reviewer is not installed, so submit has no dispatch row");
+    const installed = await f.run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "alternate-reviewer",
+        name: "Alternate reviewer",
+        instructions: "Independently inspect the submitted cut.",
+        runtimes: [{ type: "codex", model: "review-model" }],
+        instance: "review-first",
+        role: "reviewer",
+      },
+    });
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        executions: Parameters<typeof reviewDispatchKey>[1][];
+      },
+      execution = shown.executions.find((item) => item.executionId === executionId);
+    assert.ok(execution?.submission);
+    const legacyKey = reviewDispatchKey(taskId, execution);
+    const legacy = await f.cell().spawnRuntime(
+      {
+        agentId: "alternate-reviewer",
+        role: "reviewer",
+        taskId,
+        executionId,
+        cwd: { scope: "repo-root" },
+        dispatchKey: legacyKey,
+        prompt: "Review the bound submission cut.",
+      },
+      owner,
+    );
+    assert.equal(legacy.outcome, "applied", JSON.stringify(legacy));
+    assert.equal(f.launches.length, 1);
+    const legacyEvent = f
+      .events()
+      .find((event) => event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === legacyKey);
+    assert.ok(legacyEvent?.type === "runtime_dispatch_requested");
+
+    const rerouted = await f.run({
+      kind: "task-adjudicate",
+      taskId,
+      executionId,
+      forward: true,
+      reviewer: "alternate-reviewer",
+      reason: "Retry the selected reviewer on the same cut.",
+    });
+    assert.equal(rerouted.outcome, "applied", JSON.stringify(rerouted));
+    const rerouteStep = ((rerouted as Record<string, unknown>).steps as readonly Record<string, unknown>[]).at(-1);
+    assert.equal(rerouteStep?.dispatchId, legacyEvent.payload.dispatchId);
+    assert.equal(rerouteStep?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
+    assert.equal(f.launches.length, 1, "the owner reroute must reuse the live legacy dispatch");
+
+    const retry = await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "alternate-reviewer",
+    });
+    assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+    const step = (retry as Record<string, unknown>).dispatches as {
+      outcome: string;
+      dispatchId: string;
+      runtimeSessionId: string;
+    }[];
+    assert.equal(step[0]?.outcome, "already_dispatched", JSON.stringify(step[0]));
+    assert.equal(step[0]?.dispatchId, legacyEvent.payload.dispatchId);
+    assert.equal(step[0]?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
+    assert.equal(f.launches.length, 1, "dispatch-review must recognize the legacy key as well");
+
+    f.failPending();
+    await f.awaitOutcome(legacyEvent.payload.runtimeSessionId);
+    const nextAttempt = await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "alternate-reviewer",
+    });
+    assert.equal(nextAttempt.outcome, "applied", JSON.stringify(nextAttempt));
+    assert.equal(f.launches.length, 2, "an ended migrated dispatch advances to its next attempt");
+    const nextEvent = f
+      .events()
+      .filter((event) => event.type === "runtime_dispatch_requested")
+      .at(-1);
+    assert.ok(nextEvent?.type === "runtime_dispatch_requested");
+    assert.match(nextEvent.payload.dispatchKey, /:reviewer:alternate-reviewer:attempt1$/u);
+  } finally {
+    await f.close();
+  }
+});
+
 test(
-  "forward without an explicit reviewer keeps frozen over settings and recovers dispatch without adjudication",
+  "resumed submit keeps frozen reviewer over settings and recovers dispatch without adjudication",
   {
     timeout: 30_000,
   },
@@ -456,20 +595,11 @@ test(
         ).outcome,
         "applied",
       );
-      const forwarded = (await f.run({
-        kind: "task-adjudicate",
-        taskId,
-        forward: true,
-        reason: "Review frozen cut.",
-      })) as unknown as Record<string, unknown>;
-      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-      assert.equal(forwarded.reviewerId, "missing-reviewer");
-      assert.equal(forwarded.reviewerSource, "frozen");
-      assert.match(JSON.stringify(forwarded.steps), /already in_review/u);
-      assert.match(
-        JSON.stringify(forwarded.steps),
-        /ha task dispatch-review task-completion-review --agent missing-reviewer/u,
-      );
+      const resumed = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+      assert.match(JSON.stringify(resumed), /missing-reviewer/u);
+      assert.match(JSON.stringify(resumed), /already in_review/u);
+      assert.match(JSON.stringify(resumed), /ha task dispatch-review task-completion-review --agent missing-reviewer/u);
       const state = (await f.cell().read("repo.tasks.list")).rows.find((row) => row.taskId === taskId);
       assert.equal(state?.snapshot.task?.status, "in_review");
       assert.equal(f.launches.length, 0);
@@ -521,6 +651,7 @@ test(
       assert.equal(typeof step.dispatchId, "string", JSON.stringify(amended));
       const dispatch = reviewDispatches().at(-1)!;
       assert.ok(dispatch.type === "runtime_dispatch_requested");
+      assert.ok(dispatch.payload.dispatchKey.endsWith(":reviewer:closeout-reviewer"));
       const shown = await f
         .cell()
         .run(
@@ -541,14 +672,14 @@ test(
   },
 );
 
-test("owner forwarding cannot lend its authorization decision to runtime-spawn", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoForward: false });
+test("automatic submit dispatch cannot lend its authorization decision to runtime-spawn", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
   try {
     await f.install();
     revokeTestPolicyActions(owner.actor.principal.personId, "completion-review", ["runtime-spawn"]);
-    const result = await f.forward();
+    const result = await f.submit();
     assert.equal(result.outcome, "applied", JSON.stringify(result));
-    assert.equal(f.launches.length, 0, "forward remains authorized, but reviewer launch has no permission");
+    assert.equal(f.launches.length, 0, "submit remains authorized, but reviewer launch has no permission");
     assert.equal(
       f.events().some((event) => event.type === "runtime_dispatch_requested"),
       false,

@@ -131,7 +131,7 @@ export async function fixture(
     readonly providerRoundBackoffBaseSeconds?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
-    /** False stops after submit: the cut awaits the owner's triage. */
+    /** False keeps review-disabled cuts out of the explicit owner upgrade lane. */
     readonly autoForward?: boolean;
     readonly autoProviderSession?: boolean;
     readonly failProviderResume?: boolean;
@@ -358,10 +358,16 @@ export async function fixture(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
-  // The owner's forward order opens the review gate and dispatches the independent reviewer
-  // (owner adjudication 2026-09-19); submit alone leaves the cut awaiting triage.
+  // The owner may explicitly select a reviewer; ordinary submissions dispatch automatically.
   const forward = async (reason = "Owner forwards the cut for independent review.", roundExecutionId = executionId) =>
-    run({ kind: "task-adjudicate", taskId, executionId: roundExecutionId, forward: true, reason });
+    run({
+      kind: "task-adjudicate",
+      taskId,
+      executionId: roundExecutionId,
+      forward: true,
+      reviewer: "closeout-reviewer",
+      reason,
+    });
   const returnCut = async (reason: string, reviewId?: string, roundExecutionId = executionId) =>
     run({
       kind: "task-adjudicate",
@@ -375,7 +381,11 @@ export async function fixture(
   const consent = (reviewId: string) => run({ kind: "task-review-consent", taskId, executionId, reviewId });
   if (options.autoSubmit !== false) {
     await submit();
-    if (options.autoForward !== false) assert.equal((await forward()).outcome, "applied");
+    if (
+      options.autoForward !== false &&
+      JSON.parse(String((await run({ kind: "task-show", taskId })).evidence)).task.status === "submitted"
+    )
+      assert.equal((await forward()).outcome, "applied");
   }
   // One reader serves every events() call for the fixture's life: a fresh connection per call
   // both cost a SQLite open and left the handle for the GC (which blocks deleting the fixture

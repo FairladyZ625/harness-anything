@@ -17,6 +17,7 @@ import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fix
 import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
+import { activeCutReviewDispatches } from "../src/task-review-dispatch.ts";
 
 // The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
 const overGuiWire = (receipt: object) =>
@@ -528,7 +529,7 @@ test(
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], executionId });
       assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-      assert.match(dispatchesOf(receipt)[0]?.error ?? "", /awaits its owner's triage/u);
+      assert.match(dispatchesOf(receipt)[0]?.error ?? "", /has no automatic review requirement/u);
       await expectCoded(
         f.cell().spawnRuntime(
           {
@@ -656,6 +657,7 @@ test(
             taskId: task2,
             executionId: execution2,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Owner forwards the second cut for independent review.",
           })
         ).outcome,
@@ -751,6 +753,32 @@ test(
     }
   },
 );
+
+test("active cut review lookup skips historical reviewer rows without dispatchKey", () => {
+  const cell = {
+      projection: {
+        readRuntimeDispatchesByTaskExecution: () => [
+          { event: { payload: { role: "reviewer", dispatchKey: undefined } } },
+        ],
+      },
+    } as unknown as Parameters<typeof activeCutReviewDispatches>[0],
+    execution = {
+      taskId,
+      executionId,
+      iteration: 0,
+      submission: {
+        commitSha: null,
+        artifacts: [],
+        completionClaim: "test",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: [],
+        knownGaps: [],
+        residualRisks: [],
+      },
+    } as unknown as Parameters<typeof activeCutReviewDispatches>[2];
+  assert.deepEqual(activeCutReviewDispatches(cell, taskId, execution), []);
+});
 
 test(
   "a fresh dispatch-review step names the dispatched agent and its runtime instance",

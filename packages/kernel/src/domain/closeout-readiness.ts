@@ -96,9 +96,8 @@ export function closeoutReadiness(
       gates,
     };
   }
-  // The owner's triage gate stands only while the review gate does: a lightweight profile
-  // (review/consent lifted) completes straight off its submitted cut, exactly as it did before
-  // the corridor existed; a reviewing profile must be forwarded to in_review first.
+  // Review-required cuts must be in_review; review-disabled profiles complete from submitted.
+  // Any review-required submitted cut must enter the review corridor before completion.
   if (task.status === "submitted" && effectiveGates?.review !== false)
     return {
       readiness: "incomplete",

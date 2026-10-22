@@ -58,6 +58,7 @@ export function lifecycleFixture(
     readonly reviewId?: string;
     /** Frozen into the submission contract at submit; digests bind reviews and consents to it. */
     readonly gates?: readonly FrozenGateRequirement[];
+    readonly closeoutGates?: FrozenCompletionContract["closeoutGates"];
     /** False stops after the consent event: an unwitnessed gated cut cannot complete. */
     readonly complete?: boolean;
   } = {},
@@ -68,7 +69,11 @@ export function lifecycleFixture(
   const taskId = options.taskId ?? "task-1",
     executionId = options.executionId ?? "execution-1",
     reviewId = options.reviewId ?? "review-execution",
-    completionContract = { ...fixtureCompletionContract, gates: options.gates ?? [] };
+    completionContract = {
+      ...fixtureCompletionContract,
+      gates: options.gates ?? [],
+      closeoutGates: options.closeoutGates ?? fixtureCompletionContract.closeoutGates,
+    };
   const events: TaskEventV1[] = [];
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (

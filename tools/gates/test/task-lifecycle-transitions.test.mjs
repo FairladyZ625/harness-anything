@@ -290,7 +290,7 @@ test("G10 block, unblock, and cancel are catalog transitions while unrelated act
   );
 });
 
-test("G10 submit atomically finalizes Execution, releases lease, and lands the cut in submitted", () => {
+test("G10 review-disabled submit atomically finalizes Execution, releases lease, and lands in submitted", () => {
   const { started } = firstRound();
   const result = applyTransition(started.snapshot, submit(3), submitProof());
   assert.deepEqual(
@@ -372,8 +372,7 @@ test("G10 append-only Reviews and content-pinned consent selection preserve comp
     () => applyTransition(forwarded.snapshot, review(5, { actor: executor }), reviewProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
   );
-  // No review may be recorded before the owner's forward: the CEO gate, not the reviewer,
-  // decides when a submitted cut enters independent review.
+  // This review-disabled cut needs the owner's explicit upgrade before a review can be recorded.
   assert.throws(
     () => applyTransition(firstRound().submitted.snapshot, review(4), reviewProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
@@ -568,12 +567,18 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
     }
 });
 
-test("G10 the owner's adjudication is the only authority over a submitted cut", () => {
+test("G10 explicit owner orders preserve the cut and still require adjudication authority", () => {
   const { submitted, forwarded } = firstRound();
-  // Forward is idempotent-refused once the cut already passed the gate.
+  // An explicit reviewer selection can forward an in-review cut without replacing its delivery.
+  // The daemon admission boundary requires the reviewer argument before this transition.
+  const selected = applyTransition(forwarded.snapshot, adjudicate(5), adjudicateProof());
+  assert.equal(selected.snapshot.task.status, "in_review");
+  assert.deepEqual(selected.snapshot.executions, forwarded.snapshot.executions);
+  assert.equal(selected.snapshot.lease, null);
+  assert.deepEqual(reduceTaskEvent(forwarded.snapshot, selected.event), selected.snapshot);
   assert.throws(
-    () => applyTransition(forwarded.snapshot, adjudicate(5), adjudicateProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
+    () => applyTransition(forwarded.snapshot, adjudicate(5), { actorBinding: owner }),
+    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
   );
   // A non-owner principal cannot adjudicate in either direction (权责红线: reviewers report,
   // owners command).
@@ -708,9 +713,7 @@ test("G34 replay preserves report-to-owner-return to new execution to approved c
   assert.deepEqual(replayed, completed.snapshot);
   assert.equal(replayed.task.status, "done");
   assert.equal(replayed.executions[1].state, "accepted");
-  // A second-round review cannot land before the owner forwards that cut either: the CEO
-  // gate is structural, not a per-round courtesy (the reviewer return budget this assertion
-  // used to pin is deleted — every return now carries the owner's auditable order).
+  // The second review-disabled cut also needs an explicit owner upgrade before review.
   assert.throws(
     () =>
       applyTransition(

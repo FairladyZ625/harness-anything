@@ -261,7 +261,14 @@ test("a center-local reviewer records an Execution Review while the submitting e
     writeCloseout(rootDir, created.packagePath);
     assert.equal(submissionOutcome(await run({ kind: "task-submit", taskId, executionId }, proposer)), "applied");
     const forwarded = await run(
-      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward the center cut." },
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId,
+        forward: true,
+        reviewer: "closeout-reviewer",
+        reason: "Forward the center cut.",
+      },
       proposer,
     );
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));

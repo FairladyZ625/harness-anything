@@ -40,10 +40,9 @@ export function statusCoarseClass(status: DomainStatus): StatusCoarseClass {
  * integrity is vouched for by the completion chain, so reversal is a different semantic. */
 export const reinstateTaskTargets = ["planned"] as const satisfies ReadonlyArray<DomainStatus>;
 
-/** The adjudication corridor (owner ruling 2026-09-19): submit lands the cut in `submitted`
- * awaiting the owning CEO's triage; only the owner's adjudication moves it to `in_review`
- * (forward to the reviewer gate) or back to `active` (rework). `done` is reachable only from
- * `in_review` through consented completion — the direct `active → done` shortcut is gone. */
+/** Submit's own transition enters in_review when its frozen contract requires review, otherwise
+ * submitted. Owner adjudication may explicitly request review or return a cut to active for
+ * rework. Generic status moves never replace these execution-bound lifecycle commands. */
 const allowedStatusTransitions = {
   planned: ["active", "blocked", "cancelled"],
   active: ["planned", "submitted", "blocked", "cancelled"],

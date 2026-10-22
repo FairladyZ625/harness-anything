@@ -29,7 +29,7 @@ const neverFetch = async () => {
   throw new Error("the guard must not enqueue or fetch anything");
 };
 
-test("a forward order on a cut already in review is refused before the write queue", async () => {
+test("forward without a reviewer on an in-review cut is refused before the write queue", async () => {
   // task-1 sits at the review gate (status in_review) with review-execution recorded: the guard
   // answers in readBeforeWriteQueue itself, so the refusal cannot wait behind a queued publication.
   assert.equal(fixture.snapshot.task?.status, "in_review");
@@ -40,9 +40,9 @@ test("a forward order on a cut already in review is refused before the write que
       assert.ok(failure, "the refusal is attributed to the adjudicate contract criterion");
       assert.equal(failure.actionId, "adjudicate");
       assert.equal(failure.criterionRef, "task-lifecycle-adjudication-transitions/adjudicate.validate");
-      assert.match((error as Error).message, /Task task-1 is in review/u);
-      assert.match((error as Error).message, /ha task adjudicate task-1 --return --review-id review-execution/u);
+      assert.match((error as Error).message, /--forward requires an explicit --reviewer/u);
       assert.deepEqual(failure.nextActions, [
+        `ha task adjudicate task-1 --forward --reviewer <agent> --note "<why>"`,
         `ha task adjudicate task-1 --return --review-id review-execution --note "<the owner's rework instruction>"`,
       ]);
       return true;
@@ -50,13 +50,46 @@ test("a forward order on a cut already in review is refused before the write que
   );
 });
 
-test("a forward order on a cut still awaiting triage proceeds into the write queue", async () => {
-  const submitted = fixture.events.slice(0, 3).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+test("a legacy submitted cut also requires an explicit reviewer before forward", async () => {
+  const submitted = fixture.snapshot.task
+    ? {
+        ...fixture.snapshot,
+        task: { ...fixture.snapshot.task, status: "submitted" as const },
+      }
+    : fixture.snapshot;
   assert.equal(submitted.task?.status, "submitted");
+  await assert.rejects(readBeforeWriteQueue(context(submitted), forward, binding, neverFetch), (error: unknown) => {
+    const failure = actionCriterionFailure(error);
+    assert.ok(failure);
+    assert.equal(failure.criterionRef, "task-lifecycle-adjudication-transitions/adjudicate.validate");
+    assert.match((error as Error).message, /explicit --reviewer/u);
+    assert.deepEqual(failure.nextActions, [
+      `ha task adjudicate task-1 --forward --reviewer <agent> --note "<why>"`,
+      `ha task adjudicate task-1 --return --review-id review-execution --note "<the owner's rework instruction>"`,
+    ]);
+    return true;
+  });
+});
+
+test("an explicit reviewer selection proceeds into the write queue for submitted and in-review cuts", async () => {
+  const legacySubmitted = fixture.snapshot.task
+      ? {
+          ...fixture.snapshot,
+          task: { ...fixture.snapshot.task, status: "submitted" as const },
+        }
+      : fixture.snapshot,
+    inReview = fixture.events.slice(0, 3).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  assert.equal(legacySubmitted.task?.status, "submitted");
+  assert.equal(inReview.task?.status, "in_review");
   assert.equal(
-    readBeforeWriteQueue(context(submitted), forward, binding, neverFetch),
+    readBeforeWriteQueue(context(legacySubmitted), { ...forward, reviewer: "other-reviewer" }, binding, neverFetch),
     null,
-    "the queued kernel validation stays the authority for the triage state",
+    "legacy submitted cuts can still be upgraded by deliberately selecting a reviewer",
+  );
+  assert.equal(
+    readBeforeWriteQueue(context(inReview), { ...forward, reviewer: "other-reviewer" }, binding, neverFetch),
+    null,
+    "the queued owner adjudication handles explicit reviewer selection",
   );
 });
 

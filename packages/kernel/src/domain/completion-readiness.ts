@@ -254,8 +254,8 @@ function evaluateCompletion(
     return one(
       "not_in_review",
       "lifecycle",
-      `ha task adjudicate ${task.taskId} --forward --note-file <path>`,
-      "The cut awaits the owning CEO's triage; completion is mechanical only after independent review " +
+      `ha task adjudicate ${task.taskId} --forward --reviewer <agent> --note-file <path>`,
+      "This review-required cut is still submitted; completion requires independent review " +
         "and the owner's verdict.",
     );
   // A lightweight cut (review gate lifted) completes straight off submitted; every other
@@ -352,7 +352,7 @@ function evaluateCompletion(
       "review_missing",
       "review",
       `ha task dispatch-review ${task.taskId}`,
-      "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+      "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
     );
   if (assessment.blocker === "consent")
     return one(

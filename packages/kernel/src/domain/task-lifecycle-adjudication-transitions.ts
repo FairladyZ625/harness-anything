@@ -16,10 +16,8 @@ import {
   revisionIssues,
 } from "./task-lifecycle-contract-support.ts";
 
-// The adjudication transitions (owner ruling 2026-09-19): the double gate between the worker's
-// submitted cut and the review phase. The reviewer records verdicts but commands nothing; a
-// principal authorized for task-adjudicate forwards a cut to the review gate or returns it
-// with a rework note. One command family, two decisions, two events.
+// Owner orders: explicitly select a reviewer or return the cut with a rework note. Ordinary
+// review-required submissions enter in_review themselves; reviewers only record verdicts.
 export const adjudicate: Transition = {
   actionId: "adjudicate",
   matches: (command) => command.type === "AdjudicateSubmission",
@@ -31,7 +29,8 @@ export const adjudicate: Transition = {
       current = execution(snapshot, command.executionId);
     if (command.decision === "forward") {
       if (
-        task?.status !== "submitted" ||
+        !task ||
+        !["submitted", "in_review"].includes(task.status) ||
         task.currentNode !== "review" ||
         current?.state !== "submitted" ||
         !current.submission
@@ -39,7 +38,7 @@ export const adjudicate: Transition = {
         issues.push(
           lifecycleContractIssue(
             "invalid_transition",
-            "forwarding requires the current submitted cut awaiting the owner's triage (status submitted)",
+            "forwarding requires a current submitted cut at the review gate",
           ),
         );
     } else if (command.decision === "return") {

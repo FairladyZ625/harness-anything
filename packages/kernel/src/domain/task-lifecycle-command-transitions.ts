@@ -477,7 +477,11 @@ export const submit: Transition = {
       },
       task: TaskV2 = amendment
         ? (snapshot.task as TaskV2)
-        : { ...(snapshot.task as TaskV2), status: "submitted", currentNode: "review" },
+        : {
+            ...(snapshot.task as TaskV2),
+            status: command.submission.completionContract.closeoutGates.review ? "in_review" : "submitted",
+            currentNode: "review",
+          },
       edge = amendment
         ? undefined
         : takeEdge(task, "submitted", command.submission.completionClaim, command.submission.commitSha, task.iteration);

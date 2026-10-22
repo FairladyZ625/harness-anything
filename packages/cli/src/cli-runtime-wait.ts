@@ -136,7 +136,7 @@ function afterSettlement(taskId: string | undefined, squad = false): string {
   if (taskId === undefined) return "read the result in the settled receipt before acting on it.";
   return (
     `read the report (ha task dispatches ${taskId} lists reportPath) before acting on it` +
-    (squad ? "." : `; once the task is submitted, run ha task adjudicate ${taskId} --forward.`)
+    (squad ? "." : `; submit automatically dispatches required reviewers; wait for their verdict before owner consent.`)
   );
 }
 

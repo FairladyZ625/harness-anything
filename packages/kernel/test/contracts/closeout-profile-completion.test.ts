@@ -18,8 +18,8 @@ import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.t
 const standardGates = { review: false, consent: false, factDisposition: false, codeDoc: false };
 const strictGates = { review: true, consent: true, factDisposition: true, codeDoc: true };
 
-function snapshotAfter(recordedEvents: number): TaskLifecycleSnapshot {
-  const fixture = lifecycleFixture();
+function snapshotAfter(recordedEvents: number, closeoutGates?: typeof standardGates): TaskLifecycleSnapshot {
+  const fixture = lifecycleFixture({ ...(closeoutGates ? { closeoutGates } : {}) });
   return fixture.events.slice(0, recordedEvents).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 }
 
@@ -53,7 +53,7 @@ function completeProof(closeoutGates: unknown) {
 test("standard gates complete without review or consent and record the effective gate set", () => {
   // The lightweight cut completes straight off `submitted`: its review gate is lifted, so the
   // owner's triage corridor stands down exactly as before the corridor existed.
-  const snapshot = snapshotAfter(3);
+  const snapshot = snapshotAfter(3, standardGates);
   assert.equal(snapshot.task?.status, "submitted");
   assert.deepEqual(snapshot.reviews, []);
   const result = applyTransition(snapshot, completeCommand(snapshot), completeProof(standardGates));
@@ -65,6 +65,9 @@ test("standard gates complete without review or consent and record the effective
 
 test("strict gates still reject completion without a consent-selected approved review", () => {
   const snapshot = snapshotAfter(3);
+  assert.equal(snapshot.task?.status, "in_review", "submit enters the frozen review phase without forward");
+  assert.equal(snapshot.lease, null);
+  assert.equal(snapshot.executions[0]?.state, "submitted");
   assert.throws(
     () => applyTransition(snapshot, completeCommand(snapshot), completeProof(strictGates)),
     /consent-selected approved Review/u,

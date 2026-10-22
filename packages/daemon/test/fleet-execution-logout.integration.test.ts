@@ -442,6 +442,7 @@ test(
         taskId,
         executionId: f.subject.executionId,
         forward: true,
+        reviewer: "closeout-reviewer",
         reason: "Review the isolated edge delivery.",
       },
       localAuthFixture(),

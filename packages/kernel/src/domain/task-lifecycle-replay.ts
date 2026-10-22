@@ -96,7 +96,8 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
   if (
     command.type === "SubmitExecution" &&
     command.amend !== true &&
-    (result.snapshot.task?.status !== "submitted" ||
+    (result.snapshot.task?.status !==
+      (command.submission.completionContract.closeoutGates.review ? "in_review" : "submitted") ||
       result.snapshot.task.currentNode !== "review" ||
       result.snapshot.lease !== null ||
       changed?.state !== "submitted" ||
@@ -105,7 +106,7 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue(
         "invalid_submit_atomicity",
-        "submit must finalize Execution, release lease, and land the cut in submitted atomically",
+        "submit must finalize Execution, release lease, and enter the frozen review phase atomically",
       ),
     ]);
   if (command.type === "SubmitExecution" && command.amend === true) {
@@ -505,8 +506,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (event.type === "execution_submitted") {
     const supersedes = event.payload.supersedesSubmissionId;
     if (supersedes === undefined) {
-      // New semantics land the cut in `submitted` awaiting the owner's triage; history recorded
-      // the pre-2026-09-19 semantics where submit entered in_review directly. Both replay.
+      // The event owns its status: review-required cuts enter in_review automatically; cuts
+      // without review and historical owner-triage submissions retain submitted on replay.
       if (
         !["submitted", "in_review"].includes(event.payload.task.status) ||
         event.payload.task.currentNode !== "review" ||
@@ -654,7 +655,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (event.type === "submission_forwarded") {
     const current = execution(snapshot, event.payload.execution.executionId);
     if (
-      snapshot.task?.status !== "submitted" ||
+      !snapshot.task ||
+      !["submitted", "in_review"].includes(snapshot.task.status) ||
       snapshot.task.currentNode !== "review" ||
       snapshot.lease !== null ||
       !current?.submission ||

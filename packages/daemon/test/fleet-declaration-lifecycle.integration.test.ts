@@ -183,7 +183,16 @@ test(
     const beforeSubmit = locateFleetMirrorView(path.join(edgeUser, "view"), repoId)!;
     await invoke(["task", "submit", taskId, "--commit", delivery]);
     await invoke(["task", "code-doc", "reconcile", taskId, "--path", "delivery.ts"]);
-    await invoke(["task", "adjudicate", taskId, "--forward", "--note", "Owner forwards the submitted cut."]);
+    await invoke([
+      "task",
+      "adjudicate",
+      taskId,
+      "--forward",
+      "--reviewer",
+      "closeout-reviewer",
+      "--note",
+      "Owner forwards the submitted cut.",
+    ]);
     const reviewerRoot = path.join(fixture.root, "reviewer-edge"),
       reviewerUser = path.join(fixture.root, "reviewer-user");
     mkdirSync(reviewerRoot);

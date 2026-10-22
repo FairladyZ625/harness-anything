@@ -94,7 +94,14 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward review-axis cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward review-axis cut.",
+          },
           agent,
         )
       ).outcome,
@@ -197,7 +204,14 @@ test("principal review independence rejects a different executor owned by the su
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward principal-review cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward principal-review cut.",
+          },
           agent,
         )
       ).outcome,
@@ -394,6 +408,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
             taskId,
             executionId: priorExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward prior bare-invocation cut.",
           },
           bare,
@@ -459,7 +474,14 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward recovered cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward recovered cut.",
+          },
           bare,
         )
       ).outcome,
@@ -705,7 +727,14 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward bare reviewed cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward bare reviewed cut.",
+          },
           bare,
         )
       ).outcome,
@@ -1038,7 +1067,14 @@ test("review binding permits independent runtimes but still rejects the executio
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward runtime-bound cut." },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward runtime-bound cut.",
+          },
           operator,
         )
       ).outcome,
@@ -1156,6 +1192,7 @@ test("review binding permits independent runtimes but still rejects the executio
             taskId: directTaskId,
             executionId: directExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward direct review cut.",
           },
           operator,

@@ -127,7 +127,14 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       ],
     );
     const forward = await cell.run(
-      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards verified delivery." },
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId,
+        forward: true,
+        reviewer: "closeout-reviewer",
+        reason: "Owner forwards verified delivery.",
+      },
       holder,
     );
     assert.equal(forward.outcome, "applied", JSON.stringify(forward));

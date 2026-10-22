@@ -17,6 +17,7 @@ export const eventShapeMigrationNames = Object.freeze([
   "schedule.ciObserve",
   "squad-run.subject",
   "settings.ci",
+  "runtime.reviewDispatchKey",
   "vertical.completion.sources",
 ] as const);
 export type EventShapeMigrationName = (typeof eventShapeMigrationNames)[number];
@@ -26,6 +27,7 @@ export const retiredPersistedSchemaFields = Object.freeze([
   "SquadRun.taskId+executionId",
   "Settings.gates.ci",
   "Settings.ci.workflows",
+  "RuntimeDispatchRequested.payload.dispatchKey",
   "Vertical.completion.sources.*.kind",
 ] as const);
 
@@ -170,4 +172,51 @@ export function withoutRetiredVerticalHostedCi(value: unknown): unknown {
       )
     : completion.gates;
   return { ...value, completion: { ...completion, sources, gates } };
+}
+
+/** Preserve dispatch identity while moving historical cut-review keys to the reviewer-qualified shape. */
+export function withReviewerQualifiedDispatchKey(value: unknown): unknown {
+  if (!isRecord(value) || value.schema !== "agent-runtime-event/v1" || value.type !== "runtime_dispatch_requested")
+    return value;
+  const payload = value.payload;
+  if (
+    !isRecord(payload) ||
+    payload.role !== "reviewer" ||
+    typeof payload.agentId !== "string" ||
+    payload.agentId.length === 0 ||
+    payload.agentId.includes(":") ||
+    typeof payload.taskId !== "string" ||
+    typeof payload.executionId !== "string" ||
+    (typeof payload.dispatchKey !== "string" &&
+      !(payload.dispatchKey === undefined && typeof payload.idempotencyKey === "string"))
+  )
+    return value;
+  const legacyKey = typeof payload.dispatchKey === "string" ? payload.dispatchKey : String(payload.idempotencyKey);
+  const prefix = `task-review:${payload.taskId}:${payload.executionId}:`;
+  if (!legacyKey.startsWith(prefix)) return value;
+  // A reviewer dispatch key continues with `:attemptN` when the cut retried the reviewer, and with
+  // `:fallback:N` when the provider fallback chain continued the same dispatch; either may follow
+  // the other. Reviewer qualification belongs directly after the digest, before both suffixes.
+  const match = /^([0-9]+):(sha256:[0-9a-f]{64})((?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?)$/u.exec(
+    legacyKey.slice(prefix.length),
+  );
+  if (!match) return value;
+  const target = payload.reviewTarget;
+  if (
+    target !== undefined &&
+    (!isRecord(target) ||
+      target.kind !== "task" ||
+      target.taskId !== payload.taskId ||
+      target.executionId !== payload.executionId ||
+      target.digest !== match[2])
+  )
+    return value;
+  const { idempotencyKey: _idempotencyKey, ...currentPayload } = payload;
+  return {
+    ...value,
+    payload: {
+      ...currentPayload,
+      dispatchKey: `${prefix}${match[1]}:${match[2]}:reviewer:${payload.agentId}${match[3]}`,
+    },
+  };
 }

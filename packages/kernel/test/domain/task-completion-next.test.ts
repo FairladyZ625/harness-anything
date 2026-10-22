@@ -75,11 +75,11 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "ha task start task-1",
     ],
     [
-      "submitted awaits the owner's triage",
+      "submitted automatically awaits independent review",
       submitted,
       context,
-      "not_in_review",
-      "ha task adjudicate task-1 --forward --note-file <path>",
+      "review_missing",
+      "ha task dispatch-review task-1",
     ],
     ["forwarded unreviewed", forwarded, context, "review_missing", "ha task dispatch-review task-1"],
     ["approved awaits the owner's verdict", at(5), context, "consent_missing", "ha task review-consent task-1"],
@@ -441,6 +441,6 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
       ...context,
       closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
     };
-  assert.match(index(submitted, strict), /ha task adjudicate task-1 --forward --note-file <path>/u);
+  assert.match(index(submitted, strict), /ha task dispatch-review task-1/u);
   assert.match(index(submitted, lightweight), /ha task complete task-1/u);
 });

@@ -33,11 +33,12 @@ export function selectReviewAgent(frozen?: string, argument?: string, setting?: 
   return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
 }
 
-/** A user-initiated review dispatch is keyed by the reviewed cut, never by a caller or node. */
-export function reviewDispatchKey(taskId: string, execution: ExecutionV1): string {
-  return `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
+/** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
+export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
+  const key = `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
     execution.submission!,
   )}`;
+  return reviewerId ? `${key}:reviewer:${reviewerId}` : key;
 }
 
 /**
@@ -395,10 +396,10 @@ type DispatchStep = {
 
 /**
  * The one review-dispatch spawn: the cut's frozen completionContract reviewer claim wins over the
- * repository default, the dispatch is keyed by `reviewDispatchKey` (task/execution/iteration/digest,
- * the deterministic claim fence that makes concurrent dispatches share one reviewer), and launch
- * admission is awaited while provider completion is not. Returns the idempotent identities the
- * caller reports on its own step shape.
+ * repository default, and the key includes an explicit replacement reviewer when selected. Old
+ * base-key rows remain reusable only for the same live reviewer and cut; launch admission is awaited
+ * while provider completion is not. Returns the idempotent identities the caller reports on its
+ * own step shape.
  */
 export async function spawnCutReviewDispatch(
   cell: RepoCellOperationalContext,
@@ -411,7 +412,7 @@ export async function spawnCutReviewDispatch(
     readonly reviewerId: string;
     readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
-    /** The lane dispatch key; absent selects the cut's own `reviewDispatchKey`. */
+    /** An explicit dispatch key for a secondary lane; absent selects the cut review key. */
     readonly dispatchKey?: string;
     /** The lane's mission; absent builds the cut review packet. */
     readonly prompt?: string;
@@ -420,10 +421,19 @@ export async function spawnCutReviewDispatch(
   | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
   | { readonly outcome: "failed"; readonly error: string }
 > {
-  const key = input.dispatchKey ?? reviewDispatchKey(input.taskId, input.execution),
+  const cutReviewKey = reviewDispatchKey(input.taskId, input.execution, input.reviewerId),
+    key = input.dispatchKey ?? cutReviewKey,
     ids = reviewDispatchIds(cell.input.repoId, key);
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
+  if (existing !== null)
+    return {
+      outcome: "already_dispatched",
+      ids: {
+        dispatchId: existing.payload.dispatchId,
+        runtimeSessionId: existing.payload.runtimeSessionId,
+        dispatchOpId: existing.opId,
+      },
+    };
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -628,20 +638,49 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
+  while (existing !== null && reviewAttemptEnded(cell, existing.payload.runtimeSessionId)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
     ids = reviewDispatchIds(cell.input.repoId, key);
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   }
-  return { key, ids, existing };
+  return {
+    key,
+    ids:
+      existing === null
+        ? ids
+        : {
+            dispatchId: existing.payload.dispatchId,
+            runtimeSessionId: existing.payload.runtimeSessionId,
+            dispatchOpId: existing.opId,
+          },
+    existing,
+  };
+}
+
+/** A task cut can have only one active primary reviewer, including keys written before migration. */
+export function activeCutReviewDispatches(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  execution: ExecutionV1,
+): ReturnType<RepoCellOperationalContext["projection"]["readRuntimeDispatchesByTaskExecution"]> {
+  const baseKey = reviewDispatchKey(taskId, execution);
+  return cell.projection.readRuntimeDispatchesByTaskExecution(taskId, execution.executionId).filter(({ event }) => {
+    const payload = event.payload,
+      key = payload.dispatchKey,
+      suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
+      isCutReviewKey =
+        suffix === "" ||
+        suffix?.startsWith(":reviewer:") === true ||
+        (suffix?.startsWith(":attempt") === true && /^:attempt[1-9][0-9]*$/u.test(suffix));
+    return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
+  });
 }
 
 /**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
- * cut without a current review: the owner's forward, and an amendment of an in-review cut (which
- * replaces the submission digest and so the dispatch key). Returns null when the task is not at
- * the in-review gate — an amendment before owner triage waits for the forward. A dispatch failure
+ * cut without a current review: submit, amend, resumed submit, and an owner's explicit reviewer
+ * selection. Returns null outside the in-review gate. A dispatch failure
  * never undoes the durable write: it lands as the returned step with the idempotent
  * `ha task dispatch-review` retry lane.
  */
@@ -677,6 +716,7 @@ export async function dispatchInReviewCutReview(
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
       reviewerId,
+      dispatchKey: reviewDispatchKey(taskId, execution, reviewerId),
       ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
       // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
       // would otherwise land on an unpredictable default instance.
@@ -810,8 +850,8 @@ export async function dispatchTaskReview(
     if (snapshot.task?.status !== "in_review") {
       fail(
         snapshot.task?.status === "submitted"
-          ? `Task ${taskId} still awaits its owner's triage. Run ha task adjudicate ${taskId} --forward ` +
-              "--note <why>; the forward order dispatches the independent reviewer."
+          ? `Task ${taskId} has no automatic review requirement. Complete it, or explicitly request review with ` +
+              `ha task adjudicate ${taskId} --forward --reviewer ${reviewerId} --note <why>.`
           : `Task ${taskId} is not at the in-review gate.`,
       );
       continue;
@@ -874,7 +914,35 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
-    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution));
+    const activeCutReviews = activeCutReviewDispatches(cell, taskId, execution),
+      active = activeCutReviews.find(({ event }) => event.payload.agentId === agent.id) ?? activeCutReviews[0];
+    if (active !== undefined) {
+      const holding = active.event.payload,
+        holdingAgent = typeof holding.agentId === "string" ? holding.agentId : null;
+      if (reviewerFromArgument && holdingAgent !== agent.id) {
+        fail(
+          `Task ${taskId}'s submitted cut already holds review dispatch ${holding.dispatchId} by agent ` +
+            `${holdingAgent ?? "with no recorded agent"} (runtime session ${holding.runtimeSessionId}, ` +
+            `instance ${holding.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
+            `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
+          execution.executionId,
+        );
+      } else {
+        steps.push({
+          taskId,
+          executionId: execution.executionId,
+          dispatchId: holding.dispatchId,
+          runtimeSessionId: holding.runtimeSessionId,
+          dispatchOpId: active.event.opId,
+          ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+          instanceId: holding.instanceId,
+          outcome: "already_dispatched",
+        });
+      }
+      steps.push(...laneSteps);
+      continue;
+    }
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.

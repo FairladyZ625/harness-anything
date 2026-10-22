@@ -4,6 +4,7 @@ import {
   eventShapeMigrationWritePlan,
   isEventShapeMigrationEvent,
   retiredPersistedSchemaFields,
+  withReviewerQualifiedDispatchKey,
   withoutRetiredVerticalHostedCi,
   type EventShapeMigrationEventV1,
   type EventShapeMigrationName,
@@ -94,6 +95,10 @@ function hasRetiredVerticalHostedCi(
   return withoutRetiredVerticalHostedCi(snapshot) !== snapshot;
 }
 
+function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean {
+  return withReviewerQualifiedDispatchKey(event) !== event;
+}
+
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
   { name: "closeout-overrides.fact", fields: ["Task.closeoutOverrides.fact"], matches: taskHasRetiredFact },
   { name: "schedule.ciObserve", fields: ["Schedule.status.ciObserve"], matches: hasRetiredScheduleCiObserve },
@@ -106,6 +111,11 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     name: "settings.ci",
     fields: ["Settings.gates.ci", "Settings.ci.workflows"],
     matches: hasRetiredSettingsCi,
+  },
+  {
+    name: "runtime.reviewDispatchKey",
+    fields: ["RuntimeDispatchRequested.payload.dispatchKey"],
+    matches: hasLegacyReviewerDispatchKey,
   },
   {
     name: "vertical.completion.sources",

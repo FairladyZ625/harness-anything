@@ -59,6 +59,7 @@ test("attach migration registry covers each retired historical field and is idem
       "schedule.ciObserve",
       "squad-run.subject",
       "settings.ci",
+      "runtime.reviewDispatchKey",
       "vertical.completion.sources",
     ],
   );
@@ -80,6 +81,28 @@ test("attach migration registry covers each retired historical field and is idem
       { declaration: { definition: { completion: { sources: { ci: { kind: "github-actions" } } } } } },
       "old-vertical",
     ),
+    {
+      ...envelope(
+        "agent-runtime-event/v1",
+        {
+          dispatchId: "dispatch-original",
+          runtimeSessionId: "runtime-original",
+          dispatchKey: `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}`,
+          role: "reviewer",
+          agentId: "reviewer-b",
+          taskId: "task-a",
+          executionId: "execution-a",
+          reviewTarget: {
+            kind: "task",
+            taskId: "task-a",
+            executionId: "execution-a",
+            digest: `sha256:${"a".repeat(64)}`,
+          },
+        },
+        "old-review-dispatch",
+      ),
+      type: "runtime_dispatch_requested",
+    } as unknown as PersistedCanonicalEventV1,
   ]);
   const first = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" });
   assert.deepEqual(first.applied, [
@@ -87,12 +110,100 @@ test("attach migration registry covers each retired historical field and is idem
     "schedule.ciObserve",
     "squad-run.subject",
     "settings.ci",
+    "runtime.reviewDispatchKey",
     "vertical.completion.sources",
   ]);
-  assert.equal(events.length, 10);
+  assert.equal(events.length, 12);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 10);
+  assert.equal(events.length, 12);
+});
+
+test("historical reviewer dispatch key normalization preserves all dispatch identities and ignores other lanes", () => {
+  const legacy = {
+      ...envelope(
+        "agent-runtime-event/v1",
+        {
+          dispatchId: "dispatch-original",
+          runtimeSessionId: "runtime-original",
+          dispatchKey: `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}:attempt3`,
+          role: "reviewer",
+          agentId: "reviewer-b",
+          taskId: "task-a",
+          executionId: "execution-a",
+          reviewTarget: {
+            kind: "task",
+            taskId: "task-a",
+            executionId: "execution-a",
+            digest: `sha256:${"a".repeat(64)}`,
+          },
+        },
+        "old-review-dispatch",
+      ),
+      type: "runtime_dispatch_requested",
+    } as unknown as PersistedCanonicalEventV1,
+    migrated = normalizeHistoricalEvent(legacy) as unknown as {
+      readonly eventId: string;
+      readonly opId: string;
+      readonly payload: Readonly<Record<string, unknown>>;
+    };
+  assert.equal(
+    migrated.payload.dispatchKey,
+    `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}:reviewer:reviewer-b:attempt3`,
+  );
+  assert.equal(migrated.eventId, legacy.eventId);
+  assert.equal(migrated.opId, legacy.opId);
+  assert.equal(migrated.payload.dispatchId, "dispatch-original");
+  assert.equal(migrated.payload.runtimeSessionId, "runtime-original");
+  assert.deepEqual(normalizeHistoricalEvent(migrated as unknown as PersistedCanonicalEventV1), migrated);
+  const { dispatchKey: legacyIdempotencyKey, ...payloadWithoutDispatchKey } = legacy.payload,
+    oldSpelling = {
+      ...legacy,
+      payload: { ...payloadWithoutDispatchKey, idempotencyKey: legacyIdempotencyKey },
+    } as unknown as PersistedCanonicalEventV1,
+    migration = attachMigrationRegistry.find(({ name }) => name === "runtime.reviewDispatchKey");
+  assert.ok(migration);
+  assert.equal(migration.matches(oldSpelling), true, "attach detects the old idempotencyKey spelling");
+  const normalizedOldSpelling = normalizeHistoricalEvent(oldSpelling) as unknown as {
+    readonly payload: Readonly<Record<string, unknown>>;
+  };
+  assert.equal(
+    normalizedOldSpelling.payload.dispatchKey,
+    `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}:reviewer:reviewer-b:attempt3`,
+  );
+  assert.equal(Object.hasOwn(normalizedOldSpelling.payload, "idempotencyKey"), false);
+  const base = `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}`,
+    keyAfter = (dispatchKey: string) => {
+      const normalized = normalizeHistoricalEvent({
+        ...legacy,
+        payload: { ...legacy.payload, dispatchKey },
+      } as unknown as PersistedCanonicalEventV1) as unknown as { readonly payload: Readonly<Record<string, unknown>> };
+      return normalized.payload.dispatchKey;
+    };
+  // Provider fallback continues the same dispatch under `:fallback:N`, with or without a prior attempt.
+  assert.equal(keyAfter(`${base}:fallback:1`), `${base}:reviewer:reviewer-b:fallback:1`);
+  assert.equal(keyAfter(`${base}:attempt1:fallback:2`), `${base}:reviewer:reviewer-b:attempt1:fallback:2`);
+  // Every other tail keeps its historical bytes: already qualified, zero-indexed, or shaped otherwise.
+  for (const unchanged of [
+    `${base}:reviewer:reviewer-b`,
+    `${base}:reviewer:reviewer-b:fallback:1`,
+    `${base}:fallback:0`,
+    `${base}:fallback:1:attempt2`,
+    `${base}:attempt0`,
+  ])
+    assert.equal(keyAfter(unchanged), unchanged);
+  const pathLane = {
+    ...legacy,
+    payload: { ...legacy.payload, dispatchKey: "task-review-lane:task-a:execution-a:data-migration" },
+  } as unknown as PersistedCanonicalEventV1;
+  assert.deepEqual(normalizeHistoricalEvent(pathLane), pathLane);
+  const { dispatchKey: laneIdempotencyKey, ...pathPayloadWithoutDispatchKey } = pathLane.payload,
+    legacyPathLane = {
+      ...pathLane,
+      payload: { ...pathPayloadWithoutDispatchKey, idempotencyKey: laneIdempotencyKey },
+    } as unknown as PersistedCanonicalEventV1;
+  assert.equal(migration.matches(legacyPathLane), false, "the cut-key migration excludes path-review lane keys");
+  assert.deepEqual(normalizeHistoricalEvent(legacyPathLane), legacyPathLane);
 });
 
 test("attach notices a retired source embedded in a task preset snapshot blob", () => {

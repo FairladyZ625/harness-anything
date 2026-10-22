@@ -303,7 +303,7 @@ export async function proofFor(
       if (![currentKey, legacyKey].some((cut) => key === cut || key.startsWith(`${cut}:`)))
         throw cellCodedError(
           "invalid_proof",
-          "This reviewer dispatch belongs to an earlier submission cut; wait for the owner's next forward order.",
+          "This reviewer dispatch belongs to an earlier submission cut; use the reviewer dispatch for the current submitted cut.",
         );
     }
     const independentActor =
