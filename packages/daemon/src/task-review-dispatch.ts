@@ -7,6 +7,7 @@ import {
   currentSubmittedExecutions,
   submissionDigest,
   decisionReviewContentDigest,
+  type AgentRuntimeEventV1,
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
@@ -667,6 +668,32 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
   };
 }
 
+/** The primary cut-review slot is shared across reviewer-qualified keys, unlike path lanes. */
+function inFlightCutReviewDispatch(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  execution: ExecutionV1,
+): Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null {
+  const key = reviewDispatchKey(taskId, execution),
+    reviewerPrefix = `${key}:reviewer:`,
+    attemptPrefix = `${key}:attempt`;
+  return (
+    (
+      cell.projection
+        .readRuntimeDispatchesByTaskExecution(taskId, execution.executionId)
+        .map(({ event }) => event)
+        .filter((event) => {
+          const dispatchKey = event.payload.dispatchKey;
+          return (
+            event.payload.role === "reviewer" &&
+            (dispatchKey === key || dispatchKey.startsWith(reviewerPrefix) || dispatchKey.startsWith(attemptPrefix)) &&
+            !reviewAttemptEnded(cell, event.payload.runtimeSessionId)
+          );
+        }) ?? null
+    ).at(-1) ?? null
+  );
+}
+
 /**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
  * cut without a current review: submit, amend, resumed submit, and an owner's explicit reviewer
@@ -905,6 +932,33 @@ export async function dispatchTaskReview(
             },
       );
     const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
+    const inFlight = inFlightCutReviewDispatch(cell, taskId, execution);
+    if (inFlight !== null && existing === null) {
+      const holdingAgent = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
+      if (reviewerFromArgument && holdingAgent !== agent.id) {
+        fail(
+          `Task ${taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
+            `${holdingAgent ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}, ` +
+            `instance ${inFlight.payload.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
+            `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
+          execution.executionId,
+        );
+        steps.push(...laneSteps);
+        continue;
+      }
+      steps.push(...laneSteps);
+      steps.push({
+        taskId,
+        executionId: execution.executionId,
+        dispatchId: inFlight.payload.dispatchId,
+        runtimeSessionId: inFlight.payload.runtimeSessionId,
+        dispatchOpId: inFlight.opId,
+        ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+        instanceId: inFlight.payload.instanceId,
+        outcome: "already_dispatched",
+      });
+      continue;
+    }
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.
