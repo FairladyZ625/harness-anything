@@ -270,6 +270,74 @@ test("decision dispatch-review passes spawn admission and launches once for the 
 });
 
 test(
+  "decision dispatch-review --agent refuses instead of returning another agent's in-flight dispatch",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
+    try {
+      await f.install();
+      const second = await f.run({
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "second-reviewer",
+          name: "Second reviewer",
+          instructions: "Inspect the decision cut and record your independent verdict.",
+          runtimes: [{ type: "codex", model: "review-model" }],
+          instance: "review-second",
+          role: "reviewer",
+        },
+      });
+      assert.equal(second.outcome, "applied", JSON.stringify(second));
+      const proposed = await runDecision({
+        kind: "decision-propose",
+        body: realizedDecisionBody("Explicit agent dispatch review"),
+        jsonInput: JSON.stringify({
+          title: "Explicit agent dispatch review",
+          question: "Should the explicit --agent refusal apply here too?",
+          riskTier: "high",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Refuse on a held slot" }],
+          rejected: [{ id: "RJ1", text: "Return the other dispatch", whyNot: "It misattributes the reviewer" }],
+          claims: [{ id: "C1", text: "One cut holds one review dispatch.", loadBearing: true }],
+          fulfillments: [],
+        }),
+      });
+      assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+      const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string;
+      assert.equal((await runDecision({ kind: "decision-dispatch-review", decisionId })).outcome, "applied");
+      assert.equal(f.launches.length, 1);
+      const refused = await runDecision({
+        kind: "decision-dispatch-review",
+        decisionId,
+        agentId: "second-reviewer",
+      }).catch((error: { code?: string; message?: string }) => error);
+      await expectCoded(Promise.resolve(refused), "review_dispatch_failed");
+      assert.match(
+        (refused as { rejectionExplanation?: string }).rejectionExplanation ??
+          (refused as { message?: string }).message ??
+          JSON.stringify(refused),
+        /--agent second-reviewer was not dispatched/u,
+      );
+      assert.equal(f.launches.length, 1, "the refusal must not launch the requested reviewer");
+      const plain = await runDecision({ kind: "decision-dispatch-review", decisionId });
+      assert.equal(plain.outcome, "applied", JSON.stringify(plain));
+      const step = (Array.isArray(plain.dispatches) ? plain.dispatches : [])[0] as Record<string, unknown>;
+      assert.equal(step.outcome, "already_dispatched");
+      assert.equal(step.agentId, "closeout-reviewer");
+      assert.equal(step.instanceId, "review-first");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "a settled decision review dispatch publishes its report, packet, and dispatch record through the writer",
   { timeout: 20_000 },
   async () => {
