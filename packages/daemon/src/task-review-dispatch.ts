@@ -659,6 +659,21 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
   };
 }
 
+/** A task cut can have only one active primary reviewer, including keys written before migration. */
+function activeCutReviewDispatches(cell: RepoCellOperationalContext, taskId: string, execution: ExecutionV1) {
+  const baseKey = reviewDispatchKey(taskId, execution);
+  return cell.projection.readRuntimeDispatchesByTaskExecution(taskId, execution.executionId).filter(({ event }) => {
+    const payload = event.payload,
+      key = payload.dispatchKey,
+      suffix = key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
+      isCutReviewKey =
+        suffix === "" ||
+        suffix?.startsWith(":reviewer:") === true ||
+        (suffix?.startsWith(":attempt") === true && /^:attempt[1-9][0-9]*$/u.test(suffix));
+    return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
+  });
+}
+
 /**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
  * cut without a current review: submit, amend, resumed submit, and an owner's explicit reviewer
@@ -896,6 +911,34 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
+    const activeCutReviews = activeCutReviewDispatches(cell, taskId, execution),
+      active = activeCutReviews.find(({ event }) => event.payload.agentId === agent.id) ?? activeCutReviews[0];
+    if (active !== undefined) {
+      const holding = active.event.payload,
+        holdingAgent = typeof holding.agentId === "string" ? holding.agentId : null;
+      if (reviewerFromArgument && holdingAgent !== agent.id) {
+        fail(
+          `Task ${taskId}'s submitted cut already holds review dispatch ${holding.dispatchId} by agent ` +
+            `${holdingAgent ?? "with no recorded agent"} (runtime session ${holding.runtimeSessionId}, ` +
+            `instance ${holding.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
+            `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
+          execution.executionId,
+        );
+      } else {
+        steps.push({
+          taskId,
+          executionId: execution.executionId,
+          dispatchId: holding.dispatchId,
+          runtimeSessionId: holding.runtimeSessionId,
+          dispatchOpId: active.event.opId,
+          ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+          instanceId: holding.instanceId,
+          outcome: "already_dispatched",
+        });
+      }
+      steps.push(...laneSteps);
+      continue;
+    }
     const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
