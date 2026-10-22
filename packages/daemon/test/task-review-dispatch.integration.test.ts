@@ -906,10 +906,30 @@ test(
       );
       assert.ok(fallback.prompt.includes("harness/tasks/") && fallback.prompt.includes("ha doc show --path"));
       assert.ok(fallback.prompt.includes(`${first.payload.dispatchId}.md`), "fallback must name the prior report");
+      // The fallback owns a new dispatch identity, so its mission must name that identity's
+      // registration id and report paths; the previous dispatch's report stays read-only input.
+      const fallbackReport = `${f.packagePath}/artifacts/reports/${second.payload.dispatchId}.md`;
       assert.ok(
-        fallback.prompt.includes("verify each previous finding") && fallback.prompt.includes("only the new diff"),
+        fallback.prompt.includes(`--review-id review-${second.payload.dispatchId}`) &&
+          fallback.prompt.includes(`--from-file harness/${fallbackReport.replace(/\.md$/u, ".json")}`),
+        `fallback must register under its own dispatch identity: ${fallback.prompt}`,
+      );
+      assert.ok(
+        fallback.prompt.includes("verify each previous finding") &&
+          fallback.prompt.includes("new diff relative to the previous report's cut"),
         "fallback keeps the re-review scope bounded",
       );
+      assert.ok(
+        fallback.prompt.includes("breaks a current invariant or the production path is blocking") &&
+          !fallback.prompt.includes("Do not reopen"),
+        "a re-review keeps a newly found invariant or production-path defect blocking",
+      );
+      const registered = await f.reviewDispatchedArtifacts(
+        second.payload.runtimeSessionId,
+        second.payload.dispatchId,
+        nextExecution,
+      );
+      assert.equal(registered.outcome, "applied", JSON.stringify(registered));
       const stream = readDispatchStream(f.root, second.payload.dispatchId);
       assert.equal(stream?.providerSessionId, "review-provider-session-new");
     } finally {

@@ -17,6 +17,7 @@ import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "./review-path-lanes.ts";
+import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -365,8 +366,8 @@ export function reviewDispatchPrompt(input: {
       "evidence: a witness produced only after merge is not a source defect merely because this review " +
       "runs before merge. Report unverified evidence without claiming a gate passed or waiving it.",
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
-    "Read the task plan, closeout, and submitted delivery yourself. On the first review, list every " +
-      "blocking finding visible in the frozen cut; do not defer a visible blocker to a later round. " +
+    "Read the task plan, closeout, and submitted delivery yourself. " +
+      `${reviewFindingScopePrompt("first")} ` +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
@@ -415,8 +416,12 @@ export async function spawnCutReviewDispatch(
     readonly extras?: Readonly<Record<string, unknown>>;
     /** An explicit dispatch key for a secondary lane; absent selects the cut review key. */
     readonly dispatchKey?: string;
-    /** The lane's mission; absent builds the cut review packet. */
-    readonly prompt?: string;
+    /**
+     * The lane's mission for one dispatch id; absent builds the cut review packet. The builder is
+     * called per attempt so a fresh dispatch — including the resume fallback — names its own
+     * registration id and report paths.
+     */
+    readonly promptFor?: (dispatchId: string) => string;
   },
 ): Promise<
   | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
@@ -472,11 +477,27 @@ export async function spawnCutReviewDispatch(
       ? [
           "This is a re-review of the same task and reviewer lane.",
           `Read the previous registered report at harness/${continuation.reportRef} with ha doc show --path ${continuation.reportRef} --raw.`,
-          "On the first review, list every blocking finding that is visible in the frozen cut.",
-          "On this re-review, verify each previous finding and inspect only the new diff relative to that report's cut.",
-          "Do not reopen a finding that was visible in the first review but was omitted; record it as non-blocking follow-up.",
+          reviewFindingScopePrompt("re-review"),
         ].join("\n")
-      : "On the first review, list every blocking finding visible in the frozen cut; do not defer a visible blocker to a later round.",
+      : reviewFindingScopePrompt("first"),
+    // The mission text and its registration identity are one value: whatever dispatch id the
+    // spawner renders is the id the reviewer must register under, so the prompt is always
+    // rebuilt from that id instead of being carried over from an earlier attempt.
+    missionPrompt = (dispatchId: string): string =>
+      `${
+        input.promptFor?.(dispatchId) ??
+        reviewDispatchPrompt({
+          ownerNote: input.ownerNote,
+          taskId: input.taskId,
+          packagePath: input.packagePath,
+          dispatchId,
+          execution: input.execution,
+          gates: completionGateIds(
+            cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
+            input.execution.submission,
+          ),
+        })
+      }\n${continuationNote}`,
     payload = {
       agentId: agent.id,
       role: "reviewer",
@@ -489,20 +510,7 @@ export async function spawnCutReviewDispatch(
       ...(typeof extras.model === "string" ? { model: extras.model } : {}),
       ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
       ...(extras.fast === true ? { fast: true } : {}),
-      prompt: `${
-        input.prompt ??
-        reviewDispatchPrompt({
-          ownerNote: input.ownerNote,
-          taskId: input.taskId,
-          packagePath: input.packagePath,
-          dispatchId: ids.dispatchId,
-          execution: input.execution,
-          gates: completionGateIds(
-            cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
-            input.execution.submission,
-          ),
-        })
-      }\n${continuationNote}`,
+      prompt: missionPrompt(ids.dispatchId),
     },
     authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
@@ -522,20 +530,21 @@ export async function spawnCutReviewDispatch(
     if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
       // A provider can reject a previously valid session after admission (for example after its
       // local transcript was compacted). The source remains consumed; retry once as a fresh
-      // reviewer session with the same lane key and the prior report in the mission.
-      const fallbackPrompt =
-        `${String(payload.prompt)}\nThe provider could not resume the prior session; this is a fresh session. ` +
-        "Use the previous report as input and keep the same old-findings-plus-new-diff scope.";
-      // Dispatch identity is derived from dispatchKey. Keep the reviewer lane prefix so ingress
-      // can still prove this is the same lane, while giving the fallback a fresh identity.
-      const fallbackPayload = {
-        ...payload,
-        dispatchKey: `${key}:resume-fallback`,
-        prompt: fallbackPrompt,
-      };
+      // reviewer session that owns its own dispatch identity, registration id, and report paths.
+      const fallbackKey = `${key}:resume-fallback`,
+        fallbackIds = reviewDispatchIds(cell.input.repoId, fallbackKey),
+        fallbackPayload = {
+          ...payload,
+          dispatchKey: fallbackKey,
+          prompt:
+            `${missionPrompt(fallbackIds.dispatchId)}\n` +
+            "The provider could not resume the prior session; this is a fresh session. " +
+            `Write and register this round as review-${fallbackIds.dispatchId} at the paths named above.`,
+        };
       delete (fallbackPayload as { dispatchId?: string }).dispatchId;
-      const fallbackKey = String(fallbackPayload.dispatchKey),
-        fallbackIds = reviewDispatchIds(cell.input.repoId, fallbackKey);
+      // The fallback spawns inside the same queued publication turn as the resume it replaces: the
+      // authorization decision was evaluated over the same actor, target, and repository revision,
+      // so carrying it forward adds no permission the cut dispatch did not already have.
       const fallbackError = await cell.runtimeSpawner
         .spawn(fallbackPayload, { ...input.binding, authorizationDecision })
         .then(
@@ -614,14 +623,15 @@ async function dispatchPathReviewLanes(
       revision: input.revision,
       reviewerId: lane.agentId,
       dispatchKey: key,
-      prompt: reviewLanePrompt({
-        agentId: lane.agentId,
-        taskId: input.taskId,
-        packagePath: input.packagePath,
-        dispatchId: ids.dispatchId,
-        execution: input.execution,
-        hits: matched,
-      }),
+      promptFor: (dispatchId) =>
+        reviewLanePrompt({
+          agentId: lane.agentId,
+          taskId: input.taskId,
+          packagePath: input.packagePath,
+          dispatchId,
+          execution: input.execution,
+          hits: matched,
+        }),
       ...(input.extras === undefined ? {} : { extras: input.extras }),
     });
     results.push(
