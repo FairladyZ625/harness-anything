@@ -381,7 +381,8 @@ function openSqliteEventStoreInternal(
     layout = options.rootInput === undefined ? null : resolveHarnessLayout(options.rootInput),
     canonicalDatabase =
       layout !== null && path.resolve(databasePath) === path.resolve(sqliteLedgerPath(options.rootInput!, 3)),
-    canonicalProjectionPath = canonicalDatabase ? path.join(layout!.localRoot, "cache", "task.sqlite") : undefined;
+    canonicalProjectionPath =
+      canonicalDatabase && !options.readOnly ? path.join(layout!.localRoot, "cache", "task.sqlite") : undefined;
   if (options.conversionSourceGeneration !== undefined && ((generation !== 2 && generation !== 3) || options.readOnly))
     throw new TaskEventStoreError("invalid_store", "conversion requires a writable generation 2 or 3 destination");
   if (generation === 3 && options.conversionSourceGeneration === undefined) {

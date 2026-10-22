@@ -10,12 +10,7 @@ import { publishGenerationThreeActivation, type GenerationThreeActivation } from
 type SelectionInput = { readonly rootInput: HarnessLayoutInput; readonly repoId?: string };
 
 export function readGenerationThreeActivation(input: SelectionInput): GenerationThreeActivation | null {
-  const layout = resolveHarnessLayout(input.rootInput);
-  return readGenerationThreeActivationAtPath(
-    sqliteLedgerPath(input.rootInput, 3),
-    input.repoId,
-    path.join(layout.localRoot, "cache", "task.sqlite"),
-  );
+  return readGenerationThreeActivationAtPath(sqliteLedgerPath(input.rootInput, 3), input.repoId);
 }
 
 export function readGenerationThreeActivationAtPath(

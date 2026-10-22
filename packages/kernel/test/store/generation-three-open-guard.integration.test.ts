@@ -165,6 +165,23 @@ test("canonical attach surfaces unreadable projection metadata instead of accept
   assert.equal(statSync(databasePath).size, ledgerSize, "the failed preflight must not mutate the canonical ledger");
 });
 
+test("canonical read-only ledger probes do not depend on projection readability", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-readonly-canonical-projection-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
+  mkdirSync(path.dirname(projectionPath), { recursive: true });
+  writeFileSync(projectionPath, "unreadable projection database\n");
+
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3, readOnly: true });
+  try {
+    assert.equal(store.revision(), 0);
+  } finally {
+    store.close();
+  }
+});
+
 test("canonical attach does not recreate a missing ledger covered by its activation certificate", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-missing-canonical-ledger-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
