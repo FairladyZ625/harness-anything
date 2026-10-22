@@ -62,7 +62,7 @@ export function transientFleetReceipt(value: unknown): boolean {
     value !== null &&
     "outcome" in value &&
     (value as { outcome?: unknown }).outcome === "op_rejected" &&
-    ["center_closing", "client_disconnected", "lease_state_unavailable", "op_in_flight"].includes(
+    ["center_closing", "client_disconnected", "lease_state_unavailable", "op_in_flight", "repo_unavailable"].includes(
       String((value as { code?: unknown }).code ?? ""),
     )
   );

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import type { ExecutionV1 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
+import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
 import { decisionReviewDispatchPrompt, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
 
 const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
@@ -72,6 +73,18 @@ test("decision review prompts hand the reviewer the exact registration identity 
     "the exact registration command",
   );
   assert.match(prompt, /Author only verdict, reason, findings, and evidenceChecked yourself/u);
+});
+
+test("re-review guidance keeps a newly found invariant or production-path defect blocking", () => {
+  const reReview = reviewFindingScopePrompt("re-review");
+  assert.match(reReview, /verify each previous finding/u);
+  assert.match(reReview, /breaks a current invariant or the production path is blocking/u);
+  assert.match(reReview, /any other new finding is a non-blocking follow-up/u);
+  assert.doesNotMatch(reReview, /Do not reopen|record it as non-blocking follow-up/u);
+  // The first-review and re-review rules live in one module, so a dispatch path cannot quote a
+  // different rule than the one the reviewer contract states.
+  assert.notEqual(reviewFindingScopePrompt("first"), reReview);
+  assert.match(reviewFindingScopePrompt("first"), /^On the first review,/u);
 });
 
 test("review prompt size is independent of evidence bytes and artifact count", () => {

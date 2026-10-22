@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExecutionV1, SubmissionV1 } from "@harness-anything/kernel";
 import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "../src/review-path-lanes.ts";
+import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
 import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
 
 const submission = (deliverables: readonly string[], deleted: readonly string[] = []): SubmissionV1 =>
@@ -141,4 +142,8 @@ test("the lane prompt fixes the routing evidence and the registration identity, 
     "registration identity is fixed by the dispatch",
   );
   assert.ok(!prompt.includes("attach-migrations.ts"), "the shared prompt must not hardcode one lane's contract");
+  // The lane and the cut prompt quote one guidance source; neither may tell a re-reviewer to
+  // downgrade a newly found invariant or production-path defect.
+  assert.ok(prompt.includes(reviewFindingScopePrompt("re-review")), "the lane quotes the shared re-review rule");
+  assert.ok(!prompt.includes("Do not reopen"), "the lane never suppresses a visible blocker");
 });

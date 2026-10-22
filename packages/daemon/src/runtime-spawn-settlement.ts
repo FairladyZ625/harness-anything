@@ -25,6 +25,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
+import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -111,16 +112,27 @@ export async function publishExit(
         reviewResultMissing = true;
       }
     }
+    const reviewSuperseded =
+      outcome !== "succeeded" && active.role === "reviewer" && active.task && context.input.projection
+        ? (() => {
+            const read = context.requiredRuntimeProjection(context.input).read(active.task.taskId);
+            return read?.snapshot
+              ? reviewCutSupersededExplanation(read.snapshot, active.task.executionId)
+              : { superseded: false };
+          })()
+        : { superseded: false };
     const attemptOutcome = {
       ...classifiedAttempt,
       // Provider failures are the classifications a fallback continuation carries forward, and
       // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
       // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
-      reason: isProviderFailureClassification(classifiedAttempt.classification)
-        ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
-        : outcome === "succeeded"
-          ? "Worker completed the attempt successfully."
-          : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+      reason: reviewSuperseded.superseded
+        ? reviewSuperseded.reason!
+        : isProviderFailureClassification(classifiedAttempt.classification)
+          ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
+          : outcome === "succeeded"
+            ? "Worker completed the attempt successfully."
+            : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
     };
     const endedAt = context.input.now(),
       exitHead = active.task ? await currentWorktreeHead(active.cwd) : null,
@@ -208,7 +220,11 @@ export async function publishExit(
     if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
     const exitGuidance = unsubmittedExitGuidance(active, outcome);
     if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
-    let reasonCode: string | null = reviewResultMissing ? "review_result_missing" : null,
+    let reasonCode: string | null = reviewSuperseded.superseded
+        ? "review_cut_superseded"
+        : reviewResultMissing
+          ? "review_result_missing"
+          : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
@@ -301,7 +317,7 @@ export async function publishExit(
                 .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
             : active.decisionReviewTarget !== null &&
               decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId));
-        if (!reviewRegistered) {
+        if (!reviewRegistered && !reviewSuperseded.superseded) {
           outcome = cancelled ? "cancelled" : "failed";
           reasonCode = "runtime_archive_failed";
         }
@@ -347,7 +363,9 @@ export async function publishExit(
           ? scheduleOutcomeFromRuntime(outcome, active.finalText)
           : outcome === "succeeded"
             ? "succeeded"
-            : "failed",
+            : reviewSuperseded.superseded
+              ? "superseded"
+              : "failed",
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
         endedAt,
         // active.binding is the actor that owns this dispatch's settlement fence: direct task

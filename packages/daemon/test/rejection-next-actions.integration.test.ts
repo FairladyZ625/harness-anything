@@ -29,6 +29,14 @@ function writeCloseout(rootDir: string, packagePath: unknown): void {
   );
 }
 
+function writeReviewReport(rootDir: string, packagePath: unknown, reviewId: string, body?: string): string {
+  const stem = reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId,
+    report = path.join(rootDir, "harness", String(packagePath), "artifacts", "reports", `${stem}.md`);
+  mkdirSync(path.dirname(report), { recursive: true });
+  writeFileSync(report, body ?? `# Review ${reviewId}\n\nIndependent review findings recorded.\n`);
+  return report;
+}
+
 test("submit lease refusals name the state-specific command that advances the execution", async () => {
   const rootDir = workspace("submit-exit"),
     taskId = "task-submit-exit",
@@ -430,6 +438,150 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (review-execution before submit): 
       field: "status",
       actual: "active",
       expectation: "Execution status must be submitted on the current task iteration before review",
+    });
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cut): review against older iteration or superseded cut returns review_cut_superseded and names the replacement cut", async () => {
+  const rootDir = workspace("review-superseded"),
+    taskId = "task-review-superseded",
+    firstExecutionId = "exec-superseded-r1",
+    secondExecutionId = "exec-superseded-r2",
+    owner = binding("superseded-owner"),
+    reviewer = withPolicyGroup(binding("superseded-reviewer"), "maintainer");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("review-superseded"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "review-superseded",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Review superseded" }, owner);
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
+    );
+    // Iteration 0: start and submit first execution
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, owner)).outcome,
+      "applied",
+    );
+    writeCloseout(rootDir, packagePath);
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: firstExecutionId,
+            forward: true,
+            // #3894 auto-dispatches the frozen reviewer on submit; a later forward must still name
+            // the reviewer it selects or replaces.
+            reviewer: "closeout-reviewer",
+            reason: "Forward r1",
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review-r1.json"),
+      JSON.stringify({ verdict: "changes_requested", reason: "Needs rework", evidenceChecked: ["tests"] }),
+    );
+    writeReviewReport(rootDir, packagePath, "review-r1");
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-review-execution",
+            taskId,
+            executionId: firstExecutionId,
+            reviewId: "review-r1",
+            fromFile: "review-r1.json",
+          },
+          reviewer,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: firstExecutionId,
+            return: true,
+            workerMode: "none",
+            reason: "Return to rework",
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
+    // Iteration 1: start and submit second execution
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner)).outcome,
+      "applied",
+    );
+    writeCloseout(rootDir, packagePath);
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: secondExecutionId,
+            forward: true,
+            reviewer: "closeout-reviewer",
+            reason: "Forward r2",
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
+
+    // Reviewer attempts to register review against firstExecutionId (superseded!)
+    writeFileSync(
+      path.join(rootDir, "review-stale.json"),
+      JSON.stringify({ verdict: "approved", reason: "Late review", evidenceChecked: ["tests"] }),
+    );
+    writeReviewReport(rootDir, packagePath, "review-stale");
+    const rejected = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId: firstExecutionId,
+        reviewId: "review-stale",
+        fromFile: "review-stale.json",
+      },
+      reviewer,
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "review_cut_superseded", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /superseded by iteration 1 \(execution exec-superseded-r2\)/u);
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: `execution ${firstExecutionId}`,
+      field: "status",
+      actual: "iteration=0 state=changes_requested",
+      expectation: `superseded by iteration 1 (execution ${secondExecutionId})`,
     });
   } finally {
     await cell?.close();

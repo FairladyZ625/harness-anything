@@ -114,7 +114,7 @@ export interface RuntimeAttemptTerminal {
   readonly dispatchId: string;
   readonly task: RuntimeLeaseScope | null;
   readonly schedule: TrustedScheduleRuntime | null;
-  readonly outcome: ScheduleRunOutcome;
+  readonly outcome: ScheduleRunOutcome | "superseded";
   readonly reason: string | null;
   readonly endedAt: string;
   readonly binding: RuntimeBinding;

@@ -28,7 +28,9 @@ const reviewerDiscipline = [
     "the exact error and label the check unverified.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
-    "changes_requested against the pinned target and digest, and stop if that cut changes.",
+    "changes_requested against the pinned target and digest, and stop if that cut changes. " +
+    "If ha task review-execution returns error code review_cut_superseded, the cut has been replaced; " +
+    "this error is terminal and must not be retried.",
   "- Findings are evidence-backed advice to the owner. Do not amend or adjudicate the target, and do not " +
     "accept, reject, defer, consent to, or complete it. Provider success is not review approval.",
 ].join("\n");

@@ -559,7 +559,11 @@ export async function fixture(
         ),
       );
     },
-    reviewDispatchedArtifacts: async (runtimeSessionId: string, dispatchId: string) => {
+    reviewDispatchedArtifacts: async (
+      runtimeSessionId: string,
+      dispatchId: string,
+      reviewedExecutionId: string = executionId,
+    ) => {
       const report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
         packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
       mkdirSync(path.dirname(path.join(root, "harness", packet)), { recursive: true });
@@ -579,7 +583,7 @@ export async function fixture(
         {
           kind: "task-review-execution",
           taskId,
-          executionId,
+          executionId: reviewedExecutionId,
           reviewId: `review-${dispatchId}`,
           fromFile: `harness/${packet}`,
         },

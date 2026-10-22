@@ -1,4 +1,5 @@
 import { submissionDigest, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
+import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 
 /**
  * Path-triggered additional review lanes: the repository-settings capability behind
@@ -107,13 +108,13 @@ export function reviewLanePrompt(input: {
       "is the authoritative delivery. Read the delivery diff yourself (deliveryBaseline -> submission " +
       "commit). Your own Agent declaration defines this lane's review focus, required output, and " +
       "verdict rules; apply it to the delivery as dispatched.",
-    "On the first review, list every blocking finding visible in the frozen cut; do not defer a visible blocker " +
-      "to a later round. On a re-review, verify the previous findings and inspect only the new diff.",
+    `${reviewFindingScopePrompt("first")} ${reviewFindingScopePrompt("re-review")}`,
     `Write this lane's review report to harness/${report} and review input to harness/${packet}.`,
     `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
       `--review-id review-${dispatchId} --from-file harness/${packet}. ` +
       "These dispatch-specific paths and the review id are fixed; any other value is rejected.",
     "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +
-      "do not review the replacement under this dispatch.",
+      "do not review the replacement under this dispatch. If ha task review-execution returns error code " +
+      "review_cut_superseded, the cut has been replaced; this error is terminal and must not be retried.",
   ].join("\n");
 }
