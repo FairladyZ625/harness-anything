@@ -412,8 +412,9 @@ export function submissionForRiskTierRetry(
   frozen: SubmissionV1 | null | undefined,
   assessment: SubmissionV1["riskTierAssessment"],
   completionContract: () => SubmissionV1["completionContract"],
+  preserveLegacyCut = false,
 ): SubmissionV1 {
-  if (isLegacyFrozenSubmissionCut(derived, frozen)) return derived;
+  if (preserveLegacyCut && isLegacyFrozenSubmissionCut(derived, frozen)) return derived;
   return { ...derived, riskTierAssessment: assessment, completionContract: completionContract() };
 }
 
@@ -711,6 +712,8 @@ export async function submitTask(
       undefined,
       typeof action.commitSha === "string" ? action.commitSha : undefined,
       binding.source,
+      undefined,
+      Boolean(selected?.submission),
     );
   if (!derived.ok)
     return submissionStopped(
@@ -848,16 +851,16 @@ export function submissionStopped(
 }
 
 export async function readCloseoutSubmission(
-  ...args: Parameters<typeof deriveCloseoutSubmission>
+  ...args: [...Parameters<typeof deriveCloseoutSubmission>, preserveLegacyCut?: boolean]
 ): Promise<{ readonly ok: true; readonly submission: SubmissionV1 } | { readonly ok: false; readonly error: Error }> {
   try {
-    const [cell, taskId, executionId, snapshot] = args,
-      derived = deriveCloseoutSubmissionData(...args),
+    const deriveArgs = args.slice(0, 8) as Parameters<typeof deriveCloseoutSubmission>,
+      preserveLegacyCut = args[8] === true,
+      [cell, taskId, executionId, snapshot] = deriveArgs,
+      derived = deriveCloseoutSubmissionData(...deriveArgs),
       frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
       sameCut = sameFrozenSubmissionCut(derived.submission, frozen),
-      // Older frozen cuts predate risk-tier assessment. Keep their original digest shape on retry;
-      // adding a field would make an otherwise idempotent submission look like a different cut.
-      legacyFrozenCut = isLegacyFrozenSubmissionCut(derived.submission, frozen),
+      legacyFrozenCut = preserveLegacyCut && isLegacyFrozenSubmissionCut(derived.submission, frozen),
       riskDelivery =
         legacyFrozenCut || derived.baseSha === null || derived.headSha === null
           ? { baseSha: derived.baseSha, headSha: derived.headSha, files: [] }
@@ -874,8 +877,12 @@ export async function readCloseoutSubmission(
               matchedPathReviewers: [],
               ...(frozen?.riskTierAssessment ? { previousEffectiveTier: frozen.riskTierAssessment.effectiveTier } : {}),
             }),
-      submission: SubmissionV1 = submissionForRiskTierRetry(derived.submission, frozen, riskTierAssessment, () =>
-        riskTierCompletionContract(cell, snapshot, derived.submission.completionContract, riskTierAssessment),
+      submission: SubmissionV1 = submissionForRiskTierRetry(
+        derived.submission,
+        frozen,
+        riskTierAssessment,
+        () => riskTierCompletionContract(cell, snapshot, derived.submission.completionContract, riskTierAssessment),
+        preserveLegacyCut,
       );
     return { ok: true, submission };
   } catch (error) {
