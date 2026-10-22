@@ -42,6 +42,28 @@ test("G4 exact-sync rejects new consumeKnownError and online history scan functi
   assert.match(result.stderr, /fallback\.ts#fallback/u);
 });
 
+test("G4 exact-sync rejects unlisted catch substitutions", (t) => {
+  const root = fixture(t);
+  writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
+  assert.equal(run("tools/check-fallback-boundaries.mjs", root, "--update").status, 0);
+  writeFileSync(
+    path.join(root, "packages/example/src/fallback.ts"),
+    "export async function load() { try { return await primary(); } catch { return fallback(); } }\n",
+  );
+  const missing = run("tools/check-fallback-boundaries.mjs", root);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /unlisted: packages\/example\/src\/fallback\.ts#load/u);
+
+  assert.equal(run("tools/check-fallback-boundaries.mjs", root, "--update").status, 0);
+  writeFileSync(
+    path.join(root, "packages/example/src/unrelated.ts"),
+    "export async function unrelated() { try { return await primary(); } catch { return fallback(); } }\n",
+  );
+  const unrelated = run("tools/check-fallback-boundaries.mjs", root);
+  assert.notEqual(unrelated.status, 0);
+  assert.match(unrelated.stderr, /unlisted: packages\/example\/src\/unrelated\.ts#unrelated/u);
+});
+
 // task_1992b2c005f6bb7ee214a265bc: runtimeQueryKeys.events is a React Query key builder sharing
 // the ledger-read method name; only real events(...) reads count as history scans.
 test("G4 history-scan detection ignores runtimeQueryKeys builders but flags ledger events reads", (t) => {

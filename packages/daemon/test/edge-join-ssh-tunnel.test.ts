@@ -167,6 +167,29 @@ test("a startup timeout waits for the SSH child to exit before scheduling a repl
   await manager.close();
 });
 
+test("a synchronous OpenSSH spawn failure is surfaced and scheduled for reconnect", async () => {
+  const scheduled: { callback: () => void; cancelled: boolean; delayMs: number }[] = [],
+    manager = new EdgeJoinSshTunnelManager({
+      spawn: (() => {
+        throw new Error("spawn denied");
+      }) as never,
+      schedule: (callback, delayMs) => {
+        const item = { callback, cancelled: false, delayMs };
+        scheduled.push(item);
+        return () => {
+          item.cancelled = true;
+        };
+      },
+    }),
+    pending = manager.start({ target: "operator@edge.example", fleetServicePort: 7545, loginServicePort: 18544 });
+
+  await assert.rejects(pending, { message: "spawn denied" });
+  assert.equal(manager.state("operator@edge.example"), "reconnecting");
+  assert.equal(scheduled[0]!.delayMs, 5_000);
+  assert.equal(scheduled[0]!.cancelled, false);
+  await manager.close();
+});
+
 test("SSH targets reject options, commands, and shell syntax", () => {
   assert.equal(validateSshTarget(" macbook-air-via-tencent-prod "), "macbook-air-via-tencent-prod");
   assert.equal(validateSshTarget("edge-user@edge.example"), "edge-user@edge.example");
