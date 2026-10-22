@@ -222,3 +222,15 @@ test("the private read section rides after the declared prompts and before the m
     "a canonical checkout adds no section",
   );
 });
+
+test("an agentless task dispatch carries the private read section too", () => {
+  const section = "# Private Ledger Paths (read-only)\n- harness/x.md -> /canonical/harness/x.md",
+    prompt = assembleUnboundPrompt("MISSION_WITNESS", "worker", section);
+
+  // A task dispatch without a declaration names private files just as often; it must not be the
+  // one branch that still hands them out as bare relative paths.
+  assert.ok(prompt.indexOf("# Private Ledger Paths") < prompt.indexOf("MISSION_WITNESS"));
+  assert.match(prompt, /# Worker Role/u, "the role baseline still leads");
+  // The direct-prompt path (neither task nor role) stays verbatim.
+  assert.equal(assembleUnboundPrompt("MISSION_WITNESS"), assembleUnboundPrompt("MISSION_WITNESS", undefined, null));
+});

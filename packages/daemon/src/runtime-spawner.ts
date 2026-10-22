@@ -476,7 +476,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   privateReads,
                 )
               : taskMission || role === "reviewer"
-                ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
+                ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined, privateReads)
                 : dispatchMission,
             // Scheduled Squad leaders answer the squad decision protocol; the run settles
             // the occurrence. Every dispatch still receives its own rendered dispatch id.

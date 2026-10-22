@@ -84,9 +84,10 @@ export function assembleAgentPrompt(
 /**
  * Without an agent declaration, task dispatches default to worker discipline; review dispatches
  * explicitly select reviewer discipline. Direct prompts with neither task nor role pass through verbatim.
+ * `privateReads` answers the private ledger paths the mission names, exactly as for a declared agent.
  */
-export function assembleUnboundPrompt(mission: string, role?: AgentRole): string {
-  return [agentRolePrompt(role), "# Mission", mission].join("\n\n");
+export function assembleUnboundPrompt(mission: string, role?: AgentRole, privateReads: string | null = null): string {
+  return [agentRolePrompt(role), ...(privateReads === null ? [] : [privateReads]), "# Mission", mission].join("\n\n");
 }
 
 export function dispatchMissionForPermission(mission: string, permissionMode: string | undefined): string {
