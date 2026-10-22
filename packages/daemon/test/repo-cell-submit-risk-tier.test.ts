@@ -4,7 +4,6 @@ import test from "node:test";
 import { submissionDigest, type SubmissionV1 } from "@harness-anything/kernel";
 import type { PresetSnapshotV1 } from "@harness-anything/preset";
 import {
-  isLegacyFrozenSubmissionCut,
   riskTierCompletionContract,
   sameFrozenSubmissionCut,
   submissionForRiskTierRetry,
@@ -15,7 +14,7 @@ import { readDefaultVerticalDefinition } from "../src/vertical-declaration-actio
 
 const digest = `sha256:${"a".repeat(64)}`;
 
-test("a legacy same-commit submission keeps its original digest shape on retry", () => {
+test("a legacy cut keeps its bytes only when the caller explicitly resumes it", () => {
   const assessment: NonNullable<SubmissionV1["riskTierAssessment"]> = {
       schema: "task-risk-tier-assessment/v1",
       declaredTier: "low",
@@ -43,16 +42,29 @@ test("a legacy same-commit submission keeps its original digest shape on retry",
     frozenWithAssessment = { ...derived, riskTierAssessment: assessment },
     { riskTierAssessment: _assessment, ...legacyFrozen } = frozenWithAssessment,
     frozen = legacyFrozen as SubmissionV1;
-  assert.equal(isLegacyFrozenSubmissionCut(derived, frozen), true);
   assert.equal(sameFrozenSubmissionCut(derived, frozenWithAssessment), true);
   let rebuiltContract = false;
-  const retry = submissionForRiskTierRetry(derived, frozen, assessment, () => {
-    rebuiltContract = true;
-    return derived.completionContract;
-  });
+  const retry = submissionForRiskTierRetry(
+    derived,
+    frozen,
+    assessment,
+    () => {
+      rebuiltContract = true;
+      return derived.completionContract;
+    },
+    true,
+  );
   assert.equal(rebuiltContract, false);
   assert.equal(retry.riskTierAssessment, undefined);
   assert.equal(submissionDigest(retry), submissionDigest(frozen));
+  rebuiltContract = false;
+  const submission = submissionForRiskTierRetry(derived, frozen, assessment, () => {
+    rebuiltContract = true;
+    return derived.completionContract;
+  });
+  assert.equal(rebuiltContract, true);
+  assert.equal(submission.riskTierAssessment, assessment);
+  assert.notEqual(submissionDigest(submission), submissionDigest(frozen));
   assert.equal(
     sameFrozenSubmissionCut({ ...derived, deliverables: ["different-artifact"] }, frozenWithAssessment),
     false,

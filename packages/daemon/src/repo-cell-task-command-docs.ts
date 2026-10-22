@@ -294,6 +294,9 @@ export async function runTaskCommandWithDocs(
       typeof taskAction.commitSha === "string" ? taskAction.commitSha : undefined,
       binding.source,
       { changes: carriedChanges, revision: headRevision + 1 },
+      Boolean(
+        current.snapshot.executions.find((execution) => execution.executionId === submittedExecutionId)?.submission,
+      ),
     );
     if (!derived.ok) {
       recycleClaims(cell.rootDir, intent);
