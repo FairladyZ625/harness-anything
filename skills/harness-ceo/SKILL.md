@@ -78,5 +78,6 @@ description: 通过明确的委托契约、模型无关的角色选择、派工�
 | 工作收口前逐项查遗漏与旧问题复发 | [逐项审计包](assets/audit-packet.md) |
 | PR 阻塞、依赖叠列、合并后失败 | [集成与发布监管](references/integration.md) |
 | 新增模型或修订模型经验 | [模型接入](references/models.md)、[矩阵模板](assets/model-matrix.md) |
+| 同类摩擦第二次出现，或想让 Agent 复盘并迭代自己的 CEO Skill | [CEO Skill 迭代教程](references/iteration-tutorial.md) |
 
 只读当前动作需要的手册。精简正文不意味着省略对应操作方法；迁移和维护时逐项核对来源要求及其实际落点，不能用一个链接代替尚未写入目标文件的内容。
