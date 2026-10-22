@@ -210,7 +210,11 @@ export class OidcSessionService {
         expiresAtLimit ?? Number.POSITIVE_INFINITY,
       ),
       userCode = requiredString(device.user_code, "user_code"),
-      verificationUri = requiredString(device.verification_uri, "verification_uri"),
+      verificationUri = deviceVerificationUri(
+        authority,
+        requiredString(device.verification_uri, "verification_uri"),
+        userCode,
+      ),
       notice = { userCode, createdAt, expiresAt, pending: true };
     this.#device = {
       notice,
@@ -573,6 +577,7 @@ export class OidcSessionService {
           realm: authority.realm,
           clientId: "harness-center",
           ...(authority.certificate ? { certificate: authority.certificate } : {}),
+          ...(authority.servername ? { servername: authority.servername } : {}),
         },
       },
     };
@@ -847,7 +852,14 @@ export class OidcSessionService {
         nodeId: edge.nodeId,
         credential: edge.credential,
       });
-      return { ...authority, clientSecret: edge.credential };
+      return {
+        ...authority,
+        ...(edge.loginUrl ? { url: edge.loginUrl } : {}),
+        ...(edge.loginServername ? { servername: edge.loginServername } : {}),
+        ...(edge.loginBrowserUrl ? { browserUrl: edge.loginBrowserUrl } : {}),
+        ...(edge.loginCertificate ? { certificate: edge.loginCertificate } : {}),
+        clientSecret: edge.credential,
+      };
     }
     const config = this.#config();
     return {
@@ -860,12 +872,12 @@ export class OidcSessionService {
   }
 
   async #fetchAuthority(
-    authority: Pick<OidcLoginAuthority, "url" | "realm" | "certificate">,
+    authority: Pick<OidcLoginAuthority, "url" | "realm" | "certificate" | "servername">,
     input: string | URL,
     init?: RequestInit,
   ): Promise<Response> {
     const ca = authority.certificate ?? this.#defaultCaCertificates();
-    return this.#fetchWithCa(ca, input, init);
+    return this.#fetchWithCa(ca, input, init, authority.servername);
   }
 
   #defaultCaCertificates(): readonly string[] {
@@ -876,8 +888,13 @@ export class OidcSessionService {
     return probeSystemCaTrust(this.#ports.fetch, this.#defaultCaCertificates(), url);
   }
 
-  #fetchWithCa(ca: string | readonly string[], input: string | URL, init?: RequestInit): Promise<Response> {
-    return fetchWithTlsCa(this.#ports.fetch, ca, input, init);
+  #fetchWithCa(
+    ca: string | readonly string[],
+    input: string | URL,
+    init?: RequestInit,
+    servername?: string,
+  ): Promise<Response> {
+    return fetchWithTlsCa(this.#ports.fetch, ca, input, init, servername);
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
@@ -982,6 +999,7 @@ export class OidcSessionService {
         realm: authority.realm,
         clientId: authority.clientId,
         ...(authority.certificate ? { certificate: authority.certificate } : {}),
+        ...(authority.servername ? { servername: authority.servername } : {}),
       },
     };
   }
@@ -993,6 +1011,16 @@ export class OidcSessionService {
   #writeSession(session: StoredSession): void {
     this.#ports.sessionStore.write(`${JSON.stringify(session)}\n`);
   }
+}
+
+function deviceVerificationUri(authority: OidcLoginAuthority, fallback: string, userCode: string): string {
+  if (!authority.browserUrl) return fallback;
+  const url = new URL(
+    `realms/${encodeURIComponent(authority.realm)}/device`,
+    `${authority.browserUrl.replace(/\/$/u, "")}/`,
+  );
+  url.searchParams.set("user_code", userCode);
+  return url.toString();
 }
 
 /**

@@ -136,6 +136,7 @@ export interface EdgeJoinStatusReply {
   readonly joinId: string;
   readonly state: "pending" | "consumed" | "expired" | "revoked";
   readonly nodeId?: string;
+  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
 }
 export interface EdgeJoinSummary extends EdgeJoinStatusReply {
   readonly personId: string;
@@ -143,6 +144,7 @@ export interface EdgeJoinSummary extends EdgeJoinStatusReply {
   readonly groupIds: readonly string[];
   readonly createdAt: string;
   readonly expiresAt: string;
+  readonly transport?: "ssh-reverse";
 }
 
 export interface AccessGroupWrite {
@@ -210,6 +212,8 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
       readonly groupIds: readonly string[];
       readonly nodeLabel?: string;
       readonly platform?: EdgeJoinPlatform;
+      readonly transport?: "direct" | "ssh-reverse";
+      readonly sshTarget?: string;
     }
   | { readonly operation: "edge-join-status"; readonly joinId: string }
   | { readonly operation: "edge-join-list" }

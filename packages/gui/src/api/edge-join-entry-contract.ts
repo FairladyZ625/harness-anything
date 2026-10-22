@@ -9,6 +9,7 @@ export interface EdgeJoinDeviceLogin {
   readonly userCode: string;
   readonly interval: number;
   readonly expiresAt: number;
+  readonly transport?: "ssh-reverse";
 }
 
 export interface EdgeJoinRepositoryOutcome {

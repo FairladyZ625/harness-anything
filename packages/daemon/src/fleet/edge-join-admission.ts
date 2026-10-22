@@ -3,10 +3,13 @@ import { coded } from "../agent-runtime-contract.ts";
 import type { OidcSessionService } from "../oidc-session-service.ts";
 import { createEdgeJoinStore, type EdgeJoinRecord } from "./edge-join.ts";
 
-export function restoreEdgeJoinStore(journal: {
-  read(): readonly string[];
-  append(line: string): unknown;
-}): ReturnType<typeof createEdgeJoinStore> {
+export function restoreEdgeJoinStore(
+  journal: {
+    read(): readonly string[];
+    append(line: string): unknown;
+  },
+  now?: () => string,
+): ReturnType<typeof createEdgeJoinStore> {
   const records = journal
     .read()
     .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -20,6 +23,7 @@ export function restoreEdgeJoinStore(journal: {
     .map((record) => record.record);
   return createEdgeJoinStore({
     records,
+    ...(now ? { now } : {}),
     onChange: (record) => journal.append(JSON.stringify({ schema: "harness-edge-join/v2", kind: "record", record })),
   });
 }

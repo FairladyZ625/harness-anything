@@ -14,7 +14,11 @@ export interface EdgeJoinLink {
   readonly repoIds: readonly string[];
   readonly spkiSha256: string;
   readonly token?: string;
+  readonly transport?: "ssh-reverse";
+  readonly centerServername?: string;
   readonly loginUrl: string;
+  readonly loginServername?: string;
+  readonly loginBrowserUrl?: string;
   readonly loginRealm: string;
   readonly loginClientId: string;
   readonly loginCertificate?: string;
@@ -33,8 +37,16 @@ export interface EdgeJoinRecord {
   readonly nodeLabel?: string;
   readonly platform?: EdgeJoinPlatform;
   readonly centerOrigin: string;
+  readonly transport?: "ssh-reverse";
+  readonly centerServername?: string;
   readonly spkiSha256: string;
   readonly loginUrl: string;
+  readonly loginServername?: string;
+  readonly loginBrowserUrl?: string;
+  readonly sshTarget?: string;
+  readonly sshFleetPort?: number;
+  readonly sshLoginPort?: number;
+  readonly sshLoginServicePort?: number;
   readonly loginRealm: string;
   readonly loginClientId: string;
   readonly loginCertificate?: string;
@@ -50,6 +62,7 @@ export interface EdgeJoinStatusResult {
   readonly joinId: string;
   readonly state: EdgeJoinState;
   readonly nodeId?: string;
+  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
 }
 export interface EdgeJoinSummary extends EdgeJoinStatusResult {
   readonly personId: string;
@@ -57,6 +70,7 @@ export interface EdgeJoinSummary extends EdgeJoinStatusResult {
   readonly groupIds: readonly string[];
   readonly createdAt: string;
   readonly expiresAt: string;
+  readonly transport?: "ssh-reverse";
 }
 export interface EdgeJoinStoreOptions {
   readonly records?: readonly EdgeJoinRecord[];
@@ -68,6 +82,7 @@ export interface EdgeJoinStoreOptions {
 const LINK_PREFIX = "harness-edge://join/";
 const TOKEN_BYTES = 32;
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+const isLoopback = (value: string): boolean => value === "localhost" || value === "127.0.0.1" || value === "[::1]";
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const tokenDigest = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
 
@@ -99,6 +114,7 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
       centerOrigin = candidate.centerOrigin,
       repoIds = candidate.repoIds,
       loginUrl = candidate.loginUrl,
+      loginBrowserUrl = candidate.loginBrowserUrl,
       loginCertificate = candidate.loginCertificate;
     if (
       candidate.version !== 2 ||
@@ -110,7 +126,11 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
       new Set(repoIds).size !== repoIds.length ||
       !/^[0-9a-f]{64}$/u.test(String(candidate.spkiSha256)) ||
       (candidate.token !== undefined && !isText(candidate.token)) ||
+      (candidate.transport !== undefined && candidate.transport !== "ssh-reverse") ||
+      (candidate.centerServername !== undefined && !isText(candidate.centerServername)) ||
       !isText(loginUrl) ||
+      (candidate.loginServername !== undefined && !isText(candidate.loginServername)) ||
+      (loginBrowserUrl !== undefined && !isText(loginBrowserUrl)) ||
       !isText(candidate.loginRealm) ||
       !isText(candidate.loginClientId) ||
       (loginCertificate !== undefined && !isText(loginCertificate)) ||
@@ -123,7 +143,11 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
             "repoIds",
             "spkiSha256",
             "token",
+            "transport",
+            "centerServername",
             "loginUrl",
+            "loginServername",
+            "loginBrowserUrl",
             "loginRealm",
             "loginClientId",
             "loginCertificate",
@@ -132,15 +156,23 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
     )
       throw new Error("shape");
     const center = new URL(centerOrigin),
-      login = new URL(loginUrl);
+      login = new URL(loginUrl),
+      browser = loginBrowserUrl === undefined ? undefined : new URL(loginBrowserUrl);
     if (
       center.protocol !== "https:" ||
       center.origin !== centerOrigin ||
       center.username !== "" ||
       center.password !== "" ||
+      (candidate.transport === "ssh-reverse" &&
+        (!candidate.centerServername ||
+          !candidate.loginServername ||
+          !browser ||
+          !isLoopback(center.hostname) ||
+          !isLoopback(login.hostname))) ||
       login.protocol !== "https:" ||
       login.username !== "" ||
-      login.password !== ""
+      login.password !== "" ||
+      (browser !== undefined && (browser.protocol !== "https:" || browser.username !== "" || browser.password !== ""))
     )
       throw new Error("login URL");
     return {
@@ -150,7 +182,11 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
       repoIds: repoIds as string[],
       spkiSha256: candidate.spkiSha256 as string,
       ...(candidate.token ? { token: candidate.token as string } : {}),
+      ...(candidate.transport === "ssh-reverse" ? { transport: "ssh-reverse" as const } : {}),
+      ...(candidate.centerServername ? { centerServername: candidate.centerServername as string } : {}),
       loginUrl: login.toString().replace(/\/$/u, ""),
+      ...(candidate.loginServername ? { loginServername: candidate.loginServername as string } : {}),
+      ...(browser ? { loginBrowserUrl: browser.toString().replace(/\/$/u, "") } : {}),
       loginRealm: candidate.loginRealm as string,
       loginClientId: candidate.loginClientId as string,
       ...(loginCertificate === undefined
@@ -184,6 +220,10 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
         readonly nodeLabel?: string;
         readonly platform?: EdgeJoinPlatform;
+        readonly sshTarget?: string;
+        readonly sshFleetPort?: number;
+        readonly sshLoginPort?: number;
+        readonly sshLoginServicePort?: number;
         readonly createdBy: string;
         readonly ttlMs: number;
       },
@@ -203,8 +243,16 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
           ...(input.nodeLabel ? { nodeLabel: input.nodeLabel } : {}),
           ...(input.platform ? { platform: input.platform } : {}),
           centerOrigin: input.centerOrigin,
+          ...(input.transport ? { transport: input.transport } : {}),
+          ...(input.centerServername ? { centerServername: input.centerServername } : {}),
           spkiSha256: input.spkiSha256,
           loginUrl: input.loginUrl,
+          ...(input.loginServername ? { loginServername: input.loginServername } : {}),
+          ...(input.loginBrowserUrl ? { loginBrowserUrl: input.loginBrowserUrl } : {}),
+          ...(input.sshTarget ? { sshTarget: input.sshTarget } : {}),
+          ...(input.sshFleetPort === undefined ? {} : { sshFleetPort: input.sshFleetPort }),
+          ...(input.sshLoginPort === undefined ? {} : { sshLoginPort: input.sshLoginPort }),
+          ...(input.sshLoginServicePort === undefined ? {} : { sshLoginServicePort: input.sshLoginServicePort }),
           loginRealm: input.loginRealm,
           loginClientId: input.loginClientId,
           ...(loginCertificate === undefined ? {} : { loginCertificate }),
@@ -218,10 +266,14 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
           version: 2,
           joinId: record.joinId,
           centerOrigin: record.centerOrigin,
+          ...(record.transport ? { transport: record.transport } : {}),
+          ...(record.centerServername ? { centerServername: record.centerServername } : {}),
           repoIds: record.repoIds,
           spkiSha256: record.spkiSha256,
           token: rawToken,
           loginUrl: record.loginUrl,
+          ...(record.loginServername ? { loginServername: record.loginServername } : {}),
+          ...(record.loginBrowserUrl ? { loginBrowserUrl: record.loginBrowserUrl } : {}),
           loginRealm: record.loginRealm,
           loginClientId: record.loginClientId,
           ...(record.loginCertificate === undefined ? {} : { loginCertificate: record.loginCertificate }),
@@ -233,6 +285,9 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
     get(joinId: string): EdgeJoinRecord | undefined {
       const record = records.get(joinId);
       return record ? clone(record) : undefined;
+    },
+    records(): readonly EdgeJoinRecord[] {
+      return [...records.values()].map(clone);
     },
     assertConsumable(joinId: string, suppliedToken: string): EdgeJoinRecord {
       const record = records.get(joinId);

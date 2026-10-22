@@ -25,6 +25,8 @@ export interface AccessAdminRequest {
   readonly nodeId?: string;
   readonly systemName?: string;
   readonly platform?: string;
+  readonly transport?: "direct" | "ssh-reverse";
+  readonly sshTarget?: string;
   readonly credentialFile?: string;
   readonly joinId?: string;
   readonly requestId?: string;

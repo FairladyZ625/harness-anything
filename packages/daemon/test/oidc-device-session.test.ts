@@ -145,6 +145,41 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
   assert.ok(logoutDispatcher, "logout uses the session authority's request-scoped CA");
 });
 
+test("SSH device authorization uses the loopback login endpoint and hands the browser to the canonical center URL", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-ssh-browser-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const requests: string[] = [],
+    dispatchers: unknown[] = [],
+    service = new OidcSessionService(root, {
+      now: () => 0,
+      fetch: (async (input, init) => {
+        requests.push(String(input));
+        dispatchers.push((init as RequestInit & { dispatcher?: unknown }).dispatcher);
+        return Response.json({
+          device_code: "private-device",
+          user_code: "SSH-CODE",
+          verification_uri: "https://127.0.0.1:41232/realms/harness/device",
+          expires_in: 600,
+          interval: 5,
+        });
+      }) as typeof fetch,
+    });
+
+  const begun = await service.beginDevice(undefined, {
+    url: "https://127.0.0.1:41232",
+    servername: "login.center.example",
+    browserUrl: "https://login.center.example:18544",
+    realm: "harness",
+    clientId: "harness-node-edge",
+    certificate: "public test CA",
+  });
+
+  assert.deepEqual(requests, ["https://127.0.0.1:41232/realms/harness/protocol/openid-connect/auth/device"]);
+  assert.ok(dispatchers[0], "the loopback request still uses the invitation TLS authority");
+  assert.equal(begun.verificationUri, "https://login.center.example:18544/realms/harness/device?user_code=SSH-CODE");
+  assert.equal(JSON.stringify(begun).includes("private-device"), false);
+});
+
 test("device login survives transient transport loss and replaces a code invalidated by Keycloak restart", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-restart-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

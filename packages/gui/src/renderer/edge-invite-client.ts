@@ -23,6 +23,8 @@ type CreateJoinInput = {
   readonly groupIds: readonly string[];
   readonly nodeLabel?: string;
   readonly platform?: EdgeJoinPlatform;
+  readonly transport?: "direct" | "ssh-reverse";
+  readonly sshTarget?: string;
 };
 type AccessBridge = {
   readonly groups: () => Promise<unknown>;
@@ -147,6 +149,10 @@ export function readJoinStatus(value: unknown): EdgeJoinStatusReply {
     joinId: value.joinId,
     state: value.state as EdgeJoinStatusReply["state"],
     ...(typeof value.nodeId === "string" ? { nodeId: value.nodeId } : {}),
+    ...(typeof value.tunnelState === "string" &&
+    ["connecting", "connected", "reconnecting", "stopped"].includes(value.tunnelState)
+      ? { tunnelState: value.tunnelState as EdgeJoinStatusReply["tunnelState"] }
+      : {}),
   };
 }
 
@@ -170,5 +176,6 @@ function readJoinSummary(value: unknown): EdgeJoinSummary {
     groupIds: value.groupIds as string[],
     createdAt: value.createdAt,
     expiresAt: value.expiresAt,
+    ...(value.transport === "ssh-reverse" ? { transport: "ssh-reverse" as const } : {}),
   };
 }

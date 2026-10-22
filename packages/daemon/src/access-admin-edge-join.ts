@@ -19,12 +19,15 @@ import {
   type EdgeJoinRecord,
 } from "./fleet/edge-join.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
+import { EdgeJoinSshTunnelManager, validateSshTarget, type EdgeJoinTunnelPorts } from "./fleet/edge-join-ssh-tunnel.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
 
 interface Session {
   readonly adapter: KeycloakPolicyAdapter;
   readonly token: string;
 }
+
+type Schedule = (callback: () => void, delayMs: number) => () => void;
 
 export class EdgeJoinAdminService {
   readonly #oidc: OidcSessionService;
@@ -33,6 +36,9 @@ export class EdgeJoinAdminService {
   readonly #now: () => string;
   readonly #session: () => Promise<Session>;
   readonly #joins: ReturnType<typeof createEdgeJoinStore>;
+  readonly #sshTunnels: EdgeJoinSshTunnelManager;
+  readonly #schedule: Schedule;
+  #cancelExpirySweep?: () => void;
 
   constructor(input: {
     readonly oidc: OidcSessionService;
@@ -41,13 +47,24 @@ export class EdgeJoinAdminService {
     readonly now: () => string;
     readonly journal: AccessAdminPorts["journal"];
     readonly session: () => Promise<Session>;
+    readonly sshTunnels: EdgeJoinSshTunnelManager;
+    readonly schedule?: Schedule;
   }) {
     this.#oidc = input.oidc;
     this.#userRoot = input.userRoot;
     this.#daemonId = input.daemonId;
     this.#now = input.now;
     this.#session = input.session;
-    this.#joins = restoreEdgeJoinStore(input.journal);
+    this.#sshTunnels = input.sshTunnels;
+    this.#joins = restoreEdgeJoinStore(input.journal, input.now);
+    this.#schedule =
+      input.schedule ??
+      ((callback, delayMs) => {
+        const timer = setTimeout(callback, delayMs);
+        timer.unref();
+        return () => clearTimeout(timer);
+      });
+    this.#scheduleExpirySweep();
   }
 
   async create(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
@@ -55,7 +72,13 @@ export class EdgeJoinAdminService {
       repoIds = uniqueSorted(names(request.repoIds, "repoIds") ?? []),
       groupIds = uniqueSorted(names(request.groupIds, "groupIds") ?? []),
       nodeLabel = request.nodeLabel?.trim() || undefined,
-      platform = request.platform;
+      platform = request.platform,
+      transport = request.transport,
+      sshTarget = transport === "ssh-reverse" ? validateSshTarget(text(request.sshTarget, "sshTarget")) : undefined;
+    if (transport !== undefined && transport !== "direct" && transport !== "ssh-reverse")
+      throw coded("edge_join_invalid", "The edge transport must be direct or ssh-reverse.");
+    if (transport !== "ssh-reverse" && request.sshTarget !== undefined)
+      throw coded("edge_join_invalid", "An SSH target is only valid with the ssh-reverse transport.");
     if (repoIds.length === 0) throw coded("edge_join_invalid", "Select at least one repository.");
     if (groupIds.length === 0) throw coded("edge_join_invalid", "Select at least one permission group.");
     if (repoIds.some((repoId) => !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)))
@@ -86,60 +109,86 @@ export class EdgeJoinAdminService {
         return { groupId, version: edgeJoinPermissionVersion(groupId, effectiveScopes) };
       });
 
-    if (!(await session.adapter.findUserId(session.token, personId)))
-      // Already inside the edge-join-create write queue; invite renews the session in place.
-      // Username, email, and displayName are new-user fields: an existing member needs none.
-      await this.#oidc.invite(
-        {
-          personId,
-          username: newUserField(request.username, "username", personId),
-          email: newUserField(request.email, "email", personId),
-          displayName: newUserField(request.displayName, "displayName", personId),
-        },
-        true,
-      );
-    const userId = await requiredUserId(session.adapter, session.token, personId),
-      grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
-    for (const repoId of repoIds) {
-      const resource = encodeAuthorizationResource({ kind: "repository", repoId });
-      for (const { groupId } of permissionSnapshot) {
-        const existing = grants.find((grant) => grant.groupId === groupId && grant.resource === resource),
-          userIds = uniqueSorted([...(existing?.userIds ?? []), userId]);
-        await session.adapter.writeGrant(
-          session.token,
-          { groupId, resource, userIds },
-          effectivePolicyGroupScopes(groups, groupId),
+    const login = await this.#oidc.interactiveAuthority();
+    try {
+      const loginAddress = new URL(login.url),
+        tunnel = sshTarget
+          ? await this.#sshTunnels.start({
+              target: sshTarget,
+              fleetServicePort: config.port,
+              loginServicePort: Number(loginAddress.port || 443),
+            })
+          : undefined,
+        tunnelFields = sshTarget && tunnel ? sshJoinFields(config.externalUrl!, login.url, tunnel) : undefined;
+      if (!(await session.adapter.findUserId(session.token, personId)))
+        // Already inside the edge-join-create write queue; invite renews the session in place.
+        // Username, email, and displayName are new-user fields: an existing member needs none.
+        await this.#oidc.invite(
+          {
+            personId,
+            username: newUserField(request.username, "username", personId),
+            email: newUserField(request.email, "email", personId),
+            displayName: newUserField(request.displayName, "displayName", personId),
+          },
+          true,
         );
+      const userId = await requiredUserId(session.adapter, session.token, personId),
+        grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
+      for (const repoId of repoIds) {
+        const resource = encodeAuthorizationResource({ kind: "repository", repoId });
+        for (const { groupId } of permissionSnapshot) {
+          const existing = grants.find((grant) => grant.groupId === groupId && grant.resource === resource),
+            userIds = uniqueSorted([...(existing?.userIds ?? []), userId]);
+          await session.adapter.writeGrant(
+            session.token,
+            { groupId, resource, userIds },
+            effectivePolicyGroupScopes(groups, groupId),
+          );
+        }
       }
-    }
-
-    const login = await this.#oidc.interactiveAuthority(),
-      created = this.#joins.create({
-        centerOrigin,
+      const created = this.#joins.create({
+        centerOrigin: tunnelFields?.centerOrigin ?? centerOrigin,
+        ...(tunnelFields
+          ? {
+              transport: "ssh-reverse" as const,
+              centerServername: tunnelFields.centerServername,
+              loginUrl: tunnelFields.loginUrl,
+              loginServername: tunnelFields.loginServername,
+              loginBrowserUrl: login.url,
+              sshTarget,
+              sshFleetPort: tunnelFields.ports.fleet,
+              sshLoginPort: tunnelFields.ports.login,
+              sshLoginServicePort: Number(loginAddress.port || 443),
+            }
+          : { loginUrl: login.url }),
         repoIds,
         personId,
         permissionSnapshot,
         ...(nodeLabel ? { nodeLabel } : {}),
         ...(platform ? { platform } : {}),
         spkiSha256,
-        loginUrl: login.url,
         loginRealm: login.realm,
         loginClientId: login.clientId,
         ...(login.certificate ? { loginCertificate: login.certificate } : {}),
         createdBy: actor,
         ttlMs: 72 * 60 * 60 * 1000,
       });
-    return {
-      ok: true,
-      joinId: created.record.joinId,
-      state: "pending",
-      expiresAt: created.record.expiresAt,
-      link: encodeEdgeJoinLink(created.link),
-    };
+      this.#scheduleExpirySweep();
+      return {
+        ok: true,
+        joinId: created.record.joinId,
+        state: "pending",
+        expiresAt: created.record.expiresAt,
+        link: encodeEdgeJoinLink(created.link),
+      };
+    } catch (error) {
+      if (sshTarget && !this.#hasActiveTarget(sshTarget)) this.#sshTunnels.release(sshTarget);
+      throw error;
+    }
   }
 
   async admit(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
-    return admitEdgeJoin({
+    const result = await admitEdgeJoin({
       ...input,
       oidc: this.#oidc,
       edgeJoins: this.#joins,
@@ -164,19 +213,129 @@ export class EdgeJoinAdminService {
         return credential;
       },
     });
+    this.#scheduleExpirySweep();
+    return result;
   }
 
   status(joinId: string) {
-    return this.#joins.status(joinId);
+    const record = this.#joins.get(joinId),
+      status = this.#joins.status(joinId);
+    return {
+      ...status,
+      ...(record?.sshTarget ? { tunnelState: this.#sshTunnels.state(record.sshTarget) } : {}),
+    };
   }
 
   list() {
-    return this.#joins.list();
+    return this.#joins.list().map((summary) => {
+      const record = this.#joins.get(summary.joinId);
+      return {
+        ...summary,
+        ...(record?.transport ? { transport: record.transport } : {}),
+        ...(record?.sshTarget ? { tunnelState: this.#sshTunnels.state(record.sshTarget) } : {}),
+      };
+    });
   }
 
   revoke(joinId: string, actor: string): Record<string, unknown> {
-    this.#joins.revoke(joinId, actor);
+    const record = this.#joins.revoke(joinId, actor);
+    if (record.sshTarget) this.#releaseIfUnused(record.sshTarget);
+    this.#scheduleExpirySweep();
     return { ok: true, joinId, state: "revoked" };
+  }
+
+  async resumeSshTunnels(fleetServicePort: number): Promise<void> {
+    const records = this.#joins
+      .records()
+      .filter(
+        (record) =>
+          record.transport === "ssh-reverse" &&
+          record.sshTarget &&
+          record.sshFleetPort !== undefined &&
+          record.sshLoginPort !== undefined &&
+          record.sshLoginServicePort !== undefined &&
+          ["pending", "consumed"].includes(this.#joins.status(record.joinId).state),
+      );
+    if (records.length === 0) return;
+    const byTarget = new Map<string, { readonly ports: EdgeJoinTunnelPorts; readonly loginServicePort: number }>();
+    for (const record of records) {
+      const ports = { fleet: record.sshFleetPort!, login: record.sshLoginPort! },
+        previous = byTarget.get(record.sshTarget!);
+      if (
+        previous &&
+        (previous.ports.fleet !== ports.fleet ||
+          previous.ports.login !== ports.login ||
+          previous.loginServicePort !== record.sshLoginServicePort)
+      )
+        throw coded("edge_join_ssh_state_invalid", "Invitations for one SSH target disagree on tunnel ports.");
+      byTarget.set(record.sshTarget!, { ports, loginServicePort: record.sshLoginServicePort! });
+    }
+    for (const [target, entry] of byTarget)
+      this.#sshTunnels.resume({
+        target,
+        fleetServicePort,
+        loginServicePort: entry.loginServicePort,
+        remotePorts: entry.ports,
+      });
+  }
+
+  stopSshTunnels(): Promise<void> {
+    return this.#sshTunnels.stopAll();
+  }
+
+  close(): Promise<void> {
+    this.#cancelExpirySweep?.();
+    this.#cancelExpirySweep = undefined;
+    return this.#sshTunnels.close();
+  }
+
+  releaseNodeTunnel(nodeId: string): void {
+    const records = this.#joins.records();
+    for (const record of records.filter((candidate) => candidate.nodeId === nodeId && candidate.sshTarget)) {
+      const stillUsed = records.some(
+        (candidate) =>
+          candidate.sshTarget === record.sshTarget &&
+          candidate.nodeId !== nodeId &&
+          ["pending", "consumed"].includes(this.#joins.status(candidate.joinId).state),
+      );
+      if (!stillUsed) this.#sshTunnels.release(record.sshTarget!);
+    }
+  }
+
+  #hasActiveTarget(target: string): boolean {
+    return this.#joins
+      .records()
+      .some(
+        (record) =>
+          record.sshTarget === target && ["pending", "consumed"].includes(this.#joins.status(record.joinId).state),
+      );
+  }
+
+  #releaseIfUnused(target: string): void {
+    if (!this.#hasActiveTarget(target)) this.#sshTunnels.release(target);
+  }
+
+  #scheduleExpirySweep(): void {
+    this.#cancelExpirySweep?.();
+    this.#cancelExpirySweep = undefined;
+    const pending = this.#joins
+      .records()
+      .filter(
+        (record) =>
+          record.transport === "ssh-reverse" &&
+          record.sshTarget &&
+          this.#joins.status(record.joinId).state === "pending",
+      );
+    if (pending.length === 0) return;
+    const nextExpiry = Math.min(...pending.map((record) => Date.parse(record.expiresAt))),
+      delayMs = Math.max(0, nextExpiry - Date.parse(this.#now()));
+    this.#cancelExpirySweep = this.#schedule(() => {
+      this.#cancelExpirySweep = undefined;
+      for (const record of pending) {
+        if (this.#joins.status(record.joinId).state === "expired") this.#releaseIfUnused(record.sshTarget!);
+      }
+      this.#scheduleExpirySweep();
+    }, delayMs);
   }
 
   async #validateSnapshot(record: EdgeJoinRecord): Promise<void> {
@@ -217,6 +376,31 @@ export class EdgeJoinAdminService {
         throw coded("repo_namespace_unknown", `Repository ${repoId} is no longer available from this fleet center.`);
     }
   }
+}
+
+function sshJoinFields(
+  centerUrl: string,
+  loginUrl: string,
+  ports: EdgeJoinTunnelPorts,
+): {
+  readonly centerOrigin: string;
+  readonly centerServername: string;
+  readonly loginUrl: string;
+  readonly loginServername: string;
+  readonly ports: EdgeJoinTunnelPorts;
+} {
+  const center = new URL(centerUrl),
+    login = new URL(loginUrl),
+    machineLogin = new URL(loginUrl);
+  machineLogin.hostname = "127.0.0.1";
+  machineLogin.port = String(ports.login);
+  return {
+    centerOrigin: `https://127.0.0.1:${ports.fleet}`,
+    centerServername: center.hostname,
+    loginUrl: machineLogin.toString().replace(/\/$/u, ""),
+    loginServername: login.hostname,
+    ports,
+  };
 }
 
 function edgeJoinPermissionVersion(groupId: string, effectiveScopes: readonly string[]): string {

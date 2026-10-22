@@ -841,6 +841,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
       await rbacResumed;
+      await accessAdmin.close();
       await managedRbac.stop();
       await lifecycle.close();
     },
@@ -963,6 +964,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }),
       );
       fleetCenter = started.center;
+      await accessAdmin.resumeEdgeJoinTunnels(started.center.port);
     }
   } catch (error) {
     input.recordLifecycle?.({

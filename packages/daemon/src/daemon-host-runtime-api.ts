@@ -435,6 +435,7 @@ export function createDaemonHostRuntimeApi(
           if (context.fleetCenter) {
             const previous = context.fleetCenter;
             context.fleetCenter = null;
+            await context.accessAdmin.stopEdgeJoinTunnels();
             await previous.close();
           }
           try {
@@ -455,6 +456,7 @@ export function createDaemonHostRuntimeApi(
               throw error;
             }
             context.fleetCenter = started.center;
+            await context.accessAdmin.resumeEdgeJoinTunnels(started.center.port);
             const externalAddressReachable = request.externalUrl
               ? await probeTlsAddress(request.externalUrl)
               : undefined;

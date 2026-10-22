@@ -155,6 +155,18 @@ describe("edge join wizard", () => {
     expect(bridge.openLogin).toHaveBeenCalledTimes(1);
   });
 
+  it("explains that SSH invitations use the center's browser-accessible device page", async () => {
+    installBridge({ begin: vi.fn(async () => ({ ...DEVICE, transport: "ssh-reverse" as const })) });
+    const { container } = await mount();
+    await act(async () => setInputValue(byTestId(container, "edge-join-link-input") as HTMLInputElement, LINK));
+    await settle(1);
+    await click(container, "edge-join-start");
+    await settle();
+
+    expect(byTestId(container, "edge-join-ssh-browser-handoff")?.textContent).toContain("any device");
+    expect(byTestId(container, "edge-join-ssh-browser-handoff")?.textContent).toContain("center computer");
+  });
+
   it("polls after approval, calls the join again, and hands the synced repositories up", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const begin = vi

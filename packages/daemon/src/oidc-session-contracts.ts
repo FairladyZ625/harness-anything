@@ -8,6 +8,7 @@ export interface OidcLoginAuthority {
   readonly clientSecret?: string;
   readonly browserUrl?: string;
   readonly certificate?: string;
+  readonly servername?: string;
 }
 
 export interface DeviceLoginRequest {
@@ -55,5 +56,6 @@ export interface StoredSession {
     readonly realm: string;
     readonly clientId?: string;
     readonly certificate?: string;
+    readonly servername?: string;
   };
 }

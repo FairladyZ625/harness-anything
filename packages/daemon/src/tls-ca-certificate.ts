@@ -57,9 +57,15 @@ export async function fetchWithTlsCa(
   ca: string | readonly string[],
   input: string | URL,
   init?: RequestInit,
+  servername?: string,
 ): Promise<Response> {
   if (new URL(input).protocol !== "https:") return fetcher(input, init);
-  const dispatcher = new Agent({ connect: { ca: typeof ca === "string" ? ca : [...ca] } });
+  const dispatcher = new Agent({
+    connect: {
+      ca: typeof ca === "string" ? ca : [...ca],
+      ...(servername ? { servername } : {}),
+    },
+  });
   try {
     const response = await fetcher(input, { ...init, dispatcher } as RequestInit & { dispatcher: Agent }),
       body = await response.arrayBuffer();

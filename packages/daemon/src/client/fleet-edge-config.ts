@@ -12,6 +12,10 @@ export interface FleetEdgeConfig {
   readonly port: number;
   readonly caPath: string;
   readonly servername?: string;
+  readonly loginUrl?: string;
+  readonly loginServername?: string;
+  readonly loginBrowserUrl?: string;
+  readonly loginCertificate?: string;
   readonly nodeId: string;
   readonly credential: string;
   readonly humanClientId?: string;
@@ -75,6 +79,10 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     port,
     caPath: text("caPath")!,
     ...(text("servername") ? { servername: text("servername") } : {}),
+    ...(text("loginUrl") ? { loginUrl: text("loginUrl") } : {}),
+    ...(text("loginServername") ? { loginServername: text("loginServername") } : {}),
+    ...(text("loginBrowserUrl") ? { loginBrowserUrl: text("loginBrowserUrl") } : {}),
+    ...(text("loginCertificate") ? { loginCertificate: text("loginCertificate") } : {}),
     nodeId: text("nodeId")!,
     credential: text("credential")!,
     ...(text("humanClientId") ? { humanClientId: text("humanClientId") } : {}),

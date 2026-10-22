@@ -297,6 +297,11 @@ export function EdgeJoinWizard({
         {phase === "device" && device !== null ? (
           <>
             <p className="ui-meta text-text-muted">{t("views.edgeJoin.deviceHint")}</p>
+            {device.transport === "ssh-reverse" ? (
+              <p data-testid="edge-join-ssh-browser-handoff" className="ui-meta text-text-muted">
+                {t("views.edgeJoin.sshBrowserHandoff")}
+              </p>
+            ) : null}
             <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-3">
               <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("views.edgeJoin.deviceUrlLabel")}

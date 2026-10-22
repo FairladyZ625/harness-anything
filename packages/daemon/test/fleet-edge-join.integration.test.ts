@@ -48,7 +48,8 @@ test(
     t.after(
       () => new Promise<void>((resolve, reject) => loginServer.close((error) => (error ? reject(error) : resolve()))),
     );
-    const loginUrl = `https://localhost:${(loginServer.address() as { port: number }).port}`;
+    const loginPort = (loginServer.address() as { port: number }).port,
+      loginUrl = `https://localhost:${loginPort}`;
     // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
     const center = await f.openCenter(f.host, undefined, {
       edgeJoin: ({ joinId, inviteToken, accessToken }) => {
@@ -74,14 +75,16 @@ test(
         };
       },
     });
-    const link = (personId: string, pin = spkiSha256) => {
+    const link = (personId: string, pin = spkiSha256, sshReverse = false) => {
       const created = invites.create({
-        centerOrigin: `https://localhost:${center.port}`,
+        centerOrigin: sshReverse ? `https://127.0.0.1:${center.port}` : `https://localhost:${center.port}`,
+        ...(sshReverse ? { centerServername: "localhost", transport: "ssh-reverse" as const } : {}),
         repoIds: ["lease-repo"],
         personId,
         permissionSnapshot: [{ groupId: "contributor", version: "scope-digest" }],
         spkiSha256: pin,
-        loginUrl,
+        loginUrl: sshReverse ? `https://127.0.0.1:${loginPort}` : loginUrl,
+        ...(sshReverse ? { loginServername: "localhost", loginBrowserUrl: loginUrl } : {}),
         loginRealm: "harness",
         loginClientId: "harness-cli",
         loginCertificate,
@@ -91,7 +94,7 @@ test(
       return { joinId: created.record.joinId, link: encodeEdgeJoinLink(created.link) };
     };
 
-    const join = async (nodeId: string, invitation: string) => {
+    const join = async (nodeId: string, invitation: string, sshReverse = false) => {
       const edge = await fleetEdgeHostFixture(t, f, {
           name: nodeId,
           nodeId,
@@ -99,7 +102,8 @@ test(
           writeEdgeConfig: false,
           oidcPorts: {
             loginAuthority: async () => ({
-              url: loginUrl,
+              url: sshReverse ? `https://127.0.0.1:${loginPort}` : loginUrl,
+              ...(sshReverse ? { servername: "localhost", browserUrl: loginUrl } : {}),
               realm: "harness",
               clientId: "harness-cli",
               certificate: loginCertificate,
@@ -117,7 +121,7 @@ test(
     };
 
     for (const nodeName of ["node-one", "node-two"]) {
-      const invitation = link("person-one");
+      const invitation = link("person-one", spkiSha256, nodeName === "node-one");
       f.owners.keycloak.interactiveSession(
         "person-one",
         nodeName,
@@ -125,7 +129,7 @@ test(
         `device-token-${nodeName}`,
         "harness-cli",
       );
-      const { response, workspaceRoot } = await join(nodeName, invitation.link),
+      const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
       assert.equal(result.joinId, invitation.joinId);
@@ -141,6 +145,13 @@ test(
       assert.equal(config?.nodeId, issuedNodeId);
       assert.equal(config?.credential, `secret-${issuedNodeId}`);
       assert.equal(config?.humanClientId, "harness-cli");
+      if (nodeName === "node-one") {
+        assert.equal(config?.host, "127.0.0.1");
+        assert.equal(config?.servername, "localhost");
+        assert.equal(config?.loginUrl, `https://127.0.0.1:${loginPort}`);
+        assert.equal(config?.loginServername, "localhost");
+        assert.equal(config?.loginBrowserUrl, loginUrl);
+      }
       assert.equal(statSync(path.join(repoWorkspace, "fleet-edge.json")).mode & 0o777, 0o600);
       const tasks = path.join(repoWorkspace, "harness", "tasks");
       assert.ok(
