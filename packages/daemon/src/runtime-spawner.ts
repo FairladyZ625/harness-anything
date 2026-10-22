@@ -45,6 +45,7 @@ import {
   runtimeMissionName,
   resolveRuntimeMission,
 } from "./runtime-spawn-mission.ts";
+import { privateLedgerReadSection, resolvePrivateLedgerReads } from "./private-ledger-paths.ts";
 import { dispatchPromptTemplate, renderDispatchPrompt } from "./runtime-spawn-prompt.ts";
 import {
   assertPreparedRuntimeLaunch,
@@ -457,15 +458,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   : mission,
             readOnlyDispatch = effectivePermissionMode === "read-only",
             dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
+            // A worktree checks out no private ledger, so every `harness/…` reference the agent
+            // declaration or the mission carries is answered with the path this worker can open.
+            privateReads = privateLedgerReadSection(
+              resolvePrivateLedgerReads({
+                rootDir: input.rootDir,
+                cwd,
+                texts: [...(agent?.prompts ?? []), agent?.instructions, dispatchMission],
+              }),
+            ),
             assembledPrompt = agent
               ? assembleAgentPrompt(
                   role === "reviewer" ? { ...agent, role } : agent,
                   dispatchMission,
                   preset,
                   resolvedSkills,
+                  privateReads,
                 )
               : taskMission || role === "reviewer"
-                ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
+                ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined, privateReads)
                 : dispatchMission,
             // Scheduled Squad leaders answer the squad decision protocol; the run settles
             // the occurrence. Every dispatch still receives its own rendered dispatch id.
