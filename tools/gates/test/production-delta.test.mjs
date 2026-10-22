@@ -111,9 +111,7 @@ test("G33 JSON output names the resolved base and explicit delivery commit", () 
     deleted: 0,
     churn: 2,
     net: 2,
-    changed: [
-      { filePath: "packages/kernel/src/b.ts", module: "kernel", added: 2, deleted: 0 },
-    ],
+    changed: [{ filePath: "packages/kernel/src/b.ts", module: "kernel", added: 2, deleted: 0 }],
     unclassified: [],
     errors: [],
   });

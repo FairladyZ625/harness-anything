@@ -167,9 +167,16 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   };
   const changedFiles = ["packages/kernel/src/domain/execution.ts", "docs/deleted.md"];
   assert.deepEqual(validateSubmissionV1({ ...hybrid, changedFiles, productionDelta }), []);
-  assert.ok(validateSubmissionV1({ ...hybrid, productionDelta }).length, "a frozen delta requires its complete file list");
-  assert.ok(validateSubmissionV1({ ...hybrid, changedFiles, productionDelta: { ...productionDelta, baseSha: "bad" } }).length);
-  assert.ok(validateSubmissionV1({ ...hybrid, changedFiles, productionDelta: { ...productionDelta, added: -1 } }).length);
+  assert.ok(
+    validateSubmissionV1({ ...hybrid, productionDelta }).length,
+    "a frozen delta requires its complete file list",
+  );
+  assert.ok(
+    validateSubmissionV1({ ...hybrid, changedFiles, productionDelta: { ...productionDelta, baseSha: "bad" } }).length,
+  );
+  assert.ok(
+    validateSubmissionV1({ ...hybrid, changedFiles, productionDelta: { ...productionDelta, added: -1 } }).length,
+  );
   assert.ok(validateSubmissionV1({ ...artifactExecution.submission, productionDelta }).length);
   assert.equal(completionEvidenceBasis({ ...artifactExecution, submission: hybrid }).codeCommit, "a".repeat(40));
   const basis = completionEvidenceBasis(artifactExecution);

@@ -72,11 +72,7 @@ test("a cut hits a lane through its frozen deliverables or its deleted productio
 
 test("new cuts route deleted non-production paths from the complete frozen file list", () => {
   const hits = reviewLaneHits(
-    submission(
-      ["README.md"],
-      [],
-      ["README.md", "packages/kernel/src/domain/retired.test.ts"],
-    ),
+    submission(["README.md"], [], ["README.md", "packages/kernel/src/domain/retired.test.ts"]),
     reviewPathLanes(["data-migration packages/kernel/src/domain/"]),
   );
   assert.deepEqual([...hits], [["data-migration", ["packages/kernel/src/domain/retired.test.ts"]]]);

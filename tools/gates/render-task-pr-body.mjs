@@ -79,13 +79,12 @@ function deliveryFacts(submission) {
     !Array.isArray(delta.unclassified) ||
     !delta.unclassified.every((entry) => typeof entry === "string")
   )
-    throw new Error("submitted code cut has no valid frozen productionDelta; amend the submission before opening the PR");
+    throw new Error(
+      "submitted code cut has no valid frozen productionDelta; amend the submission before opening the PR",
+    );
   const net = delta.added - delta.deleted,
     unclassified = delta.unclassified.length
-      ? [
-          "- G33 unclassified production paths:",
-          ...delta.unclassified.map((entry) => `  - ${pathCode(entry)}`),
-        ]
+      ? ["- G33 unclassified production paths:", ...delta.unclassified.map((entry) => `  - ${pathCode(entry)}`)]
       : ["- G33 classification: complete."],
     changed = files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"];
   return [
@@ -112,7 +111,9 @@ export function renderTaskPrBody({ taskId, receipt, template, headSha }) {
     throw new Error("PR template must contain exactly one ordered submission-facts marker pair");
   const submission = taskSubmission(receipt, taskId);
   if (submission.commitSha !== null && headSha !== undefined && submission.commitSha !== headSha)
-    throw new Error("current HEAD differs from the submitted delivery commit; amend the submission before opening the PR");
+    throw new Error(
+      "current HEAD differs from the submitted delivery commit; amend the submission before opening the PR",
+    );
   const facts = deliveryFacts(submission);
   return `${template.slice(0, start + START.length)}\n${facts}\n${template.slice(end)}`;
 }

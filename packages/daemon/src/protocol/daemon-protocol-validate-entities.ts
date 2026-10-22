@@ -175,7 +175,9 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   if (value.changedFiles !== undefined && !stringArray(value.changedFiles))
     errors.push(validationError(entityId, "changedFiles", value.changedFiles, "must be an array of non-empty strings"));
   if (value.productionDelta !== undefined && (value.commitSha === null || value.changedFiles === undefined))
-    errors.push(validationError(entityId, "productionDelta", value.productionDelta, "requires a code commit and changedFiles"));
+    errors.push(
+      validationError(entityId, "productionDelta", value.productionDelta, "requires a code commit and changedFiles"),
+    );
   if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),

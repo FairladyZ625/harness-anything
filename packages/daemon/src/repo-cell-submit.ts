@@ -194,7 +194,9 @@ export function deriveCloseoutSubmission(
             (unclaimedPublishedMerge ||
               git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok))
         : baseline === undefined && bound === commitSha;
-  let deliverables: readonly string[], commitOutputs: readonly string[], changedFiles: readonly string[] | undefined,
+  let deliverables: readonly string[],
+    commitOutputs: readonly string[],
+    changedFiles: readonly string[] | undefined,
     productionDelta: SubmissionV1["productionDelta"];
   // An unchanged published HEAD is a delivery only when this task's record owns it: another
   // execution's cut, or this execution's own frozen cut — an amendment re-derived at its merged
@@ -355,9 +357,10 @@ function taskWorktreeRoot(
   if (binding === null) return null;
   const taskRoot = path.join(cell.rootDir, binding.path),
     directory = lstatSync(taskRoot, { throwIfNoEntry: false }),
-    top = directory?.isDirectory() && !directory.isSymbolicLink()
-      ? makeGitReadinessSource().run(taskRoot, ["rev-parse", "--show-toplevel"])
-      : null;
+    top =
+      directory?.isDirectory() && !directory.isSymbolicLink()
+        ? makeGitReadinessSource().run(taskRoot, ["rev-parse", "--show-toplevel"])
+        : null;
   return top?.ok && realpathSync(top.stdout.trim()) === realpathSync(taskRoot) ? taskRoot : null;
 }
 
@@ -373,9 +376,7 @@ function taskWorktreeCandidateInventory(
     authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
     authoredOutsideCheckout =
       authoredRelative === ".." || authoredRelative.startsWith(`..${path.sep}`) || path.isAbsolute(authoredRelative),
-    packageRoot = authoredOutsideCheckout
-      ? null
-      : path.resolve(taskRoot, authoredRelative, ...packagePath.split("/")),
+    packageRoot = authoredOutsideCheckout ? null : path.resolve(taskRoot, authoredRelative, ...packagePath.split("/")),
     taskRootResolved = path.resolve(taskRoot);
   if (packageRoot === null) return undefined;
   if (packageRoot !== taskRootResolved && !packageRoot.startsWith(`${taskRootResolved}${path.sep}`))
@@ -615,18 +616,18 @@ export async function submitTask(
             cell.projection,
           ),
     synced =
-    typeof binding.source === "object" && binding.source.kind === "node"
-      ? null
-      : await runDocAction({
-          action: { kind: "doc-submit", taskId },
-          binding,
-          rootDir: cell.rootDir,
-          workspaceId: cell.input.repoId,
-          store: cell.store,
-          projection: cell.projection,
-          now: cell.now,
-          ...(authoredCandidateInventory ? { authoredCandidateInventory } : {}),
-        });
+      typeof binding.source === "object" && binding.source.kind === "node"
+        ? null
+        : await runDocAction({
+            action: { kind: "doc-submit", taskId },
+            binding,
+            rootDir: cell.rootDir,
+            workspaceId: cell.input.repoId,
+            store: cell.store,
+            projection: cell.projection,
+            now: cell.now,
+            ...(authoredCandidateInventory ? { authoredCandidateInventory } : {}),
+          });
   if (synced && !["applied", "no_changes"].includes(synced.outcome))
     return {
       ...synced,

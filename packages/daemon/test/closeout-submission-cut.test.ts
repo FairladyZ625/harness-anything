@@ -636,7 +636,15 @@ test("submission facts freeze the full changed-path set and G33 result at the de
   put(root, "packages/kernel/src/added.ts", "export const first = 1;\nexport const second = 2;\n");
   git(root, "rm", "-q", "docs/retired.md", "packages/kernel/src/retired.ts");
   const sha = commit(root),
-    packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, { kind: "commit", commitSha: base }, sha);
+    packet = derive(
+      root,
+      `Delivered ${sha}.`,
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: base },
+      sha,
+    );
 
   assert.deepEqual(packet.changedFiles, [
     "docs/new.md",

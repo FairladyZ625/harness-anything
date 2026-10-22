@@ -210,7 +210,10 @@ test("worker publication commands belong to the delivery mission while review ca
     delivery = mission(false),
     review = mission(true);
   assert.match(prompt, /canonical repository root/u);
-  assert.match(prompt, /Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync/u);
+  assert.match(
+    prompt,
+    /Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync/u,
+  );
   assert.match(prompt, /PR checks for that delivery commit/u);
   assert.match(prompt, /Pending is not green/u);
   assert.doesNotMatch(prompt, /ha doc sync|ha task push|ha task pr|gh pr checks/u);
@@ -225,12 +228,15 @@ test("worker publication commands belong to the delivery mission while review ca
 
 test("the repository guide passes its generated body file to task-bound PR creation", () => {
   const guide = readFileSync(path.join(repositoryRoot, "skills/harness-contributing/SKILL.md"), "utf8"),
-    example = readFileSync(path.join(repositoryRoot, "skills/harness-contributing/references/example-pr-body.md"), "utf8");
-  assert.match(guide, /node tools\/gates\/render-task-pr-body\.mjs --task <task-id> > \/tmp\/harness-anything-pr-body\.md/u);
+    example = readFileSync(
+      path.join(repositoryRoot, "skills/harness-contributing/references/example-pr-body.md"),
+      "utf8",
+    );
   assert.match(
     guide,
-    /gh pr create --head <task-id> --body-file \/tmp\/harness-anything-pr-body\.md/u,
+    /node tools\/gates\/render-task-pr-body\.mjs --task <task-id> > \/tmp\/harness-anything-pr-body\.md/u,
   );
+  assert.match(guide, /gh pr create --head <task-id> --body-file \/tmp\/harness-anything-pr-body\.md/u);
   assert.match(example, /frozen submission by `tools\/gates\/render-task-pr-body\.mjs`/u);
   assert.match(example, /read from the PR checks after opening/u);
   assert.doesNotMatch(example, /rewrite-ci` run URL/u);

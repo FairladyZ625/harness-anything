@@ -407,7 +407,8 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     );
     assert.equal(explainerDispatch.outcome, "applied", JSON.stringify(explainerDispatch));
     assert.match(prompt!, /# Living Deliverable Protocol/u);
-    assert.match(prompt!, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
+    assert.match(prompt!, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
+    assert.match(prompt!, /正文和 closeout 中的机器派生交付事实从 submission 读取/u);
     assert.match(prompt!, /实时说明页/u, "the protocol names the owner-facing live page");
     assert.match(prompt!, /#now[\s\S]*#timeline/u, "mission names the fixed living sections");
     const litePackage = await createTask(cell, root, {
@@ -436,7 +437,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.doesNotMatch(prompt!, /explainer\.html/u);
     assert.match(
       prompt!,
-      /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u,
+      /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
       "lightweight owes no explainer but still owes the PR publication note",
     );
     const preview = await cell.spawnRuntime(
@@ -450,10 +451,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       },
       binding,
     );
-    assert.match(
-      String(preview.mission),
-      /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u,
-    );
+    assert.match(String(preview.mission), /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

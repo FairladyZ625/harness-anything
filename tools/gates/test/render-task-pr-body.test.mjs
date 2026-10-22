@@ -35,7 +35,12 @@ test("PR renderer uses the current frozen submission and updates its fact block"
       outputs: ["Deleted-Production-Paths: packages/old.ts"],
       productionDelta: { baseSha, added: 5, deleted: 2, changed: [], unclassified: [] },
     },
-    initial = renderTaskPrBody({ taskId, receipt: receipt(submission), template: `# PR\n\n${marker}\n`, headSha: commitSha }),
+    initial = renderTaskPrBody({
+      taskId,
+      receipt: receipt(submission),
+      template: `# PR\n\n${marker}\n`,
+      headSha: commitSha,
+    }),
     refreshed = renderTaskPrBody({
       taskId,
       receipt: receipt({ ...submission, productionDelta: { ...submission.productionDelta, added: 8 } }),
@@ -60,7 +65,11 @@ test("PR renderer labels artifact-only submissions without inventing commit fact
   });
   assert.match(body, /artifact-only; no public Git commit/u);
   assert.match(body, /Delivered artifacts: 1 center-accepted artifact/u);
-  assert.doesNotMatch(body, /tasks\/private\/artifacts\/report\.md/u, "private artifact paths stay out of public PR text");
+  assert.doesNotMatch(
+    body,
+    /tasks\/private\/artifacts\/report\.md/u,
+    "private artifact paths stay out of public PR text",
+  );
   assert.doesNotMatch(body, /Merge base|Production delta/u);
 });
 
@@ -113,8 +122,5 @@ test("PR renderer fails closed for missing frozen delta, stale HEAD, and broken 
       }),
     /invalid changedFiles list/u,
   );
-  assert.throws(
-    () => renderTaskPrBody({ taskId, receipt: receipt(submission), template: "# PR\n" }),
-    /marker pair/u,
-  );
+  assert.throws(() => renderTaskPrBody({ taskId, receipt: receipt(submission), template: "# PR\n" }), /marker pair/u);
 });
