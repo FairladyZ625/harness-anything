@@ -117,8 +117,8 @@ const samples: Record<
     after: "provider_fault",
     note: "single reconnect immediately before the final message",
   },
-  // Negative: the attempt recovered after its last reconnect and ran 285 tool calls, so its
-  // stop is the worker's own and must keep the original classification.
+  // Negative: the attempt recovered after its last reconnect and ran 285 tool calls (265 of them
+  // successful), so its stop is the worker's own and must keep the original classification.
   c6f6af02: {
     frames: [
       { kind: "thread.started" },
@@ -129,13 +129,16 @@ const samples: Record<
       reconnect("Reconnecting... 1/5 (stream disconnected before completion: Upstream HTTP/2 stream failed)"),
       ...okTool(40),
       reconnect("Reconnecting... 1/5 (stream disconnected before completion: Upstream HTTP/2 stream failed)"),
-      ...okTool(285),
+      ...okTool(265),
+      // 20 of the 285 calls after the last reconnect failed; one successful call is enough to
+      // prove the provider served the attempt again, so the tail is not a drained stream.
+      ...failedTool(20),
       { kind: "agent_message" },
       { kind: "turn.completed" },
     ],
     before: "worker_stop",
     after: "worker_stop",
-    note: "285 successful tools after the last reconnect",
+    note: "285 tool calls after the last reconnect, 265 of them successful",
   },
   // Negative: no reconnect at all, zero tools, one message. Nothing marks the tail as upstream.
   a884b00a: {
