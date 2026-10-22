@@ -19,12 +19,10 @@ import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
-  classifyDocCandidate,
   classifyRawArtifactPath,
   resolveDocRoute,
   documentPath,
   consumeKnownError,
-  DOC_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
@@ -268,7 +266,7 @@ export async function runFleetEdgeTask(
                 path: change.path,
                 body: Buffer.from(change.bytes),
                 baseBlobSha256: change.baseBlobSha256,
-                policyId: classifyDocCandidate(change.path, change.bytes)?.policyId ?? DOC_POLICY_ID,
+                policyId: change.policyId,
                 mediaType: change.mediaType,
               })),
             })
@@ -534,7 +532,7 @@ export async function runFleetEdgeTask(
       docChanges: candidates.map((change, index) => ({
         path: change.path,
         baseBlobSha256: change.baseBlobSha256,
-        policyId: classifyDocCandidate(change.path, change.bytes)?.policyId ?? DOC_POLICY_ID,
+        policyId: change.policyId,
         candidate: descriptors[index]!,
       })),
       mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },

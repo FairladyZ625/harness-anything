@@ -7,14 +7,13 @@ import path from "node:path";
 import {
   artifactSubtreePath,
   classifyDocCandidate,
-  classifyTextualArtifactPath,
+  effectiveDocCandidateClassification,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
-  RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
@@ -188,16 +187,11 @@ export function scanDocCandidates(input: {
         : fileSize !== null && fileSize <= readCap && safe && existsSync(target)
           ? readCandidate(target)
           : null,
-      classified = classifyDocCandidate(logical, rawBytes),
       // A path that already holds a text document keeps that policy: undecodable bytes there are a
       // rejected edit (decideDocWrite answers with the typed-binary route), not a new artifact at the
-      // same name. The byte verdict cannot speak for a persisted text row, so the path judgment does.
-      effective =
-        (classified === null || classified.kind === "raw-artifact") &&
-        projected.document !== null &&
-        projected.document.policyId !== RAW_ARTIFACT_POLICY_ID
-          ? classifyTextualArtifactPath(logical)
-          : classified,
+      // same name. `effectiveDocCandidateClassification` is the one place that rule lives.
+      classified = classifyDocCandidate(logical, rawBytes),
+      effective = effectiveDocCandidateClassification(logical, classified, projected.document?.policyId ?? null),
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);

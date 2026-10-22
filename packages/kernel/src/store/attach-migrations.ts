@@ -192,16 +192,19 @@ function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean
 /**
  * Why no step covers doc claims: this registry converts *retired persisted fields* — a field the
  * current validator no longer admits, which a cold replay would otherwise reject. Two properties
- * keep historical doc claims out of it. The opaque textual policy is not retired: `classifyTextualArtifactPath`
- * still answers it for every artifacts path, so `validDocEventMutation` still admits a
- * `opaque-textual-whole-file/v1` change and a full replay of the live ledger succeeds. And the
- * write boundary that produced those rows only ever accepted valid UTF-8 under that policy
- * (`decideDocWrite` rejects undecodable bytes with `typed-binary-content`), so every persisted row
- * still decodes and no field needs rewriting. The byte classifier changed which policy *new* writes
- * choose at a binary-claiming name; the rows already written keep the policy they were written
- * under. `historical-doc-claims.integration.test.ts` pins that on a frozen cut of the real ledger;
- * `attach-migrations.test.ts` pins that this reasoning stays true (`retiredPersistedSchemaFields`
- * never names an artifact policy).
+ * keep historical doc claims out of it. The opaque textual policy is not retired: every read path
+ * answers it for a persisted row of that policy (`effectiveDocCandidateClassification`), so
+ * `validDocEventMutation` still admits an `opaque-textual-whole-file/v1` change and a full replay of
+ * the live ledger succeeds. The bytes may still be re-judged raw today — the old write boundary
+ * classified by path, so a persisted opaque row can carry a NUL byte and the current byte judgment
+ * calls that non-textual — and that is exactly why the policy must come from the row, not from the
+ * bytes. No field needs rewriting either way: the policy id itself is still valid, and every path
+ * that reads or re-submits the row derives its policy from the stored `policyId`. The byte classifier
+ * changed which policy *new* writes choose; the rows already written keep the policy they were
+ * written under. `historical-doc-claims.integration.test.ts` pins that on a frozen cut of the real
+ * ledger; `attach-migrations.test.ts` pins that this reasoning stays true (`retiredPersistedSchemaFields`
+ * never names an artifact policy, and a NUL-bearing persisted row still reads and edits under its
+ * written policy).
  */
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
   {

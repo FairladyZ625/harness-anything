@@ -379,7 +379,8 @@ export function readDocumentRows(db: DatabaseSync, prefix: string) {
   return queryRows(
     db,
     "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
-      "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type " +
+      "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type, " +
+      "json_extract(value_json, '$.policyId') AS policy_id " +
       "FROM document WHERE substr(path, 1, length(?)) = ? ORDER BY path",
     prefix,
     prefix,
@@ -388,5 +389,8 @@ export function readDocumentRows(db: DatabaseSync, prefix: string) {
     blobSha256: String(row.blob_sha256),
     size: Number(row.size),
     mediaType: String(row.media_type),
+    // `null` only for a row a hand-written fixture inserted without one; every production write
+    // model stores the policy the claim was written under.
+    policyId: row.policy_id === null || row.policy_id === undefined ? null : String(row.policy_id),
   }));
 }

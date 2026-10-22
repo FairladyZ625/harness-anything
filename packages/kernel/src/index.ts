@@ -163,6 +163,7 @@ export {
   classifyDocCandidate,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
+  effectiveDocCandidateClassification,
   mediaTypeForBinaryPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   type DocCandidateClassification,

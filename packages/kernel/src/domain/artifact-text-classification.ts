@@ -223,3 +223,25 @@ export function classifyDocCandidate(path: string, bytes: Uint8Array | null = nu
   const textual = classifyTextualArtifactPath(path);
   return textual ?? (bytes !== null && !undecodable ? classifyOpaqueTextualArtifactPath(path) : null);
 }
+
+/**
+ * The verdict that governs an *existing* document. A row written under a textual policy keeps that
+ * policy: bytes that read as raw today (a binary name, or text carrying a NUL byte) are an edit of a
+ * persisted document, not a new artifact at the same name, so the path judgment answers for it. The
+ * write boundary then judges the edit itself (`decideDocWrite` answers `semantic_policy_changed` when
+ * a new policy would replace the written one).
+ *
+ * The one implementation of that rule. Callers pass the byte verdict they already need for their own
+ * scope decision, so this adds no second decode and no second classifier.
+ */
+export function effectiveDocCandidateClassification(
+  path: string,
+  classified: DocCandidateClassification | null,
+  persistedPolicyId: string | null,
+): DocCandidateClassification | null {
+  return (classified === null || classified.kind === "raw-artifact") &&
+    persistedPolicyId !== null &&
+    persistedPolicyId !== RAW_ARTIFACT_POLICY_ID
+    ? classifyTextualArtifactPath(path)
+    : classified;
+}

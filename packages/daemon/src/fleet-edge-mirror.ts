@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   artifactSubtreePath,
   classifyDocCandidate,
-  classifyRawArtifactPath,
+  effectiveDocCandidateClassification,
   DOC_SYNC_INLINE_MAX_BYTES,
   RAW_ARTIFACT_MAX_BYTES,
   documentPath,
@@ -23,6 +23,8 @@ export interface FleetMirrorBlob {
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;
+  /** The policy the center wrote this row under; `null` when the projection row carries none. */
+  readonly policyId: string | null;
 }
 export interface FleetMirrorView {
   readonly repoId: string;
@@ -42,6 +44,8 @@ export interface FleetMirrorDirtyFile {
   readonly bytes: Uint8Array;
   readonly baseBlobSha256: string | null;
   readonly mediaType: string;
+  /** The policy this candidate must be submitted under; the scan settled it, callers never re-derive it. */
+  readonly policyId: string;
 }
 export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
@@ -143,14 +147,24 @@ export function locateFleetMirrorView(
                   ? options.entryPaths.flatMap((logical) => {
                       const doc = reader.withSession((queries) => queries.readDocument(logical)).document;
                       return doc
-                        ? [[logical, { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType }] as const]
+                        ? [
+                            [
+                              logical,
+                              {
+                                sha256: doc.blobSha256,
+                                size: doc.size,
+                                mediaType: doc.mediaType,
+                                policyId: doc.policyId,
+                              },
+                            ] as const,
+                          ]
                         : [];
                     })
                   : reader
                       .withSession((queries) => queries.readDocuments(options.entriesPrefix ?? ""))
                       .documents.map((doc) => [
                         doc.path,
-                        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType },
+                        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType, policyId: doc.policyId },
                       ]),
               );
         // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
@@ -243,27 +257,17 @@ export function scanFleetMirrorWorktree(
       bytes = readFileSync(file),
       base = view.entries.get(logical);
     // Raw artifacts — a PNG, a PDF, a log with stray bytes — are doc-sync candidates inside a task
-    // package's artifacts subtree. Everything else on the edge keeps the canonical-prose scope: only
-    // `.md`/`.txt` documents travel this channel.
-    const docClass = classifyDocCandidate(logical, bytes),
-      rawArtifact = docClass?.kind === "raw-artifact";
-    if (!rawArtifact && !logical.endsWith(".md") && !logical.endsWith(".txt")) {
-      // An unchanged accepted artifact is not a document candidate; replacing canonical text still
-      // blocks submission.
-      if (
-        base?.mediaType.startsWith("text/") &&
-        classifyRawArtifactPath(logical) &&
-        (base.size !== bytes.byteLength || base.sha256 !== sha256Bytes(bytes))
-      )
-        blocked.push({
-          path: logical,
-          size: bytes.byteLength,
-          reason: "non-textual artifact is outside doc sync",
-          code: "raw_artifact_outside_doc_sync",
-          requiredRoute: "typed-binary-content",
-        });
-      continue;
-    }
+    // package's artifacts subtree. Outside that subtree the edge keeps the canonical-prose scope:
+    // only `.md`/`.txt` documents travel this channel.
+    //
+    // Membership keeps the delivered bytes/name rule: a persisted policy decides only *how* an
+    // in-scope candidate is classified, never which files this channel carries. A persisted row keeps
+    // the policy it was written under, so a document whose bytes now read as raw (a NUL byte, a binary
+    // name) is still an edit of that document; the center's write boundary judges the edit itself.
+    const byteVerdict = classifyDocCandidate(logical, bytes),
+      inChannel = byteVerdict?.kind === "raw-artifact" || logical.endsWith(".md") || logical.endsWith(".txt"),
+      docClass = effectiveDocCandidateClassification(logical, byteVerdict, base?.policyId ?? null);
+    if (!inChannel) continue;
     if (!docClass || !resolveDocRoute(documentPath(logical)).allowed) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
@@ -288,6 +292,7 @@ export function scanFleetMirrorWorktree(
         bytes,
         baseBlobSha256: base?.sha256 ?? null,
         mediaType: docClass.mediaType,
+        policyId: docClass.policyId,
       });
   }
   const deletedPaths = [...view.entries.keys()].filter(
