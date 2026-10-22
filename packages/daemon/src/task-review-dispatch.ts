@@ -282,10 +282,6 @@ function previousReviewerContinuation(
     resume: canResume,
   };
 }
-<<<<<<< HEAD
-
-=======
->>>>>>> 1896d4277 (fix: register reviewer dispatch key migration)
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
@@ -695,8 +691,8 @@ export function activeCutReviewDispatches(
       suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
       isCutReviewKey =
         suffix === "" ||
-        suffix?.startsWith(":reviewer:") === true ||
-        (suffix?.startsWith(":attempt") === true && /^:attempt[1-9][0-9]*$/u.test(suffix));
+        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?$/.u.test(suffix ?? "") ||
+        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?$/.u.test(suffix ?? "");
     return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
   });
 }
@@ -938,35 +934,34 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
-    const activeCutReviews = activeCutReviewDispatches(cell, taskId, execution),
-      active = activeCutReviews.find(({ event }) => event.payload.agentId === agent.id) ?? activeCutReviews[0];
-    if (active !== undefined) {
-      const holding = active.event.payload,
-        holdingAgent = typeof holding.agentId === "string" ? holding.agentId : null;
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
+    const inFlight = activeCutReviewDispatches(cell, taskId, execution).at(-1)?.event ?? null;
+    if (inFlight !== null && existing === null) {
+      const holdingAgent = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
       if (reviewerFromArgument && holdingAgent !== agent.id) {
         fail(
-          `Task ${taskId}'s submitted cut already holds review dispatch ${holding.dispatchId} by agent ` +
-            `${holdingAgent ?? "with no recorded agent"} (runtime session ${holding.runtimeSessionId}, ` +
-            `instance ${holding.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
+          `Task ${taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
+            `${holdingAgent ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}, ` +
+            `instance ${inFlight.payload.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
             `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
           execution.executionId,
         );
-      } else {
-        steps.push({
-          taskId,
-          executionId: execution.executionId,
-          dispatchId: holding.dispatchId,
-          runtimeSessionId: holding.runtimeSessionId,
-          dispatchOpId: active.event.opId,
-          ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
-          instanceId: holding.instanceId,
-          outcome: "already_dispatched",
-        });
+        steps.push(...laneSteps);
+        continue;
       }
       steps.push(...laneSteps);
+      steps.push({
+        taskId,
+        executionId: execution.executionId,
+        dispatchId: inFlight.payload.dispatchId,
+        runtimeSessionId: inFlight.payload.runtimeSessionId,
+        dispatchOpId: inFlight.opId,
+        ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+        instanceId: inFlight.payload.instanceId,
+        outcome: "already_dispatched",
+      });
       continue;
     }
-    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.

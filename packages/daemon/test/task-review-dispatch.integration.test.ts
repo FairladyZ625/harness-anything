@@ -746,7 +746,14 @@ test(
       const plainStep = dispatchesOf(plain)[0]!;
       assert.equal(plainStep.outcome, "already_dispatched");
       assert.equal(plainStep.agentId, "closeout-reviewer");
-      assert.equal(plainStep.instanceId, "review-first");
+      const heldDispatch = f
+        .events()
+        .find(
+          (event) => event.type === "runtime_dispatch_requested" && event.payload.dispatchId === plainStep.dispatchId,
+        );
+      assert.ok(heldDispatch?.type === "runtime_dispatch_requested");
+      assert.equal(plainStep.runtimeSessionId, heldDispatch.payload.runtimeSessionId);
+      assert.equal(plainStep.instanceId, heldDispatch.payload.instanceId);
       // The holding agent's own explicit --agent stays idempotent.
       const same = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
       assert.equal(same.outcome, "applied", JSON.stringify(same));
