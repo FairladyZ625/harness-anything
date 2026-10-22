@@ -269,6 +269,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       layout = resolveHarnessLayout(rootDir);
     const store = openSqliteEventStore({
       databasePath: sqliteLedgerPath(rootDir),
+      rootInput: rootDir,
       repoId: frame.repoId,
       readOnly: true,
     });
