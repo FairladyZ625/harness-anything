@@ -29,6 +29,7 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
+import { readCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -380,7 +381,7 @@ function riskTierCloseoutGates(
   };
 }
 
-function riskTierCompletionContract(
+export function riskTierCompletionContract(
   cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
   snapshot: Snapshot,
   contract: SubmissionV1["completionContract"],
@@ -390,13 +391,40 @@ function riskTierCompletionContract(
     return { ...contract, closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment) };
   const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
       .snapshot as import("@harness-anything/preset").PresetSnapshotV1,
-    resolved = resolveCompletionContract([GUI_ACCEPTANCE_GATE_ID], cell.settings.readRepository(), frozenPreset);
+    canonicalVertical = readCanonicalVerticalDeclaration(cell.projection),
+    currentVertical = canonicalVertical?.definition,
+    taskVerticalId = snapshot.task?.metadata?.verticalId ?? "software/coding",
+    gateDeclaration = currentVertical?.id === taskVerticalId ? currentVertical.completion : frozenPreset.completion,
+    resolved = resolveCompletionContract([GUI_ACCEPTANCE_GATE_ID], cell.settings.readRepository(), {
+      ...frozenPreset,
+      completion: gateDeclaration,
+    });
   if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
   return {
     ...contract,
     gates: [...contract.gates, ...resolved.contract.gates],
     closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment),
   };
+}
+
+export function sameFrozenSubmissionCut(derived: SubmissionV1, frozen: SubmissionV1 | null | undefined): boolean {
+  if (frozen === null || frozen === undefined) return false;
+  const { riskTierAssessment: _assessment, ...frozenCut } = frozen;
+  return submissionDigest(derived) === submissionDigest(frozenCut as SubmissionV1);
+}
+
+export function isLegacyFrozenSubmissionCut(derived: SubmissionV1, frozen: SubmissionV1 | null | undefined): boolean {
+  return sameFrozenSubmissionCut(derived, frozen) && frozen?.riskTierAssessment === undefined;
+}
+
+export function submissionForRiskTierRetry(
+  derived: SubmissionV1,
+  frozen: SubmissionV1 | null | undefined,
+  assessment: SubmissionV1["riskTierAssessment"],
+  completionContract: () => SubmissionV1["completionContract"],
+): SubmissionV1 {
+  if (isLegacyFrozenSubmissionCut(derived, frozen)) return derived;
+  return { ...derived, riskTierAssessment: assessment, completionContract: completionContract() };
 }
 
 function taskRiskIdentity(snapshot: Snapshot, taskId: string): TaskRiskTierScriptInput["task"] {
@@ -833,12 +861,17 @@ export async function readCloseoutSubmission(
     const [cell, taskId, executionId, snapshot] = args,
       derived = deriveCloseoutSubmissionData(...args),
       frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
+      sameCut = sameFrozenSubmissionCut(derived.submission, frozen),
+      // Older frozen cuts predate risk-tier assessment. Keep their original digest shape on retry;
+      // adding a field would make an otherwise idempotent submission look like a different cut.
+      legacyFrozenCut = isLegacyFrozenSubmissionCut(derived.submission, frozen),
       riskDelivery =
-        derived.baseSha === null || derived.headSha === null
+        legacyFrozenCut || derived.baseSha === null || derived.headSha === null
           ? { baseSha: derived.baseSha, headSha: derived.headSha, files: [] }
           : await readDeliveryRiskDiff(derived.rootDir, derived.baseSha, derived.headSha),
-      riskTierAssessment =
-        frozen?.commitSha === derived.submission.commitSha && frozen.riskTierAssessment
+      riskTierAssessment = legacyFrozenCut
+        ? undefined
+        : sameCut && frozen?.riskTierAssessment
           ? frozen.riskTierAssessment
           : await assessTaskRiskTier({
               rootDir: cell.rootDir,
@@ -848,16 +881,9 @@ export async function readCloseoutSubmission(
               matchedPathReviewers: [],
               ...(frozen?.riskTierAssessment ? { previousEffectiveTier: frozen.riskTierAssessment.effectiveTier } : {}),
             }),
-      submission: SubmissionV1 = {
-        ...derived.submission,
-        riskTierAssessment,
-        completionContract: riskTierCompletionContract(
-          cell,
-          snapshot,
-          derived.submission.completionContract,
-          riskTierAssessment,
-        ),
-      };
+      submission: SubmissionV1 = submissionForRiskTierRetry(derived.submission, frozen, riskTierAssessment, () =>
+        riskTierCompletionContract(cell, snapshot, derived.submission.completionContract, riskTierAssessment),
+      );
     return { ok: true, submission };
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code)))
