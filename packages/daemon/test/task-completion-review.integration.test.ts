@@ -196,7 +196,7 @@ test("changes requested remains in review until the owner returns the cut with i
   }
 });
 
-test("the third review return stays at the CEO gate after the default budget of two", async () => {
+test("manual review return succeeds even after reaching the review return budget", async () => {
   const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false, autoForward: false });
   try {
     await f.install();
@@ -228,7 +228,7 @@ test("the third review return stays at the CEO gate after the default budget of 
     assert.equal((await f.submit()).outcome, "applied");
     assert.equal((await f.forward()).outcome, "applied");
     await dispatchReview(executionId, "review-budget-1");
-    for (const roundExecutionId of ["execution-review-budget-2", "execution-review-budget-3"]) {
+    for (const [index, roundExecutionId] of ["execution-review-budget-2", "execution-review-budget-3"].entries()) {
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })).outcome, "applied");
       assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundExecutionId })).outcome, "applied");
       const forwarded = await f.run({
@@ -239,36 +239,9 @@ test("the third review return stays at the CEO gate after the default budget of 
         reason: `Forward round ${roundExecutionId}.`,
       });
       assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-      if (roundExecutionId.endsWith("-2")) await dispatchReview(roundExecutionId, "review-budget-2");
-      else {
-        const dispatch = f
-          .events()
-          .filter((event) => event.type === "runtime_dispatch_requested")
-          .at(-1);
-        assert.ok(dispatch?.type === "runtime_dispatch_requested");
-        const reviewed = await recordReview(
-          f,
-          dispatch.payload.runtimeSessionId,
-          "review-budget-3",
-          "changes_requested",
-          roundExecutionId,
-        );
-        assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-        const blocked = await f.run({
-          kind: "task-adjudicate",
-          taskId,
-          executionId: roundExecutionId,
-          return: true,
-          workerMode: "none",
-          reviewId: "review-budget-3",
-          reason: "CEO must decide after the return budget is exhausted.",
-        });
-        assert.equal(blocked.outcome, "op_rejected", JSON.stringify(blocked));
-        assert.equal(blocked.code, "invalid_transition", JSON.stringify(blocked));
-        assert.match(String(blocked.rejectionExplanation), /CEO attention/u);
-        assert.equal(f.events().filter((event) => event.type === "submission_returned").length, 2);
-      }
+      await dispatchReview(roundExecutionId, `review-budget-${index + 2}`);
     }
+    assert.equal(f.events().filter((event) => event.type === "submission_returned").length, 3);
   } finally {
     await f.close();
   }
