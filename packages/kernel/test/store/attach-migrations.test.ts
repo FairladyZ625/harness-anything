@@ -295,6 +295,8 @@ test("historical reviewer dispatch key normalization preserves all dispatch iden
     ...legacy,
     payload: { ...legacy.payload, dispatchKey: "task-review-lane:task-a:execution-a:data-migration" },
   } as unknown as PersistedCanonicalEventV1;
+  // The persisted-event normalizer deep-canonicalizes squad identity and timestamps, so it may
+  // return a fresh object; the lane guarantee is that its dispatch key bytes stay untouched.
   assert.deepEqual(normalizeHistoricalEvent(pathLane), pathLane);
   const { dispatchKey: laneIdempotencyKey, ...pathPayloadWithoutDispatchKey } = pathLane.payload,
     legacyPathLane = {
