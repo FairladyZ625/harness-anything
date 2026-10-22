@@ -111,9 +111,9 @@ export function privateLedgerReadSection(reads: readonly PrivateLedgerRead[]): s
   return [
     "# Private Ledger Paths (read-only)",
     "The private ledger is a separate subrepository, so this checkout does not contain it: every `harness/…` " +
-      "reference in this prompt names a path that is absent here. Open the path below instead. A file is a " +
-      "worker-local read-only copy, so edits to it never reach the canonical ledger; a directory is canonical " +
-      "and read-only. Neither is part of this repository: never copy one in, never write through one.",
+      "reference in this prompt names a path that is absent here. Open the path below instead. Each is " +
+      "read-only: the worker-local copy where one exists, otherwise the canonical file. Never copy one into " +
+      "this repository, never write through one.",
     ...reads.map((read) =>
       read.directory
         ? `- ${read.asWritten} -> ${read.readable} (directory: list it; a glob is not a file list)`

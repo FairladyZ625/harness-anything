@@ -150,7 +150,7 @@ test("a real worktree dispatch hands the worker an openable path for every priva
       `${reference} must be answered by the same path Required Skills uses`,
     );
   }
-  assert.match(prompt, /never copy one in, never write through one/u);
+  assert.match(prompt, /Never copy one into this repository, never write through one/u);
   assert.match(prompt, /ha doc show --path <ledger path> --raw/u, "read-set locators name their opening command");
   t.diagnostic(`worktree=${prepared!.cwd} prompt bytes=${String(prompt.length)}`);
 });
