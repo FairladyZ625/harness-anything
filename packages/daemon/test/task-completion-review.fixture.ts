@@ -157,12 +157,6 @@ export async function fixture(
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
-  if (options.guiDelivery) {
-    mkdirSync(path.join(root, "packages/gui/src"), { recursive: true });
-    writeFileSync(path.join(root, "packages/gui/src/App.tsx"), "export const App = () => null;\n");
-    git(root, "add", "packages/gui/src/App.tsx");
-    git(root, "commit", "-qm", "feat: fixture GUI delivery");
-  }
   const launches: { prompt: string; instanceId: string; model: string; args: readonly string[] }[] = [],
     launchWaiters = new Set<() => void>();
   const pendingProviders: {
@@ -307,6 +301,15 @@ export async function fixture(
   const packagePath = String((created as Record<string, unknown>).packagePath);
   await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
   assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
+  if (options.guiDelivery) {
+    await cell.settlePendingMaterialization("GUI fixture delivery");
+    const checkout = boundWorktree(root),
+      guiPath = "packages/gui/src/App.tsx";
+    mkdirSync(path.dirname(path.join(checkout, guiPath)), { recursive: true });
+    writeFileSync(path.join(checkout, guiPath), "export const App = () => null;\n");
+    git(checkout, "add", guiPath);
+    git(checkout, "commit", "-qm", "feat: fixture GUI delivery");
+  }
   assert.equal(
     (
       await run({
