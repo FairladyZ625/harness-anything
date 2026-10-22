@@ -110,6 +110,7 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
         title: "Reproducible experiment",
         presetId: "research-checks",
         profileId: "experiment",
+        riskTier: "low",
       }),
       packagePath = String((created as { packagePath?: string }).packagePath);
     await realizeTaskPlanFixture(
