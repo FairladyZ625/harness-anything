@@ -89,6 +89,8 @@ test("a real worktree dispatch hands the worker an openable path for every priva
         name: "Private Reader",
         instructions: "Read the private standards before acting.",
         prompts: [`预置 Read Set：${skill}；${standard}；……`],
+        // The same file is also a Required Skill, which is the case that used to get two paths.
+        skills: [{ id: "agent-dev-standards", path: "skills/agent-dev-standards" }],
         runtimes: [{ type: "codex" }],
       },
     },
@@ -125,7 +127,7 @@ test("a real worktree dispatch hands the worker an openable path for every priva
   // The premise stands: the referenced files are absent under the worker root.
   assert.equal(existsSync(path.join(prepared!.cwd, standard)), false, "a worktree checks out no private ledger");
   // And the delivered prompt carries the path that opens each one — the same `workerLedgerPath`
-  // port Required Skills uses, so a private file has exactly one path in the prompt.
+  // port Required Skills uses, so one file never gets two different paths.
   assert.match(prompt, /# Private Ledger Paths \(read-only\)/u);
   for (const reference of [standard, skill]) {
     const readable = workerLedgerPath(root, prepared!.cwd, path.join(root, reference));
@@ -135,8 +137,18 @@ test("a real worktree dispatch hands the worker an openable path for every priva
       new RegExp(`${reference.replaceAll("/", "\\/")} -> ${readable.replaceAll("/", "\\/")}`, "u"),
       `${reference} must be paired with its openable path`,
     );
-    const occurrences = prompt.split(`: ${readable}`).length - 1 + (prompt.split(`-> ${readable}`).length - 1);
-    assert.equal(occurrences, 1, `${reference} must appear under one path, not two (got ${String(occurrences)})`);
+    // Required Skills prints `- <id>: <path>` and the appendix prints `- <ref> -> <path>`. One port
+    // means one path: the canonical file path must never appear beside the worker's copy.
+    assert.equal(
+      prompt.includes(path.join(root, reference)),
+      false,
+      `${reference} must not also be handed out under its canonical path`,
+    );
+    assert.equal(
+      prompt.includes(`${reference} -> ${readable}`),
+      true,
+      `${reference} must be answered by the same path Required Skills uses`,
+    );
   }
   assert.match(prompt, /never copy one in, never write through one/u);
   assert.match(prompt, /ha doc show --path <ledger path> --raw/u, "read-set locators name their opening command");
