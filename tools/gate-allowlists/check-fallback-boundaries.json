@@ -31,6 +31,12 @@
    "decision": null,
    "errors": "unreadable or malformed artifacts/rulings/<dispatch-id>.md",
    "reason": "Settlement reads the dispatch's ruling artifact after the worker exits. A read failure is not evidence about the worker's outcome, and failing the settlement over it would turn an ordinary exit into a daemon error; a null read keeps the dispatch's ordinary classification (a malformed body is likewise not a ruling, per parseRulingRequest). The artifact itself is only ever an advisory input to classification, never a substitute for the provider outcome."
+  },
+  "packages/daemon/src/runtime-ruling.ts#readFileIfPresent": {
+   "task": "task_e37fdc679340ced096108525a9",
+   "decision": null,
+   "errors": "unreadable worker-side artifacts/rulings/<dispatch-id>.md candidate",
+   "reason": "The same read, per candidate path on the worker's own filesystem (worktree ledger mirror, package root, canonical package). A missing or unreadable candidate just moves to the next one, and all-missing keeps the dispatch's ordinary classification; the file is an advisory classification input only. Task-authorized entry, 2026-10-21."
   }
  },
  "entries": {
@@ -183,6 +189,7 @@
    "packages/daemon/src/runtime-orchestration.ts#orchestrateRuntimeBatch",
    "packages/daemon/src/runtime-orchestration.ts#worker",
    "packages/daemon/src/runtime-ruling.ts#readDispatchRuling",
+   "packages/daemon/src/runtime-ruling.ts#readFileIfPresent",
    "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
    "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance",
    "packages/daemon/src/runtime-spawn-process.ts#drain",

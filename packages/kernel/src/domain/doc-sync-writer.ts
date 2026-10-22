@@ -293,11 +293,15 @@ function validRuntimeArchiveChanges(input: DocWriteDecisionInput, scope: Runtime
   const artifactRoot = `${scope.packagePath}/artifacts`,
     requiredPath = `${artifactRoot}/dispatches/${scope.dispatchId}.json`,
     // The report is optional: a reviewer that authored its own report at the dispatch report path
-    // before settlement already owns it, and the mission is only written on the first archive.
+    // before settlement already owns it, and the mission is only written on the first archive. The
+    // ruling is optional for the same reason: only a worker that stopped for an owner ruling has
+    // one, and settlement publishes the very bytes it read so the ask becomes visible to every read
+    // face (dispatch row, receipt, agenda) without a second worker-side publication step.
     allowedPaths = new Set([
       requiredPath,
       `${artifactRoot}/reports/${scope.dispatchId}.md`,
       `${artifactRoot}/missions/${scope.dispatchId}.md`,
+      `${artifactRoot}/rulings/${scope.dispatchId}.md`,
     ]),
     paths = input.intent.changes.map(({ path }) => String(path));
   return (

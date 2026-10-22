@@ -86,6 +86,9 @@ function decisionAction(
       label: t("views.overviewView.actionAdjudicate"),
       run: () => deps.onNavigateEntity(`decision/${source.row.decisionId}`),
     };
+  // 裁决请求的答复面是那条派工的任务详情(ruling 产物随归档发布在任务包里),不另造新页。
+  if (source?.kind === "ruling")
+    return { label: t("views.myAsks.actionOpenTask"), run: () => deps.onOpenTask(source.row.taskId) };
   // 接不回源行(读面切面前进中的瞬态):动作如实缺省,行不给假入口。
   return null;
 }
@@ -122,7 +125,7 @@ export function OverviewAwaitsBody({
       </div>
     );
   }
-  const needsYou = rows.some(({ kind }) => kind === "awaiting-you"),
+  const needsYou = rows.some(({ kind }) => kind === "awaiting-you" || kind === "ruling"),
     // 决策行与人签行共用紧凑名额:决策先占(带问句/风险),余下名额给人签;展开后全量滚动。
     visible = expanded ? rows : rows.slice(0, COMPACT_AWAITS),
     visibleSignoffs = expanded ? signoffs : signoffs.slice(0, Math.max(0, COMPACT_AWAITS - rows.length)),
@@ -162,9 +165,18 @@ export function OverviewAwaitsBody({
                 ? row.askKind !== null && row.question !== null
                   ? `${AWAITS_KIND_LABEL[row.askKind]()} · ${row.question}`
                   : t("views.overviewView.decisionsAwaitsFallback")
-                : t("views.overviewView.decisionsDecisionReason", {
-                    risk: row.riskTier === null ? "—" : t(RISK_LABEL[row.riskTier]),
-                  }),
+                : row.kind === "ruling"
+                  ? [
+                      row.question ?? "",
+                      ...(row.options.length
+                        ? [`${t("views.work.attention.ruling")}: ${row.options.join(" · ")}`]
+                        : []),
+                    ]
+                      .filter((part) => part !== "")
+                      .join(" — ")
+                  : t("views.overviewView.decisionsDecisionReason", {
+                      risk: row.riskTier === null ? "—" : t(RISK_LABEL[row.riskTier]),
+                    }),
             reason = [
               problem,
               workTitle === null
@@ -180,11 +192,13 @@ export function OverviewAwaitsBody({
                   <StatusTag
                     // Needs you 用 Orca 独立橙(agent-question,严格区别于等评审的琥珀);
                     // 待点头 decision 维持 wait 档——同为本人动作,但不是提问阻塞。
-                    tone={row.kind === "awaiting-you" ? "agent-question" : "wait"}
+                    tone={row.kind === "awaiting-you" || row.kind === "ruling" ? "agent-question" : "wait"}
                     label={t(
                       row.kind === "awaiting-you"
                         ? "agentRuntime.smartClassNeedsYou"
-                        : "views.overviewView.kindDecision",
+                        : row.kind === "ruling"
+                          ? "views.work.attention.ruling"
+                          : "views.overviewView.kindDecision",
                     )}
                   />
                 }

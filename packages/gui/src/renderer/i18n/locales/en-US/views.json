@@ -1189,6 +1189,7 @@
   "views.work.attention.blocked": "Blocked",
   "views.work.attention.decision": "Decision awaiting your nod",
   "views.work.attention.rework": "Rework requested",
+  "views.work.attention.ruling": "Awaiting ruling",
   "views.work.attention.stalled": "Stalled",
   "views.lineage.expand": "Lineage & cost",
   "views.lineage.collapse": "Collapse lineage",

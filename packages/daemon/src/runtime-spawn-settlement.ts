@@ -17,7 +17,7 @@ import {
 } from "./runtime-worker-push.ts";
 import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
-import { readDispatchRuling } from "./runtime-ruling.ts";
+import { readDispatchRuling, readDispatchRulingFromWorker, rulingReceiptText } from "./runtime-ruling.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
@@ -97,11 +97,11 @@ export async function publishExit(
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(
-      active,
-      code,
-      runtimeRulingRequest(context, active),
-    );
+    // One read of the worker's own ruling artifact feeds both the settlement classification and
+    // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
+    // from the projection.
+    const ruling = runtimeRulingRequest(context, active),
+      { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
     let outcome = initialOutcome,
       reviewResultMissing = false;
     if (
@@ -152,6 +152,10 @@ export async function publishExit(
     // usage read side picks it up.
     const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
+    // The question and its options ride the persisted result. The receipt body is what
+    // `ha runtime wait`, the dispatch row and the archived report all render, and a provider's exit
+    // diagnostic alone never tells the owner what was asked.
+    if (ruling !== null) body = `${body}\n\n${rulingReceiptText(ruling)}`;
     // Settlement carries the reclaim failure in its result text: the outcome itself is
     // unaffected (per-run temp is node hygiene, not part of the delivery cut), but the
     // terminal record must not claim a clean reclamation that did not happen.
@@ -256,6 +260,7 @@ export async function publishExit(
       provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
       classification: attemptOutcome.classification,
       reason: attemptOutcome.reason,
+      ...(ruling === null ? {} : { ruling: { path: ruling.path, body: ruling.body } }),
     };
     // A Decision review dispatch owns no task execution; its archive binds the reviewed Decision.
     const archive: RuntimeDispatchArchive | null = active.task
@@ -516,18 +521,28 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
 
 /**
  * The ruling a worker left in its task package, read at the single settlement entry. Only a
- * task-bound dispatch has a package to read, and only the node holding that task's projection can
- * witness the artifact; an edge settles by the same ordinary classification it always had.
+ * task-bound dispatch has a package to read. The worker's own filesystem is authoritative: a
+ * worktree artifact is a new local file that no doc sync has published yet, so the projection
+ * fallback below can only serve an artifact the worker itself published. An edge settles by the
+ * same ordinary classification it always had.
  */
 function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
   if (!active.task || !context.input.projection) return null;
   const projection = context.requiredRuntimeProjection(context.input),
     packagePath = projection.read(active.task.taskId).packagePath;
   if (typeof packagePath !== "string") return null;
-  return readDispatchRuling(
-    (relative) => projection.readDocument(relative).document?.body ?? null,
-    packagePath,
-    active.dispatchId,
+  return (
+    readDispatchRulingFromWorker({
+      cwd: active.cwd,
+      rootDir: context.input.rootDir,
+      packagePath,
+      dispatchId: active.dispatchId,
+    }) ??
+    readDispatchRuling(
+      (relative) => projection.readDocument(relative).document?.body ?? null,
+      packagePath,
+      active.dispatchId,
+    )
   );
 }
 

@@ -9,6 +9,7 @@ import type {
   AgendaAwaitsRow,
   AgendaDecisionRow,
   AgendaExecutionRow,
+  AgendaRulingRow,
   AgendaTaskRow,
   DaemonAgendaResult,
 } from "./protocol/daemon-protocol.contract.ts";
@@ -46,6 +47,7 @@ export function buildAttentionItems(input: {
   readonly awaitingRework: readonly AgendaTaskRow[];
   readonly awaitingAdjudication: readonly AgendaExecutionRow[];
   readonly awaitingDecision: readonly AgendaDecisionRow[];
+  readonly awaitingRuling: readonly AgendaRulingRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];
   readonly stalled: readonly AgendaTaskRow[];
   readonly auditFindings: readonly AuditAttentionRow[];
@@ -114,6 +116,21 @@ export function buildAttentionItems(input: {
       ),
       ...input.awaitingDecision.map((row) =>
         add(`decision/${row.decisionId}`, row.title, "decision", "mine", row.proposedAt, undefined, row.riskTier),
+      ),
+      // 派工停下等裁决:和「等你答复」一样是球在业主手里,只是问题来自无人值守 worker 的
+      // 裁决产物而不是 awaits 关系边。ref 用 dispatch id,与 dispatch 行同一把键。
+      ...input.awaitingRuling.map((row) =>
+        add(
+          `dispatch/${row.dispatchId}`,
+          row.title,
+          "ruling",
+          "mine",
+          row.askedAt,
+          taskSource(row.taskId),
+          "low",
+          row.pinned,
+          row.work?.taskId ?? null,
+        ),
       ),
       ...input.waitingOnOthers.map((row) =>
         add(

@@ -89,7 +89,7 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
 export function classifyRuntimeExit(
   active: ActiveRuntime,
   exitCode: number | null,
-  ruling: { readonly question: string } | null = null,
+  ruling: { readonly question: string; readonly options?: readonly string[] } | null = null,
 ): RuntimeAttemptOutcome & { readonly outcome: RuntimeExitOutcome } {
   const providerFault =
       active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),

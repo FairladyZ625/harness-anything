@@ -77,12 +77,44 @@ export function renderRuntimeBatchRow(value: unknown): string {
   return `${fields.map(String).join("\t")}${row.reportPath ? `\treport:${row.reportPath}` : ""}`;
 }
 
+/**
+ * The ruling rides the row as `ruling:<question> [options: 1) … 2) …] [artifact: <path>]`: a reader
+ * scanning `ha task dispatches` must see what was asked and what can be answered without switching
+ * to --json. `-` when the worker never asked.
+ */
+export function renderDispatchRuling(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "-";
+  const ruling = value as {
+      readonly question?: unknown;
+      readonly options?: unknown;
+      readonly path?: unknown;
+    },
+    options = Array.isArray(ruling.options)
+      ? ruling.options.map((option, index) => `${String(index + 1)}) ${String(option)}`)
+      : [];
+  return (
+    [
+      ...(typeof ruling.question === "string" ? [ruling.question] : []),
+      ...(options.length ? [`options: ${options.join(" ")}`] : []),
+      ...(typeof ruling.path === "string" ? [`artifact: ${ruling.path}`] : []),
+    ].join(" ") || "-"
+  );
+}
+
+/** `provider:<instance>` followed by `model:<model>`; one helper keeps the row one field per line. */
+function renderDispatchProvider(row: Partial<Record<string, unknown>>): string {
+  const provider = row.provider as Record<string, unknown> | undefined,
+    instance = String(provider?.instance ?? row.instanceId ?? "-");
+  return `${instance}\tmodel:${String(provider?.model ?? "-")}`;
+}
+
 export function renderDispatchRow(value: unknown): string {
   const row = value as Partial<Record<string, unknown>> & {
     readonly exitCode?: number | null;
     readonly resultRef?: string | null;
     readonly dispatchPath?: string | null;
     readonly reportPath?: string | null;
+    readonly ruling?: unknown;
   };
   return [
     String(row.dispatchId),
@@ -90,8 +122,7 @@ export function renderDispatchRow(value: unknown): string {
     String(row.runtimeSessionId),
     String(row.outcome ?? "-"),
     `attempt:${String(row.attemptIndex ?? 0)}`,
-    `provider:${String((row.provider as Record<string, unknown> | undefined)?.instance ?? row.instanceId ?? "-")}`,
-    `model:${String((row.provider as Record<string, unknown> | undefined)?.model ?? "-")}`,
+    `provider:${renderDispatchProvider(row)}`,
     `classification:${String(row.classification ?? "-")}`,
     `fallback:${String(row.fallbackState ?? "-")}`,
     `worker:${String(row.agentId ?? "-")}`,
@@ -106,6 +137,7 @@ export function renderDispatchRow(value: unknown): string {
     `advisories:${JSON.stringify(row.advisories ?? [])}`,
     `dispatch:${String(row.dispatchPath ?? "-")}`,
     `report:${String(row.reportPath ?? "-")}`,
+    `ruling:${renderDispatchRuling(row.ruling)}`,
   ].join("\t");
 }
 

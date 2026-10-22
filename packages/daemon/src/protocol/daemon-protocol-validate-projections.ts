@@ -64,6 +64,38 @@ export function agendaExecutionRow(value: unknown): boolean {
   );
 }
 
+export function agendaRulingRow(value: unknown): boolean {
+  return (
+    exactRecord(value, [
+      "taskId",
+      "title",
+      "work",
+      "pinned",
+      "dispatchId",
+      "executionId",
+      "question",
+      "options",
+      "rulingPath",
+      "askedAt",
+      "blockingAssessment",
+    ]) &&
+    [
+      value.taskId,
+      value.title,
+      value.dispatchId,
+      value.executionId,
+      value.question,
+      value.rulingPath,
+      value.askedAt,
+    ].every(nonEmpty) &&
+    agendaWorkRef(value.work) &&
+    typeof value.pinned === "boolean" &&
+    Array.isArray(value.options) &&
+    value.options.every((option) => nonEmpty(option)) &&
+    blockingAssessment(value.blockingAssessment)
+  );
+}
+
 function agendaWorkRef(value: unknown): boolean {
   return value === null || (exactRecord(value, ["taskId", "title"]) && [value.taskId, value.title].every(nonEmpty));
 }
@@ -168,6 +200,7 @@ function agendaAttentionItem(value: unknown): boolean {
       "archive",
       "audit-finding",
       "unsubmitted-delivery",
+      "ruling",
     ].includes(String(value.kind)) &&
     ["mine", "stuck"].includes(String(value.region)) &&
     (value.workTaskId === null || nonEmpty(value.workTaskId)) &&
@@ -260,6 +293,13 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
     )
   )
     return [validationError(entityId, "regionWeights", regionWeights, "must contain finite region weights")];
+  if (
+    value.awaitingRuling !== undefined &&
+    (!Array.isArray(value.awaitingRuling) || value.awaitingRuling.some((row) => !agendaRulingRow(row)))
+  )
+    return [
+      validationError(entityId, "awaitingRuling", value.awaitingRuling, "must contain valid awaiting-ruling rows"),
+    ];
   for (const [field, row, idFields] of [
     ["awaitingYou", agendaAwaitsRow, ["relationId"]],
     ["answeredForYou", agendaAnsweredRow, ["relationId"]],

@@ -823,6 +823,7 @@ export type {
   AgendaDecisionRow,
   AgendaExecutionRow,
   AgendaPinnedEntityRow,
+  AgendaRulingRow,
   AgendaTaskRow,
   AgendaWorkRef,
   DaemonAgendaPayload,
@@ -957,6 +958,6 @@ export {
   validateDaemonTaskDocumentList,
 } from "./daemon-protocol-validate-results.ts";
 export { isolateDaemonTaskSnapshotRows, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
-export { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
+export { validTaskDispatchRow, validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
 
 export type { TaskAssignmentDirectory } from "./daemon-protocol-gui-types.ts";

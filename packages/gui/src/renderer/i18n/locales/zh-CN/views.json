@@ -1189,6 +1189,7 @@
   "views.work.attention.blocked": "阻塞",
   "views.work.attention.decision": "决策待点头",
   "views.work.attention.rework": "评审打回",
+  "views.work.attention.ruling": "等待业主裁决",
   "views.work.attention.stalled": "停滞",
   "views.lineage.expand": "血缘与成本",
   "views.lineage.collapse": "收起血缘",

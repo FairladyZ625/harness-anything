@@ -71,6 +71,12 @@ export interface RuntimeDispatchArchive {
   readonly provider: { readonly instance: string; readonly model: string };
   readonly classification: DispatchExitClassification;
   readonly reason: string;
+  /**
+   * The ruling artifact's bytes, published with the archive when the worker stopped for an owner
+   * ruling. Settlement read them from the worker's own filesystem, where no doc sync had reached
+   * them yet; publishing here is what makes the ask visible to the projection-backed read faces.
+   */
+  readonly ruling?: { readonly path: string; readonly body: string };
 }
 
 export function archiveRuntimeDispatch(
@@ -135,6 +141,10 @@ export function archiveRuntimeDispatch(
   const existingMissionRef = runtimeArchiveMissionRef(input, packagePath, value),
     missionRef = existingMissionRef ?? `${packagePath}/artifacts/missions/${value.dispatchId}.md`,
     reportRef = documentPath(`${packagePath}/artifacts/reports/${value.dispatchId}.md`),
+    // A package-bound dispatch works inside the canonical package itself, so its ruling file is
+    // already at the authored path settlement would publish to. That file is this archive's own
+    // input, not a collision: identical bytes are accepted, divergent bytes are not.
+    rulingRef = `${packagePath}/artifacts/rulings/${value.dispatchId}.md`,
     layout = resolveHarnessLayout(input.rootDir),
     // A reviewer the completion facade dispatches authors its own report at the dispatch report path
     // before the runtime settles. That authored report is the dispatch report; the final message is
@@ -213,6 +223,18 @@ export function archiveRuntimeDispatch(
               mediaType: "text/markdown" as const,
             },
           ]),
+      // The worker wrote this file in its worktree and no doc sync reached it, so settlement
+      // republishes the exact bytes it read. Without this step the ask exists only on a disk the
+      // read faces cannot see, and the dispatch row keeps settling as an ordinary failure.
+      ...(value.ruling === undefined
+        ? []
+        : [
+            {
+              path: rulingRef,
+              body: value.ruling.body,
+              mediaType: "text/markdown" as const,
+            },
+          ]),
     ].map((document) => ({
       ...document,
       path: documentPath(document.path),
@@ -231,13 +253,21 @@ export function archiveRuntimeDispatch(
       const authored = path.join(layout.authoredRoot, ...document.path.split("/")),
         authoredBody = existsSync(authored) ? readFileSync(authored) : null,
         read = reads[index]!,
-        fresh = read.status === "ready" && read.document === null && authoredBody === null;
+        // The ruling artifact is the one archive document the dispatch authored in place: a
+        // package-bound worker writes inside the canonical package itself, so its bytes sit at the
+        // archive target before settlement runs. That is this archive's own input, not a collision —
+        // but it is still NOT in the projection, so it must be published like any other fresh
+        // document or the read faces never see the ask.
+        selfAuthored = document.path === documentPath(rulingRef) && authoredBody !== null,
+        fresh = read.status === "ready" && read.document === null && (authoredBody === null || selfAuthored);
       let identical = false;
-      if (!fresh && reviewer) {
+      if (!fresh) {
         const digest = sha256Bytes(document.bytes);
         identical =
-          (read.status === "ready" && read.document?.blobSha256 === digest) ||
-          (authoredBody !== null && sha256Bytes(authoredBody) === digest);
+          reviewer &&
+          ((read.status === "ready" && read.document?.blobSha256 === digest) ||
+            (authoredBody !== null && sha256Bytes(authoredBody) === digest));
+        if (!identical && selfAuthored) identical = sha256Bytes(authoredBody!) === sha256Bytes(document.bytes);
       }
       return { document, fresh, identical };
     });

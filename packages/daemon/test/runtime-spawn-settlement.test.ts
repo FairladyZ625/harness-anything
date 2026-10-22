@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1630,6 +1630,100 @@ test("terminal settlement refuses to publish a worker commit outside the convent
     "the settlement refusal leaves the branch unpublished",
   );
 });
+
+test("settlement reads the worker's ruling from its own worktree and publishes it with the archive", async (context) => {
+  // The measured production shape (task_936005e1): the worker writes the ruling into its worktree
+  // package mirror, no doc sync reaches it, and the provider exits non-zero. Before this fix the
+  // settlement read only the projection, so the file was invisible and the run settled
+  // `gate_red`/failed; the ask then existed nowhere the CEO could read it.
+  const fixture = workerGitFixture(context, "settle-ruling", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {}),
+    artifacts = fixtureArtifacts(fixture),
+    rulingPath = path.join(
+      fixture.worker,
+      "harness",
+      "tasks",
+      "task_0123456789abcdef01234567-fixture",
+      "artifacts",
+      "rulings",
+      `${runtime.dispatchId}.md`,
+    ),
+    archives: Record<string, unknown>[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    outcomeBodies: string[] = [];
+  mkdirSync(path.dirname(rulingPath), { recursive: true });
+  writeFileSync(rulingPath, artifacts.body);
+  const settleContext = {
+    ...workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    }),
+  } as unknown as RuntimeSpawnerContext;
+  // Capture the archive instead of publishing it: the ruling's bytes must reach this object, which
+  // is the only settlement publication path.
+  (settleContext.input as { remote: { archive: (archive: unknown) => Promise<{ outcome: string }> } }).remote = {
+    archive: async (archive) => {
+      archives.push(archive as Record<string, unknown>);
+      return { outcome: "applied" };
+    },
+  };
+  await publishExit(settleContext, runtime, 2);
+  assert.equal(archives.length, 1, "settlement still archives through the single existing path");
+  assert.deepEqual(
+    {
+      outcome: outcomes[0]?.outcome,
+      classification: (outcomes[0]?.attempt as { readonly classification?: string } | undefined)?.classification,
+    },
+    { outcome: "stopped", classification: "awaiting_ruling" },
+  );
+  assert.match(outcomeBodies[0]!, /Awaiting owner ruling: /u);
+  assert.match(outcomeBodies[0]!, new RegExp(artifacts.question, "u"));
+  for (const option of artifacts.options)
+    assert.match(outcomeBodies[0]!, new RegExp(option.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.deepEqual(archives[0]?.ruling, {
+    path: `tasks/task_0123456789abcdef01234567-fixture/artifacts/rulings/${runtime.dispatchId}.md`,
+    body: artifacts.body,
+  });
+  // The same run without the artifact keeps the ordinary settled failure: the classification was
+  // added at the existing branch, not as a second settlement path. Removing the file is the
+  // before-state — this is exactly the dispatch a projection-only read saw.
+  rmSync(rulingPath);
+  const noRuling = workerSettlementRuntime(fixture, {}),
+    bare: Record<string, unknown>[] = [],
+    bareOutcomes: Record<string, unknown>[] = [],
+    bareContext = {
+      ...workerSettlementContext(fixture, async (type, payload = {}) => {
+        if (type === "runtime_session_outcome_observed") bareOutcomes.push(payload);
+        return {};
+      }),
+    } as unknown as RuntimeSpawnerContext;
+  (bareContext.input as { remote: { archive: (archive: unknown) => Promise<{ outcome: string }> } }).remote = {
+    archive: async (archive) => {
+      bare.push(archive as Record<string, unknown>);
+      return { outcome: "applied" };
+    },
+  };
+  await publishExit(bareContext, noRuling, 2);
+  assert.equal(
+    (bareOutcomes[0]?.attempt as { readonly classification?: string } | undefined)?.classification,
+    "gate_red",
+  );
+  assert.equal(bareOutcomes[0]?.outcome, "failed");
+  assert.equal(bare[0]?.ruling, undefined);
+});
+
+function fixtureArtifacts(fixture: WorkerGitFixture) {
+  void fixture;
+  const question = "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？";
+  return {
+    question,
+    options: ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
+    body: `---\nruling: awaiting\nquestion: ${question}\noptions:\n  - 保留 GUI 验收（推荐）\n  - low 档不要求 GUI 验收\n---\n`,
+  };
+}
 
 function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return {

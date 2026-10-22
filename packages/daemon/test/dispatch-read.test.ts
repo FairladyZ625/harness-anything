@@ -22,7 +22,11 @@ import {
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
 import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
-import { validateDaemonRpcCall, validateDaemonTaskDispatches } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  validTaskDispatchRow,
+  validateDaemonRpcCall,
+  validateDaemonTaskDispatches,
+} from "../src/protocol/daemon-protocol.contract.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -399,6 +403,33 @@ test("an awaiting-ruling dispatch row carries the question and options, not just
   });
   // Without the artifact the same run keeps its ordinary reading: no ruling field is invented.
   assert.equal(readTaskDispatches({ projection: f.projection, taskId }).dispatches[0]?.ruling, undefined);
+});
+
+test("the historical archive records still validate and keep their old classifications", () => {
+  // Real old data, not a synthetic shape: three `runtime-dispatch/v1` records captured from the
+  // production ledger before this change (packages/daemon/test/fixtures/dispatch-record-migration).
+  // The new classification is an added member of the same union, so every one of them still reads
+  // back through today's validator — no attach migration is required for them.
+  const records = [
+    "dispatch_58d3d4f10a20791ac746e2e9",
+    "dispatch_60759907a4d1701d8bafd9a1",
+    "dispatch_eab77a4427332feaf90333a2",
+  ].map((name) =>
+    JSON.parse(fs.readFileSync(new URL(`./fixtures/dispatch-record-migration/${name}.json`, import.meta.url), "utf8")),
+  );
+  for (const record of records) {
+    assert.equal(record.schema, "runtime-dispatch/v1");
+    assert.equal(
+      ["worker_stop", "provider_fault", "awaiting_ruling", "gate_red", "provider_quota"].includes(
+        record.classification,
+      ),
+      true,
+    );
+    const row = fixture(session("exited", record.classification === "worker_stop" ? "succeeded" : "failed"), {
+      archive: record,
+    }).rows()[0]!;
+    assert.equal(validTaskDispatchRow(row), true, `${record.dispatchId}: ${JSON.stringify(row)}`);
+  }
 });
 
 test("stopped dispatch is shown as blocked only from a structured task state", () => {

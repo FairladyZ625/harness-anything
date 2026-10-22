@@ -88,6 +88,7 @@ function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess)
       ({ decisionId }) => decisionId,
     ),
     awaitingDecision: merge(previous.awaitingDecision, read.awaitingDecision, ({ decisionId }) => decisionId),
+    awaitingRuling: merge(previous.awaitingRuling ?? [], read.awaitingRuling ?? [], ({ dispatchId }) => dispatchId),
     waitingOnOthers: merge(previous.waitingOnOthers, read.waitingOnOthers, ({ taskId }) => taskId),
     dispatchable: merge(previous.dispatchable, read.dispatchable, ({ taskId }) => taskId),
     summary: read.summary,

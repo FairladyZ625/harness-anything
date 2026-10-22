@@ -208,6 +208,45 @@ test("a canonical runtime occurrence archives only its dispatch artifacts withou
     assert.equal(result.accepted, false, name);
     if (!result.accepted) assert.equal(result.code, code, name);
   }
+  // The ruling artifact is part of the same archive set: settlement publishes the ask the worker
+  // wrote, so an unattended dispatch that stopped for a ruling is visible to every read face.
+  const rulingBody = "---\nruling: awaiting\nquestion: Ship it?\noptions:\n  - yes\n---\n",
+    rulingPath = `tasks/task-owner-docs/artifacts/rulings/${scope.dispatchId}.md`,
+    withRuling = (path: string, body = rulingBody) =>
+      decideDocWrite({
+        intent: {
+          schema: "doc-write-intent/v1",
+          executionId: null,
+          baseLedgerSha,
+          changes: [paths[0]!, path].map((target, index) => ({
+            path: documentPath(target),
+            baseBlobSha256: null,
+            policyId: target.endsWith(".json") ? OPAQUE_TEXTUAL_POLICY_ID : DOC_POLICY_ID,
+            candidate: target.endsWith(".json")
+              ? opaqueClaim("{}", "application/json")
+              : claim(index === 1 ? body : "{}"),
+          })),
+        },
+        opId: "runtime-archive-ruling-op",
+        eventId: "runtime-archive-ruling-event",
+        workspaceRevision: 3,
+        actor: runtimeActor,
+        source: "local",
+        occurredAt: "2026-08-12T11:00:00.000Z",
+        currentLedgerSha,
+        lease: null,
+        authorizationDecision: authorizeDocWrite(runtimeActor),
+        runtimeArchive: scope,
+        documents: [null, null],
+        claims: [Buffer.from("{}"), Buffer.from(rulingBody)],
+        resolvedTaskIds: [scope.taskId, scope.taskId],
+      });
+  const rulingAddressed = withRuling(rulingPath);
+  assert.equal(rulingAddressed.accepted, true, JSON.stringify(rulingAddressed));
+  // Another dispatch's ruling cannot be smuggled in under this archive's settlement.
+  const foreign = withRuling(`tasks/task-owner-docs/artifacts/rulings/dispatch_ffffffffffffffffffffffff.md`);
+  assert.equal(foreign.accepted, false, "a differently keyed ruling is outside this archive");
+  if (!foreign.accepted) assert.equal(foreign.code, "lease_conflict");
 });
 
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {

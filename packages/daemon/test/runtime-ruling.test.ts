@@ -1,29 +1,34 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
-import { parseRulingRequest, readDispatchRuling, runtimeRulingPath } from "../src/runtime-ruling.ts";
+import { recordedRuling, recordedStream } from "./fixtures/task-936005e1-ruling.ts";
+import {
+  parseRulingRequest,
+  readDispatchRuling,
+  readDispatchRulingFromWorker,
+  rulingReceiptText,
+  runtimeRulingPath,
+} from "../src/runtime-ruling.ts";
 
-const rulingBody = `---
-ruling: awaiting
-question: low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？
-options:
-  - 保留 GUI 验收（推荐）
-  - low 档不要求 GUI 验收
----
-
-这是 task_936005e1 上 worker 实际提出的问题。
-`;
+const { question, options, body: rulingBody } = recordedRuling,
+  dispatchRecord = recordedStream.find((record) => record.kind === "dispatch")!,
+  exitRecord = recordedStream.find((record) => record.kind === "process_exit")!,
+  attemptRecord = recordedStream.find((record) => record.kind === "attempt_outcome")!,
+  terminalRecord = recordedStream.find((record) => record.kind === "terminal_outcome")!;
 
 function active(overrides: Partial<ActiveRuntime> = {}): ActiveRuntime {
   return {
-    runtimeSessionId: "runtime-1",
-    instanceId: "codex-api",
-    kindId: "codex",
-    dispatchId: "dispatch_25716c64031a31cc45f5e1d1",
+    runtimeSessionId: dispatchRecord.runtimeSessionId,
+    instanceId: dispatchRecord.instanceId,
+    kindId: dispatchRecord.kindId,
+    dispatchId: dispatchRecord.dispatchId,
     model: "gpt-6.1-sol",
-    task: { taskId: "task_1", executionId: "exe_1" },
+    task: { taskId: dispatchRecord.taskId, executionId: dispatchRecord.executionId },
     cancelRequested: false,
     lossReason: null,
     providerFault: null,
@@ -40,9 +45,20 @@ function active(overrides: Partial<ActiveRuntime> = {}): ActiveRuntime {
   } as unknown as ActiveRuntime;
 }
 
+test("the recorded task_936005e1 stream still reads as a failed gate_red run without a ruling artifact", () => {
+  // The measured before-state: exit 2, tool activity, no delivered cut — nothing distinguishes this
+  // from a broken provider unless the dispatch carries a ruling artifact.
+  assert.equal(exitRecord.exitCode, 2);
+  assert.equal(attemptRecord.classification, "gate_red");
+  assert.equal((terminalRecord.payload as { readonly outcome: string }).outcome, "failed");
+  const before = classifyRuntimeExit(active(), 2);
+  assert.equal(before.classification, "gate_red");
+  assert.equal(before.outcome, "failed");
+});
+
 test("a ruling artifact parses its question and ordered options", () => {
   assert.deepEqual(parseRulingRequest(rulingBody, "tasks/t/artifacts/rulings/dispatch_x.md"), {
-    question: "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+    question: "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？此决定会限定免评范围。",
     options: ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
     path: "tasks/t/artifacts/rulings/dispatch_x.md",
   });
@@ -78,8 +94,62 @@ test("the ruling path is keyed by dispatch id so two dispatches never overwrite 
       "tasks/t",
       "dispatch_a",
     )?.question,
-    "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+    question,
   );
+});
+
+test("the worker's own filesystem is the read path: a worktree-local artifact is found before any doc sync", () => {
+  // The exact production failure (review F1): a dispatch writes into its worktree package mirror and
+  // no doc sync publishes it, so the projection read is empty at settlement. This exercises the real
+  // filesystem layout — `<cwd>/harness/<packagePath>/artifacts/rulings/<dispatchId>.md` — and asserts
+  // the disk read wins while the projection fallback stays empty.
+  const root = mkdtempSync(path.join(tmpdir(), "ha-ruling-worker-"));
+  try {
+    const packagePath = "tasks/task_ruling_fixture-package",
+      cwd = path.join(root, ".worktrees", "task_ruling_fixture"),
+      artifact = path.join(
+        cwd,
+        "harness",
+        ...packagePath.split("/"),
+        "artifacts",
+        "rulings",
+        `${dispatchRecord.dispatchId}.md`,
+      );
+    mkdirSync(path.dirname(artifact), { recursive: true });
+    writeFileSync(artifact, rulingBody);
+    assert.equal(
+      readDispatchRuling(() => null, packagePath, String(dispatchRecord.dispatchId)),
+      null,
+      "projection-only read is empty: this is the before-state the fix replaces",
+    );
+    const found = readDispatchRulingFromWorker({
+      cwd,
+      rootDir: root,
+      packagePath,
+      dispatchId: String(dispatchRecord.dispatchId),
+    });
+    assert.equal(found?.question, question);
+    assert.deepEqual(found?.options, options);
+    assert.equal(found?.path, `${packagePath}/artifacts/rulings/${dispatchRecord.dispatchId}.md`);
+    assert.equal(found?.body, rulingBody, "the parsed body travels with the request so settlement can publish it");
+    // A package-bound dispatch whose cwd is the package itself reads the same artifact.
+    assert.equal(
+      readDispatchRulingFromWorker({
+        cwd: path.join(cwd, "harness", ...packagePath.split("/")),
+        rootDir: root,
+        packagePath,
+        dispatchId: String(dispatchRecord.dispatchId),
+      })?.question,
+      question,
+    );
+    // No artifact anywhere: the ordinary classification survives.
+    assert.equal(
+      readDispatchRulingFromWorker({ cwd, rootDir: root, packagePath, dispatchId: "dispatch_absent" }),
+      null,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("a ruling settles stopped/awaiting_ruling instead of gate_red, and carries the question", () => {
@@ -89,17 +159,34 @@ test("a ruling settles stopped/awaiting_ruling instead of gate_red, and carries 
   assert.equal(failed.classification, "gate_red");
   assert.equal(failed.outcome, "failed");
 
-  const awaiting = classifyRuntimeExit(active(), 2, {
-    question: "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
-  });
+  const awaiting = classifyRuntimeExit(active(), 2, { question, options });
   assert.equal(awaiting.classification, "awaiting_ruling");
   assert.equal(awaiting.outcome, "stopped", "a ruling is not a failed run");
-  assert.equal(awaiting.reason, "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？");
+  assert.equal(awaiting.reason, question);
   assert.equal(awaiting.provider.kind, "codex");
 });
 
+test("the receipt text carries the question, every option in order, and the resume path", () => {
+  const text = rulingReceiptText({
+    question,
+    options,
+    path: `tasks/t/artifacts/rulings/${dispatchRecord.dispatchId}.md`,
+  });
+  assert.match(text, new RegExp(`^Awaiting owner ruling: ${question}$`, "mu"));
+  assert.match(text, /^Options:$/mu);
+  assert.match(text, /^ {2}1\. 保留 GUI 验收（推荐）$/mu);
+  assert.match(text, /^ {2}2\. low 档不要求 GUI 验收$/mu);
+  assert.match(text, /Ruling artifact: tasks\/t\/artifacts\/rulings\/dispatch_25716c64031a31cc45f5e1d1\.md/u);
+  assert.match(text, /--resume-dispatch <dispatch-id>/u);
+  // A yes/no ask writes no options block at all rather than an empty heading.
+  assert.doesNotMatch(
+    rulingReceiptText({ question: "Ship it?", options: [], path: "tasks/t/artifacts/rulings/d.md" }),
+    /Options:/u,
+  );
+});
+
 test("a cancellation still outranks a written ruling: the operator stopped the run", () => {
-  const cancelled = classifyRuntimeExit(active({ cancelRequested: true }), 2, { question: "q" });
+  const cancelled = classifyRuntimeExit(active({ cancelRequested: true }), 2, { question, options });
   assert.equal(cancelled.classification, "worker_stop");
   assert.equal(cancelled.outcome, "cancelled");
 });
