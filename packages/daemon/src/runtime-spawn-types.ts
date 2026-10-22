@@ -191,6 +191,17 @@ export type ActiveRuntime = {
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
+  /** How many provider stream reconnects this attempt saw, and the provider's own last one.
+   * Codex reports a reconnect as a plain `error` frame and then keeps answering, so this count
+   * plus the tool/message flags below decide whether the attempt's tail is provider-caused.
+   * Scalar state on purpose: an attempt can reconnect many times and nothing needs the history. */
+  providerReconnectCount: number;
+  lastProviderReconnect: ProviderReconnect | null;
+  /** Reset on every reconnect; a completed, non-failed tool call sets it. A failed command is an
+   * answered-but-red result and does not prove the provider resumed serving the attempt. */
+  successfulToolCallAfterReconnect: boolean;
+  /** Whether an agent message arrived after the latest reconnect. */
+  finalAgentMessageAfterReconnect: boolean;
   inputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
@@ -212,14 +223,28 @@ export type ProviderFrame = {
   readonly planObserved?: boolean;
   readonly planIncomplete?: boolean;
   readonly toolCallObserved?: boolean;
+  /** Set only when the settled tool call succeeded; a failed command is an answered-but-red tool
+   * result and does not prove the provider resumed serving the attempt. */
+  readonly toolCallSucceeded?: boolean;
   readonly providerUsageEmpty?: boolean;
   /** Token usage a provider nests below the frame top level, handed to the shared usage counters. */
   readonly usage?: Record<string, unknown>;
   readonly providerFault?: RuntimeProviderFault;
+  /** A provider-declared stream reconnect (`Reconnecting... n/m (...)`), not a failure frame. */
+  readonly providerReconnect?: ProviderReconnect;
   readonly toolStep?: { readonly id: string; readonly settled: boolean };
   /** Model ids the provider advertised on session establishment (ACP kinds). */
   readonly observedModels?: readonly string[];
   readonly observedCurrentModel?: string;
+};
+
+/** One provider stream reconnect. Codex spends a bounded `attempt/limit` budget on most of them, but
+ * not all: `Reconnecting... waiting for network (...)` carries no budget, so both fields are null
+ * there. `diagnostic` is the provider's own detail text, never the local reasoning about it. */
+export type ProviderReconnect = {
+  readonly attempt: number | null;
+  readonly limit: number | null;
+  readonly diagnostic: string;
 };
 
 export type ResumeProcessEvent =

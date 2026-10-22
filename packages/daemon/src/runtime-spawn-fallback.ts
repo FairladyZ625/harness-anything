@@ -156,7 +156,12 @@ export async function settleFallbackAttempt(
 ): Promise<void> {
   const { input } = context;
   const fallback = active.fallbackAttempt;
-  if (isProviderFailureClassification(outcome.classification)) {
+  // A delivered attempt is not a provider failure, whatever its tail looked like: an accepted
+  // submission or registered review is work the provider did complete, so it keeps the success
+  // disposition it had before that tail was labelled (a drained reconnect is evidence about the
+  // ending, not a reason to re-run a delivery).
+  const delivered = terminal.outcome === "succeeded";
+  if (isProviderFailureClassification(outcome.classification) && !delivered) {
     const settings = input.readSettings?.(),
       runtime = settings?.runtime;
     input.runtimeProviderHealth?.recordFailure({
@@ -172,10 +177,10 @@ export async function settleFallbackAttempt(
         active.providerFault?.code === "auth_failed" ||
         (active.providerFault?.faultClass === "quota_exhausted" && outcome.resetAt === undefined),
     });
-  } else if (active.providerOutcome === "succeeded") {
+  } else if (active.providerOutcome === "succeeded" || delivered) {
     input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
   }
-  if (!isProviderFailureClassification(outcome.classification) || !fallback) {
+  if (delivered || !isProviderFailureClassification(outcome.classification) || !fallback) {
     await input.onAttemptTerminal?.(terminal);
     return;
   }

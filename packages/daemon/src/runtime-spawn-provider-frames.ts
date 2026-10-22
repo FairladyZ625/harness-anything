@@ -5,7 +5,7 @@ import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId, runtimeKindIds, runtimeKinds } from "./runtime-inventory.ts";
 import { sessionIdentityResolverFor } from "./session-identity/index.ts";
 import type { ProviderFrame } from "./runtime-spawn-types.ts";
-import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
+import { providerFaultFromFrame, providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
 export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
   if (!isPlainRecord(value) || (typeof value.event !== "string" && typeof value.type !== "string"))
@@ -17,7 +17,12 @@ export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown):
     parser = providerFrameParsers[kindId],
     semantic = parser(value, identity.sessionId);
   const providerFault = providerFaultFromFrame(kindId, value),
-    observed = providerFault ? { ...semantic, providerFault } : semantic;
+    providerReconnect = providerReconnectFromFrame(kindId, value),
+    observed = {
+      ...semantic,
+      ...(providerFault ? { providerFault } : {}),
+      ...(providerReconnect ? { providerReconnect } : {}),
+    };
   return identity.sessionId === null ? observed : { ...observed, sessionIdentity: identity };
 }
 
@@ -131,10 +136,11 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
           failureText: message,
         };
     }
-    if (["command_execution", "file_change", "mcp_tool_call", "web_search"].includes(itemType))
+    if (codexToolItemTypes.has(itemType))
       return {
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(item) }],
         toolCallObserved: true,
+        toolCallSucceeded: codexToolItemSucceeded(itemType, item),
         writeItemObserved: itemType === "file_change" && item.status === "completed",
       };
     if (["plan", "todo", "todo_list"].includes(itemType))
@@ -322,6 +328,26 @@ export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId
 }
 
 const acpWriteToolKinds: ReadonlySet<string> = new Set(["edit", "delete", "move"]);
+
+/** Codex's tool item types. `collab_tool_call` is the sub-agent tool (`wait`): the provider reports
+ * it settled exactly like any other tool, so it belongs here rather than in the unobserved types. */
+const codexToolItemTypes: ReadonlySet<string> = new Set([
+  "command_execution",
+  "file_change",
+  "mcp_tool_call",
+  "web_search",
+  "collab_tool_call",
+]);
+
+/** Whether a settled Codex tool item proves the provider actually served the call. The shapes differ
+ * per type, so each is stated explicitly instead of one expression pretending to cover all five:
+ * commands settle by exit code, file/agent/MCP tools by status, and `web_search` carries neither a
+ * status nor an exit code — its `results` array is the only proof the search ran and returned. */
+function codexToolItemSucceeded(itemType: string, item: Record<string, unknown>): boolean {
+  if (itemType === "web_search") return Array.isArray(item.results);
+  if (itemType === "command_execution") return item.status === "completed" && (item.exit_code ?? 0) === 0;
+  return item.status === "completed";
+}
 
 export function planHasIncompleteItems(item: Record<string, unknown>): boolean {
   const value = isPlainRecord(item.input) ? item.input : item,
