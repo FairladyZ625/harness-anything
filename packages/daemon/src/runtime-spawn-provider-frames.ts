@@ -5,7 +5,7 @@ import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId, runtimeKindIds, runtimeKinds } from "./runtime-inventory.ts";
 import { sessionIdentityResolverFor } from "./session-identity/index.ts";
 import type { ProviderFrame } from "./runtime-spawn-types.ts";
-import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
+import { providerFaultFromFrame, providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
 export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
   if (!isPlainRecord(value) || (typeof value.event !== "string" && typeof value.type !== "string"))
@@ -17,7 +17,12 @@ export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown):
     parser = providerFrameParsers[kindId],
     semantic = parser(value, identity.sessionId);
   const providerFault = providerFaultFromFrame(kindId, value),
-    observed = providerFault ? { ...semantic, providerFault } : semantic;
+    providerReconnect = providerReconnectFromFrame(kindId, value),
+    observed = {
+      ...semantic,
+      ...(providerFault ? { providerFault } : {}),
+      ...(providerReconnect ? { providerReconnect } : {}),
+    };
   return identity.sessionId === null ? observed : { ...observed, sessionIdentity: identity };
 }
 
@@ -135,6 +140,8 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
       return {
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(item) }],
         toolCallObserved: true,
+        // Codex settles an item as completed/0 or failed/exit!=0; file_change carries no exit code.
+        toolCallSucceeded: item.status === "completed" && (item.exit_code ?? 0) === 0,
         writeItemObserved: itemType === "file_change" && item.status === "completed",
       };
     if (["plan", "todo", "todo_list"].includes(itemType))

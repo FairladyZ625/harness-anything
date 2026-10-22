@@ -1,5 +1,5 @@
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
-import type { ActiveRuntime, ProviderFrame } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ProviderFrame, ProviderReconnect } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
 
 const quota =
@@ -10,6 +10,30 @@ const quota =
     /\b(?:incomplete response|(?:stream|sse).*(?:disconnected|ended|incomplete|event type mismatch)|event type mismatch|before message_stop)\b/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
+
+/** Codex reports a stream reconnect as a plain `error` frame that carries the provider's own
+ * `n/m` budget. It is a transport event, not a turn failure: the attempt keeps running, and a
+ * turn that ends right after the budget is spent may still answer as if it had finished. */
+const reconnect = /^Reconnecting\.\.\. (\d+)\/(\d+) \(([^)]*)\)$/iu;
+
+export function providerReconnectFromFrame(
+  kindId: RuntimeInstanceKind,
+  value: Record<string, unknown>,
+): ProviderReconnect | null {
+  if (kindId !== "codex" || value.type !== "error") return null;
+  const diagnostic = diagnosticText(value.message);
+  return diagnostic === null ? null : reconnectFromDiagnostic(diagnostic);
+}
+
+export function reconnectFromDiagnostic(diagnostic: string): ProviderReconnect | null {
+  const match = reconnect.exec(diagnostic.trim());
+  if (!match) return null;
+  const attempt = Number(match[1]),
+    limit = Number(match[2]);
+  return Number.isInteger(attempt) && Number.isInteger(limit) && limit > 0
+    ? { attempt, limit, diagnostic: diagnostic.trim() }
+    : null;
+}
 
 export function providerFaultFromFrame(
   kindId: RuntimeInstanceKind,
@@ -115,6 +139,10 @@ export function classifyRuntimeExit(
     return classified("worker_stop", `Worker process stopped before settlement: ${active.lossReason}`);
   if (exitCode === null)
     return classified("provider_fault", "Provider process disconnected before completing the attempt.");
+  // A drained reconnect budget is upstream overload, not the worker giving up: when the provider
+  // reconnected and the attempt then ended without any successful tool call, the last agent
+  // message is the overloaded stream's tail, whatever it claims about the workspace.
+  if (reconnectExhaustedTail(active)) return classified("provider_fault", reconnectExhaustedReason(active));
   if (
     exitCode === 0 &&
     active.providerOutcome === "succeeded" &&
@@ -146,6 +174,26 @@ export function classifyRuntimeExit(
 
 export type RuntimeExitOutcome = "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
 
+/** The provider reconnected, then closed the attempt without a single successful tool call. The
+ * attempt answered from a drained stream; the message it wrote is a symptom, never the cause. */
+function reconnectExhaustedTail(active: ActiveRuntime): boolean {
+  return (
+    (active.providerReconnects?.length ?? 0) > 0 &&
+    active.finalAgentMessageAfterReconnect === true &&
+    active.successfulToolCallAfterReconnect !== true
+  );
+}
+
+function reconnectExhaustedReason(active: ActiveRuntime): string {
+  const reconnects = active.providerReconnects!,
+    last = reconnects[reconnects.length - 1]!;
+  return (
+    `Provider stream reconnected ${String(reconnects.length)} time(s) and the attempt ` +
+    `closed after the last reconnect (${String(last.attempt)}/${String(last.limit)}) without a successful ` +
+    `tool call: ${last.diagnostic}`
+  );
+}
+
 function runtimeExitOutcome(
   active: ActiveRuntime,
   exitCode: number | null,
@@ -175,11 +223,22 @@ function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): s
 }
 
 export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame): void {
+  if (frame.providerReconnect) {
+    active.providerReconnects.push(frame.providerReconnect);
+    // A reconnect re-opens the window: only tool calls issued after it prove the provider served
+    // this attempt again, and only messages after it can be the drained stream's tail.
+    active.successfulToolCallAfterReconnect = false;
+    active.finalAgentMessageAfterReconnect = false;
+  }
   if (frame.toolCallObserved) {
     active.toolCallObserved = true;
     active.providerFault = null;
+    if (frame.toolCallSucceeded) active.successfulToolCallAfterReconnect = true;
   }
-  if (frame.finalText?.trim()) active.nonEmptyAgentOutputObserved = true;
+  if (frame.finalText?.trim()) {
+    active.nonEmptyAgentOutputObserved = true;
+    if (active.providerReconnects.length > 0) active.finalAgentMessageAfterReconnect = true;
+  }
   if (frame.providerUsageEmpty !== undefined) active.providerUsageEmpty = frame.providerUsageEmpty;
   if (frame.providerFault) active.providerFault = frame.providerFault;
 }

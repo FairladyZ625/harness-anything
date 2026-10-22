@@ -191,6 +191,15 @@ export type ActiveRuntime = {
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
+  /** Provider stream reconnects observed on this attempt, in arrival order. Codex reports an
+   * exhausted reconnect budget as a plain `error` frame and then keeps answering, so the last
+   * entry and whether a successful tool ran after it decide whether the tail is provider-caused. */
+  providerReconnects: ProviderReconnect[];
+  /** Reset on every reconnect; a completed, non-failed tool call sets it. A failed command is an
+   * answered-but-red result and does not prove the provider resumed serving the attempt. */
+  successfulToolCallAfterReconnect: boolean;
+  /** Whether the provider delivered an agent message after the latest reconnect. */
+  finalAgentMessageAfterReconnect: boolean;
   inputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
@@ -212,14 +221,27 @@ export type ProviderFrame = {
   readonly planObserved?: boolean;
   readonly planIncomplete?: boolean;
   readonly toolCallObserved?: boolean;
+  /** Set only when the settled tool call succeeded; a failed command is an answered-but-red tool
+   * result and does not prove the provider resumed serving the attempt. */
+  readonly toolCallSucceeded?: boolean;
   readonly providerUsageEmpty?: boolean;
   /** Token usage a provider nests below the frame top level, handed to the shared usage counters. */
   readonly usage?: Record<string, unknown>;
   readonly providerFault?: RuntimeProviderFault;
+  /** A provider-declared stream reconnect (`Reconnecting... n/m (...)`), not a failure frame. */
+  readonly providerReconnect?: ProviderReconnect;
   readonly toolStep?: { readonly id: string; readonly settled: boolean };
   /** Model ids the provider advertised on session establishment (ACP kinds). */
   readonly observedModels?: readonly string[];
   readonly observedCurrentModel?: string;
+};
+
+/** One provider stream reconnect: `attempt`/`limit` come from the provider's own counter, so an
+ * operator can see how much of the budget the attempt had left when the tail was written. */
+export type ProviderReconnect = {
+  readonly attempt: number;
+  readonly limit: number;
+  readonly diagnostic: string;
 };
 
 export type ResumeProcessEvent =
