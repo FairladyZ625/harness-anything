@@ -919,7 +919,12 @@ function AppShell() {
                   // 窄容器返回键走全局弹栈;栈底(孤立深链条目)无处可退时原地清引用回列表。
                   onBack={() => (canBack ? back() : updateLocation({ focusedEntityRef: null }))}
                   // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
+                  // 会话产出的产物行经同一落点进任务详情的文件页签(复用一次性聚焦意图,不新造读面)。
                   onOpenTask={openTaskDetail}
+                  onOpenTaskDoc={(taskId, docPath) => {
+                    setDocFocus({ taskId, docPath });
+                    openTaskDetail(taskId);
+                  }}
                 />
               ) : view === "schedules" ? (
                 <SchedulesView

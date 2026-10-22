@@ -305,18 +305,21 @@ describe("agent runtime renderer", () => {
     }).toEqual({ title: true, selectedModel: true, action: true });
     expect(markup).not.toMatch(/Runtime kind|Runtime profile|type="password"|name="(?:credential|token|apiKey)"/u);
   });
-  it("renders liveness, holder, activity, and frozen provenance from contract DTOs", () => {
-    const markup = detailView();
+  it("renders liveness and readable identity first, raw provenance inside the collapsed technical details", () => {
+    const markup = detailView(),
+      technical = markup.indexOf('data-testid="session-technical-details"'),
+      firstScreen = markup.slice(0, technical);
     expect(markup).toContain("unknown");
+    // 租约/派工等内部字段只在技术详情里(业主 2026-10-21 定案):首屏不出现,折叠块里可查。
+    expect(firstScreen).not.toContain("held");
+    expect(firstScreen).not.toContain("Lease");
+    expect(markup).toContain("Lease");
     expect(markup).toContain("person-owner");
-    // 租约是内部字段,不上详情可读面(业主 2026-10-21 定案:R3)。
-    expect(markup).not.toContain("held");
-    expect(markup).not.toContain("Lease");
-    expect(markup).toContain("codex-review");
-    expect(markup).toContain("gpt-5.6-sol");
-    // 会话事实的键名是本地化标签;最近活动经 formatTime,原始 ISO 在悬停可达。
-    expect(markup).toContain("Last activity");
-    expect(markup).toContain('title="2026-08-13T00:00:00.000Z"');
+    expect(firstScreen).toContain("codex-review");
+    expect(firstScreen).toContain("gpt-5.6-sol");
+    // 身份行用本地化标签;最近活动经 formatTime,原始 ISO 在悬停可达。
+    expect(firstScreen).toContain("Last activity");
+    expect(firstScreen).toContain('title="2026-08-13T00:00:00.000Z"');
     expect(markup).not.toContain("secret");
   });
   it("keeps a historical session visible when its definition snapshot was not persisted", () => {
@@ -324,7 +327,7 @@ describe("agent runtime renderer", () => {
       session: { ...session, definitionSnapshot: null, definitionSnapshotPersisted: false },
     });
     expect(markup).toContain("Snapshot artifact was not persisted");
-    expect(markup).toContain("Session facts");
+    expect(markup).toContain("Technical details");
   });
   it("marks a historical session whose installation witness is missing", () => {
     expect(detailView()).not.toContain("Installation missing");

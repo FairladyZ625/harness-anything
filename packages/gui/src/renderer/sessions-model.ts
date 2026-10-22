@@ -445,6 +445,8 @@ export type SessionRound = {
   readonly resume: TaskDispatchProjectionRow["resume"] | null;
   readonly nextAction: string | null;
   readonly delegation: string | null;
+  /** daemon 只在派工报告文档真实存在时才给这个字段(包路径起头);详情里作为结论出处。 */
+  readonly reportPath: string | null;
 };
 /** 组展开行之二:绑定了任务但没有派工记录的会话(「无派工记录」小节)。 */
 export type SessionOrphan = {
@@ -507,6 +509,7 @@ export function sessionRounds(
     resume: row.resume ?? null,
     nextAction: row.nextAction ?? null,
     delegation: sessionDelegation(row),
+    reportPath: row.reportPath ?? null,
   }));
 }
 

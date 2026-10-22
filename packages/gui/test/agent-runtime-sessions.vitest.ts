@@ -301,24 +301,153 @@ describe("session detail readable surface", () => {
     expect(markup).not.toContain(`>${longId}<`);
   });
 
-  it("keeps raw fields off the facts table: provider UUID, snapshot sha, auth, lease, result ref", () => {
-    const markup = detailView();
+  it("keeps raw fields out of the first screen: they live inside the collapsed technical details", () => {
+    const markup = detailView(),
+      technical = markup.indexOf('data-testid="session-technical-details"'),
+      firstScreen = markup.slice(0, technical);
+    // 技术详情默认收起:没有 open 属性,首屏不展开原始字段。
+    expect(technical).toBeGreaterThan(0);
+    expect(markup.slice(technical, markup.indexOf(">", technical))).not.toContain(" open");
     for (const raw of [
       "Provider session",
       "Definition snapshot",
       "provider-1",
       "artifact:runtime-definition/test",
-      "Auth",
-      "subscription",
+      "Auth mode",
+      "Subscription login",
       "Lease",
       "held",
       "2026-08-23T01:00:00.000Z",
-      "Result ref",
     ])
-      expect(markup).not.toContain(raw);
-    // 可读行仍在:实例、模型、结局、持有人、最近活动。
-    for (const readable of ["Instance", "Model", "Outcome", "Holder", "Last activity", "w4c-verify-codex"])
-      expect(markup).toContain(readable);
+      expect(firstScreen).not.toContain(raw);
+    // 原始值仍然可查(折叠块里在 DOM,展开即见),不是删掉了事实。
+    expect(markup).toContain("provider-1");
+    // 首屏可读行:身份(agent/模型/实例)、结局、最近活动。
+    for (const readable of ["Agent", "Model", "Instance", "Last activity", "w4c-verify-codex", "Running"])
+      expect(firstScreen).toContain(readable);
+  });
+});
+
+// 业主定案的核心:会话详情首屏回答「这次会话做成了什么」——任务名、结局、耗时、结论、
+// 产出在首屏;原始字段在折叠块里。这一组逐条锁住这几个答案的位置与措辞。
+describe("session detail achieved first", () => {
+  const settlement = (outcome: "succeeded" | "failed" | "cancelled" | "stopped" | "unknown") =>
+    ({ outcome, exitCode: outcome === "succeeded" ? 0 : 1, code: null, reason: null }) as const;
+
+  it("titles the card with the task and verdicts the session from the daemon settlement", () => {
+    const markup = detailView(),
+      technical = markup.indexOf('data-testid="session-technical-details"'),
+      firstScreen = markup.slice(0, technical);
+    // 任务名是卡头主文字,并且仍点得进任务详情。
+    expect(firstScreen).toContain('data-testid="session-open-task"');
+    expect(firstScreen).toContain("GUI 会话页重构");
+    expect(firstScreen).toContain('data-testid="session-verdict"');
+    // live 会话就是「正在跑」,不被上一轮结局抢先命名。
+    expect(firstScreen).toContain("Running");
+    // 终局裁决:settlement 是 daemon 的裁决,优先于会话语义状态(会话已退出才有终局)。
+    const ended = { ...sessionDto, liveness: "exited" } as typeof sessionDto;
+    expect(detailView({ session: ended, settlement: settlement("failed") })).toContain("Failed");
+    expect(detailView({ session: ended, settlement: settlement("succeeded") })).toContain("Delivered");
+    expect(detailView({ session: ended, settlement: settlement("stopped") })).toContain("Stopped");
+    // 没有 settlement 时按会话语义状态退,不把「已结束但判不出」说成失败。
+    expect(detailView({ session: { ...ended, semanticState: "ended-indeterminate" } as typeof sessionDto })).toContain(
+      "Result unconfirmed",
+    );
+  });
+
+  it("shows the elapsed time from the dispatch row instead of inventing one", () => {
+    // rounds[1] 是 02:00 那轮(轮次按新→旧编号);收口时刻显式给到 03:31 → 1h 31m。
+    const markup = detailView({
+      row: { ...rounds[1]!, endedAt: "2026-08-23T03:31:00.000Z" },
+    });
+    expect(markup).toContain("Duration");
+    expect(markup).toContain("1h 31m");
+    // 没有收口时刻(仍在跑)时不编造时长,如实显示开始时间。
+    expect(detailView()).toContain("Started");
+  });
+
+  it("states the missing conclusion in words rather than drawing an empty result shell", () => {
+    const markup = detailView();
+    expect(markup).toContain('data-testid="session-conclusion"');
+    expect(markup).toContain("Still running");
+    const settled = detailView({
+      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+    });
+    expect(settled).toContain("no conclusion text");
+  });
+
+  it("lists what the session produced: commit, delivered files, artifacts, and the result report", () => {
+    const markup = detailView({
+      task: {
+        packagePath: "tasks/task-1994",
+        executions: [
+          {
+            schema: "execution/v1",
+            executionId: "execution-1",
+            taskId: "task_1994d52c",
+            nodeId: "implementation",
+            iteration: 0,
+            state: "submitted",
+            actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "terra" } },
+            claimedAt: "2026-08-23T02:00:00.000Z",
+            submittedAt: "2026-08-23T03:00:00.000Z",
+            closedAt: null,
+            submission: {
+              completionClaim: "done",
+              deliverables: ["packages/gui/src/renderer/views/SessionsView.tsx"],
+              outputs: ["Artifact-Anchor: tasks/task-1994/artifacts/report.md@3"],
+              verificationNotes: [],
+              knownGaps: [],
+              residualRisks: [],
+              commitSha: "b".repeat(40),
+              completionContract: { gates: [] },
+              artifacts: [
+                { path: "tasks/task-1994/artifacts/report.md", revision: 3, blobSha256: `sha256:${"c".repeat(64)}` },
+              ],
+            },
+          },
+        ],
+      } as never,
+      row: { ...rounds[1]!, reportPath: "tasks/task-1994/artifacts/reports/dispatch_000000000000000000000001.md" },
+      onOpenTaskDoc: noop,
+    });
+    expect(markup).toContain('data-testid="session-outputs"');
+    expect(markup).toContain("bbbbbbbbbb");
+    expect(markup).toContain("packages/gui/src/renderer/views/SessionsView.tsx");
+    expect(markup).toContain("tasks/task-1994/artifacts/report.md");
+    expect(markup).toContain("tasks/task-1994/artifacts/reports/dispatch_000000000000000000000001.md");
+    // 包内产物是真能打开的落点(包相对路径),不是假链接。
+    expect(markup).toContain('data-testid="session-open-output"');
+    expect(markup).toContain('data-path="artifacts/report.md"');
+    // 没有任何产出时整块不画,而不是空壳。
+    expect(detailView()).not.toContain('data-testid="session-outputs"');
+  });
+
+  it("labels the two token quantities separately and draws each once", () => {
+    const markup = detailView({
+      session: {
+        ...sessionDto,
+        context: { usedTokens: 243_138, windowTokens: 1_000_000 },
+        metrics: {
+          inputTokens: 9_300_000,
+          cacheReadTokens: 4_400_000,
+          outputTokens: 120_000,
+          totalTokens: 13_820_000,
+          toolCallCount: 80,
+          compacted: false,
+        },
+      } as typeof sessionDto,
+    });
+    // 当前上下文只一处,且是 provider 自报的窗口比值。
+    expect(markup.match(/data-testid="session-detail-context-meter"/gu) ?? []).toHaveLength(1);
+    expect(markup).toContain("243K / 1M · 24%");
+    expect(markup).toContain("Current context");
+    // 累计口径如实标注,不冒充窗口占用,也不出现业主截图里的 4634% 假报警。
+    expect(markup).toContain("Cumulative totals; not context-window occupancy");
+    expect(markup).not.toContain("4634%");
+    expect(markup).not.toContain('data-context-level="danger"');
+    // 同一组数字只出现一次:没有第二个窗口 meter。
+    expect(markup.match(/role="meter"/gu) ?? []).toHaveLength(1);
   });
 });
 

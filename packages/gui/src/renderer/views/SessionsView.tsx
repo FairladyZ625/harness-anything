@@ -94,6 +94,8 @@ export interface SessionsViewProps {
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenTask: (taskId: string) => void;
+  /** 打开任务包内文档(任务详情文件页签):会话产出的落点,缺省时不渲染可点产物行。 */
+  readonly onOpenTaskDoc?: (taskId: string, path: string) => void;
   /** 窄容器返回键:全局导航弹栈(App 注入,与顶栏后退/侧键同一条路径)。 */
   readonly onBack: () => void;
   /** App 层常驻的工作索引(dec_5F7E74F1):「工作」层只归桶,不另起读。 */
@@ -116,6 +118,7 @@ export function SessionsView({
   focusedEntityRef,
   onSelectEntity,
   onOpenTask,
+  onOpenTaskDoc,
   onBack,
   works = NO_WORKS,
   renderHeader = renderSessionsPageHeader,
@@ -617,6 +620,13 @@ export function SessionsView({
       }),
     [tasksQuery.data],
   );
+  // 会话详情「本次产出」只借同一份任务投影行的执行记录(提交 sha / 交付文件 / 产物锚)与包路径,
+  // 不再另起读面;任务行不在当前切面时如实给 null(产出块整块不画)。
+  const selectedTaskRow = useMemo(() => {
+    if (selectedTaskId === null) return null;
+    const row = (tasksQuery.data?.rows ?? []).find((candidate) => candidate.taskId === selectedTaskId);
+    return row === undefined ? null : { executions: row.snapshot.executions, packagePath: row.packagePath };
+  }, [tasksQuery.data, selectedTaskId]);
 
   // 组列表的行回调用 useCallback 稳定:App 层台账探针每 ~2s 推进一次 cut 都会让本页
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
@@ -938,6 +948,7 @@ export function SessionsView({
                   squadNames={squadNames}
                   taskTitles={taskTitles}
                   decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
+                  task={selectedTaskRow}
                   busy={workspace.busy}
                   onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
                   onResume={async (dispatchId) => {
@@ -946,6 +957,7 @@ export function SessionsView({
                       onSelectEntity(`session/${settled.runtimeSessionId}`);
                   }}
                   onOpenTask={onOpenTask}
+                  {...(onOpenTaskDoc === undefined ? {} : { onOpenTaskDoc })}
                   onNavigateEntity={onSelectEntity}
                   cacheTtl={selectedSessionTtl}
                   needsYou={selectedSessionNeedsYou}
