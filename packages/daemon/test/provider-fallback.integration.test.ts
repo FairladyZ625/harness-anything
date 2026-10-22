@@ -34,14 +34,18 @@ const installation: RuntimeInstallationWitness = {
 type Behavior =
   | "429"
   | "429-reset"
+  | "429-rate"
   | "success"
   | "worker_stop"
   | "empty_success"
   | "stderr_fail"
-  | "transient_text"
   | "task_input"
   | "model_error"
-  | "policy_error";
+  | "policy_error"
+  | "acp_stream_error"
+  | "acp_model_error"
+  | "acp_protocol_error"
+  | "acp_success";
 const behaviors = new Map<string, Behavior>([
   ["provider-rate-first", "429"],
   ["provider-success-second", "success"],
@@ -64,19 +68,25 @@ const behaviors = new Map<string, Behavior>([
   ["provider-policy-first", "policy_error"],
   ["provider-stderr-first", "stderr_fail"],
   ["provider-stderr-second", "success"],
-  ["provider-transient-first", "transient_text"],
-  ["provider-transient-second", "success"],
+  ["provider-retry-once", "success"],
+  ["provider-rate-solo", "429-rate"],
+  ["provider-acp-error-first", "acp_stream_error"],
+  ["provider-acp-success-second", "acp_success"],
+  ["provider-acp-model-first", "acp_model_error"],
+  ["provider-acp-protocol-first", "acp_protocol_error"],
+  ["provider-acp-protocol-unused", "success"],
 ]);
 
 test("provider fallback switches attempts, exhausts without blocking the task, and never switches on worker_stop", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-provider-fallback-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
-    instances = [...behaviors.keys()].map(runtimeInstance),
+    instances = [...behaviors.keys()].map((instanceId) => runtimeInstance(instanceId, acpKind(instanceId))),
     prompts = new Map<string, string[]>(),
     models = new Map<string, string | undefined>();
   let pid = 9000;
   let availableInstances = instances;
+  let retryOnceLaunches = 0;
   const rejectedLaunches = new Set<string>();
   mkdirSync(root);
   git(root, "init", "-q");
@@ -98,9 +108,10 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       prepareRuntimeLaunch: async (instanceId, request) => {
         if (rejectedLaunches.has(instanceId))
           throw new Error("fixture continuation launch rejected OPENAI_API_KEY=sk-continuation-secret");
+        const kind = acpKind(instanceId);
         return {
-          definition: definition(instanceId, request.model ?? `${instanceId}-model`),
-          installation,
+          definition: definition(instanceId, request.model ?? `${instanceId}-model`, kind),
+          installation: installationFor(kind),
           executablePath: installation.executablePath,
           args: ["exec", "--json", "-"],
           env: {},
@@ -114,6 +125,12 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         assert.ok(behavior, `missing fake behavior for ${instanceId}`);
         models.set(instanceId, prepared.definition.model);
         prompts.set(instanceId, [...(prompts.get(instanceId) ?? []), prepared.prompt]);
+        // provider-retry-once is the single-candidate retry fixture: its first launch is rate
+        // limited and every later launch succeeds, so one retry round recovers the dispatch.
+        if (instanceId === "provider-retry-once") {
+          retryOnceLaunches += 1;
+          return fakeProcess(++pid, retryOnceLaunches === 1 ? "429-rate" : "success");
+        }
         return fakeProcess(++pid, behavior);
       },
     });
@@ -175,34 +192,6 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         { attemptIndex: 1, provider: "provider-success-second", classification: "worker_stop" },
       ],
     );
-
-    await installAgent(cell, "fallback-transient-text", [
-      { instance: "provider-transient-first" },
-      { instance: "provider-transient-second" },
-    ]);
-    await startTask(cell, root, "task_provider_fallback_transient_text", "execution-provider-fallback-transient-text");
-    await cell.spawnRuntime(
-      {
-        agentId: "fallback-transient-text",
-        cwd: { scope: "repo-root" },
-        prompt: "Continue after the upstream transport failure.",
-        taskId: "task_provider_fallback_transient_text",
-        dispatchKey: "provider-fallback-transient-text",
-      },
-      binding,
-    );
-    const transientText = await eventually(async () => {
-      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_transient_text" }))
-        .dispatches;
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
-    });
-    assertAttemptChain(transientText, ["provider-transient-first", "provider-transient-second"]);
-    assert.deepEqual(
-      transientText.map(({ classification }) => classification),
-      ["provider_fault", "worker_stop"],
-    );
-    assert.match(transientText[0]?.reason ?? "", /Too many pending requests/u);
 
     availableInstances = instances.filter((instance) =>
       ["provider-rate-a", "provider-rate-b"].includes(instance.instanceId),
@@ -570,6 +559,212 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(resetScheduled.row.classification, "provider_quota");
     assert.equal(resetScheduled.row.resetAt, "2099-01-01T00:00:00.000Z");
     assert.equal(resetScheduled.stream?.fallbackSchedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
+
+    // owner ruling 2026-10-21 14:35 (T4): a single servable runtime row still gets the bounded
+    // retry chain — the first provider failure may not be the dispatch's last word.
+    availableInstances = instances.filter((instance) => instance.instanceId === "provider-retry-once");
+    await installAgent(cell, "fallback-single-retry", [{ instance: "provider-retry-once" }]);
+    assert.ok(
+      ["applied", "no_changes"].includes(
+        String(
+          (
+            await cell.run(
+              {
+                kind: "settings-update",
+                runtimeProviderMaxRetries: 2,
+                runtimeProviderCooldownBaseSeconds: 0,
+              },
+              binding,
+            )
+          ).outcome,
+        ),
+      ),
+    );
+    await startTask(cell, root, "task_provider_fallback_single_retry", "execution-provider-fallback-single-retry");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-single-retry",
+        cwd: { scope: "repo-root" },
+        prompt: "Retry the only declared provider after a transient rate limit.",
+        taskId: "task_provider_fallback_single_retry",
+        dispatchKey: "provider-fallback-single-retry",
+      },
+      binding,
+    );
+    let singleObserved: readonly TaskDispatchRow[] = [];
+    const singleRetried = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_single_retry" }))
+        .dispatches;
+      singleObserved = rows;
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
+    }).catch((error: Error) => {
+      throw new Error(`${error.message}: ${JSON.stringify(singleObserved)}`);
+    });
+    assert.equal(singleRetried.length, 2, JSON.stringify(singleRetried));
+    assertAttemptChain(singleRetried, ["provider-retry-once", "provider-retry-once"]);
+    assert.deepEqual(
+      singleRetried.map(({ classification }) => classification),
+      ["provider_quota", "worker_stop"],
+    );
+    assert.match(prompts.get("provider-retry-once")?.[1] ?? "", /# Provider fallback continuation/u);
+
+    availableInstances = instances.filter((instance) => instance.instanceId === "provider-rate-solo");
+    await installAgent(cell, "fallback-solo-exhausted", [{ instance: "provider-rate-solo" }]);
+    assert.ok(
+      ["applied", "no_changes"].includes(
+        String(
+          (
+            await cell.run(
+              {
+                kind: "settings-update",
+                runtimeProviderMaxRetries: 1,
+                runtimeProviderCooldownBaseSeconds: 0,
+              },
+              binding,
+            )
+          ).outcome,
+        ),
+      ),
+    );
+    await startTask(cell, root, "task_provider_fallback_solo_exhausted", "execution-provider-fallback-solo-exhausted");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-solo-exhausted",
+        cwd: { scope: "repo-root" },
+        prompt: "Exhaust the single-provider retry budget.",
+        taskId: "task_provider_fallback_solo_exhausted",
+        dispatchKey: "provider-fallback-solo-exhausted",
+      },
+      binding,
+    );
+    let soloObserved: readonly TaskDispatchRow[] = [];
+    const soloExhausted = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_solo_exhausted" }))
+        .dispatches;
+      soloObserved = rows;
+      return rows.length === 2 && rows[1]?.fallbackState === "exhausted" && taskDispatchRowsSettled(rows) ? rows : null;
+    }).catch((error: Error) => {
+      throw new Error(`${error.message}: ${JSON.stringify(soloObserved)}`);
+    });
+    assert.equal(soloExhausted.length, 2, JSON.stringify(soloExhausted));
+    assert.equal(soloExhausted[1]?.fallbackState, "exhausted");
+    assert.deepEqual(
+      soloExhausted.map(({ classification }) => classification),
+      ["provider_quota", "provider_quota"],
+    );
+    assert.deepEqual(
+      soloExhausted.map(({ provider }) => provider.instance),
+      ["provider-rate-solo", "provider-rate-solo"],
+    );
+    assert.equal(new Set(soloExhausted.map(({ attemptGroupId }) => attemptGroupId)).size, 1);
+    assert.match(soloExhausted[1]?.reason ?? "", /exhausted after 2 attempt\(s\) and 1 retry round/u);
+
+    // An ACP provider's in-turn stream error is its own failure, not the task's: the attempt
+    // retries on the next declared row instead of settling gate_red.
+    availableInstances = instances.filter((instance) =>
+      ["provider-acp-error-first", "provider-acp-success-second"].includes(instance.instanceId),
+    );
+    await installAgent(
+      cell,
+      "fallback-acp-stream",
+      [{ instance: "provider-acp-error-first" }, { instance: "provider-acp-success-second" }],
+      "devin",
+    );
+    await startTask(cell, root, "task_provider_fallback_acp_stream", "execution-provider-fallback-acp-stream");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-acp-stream",
+        cwd: { scope: "repo-root" },
+        prompt: "Continue past a provider stream error.",
+        taskId: "task_provider_fallback_acp_stream",
+        dispatchKey: "provider-fallback-acp-stream",
+      },
+      binding,
+    );
+    let acpObserved: readonly TaskDispatchRow[] = [];
+    const acpStream = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_acp_stream" }))
+        .dispatches;
+      acpObserved = rows;
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
+    }).catch((error: Error) => {
+      throw new Error(`${error.message}: ${JSON.stringify(acpObserved)}`);
+    });
+    assert.equal(acpStream.length, 2, JSON.stringify(acpStream));
+    assert.equal(acpStream[0]?.classification, "provider_fault");
+    assert.match(acpStream[0]?.reason ?? "", /temporarily unavailable/u);
+    assertAttemptChain(acpStream, ["provider-acp-error-first", "provider-acp-success-second"]);
+    assert.match(prompts.get("provider-acp-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
+
+    // decision/dec_FCD38D503B0C0752B83A417246/CH2 on the ACP surface: a model the session does
+    // not offer is a configuration error and never retries.
+    availableInstances = instances.filter((instance) => instance.instanceId === "provider-acp-model-first");
+    await installAgent(cell, "no-fallback-acp-model", [{ instance: "provider-acp-model-first" }], "devin");
+    await startTask(cell, root, "task_provider_no_fallback_acp_model", "execution-provider-no-fallback-acp-model");
+    await cell.spawnRuntime(
+      {
+        agentId: "no-fallback-acp-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Surface the ACP model mismatch without changing provider.",
+        taskId: "task_provider_no_fallback_acp_model",
+        dispatchKey: "no-fallback-acp-model",
+      },
+      binding,
+    );
+    const acpModel = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_no_fallback_acp_model" }))
+        .dispatches;
+      return taskDispatchRowsSettled(rows) && rows.length > 0 ? rows : null;
+    });
+    assert.equal(acpModel.length, 1, JSON.stringify(acpModel));
+    assert.equal(acpModel[0]?.classification, "gate_red");
+    assert.equal(acpModel[0]?.fallbackState, null);
+    assert.match(acpModel[0]?.reason ?? "", /does not offer model/u);
+
+    // review dispatch_c43db5456d6fb16f9e7970c1 B1: a deterministic request/protocol rejection is
+    // the task's failure — it settles gate_red on one row without burning the ladder, and records
+    // no provider-health failure that would cool down or freeze a healthy instance.
+    availableInstances = instances.filter((instance) =>
+      ["provider-acp-protocol-first", "provider-acp-protocol-unused"].includes(instance.instanceId),
+    );
+    await installAgent(
+      cell,
+      "no-fallback-acp-protocol",
+      [{ instance: "provider-acp-protocol-first" }, { instance: "provider-acp-protocol-unused" }],
+      "devin",
+    );
+    await startTask(
+      cell,
+      root,
+      "task_provider_no_fallback_acp_protocol",
+      "execution-provider-no-fallback-acp-protocol",
+    );
+    await cell.spawnRuntime(
+      {
+        agentId: "no-fallback-acp-protocol",
+        cwd: { scope: "repo-root" },
+        prompt: "Surface the protocol rejection without changing provider.",
+        taskId: "task_provider_no_fallback_acp_protocol",
+        dispatchKey: "no-fallback-acp-protocol",
+      },
+      binding,
+    );
+    const acpProtocol = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_no_fallback_acp_protocol" }))
+        .dispatches;
+      return taskDispatchRowsSettled(rows) && rows.length > 0 ? rows : null;
+    });
+    assert.equal(acpProtocol.length, 1, JSON.stringify(acpProtocol));
+    assert.equal(acpProtocol[0]?.classification, "gate_red");
+    assert.equal(acpProtocol[0]?.fallbackState, null);
+    assert.equal(acpProtocol[0]?.nextDispatchId, null);
+    assert.match(acpProtocol[0]?.reason ?? "", /Invalid params/u);
+    assert.equal(prompts.has("provider-acp-protocol-unused"), false);
+    const healthPath = path.join(userRoot, "runtime-provider-health.json"),
+      health = existsSync(healthPath) ? (JSON.parse(readFileSync(healthPath, "utf8")) as Record<string, unknown>) : {};
+    assert.equal(health["provider-acp-protocol-first"], undefined, JSON.stringify(health));
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
@@ -753,6 +948,7 @@ async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   agentId: string,
   providers: readonly { readonly instance: string }[],
+  runtimeKind: "codex" | "devin" = "codex",
 ): Promise<void> {
   const settings = (await cell.read("repo.settings.read")) as {
     readonly settings?: { readonly runtime?: { readonly allowedInstances?: readonly string[] } };
@@ -779,7 +975,7 @@ async function installAgent(
         id: agentId,
         name: agentId,
         instructions: "Execute the assigned mission.",
-        runtimes: [{ type: "codex", model: "provider-success-model" }],
+        runtimes: [{ type: runtimeKind, model: "provider-success-model" }],
         instance: providers[0]!.instance,
       },
     },
@@ -817,7 +1013,16 @@ function assertAttemptChain(rows: readonly TaskDispatchRow[], providers: readonl
   assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId);
 }
 
-function runtimeInstance(instanceId: string): RuntimeInstanceSummary {
+/** The ACP-family fixtures ride the devin kind; everything else stays codex. */
+function acpKind(instanceId: string): "codex" | "devin" {
+  return instanceId.startsWith("provider-acp-") ? "devin" : "codex";
+}
+
+function installationFor(kind: "codex" | "devin"): RuntimeInstallationWitness {
+  return { ...installation, kindId: kind };
+}
+
+function runtimeInstance(instanceId: string, kind: "codex" | "claude" | "devin" = "codex"): RuntimeInstanceSummary {
   const bare = instanceId.startsWith("provider-bare-"),
     crossKind = instanceId === "provider-bare-cross-kind",
     defaultModel = bare
@@ -829,7 +1034,7 @@ function runtimeInstance(instanceId: string): RuntimeInstanceSummary {
     schemaVersion: 2,
     instanceId,
     name: instanceId,
-    kindId: crossKind ? "claude" : "codex",
+    kindId: crossKind ? "claude" : kind,
     installationId: installation.installationId,
     providerId: instanceId,
     models: [defaultModel, "provider-success-model"],
@@ -852,13 +1057,13 @@ function runtimeInstance(instanceId: string): RuntimeInstanceSummary {
   };
 }
 
-function definition(instanceId: string, model: string): AgentDefinitionSnapshot {
+function definition(instanceId: string, model: string, kind: "codex" | "devin" = "codex"): AgentDefinitionSnapshot {
   return {
     schema: "agent-definition-snapshot/v1",
     configVersion: 1,
     instanceId,
     installationId: installation.installationId,
-    kindId: "codex",
+    kindId: kind,
     providerId: "openai",
     model,
     reasoningEffort: null,
@@ -923,6 +1128,52 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
           exit?.(1);
           return;
         }
+        if (
+          behavior === "acp_stream_error" ||
+          behavior === "acp_model_error" ||
+          behavior === "acp_protocol_error" ||
+          behavior === "acp_success"
+        ) {
+          const sessionId = `acp-${String(pid)}`,
+            acpFrames =
+              behavior === "acp_success"
+                ? [
+                    { type: "acp.session", sessionId, modes: ["read-only"], currentMode: "read-only" },
+                    {
+                      type: "acp.update",
+                      sessionId,
+                      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } },
+                    },
+                    { type: "acp.result", sessionId, stopReason: "end_turn", finalText: "done" },
+                  ]
+                : [
+                    { type: "acp.session", sessionId, modes: ["read-only"], currentMode: "read-only" },
+                    {
+                      type: "acp.update",
+                      sessionId,
+                      update: {
+                        sessionUpdate: "tool_call",
+                        kind: "execute",
+                        toolCallId: "call-1",
+                        title: "Read file",
+                        status: "pending",
+                      },
+                    },
+                    {
+                      type: "acp.error",
+                      sessionId,
+                      message:
+                        behavior === "acp_stream_error"
+                          ? "Internal error: turn failed: DeepSeek service temporarily unavailable"
+                          : behavior === "acp_model_error"
+                            ? "ACP session does not offer model provider-success-model; offered: other-model"
+                            : "Invalid params: cwd is required",
+                    },
+                  ];
+          output?.(acpFrames.map((frame) => JSON.stringify(frame)).join("\n") + "\n");
+          exit?.(0);
+          return;
+        }
         const frames =
           behavior === "empty_success"
             ? []
@@ -939,12 +1190,12 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                     },
                   },
                 ]
-              : behavior === "transient_text"
+              : behavior === "429-rate"
                 ? [
                     { type: "thread.started", thread_id: `provider-${pid}` },
                     {
                       type: "turn.failed",
-                      error: { message: "Internal error: turn failed: Too many pending requests, please retry later" },
+                      error: { http_status: 429, code: "rate_limit", message: "rate limit reached" },
                     },
                   ]
                 : [
@@ -956,7 +1207,7 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                     { type: "turn.completed" },
                   ];
         if (frames.length) output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-        exit?.(behavior === "429" || behavior === "429-reset" || behavior === "transient_text" ? 1 : 0);
+        exit?.(behavior === "429" || behavior === "429-reset" ? 1 : 0);
       });
     },
     terminate: () => {

@@ -14,7 +14,6 @@ import type {
   TrustedScheduleRuntime,
 } from "./runtime-spawn-types.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
@@ -36,6 +35,8 @@ export function initialFallbackAttempt(
   requestedModel: string | undefined,
   providerSessionId: string | null | undefined,
   dispatchKey: string,
+  /** The dispatch this group's first attempt becomes; a non-branching group is named after it. */
+  dispatchId: string,
   mission: string,
   instances: readonly RuntimeInstanceSummary[] = [],
   sessions: readonly RuntimeSessionSelection[] = [],
@@ -99,15 +100,13 @@ export function initialFallbackAttempt(
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
     }));
   if (requestedIndex < 0) return undefined;
-  // A fallback group is a provider switch chain. A single eligible instance has no
-  // successor to switch to, so preserve the existing terminal path instead of
-  // retrying the same scheduled runtime indefinitely.
-  if (candidates.length < 2) return undefined;
-  const digest = createHash("sha256")
-    .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${dispatchKey}`)
-    .digest("hex");
+  // A single-candidate group is legitimate (owner ruling 2026-10-21 14:35, T4): with no
+  // successor row to switch to, its rounds retry the same instance and stay bounded by
+  // providerMaxRetries, so the first provider failure is not the dispatch's last word.
+  // The group is named after its first dispatch, which is what a dispatch without a chain
+  // already recorded as its own group; a chain only adds attempts to that same identity.
   return {
-    attemptGroupId: `attempt_${digest.slice(0, 24)}`,
+    attemptGroupId: dispatchId,
     attemptIndex: 0,
     candidateIndex: 0,
     retryRound: 0,

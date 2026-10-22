@@ -450,6 +450,11 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { root, env } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "failure");
+  // This file's subject is the terminal record a provider failure leaves behind: its reason,
+  // redaction, archive and resume hint. The retry ladder is provider-fallback.integration.test.ts's
+  // subject, so pin it to zero rounds here and keep each failure one attempt. Repository settings
+  // are principal-owned, so this write runs as the fixture's person, not its runtime executor.
+  run(root, { ...env, HARNESS_ACTOR: "" }, ["settings", "update", "--runtime-provider-max-retries", "0"]);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const emptyFailure = runMaybe(root, env, [
     "runtime",

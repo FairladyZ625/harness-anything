@@ -691,7 +691,13 @@ test(
                 onErrorOutput: () => undefined,
                 onExit: (listener) => {
                   terminalCallbacks[index] = () => {
-                    output?.(`${JSON.stringify({ type: "turn.completed" })}\n`);
+                    // A turn that completes without any output is a provider fault and would
+                    // retry instead of settling; this fixture's subject is settlement, so the
+                    // fake provider must actually deliver a final message.
+                    output?.(
+                      `${JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "HARNESS-OUTCOME: succeeded" } })}\n` +
+                        `${JSON.stringify({ type: "turn.completed" })}\n`,
+                    );
                     listener(0);
                   };
                 },
