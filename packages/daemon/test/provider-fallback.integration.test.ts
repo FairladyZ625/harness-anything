@@ -38,6 +38,7 @@ type Behavior =
   | "worker_stop"
   | "empty_success"
   | "stderr_fail"
+  | "transient_text"
   | "task_input"
   | "model_error"
   | "policy_error";
@@ -63,6 +64,8 @@ const behaviors = new Map<string, Behavior>([
   ["provider-policy-first", "policy_error"],
   ["provider-stderr-first", "stderr_fail"],
   ["provider-stderr-second", "success"],
+  ["provider-transient-first", "transient_text"],
+  ["provider-transient-second", "success"],
 ]);
 
 test("provider fallback switches attempts, exhausts without blocking the task, and never switches on worker_stop", async () => {
@@ -172,6 +175,34 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         { attemptIndex: 1, provider: "provider-success-second", classification: "worker_stop" },
       ],
     );
+
+    await installAgent(cell, "fallback-transient-text", [
+      { instance: "provider-transient-first" },
+      { instance: "provider-transient-second" },
+    ]);
+    await startTask(cell, root, "task_provider_fallback_transient_text", "execution-provider-fallback-transient-text");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-transient-text",
+        cwd: { scope: "repo-root" },
+        prompt: "Continue after the upstream transport failure.",
+        taskId: "task_provider_fallback_transient_text",
+        dispatchKey: "provider-fallback-transient-text",
+      },
+      binding,
+    );
+    const transientText = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_transient_text" }))
+        .dispatches;
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
+    });
+    assertAttemptChain(transientText, ["provider-transient-first", "provider-transient-second"]);
+    assert.deepEqual(
+      transientText.map(({ classification }) => classification),
+      ["provider_fault", "worker_stop"],
+    );
+    assert.match(transientText[0]?.reason ?? "", /Too many pending requests/u);
 
     availableInstances = instances.filter((instance) =>
       ["provider-rate-a", "provider-rate-b"].includes(instance.instanceId),
@@ -908,16 +939,24 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                     },
                   },
                 ]
-              : [
-                  { type: "thread.started", thread_id: `provider-${pid}` },
-                  ...(behavior === "success"
-                    ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
-                    : []),
-                  { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
-                  { type: "turn.completed" },
-                ];
+              : behavior === "transient_text"
+                ? [
+                    { type: "thread.started", thread_id: `provider-${pid}` },
+                    {
+                      type: "turn.failed",
+                      error: { message: "Internal error: turn failed: Too many pending requests, please retry later" },
+                    },
+                  ]
+                : [
+                    { type: "thread.started", thread_id: `provider-${pid}` },
+                    ...(behavior === "success"
+                      ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
+                      : []),
+                    { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
+                    { type: "turn.completed" },
+                  ];
         if (frames.length) output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-        exit?.(behavior === "429" || behavior === "429-reset" ? 1 : 0);
+        exit?.(behavior === "429" || behavior === "429-reset" || behavior === "transient_text" ? 1 : 0);
       });
     },
     terminate: () => {

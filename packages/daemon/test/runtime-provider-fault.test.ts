@@ -70,6 +70,85 @@ test("transient busy model service errors remain retryable provider faults", () 
   assert.equal(result.classification, "provider_fault");
 });
 
+test("text-only provider transport failures classify for fallback without promoting malformed requests", () => {
+  const deepseekDiagnostics = [
+      "Internal error: turn failed: Upstream service temporarily unavailable",
+      "Internal error: turn failed: Too many pending requests, please retry later",
+      "Internal error: turn failed: DeepSeek Messages SSE event type mismatch",
+      "Internal error: turn failed: DeepSeek Messages stream ended before message_stop",
+    ],
+    codexDiagnostics = [
+      "stream disconnected before completion: Our servers are currently overloaded. Please try again later.",
+      '{"message":"Incomplete response returned, reason: unknown"}',
+    ];
+
+  for (const diagnostic of codexDiagnostics) {
+    const providerFault = providerFaultFromStderr("codex", diagnostic),
+      result = classifyRuntimeExit(
+        active({
+          kindId: "codex",
+          providerOutcome: "failed",
+          failureText: diagnostic,
+          ...(providerFault ? { providerFault } : {}),
+        }),
+        1,
+      );
+    assert.equal(providerFault?.code, "server_error", diagnostic);
+    assert.equal(result.classification, "provider_fault", diagnostic);
+  }
+  for (const diagnostic of deepseekDiagnostics) {
+    const providerFault = providerFaultFromFrame("deepseek-harness", { type: "acp.error", message: diagnostic }),
+      result = classifyRuntimeExit(
+        active({ kindId: "deepseek-harness", providerOutcome: "failed", failureText: diagnostic, providerFault }),
+        1,
+      );
+    assert.equal(providerFault?.code, "server_error", diagnostic);
+    assert.equal(result.classification, "provider_fault", diagnostic);
+  }
+
+  const codexItemFault = providerFaultFromFrame("codex", {
+    type: "item.completed",
+    item: { type: "error", message: "Incomplete response returned, reason: unknown" },
+  });
+  assert.equal(codexItemFault?.code, "server_error");
+  assert.equal(
+    providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { message: '{"message":"Incomplete response returned, reason: unknown"}' },
+    })?.code,
+    "server_error",
+  );
+
+  const zcodeQuota = providerFaultFromFrame("zcode", {
+      type: "turn.failed",
+      payload: {
+        error: {
+          code: "1308",
+          message: "[1308][已达到 5 小时的使用上限。您的限额将在稍后重置。]",
+          attribution: { statusCode: 429 },
+        },
+      },
+    }),
+    thinkingRequestError =
+      "The `content[].thinking` in the thinking mode must be passed back to the API. (request_id: sample)",
+    thinkingFault = providerFaultFromStderr("deepseek-harness", thinkingRequestError);
+
+  assert.equal(zcodeQuota?.faultClass, "quota_exhausted");
+  assert.equal(
+    classifyRuntimeExit(active({ kindId: "zcode", providerOutcome: "failed", providerFault: zcodeQuota }), 1)
+      .classification,
+    "provider_quota",
+  );
+  assert.equal(thinkingFault, null);
+  assert.equal(
+    classifyRuntimeExit(
+      active({ kindId: "deepseek-harness", providerOutcome: "failed", failureText: thinkingRequestError }),
+      1,
+    ).classification,
+    "gate_red",
+  );
+});
+
 test("claude api_error 429 preserves quota classification and reset header", () => {
   const fault = providerFaultFromFrame("claude", {
     type: "result",

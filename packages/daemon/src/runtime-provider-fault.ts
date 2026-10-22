@@ -5,7 +5,9 @@ import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fall
 const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
   capacity =
-    /\b(?:capacity issues?|at capacity|overloaded|service is busy|temporarily unavailable|try again later)\b/iu,
+    /\b(?:capacity issues?|at capacity|overloaded|service is busy|temporarily unavailable|try again later|too many pending requests)\b/iu,
+  incompleteStream =
+    /\b(?:incomplete response|(?:stream|sse).*(?:disconnected|ended|incomplete|event type mismatch)|event type mismatch|before message_stop)\b/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 
@@ -25,6 +27,15 @@ export function providerFaultFromFrame(
       code = diagnosticText(detail?.code),
       diagnostic = diagnosticText(detail?.message) ?? (detail ? JSON.stringify(detail) : null);
     return providerFaultFromDiagnostic(responseCode, code, diagnostic, resetAtFrom(detail ?? value));
+  }
+  if (
+    kindId === "codex" &&
+    (value.type === "item.completed" || value.type === "item.updated") &&
+    diagnosticRecord(value.item)?.type === "error"
+  ) {
+    const item = diagnosticRecord(value.item)!,
+      diagnostic = diagnosticText(item.message);
+    return providerFaultFromDiagnostic(null, null, diagnostic, undefined);
   }
   if (kindId === "agy" && value.event === "result") {
     const result = diagnosticRecord(value.result),
@@ -62,7 +73,10 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
     /^\[agy\] print timeout after [^\r\n]+ with turn in progress; returning partial output$/imu.test(normalized)
   )
     return fault("pre_tool_exit", normalized);
-  return null;
+  const diagnosticFault = providerFaultFromDiagnostic(null, null, normalized, undefined);
+  return diagnosticFault?.code === "unrecognized_model" || diagnosticFault?.code === "auth_failed"
+    ? null
+    : diagnosticFault;
 }
 
 export function classifyRuntimeExit(
@@ -182,6 +196,7 @@ function providerFaultFromDiagnostic(
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
     return fault("rate_limited", reason, "rate_limited", resetAt);
   if (capacity.test(joined)) return fault("server_error", reason);
+  if (incompleteStream.test(joined)) return fault("server_error", reason);
   if (responseCode !== null && responseCode >= 500 && responseCode <= 599) return fault("server_error", reason);
   if (model.test(joined)) return fault("unrecognized_model", reason);
   if (responseCode === 401 || auth.test(joined)) return fault("auth_failed", reason);
