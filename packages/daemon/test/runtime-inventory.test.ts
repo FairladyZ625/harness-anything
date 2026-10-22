@@ -253,7 +253,18 @@ test(
     // --sandbox on resume, this arm turns red and the swap above is no longer needed.
     const rejected = spawnSync(
       binary,
-      ["exec", "resume", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "thread-123", "-", "--help"],
+      [
+        "exec",
+        "resume",
+        "--json",
+        "--sandbox",
+        "danger-full-access",
+        "--model",
+        "gpt-5.6-sol",
+        "thread-123",
+        "-",
+        "--help",
+      ],
       { encoding: "utf8", env: codexProbeEnvironment() },
     );
     assert.equal(rejected.status, 2, "the fresh --sandbox flag must stay outside the resume parser");

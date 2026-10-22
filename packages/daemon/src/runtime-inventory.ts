@@ -337,7 +337,8 @@ export const runtimeKinds = [
         if (freshIndex >= 0) clean.splice(freshIndex, freshBlock.length, ...codexResumePermissionArgs[mode]);
         // Fail closed rather than spawn an argv the resume parser is known to reject: a block this
         // transform could not recognise would otherwise turn the dispatch into a `gate_red`.
-        if (clean.includes("--sandbox")) throw new Error("Codex resume arguments still carry the fresh --sandbox flag.");
+        if (clean.includes("--sandbox"))
+          throw new Error("Codex resume arguments still carry the fresh --sandbox flag.");
         const options = clean.slice(execIndex + 1, clean.lastIndexOf("-"));
         return [...clean.slice(0, execIndex + 1), "resume", ...options, providerSessionId, "-"];
       },
