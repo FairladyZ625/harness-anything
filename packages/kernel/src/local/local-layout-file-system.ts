@@ -97,6 +97,10 @@ export const localRuntimeStateFileSystem = {
     const stat = statSync(inputPath, { throwIfNoEntry: false });
     return stat === undefined ? null : `${stat.dev}:${stat.ino}`;
   },
+  fileSize: (inputPath: string) => {
+    const stat = statSync(inputPath, { throwIfNoEntry: false });
+    return stat?.size ?? null;
+  },
   mkdirp: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-056 */
     mkdirSync(inputPath, { recursive: true }),

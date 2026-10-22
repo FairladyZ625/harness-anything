@@ -23,6 +23,7 @@ import { localContentObjectFileSystem } from "../../src/local/local-layout-file-
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { captureGitBaseline } from "../../src/store/sqlite-task-event-publication.ts";
 import {
+  activateEmptyCanonicalGeneration,
   openSqliteEventStore,
   sqliteContentObjectPath,
   type SqliteWriterFence,
@@ -661,6 +662,7 @@ test("a decision write on a still-unclaimed path uses the durable document-head 
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replacement-authorization-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId: replacementRepoId, rootInput: rootDir });
   const store = openSqliteEventStore({ repoId: replacementRepoId, rootInput: rootDir });
   try {
     store.claimWriter(replacementFence);

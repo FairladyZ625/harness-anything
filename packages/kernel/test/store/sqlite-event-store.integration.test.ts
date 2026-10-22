@@ -83,29 +83,6 @@ test("SQLite ledger opening rejects another repository or generation", (t) => {
   );
 });
 
-test("a confirmed ledger write survives a main-file-only copy while the writer is open", (t) => {
-  const databasePath = scratch("main-file-copy", t),
-    copiedPath = `${databasePath}.main-only`,
-    store = openSqliteEventStore({ repoId, databasePath, generation: 3 });
-  try {
-    const event = eventAt(1);
-    store.appendCommand({ fence, intent: intentFor(event), events: [event] });
-    // This intentionally models the destructive operation from the incident: only the named
-    // database file is copied, without its -wal/-shm siblings and without closing the writer.
-    fs.copyFileSync(databasePath, copiedPath);
-    const copied = openSqliteEventStore({ repoId, databasePath: copiedPath, generation: 3, readOnly: true });
-    try {
-      assert.equal(copied.revision(), 1);
-      assert.deepEqual(copied.eventAtRevision(1), event);
-      assert.deepEqual(copied.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
-    } finally {
-      copied.close();
-    }
-  } finally {
-    store.close();
-  }
-});
-
 test("canonical adapter accepts in SQLite before independently verifying the Git follower", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-canonical-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));

@@ -1,0 +1,186 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import test from "node:test";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  openSqliteEventStore,
+  sqliteLedgerPath,
+} from "../../src/store/sqlite-event-store.ts";
+import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { eventAt, initRepo } from "./task-event-store.fixtures.ts";
+
+const repoId = "generation-three-open-guard",
+  fence = { repoId, holder: "writer", epoch: 1 };
+
+test("canonical attach rejects a zero-byte main file before SQLite discards its recoverable WAL", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-empty-canonical-ledger-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    walPath = `${databasePath}-wal`,
+    store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }),
+    reader = new DatabaseSync(databasePath, { readOnly: true });
+  let writerOpen = true,
+    readerOpen = true;
+  try {
+    reader.exec("BEGIN");
+    reader.prepare("SELECT revision FROM ledger_meta").get();
+    const event = eventAt(1),
+      eventJson = serializePersistedCanonicalEvent(event);
+    store.appendCommand({
+      fence,
+      intent: {
+        opId: event.opId,
+        intentDigest: `sha256:${sha256Text(eventJson)}`,
+        summary: event.type,
+      },
+      events: [event],
+    });
+    const walBytes = statSync(walPath).size;
+    assert.ok(walBytes > 0, "the accepted write must still have WAL pages before the incident shape is applied");
+    const savedDatabasePath = path.join(rootDir, "saved-ledger.sqlite"),
+      savedWalPath = `${savedDatabasePath}-wal`;
+    copyFileSync(databasePath, savedDatabasePath);
+    copyFileSync(walPath, savedWalPath);
+    reader.close();
+    readerOpen = false;
+    store.close();
+    writerOpen = false;
+    copyFileSync(savedDatabasePath, databasePath);
+    copyFileSync(savedWalPath, walPath);
+    if (existsSync(`${databasePath}-shm`)) unlinkSync(`${databasePath}-shm`);
+    writeFileSync(databasePath, Buffer.alloc(0));
+
+    assert.throws(
+      () => openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+    );
+    assert.equal(statSync(walPath).size, walBytes, "read-only startup probes must preserve the only recoverable WAL");
+    assert.throws(
+      () => openSqliteEventStore({ repoId, rootInput: rootDir }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+    );
+    assert.equal(statSync(databasePath).size, 0);
+    assert.equal(statSync(walPath).size, walBytes, "refusing the attach must preserve the only recoverable WAL");
+  } finally {
+    if (writerOpen) store.close();
+    if (readerOpen) reader.close();
+  }
+});
+
+test("canonical attach rejects a 4096-byte database without ledger metadata", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-schema-less-canonical-ledger-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    emptyPath = path.join(rootDir, "schema-less.sqlite"),
+    emptyDatabase = new DatabaseSync(emptyPath);
+  emptyDatabase.exec("CREATE TABLE temporary_table(value TEXT); DROP TABLE temporary_table; VACUUM");
+  emptyDatabase.close();
+  assert.equal(statSync(emptyPath).size, 4096);
+  copyFileSync(emptyPath, databasePath);
+
+  assert.throws(
+    () => openSqliteEventStore({ repoId, rootInput: rootDir }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+  );
+  assert.equal(statSync(databasePath).size, 4096);
+});
+
+test("canonical writable attach rejects revision zero when the persisted projection proves accepted history", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stale-canonical-main-file-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    revisionZeroPath = path.join(rootDir, "revision-zero-ledger.sqlite");
+  copyFileSync(databasePath, revisionZeroPath);
+
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
+  try {
+    const event = eventAt(1),
+      eventJson = serializePersistedCanonicalEvent(event);
+    store.appendCommand({
+      fence,
+      intent: {
+        opId: event.opId,
+        intentDigest: `sha256:${sha256Text(eventJson)}`,
+        summary: event.type,
+      },
+      events: [event],
+    });
+  } finally {
+    store.close();
+  }
+
+  const projectionStore = makeTaskEventStore({ repoId, rootDir, mutable: false }),
+    projection = makeTaskProjection({ rootDir, eventStore: projectionStore });
+  try {
+    projection.catchUp?.();
+  } finally {
+    projection.close();
+    await projectionStore.drain();
+  }
+  const projectionMeta = new DatabaseSync(path.join(rootDir, ".harness", "cache", "task.sqlite"), {
+    readOnly: true,
+  });
+  assert.equal(
+    Number(
+      projectionMeta.prepare("SELECT scanned_revision FROM projection_meta WHERE singleton=1").get()!.scanned_revision,
+    ),
+    1,
+  );
+  projectionMeta.close();
+
+  for (const sidecar of [`${databasePath}-wal`, `${databasePath}-shm`]) if (existsSync(sidecar)) unlinkSync(sidecar);
+  copyFileSync(revisionZeroPath, databasePath);
+  assert.throws(
+    () => openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+  );
+  assert.equal(statSync(databasePath).size, statSync(revisionZeroPath).size);
+});
+
+test("canonical attach does not recreate a missing ledger covered by its activation certificate", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-missing-canonical-ledger-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3);
+  unlinkSync(databasePath);
+
+  assert.throws(
+    () => openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+  );
+  assert.equal(existsSync(databasePath), false);
+});
+
+test("empty activation refuses to recreate a missing ledger while its projection remains", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lost-canonical-ledger-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    activationPath = `${databasePath}.activation.json`,
+    projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
+  unlinkSync(databasePath);
+  unlinkSync(activationPath);
+  mkdirSync(path.dirname(projectionPath), { recursive: true });
+  writeFileSync(projectionPath, "prior canonical projection\n");
+
+  assert.throws(
+    () => activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+  );
+  assert.equal(existsSync(databasePath), false);
+});

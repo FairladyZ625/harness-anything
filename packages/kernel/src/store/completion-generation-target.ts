@@ -5,7 +5,12 @@ import { stableStringify, sha256Bytes } from "../integrity/stable-hash.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
-import { openSqliteEventStore, sqliteLedgerPath, type SqliteEventStore } from "./sqlite-event-store.ts";
+import {
+  openSqliteEventStore,
+  openUnactivatedGenerationThreeEventStore,
+  sqliteLedgerPath,
+  type SqliteEventStore,
+} from "./sqlite-event-store.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
 import { completionSourceRows, type CompletionGenerationPlan } from "./completion-generation-plan.ts";
@@ -67,7 +72,7 @@ export function writeCompletionGeneration(
     destination.close();
   }
   // Imported timestamps belong only to the prefix. Retirement is a newly accepted Task action.
-  const current = openSqliteEventStore({ repoId: plan.sourceCut.repoId, rootInput: root, generation: 3 });
+  const current = openUnactivatedGenerationThreeEventStore({ repoId: plan.sourceCut.repoId, rootInput: root });
   try {
     current.claimWriter(fence);
     retireCompletionExecutions(current, root, plan, fence);

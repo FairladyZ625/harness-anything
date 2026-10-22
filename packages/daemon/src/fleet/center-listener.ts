@@ -176,7 +176,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return retention;
   };
   const readReplicationHead = (repoId: string) => {
-    const store = openSqliteEventStore({ databasePath: sqliteLedgerPath(repoRoot(repoId)), repoId, readOnly: true });
+    const rootDir = repoRoot(repoId),
+      store = openSqliteEventStore({
+        databasePath: sqliteLedgerPath(rootDir),
+        rootInput: rootDir,
+        repoId,
+        readOnly: true,
+      });
     try {
       return store.replicationPosition();
     } finally {
