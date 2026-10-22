@@ -213,6 +213,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     .at(-1)!;
   assert.ok(observed, "real coordinator emitted an accepted observation");
   assert.equal(observed.payload.squadRunId, runId);
+  assert.equal(observed.payload.subject.kind, "task");
+  const parentExecutionId = observed.payload.subject.executionId;
   assert.equal(observed.source && typeof observed.source === "object" ? observed.source.nodeId : null, "node-one");
   assert.equal(JSON.stringify(observed).includes(a.edgeRoot), false, "no machine path in public observation");
   assert.equal(
@@ -331,11 +333,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.equal(successor.outcome, "applied", JSON.stringify(successor));
   for (const action of [
     { ...childAction, idempotencyKey: `${runId}:late-child` },
-    { kind: "task-start", taskId, executionId: observed.payload.executionId, squadRunId: runId },
+    { kind: "task-start", taskId, executionId: parentExecutionId, squadRunId: runId },
     {
       kind: "task-release",
       taskId,
-      executionId: observed.payload.executionId,
+      executionId: parentExecutionId,
       squadRunId: runId,
       reason: "Late old owner",
     },
@@ -379,7 +381,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       dispatchContext: {
         role: initialDispatch.payload.role ?? null,
         taskId,
-        executionId: observed.payload.executionId,
+        executionId: parentExecutionId,
       },
       payload: {
         ...initialDispatch.payload,
@@ -464,7 +466,10 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.equal(f.eventCount(), closeoutCut, "terminal replay writes no second child cancellation");
   await assert.rejects(observation(5), /op_conflict/iu);
   await assert.rejects(
-    observation(5, { phase: "cancelled", executionId: "different-execution" }),
+    observation(5, {
+      phase: "cancelled",
+      subject: { ...observed.payload.subject, executionId: "different-execution" },
+    }),
     /execution|identity/iu,
   );
   await assert.rejects(
@@ -484,7 +489,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   assert.notEqual(
     afterTerminal.snapshot.lease?.executionId,
-    observed.payload.executionId,
+    parentExecutionId,
     "late terminal observation cannot release or replace the successor lease",
   );
   await catchUpReplica({
@@ -525,8 +530,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
   const dispatches = parseDaemonGuiReadResult("repo.task.dispatches", response.result);
   assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs through the center");
-  assert.ok(dispatches.dispatches.some((row) => row.executionId === observed.payload.executionId));
-  assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
+  assert.ok(dispatches.dispatches.some((row) => row.executionId === parentExecutionId));
+  assert.ok(dispatches.dispatches.some((row) => row.executionId !== parentExecutionId));
   b.signIn("person-other");
   await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
     code: "human_confirmation_required",
@@ -681,7 +686,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.equal(recovered.type, "runtime_squad_run_observed");
   assert.equal(recovered.payload.runRevision, 5);
   assert.equal(recovered.payload.phase, "cancelled");
-  assert.equal(recovered.payload.executionId, observed.payload.executionId);
+  assert.deepEqual(recovered.payload.subject, observed.payload.subject);
   await restoredOwner.close();
   await recoveryCenter.close();
   t.diagnostic(

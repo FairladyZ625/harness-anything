@@ -32,7 +32,13 @@ export function listQuery(payload: Readonly<Record<string, unknown>>): {
 export function matchesRunQuery(run: SquadRunListRowDto, tokens: readonly string[]): boolean {
   const searchable = (
     isAvailableSquadRunSummary(run)
-      ? [run.squadRunId, run.squadId, run.taskId, run.mission, run.phase]
+      ? [
+          run.squadRunId,
+          run.squadId,
+          run.mission,
+          run.phase,
+          ...(run.subject.kind === "task" ? [run.subject.taskId] : [run.subject.scheduleId]),
+        ]
       : [run.squadRunId, run.projectionState, run.projectionError.code, run.projectionError.hint]
   )
     .join("\n")

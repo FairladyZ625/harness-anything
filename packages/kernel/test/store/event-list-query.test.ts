@@ -66,6 +66,17 @@ test("event list filters by entity ref, bare id, and occurredAt window", () => {
       event({ workspaceRevision: 1, payload: { taskId: "task_x" } }),
       event({ workspaceRevision: 2, payload: { taskId: "task_y" } }),
       event({ workspaceRevision: 3, payload: { decisionId: "dec_1" } }),
+      event({
+        workspaceRevision: 4,
+        payload: {
+          subject: {
+            kind: "schedule-occurrence",
+            scheduleId: "schedule_x",
+            occurrenceId: "occurrence_1",
+            claimFence: "fence_1",
+          },
+        },
+      }),
     ],
     byRef = selectLedgerEvents(store(events), { entity: "task/task_x", limit: 50 });
   assert.deepEqual(
@@ -85,6 +96,16 @@ test("event list filters by entity ref, bare id, and occurredAt window", () => {
   assert.deepEqual(
     windowed.rows.map(({ revision }) => revision),
     [2],
+  );
+  const bySchedule = selectLedgerEvents(store(events), { entity: "schedule/schedule_x", limit: 50 });
+  const byOccurrence = selectLedgerEvents(store(events), { entity: "occurrence/occurrence_1", limit: 50 });
+  assert.deepEqual(
+    bySchedule.rows.map(({ revision }) => revision),
+    [4],
+  );
+  assert.deepEqual(
+    byOccurrence.rows.map(({ revision }) => revision),
+    [4],
   );
 });
 

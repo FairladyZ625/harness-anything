@@ -15,6 +15,7 @@ import {
 export const eventShapeMigrationNames = Object.freeze([
   "closeout-overrides.fact",
   "schedule.ciObserve",
+  "squad-run.subject",
   "settings.ci",
   "vertical.completion.sources",
 ] as const);
@@ -22,6 +23,7 @@ export type EventShapeMigrationName = (typeof eventShapeMigrationNames)[number];
 export const retiredPersistedSchemaFields = Object.freeze([
   "Task.closeoutOverrides.fact",
   "Schedule.status.ciObserve",
+  "SquadRun.taskId+executionId",
   "Settings.gates.ci",
   "Settings.ci.workflows",
   "Vertical.completion.sources.*.kind",

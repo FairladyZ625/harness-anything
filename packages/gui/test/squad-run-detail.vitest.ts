@@ -23,7 +23,7 @@ const squadRunDetail: SquadRunReadResult = {
     ...squadObservationFixture,
     squadRunId: "squad_" + "b".repeat(18),
     squadId: "squad_465504" + "a".repeat(12),
-    taskId: "task_5fc508",
+    subject: { kind: "task", taskId: "task_5fc508", executionId: "execution-squad" },
     mission: "Ship the ontology work",
     phase: "workers_running",
     error: null,
@@ -111,6 +111,28 @@ const detailView = (overrides: Partial<Parameters<typeof SquadRunDetail>[0]> = {
   );
 
 describe("sessions page: squad run detail", () => {
+  it("renders a Schedule occurrence owner without a synthetic Task link", () => {
+    const markup = detailView({
+      detail: {
+        ...squadRunDetail,
+        run: {
+          ...squadRunDetail.run,
+          subject: {
+            kind: "schedule-occurrence",
+            scheduleId: "schedule_daily_review",
+            occurrenceId: "2026-10-22T00:00:00.000Z",
+            claimFence: "claim-fence-1",
+          },
+        },
+      },
+    });
+
+    expect(markup).toContain("Schedule occurrence");
+    expect(markup).toContain('title="schedule_daily_review / 2026-10-22T00:00:00.000Z"');
+    expect(markup).not.toContain("task/task_5fc508");
+    expect(markup).not.toContain("Task detail");
+  });
+
   it("renders the leader-to-worker fan-out tree with the mission verbatim", () => {
     const markup = detailView();
     expect(markup).toContain("Leader turns (2)");
@@ -273,7 +295,7 @@ const telemetryDetail: SquadRunReadResult = {
     ...squadObservationFixture,
     squadRunId: "squad_" + "e".repeat(18),
     squadId: "squad_465504" + "a".repeat(12),
-    taskId: "task_5fc508",
+    subject: { kind: "task", taskId: "task_5fc508", executionId: "execution-squad" },
     mission: "Ship the telemetry work",
     phase: "workers_running",
     error: null,

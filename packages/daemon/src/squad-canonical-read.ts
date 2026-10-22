@@ -12,6 +12,7 @@ import type {
   SquadRunSummaryDto,
   SquadRunTurnStatus,
 } from "./squad-run-contract.ts";
+import { isAvailableSquadRunDetail } from "./squad-run-contract.ts";
 
 /** Repository reads have no coordinator, dispatch stream, process or filesystem dependency. */
 export function makeSquadCanonicalReader(input: {
@@ -57,10 +58,21 @@ export function makeSquadCanonicalReader(input: {
     };
   }
   function identity(run: CanonicalSquadRun) {
-    const snapshot = projection.read(run.taskId).snapshot;
+    const subject = run.subject;
+    if (subject.kind !== "task")
+      return {
+        executionId: null,
+        iteration: null,
+        currentIteration: null,
+        runRevision: run.runRevision,
+        acceptedRevision: run.acceptedRevision,
+        acceptedAt: run.acceptedAt,
+        owner: run.owner,
+      };
+    const snapshot = projection.read(subject.taskId).snapshot;
     return {
-      executionId: run.executionId,
-      iteration: snapshot.executions.find((e) => e.executionId === run.executionId)?.iteration ?? null,
+      executionId: subject.executionId,
+      iteration: snapshot.executions.find((e) => e.executionId === subject.executionId)?.iteration ?? null,
       currentIteration: snapshot.task?.iteration ?? null,
       runRevision: run.runRevision,
       acceptedRevision: run.acceptedRevision,
@@ -73,7 +85,7 @@ export function makeSquadCanonicalReader(input: {
       ...identity(run),
       squadRunId: run.squadRunId,
       squadId: run.squadId,
-      taskId: run.taskId,
+      subject: run.subject,
       mission: run.mission,
       phase: run.phase,
       leaderTurnCount: run.leaderTurns.length,
@@ -94,7 +106,7 @@ export function makeSquadCanonicalReader(input: {
         ...identity(run),
         squadRunId: run.squadRunId,
         squadId: run.squadId,
-        taskId: run.taskId,
+        subject: run.subject,
         mission: run.mission,
         phase: run.phase,
         error: run.error,
@@ -144,7 +156,8 @@ export function makeSquadCanonicalReader(input: {
       ...detail,
       status: run.phase,
       runRevision: run.runRevision,
-      executionId: run.executionId,
+      ...(isAvailableSquadRunDetail(detail) ? { executionId: detail.executionId } : {}),
+      subject: run.subject,
       ownerDispatchId: run.ownerDispatchId,
       owner: run.owner,
       acceptedAt: run.acceptedAt,

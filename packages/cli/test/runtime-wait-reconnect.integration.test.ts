@@ -886,8 +886,7 @@ test("both squad waits exit on real center receipts and keep nonterminal runs wa
       const state: Omit<SquadRunObservation, "ownerDispatchId"> = {
         squadRunId,
         squadId: "core-squad",
-        taskId: "task-squad",
-        executionId: "execution-squad",
+        subject: { kind: "task", taskId: "task-squad", executionId: "execution-squad" },
         mission: "terminal wait witness",
         leaderAgentId: "leader",
         leaderTurns: [],

@@ -11,7 +11,11 @@ import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
 import { settleScheduledRuntime } from "../src/schedule-action-runtime.ts";
-import { scheduleMissionWithOutcomeProtocol, scheduleOutcomeFromRuntime } from "../src/schedule-runtime-outcome.ts";
+import {
+  scheduleMissionWithOutcomeProtocol,
+  scheduleOccurrenceSettlementOwner,
+  scheduleOutcomeFromRuntime,
+} from "../src/schedule-runtime-outcome.ts";
 import { publishExit, runtimeResultText } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
@@ -26,6 +30,25 @@ const fixtureTaskId = "task_0123456789abcdef01234567",
     },
     source: "local" as const,
   };
+
+test("occurrence settlement owner follows the linked dispatch subject", () => {
+  const dispatchId = "dispatch_0123456789abcdef01234567";
+  const projection = (squadRun?: unknown) =>
+    ({
+      readRuntimeDispatchById: (id: string) =>
+        id === dispatchId && squadRun !== undefined
+          ? { event: { payload: { squadRun } } }
+          : id === dispatchId
+            ? { event: { payload: {} } }
+            : null,
+    }) as never;
+  assert.equal(
+    scheduleOccurrenceSettlementOwner(projection({ squadRunId: "squad_0123456789abcdef01234567" }), dispatchId),
+    "squad-coordinator",
+  );
+  assert.equal(scheduleOccurrenceSettlementOwner(projection(), dispatchId), "runtime-attempt");
+  assert.equal(scheduleOccurrenceSettlementOwner(projection(), undefined), "runtime-attempt");
+});
 
 test("path-like runtime missions produce an actionable receipt without exposing the path", (context) => {
   let error: unknown;

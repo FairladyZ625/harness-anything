@@ -187,7 +187,30 @@ export function parseCanonicalEvent(body: string): PersistedCanonicalEventV1 {
 }
 
 export function normalizePersistedCanonicalEvent<Event extends PersistedCanonicalEventV1>(event: Event): Event {
-  return normalizePersistedValue(event) as Event;
+  const normalized = normalizePersistedValue(event) as Event;
+  if (normalized.schema !== "agent-runtime-event/v1" || !isRecord(normalized.payload)) return normalized;
+  if (normalized.type === "runtime_dispatch_requested")
+    return {
+      ...normalized,
+      payload: {
+        ...normalized.payload,
+        ...(normalized.payload.squadRun === undefined
+          ? {}
+          : {
+              squadRun: normalizeHistoricalSquadRunIdentity(normalized.payload.squadRun),
+            }),
+      },
+    } as Event;
+  if (normalized.type === "runtime_squad_run_observed")
+    return { ...normalized, payload: normalizeHistoricalSquadRunIdentity(normalized.payload) } as Event;
+  return normalized;
+}
+
+/** Registered squad-run.subject read transform; new-write validators still reject flat identity. */
+export function normalizeHistoricalSquadRunIdentity(value: unknown): unknown {
+  if (!isRecord(value) || value.subject !== undefined || typeof value.taskId !== "string") return value;
+  const { taskId, executionId, ...rest } = value;
+  return { ...rest, subject: { kind: "task", taskId, ...(typeof executionId === "string" ? { executionId } : {}) } };
 }
 
 /** Bring a payload facet to the timestamp spelling a replayed persisted event carries, so a

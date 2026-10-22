@@ -15,8 +15,9 @@ export async function seedSquadWaitState(
     hash = createHash("sha256").update(`${repoId}\0${key}`).digest("hex"),
     ownerDispatchId = `dispatch_${hash.slice(0, 24)}`;
   if (state.runRevision === 1) {
+    if (state.subject.kind !== "task") throw new Error("squad wait fixture requires a task subject");
     const started = await cell.run(
-      { kind: "task-start", taskId: state.taskId, executionId: state.executionId },
+      { kind: "task-start", taskId: state.subject.taskId, executionId: state.subject.executionId },
       binding,
     );
     assert.equal(started.outcome, "applied", JSON.stringify(started));
@@ -45,15 +46,14 @@ export async function seedSquadWaitState(
             baseUrl: null,
             authMode: "subscription",
           } satisfies AgentDefinitionSnapshot,
-          taskId: state.taskId,
-          executionId: state.executionId,
+          taskId: state.subject.taskId,
+          executionId: state.subject.executionId,
           agentId: state.leaderAgentId,
           squadId: state.squadId,
           squadRun: {
             squadRunId: state.squadRunId,
             squadId: state.squadId,
-            taskId: state.taskId,
-            executionId: state.executionId,
+            subject: state.subject,
             mission: state.mission,
             leaderAgentId: state.leaderAgentId,
           },

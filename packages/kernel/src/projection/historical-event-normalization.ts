@@ -1,3 +1,7 @@
+import {
+  normalizeHistoricalSquadRunIdentity,
+  normalizePersistedCanonicalEvent,
+} from "../domain/doc-sync-canonical-events.ts";
 import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
@@ -52,8 +56,11 @@ function normalizeTaskCarrier(event: PersistedCanonicalEventV1): PersistedCanoni
     : ({ ...event, payload: { ...payload, task } } as unknown as PersistedCanonicalEventV1);
 }
 
+/** The registered transform also applies to already-stored projection rows. */
+export const normalizeHistoricalSquadRunState = normalizeHistoricalSquadRunIdentity;
+
 export function normalizeHistoricalEvent(event: PersistedCanonicalEventV1): PersistedCanonicalEventV1 {
-  let normalized = normalizeTaskCarrier(event);
+  let normalized = normalizeTaskCarrier(normalizePersistedCanonicalEvent(event));
   const payload = (normalized as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return normalized;
   if (normalized.schema === "schedule-event/v1" && isRecord(payload.schedule) && isRecord(payload.schedule.status)) {

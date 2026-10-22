@@ -4,6 +4,7 @@ import {
   type LedgerCommitSha,
 } from "../domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
+import { squadRunSubjectEntityIdentity } from "../domain/squad-run.ts";
 import { type EventHead, type FrozenWritePlan, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { type LedgerLayoutState } from "../layout/ledger-object-layout.ts";
 
@@ -177,6 +178,11 @@ export function canonicalEventEntityRefs(event: PersistedCanonicalEventV1): read
         const entity = source.entity as Readonly<Record<string, unknown>>;
         add(entity.kind, entity.id);
       }
+      const subject = squadRunSubjectEntityIdentity(source.subject);
+      add("task", subject.taskId);
+      add("execution", subject.executionId);
+      add("schedule", subject.scheduleId);
+      add("occurrence", subject.occurrenceId);
     };
   addNamed(envelope);
   addNamed(payload);

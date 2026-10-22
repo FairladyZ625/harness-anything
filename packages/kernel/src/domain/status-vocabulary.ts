@@ -73,7 +73,7 @@ export interface StatusVocabulary {
 }
 
 import { decisionStates } from "./decision-event-types.ts";
-import { relationStates } from "./entity-relation.ts";
+import { relationStates } from "./relation-state.ts";
 import { closeoutGateStatuses } from "./status-word-register-closeout.ts";
 import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
@@ -345,7 +345,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "relation.state",
     entity: "Relation",
     field: "state",
-    module: "packages/kernel/src/domain/entity-relation.ts",
+    module: "packages/kernel/src/domain/relation-state.ts",
     anchor: "relationStates",
     words: relationStates,
   },

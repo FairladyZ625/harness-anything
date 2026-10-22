@@ -97,11 +97,12 @@ export function squadAttemptStatus(
 }
 
 type LeaderPromptState = {
-  readonly taskId: string;
   readonly squadRunId: string;
   readonly roster: string;
   readonly mission: string;
   readonly workerAttempts: readonly WorkerAttempt[];
+  /** The run's subject kind: a task run publishes its synthesis to the task package, a schedule run keeps it with the converged dispatch result. */
+  readonly subject: { readonly kind: "task" | "schedule-occurrence" };
 };
 
 export function initialLeaderPrompt(state: LeaderPromptState): string {
@@ -225,6 +226,11 @@ export function parseLeaderDecision(text: string, workers: readonly string[]): L
 }
 
 function synthesisReportInstruction(state: LeaderPromptState): string {
+  if (state.subject.kind === "schedule-occurrence")
+    return (
+      "Put the complete, non-empty Markdown synthesis in the converged decision's report field. " +
+      "Harness keeps that field with the run's converged dispatch result; do not write or submit a report file yourself."
+    );
   const reportPath = synthesisReportPath(state);
   return reportPath === null
     ? "The squad roster does not declare exactly one synthesis report under artifacts/reports; convergence will fail."

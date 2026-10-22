@@ -46,6 +46,7 @@ test("A: registry attached recovery wakes a skipped due builtin without refreshi
       inFlight = 0,
       cursor = schedule.status.automaticEvaluatedThrough;
     const cell = {
+      scheduleOccurrenceSettlementOwner: async () => "runtime-attempt" as const,
       status: () => ({
         repoId,
         rootDir,
@@ -177,6 +178,7 @@ test("remote-edge session expiry pauses with a login instruction and resumes aft
   const timers: Array<{ callback: () => void; delay: number; cleared: boolean }> = [],
     actor = { principal: { personId: "scheduler-session" }, executor: null },
     cell = {
+      scheduleOccurrenceSettlementOwner: async () => "runtime-attempt" as const,
       status: () => ({ repoId: "edge", rootDir: "/missing", mode: "remote-edge", state: "attached" }),
     } as unknown as RepoCell,
     cells = new Map([["edge", cell]]),
@@ -243,6 +245,7 @@ for (const rejectMissed of [false, true])
       let cursor = schedule.status.automaticEvaluatedThrough,
         inFlight = 0;
       const cell = {
+        scheduleOccurrenceSettlementOwner: async () => "runtime-attempt" as const,
         status: () => ({ repoId, rootDir, mode: "local", state: "attached", generation: 1 }),
         run: async (action: Readonly<Record<string, unknown>>) => {
           inFlight += 1;

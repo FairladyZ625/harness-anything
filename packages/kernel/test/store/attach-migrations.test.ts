@@ -40,7 +40,9 @@ const envelope = (schema: string, payload: unknown, opId: string): PersistedCano
         ? "task_created"
         : schema === "schedule-event/v1"
           ? "schedule_created"
-          : "settings_changed",
+          : schema === "agent-runtime-event/v1"
+            ? "runtime_dispatch_requested"
+            : "settings_changed",
     actor,
     source: "local",
     occurredAt: "2026-10-20T00:00:00.000Z",
@@ -52,7 +54,13 @@ const envelope = (schema: string, payload: unknown, opId: string): PersistedCano
 test("attach migration registry covers each retired historical field and is idempotent", () => {
   assert.deepEqual(
     attachMigrationRegistry.map(({ name }) => name),
-    ["closeout-overrides.fact", "schedule.ciObserve", "settings.ci", "vertical.completion.sources"],
+    [
+      "closeout-overrides.fact",
+      "schedule.ciObserve",
+      "squad-run.subject",
+      "settings.ci",
+      "vertical.completion.sources",
+    ],
   );
   assert.deepEqual(
     attachMigrationRegistry.flatMap(({ fields }) => fields).sort(),
@@ -61,6 +69,11 @@ test("attach migration registry covers each retired historical field and is idem
   const { store, events } = fakeStore([
     envelope("task-event/v1", { task: { closeoutOverrides: { fact: false } } }, "old-task"),
     envelope("schedule-event/v1", { schedule: { status: { ciObserve: { workflow: "retired" } } } }, "old-schedule"),
+    envelope(
+      "agent-runtime-event/v1",
+      { squadRun: { squadRunId: "squad_0123456789abcdef01234567", taskId: "task-old", executionId: "execution-old" } },
+      "old-squad-dispatch",
+    ),
     envelope("settings-event/v1", { settings: { ci: { workflows: ["rewrite-ci"] } } }, "old-settings"),
     envelope(
       "vertical-declaration-event/v1",
@@ -72,13 +85,14 @@ test("attach migration registry covers each retired historical field and is idem
   assert.deepEqual(first.applied, [
     "closeout-overrides.fact",
     "schedule.ciObserve",
+    "squad-run.subject",
     "settings.ci",
     "vertical.completion.sources",
   ]);
-  assert.equal(events.length, 8);
+  assert.equal(events.length, 10);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 8);
+  assert.equal(events.length, 10);
 });
 
 test("attach notices a retired source embedded in a task preset snapshot blob", () => {
@@ -132,11 +146,33 @@ test("historical projection normalizes each registered retired field without cha
         },
         "vertical-normalize",
       ),
-    ) as unknown as { readonly payload: { readonly declaration: { readonly definition: Record<string, unknown> } } };
+    ) as unknown as { readonly payload: { readonly declaration: { readonly definition: Record<string, unknown> } } },
+    squad = normalizeHistoricalEvent(
+      envelope(
+        "agent-runtime-event/v1",
+        {
+          squadRun: {
+            squadRunId: "squad_0123456789abcdef01234567",
+            squadId: "review",
+            taskId: "task-old",
+            executionId: "execution-old",
+            mission: "Review",
+            leaderAgentId: "leader",
+          },
+        },
+        "squad-normalize",
+      ),
+    ) as unknown as { readonly payload: { readonly squadRun: Record<string, unknown> } };
   assert.deepEqual(task.payload.task.closeoutOverrides, { review: true });
   assert.deepEqual(schedule.payload.schedule.status, { missedCount: 0 });
   assert.deepEqual(settings.payload.settings, { gates: [{ adapter: "manual-attest" }] });
   assert.deepEqual((vertical.payload.declaration.definition.completion as Record<string, unknown>).sources, {});
+  assert.deepEqual(squad.payload.squadRun.subject, {
+    kind: "task",
+    taskId: "task-old",
+    executionId: "execution-old",
+  });
+  assert.equal(Object.hasOwn(squad.payload.squadRun, "taskId"), false);
   assert.deepEqual(
     normalizeHistoricalVerticalDocument({
       schema: "repository-vertical-declaration/v1",

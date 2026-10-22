@@ -306,8 +306,7 @@ test("canonical Squad and live session rows are byte-stable on reopen and cold r
     const identity = {
       squadRunId: "squad_0123456789abcdef01234567",
       squadId: "core",
-      taskId: "task-1",
-      executionId: "execution-1",
+      subject: { kind: "task", taskId: "task-1", executionId: "execution-1" },
       mission: "Public mission",
       leaderAgentId: "leader",
     };

@@ -1,5 +1,5 @@
 import type { ActorIdentity, EventEnvelope } from "./write-chain.contract.ts";
-import { hasOnlyFields, isRecord, isNonEmptyString } from "./write-chain.contract.ts";
+import { hasOnlyFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
 
 export type SquadRunPhase = "planning" | "leader_running" | "workers_running" | "cancelled" | "converged" | "failed";
 export type SquadRunTrigger =
@@ -8,11 +8,48 @@ export type SquadRunTrigger =
   | { readonly kind: "worker_outcome"; readonly runtimeSessionId: string }
   | { readonly kind: "worker_wait"; readonly runtimeSessionId: string; readonly reason: string }
   | { readonly kind: "worker_rejected"; readonly attemptId: string };
+/**
+ * Who a Squad run belongs to, mirroring the single-agent spawn/spawnScheduled subject split: a
+ * manual run executes under a task execution lease, a scheduled run under a Schedule occurrence
+ * claim whose claimFence is its only concurrency subject. Identity only — capability comes from
+ * the admission path of the branch.
+ */
+export type SquadRunSubjectV1 =
+  | { readonly kind: "task"; readonly taskId: string; readonly executionId: string }
+  | {
+      readonly kind: "schedule-occurrence";
+      readonly scheduleId: string;
+      readonly occurrenceId: string;
+      readonly claimFence: string;
+    };
+
+export type SquadRunSubjectEntityIdentity = Readonly<{
+  readonly taskId?: string;
+  readonly executionId?: string;
+  readonly scheduleId?: string;
+  readonly occurrenceId?: string;
+}>;
+
+/** Extract the entity identity carried by either Squad run subject branch for projections. */
+export function squadRunSubjectEntityIdentity(value: unknown): SquadRunSubjectEntityIdentity {
+  if (!isRecord(value)) return {};
+  if (value.kind === "task")
+    return {
+      ...(isNonEmptyString(value.taskId) ? { taskId: value.taskId } : {}),
+      ...(isNonEmptyString(value.executionId) ? { executionId: value.executionId } : {}),
+    };
+  if (value.kind === "schedule-occurrence")
+    return {
+      ...(isNonEmptyString(value.scheduleId) ? { scheduleId: value.scheduleId } : {}),
+      ...(isNonEmptyString(value.occurrenceId) ? { occurrenceId: value.occurrenceId } : {}),
+    };
+  return {};
+}
+
 export interface SquadRunIdentity {
   readonly squadRunId: string;
   readonly squadId: string;
-  readonly taskId: string;
-  readonly executionId: string;
+  readonly subject: SquadRunSubjectV1;
   readonly mission: string;
   readonly leaderAgentId: string;
 }
@@ -63,9 +100,23 @@ export interface CanonicalSquadRun extends SquadRunObservation {
   readonly acceptedRevision: number;
   readonly acceptedAt: string;
 }
-const identityFields = ["squadRunId", "squadId", "taskId", "executionId", "mission", "leaderAgentId"];
+const identityFields = ["squadRunId", "squadId", "subject", "mission", "leaderAgentId"];
 const nullableText = (value: unknown): boolean => value === null || isNonEmptyString(value);
 const count = (value: unknown): boolean => Number.isSafeInteger(value) && Number(value) >= 0;
+
+export function validSquadRunSubject(value: unknown): value is SquadRunSubjectV1 {
+  if (!isRecord(value)) return false;
+  if (value.kind === "task")
+    return (
+      hasOnlyFields(value, ["kind", "taskId", "executionId"]) &&
+      [value.taskId, value.executionId].every(isNonEmptyString)
+    );
+  return (
+    value.kind === "schedule-occurrence" &&
+    hasOnlyFields(value, ["kind", "scheduleId", "occurrenceId", "claimFence"]) &&
+    [value.scheduleId, value.occurrenceId, value.claimFence].every(isNonEmptyString)
+  );
+}
 
 export function validSquadDispatchContext(value: unknown): value is SquadDispatchContext {
   return (
@@ -73,7 +124,9 @@ export function validSquadDispatchContext(value: unknown): value is SquadDispatc
     ("ownerDispatchId" in value
       ? hasOnlyFields(value, ["squadRunId", "ownerDispatchId", "turnId"]) &&
         [value.squadRunId, value.ownerDispatchId, value.turnId].every(isNonEmptyString)
-      : hasOnlyFields(value, identityFields) && identityFields.every((field) => isNonEmptyString(value[field]))) &&
+      : hasOnlyFields(value, identityFields) &&
+        ["squadRunId", "squadId", "mission", "leaderAgentId"].every((field) => isNonEmptyString(value[field])) &&
+        validSquadRunSubject(value.subject)) &&
     /^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId))
   );
 }
@@ -96,7 +149,8 @@ export function validSquadRunObservation(value: unknown): value is SquadRunObser
   )
     return false;
   return (
-    identityFields.every((field) => isNonEmptyString(value[field])) &&
+    ["squadRunId", "squadId", "mission", "leaderAgentId"].every((field) => isNonEmptyString(value[field])) &&
+    validSquadRunSubject(value.subject) &&
     /^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId)) &&
     isNonEmptyString(value.ownerDispatchId) &&
     count(value.runRevision) &&

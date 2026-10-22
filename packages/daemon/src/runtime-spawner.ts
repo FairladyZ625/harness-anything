@@ -2,7 +2,7 @@ import type { SquadDispatchContext } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { type AgentRuntimeEventV1, type CanonicalEventStore, type SessionIdentity } from "@harness-anything/kernel";
+import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
 import {
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
@@ -15,7 +15,6 @@ import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
-  readDispatchStream,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -56,20 +55,8 @@ import {
   requiredRuntimeStore,
 } from "./runtime-spawn-process.ts";
 import { isStructuredSuccessResult, parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
-import {
-  bindProvider as bindProviderImpl,
-  captureErrorOutput as captureErrorOutputImpl,
-  consumeProviderChunk,
-  consumeProviderLine,
-  markProtocolError as markProtocolErrorImpl,
-  publishRuntimeEvent as publishRuntimeEventImpl,
-} from "./runtime-spawn-provider-stream.ts";
-import {
-  applied as appliedImpl,
-  controlReceipt as controlReceiptImpl,
-  publishExit as publishExitImpl,
-  runtimeResultText as runtimeResultTextImpl,
-} from "./runtime-spawn-settlement.ts";
+import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-provider-stream.ts";
+import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
@@ -77,23 +64,17 @@ import type {
   ResumeProcessObservation,
   RuntimeBinding,
   RuntimeSpawnerInput,
-  RuntimeAttemptTerminal,
   RuntimeProcess,
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
-import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
+import type { RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
 import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
-import {
-  initialFallbackAttempt,
-  requiredRuntimeFast,
-  scheduleFallbackContinuation,
-  settleFallbackAttempt,
-} from "./runtime-spawn-fallback.ts";
+import { initialFallbackAttempt, reconcileFallback, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
   assertNativeResumeNotExported,
@@ -127,25 +108,50 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     requiredRuntimeStore,
     requiredRuntimeProjection,
     runtimeSpawnError,
-    consumeChunk,
-    consumeLine,
-    markProtocolError,
+    consumeChunk: (active, chunk, flush, persisted) =>
+      runtimeSpawnerDelegates.consumeChunk(extracted, active, chunk, flush, persisted),
+    consumeLine: (active, line, persisted, publishSignals) =>
+      runtimeSpawnerDelegates.consumeLine(extracted, active, line, persisted, publishSignals),
+    markProtocolError: (active) => runtimeSpawnerDelegates.markProtocolError(extracted, active),
     parseProviderFrame,
-    bindProvider,
+    bindProvider: (active, identity) => runtimeSpawnerDelegates.bindProvider(extracted, active, identity),
     isStructuredSuccessResult,
     processes,
     providerErrorLimit,
     publishRuntimeEvent,
     exiting,
-    runtimeResultText,
+    runtimeResultText: (active, code, outcome) =>
+      runtimeSpawnerDelegates.runtimeResultText(extracted, active, code, outcome),
     resultMediaType,
     launchExitNotification,
-    publishExit,
-    controlReceipt,
-    captureErrorOutput,
+    publishExit: (active, code, resumePublishedExit) =>
+      runtimeSpawnerDelegates.publishExit(extracted, active, code, resumePublishedExit),
+    controlReceipt: (opId, runtimeSessionId, detail) =>
+      runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail),
+    captureErrorOutput: (active, chunk) => runtimeSpawnerDelegates.captureErrorOutput(extracted, active, chunk),
     prepareDaemonGitEnvironment,
-    settleFallback,
-    reconcileFallback,
+    settleFallback: (active, outcome, terminal) =>
+      runtimeSpawnerDelegates.settleFallback(extracted, active, outcome, terminal),
+    reconcileFallback: (stream) =>
+      reconcileFallback({
+        input,
+        publishRuntimeEvent: extracted.publishRuntimeEvent,
+        closed: () => fallbackClosed,
+        launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
+          spawnAttempt(
+            payload,
+            binding,
+            fallback,
+            schedule,
+            handoffFromRuntimeSessionId,
+            publicationOwner,
+            null,
+            undefined,
+            undefined,
+            onDispatched,
+          ),
+        stream,
+      }),
   };
   const spawnAttempt = async (
     payload: JsonObject,
@@ -461,7 +467,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               : taskMission || role === "reviewer"
                 ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
                 : dispatchMission,
-            prompt = renderDispatchPrompt(assembledPrompt, newDispatchId, Boolean(trustedSchedule));
+            // Scheduled Squad leaders answer the squad decision protocol; the run settles
+            // the occurrence. Every dispatch still receives its own rendered dispatch id.
+            prompt = renderDispatchPrompt(
+              assembledPrompt,
+              newDispatchId,
+              Boolean(trustedSchedule) && squadId === undefined,
+            );
 
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
@@ -829,7 +841,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // The center queue owns the claim: another edge can win after our initial receipt read.
     if (requested.receipt?.reused === true) {
       cleanupCallbackRelay();
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      // The id is deterministic from dispatchKey and may already be the winning stream after a
+      // restart race. Removing it here can delete the winner's Squad state journal, leaving a
+      // resumed coordinator unable to append its next revision.
       return {
         ...requested.receipt,
         runtimeSessionId,
@@ -1000,6 +1014,27 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         scheduled,
         undefined,
       ),
+    /** The same trusted-schedule channel for a caller-assembled payload: a scheduled Squad run's
+     * leader turns carry the squad decision protocol, so their spawn comes from the coordinator. */
+    spawnScheduledCoordinated: (
+      payload: JsonObject,
+      scheduled: TrustedScheduleRuntime,
+      binding: RuntimeBinding,
+      onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+    ) =>
+      spawnAttempt(
+        payload,
+        binding,
+        undefined,
+        scheduled,
+        undefined,
+        "runtime",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        onPrepared,
+      ),
     // Startup adoption only: cancel's mid-operation adoption call passes no sweep flag,
     // because a just-minted temp directory whose dispatch event has not committed yet must
     // not be reclaimed out from under an in-flight launch.
@@ -1026,73 +1061,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   }> {
     return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody, dispatchContext);
   }
-  async function consumeChunk(active: ActiveRuntime, chunk: string, flush: boolean, persisted = false): Promise<void> {
-    return consumeProviderChunk(extracted, active, chunk, flush, persisted);
-  }
-  async function consumeLine(
-    active: ActiveRuntime,
-    line: string,
-    persisted = false,
-    publishSignals = true,
-  ): Promise<void> {
-    return consumeProviderLine(extracted, active, line, persisted, publishSignals);
-  }
-  function captureErrorOutput(active: ActiveRuntime, chunk: string): void {
-    return captureErrorOutputImpl(extracted, active, chunk);
-  }
-  async function bindProvider(active: ActiveRuntime, identity: SessionIdentity): Promise<void> {
-    return bindProviderImpl(extracted, active, identity);
-  }
-  function markProtocolError(active: ActiveRuntime): void {
-    return markProtocolErrorImpl(extracted, active);
-  }
-  async function publishExit(active: ActiveRuntime, code: number | null, resumePublishedExit = false): Promise<void> {
-    return publishExitImpl(extracted, active, code, resumePublishedExit);
-  }
-  function runtimeResultText(
-    active: ActiveRuntime,
-    code: number | null,
-    outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
-  ): string {
-    return runtimeResultTextImpl(extracted, active, code, outcome);
-  }
-  function applied(
+  const applied = (
     event: AgentRuntimeEventV1,
     publication: ReturnType<CanonicalEventStore["publication"]>,
     runtimeSessionId: string,
     dispatchId: string,
-  ) {
-    return appliedImpl(extracted, event, publication, runtimeSessionId, dispatchId);
-  }
-  function controlReceipt(opId: string, runtimeSessionId: string, detail?: string) {
-    return controlReceiptImpl(extracted, opId, runtimeSessionId, detail);
-  }
-  async function settleFallback(
-    active: ActiveRuntime,
-    outcome: RuntimeAttemptOutcome,
-    terminal: RuntimeAttemptTerminal,
-  ): Promise<void> {
-    return settleFallbackAttempt(extracted, active, outcome, terminal);
-  }
-  function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
-    scheduleFallbackContinuation({
-      input,
-      publishRuntimeEvent: extracted.publishRuntimeEvent,
-      closed: () => fallbackClosed,
-      launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
-        spawnAttempt(
-          payload,
-          binding,
-          fallback,
-          schedule,
-          handoffFromRuntimeSessionId,
-          publicationOwner,
-          null,
-          undefined,
-          undefined,
-          onDispatched,
-        ),
-      stream,
-    });
-  }
+  ) => runtimeSpawnerDelegates.applied(extracted, event, publication, runtimeSessionId, dispatchId);
 }

@@ -241,7 +241,10 @@ export function makeScheduleScheduler(input: {
       for (let schedule of schedules) {
         if (schedule.state !== "invalid") {
           const active = schedule.status.activeRun as ScheduleActiveRunV1 | null;
-          if (active?.runtimeSessionId) {
+          if (
+            active?.runtimeSessionId &&
+            (await cell.scheduleOccurrenceSettlementOwner(active.dispatchId)) === "runtime-attempt"
+          ) {
             let runtime: AgentRuntimeSessionResult | null = null;
             try {
               runtime = await target.readRuntimeSession(active.runtimeSessionId);
@@ -317,9 +320,12 @@ export function makeScheduleScheduler(input: {
         if (schedule.state === "invalid") continue;
         // A builtin occurrence executes on the node holding the canonical cell; a remote-edge
         // mirror must never claim one (the kernel also rejects assignment-sourced claims). Every
-        // other occurrence executes where its runtime lives, which is never a remote-center.
-        const builtin = schedule.spec.target.kind === "builtin";
-        if (mode === "remote-edge" ? builtin : mode === "remote-center" && !builtin) continue;
+        // other occurrence executes where its runtime lives, which is never a remote-center. A
+        // squad occurrence rides its claim through the local Squad coordinator; the fleet edge
+        // coordinator still admits task-leased runs only, so an edge never claims one either.
+        const builtin = schedule.spec.target.kind === "builtin",
+          squad = schedule.spec.target.kind === "squad";
+        if (mode === "remote-edge" ? builtin || squad : mode === "remote-center" && !builtin) continue;
         if (
           builtin &&
           schedule.status.activeRun &&
@@ -418,7 +424,12 @@ function evaluateSchedule(
   admissionWindowMs: number,
 ): { readonly due: DueOccurrence | null; readonly missed: MissedOccurrences | null } {
   if (schedule.state === "invalid") return { due: null, missed: null };
-  if (schedule.state !== "armed" || (schedule.spec.target.kind !== "agent" && schedule.spec.target.kind !== "builtin"))
+  if (
+    schedule.state !== "armed" ||
+    (schedule.spec.target.kind !== "agent" &&
+      schedule.spec.target.kind !== "builtin" &&
+      schedule.spec.target.kind !== "squad")
+  )
     return { due: null, missed: null };
   const cursor =
       Date.parse(schedule.updatedAt) > Date.parse(schedule.status.automaticEvaluatedThrough)

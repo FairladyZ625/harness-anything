@@ -1,4 +1,4 @@
-import { isRecord } from "./write-chain.contract.ts";
+import { isRecord } from "./contract-validation.ts";
 
 export const closeoutProfiles = ["standard", "strict"] as const;
 export type CloseoutProfile = (typeof closeoutProfiles)[number];

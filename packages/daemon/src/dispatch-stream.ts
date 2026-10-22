@@ -28,6 +28,7 @@ import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 import { writeFileDurably } from "./durable-file.ts";
 import { scrubProviderValue } from "./secret-scrub.ts";
+import { isFallbackProvider } from "./dispatch-stream-value.ts";
 
 export { scrubProviderValue } from "./secret-scrub.ts";
 
@@ -497,23 +498,24 @@ export function readDispatchStream(
   };
 }
 
-function isFallbackProvider(value: unknown): value is { readonly instance: string; readonly model?: string } {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    typeof (value as { readonly instance?: unknown }).instance === "string" &&
-    ((value as { readonly model?: unknown }).model === undefined ||
-      typeof (value as { readonly model?: unknown }).model === "string")
-  );
-}
-
 export function appendRuntimeWorkerRecord(
   rootDir: string,
   dispatchId: string,
   value: Readonly<Record<string, unknown>>,
 ): void {
-  appendDispatchStreamRecord(dispatchStreamPath(rootDir, dispatchId), value);
+  // A terminal runtime archives its stream by renaming the live file. Squad state records can
+  // arrive concurrently with that rename; resolve the path again after an ENOENT so the state
+  // remains durable on the archived stream instead of failing the coordinator's write queue.
+  const target = dispatchStreamPath(rootDir, dispatchId);
+  try {
+    appendDispatchStreamRecord(target, value);
+  } catch (error) {
+    if (fsErrorCode(error) !== "ENOENT") throw error;
+    consumeKnownError(error);
+    const retry = dispatchStreamPath(rootDir, dispatchId);
+    if (retry === target || !existsSync(retry)) throw error;
+    appendDispatchStreamRecord(retry, value);
+  }
 }
 
 /** Append to a dispatch stream whose path the caller resolved once for the dispatch's lifetime. */

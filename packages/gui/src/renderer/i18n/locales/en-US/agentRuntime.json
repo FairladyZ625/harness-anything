@@ -403,6 +403,7 @@
   "agentRuntime.sessionsGroupsTruncated": "First {count} groups listed (more matched); narrow the search.",
   "agentRuntime.sessionsGroupsTruncatedOne": "First {count} group listed (more matched); narrow the search.",
   "agentRuntime.sessionsTaskDetail": "Task detail",
+  "agentRuntime.sessionsScheduleOccurrence": "Schedule occurrence",
   "agentRuntime.sessionsTaskDecision": "Decision {ref}",
   "agentRuntime.sessionsTaskDecisionLabel": "Decisions of this task",
   "agentRuntime.sessionsOpenSession": "Session",

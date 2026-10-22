@@ -1,8 +1,10 @@
-import type { CanonicalSquadRun, SquadRunPhase } from "@harness-anything/kernel";
-export type { SquadRunPhase } from "@harness-anything/kernel";
+import type { CanonicalSquadRun, SquadRunPhase, SquadRunSubjectV1 } from "@harness-anything/kernel";
+import { validSquadRunSubject } from "@harness-anything/kernel/browser";
+export type { SquadRunPhase, SquadRunSubjectV1 } from "@harness-anything/kernel";
 
 interface SquadRunObservationIdentity {
-  readonly executionId: string;
+  /** The task execution the run rides; null on schedule-occurrence runs. */
+  readonly executionId: string | null;
   readonly iteration: number | null;
   readonly currentIteration: number | null;
   readonly runRevision: number;
@@ -14,7 +16,7 @@ interface SquadRunObservationIdentity {
 export interface SquadRunSummaryDto extends SquadRunObservationIdentity {
   readonly squadRunId: string;
   readonly squadId: string;
-  readonly taskId: string;
+  readonly subject: SquadRunSubjectV1;
   readonly mission: string;
   readonly phase: SquadRunPhase;
   readonly leaderTurnCount: number;
@@ -104,7 +106,7 @@ export interface SquadRunWorkerAttemptDto {
 export interface SquadRunDetailDto extends SquadRunObservationIdentity {
   readonly squadRunId: string;
   readonly squadId: string;
-  readonly taskId: string;
+  readonly subject: SquadRunSubjectV1;
   readonly mission: string;
   readonly phase: SquadRunPhase;
   readonly error: string | null;
@@ -187,7 +189,7 @@ export function validateSquadRunRead(value: unknown): readonly string[] {
       ...observationIdentityFields,
       "squadRunId",
       "squadId",
-      "taskId",
+      "subject",
       "mission",
       "phase",
       "error",
@@ -195,7 +197,8 @@ export function validateSquadRunRead(value: unknown): readonly string[] {
       "leaderTurns",
       "workerAttempts",
     ]) &&
-    [value.run.squadRunId, value.run.squadId, value.run.taskId, value.run.mission].every(squadRunText) &&
+    [value.run.squadRunId, value.run.squadId, value.run.mission].every(squadRunText) &&
+    validSquadRunSubject(value.run.subject) &&
     validObservationIdentity(value.run) &&
     phases.includes(value.run.phase as SquadRunPhase) &&
     (value.run.error === null || squadRunText(value.run.error)) &&
@@ -330,7 +333,7 @@ function validSquadRunSummary(value: unknown): value is SquadRunListRowDto {
       ...observationIdentityFields,
       "squadRunId",
       "squadId",
-      "taskId",
+      "subject",
       "mission",
       "phase",
       "leaderTurnCount",
@@ -338,7 +341,8 @@ function validSquadRunSummary(value: unknown): value is SquadRunListRowDto {
       "runningCount",
       "latestActivityAt",
     ]) &&
-    [value.squadRunId, value.squadId, value.taskId, value.mission].every(squadRunText) &&
+    [value.squadRunId, value.squadId, value.mission].every(squadRunText) &&
+    validSquadRunSubject(value.subject) &&
     validObservationIdentity(value) &&
     phases.includes(value.phase as SquadRunPhase) &&
     [value.leaderTurnCount, value.workerAttemptCount, value.runningCount].every(squadRunCount) &&
@@ -413,7 +417,7 @@ const observationIdentityFields = [
 function validObservationIdentity(value: Record<string, unknown>): boolean {
   const owner = value.owner;
   return (
-    squadRunText(value.executionId) &&
+    (value.executionId === null || squadRunText(value.executionId)) &&
     [value.iteration, value.currentIteration].every((v) => v === null || squadRunCount(v)) &&
     squadRunCount(value.runRevision) &&
     squadRunCount(value.acceptedRevision) &&

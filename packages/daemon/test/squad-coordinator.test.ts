@@ -127,8 +127,8 @@ test("squad child derivation retains a plain-text assignment", () => {
 
 test("runtime-batch leaves worker instance selection to the harness", () => {
   const prompt = initialLeaderPrompt({
-      taskId: "task-squad",
       squadRunId: "squad_0123456789abcdef01234567",
+      subject: { kind: "task" },
       roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
       mission: "Review the runtime boundary.",
       workerAttempts: [],
@@ -185,8 +185,8 @@ test("an unavailable immutable worker result explicitly fails callback synthesis
     () =>
       callbackLeaderPrompt(
         {
-          taskId: "task-squad",
           squadRunId: "squad_0123456789abcdef01234567",
+          subject: { kind: "task" },
           roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
           mission: "Synthesize worker evidence.",
           workerAttempts: [
@@ -257,8 +257,8 @@ test("the callback prompt and the status receipt share one attempt-status judgme
   // 详细 callback 的状态行必须经同一判定:拒绝优先于台账行,不再是各渲染面的私有推断。
   const prompt = callbackLeaderPrompt(
     {
-      taskId: "task-squad",
       squadRunId: "squad_0123456789abcdef01234567",
+      subject: { kind: "task" },
       roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
       mission: "Synthesize worker evidence.",
       workerAttempts: [

@@ -1,3 +1,4 @@
+import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
@@ -297,6 +298,7 @@ export async function openRepoCellProxy(
       knownTaskIds: Set<string> | null = null;
     const squadCoordinator = {
         start: unsupportedWrite,
+        startScheduled: unsupportedWrite,
         cancel: unsupportedWrite,
         reconcile: unsupportedWrite,
         flushPublications: unsupportedWrite,
@@ -310,6 +312,7 @@ export async function openRepoCellProxy(
         spawnHandoff: unsupportedWrite,
         spawnCoordinated: unsupportedWrite,
         spawnScheduled: unsupportedWrite,
+        spawnScheduledCoordinated: unsupportedWrite,
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
@@ -497,6 +500,8 @@ export async function openRepoCellProxy(
     },
   };
   return {
+    scheduleOccurrenceSettlementOwner: async (dispatchId) =>
+      query((projection) => scheduleOccurrenceSettlementOwner(projection, dispatchId)),
     hasBuiltinExecutor: (claimFence) => supervisor.request("hasBuiltinExecutor", { claimFence }),
     get bootstrapReceipt() {
       return supervisor.bootstrapReceipt() as RepoCell["bootstrapReceipt"];

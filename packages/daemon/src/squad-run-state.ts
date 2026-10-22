@@ -1,5 +1,7 @@
-import { isTerminalStatus, type TaskV2 } from "@harness-anything/kernel";
+import { isTerminalStatus, validSquadRunSubject, type SquadRunSubjectV1, type TaskV2 } from "@harness-anything/kernel";
+import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
 import { readAllDispatchStreamSummaries } from "./dispatch-stream.ts";
+import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { LeaderTrigger, LeaderTurn, WorkerAttempt, WorkerWaitTrigger } from "./squad-leader-decision.ts";
@@ -11,9 +13,11 @@ export type SquadState = {
   readonly squadRunId: string;
   readonly stateDispatchId: string | null;
   readonly squadId: string;
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly runtimeInstanceId: string;
+  readonly subject: SquadRunSubjectV1;
+  /** The Schedule admission context and occurrence worktree, if this run owns a Schedule claim. */
+  readonly scheduleRuntime: TrustedScheduleRuntime | null;
+  /** The instance a task run explicitly selected; a schedule run leaves it to the leader declaration. */
+  readonly runtimeInstanceId: string | null;
   readonly cwd: string;
   readonly baseSha: string | null;
   readonly mission: string;
@@ -39,6 +43,22 @@ export type SquadState = {
   readonly error: string | null;
 };
 
+/** The task execution this run was admitted under; null when the run rides a Schedule occurrence claim. */
+export function squadTaskRef(
+  state: Pick<SquadState, "subject">,
+): { readonly taskId: string; readonly executionId: string } | null {
+  return state.subject.kind === "task"
+    ? { taskId: state.subject.taskId, executionId: state.subject.executionId }
+    : null;
+}
+
+/** The schedule-occurrence subject this run rides; null on task-subject runs. */
+export function squadScheduleSubject(
+  state: Pick<SquadState, "subject">,
+): Extract<SquadRunSubjectV1, { readonly kind: "schedule-occurrence" }> | null {
+  return state.subject.kind === "schedule-occurrence" ? state.subject : null;
+}
+
 /** The phases a run stops moving in; everything else still has work in flight. */
 export function terminal(state: SquadState): boolean {
   return state.phase === "cancelled" || state.phase === "converged" || state.phase === "failed";
@@ -55,8 +75,9 @@ export function squadState(value: unknown): SquadState | null {
     typeof row.squadRunId === "string" &&
     (row.baseSha === undefined || row.baseSha === null || typeof row.baseSha === "string") &&
     validSquadRunId(row.squadRunId) &&
+    validSquadRunSubject(row.subject) &&
+    (row.scheduleRuntime === undefined || row.scheduleRuntime === null || validScheduleRuntime(row.scheduleRuntime)) &&
     typeof row.stateDispatchId === "string" &&
-    typeof row.executionId === "string" &&
     typeof row.publicMission === "string" &&
     Array.isArray(row.leaderTurns) &&
     Array.isArray(row.workerAttempts) &&
@@ -66,8 +87,27 @@ export function squadState(value: unknown): SquadState | null {
     Number.isSafeInteger(row.leaderTurnBudget) &&
     Number(row.leaderTurnBudget) >= 1 &&
     typeof row.revision === "number"
-    ? ({ ...value, baseSha: row.baseSha ?? null } as SquadState)
+    ? ({ ...value, baseSha: row.baseSha ?? null, scheduleRuntime: row.scheduleRuntime ?? null } as SquadState)
     : null;
+}
+
+function validScheduleRuntime(value: unknown): value is TrustedScheduleRuntime {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const runtime = value as Record<string, unknown>,
+    worktree = runtime.worktree;
+  return (
+    typeof runtime.scheduleId === "string" &&
+    typeof runtime.occurrenceId === "string" &&
+    typeof runtime.claimFence === "string" &&
+    (runtime.mode === "detect" || runtime.mode === "remediate") &&
+    (worktree === undefined ||
+      (worktree !== null &&
+        typeof worktree === "object" &&
+        !Array.isArray(worktree) &&
+        typeof (worktree as Record<string, unknown>).cwd === "string" &&
+        typeof (worktree as Record<string, unknown>).branch === "string" &&
+        typeof (worktree as Record<string, unknown>).baseRef === "string"))
+  );
 }
 
 /** The dispatch streams are the squad runs' ledger: the latest state per run, cancellation records applied on top. */
@@ -93,7 +133,7 @@ export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadSta
         continue;
       }
       if (record.kind !== "squad_run_state") continue;
-      const state = squadState(record.state);
+      const state = squadState(normalizeHistoricalSquadRunIdentity(record.state));
       if (!state) continue;
       const current = states.get(state.squadRunId);
       if (!current || current.revision < state.revision) states.set(state.squadRunId, state);

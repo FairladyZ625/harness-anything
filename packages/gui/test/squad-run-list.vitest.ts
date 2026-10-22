@@ -13,7 +13,7 @@ const squadRunSummary = {
   ...squadObservationFixture,
   squadRunId: "squad_" + "a".repeat(18),
   squadId: "squad_465504" + "a".repeat(12),
-  taskId: "task_5fc508",
+  subject: { kind: "task", taskId: "task_5fc508", executionId: "execution-squad" },
   mission: "Ship the ontology work",
   phase: "converged" as const,
   leaderTurnCount: 6,

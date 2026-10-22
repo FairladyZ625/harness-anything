@@ -83,17 +83,27 @@ export function SquadRunDetail({
           <span className="shrink-0 font-mono ui-micro text-text-faint" title={run.squadRunId}>
             {run.squadRunId}
           </span>
-          <EntityRefLink
-            entityRef={`task/${run.taskId}`}
-            onNavigate={(ref) => onOpenTask(ref.slice("task/".length))}
-            title={run.taskId}
-            className={[
-              "shrink-0 rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted",
-              "hover:border-accent hover:text-accent",
-            ].join(" ")}
-          >
-            {t("agentRuntime.sessionsTaskDetail")} ↗
-          </EntityRefLink>
+          {run.subject.kind === "task" && (
+            <EntityRefLink
+              entityRef={`task/${run.subject.taskId}`}
+              onNavigate={(ref) => onOpenTask(ref.slice("task/".length))}
+              title={run.subject.taskId}
+              className={[
+                "shrink-0 rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted",
+                "hover:border-accent hover:text-accent",
+              ].join(" ")}
+            >
+              {t("agentRuntime.sessionsTaskDetail")} ↗
+            </EntityRefLink>
+          )}
+          {run.subject.kind === "schedule-occurrence" && (
+            <span
+              title={`${run.subject.scheduleId} / ${run.subject.occurrenceId}`}
+              className="shrink-0 rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted"
+            >
+              {t("agentRuntime.sessionsScheduleOccurrence")}
+            </span>
+          )}
         </span>
         <p data-testid="squad-run-detail-mission" className="ui-body text-text">
           {run.mission}

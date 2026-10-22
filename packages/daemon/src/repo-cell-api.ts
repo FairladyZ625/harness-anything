@@ -1,3 +1,4 @@
+import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -940,6 +941,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
+    scheduleOccurrenceSettlementOwner: async (dispatchId) =>
+      scheduleOccurrenceSettlementOwner(context.projection, dispatchId),
     hasBuiltinExecutor: async (claimFence) => builtinRuns.has(claimFence),
     run: runCommand,
     presetRun,
