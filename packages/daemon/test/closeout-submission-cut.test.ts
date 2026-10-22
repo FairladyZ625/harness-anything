@@ -1190,3 +1190,42 @@ test("an inferred re-derivation at this task's own merged tip keeps its first-pa
   assert.equal(unproven.commitSha, null);
   assert.deepEqual(unproven.deliverables, []);
 });
+
+// The amendment variant of the same gate: the frozen cut belongs to THIS execution, not an
+// earlier one. `ha task submit --amend` after the task's own PR merged re-derives at the merged
+// tip with no --commit (review F1 on the first cut of this fix).
+test("a same-execution amendment at its own merged tip keeps the manifest and its migration lane", (t) => {
+  const { root, base } = fixture(t),
+    worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, base);
+  put(worker, "packages/kernel/src/store/own-migration.ts", "export const ownMigration = 1;\n");
+  commit(worker);
+  const branchTip = git(worker, "rev-parse", "HEAD"),
+    frozenCut = derive(root, "Migrated the stored shape.", undefined, [], undefined, {
+      kind: "commit",
+      commitSha: base,
+    });
+  assert.equal(frozenCut.commitSha, branchTip);
+  git(root, "merge", "--no-ff", "-qm", "Merge pull request #1 from x/task-1", "task-1");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  git(root, "worktree", "remove", worker);
+  git(root, "branch", "-D", "task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
+  const packet = derive(
+    root,
+    "Amended after the merge.",
+    undefined,
+    [],
+    undefined,
+    { kind: "commit", commitSha: base },
+    undefined,
+    "repository-diff",
+    undefined,
+    frozenCut,
+  );
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["packages/kernel/src/store/own-migration.ts"]);
+  const lanes = reviewPathLanes(["data-migration packages/kernel/src/store/"]);
+  assert.equal(reviewLaneHits(packet, lanes).get("data-migration")?.length, 1);
+});

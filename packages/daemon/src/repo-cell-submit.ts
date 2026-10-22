@@ -170,8 +170,9 @@ export function deriveCloseoutSubmission(
     // The delivery commit is the default branch's own tip. A delivery lands there as a merge commit
     // (ordinary merge, never squash), and an artifact-only branch rebased onto an advanced main is
     // that very merge commit too — so its first-parent diff is the merged PR of whichever task wrote
-    // it. Such a commit belongs to this task only through its own record: a frozen cut naming it, or
-    // an earlier cut this merge introduced (the ownership test below) (task_96720a8e).
+    // it. Such a commit belongs to this task only through its own record: a frozen cut naming it,
+    // this execution's own included, or an earlier cut this merge introduced (the ownership test
+    // below) (task_96720a8e).
     publishedMerge =
       mergeBase.ok && mergeBase.stdout === commitSha
         ? git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^2`])
@@ -192,14 +193,15 @@ export function deriveCloseoutSubmission(
               git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok))
         : baseline === undefined && bound === commitSha;
   let deliverables: readonly string[], commitOutputs: readonly string[];
-  // An unchanged published HEAD is a delivery only when this task's earlier cut owns it.
-  // The execution baseline detects new work; task history, rather than that observation,
-  // distinguishes a restarted delivery from another task's baseline merge.
+  // An unchanged published HEAD is a delivery only when this task's record owns it: another
+  // execution's cut, or this execution's own frozen cut — an amendment re-derived at its merged
+  // tip froze that merge's second parent. The execution baseline detects new work; task history,
+  // rather than that observation, distinguishes a restarted delivery from another task's merge.
   const secondParent = unchanged ? publishedMerge : null,
     priorDelivery =
       unchanged &&
       snapshot.executions.some((prior) => {
-        const sha = prior.executionId !== executionId ? prior.submission?.commitSha : null;
+        const sha = prior.submission?.commitSha;
         // Only a commit the merge introduced — reachable from its second parent yet absent from
         // main before it — evidences an earlier delivery of this cut. Any older main commit is
         // also reachable from the merged branch and would adopt another PR's manifest.
