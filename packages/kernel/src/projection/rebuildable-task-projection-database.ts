@@ -113,6 +113,16 @@ export function closeTaskProjectionsUnder(rootDir: string): void {
   }
 }
 
+/**
+ * Callers that only inspect a projection (the generation-3 open preflight) must not leave a cached
+ * read-only handle behind: the projection module's own teardown assumes the readers it finds were
+ * opened by projection sessions, and a stale foreign handle keeps dead -shm/-wal state alive
+ * across cache replacement.
+ */
+export function closeQueryOnlyProjectionConnection(projectionPath: string): void {
+  closeProjectionHandlesAt(canonicalProjectionPath(projectionPath));
+}
+
 // Owners are keyed by readHead identity, so one projection file can be open under several owners
 // at once. Deleting it while any handle is still open is invisible on POSIX -- unlink detaches the
 // name and the open handles keep working -- and EPERM on Windows, so a discard has to close every

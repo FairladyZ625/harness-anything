@@ -4,6 +4,7 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import {
   assertLedgerIdentity,
+  closeQueryOnlyProjectionConnection,
   ProjectionEventStreamIncompleteError,
   ProjectionSchemaMismatchError,
   projectionSchemaVersion,
@@ -134,24 +135,30 @@ function assertGenerationThreeProjectionMatchesLedger(
     headRow === undefined
       ? null
       : { revision: ledgerRevision, eventDigest: String(headRow.digest) as `sha256:${string}` };
-  withQueryOnlyDatabaseSession(projectionPath, readHead, (projection) => {
-    const schemaVersion = projectionSchemaVersion(projection);
-    // No projection_meta: the cache never completed a scan, so it holds no accepted history.
-    if (schemaVersion === null) return;
-    if (schemaVersion > taskProjectionSchemaVersion)
-      throw new ProjectionSchemaMismatchError(schemaVersion, projectionPath);
-    if (schemaVersion === taskProjectionSchemaVersion) {
-      assertLedgerIdentity(projection, readHead());
-      return;
-    }
-    const coverage = readProjectionCoverage(projectionPath, readHead),
-      coverageRevision = Math.max(coverage.watermark, coverage.scannedRevision);
-    if (coverageRevision > ledgerRevision)
-      throw new ProjectionEventStreamIncompleteError(coverage.watermark, coverage.scannedRevision, ledgerRevision, {
-        from: ledgerRevision + 1,
-        to: coverageRevision,
-      });
-  });
+  try {
+    withQueryOnlyDatabaseSession(projectionPath, readHead, (projection) => {
+      const schemaVersion = projectionSchemaVersion(projection);
+      // No projection_meta: the cache never completed a scan, so it holds no accepted history.
+      if (schemaVersion === null) return;
+      if (schemaVersion > taskProjectionSchemaVersion)
+        throw new ProjectionSchemaMismatchError(schemaVersion, projectionPath);
+      if (schemaVersion === taskProjectionSchemaVersion) {
+        assertLedgerIdentity(projection, readHead());
+        return;
+      }
+      const coverage = readProjectionCoverage(projectionPath, readHead),
+        coverageRevision = Math.max(coverage.watermark, coverage.scannedRevision);
+      if (coverageRevision > ledgerRevision)
+        throw new ProjectionEventStreamIncompleteError(coverage.watermark, coverage.scannedRevision, ledgerRevision, {
+          from: ledgerRevision + 1,
+          to: coverageRevision,
+        });
+    });
+  } finally {
+    // A preflight inspect is not a projection session; drop the read-only handle like the previous
+    // hand-rolled reader did so attach leaves no extra connection on the cache behind.
+    closeQueryOnlyProjectionConnection(projectionPath);
+  }
 }
 
 /**
