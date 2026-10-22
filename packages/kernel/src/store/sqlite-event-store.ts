@@ -323,7 +323,10 @@ function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
         readOnly
           ? `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA foreign_keys=ON`
           : `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
-              "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
+              // A confirmed ledger write must also be represented by the named main file. A
+              // main-file-only copy is an unavoidable recovery boundary, so leave at most one
+              // WAL frame before SQLite attempts its automatic checkpoint.
+              "PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1; PRAGMA foreign_keys=ON",
       );
       return;
     } catch (error) {
