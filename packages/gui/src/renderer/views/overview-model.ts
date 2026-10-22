@@ -42,6 +42,7 @@ export const ATTENTION_META: Readonly<
   answered: { tone: "wait", rank: 7 },
   archive: { tone: "neutral", rank: 8 },
   "audit-finding": { tone: "wait", rank: 9 },
+  "unsubmitted-delivery": { tone: "bad", rank: 2 },
 };
 
 /** 注意力行接回源行:行上的动作(答复/裁决/跳转)需要源读面的完整行。 */

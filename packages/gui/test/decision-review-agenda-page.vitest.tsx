@@ -232,6 +232,36 @@ describe("议程页(标准 §2.4 列表页)", () => {
     ]);
   });
 
+  it("unsubmitted delivery is visible in attention and opens its task detail", () => {
+    const opened: string[] = [],
+      taskRef = "task/task_unsubmitted",
+      host = mount(
+        createElement(AgendaView, {
+          repoId: "repo",
+          agenda: agenda({
+            attentionItems: [
+              {
+                ref: taskRef,
+                title: "SSH transport",
+                kind: "unsubmitted-delivery",
+                region: "mine",
+                workTaskId: "task_unsubmitted",
+                attention: { score: 80, reasons: [{ label: "未提交交付", contribution: 80 }] },
+              },
+            ],
+          }),
+          agendaError: null,
+          onNavigateEntity: (ref) => opened.push(ref),
+        }),
+      );
+    expect(rowIds(host)).toEqual([taskRef]);
+    expect(host.querySelector('[data-testid="agenda-row-task/task_unsubmitted"]')?.textContent).toContain("未提交交付");
+    clickRow(host, taskRef);
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain("执行者退出时未提交");
+    click(host, "agenda-drawer-open");
+    expect(opened).toEqual([taskRef]);
+  });
+
   it("页头与筛选行统一摆法(标准 §2.3):裸页头一行,筛选靠左、搜索在右占满剩余", () => {
     const host = mount(
       createElement(AgendaView, {

@@ -34,6 +34,7 @@ import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
+import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts";
 
 export interface RuntimeProcess {
   readonly pid: number;
@@ -270,6 +271,8 @@ export interface RemoteRuntimePersistence {
      * re-dispatched worker answers; null on a first dispatch. Re-dispatched missions carry
      * it verbatim; the mirrored document stays the single storage of the instruction. */
     readonly ownerReturnBody: string | null;
+    /** Previous runtime conclusion and exit HEAD; current HEAD is measured after edge checkout. */
+    readonly continuationContext: RuntimeContinuationSeed | null;
     /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;

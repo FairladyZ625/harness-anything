@@ -32,6 +32,13 @@ interface AuditAttentionRow {
   readonly since: string;
 }
 
+interface UnsubmittedDeliveryAttentionRow {
+  readonly taskId: string;
+  readonly title: string;
+  readonly since: string;
+  readonly source?: AttentionSourceRow;
+}
+
 export function buildAttentionItems(input: {
   readonly now: string;
   readonly awaitingYou: readonly AgendaAwaitsRow[];
@@ -42,6 +49,7 @@ export function buildAttentionItems(input: {
   readonly waitingOnOthers: readonly AgendaTaskRow[];
   readonly stalled: readonly AgendaTaskRow[];
   readonly auditFindings: readonly AuditAttentionRow[];
+  readonly unsubmittedDeliveries: readonly UnsubmittedDeliveryAttentionRow[];
   readonly sourceRows: readonly AttentionSourceRow[];
 }): DaemonAgendaResult["attentionItems"] {
   const sources = new Map<string, AttentionSourceRow>(input.sourceRows.map((row) => [`task/${row.taskId}`, row])),
@@ -131,6 +139,16 @@ export function buildAttentionItems(input: {
           "low",
           row.pinned,
           row.work?.taskId ?? null,
+        ),
+      ),
+      ...input.unsubmittedDeliveries.map((row) =>
+        add(
+          `task/${row.taskId}`,
+          row.title,
+          "unsubmitted-delivery",
+          "mine",
+          row.since,
+          row.source ?? taskSource(row.taskId),
         ),
       ),
       ...input.auditFindings.map((row) => add(row.ref, row.title, "audit-finding", "mine", row.since, undefined)),

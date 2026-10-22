@@ -167,6 +167,7 @@ function agendaAttentionItem(value: unknown): boolean {
       "answered",
       "archive",
       "audit-finding",
+      "unsubmitted-delivery",
     ].includes(String(value.kind)) &&
     ["mine", "stuck"].includes(String(value.region)) &&
     (value.workTaskId === null || nonEmpty(value.workTaskId)) &&

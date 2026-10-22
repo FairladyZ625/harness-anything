@@ -7,7 +7,8 @@ export type AgendaAttentionKind =
   | "stalled"
   | "answered"
   | "archive"
-  | "audit-finding";
+  | "audit-finding"
+  | "unsubmitted-delivery";
 
 export type AgendaAttentionRegion = "mine" | "stuck";
 
@@ -32,6 +33,7 @@ const BASE = {
   answered: ["已答复待跟进", 30],
   archive: ["已结束可归档", 5],
   "audit-finding": ["审计发现", 85],
+  "unsubmitted-delivery": ["未提交交付", 80],
 } as const satisfies Record<AgendaAttentionKind, readonly [string, number]>;
 
 export function attentionScore(input: {

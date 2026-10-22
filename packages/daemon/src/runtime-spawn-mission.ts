@@ -17,6 +17,12 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
+import {
+  continuationContext,
+  continuationContextPrompt,
+  currentWorktreeHead,
+  latestRuntimeContinuationSeed,
+} from "./runtime-continuation-context.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -666,7 +672,7 @@ export function assembleScheduledMission(input: {
 /** The mission a dispatch carries: derived from the task package, or an explicit prompt wrapped in the
  * same task guidance. Remote dispatches read every input from the center's serving cut, local ones from
  * the projection. */
-export function resolveRuntimeMission(input: {
+export async function resolveRuntimeMission(input: {
   readonly rootDir: string;
   readonly cwd: string;
   readonly taskId: string | null;
@@ -676,10 +682,10 @@ export function resolveRuntimeMission(input: {
   readonly missionName: string | undefined;
   readonly explicitMission: string | undefined;
   readonly reviewerBinding: boolean;
-}): {
+}): Promise<{
   readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
   readonly mission: string;
-} {
+}> {
   const { rootDir, cwd, taskId, remoteTask, taskSnapshot, missionName, explicitMission } = input,
     projection = input.projection!,
     causalContext =
@@ -702,15 +708,28 @@ export function resolveRuntimeMission(input: {
         : remoteTask !== null
           ? remoteTask.ownerReturnBody
           : priorOwnerReturnBody(projection, taskId),
+    continuation =
+      taskId === null
+        ? null
+        : continuationContext(
+            remoteTask?.continuationContext ??
+              (projection
+                ? latestRuntimeContinuationSeed(
+                    projection,
+                    taskId,
+                    taskSnapshot?.executions.map(({ executionId }) => executionId) ?? [],
+                  )
+                : null),
+            await currentWorktreeHead(cwd),
+          ),
     taskMission = taskId
       ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext }, input.reviewerBinding)
       : null;
   // Every task-bound assembly path inlines the plan (derived missions through deriveTaskMission,
   // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
   const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
-  return {
-    taskMission,
-    mission:
+  const continuationSection = continuation === null ? null : continuationContextPrompt(continuation),
+    baseMission =
       explicitMission === undefined
         ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
         : explicitPromptMission(
@@ -723,5 +742,9 @@ export function resolveRuntimeMission(input: {
             input.reviewerBinding,
             planBody,
           ),
+    mission = continuationSection === null ? baseMission : `${baseMission}\n\n${continuationSection}`;
+  return {
+    taskMission: taskMission === null ? null : { ...taskMission, mission },
+    mission: mission,
   };
 }

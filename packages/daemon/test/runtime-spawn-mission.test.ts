@@ -1,18 +1,137 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
+import {
+  continuationContext,
+  continuationContextPrompt,
+  currentWorktreeHead,
+  latestRuntimeContinuationSeed,
+} from "../src/runtime-continuation-context.ts";
 import {
   assembleScheduledMission,
   assembleTaskMission,
   assembleUnboundPrompt,
   explicitPromptMission,
   livingDeliverableProtocol,
+  resolveRuntimeMission,
   taskPlanSection,
   taskPrPublicationNote,
   taskQueryGuidance,
 } from "../src/runtime-spawn-mission.ts";
 
 const daemonRoute = { userRoot: "/tmp/ha/user", daemonId: "default", endpoint: "/tmp/ha/user/daemon.sock" };
+
+test("continuation context compares the settled HEAD and includes only the bounded conclusion", () => {
+  const context = continuationContext(
+    {
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      lastConclusion: "Tests passed; change is ready for review.",
+      exitHead: "a".repeat(40),
+    },
+    "b".repeat(40),
+  );
+  assert.deepEqual(context, {
+    previousDispatchId: "dispatch_0123456789abcdef01234567",
+    lastConclusion: "Tests passed; change is ready for review.",
+    exitHead: "a".repeat(40),
+    currentHead: "b".repeat(40),
+    headStatus: "changed",
+  });
+  assert.match(continuationContextPrompt(context)!, /Last conclusion: Tests passed; change is ready for review\./u);
+  assert.match(continuationContextPrompt(context)!, /HEAD comparison: changed/u);
+  assert.doesNotMatch(continuationContextPrompt(context)!, /terminal result|full transcript/iu);
+});
+
+test("continuation seed selects the newest archived dispatch across task executions", () => {
+  const dispatch = (executionId: string, dispatchId: string, occurredAt: string) => ({
+      event: { payload: { taskId: "task_x", executionId, dispatchId }, occurredAt },
+    }),
+    rows = new Map([
+      ["execution_old", [dispatch("execution_old", "dispatch_0123456789abcdef01234567", "2026-10-20T00:00:00Z")]],
+      [
+        "execution_current",
+        [dispatch("execution_current", "dispatch_fedcba987654321001234567", "2026-10-22T00:00:00Z")],
+      ],
+    ]),
+    projection = {
+      read: () => ({ packagePath: "tasks/task_x" }),
+      readRuntimeDispatchesByTaskExecution: (_taskId: string, executionId: string) => rows.get(executionId) ?? [],
+      readDocument: (documentPath: string) => ({
+        document: {
+          body: JSON.stringify({
+            schema: "runtime-dispatch/v1",
+            lastConclusion: documentPath.includes("fedcba") ? "latest conclusion" : "old conclusion",
+            exitHead: documentPath.includes("fedcba") ? "new-head" : "old-head",
+          }),
+        },
+      }),
+    } as never;
+  assert.deepEqual(latestRuntimeContinuationSeed(projection, "task_x", ["execution_old", "execution_current"]), {
+    dispatchId: "dispatch_fedcba987654321001234567",
+    lastConclusion: "latest conclusion",
+    exitHead: "new-head",
+  });
+});
+
+test("a malformed latest dispatch archive surfaces its parse error instead of falling back to older context", () => {
+  const projection = {
+    read: () => ({ packagePath: "tasks/task_x" }),
+    readRuntimeDispatchesByTaskExecution: () => [
+      {
+        event: {
+          payload: { taskId: "task_x", executionId: "execution_x", dispatchId: "dispatch_0123456789abcdef01234567" },
+          occurredAt: "2026-10-22T00:00:00Z",
+        },
+      },
+    ],
+    readDocument: () => ({ document: { body: "{" } }),
+  } as never;
+  assert.throws(() => latestRuntimeContinuationSeed(projection, "task_x", ["execution_x"]), SyntaxError);
+});
+
+test("a Git worktree without a HEAD returns unavailable", async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "ha-runtime-continuation-no-head-"));
+  try {
+    assert.equal(await currentWorktreeHead(cwd), null);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("task mission includes the previous conclusion and compares it with current HEAD", async () => {
+  const resolved = await resolveRuntimeMission({
+    rootDir: process.cwd(),
+    cwd: process.cwd(),
+    taskId: "task_x",
+    projection: null,
+    remoteTask: {
+      packageRoot: "tasks/task_x",
+      mission: () => "Continue the task.",
+      continuationContext: {
+        dispatchId: "dispatch_0123456789abcdef01234567",
+        lastConclusion: "Focused tests passed.",
+        exitHead: "prior-head",
+      },
+      causalContext: null,
+      profileId: null,
+      taskClass: "standard",
+      planBody: null,
+      ownerReturnBody: null,
+    } as never,
+    taskSnapshot: null,
+    missionName: undefined,
+    explicitMission: undefined,
+    reviewerBinding: false,
+  });
+  assert.match(resolved.mission, /Last conclusion: Focused tests passed\./u);
+  assert.match(resolved.mission, /Exit worktree HEAD: prior-head/u);
+  assert.match(resolved.mission, /Current worktree HEAD: [a-f0-9]{40}/u);
+  assert.match(resolved.mission, /HEAD comparison: changed/u);
+  assert.doesNotMatch(resolved.mission, /full terminal result/iu);
+});
 
 test("task-bound explicit prompts carry the lookup guidance, living protocol and PR note", () => {
   const mission = explicitPromptMission("task_x", null, "Finish the leaf task.", "baseline"),

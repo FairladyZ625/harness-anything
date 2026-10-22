@@ -493,6 +493,7 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ blockingAssessment }) => blockingAssessment.state === "clear")
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
+      unsubmittedDeliveries = unsubmittedDeliveryAttentionRows(projection, active?.rows ?? []),
       stalled = (active?.rows ?? [])
         .filter(
           (row) =>
@@ -641,6 +642,7 @@ export function makeTaskQueryReadModel(input: {
         waitingOnOthers,
         stalled,
         auditFindings: reckoning.items,
+        unsubmittedDeliveries,
         sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
       }),
       regionWeights = attentionRegionWeights(attentionItems, {
@@ -1017,6 +1019,55 @@ function latestExecution(executions: readonly ProjectedExecution[]): ProjectedEx
   for (const execution of executions)
     if (latest === undefined || execution.iteration >= latest.iteration) latest = execution;
   return latest;
+}
+
+/** A stopped worker with no accepted submission is actionable even though the task remains active. */
+function unsubmittedDeliveryAttentionRows(
+  projection: TaskProjection,
+  rows: readonly AgendaSourceRow[],
+): readonly {
+  readonly taskId: string;
+  readonly title: string;
+  readonly since: string;
+  readonly source: AgendaSourceRow;
+}[] {
+  return rows.flatMap((row) => {
+    if (row.snapshot.lease !== null) return [];
+    const execution = latestExecution(row.snapshot.executions);
+    if (!execution || execution.submission !== null) return [];
+    const dispatches = [...projection.readRuntimeDispatchesByTaskExecution(row.taskId, execution.executionId)].sort(
+        (left, right) => left.event.occurredAt.localeCompare(right.event.occurredAt),
+      ),
+      latest = dispatches.at(-1);
+    if (
+      !latest ||
+      latest.outcome !== "stopped" ||
+      latest.event.payload.role === "reviewer" ||
+      latest.event.payload.squadId !== undefined ||
+      projection.readRuntimeDispatchByResumeSource(latest.event.payload.dispatchId)
+    )
+      return [];
+    const outcome = projection
+      .readRuntimeSessionEvents(latest.event.payload.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+      .findLast(
+        (event) => event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_outcome_observed",
+      );
+    if (
+      !outcome ||
+      outcome.type !== "runtime_session_outcome_observed" ||
+      outcome.payload.outcome !== "stopped" ||
+      outcome.payload.attempt?.classification !== "worker_stop"
+    )
+      return [];
+    return [
+      {
+        taskId: row.taskId,
+        title: row.snapshot.task?.title ?? row.taskId,
+        since: outcome.payload.endedAt ?? latest.event.occurredAt,
+        source: row,
+      },
+    ];
+  });
 }
 /** 一页 task 行 → 当前切面尚无 settled approved 评审的 submitted execution 行;待派审/评审中两组共用这一谓词。 */
 function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {

@@ -43,6 +43,33 @@ test("resume admission distinguishes resumable, missing-session, and already-res
   );
 });
 
+test("Codex and ACP runtime declarations admit resuming their provider session through the shared route", () => {
+  for (const kindId of ["codex", "codex-acp"] as const)
+    assert.deepEqual(
+      runtimeResumeAdmission({
+        dispatchId: "dispatch_0123456789abcdef01234567",
+        agentId: "sol",
+        kindId,
+        providerSessionId: "provider-session",
+        resumedDispatches: new Map(),
+      }),
+      { resumable: true, dispatchId: "dispatch_0123456789abcdef01234567", agentId: "sol" },
+    );
+});
+
+test("resume admission rejects runtimes that declare provider-session resume unsupported", () => {
+  assert.deepEqual(
+    runtimeResumeAdmission({
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      agentId: null,
+      kindId: "deepseek-harness",
+      providerSessionId: "provider-session",
+      resumedDispatches: new Map(),
+    }),
+    { resumable: false, reason: "runtime_kind_unsupported", kindId: "deepseek-harness" },
+  );
+});
+
 test("an archived resume source is rejected when the canonical projection records its prior resume", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-resume-archive-")),
     dispatchId = "dispatch_0123456789abcdef01234567",

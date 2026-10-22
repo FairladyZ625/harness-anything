@@ -19,7 +19,14 @@ import type { StatusTone } from "../components/primitives/StatusTag.tsx";
  * 从同一条 repo.agenda.read 切面推出全部分组行,两页 import 同一函数,行集与
  * 「需要关注 / 待跟进」桶计数结构性相等——两页数字不一致即缺陷。纯函数、不碰 React。
  */
-type AgendaGroup = DecisionReviewGroup | "answered" | "rework" | "adjudicate" | "taskReviewing" | "audit";
+type AgendaGroup =
+  | DecisionReviewGroup
+  | "answered"
+  | "rework"
+  | "adjudicate"
+  | "taskReviewing"
+  | "audit"
+  | "unsubmitted";
 
 /** 组的显示序 = 注意力序:等你动手的在前,已在别人手里的在后,已答复跟进垫底。 */
 const GROUP_ORDER: readonly AgendaGroup[] = [
@@ -32,6 +39,7 @@ const GROUP_ORDER: readonly AgendaGroup[] = [
   "taskReviewing",
   "answered",
   "audit",
+  "unsubmitted",
 ];
 
 const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
@@ -44,6 +52,7 @@ const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
   taskReviewing: "views.agenda.groupTaskReviewing",
   answered: "components.awaitsAnswer.answeredForYou",
   audit: "views.agenda.groupAudit",
+  unsubmitted: "views.agenda.groupUnsubmitted",
 };
 
 /** 组 → 状态色档(标准 §3:同一类别同一色;颜色通道只承载注意力类别)。 */
@@ -57,6 +66,7 @@ const GROUP_TONE: Readonly<Record<AgendaGroup, StatusTone>> = {
   taskReviewing: "wait",
   answered: "wait",
   audit: "wait",
+  unsubmitted: "bad",
 };
 
 /** 筛选桶:需要关注 = 下一步是「你」;待跟进 = 已出手、等别人回。 */
@@ -72,6 +82,7 @@ export const GROUP_BUCKET: Readonly<Record<AgendaGroup, AgendaFilter>> = {
   taskReviewing: "follow",
   answered: "follow",
   audit: "follow",
+  unsubmitted: "attn",
 };
 
 /** 议程的一行:组、标题、原因、等待时长,加上落点(完整详情 ref)与答复源行。 */
@@ -136,15 +147,15 @@ export function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
       target: decisionAgendaRowRef(decision),
     })),
     ...(agenda.attentionItems ?? [])
-      .filter((item) => item.kind === "audit-finding")
+      .filter((item) => item.kind === "audit-finding" || item.kind === "unsubmitted-delivery")
       .map((item) => ({
         id: item.ref,
         title: item.title,
-        hint: t("views.agenda.hintAuditFinding"),
-        group: "audit" as const,
+        hint: t(item.kind === "audit-finding" ? "views.agenda.hintAuditFinding" : "views.agenda.hintUnsubmitted"),
+        group: item.kind === "audit-finding" ? ("audit" as const) : ("unsubmitted" as const),
         since: null,
         scoreRef: item.ref,
-        target: null,
+        target: item.kind === "unsubmitted-delivery" ? item.ref : null,
       })),
   ];
 }
