@@ -228,40 +228,43 @@ it("persists the docked layout through remount and isolates connection, reposito
   expect(layoutTree()).toEqual(["progress", "files", "plan"]);
 });
 
-it("persists a sash resize and restores it after remount (switching away and back keeps the size)", async () => {
-  injectGeometry([["plan", "progress"], ["files"]], 1000, 600);
-  render();
-  await settle();
-  const before = leafSizes();
-  expect(before).toEqual({});
-  // 拖分隔条:pointerdown 在 sash 上,pointermove/up 由 dockview 挂在 document 上。
-  const sash = host.querySelector<HTMLElement>(".dv-sash")!;
-  expect(sash).not.toBeNull();
-  await act(async () => {
-    sash.dispatchEvent(
-      new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: 500, clientY: 300 }),
-    );
-    document.dispatchEvent(
-      new PointerEvent("pointermove", { bubbles: true, cancelable: true, clientX: 560, clientY: 300 }),
-    );
-    document.dispatchEvent(
-      new PointerEvent("pointerup", { bubbles: true, cancelable: true, clientX: 560, clientY: 300 }),
-    );
-    // 落盘挂在 onDidLayoutChange(AsapEvent,微任务)→ 让一层宏任务把它冲出来。
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  // 尺寸真的变了,而且变了就落盘(用户改动 = touched,不是默认布局)。
-  const resized = leafSizes();
-  expect(Object.keys(resized).sort()).toEqual(["files", "plan", "progress"]);
-  expect(resized).not.toEqual(before);
-  const persisted = resized;
-  // 切走再回来(卸载重挂同一连接+仓+页面槽):尺寸从偏好恢复,不回默认布局。
-  act(() => root.unmount());
-  root = createRoot(host);
-  render();
-  await settle();
-  expect(leafSizes()).toEqual(persisted);
-});
+// 总览槽(OverviewView 的 slot="overview")与 task 页槽共用同一个 PageRegions:两处都要
+// 保证「拖过的尺寸切 tab 回来还在」。总览槽独立条目,防止将来按槽特判时只测到一处。
+it.each(["page", "overview"] as const)(
+  "persists a sash drag in the %s slot and restores the size after remount (a tab switch keeps it)",
+  async (slot) => {
+    injectGeometry([["plan", "progress"], ["files"]], 1000, 600);
+    render({}, "local", "repo", slot);
+    await settle();
+    // 未动过的默认布局不落盘。
+    expect(leafSizes(slot)).toEqual({});
+    // 拖分隔条:pointerdown 落在 dockview 的 .dv-sash 上,pointermove/up 由 dockview 挂在 document 上。
+    const sash = host.querySelector<HTMLElement>(".dv-sash");
+    expect(sash).not.toBeNull();
+    await act(async () => {
+      sash!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: 500, clientY: 300 }),
+      );
+      document.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, cancelable: true, clientX: 560, clientY: 300 }),
+      );
+      document.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, cancelable: true, clientX: 560, clientY: 300 }),
+      );
+      // 落盘挂在 onDidLayoutChange(AsapEvent)上,让一层宏任务把它冲出来。
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // 手势即用户改动:尺寸变了就落盘(touched 不依赖停靠/调缝 API)。
+    const resized = leafSizes(slot);
+    expect(Object.keys(resized).sort()).toEqual(["files", "plan", "progress"]);
+    // 切走再回来(同一连接+仓+页面槽卸载重挂):尺寸从偏好恢复,不回默认布局。
+    act(() => root.unmount());
+    root = createRoot(host);
+    render({}, "local", "repo", slot);
+    await settle();
+    expect(leafSizes(slot)).toEqual(resized);
+  },
+);
 
 it("reconciles region sets without rebuilding the untouched layout", async () => {
   const withFiles = regions.filter((item) => item.id !== "files");
@@ -368,9 +371,9 @@ function injectGeometry(testColumns: readonly (readonly string[])[], hostWidth =
   });
   return boxes;
 }
-/** 持久化快照里每个叶子沿父分支方向的尺寸。 */
-function leafSizes(): Record<string, number> {
-  const root = (readSplitPreferences(localStorage, "local", "repo").page?.snapshot as { grid?: { root?: unknown } })
+/** 持久化快照里每个叶子沿父分支方向的尺寸(默认读 task 页槽;总览槽也走同一 store)。 */
+function leafSizes(slot: "page" | "overview" = "page"): Record<string, number> {
+  const root = (readSplitPreferences(localStorage, "local", "repo")[slot]?.snapshot as { grid?: { root?: unknown } })
     ?.grid?.root;
   const sizes: Record<string, number> = {};
   const walk = (node: unknown): void => {

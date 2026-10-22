@@ -2,30 +2,38 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  agentLanesOf,
+  awaitsByTask,
+  decisionRows,
+  pinnedTaskRows,
+  runRows,
+  runningTaskRows,
+  watchedWorks,
+  workRows,
+} from "../src/renderer/views/overview-model.ts";
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
-import type { TaskWipRead } from "../../src/api/renderer-dto.ts";
 import {
   AT,
   HEALTH_DOWN,
+  WORKS,
   WORKS_EMPTY,
   agenda,
   setupOverviewBoardEnvironment,
   mountOverview as mount,
-  historyOf,
   textOf,
   flushUntil,
   unmountOverview as unmount,
 } from "./overview-board.fixtures.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
- * 总览(2026-10-04 注意力优先重构;2026-10-11 业主意见返工;2026-10-20 W2-T1 接入
- * Orca 五级序数与 Agent 泳道)的行为面:首块只列真实待人事项(Needs you 绝对顶置、
- * 橙色提问档),主区关注的工作里名下有 Needs you 的工作置顶;「执行与下钻」的
- * 「进行中的任务」tab 由 AgentLanes 泳道替换旧静态平铺名单(块内挂待拍板动作与
- * Prompt Cache 倒计时),旧 drillWipRows 派生已删除。左列最新产物速览架与产物二级页
- * (task_8a83698;2026-10-11 意见 1)的行为面在 overview-artifacts.vitest.tsx;共享
- * 挂载夹具在 overview-board.fixtures.ts。
+ * 总览(2026-10-21 四块定案:任务列表为主,泳道移出总览)的行为面:左上「在跑的任务」
+ * 窄行名单(标题、谁在跑、跑了多久、现在哪一步;卡点行的问句进悬停与答复动作),右上
+ * 「置顶与议程」把 pin 拿回总览,左下「关注的工作」只留标题、进度、负责人,右下
+ * 「等你处理的事」取待办签发前几条(Needs you 绝对顶置、橙色提问档)。置顶区的行为面
+ * 在 overview-pinned.vitest.tsx;共享挂载夹具在 overview-board.fixtures.ts。
  */
 
 beforeAll(() => {
@@ -34,7 +42,7 @@ beforeAll(() => {
 
 const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 
-describe("总览:顶部「需要你处理」紧凑决策带", () => {
+describe("总览:右下「等你处理的事」", () => {
   it("只列真实待人事项,并区分出不冒充需要用户的四类", () => {
     const read = agenda({
       answeredForYou: [
@@ -85,14 +93,14 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
       ],
     });
     const container = mount({ agenda: read });
-    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
-    expect(textOf(decisions)).toContain("边缘 RBAC 设计裁决");
-    expect(textOf(decisions)).toContain("是否冻结旧投影字段");
-    // 四类不进决策带:待初审是 owning CEO 的机器双闸,待跟进/返工/阻塞同样不冒充需要用户。
-    expect(textOf(decisions)).not.toContain("总览重构的提交");
-    expect(textOf(decisions)).not.toContain("已答复的跟进项");
-    expect(textOf(decisions)).not.toContain("返工中的任务");
-    expect(textOf(decisions)).not.toContain("被阻塞的成员任务");
+    const awaits = container.querySelector('[data-testid="overview-region-awaits"]')!;
+    expect(textOf(awaits)).toContain("边缘 RBAC 设计裁决");
+    expect(textOf(awaits)).toContain("是否冻结旧投影字段");
+    // 四类不进待办签发:待初审是 owning CEO 的机器双闸,待跟进/返工/阻塞同样不冒充需要用户。
+    expect(textOf(awaits)).not.toContain("总览重构的提交");
+    expect(textOf(awaits)).not.toContain("已答复的跟进项");
+    expect(textOf(awaits)).not.toContain("返工中的任务");
+    expect(textOf(awaits)).not.toContain("被阻塞的成员任务");
     unmount();
   });
 
@@ -117,35 +125,35 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
       ],
     });
     const container = mount({ agenda: read });
-    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
-    const rows = [...decisions.querySelectorAll("[data-decision]")];
-    expect(rows[0]!.getAttribute("data-decision")).toBe("relation/rel_1");
-    expect(rows[1]!.getAttribute("data-decision")).toBe("decision/dec_hot");
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!;
+    const rows = [...awaits.querySelectorAll("[data-awaits-row]")];
+    expect(rows[0]!.getAttribute("data-awaits-row")).toBe("relation/rel_1");
+    expect(rows[1]!.getAttribute("data-awaits-row")).toBe("decision/dec_hot");
     // awaiting-you 行用 agent-question 橙 tone(严格区别于 wait 琥珀);decision 保持 wait。
     expect(rows[0]!.querySelector('[data-status-tone="agent-question"]')).not.toBeNull();
     expect(rows[1]!.querySelector('[data-status-tone="wait"]')).not.toBeNull();
-    expect(textOf(decisions)).toContain("需要你");
+    expect(textOf(awaits)).toContain("需要你");
     unmount();
   });
 
   it("每条说明问题、受影响工作与推荐(未提供不造假)", () => {
     const container = mount();
-    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!;
     // 问题:awaits 的问句原话。
-    expect(textOf(decisions)).toContain("接口要不要兼容旧字段?");
+    expect(textOf(awaits)).toContain("接口要不要兼容旧字段?");
     // 受影响工作:工作索引的标题。
-    expect(textOf(decisions)).toContain("代码质量长期检验");
+    expect(textOf(awaits)).toContain("代码质量长期检验");
     // 决策行如实写「未归属工作」;两类各带一条「推荐:未提供」。
-    expect(textOf(decisions)).toContain("未归属工作");
-    expect(textOf(decisions).split("推荐:未提供").length - 1).toBe(2);
+    expect(textOf(awaits)).toContain("未归属工作");
+    expect(textOf(awaits).split("推荐:未提供").length - 1).toBe(2);
     unmount();
   });
 
-  it("动作接真实落点:答复开面板,裁决走实体导航,待初审在跟进入口给收口落点", () => {
+  it("动作接真实落点:答复开面板,裁决走实体导航", () => {
     const onNavigateEntity = vi.fn();
     const container = mount({ onNavigateEntity });
-    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
-    const answer = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "答复");
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!;
+    const answer = [...awaits.querySelectorAll("button")].find((button) => textOf(button) === "答复");
     expect(answer).toBeDefined();
     act(() => answer!.click());
     expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
@@ -153,21 +161,9 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
     expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
-    const adjudicate = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "去裁决");
+    const adjudicate = [...awaits.querySelectorAll("button")].find((button) => textOf(button) === "去裁决");
     act(() => adjudicate!.click());
     expect(onNavigateEntity).toHaveBeenCalledWith("decision/dec_1");
-    // 待初审(execution)住「跟进与返工」:切 tab 后名单首行即它,点行进放大层给「打开收口」。
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
-    act(() =>
-      (container.querySelector('[data-drill-row="execution/exec_1"]')!.querySelector("button") as HTMLElement).click(),
-    );
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    expect(textOf(dialog)).toContain("总览重构的提交");
-    expect(textOf(dialog)).toContain("待初审");
-    const closeout = [...dialog.querySelectorAll("button")].find((button) => textOf(button) === "打开收口");
-    act(() => closeout!.click());
-    expect(onNavigateEntity).toHaveBeenCalledWith("taskreview/task_m1");
     unmount();
   });
 
@@ -194,20 +190,22 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
       ],
     });
     const container = mount({ agenda: read });
-    const band = container.querySelector('[data-testid="overview-decisions-band"]')!;
-    expect(band.querySelectorAll("[data-decision]")).toHaveLength(3);
-    expect(band.querySelector('[data-testid="overview-decisions-expand"]')).not.toBeNull();
-    expect(textOf(band)).toContain("还有 3 项");
-    act(() => (band.querySelector('[data-testid="overview-decisions-expand"]') as HTMLButtonElement).click());
-    expect(band.querySelectorAll("[data-decision]")).toHaveLength(6);
-    expect(textOf(band)).toContain("追加决策 3");
-    act(() => (band.querySelector('[data-testid="overview-decisions-collapse"]') as HTMLButtonElement).click());
-    expect(band.querySelectorAll("[data-decision]")).toHaveLength(3);
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!;
+    expect(awaits.querySelectorAll("[data-awaits-row]")).toHaveLength(3);
+    expect(awaits.querySelector('[data-testid="overview-awaits-expand"]')).not.toBeNull();
+    expect(textOf(awaits)).toContain("还有 3 项");
+    act(() => (awaits.querySelector('[data-testid="overview-awaits-expand"]') as HTMLButtonElement).click());
+    expect(awaits.querySelectorAll("[data-awaits-row]")).toHaveLength(6);
+    expect(textOf(awaits)).toContain("追加决策 3");
+    act(() => (awaits.querySelector('[data-testid="overview-awaits-collapse"]') as HTMLButtonElement).click());
+    expect(awaits.querySelectorAll("[data-awaits-row]")).toHaveLength(3);
     unmount();
   });
 
-  it("空态是正向信息:没有等你处理的事项", () => {
+  it("空态是正向信息,并如实指回去处(不与侧栏待办签发角标矛盾)", () => {
+    const onOpenPool = vi.fn();
     const container = mount({
+      onOpenPool,
       agenda: agenda({
         attentionItems: [
           {
@@ -224,15 +222,114 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
         awaitingDecision: [],
       }),
     });
-    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
-    expect(textOf(decisions)).toContain("没有等你处理的事项");
-    expect(textOf(decisions)).not.toContain("边缘 RBAC");
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!;
+    expect(textOf(awaits)).toContain("没有等你拍板的事项");
+    expect(textOf(awaits)).not.toContain("边缘 RBAC");
+    // 本块只列要本人动手的;「决策待裁」域里的其余 proposed(评审中等)在总池,给条数与入口。
+    expect(textOf(awaits)).toContain("待办签发共 2 项决策待裁");
+    const pool = awaits.querySelector<HTMLButtonElement>('[data-testid="overview-awaits-inbox-open"]')!;
+    act(() => pool.click());
+    expect(onOpenPool).toHaveBeenCalledTimes(1);
     unmount();
   });
 });
 
-describe("总览:主区「关注的工作」", () => {
-  it("置顶的非终态工作保留在前,其余近期工作随后;已收尾的置顶工作只计数", () => {
+describe("总览:右下「等你处理的事」含任务侧人签", () => {
+  /** 带冻结契约的 submitted execution(与待办签发总池同一形状,判据在 model/attestation-pool.ts)。 */
+  const submittedExecution = (taskId: string, gateId: string) => ({
+    schema: "execution/v1",
+    executionId: `execution-${taskId}`,
+    taskId,
+    nodeId: "implementation",
+    iteration: 0,
+    state: "submitted",
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    claimedAt: AT,
+    submittedAt: AT,
+    closedAt: null,
+    submission: {
+      completionClaim: "done",
+      deliverables: ["report"],
+      outputs: ["artifacts/report.md"],
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: "a".repeat(40),
+      completionContract: {
+        gates: [
+          {
+            gateId,
+            appliesTo: "submission",
+            witness: { adapterId: "manual-attest", adapterOptions: {} },
+          },
+        ],
+      },
+    },
+  });
+
+  const signoffTask = (overrides: Record<string, unknown>) =>
+    ({
+      title: "待签发任务",
+      projectId: "probe-repo",
+      coordinationStatus: "in_review",
+      rawStatus: "in_review/review",
+      freshness: "fresh",
+      packageDisposition: "active",
+      closeoutReadiness: "incomplete",
+      engine: "kernel/task-lifecycle/v1",
+      origin: "native",
+      source: "local-document",
+      lastKnownAt: AT,
+      gates: [],
+      board: projectedTaskFields("in_review").board,
+      visibility: projectedTaskFields("in_review").visibility,
+      capabilities: projectedTaskFields("in_review").capabilities,
+      risk: projectedTaskFields("in_review").risk,
+      phase: projectedTaskFields("in_review").phase,
+      docs: [],
+      ...overrides,
+    }) as never;
+
+  it("人签行与决策行并列;空态只在两类都为空时出现(不再与侧栏待办签发矛盾)", () => {
+    const gateTask = signoffTask({
+      taskId: "task_gate",
+      title: "待签门的任务",
+      iteration: 0,
+      gates: [{ name: "ux-signoff", ok: null, status: "missing", detail: "no witness" }],
+      executions: [submittedExecution("task_gate", "ux-signoff")],
+    });
+    const consentTask = signoffTask({ taskId: "task_consent", title: "待同意收口的任务", closeoutBlocker: "consent" });
+    const onOpenTask = vi.fn();
+    const onOpenSignoffs = vi.fn();
+    const container = mount({
+      tasks: [gateTask, consentTask],
+      // 决策侧为空:只有人签时不再显示「没有等你处理的事项」。
+      agenda: agenda({ attentionItems: [], awaitingYou: [], awaitingDecision: [], awaitingAdjudication: [] }),
+      onOpenTask,
+      onOpenSignoffs,
+    });
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!;
+    expect(textOf(awaits)).not.toContain("没有等你处理的事项");
+    // 区域头标签数的是块里列出的两类(决策 + 人签),与块内行数一致。
+    expect(textOf(container.querySelector('[data-testid="overview-region-awaits"]'))).toContain("待你拍板 2 项");
+    expect(textOf(awaits)).toContain("待签门的任务");
+    expect(textOf(awaits)).toContain("待我签");
+    expect(textOf(awaits)).toContain("ux-signoff");
+    expect(textOf(awaits)).toContain("待同意收口的任务");
+    expect(textOf(awaits)).toContain("待同意");
+    // 门签落任务详情(签发表单在那里),收口同意落待办签发总池。
+    const gateRow = container.querySelector('[data-signoff-row="task_gate:ux-signoff"]')!;
+    act(() => (gateRow.querySelector("button") as HTMLButtonElement).click());
+    expect(onOpenTask).toHaveBeenCalledWith("task_gate");
+    const consentRow = container.querySelector('[data-signoff-row="task_consent:consent"]')!;
+    act(() => (consentRow.querySelector("button") as HTMLButtonElement).click());
+    expect(onOpenSignoffs).toHaveBeenCalledWith("task_consent");
+    unmount();
+  });
+});
+
+describe("总览:左下「关注的工作」", () => {
+  it("置顶的工作保留在前(含已收尾的),其余近期工作随后", () => {
     const container = mount({
       agenda: agenda({
         pinnedEntities: [
@@ -242,12 +339,14 @@ describe("总览:主区「关注的工作」", () => {
       }),
     });
     const works = container.querySelector('[data-testid="overview-region-works"]')!;
-    expect(textOf(works)).toContain("置顶 1 项");
+    // 块头「置顶 N 项」数的是本块列出的置顶工作行,含已收尾的那一项。
+    expect(textOf(works)).toContain("置顶 2 项 · 3");
     expect(textOf(works)).toContain("代码质量长期检验");
-    expect(textOf(works)).toContain("1 项置顶工作已收尾");
-    // 置顶在前,近期有活动的工作随后(意见 4 的默认口径),已收尾的不进列表。
+    // 已收尾的置顶工作仍列名可见(业主 2026-10-21:不管 pin 什么,总览上都要能看到),
+    // 只是排在非终态置顶与其后的近期工作之后。
+    expect(textOf(works)).toContain("已收尾的工作");
     const cards = [...works.querySelectorAll("[data-work-card]")].map((card) => card.getAttribute("data-work-card"));
-    expect(cards).toEqual(["task_w1", "task_w2"]);
+    expect(cards).toEqual(["task_w1", "task_w2", "task_w_done"]);
     unmount();
   });
 
@@ -267,7 +366,9 @@ describe("总览:主区「关注的工作」", () => {
     unmount();
   });
 
-  it("工作行压缩为一到两行:进度/进行中/处理者/等你处理有值才进第二行", async () => {
+  it("工作行只留标题、进度与负责人;模型名用短标签,不出现候选元组", async () => {
+    // 会话型运行时把候选清单写进 model(JSON 数组文本):短标签只给第一个候选加 +N,
+    // 元组字符串不进正文(2026-10-21 CEO 截图补充:处理者显示成元组字符串是缺陷)。
     vi.stubGlobal("harness", {
       request: (method: string) =>
         method === "getAgentRuntimeOverview"
@@ -281,7 +382,7 @@ describe("总览:主区「关注的工作」", () => {
                   runtimeSessionId: "rs_1",
                   kindId: "codex",
                   liveness: "live",
-                  definitionSnapshot: { model: "glm-5.3" },
+                  definitionSnapshot: { model: '["deepseek-official","Deepseek-V4.1-Flash"]' },
                   associations: [{ taskId: "task_m1" }],
                   activity: { lastObservedAt: AT },
                 },
@@ -294,26 +395,24 @@ describe("总览:主区「关注的工作」", () => {
     const onOpenTask = vi.fn();
     const container = mount({ onOpenTask });
     await flushUntil(
-      () => container.querySelector("[data-work-card='task_w1']")?.textContent?.includes("codex") === true,
+      () => container.querySelector("[data-work-card='task_w1']")?.textContent?.includes("deepseek") === true,
     );
     const card = container.querySelector("[data-work-card='task_w1']")!;
     const text = textOf(card);
-    // 第二行是行内信息面(2026-10-11 意见 4;视觉规范 v2 改图形化):进度退成 SegBar
-    // 分段条 + 紧凑 done/total 计数,随后是进行中子任务数、执行者、等你处理数;
-    // 完整子任务/未完成/最近明细悬停给。
+    // 第二行(2026-10-21 定案只留标题、进度、负责人):SegBar 分段条 + 紧凑 done/total
+    // 计数、进行中子任务数、执行者;等你处理/跟进计数不挤工作行(右下块已覆盖)。
     expect([...card.querySelectorAll("[data-segment]")].map((node) => node.getAttribute("data-segment"))).toEqual([
       "done",
       "active",
     ]);
     expect(text).toContain("2/3");
     expect(text).toContain("进行中 1");
-    expect(text).toContain("等你处理 1");
-    expect(text).toContain("跟进 1");
+    expect(text).toContain("deepseek-official +1");
+    expect(text).not.toContain('["deepseek-official","Deepseek-V4.1-Flash"]');
+    expect(text).not.toContain("等你处理");
     const hover = card.querySelector("[data-dense-row]")!.getAttribute("title")!;
     expect(hover).toContain("子任务完成 2/3");
     expect(hover).toContain("未完成 1");
-    // 处理者来自 runtime overview 的 live 会话(who = kind · model)。
-    expect(text).toContain("codex · glm-5.3");
     // 行尾时间给最近活动的相对年龄(活动窗口的口径本体)。
     expect(text).toMatch(/分钟前|小时前|刚刚|天/u);
     // 点行进工作详情,不再需要行内「打开工作」按钮。
@@ -322,51 +421,6 @@ describe("总览:主区「关注的工作」", () => {
     unmount();
     // 还原默认桥:后续用例的 runtime 读面回到确定性失败。
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
-  });
-
-  it("工作卡橙色计数只算 needs-you:返工与裁决等跟进项保持中性色", () => {
-    const read = agenda({
-      attentionItems: [
-        {
-          ref: "relation/rel_1",
-          title: "待答复提问",
-          kind: "awaiting-you",
-          region: "mine",
-          workTaskId: "task_w1",
-          attention: { score: 100, reasons: [] },
-        },
-        {
-          ref: "execution/exec_1",
-          title: "待裁决提交",
-          kind: "adjudication",
-          region: "mine",
-          workTaskId: "task_w1",
-          attention: { score: 80, reasons: [] },
-        },
-        {
-          ref: "task/task_rew",
-          title: "待返工任务",
-          kind: "rework",
-          region: "mine",
-          workTaskId: "task_w1",
-          attention: { score: 70, reasons: [] },
-        },
-      ],
-    });
-    const container = mount({ agenda: read });
-    try {
-      const card = container.querySelector("[data-work-card='task_w1']")!;
-      const text = textOf(card);
-      // 橙色「等你处理」只算 awaiting-you 与 decision,计 1
-      expect(text).toContain("等你处理 1");
-      const mineSpan = card.querySelector("span[style*='--color-agent-question']")!;
-      expect(mineSpan).not.toBeNull();
-      expect(textOf(mineSpan)).toBe("等你处理 1");
-      // 其余项(裁决 + 返工)保持中性色,计 2
-      expect(text).toContain("跟进 2");
-    } finally {
-      unmount();
-    }
   });
 
   it("在跑而无会话的工作行安静待命;消极提示文本不再出现", () => {
@@ -456,41 +510,8 @@ describe("总览:主区「关注的工作」", () => {
   });
 });
 
-describe("总览:执行与下钻(tab + 内联名单)", () => {
-  type WipEntry = TaskWipRead["counted"][number];
-
-  function wipSnapshot(counted: readonly WipEntry[], limit = 30): TaskWipRead {
-    return {
-      ok: true,
-      limit,
-      limitLabel: "settings.tasks.wipLimit",
-      counted: [...counted],
-      roots: [
-        { taskId: "task_root_declared", reason: "declared", directChildCount: 5, threshold: 3 },
-        { taskId: "task_root_derived", reason: "derived", directChildCount: 4, threshold: 3 },
-      ],
-      threshold: 3,
-    };
-  }
-
-  /** 只给点名桥方法注入 fixture(可读 payload),其余保持确定性失败;返回还原函数。 */
-  function stubBridge(handlers: Record<string, (payload?: unknown) => unknown>): () => void {
-    const previous = (globalThis as { harness?: unknown }).harness;
-    vi.stubGlobal("harness", {
-      request: (method: string, payload: unknown) =>
-        method in handlers
-          ? Promise.resolve(handlers[method]!(payload))
-          : Promise.reject(new Error("no bridge in test")),
-    });
-    return () => vi.stubGlobal("harness", previous);
-  }
-
-  const drillRows = (container: HTMLElement) =>
-    [...container.querySelectorAll('[data-testid="overview-drill-list"] [data-drill-row]')].map(
-      (row) => row.getAttribute("data-drill-row")!,
-    );
-
-  /** 泳道三段读面的桥 stub:sessionGroups(agent 分组) + 活跃 agent 成员派工页 + 运行会话事件流。 */
+describe("总览:左上「在跑的任务」(窄行名单,泳道数据同源)", () => {
+  /** 泳道三段读面的桥 stub:sessionGroups(agent 分组) + 活跃 agent 成员派工页。 */
   const agentGroup = (patch: Partial<AgentRuntimeSessionGroupDto>): AgentRuntimeSessionGroupDto => ({
     key: "agent:glm",
     kind: "agent",
@@ -505,8 +526,8 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     ...patch,
   });
 
-  /** 总览的「现在」取渲染时刻的墙钟;泳道 6h 窗口内的块必须用近期时间构造,
-   *  否则真实的窗口过滤会把它们当历史轮次丢掉(这本身就是要验证的行为)。 */
+  /** 总览的「现在」取渲染时刻的墙钟;6h 窗口内的块必须用近期时间构造,否则真实的
+   *  窗口过滤会把它们当历史轮次丢掉(这本身就是要验证的行为)。 */
   const LANES_RECENT = new Date(Date.now() - 5 * 60_000).toISOString();
 
   const dispatchRow = (patch: Partial<TaskDispatchProjectionRow>): TaskDispatchProjectionRow => ({
@@ -534,104 +555,80 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
   function stubLanesBridge(input: {
     readonly groups?: readonly AgentRuntimeSessionGroupDto[];
     readonly members?: Readonly<Record<string, readonly TaskDispatchProjectionRow[]>>;
-    readonly eventsBySession?: Readonly<Record<string, readonly string[]>>;
   }): () => void {
-    // 桥 stub 收到的是 wireParams:带 payload facet 的方法包一层 { payload: params }。
+    const previous = (globalThis as { harness?: unknown }).harness;
     const paramsOf = (payload: unknown): Record<string, unknown> => {
       const wire = payload as { readonly payload?: Record<string, unknown> };
       return wire?.payload ?? (payload as Record<string, unknown>);
     };
-    const handlers: Record<string, (payload?: unknown) => unknown> = {
-      getTaskWip: () => wipSnapshot([]),
-      // sessionGroups 走 use-case projection 信封(bridge 方法名 readUseCaseProjection)。
-      readUseCaseProjection: (payload) => {
-        const params = paramsOf(payload);
-        if (params.name !== "runtime-session-groups") throw new Error(`unexpected projection: ${String(params.name)}`);
-        return {
-          ok: true,
-          schema: "daemon.use-case-projection/v1",
-          name: "runtime-session-groups",
-          projection: {
+    vi.stubGlobal("harness", {
+      request: (method: string, payload: unknown) => {
+        if (method === "readUseCaseProjection") {
+          const params = paramsOf(payload);
+          if (params.name !== "runtime-session-groups")
+            return Promise.reject(new Error(`unexpected projection: ${String(params.name)}`));
+          return Promise.resolve({
+            ok: true,
+            schema: "daemon.use-case-projection/v1",
+            name: "runtime-session-groups",
+            projection: {
+              ok: true,
+              status: "ready",
+              groups: input.groups ?? [],
+              sessionAgents: [],
+              totals: { groups: (input.groups ?? []).length, sessions: 0 },
+              truncated: false,
+              watermark: 1,
+              sourceRevision: 1,
+            },
+          });
+        }
+        if (method === "getTaskDispatches") {
+          const params = paramsOf(payload);
+          const agentId = String(params.agentId ?? "");
+          const rows = input.members?.[agentId];
+          if (rows === undefined) return Promise.reject(new Error(`unexpected member page: ${agentId}`));
+          return Promise.resolve({
             ok: true,
             status: "ready",
-            groups: input.groups ?? [],
-            sessionAgents: [],
-            totals: { groups: (input.groups ?? []).length, sessions: 0 },
+            // 成员页结果必须回显 agentId(单/批/成员三态的判别式,缺它读面按无效结果拒绝)。
+            agentId,
+            dispatches: rows,
+            outcome: "unknown",
+            exitCode: 0,
+            taskLabels: [...new Set(rows.map(({ taskId }) => taskId))].map((taskId) => ({
+              taskId,
+              title: `任务 ${taskId}`,
+            })),
+            groups: [],
+            totals: { groups: 1, sessions: rows.length },
             truncated: false,
             watermark: 1,
             sourceRevision: 1,
-          },
-        };
+          });
+        }
+        return Promise.reject(new Error("no bridge in test"));
       },
-      getTaskDispatches: (payload) => {
-        const params = paramsOf(payload);
-        const agentId = String(params.agentId ?? "");
-        const rows = input.members?.[agentId];
-        if (rows === undefined) throw new Error(`unexpected member page: ${agentId}`);
-        return {
-          ok: true,
-          status: "ready",
-          // 成员页结果必须回显 agentId(单/批/成员三态的判别式,缺它读面按无效结果拒绝)。
-          agentId,
-          dispatches: rows,
-          outcome: "unknown",
-          exitCode: 0,
-          taskLabels: [...new Set(rows.map(({ taskId }) => taskId))].map((taskId) => ({
-            taskId,
-            title: `任务 ${taskId}`,
-          })),
-          groups: [],
-          totals: { groups: 1, sessions: rows.length },
-          truncated: false,
-          watermark: 1,
-          sourceRevision: 1,
-        };
-      },
-      getAgentRuntimeEvents: (payload) => {
-        const params = paramsOf(payload);
-        const runtimeSessionId = String(params.runtimeSessionId ?? "");
-        const types = input.eventsBySession?.[runtimeSessionId];
-        if (types === undefined) throw new Error(`unexpected events read: ${runtimeSessionId}`);
-        let cursor = 0;
-        return {
-          ok: true,
-          runtimeSessionId,
-          events: types.map((type) => ({
-            cursor: `lifecycle:${(cursor += 1)}`,
-            runtimeSessionId,
-            type,
-            occurredAt: AT,
-          })),
-          cursor: `lifecycle:${cursor}`,
-          sourceCursor: `lifecycle:${cursor}`,
-          done: true,
-        };
-      },
-    };
-    return stubBridge(handlers);
+    });
+    return () => vi.stubGlobal("harness", previous);
   }
 
-  it("进行中的任务 tab 是 AgentLanes 泳道:运行块生长、待拍板块橙色、块内缓存倒计时", async () => {
-    // 成员页行:glm 在跑 task_m1(运行块)+ 刚完成 task_done + 阻塞 task_w1(挂未决 awaits);
-    // sol 的运行块是 glm 手里 disp_glm_3 的委派源(跨 Agent 交接边)。
+  it("运行行给标题/执行者/时长;卡点行置前并给答复动作,点行直接进任务", async () => {
+    // glm 在跑 task_m1(运行行)+ 阻塞 task_w1(挂未决 awaits,卡点行);sol 也在跑
+    // task_m1(同一任务收敛成一行,取卡点侧)。模型短标签收候选清单。
     const glmRows = [
-      dispatchRow({ dispatchId: "disp_glm_1", taskId: "task_m1", runtimeSessionId: "rs_glm_1", status: "running" }),
       dispatchRow({
-        dispatchId: "disp_glm_2",
-        taskId: "task_done",
-        runtimeSessionId: "rs_glm_2",
-        status: "succeeded",
-        endedAt: LANES_RECENT,
-        outcome: "succeeded",
+        dispatchId: "disp_glm_1",
+        taskId: "task_m1",
+        runtimeSessionId: "rs_glm_1",
+        status: "running",
+        provider: { instance: "glm", model: '["deepseek-official","Deepseek-V4.1-Flash"]' },
       }),
       dispatchRow({
         dispatchId: "disp_glm_3",
         taskId: "task_w1",
         runtimeSessionId: "rs_glm_3",
         status: "blocked",
-        parentRuntimeSessionId: "rs_sol_1",
-        delegatedByAgentId: "sol",
-        delegatedByAgentName: "Sol",
       }),
     ];
     const solRows = [
@@ -640,486 +637,186 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
         taskId: "task_m1",
         runtimeSessionId: "rs_sol_1",
         status: "running",
-        startedAt: LANES_RECENT,
+        // 比 glm 的运行块更早:同一任务收敛一行时取更新的 glm 块(带候选清单模型)。
+        startedAt: new Date(Date.now() - 9 * 60_000).toISOString(),
       }),
     ];
     const groups = [
-      agentGroup({ key: "agent:glm", agentId: "glm", label: "GLM Worker", runningCount: 2 }),
+      agentGroup({ key: "agent:glm", agentId: "glm", label: "GLM Worker", runningCount: 1 }),
       agentGroup({ key: "agent:sol", agentId: "sol", label: "Sol", runningCount: 1 }),
     ];
-    const restore = stubLanesBridge({ groups, members: { glm: glmRows, sol: solRows } });
     const onOpenTask = vi.fn();
+    const restore = stubLanesBridge({ groups, members: { glm: glmRows, sol: solRows } });
     const container = mount({ onOpenTask });
     try {
-      await flushUntil(() => container.querySelector('[data-testid="overview-drill-lanes"]') !== null);
-      const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-      // 泳道标签列来自 sessionGroups 的 agent 分组:两条泳道各自可见。
-      expect(textOf(drill)).toContain("GLM Worker");
-      expect(textOf(drill)).toContain("Sol");
-      const lanes = container.querySelector('[data-testid="overview-agent-lanes"]')!;
-      // 测试明确切到近期档,让短任务有足够像素展示其可操作的待拍板入口。
-      act(() => lanes.querySelector<HTMLButtonElement>('[data-testid="overview-agent-lanes-range-15m"]')!.click());
-      // 运行块随 now 生长(endAt=null);已完成块有确定终点;阻塞块挂待拍板(橙色描边语义
-      // 在 AgentLanes 原语测试里直证,这里证数据接线与动作落点)。
-      expect(lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_1"]')).not.toBeNull();
-      expect(
-        lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_1"]')!.getAttribute("data-lane-status"),
-      ).toBe("running");
-      expect(
-        lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_2"]')!.getAttribute("data-lane-status"),
-      ).toBe("done");
-      const blocked = lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_3"]')!;
-      expect(blocked.getAttribute("data-lane-status")).toBe("awaiting");
-      // 泳道不再挂 Prompt Cache 倒计时:触达读面只轮询运行中会话,而运行一轮内缓存由
-      // 模型调用本身保温,倒计时对操作者无意义;聚合胶囊随数据源一并退役。
-      expect(lanes.querySelector('[data-testid^="overview-agent-lanes-cache-"]')).toBeNull();
-      expect(drill.querySelector('[data-testid="overview-drill-cache-timer"]')).toBeNull();
-      // 点击泳道任务块:直跳对应 Task 详情
-      const runningBlock = lanes.querySelector<HTMLElement>('[data-testid="overview-agent-lanes-task-disp_glm_1"]')!;
-      act(() => runningBlock.click());
-      expect(onOpenTask).toHaveBeenCalledWith("task_m1");
-
-      // 待拍板动作:task_w1 有未决 awaits(默认夹具 rel_1 的 sourceRef)→ 开答复面板。
-      const resolve = lanes.querySelector<HTMLButtonElement>(
-        '[data-testid="overview-agent-lanes-resolve-disp_glm_3"]',
-      )!;
-      expect(resolve).not.toBeNull();
-      expect(resolve.getAttribute("data-tip")).toBe("接口要不要兼容旧字段?");
+      await flushUntil(() => container.querySelectorAll("[data-running-row]").length >= 2);
+      const rows = [...container.querySelectorAll("[data-running-row]")].map(
+        (row) => row.getAttribute("data-running-row")!,
+      );
+      // 卡点行置前(业主要先看「卡在哪」);同一任务多 agent 收敛一行。
+      expect(rows).toEqual(["task_w1", "task_m1"]);
+      const blocked = container.querySelector("[data-running-row='task_w1']")!;
+      // 状态词用会话侧运行词表:卡点 = 待拍板,运行 = 运行中。
+      expect(textOf(blocked)).toContain("待拍板");
+      expect(textOf(blocked)).toContain("GLM Worker · glm-5.3");
+      // 卡点问句进悬停(不挤窄行正文),同时是这一行的「现在哪一步」。
+      expect(blocked.querySelector("[data-dense-row]")!.getAttribute("title")).toContain("接口要不要兼容旧字段?");
+      expect(textOf(blocked)).toContain("接口要不要兼容旧字段?");
+      const running = container.querySelector("[data-running-row='task_m1']")!;
+      expect(textOf(running)).toContain("运行中");
+      // 现在哪一步:普通派工给「实现」,行内可见,不只悬停。
+      expect(textOf(running)).toContain("实现");
+      // 模型短标签:候选清单收成第一个候选 +N,元组字符串不进正文。
+      expect(textOf(running)).toContain("deepseek-official +1");
+      expect(textOf(running)).not.toContain('["deepseek-official","Deepseek-V4.1-Flash"]');
+      // 时长给了(块起点至今,紧凑写法)。
+      expect(textOf(running)).toMatch(/\d+[smh]/u);
+      // 卡点行的「答复」开答复面板;点行本身直接进任务详情。
+      const resolve = [...blocked.querySelectorAll("button")].find((button) => textOf(button) === "答复")!;
       act(() => resolve.click());
       expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      act(() => (running.querySelector("button") as HTMLButtonElement).click());
+      expect(onOpenTask).toHaveBeenCalledWith("task_m1");
     } finally {
       unmount();
       restore();
     }
   });
 
-  it("只有 blocked 会话的 agent 块上有待批动作:通过选择器读成员派工并在块上展示待拍板按钮", async () => {
-    // glm agent 的 runningCount 为 0,只有 blocked 会话
-    const glmRows = [
-      dispatchRow({
-        dispatchId: "disp_glm_blocked",
-        taskId: "task_w1",
-        runtimeSessionId: "rs_glm_b1",
-        status: "blocked",
-      }),
-    ];
-    const groups = [
-      agentGroup({
-        key: "agent:glm",
-        agentId: "glm",
-        label: "GLM Worker",
-        runningCount: 0,
-        latestStatus: "blocked",
-        latestRound: {
-          runtimeSessionId: "rs_glm_b1",
-          dispatchId: "disp_glm_blocked",
-          agentName: "GLM Worker",
-          instanceId: "inst_glm",
-          status: "blocked",
-          startedAt: LANES_RECENT,
-        },
-      }),
-    ];
-    const restore = stubLanesBridge({ groups, members: { glm: glmRows } });
+  it("评审派工行给「评审任务/评审决策」这一步(派工行 reviewTarget 的直接读法)", async () => {
+    const reviewer = dispatchRow({
+      dispatchId: "disp_glm_rev",
+      taskId: "task_rev",
+      runtimeSessionId: "rs_glm_rev",
+      status: "running",
+      reviewTarget: { kind: "task", taskId: "task_rev", executionId: "exec_rev", digest: "sha256:review" },
+    });
+    const decisionReviewer = dispatchRow({
+      dispatchId: "disp_glm_dec",
+      taskId: "task_dec",
+      runtimeSessionId: "rs_glm_dec",
+      status: "running",
+      reviewTarget: { kind: "decision", decisionId: "dec_rev", digest: "sha256:decision" },
+    });
+    const restore = stubLanesBridge({
+      groups: [agentGroup({ runningCount: 2 })],
+      members: { glm: [reviewer, decisionReviewer] },
+    });
     const container = mount();
     try {
-      await flushUntil(
-        () =>
-          container
-            .querySelector('[data-testid="overview-agent-lanes-resolve-disp_glm_blocked"]')
-            ?.getAttribute("data-tip") === "接口要不要兼容旧字段?",
-      );
-      const lanes = container.querySelector('[data-testid="overview-agent-lanes"]')!;
-      const block = lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_blocked"]')!;
-      expect(block).not.toBeNull();
-      expect(block.getAttribute("data-lane-status")).toBe("awaiting");
-      // 待批动作按钮出现且带有提示(task_w1 对应默认夹具中的 rel_1 提问)
-      const resolve = lanes.querySelector<HTMLButtonElement>(
-        '[data-testid="overview-agent-lanes-resolve-disp_glm_blocked"]',
-      )!;
-      expect(resolve).not.toBeNull();
-      expect(textOf(resolve)).toContain("待拍板");
-      expect(resolve.getAttribute("data-tip")).toBe("接口要不要兼容旧字段?");
-      // 点击动作正常打开答复面板
-      act(() => resolve.click());
-      expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
+      await flushUntil(() => container.querySelectorAll("[data-running-row]").length >= 2);
+      expect(textOf(container.querySelector("[data-running-row='task_rev']"))).toContain("评审任务");
+      expect(textOf(container.querySelector("[data-running-row='task_dec']"))).toContain("评审决策");
     } finally {
       unmount();
       restore();
     }
   });
 
-  it("组头兜底块按 group.taskId 跳转;没有 taskId 的兜底块不给点击入口", async () => {
-    // 成员页缺席(该 agent 不在活跃成员页里)时泳道用组头 latestRound 兜底一块:
-    // 有 taskId 的块要能跳到那个任务,没有 taskId 的块不能拿派工 id 冒充任务 id。
-    const groups = [
-      agentGroup({
-        key: "agent:glm",
-        agentId: "glm",
-        label: "GLM Worker",
-        runningCount: 1,
-        taskId: "task_from_group",
-        latestRound: {
-          runtimeSessionId: "rs_glm_round",
-          dispatchId: "disp_glm_round",
-          agentName: "GLM Worker",
-          instanceId: "inst_glm",
-          status: "running",
-          startedAt: LANES_RECENT,
-        },
-      }),
-      agentGroup({
-        key: "agent:sol",
-        agentId: "sol",
-        label: "Sol",
-        runningCount: 1,
-        latestRound: {
-          runtimeSessionId: "rs_sol_round",
-          agentName: "Sol",
-          instanceId: "inst_sol",
-          status: "running",
-          startedAt: LANES_RECENT,
-        },
+  it("blocked 但没有未决 awaits 的行不给假答复入口,点行直接进任务详情", async () => {
+    const glmRows = [
+      dispatchRow({
+        dispatchId: "disp_glm_b",
+        taskId: "task_other",
+        runtimeSessionId: "rs_glm_b",
+        status: "blocked",
+        reason: "quota_exhausted",
       }),
     ];
-    const restore = stubLanesBridge({ groups, members: {}, eventsBySession: {} });
     const onOpenTask = vi.fn();
-    const container = mount({ onOpenTask });
+    const restore = stubLanesBridge({
+      groups: [agentGroup({ runningCount: 0, latestStatus: "blocked" })],
+      members: { glm: glmRows },
+    });
+    const container = mount({ onOpenTask, agenda: agenda({ awaitingYou: [] }) });
     try {
-      await flushUntil(
-        () => container.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_round"]') !== null,
-      );
-      const withTask = container.querySelector<HTMLElement>(
-        '[data-testid="overview-agent-lanes-task-disp_glm_round"]',
-      )!;
-      expect(withTask.getAttribute("role")).toBe("button");
-      act(() => withTask.click());
-      expect(onOpenTask).toHaveBeenCalledWith("task_from_group");
-
-      onOpenTask.mockClear();
-      const withoutTask = container.querySelector<HTMLElement>(
-        '[data-testid="overview-agent-lanes-task-rs_sol_round"]',
-      )!;
-      expect(withoutTask.getAttribute("role")).toBe("group");
-      act(() => withoutTask.click());
-      expect(onOpenTask).not.toHaveBeenCalled();
+      await flushUntil(() => container.querySelector("[data-running-row='task_other']") !== null);
+      const blocked = container.querySelector("[data-running-row='task_other']")!;
+      expect([...blocked.querySelectorAll("button")].some((button) => textOf(button) === "答复")).toBe(false);
+      // reason 进悬停,如实说明卡点。
+      expect(blocked.querySelector("[data-dense-row]")!.getAttribute("title")).toContain("quota_exhausted");
+      act(() => (blocked.querySelector("button") as HTMLButtonElement).click());
+      expect(onOpenTask).toHaveBeenCalledWith("task_other");
     } finally {
       unmount();
       restore();
     }
   });
 
-  it("泳道空态与读失败都如实:空窗给正向信息,失败给错误条不冒充空", async () => {
+  it("空态与读失败都如实:空窗给正向信息,失败给错误条不冒充空", async () => {
     const restore = stubLanesBridge({ groups: [] });
     const container = mount();
     try {
       await flushUntil(
         () =>
           container
-            .querySelector('[data-testid="overview-drill-wip-empty"]')
-            ?.textContent?.includes("当前窗口没有并行运行") === true,
-      );
-      expect(textOf(container.querySelector('[data-testid="overview-drill-wip-empty"]')!)).toContain(
-        "当前窗口没有并行运行的 Agent",
+            .querySelector('[data-testid="overview-running-empty"]')
+            ?.textContent?.includes("当前窗口没有在跑的任务") === true,
       );
     } finally {
       unmount();
       restore();
     }
-    const restoreError = stubBridge({});
+    const restoreError = (() => {
+      const previous = (globalThis as { harness?: unknown }).harness;
+      vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
+      return () => vi.stubGlobal("harness", previous);
+    })();
     const containerError = mount();
     try {
-      await flushUntil(() => containerError.querySelector('[data-testid="overview-drill-lanes-error"]') !== null);
-      expect(textOf(containerError.querySelector('[data-testid="overview-drill-lanes-error"]')!)).toContain(
-        "Agent 泳道读取失败",
+      await flushUntil(() => containerError.querySelector('[data-testid="overview-running-error"]') !== null);
+      expect(textOf(containerError.querySelector('[data-testid="overview-running-error"]')!)).toContain(
+        "在跑任务读取失败",
       );
     } finally {
       unmount();
       restoreError();
     }
   });
+});
 
-  it("WIP 读失败显示错误提示:占用数显示破折号且展示错误条,与空态区分", async () => {
-    const restore = stubBridge({
-      getTaskWip: () => Promise.reject(new Error("wip read timeout")),
-      readUseCaseProjection: (payload) => {
-        const wire = payload as { readonly payload?: Record<string, unknown> };
-        const params = wire?.payload ?? (payload as Record<string, unknown>);
-        if (params.name !== "runtime-session-groups") throw new Error(`unexpected projection: ${String(params.name)}`);
-        return {
-          ok: true,
-          schema: "daemon.use-case-projection/v1",
-          name: "runtime-session-groups",
-          projection: {
-            ok: true,
-            status: "ready",
-            groups: [],
-            sessionAgents: [],
-            totals: { groups: 0, sessions: 0 },
-            truncated: false,
-            watermark: 1,
-            sourceRevision: 1,
-          },
-        };
-      },
-    });
-    const container = mount();
-    try {
-      await flushUntil(() => container.querySelector('[data-testid="overview-drill-wip-error"]') !== null);
-      const errorNotice = container.querySelector('[data-testid="overview-drill-wip-error"]')!;
-      expect(textOf(errorNotice)).toContain("工作台占用读取失败:wip read timeout");
-      // 空态提示被抑制,不冒充「当前窗口没有并行运行的 Agent」
-      expect(container.querySelector('[data-testid="overview-drill-wip-empty"]')).toBeNull();
-      // WIP chip 显示 — 占位
-      const chip = container.querySelector('[data-testid="overview-drill-wip"]')!;
-      expect(textOf(chip)).toContain("—");
-    } finally {
-      unmount();
-      restore();
-    }
-  });
-
-  it("置顶承诺 tab:点行直接进任务详情", async () => {
-    const onOpenTask = vi.fn();
-    const read = agenda({
-      pinnedEntities: [
-        { ref: "task/task_pin_go", kind: "task", title: "可派的置顶承诺", status: "planned", pinnedAt: AT },
-      ],
-      dispatchable: [
-        {
-          taskId: "task_pin_go",
-          title: "可派的置顶承诺",
-          work: null,
-          status: "planned",
-          pinned: true,
-          updatedAt: AT,
-          leaseExecutionId: null,
-          activeExecutionIds: [],
-          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
-        },
-      ],
-    });
-    const restore = stubBridge({ getTaskWip: () => wipSnapshot([]) });
-    const container = mount({ onOpenTask, agenda: read });
-    try {
-      await flushUntil(() => container.querySelector('[data-testid="overview-drill-pinned"]') !== null);
-      act(() => (container.querySelector('[data-testid="overview-drill-pinned"]') as HTMLButtonElement).click());
-      const pinnedRow = container.querySelector('[data-drill-row="task_pin_go"]')!;
-      act(() => (pinnedRow.querySelector("button") as HTMLElement).click());
-      expect(onOpenTask).toHaveBeenCalledWith("task_pin_go");
-      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    } finally {
-      unmount();
-      restore();
-    }
-  });
-
-  it("跟进下钻放大层走全局历史:点行推栈,层内换选中原地改,后退关层前进原路返回", async () => {
-    const read = agenda({
-      answeredForYou: [
-        {
-          relationId: "follow",
-          sourceRef: "task/task_w1",
-          title: "已答复的跟进项",
-          status: "active",
-          personId: "person_worker",
-          askKind: "question",
-          question: "下一步?",
-          answer: "继续",
-          answeredAt: AT,
-          answeredBy: "答复人甲",
-        },
-      ],
-      attentionItems: [
-        ...agenda().attentionItems,
-        {
-          ref: "relation/follow",
-          title: "已答复的跟进项",
-          kind: "answered",
-          region: "mine",
-          workTaskId: "task_w1",
-          attention: { score: 30, reasons: [] },
-        },
-      ],
-    });
-    const restore = stubBridge({ getTaskWip: () => wipSnapshot([]) });
-    const container = mount({ agenda: read });
-    try {
-      await flushUntil(() => container.querySelector('[data-testid="overview-drill-followups"]') !== null);
-      act(() => (container.querySelector('[data-testid="overview-drill-followups"]') as HTMLButtonElement).click());
-      expect(historyOf().location.overviewFocus ?? null).toBeNull();
-      const followRow = container.querySelector('[data-drill-row="relation/follow"]')!;
-      act(() => (followRow.querySelector("button") as HTMLElement).click());
-      expect(historyOf().location.overviewFocus).toEqual({ key: "followups", selectedId: "relation/follow" });
-      expect(historyOf().canBack).toBe(true);
-
-      act(() => historyOf().back());
-      expect(historyOf().location.overviewFocus ?? null).toBeNull();
-      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-      act(() => historyOf().forward());
-      expect(historyOf().location.overviewFocus?.key).toBe("followups");
-      expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
-    } finally {
-      unmount();
-      restore();
-    }
-  });
-
-  it("tab 切换换内容:跟进/置顶各自铺名单,评审 tab 没有行就不出现", async () => {
-    const restore = stubLanesBridge({ groups: [] });
-    const container = mount();
-    await flushUntil(
-      () =>
-        container
-          .querySelector('[data-testid="overview-drill-wip-empty"]')
-          ?.textContent?.includes("当前窗口没有并行运行") === true,
-    );
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    // 泳道空窗是正向信息(当前没有并行 Agent),不是破壳。
-    expect(textOf(container.querySelector('[data-testid="overview-drill-wip-empty"]')!)).toContain(
-      "当前窗口没有并行运行的 Agent",
-    );
-    // 评审执行 tab 只在有行时出现:默认夹具没有三组评审行。
-    expect(drill.querySelector('[data-testid="overview-drill-review"]')).toBeNull();
-    // 切到跟进与返工:默认夹具的待初审/阻塞/停滞行直接可见(注意力序)。
-    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
-    expect(drillRows(container)).toEqual(["execution/exec_1", "task/task_blk", "task/task_stuck"]);
-    expect(textOf(drill)).toContain("已提交待初审");
-    // 切到置顶承诺:默认夹具没有置顶 → 空态给真实入口提示。
-    act(() => (drill.querySelector('[data-testid="overview-drill-pinned"]') as HTMLElement).click());
-    expect(drill.querySelector('[data-testid="overview-drill-pinned-empty"]')).not.toBeNull();
-    expect(textOf(container.querySelector('[data-testid="overview-drill-pinned-empty"]')!)).toContain("没有置顶承诺");
-    unmount();
-    restore();
-  });
-
-  it("跟进与返工空态是正向信息,不是破壳", () => {
-    const read = agenda({
-      attentionItems: [],
-      answeredForYou: [],
-      awaitingRework: [],
-      awaitingAdjudication: [],
-      waitingOnOthers: [],
-      stalled: [],
-    });
-    const container = mount({ agenda: read });
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
-    expect(drill.querySelector('[data-testid="overview-drill-followups-empty"]')).not.toBeNull();
-    expect(textOf(container.querySelector('[data-testid="overview-drill-followups-empty"]')!)).toContain(
-      "当前没有需要跟进或返工的事项",
-    );
-    unmount();
-  });
-
-  it("评审执行 tab:有行才出现,名单分组分明,点行详情给收口/决策落点", () => {
-    const read = agenda({
-      underReview: [
-        {
-          taskId: "task_rev",
-          title: "评审中的任务",
-          work: null,
-          pinned: false,
-          executionId: "exec_rev",
-          submittedAt: AT,
-          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
-        },
-      ],
-      awaitingDecisionReview: [
-        { decisionId: "dec_nr", title: "待派审的决策", riskTier: "high", urgency: "low", proposedAt: AT },
-      ],
-      decisionReviewInProgress: [],
-    });
-    const onNavigateEntity = vi.fn();
-    const container = mount({ agenda: read, onNavigateEntity });
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    const reviewTab = drill.querySelector('[data-testid="overview-drill-review"]')!;
-    expect(textOf(reviewTab)).toContain("评审执行");
-    expect(textOf(reviewTab)).toContain("2");
-    act(() => (reviewTab as HTMLElement).click());
-    // 分组标签直接在行上,不再挂在芯片悬停。
-    expect(textOf(drill)).toContain("任务评审中");
-    expect(textOf(drill)).toContain("决策待派审");
-    act(() =>
-      (
-        container.querySelector('[data-drill-row="taskReviewing:exec_rev"]')!.querySelector("button") as HTMLElement
-      ).click(),
-    );
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    expect(textOf(dialog)).toContain("评审中的任务");
-    const closeout = [...dialog.querySelectorAll("button")].find((button) => textOf(button) === "打开收口");
-    act(() => closeout!.click());
-    expect(onNavigateEntity).toHaveBeenCalledWith("taskreview/task_rev");
-    unmount();
-  });
-
-  it("跟进与返工名单不亮红不冒充需要用户;点行弹放大层给答复原文", () => {
-    const read = agenda({
-      answeredForYou: [
-        {
-          relationId: "follow",
-          sourceRef: "task/task_w1",
-          title: "已答复的跟进项",
-          status: "active",
-          personId: "person_worker",
-          askKind: "question",
-          question: "下一步?",
-          answer: "继续",
-          answeredAt: AT,
-          answeredBy: "答复人甲",
-        },
-      ],
-      attentionItems: [
-        ...agenda().attentionItems,
-        {
-          ref: "relation/follow",
-          title: "已答复的跟进项",
-          kind: "answered",
-          region: "mine",
-          workTaskId: "task_w1",
-          attention: { score: 30, reasons: [] },
-        },
-      ],
-    });
-    const container = mount({ agenda: read });
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
-    // 名单与放大层同一份行:点已答复行,详情给答复原文与答复人。
-    act(() =>
-      (container.querySelector('[data-drill-row="relation/follow"]')!.querySelector("button") as HTMLElement).click(),
-    );
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    expect(textOf(dialog)).toContain("已答复的跟进项");
-    expect(textOf(dialog)).toContain("已答复:继续");
-    // 不冒充需要用户:整层没有红档(bad)状态标签。
-    expect(dialog!.querySelectorAll('[data-status-tone="bad"]')).toHaveLength(0);
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    });
-    unmount();
-  });
-
-  // 置顶承诺 tab 的行与两条解 pin 通道(任务 pin / 实体级解 pin)的行为面在
-  // overview-pinned.vitest.tsx(按职责拆分自本文件,与行数上限无关)。
-
-  it("全部工作/全部任务/会话入口收进区域页脚,接真实回调", () => {
+describe("总览:区域页脚与全量入口", () => {
+  it("全部任务/查看会话收在跑任务块页脚,全部工作收关注工作块页脚,接真实回调", () => {
     const onOpenWorks = vi.fn();
     const onOpenTasks = vi.fn();
     const onOpenSessions = vi.fn();
     const container = mount({ onOpenWorks, onOpenTasks, onOpenSessions });
-    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    const running = container.querySelector('[data-testid="overview-region-running"]')!;
+    const works = container.querySelector('[data-testid="overview-region-works"]')!;
     act(() =>
-      ([...drill.querySelectorAll("button")].find((b) => textOf(b) === "全部工作") as HTMLButtonElement).click(),
+      ([...running.querySelectorAll("button")].find((b) => textOf(b) === "全部任务") as HTMLButtonElement).click(),
     );
     act(() =>
-      ([...drill.querySelectorAll("button")].find((b) => textOf(b) === "全部任务") as HTMLButtonElement).click(),
+      ([...running.querySelectorAll("button")].find((b) => textOf(b) === "查看会话") as HTMLButtonElement).click(),
     );
     act(() =>
-      ([...drill.querySelectorAll("button")].find((b) => textOf(b) === "查看会话") as HTMLButtonElement).click(),
+      ([...works.querySelectorAll("button")].find((b) => textOf(b) === "全部工作") as HTMLButtonElement).click(),
     );
     expect(onOpenWorks).toHaveBeenCalledTimes(1);
     expect(onOpenTasks).toHaveBeenCalledTimes(1);
     expect(onOpenSessions).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+});
+
+describe("总览:四块布局", () => {
+  it("左上在跑任务、右上置顶议程、左下关注工作、右下等你处理;产物与全局泳道不在总览", () => {
+    const container = mount();
+    for (const region of [
+      "overview-region-running",
+      "overview-region-pins",
+      "overview-region-works",
+      "overview-region-awaits",
+    ]) {
+      expect(container.querySelector(`[data-testid="${region}"]`), region).not.toBeNull();
+    }
+    // 全局泳道与最新产物速览架已移出总览(2026-10-21 定案):组件保留给任务弹层/现场页。
+    expect(container.querySelector('[data-testid="overview-agent-lanes"]')).toBeNull();
+    expect(container.querySelector('[data-testid="overview-region-artifacts"]')).toBeNull();
+    expect(container.querySelector('[data-testid="overview-decisions-band"]')).toBeNull();
     unmount();
   });
 });
@@ -1280,33 +977,804 @@ describe("总览:系统状态弱化与异常提升", () => {
   });
 });
 
-describe("总览顶栏状态词表(X4:一个词只指一件事)", () => {
-  it("协作入口只报总数,不再并列一个按 lease 算的「执行中」", async () => {
-    // 顶栏同时有「进行中 {活跃任务}」与「进行中占用 {count}/{limit}」两个同词计数;
-    // 再来一个「执行中 {lease phase}」就是同一个词指两件事、数字还不一样(X4)。
-    const container = mount({ collaboration: { total: 8, executing: 2 }, onOpenCollaboration: () => undefined });
-    await flushUntil(
-      () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("协作") === true,
-    );
-    const entry = container.querySelector('[data-testid="overview-collaboration-entry"]')!;
-    expect(textOf(entry)).toContain("协作 8");
-    // 3 是入口上的总数,2 是旧的 lease 执行数:后者不许再出现。
-    expect(textOf(entry)).not.toContain("执行中");
-    expect(textOf(entry)).not.toContain("2");
-    unmount();
+describe("总览派生(纯函数)", () => {
+  it("decisionRows 只收真实待人两类", () => {
+    const read = agenda({
+      answeredForYou: [
+        {
+          relationId: "follow",
+          sourceRef: "task/task_w1",
+          title: "已答复的跟进项",
+          status: "active",
+          personId: "person_worker",
+          askKind: "question",
+          question: "下一步?",
+          answer: "继续",
+          answeredAt: AT,
+          answeredBy: "答复人甲",
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "relation/follow",
+          title: "已答复的跟进项",
+          kind: "answered",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 30, reasons: [] },
+        },
+      ],
+    });
+    expect(
+      decisionRows(read)
+        .map(({ kind }) => kind)
+        .sort(),
+    ).toEqual(["awaiting-you", "decision"]);
   });
 
-  it("顶栏所有状态计数只用「进行中」一词,不再混入「执行中」", async () => {
-    const container = mount({ collaboration: { total: 8, executing: 2 }, onOpenCollaboration: () => undefined });
-    await flushUntil(
-      () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("进行中") === true,
+  it("runRows 的执行者给模型短标签:候选清单收短,普通模型名原样", () => {
+    const overview = {
+      ok: true,
+      status: "ready",
+      installations: [],
+      instances: [],
+      sessions: [
+        {
+          runtimeSessionId: "rs_tuple",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: '["deepseek-official","Deepseek-V4.1-Flash"]' },
+          associations: [{ taskId: "task_m1" }],
+          activity: { lastObservedAt: AT },
+        },
+        {
+          runtimeSessionId: "rs_plain",
+          kindId: "zcode",
+          liveness: "live",
+          definitionSnapshot: { model: "glm-5.3" },
+          associations: [{ taskId: "task_w1" }],
+          activity: { lastObservedAt: AT },
+        },
+        {
+          runtimeSessionId: "rs_nosnap",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: null,
+          associations: [],
+          activity: { lastObservedAt: AT },
+        },
+      ],
+      watermark: 7,
+      sourceRevision: 7,
+    } as unknown as AgentRuntimeOverviewResult;
+    const whoOf = new Map(runRows(overview, undefined).map(({ runtimeSessionId, who }) => [runtimeSessionId, who]));
+    expect(whoOf.get("rs_tuple")).toBe("codex · deepseek-official +1");
+    expect(whoOf.get("rs_plain")).toBe("zcode · glm-5.3");
+    expect(whoOf.get("rs_nosnap")).toBe("codex");
+  });
+
+  it("watchedWorks:置顶保留在前不受窗口限制;其余按活动窗口过滤;终态置顶仍列出但沉后", () => {
+    const base = agenda();
+    const pinned = watchedWorks(WORKS, {
+      ...base,
+      pinnedEntities: [
+        { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
+      ],
+    });
+    expect(pinned.map(({ work, source }) => [work.taskId, source])).toEqual([
+      ["task_w1", "pinned"],
+      ["task_w2", "recent"],
+    ]);
+    // 已收尾的置顶工作仍列出(业主:不管 pin 什么总览都要能看到),只是沉到非终态之后。
+    const closed = watchedWorks(WORKS, {
+      ...base,
+      pinnedEntities: [{ ref: "task/task_w_done", kind: "task", title: "已收尾的工作", status: "done", pinnedAt: AT }],
+    });
+    expect(closed.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2", "task_w_done"]);
+    expect(closed.filter(({ source }) => source === "pinned").map(({ work }) => work.taskId)).toEqual(["task_w_done"]);
+    expect(closed.some(({ work }) => work.taskId === "task_w_done")).toBe(true);
+    // 活动窗口(意见 4):未置顶工作只在窗口内才列,置顶不受窗口限制;W2-T1 起名下有
+    // Needs you 项的工作(默认夹具 rel_1 挂在 task_w1)压过置顶——它卡在等人。
+    const stale = { ...WORKS.works[1]!, lastActivityAt: "2026-09-01T00:00:00.000Z" },
+      fresh = WORKS.works[0]!,
+      windowed = watchedWorks(
+        { ...WORKS, works: [stale, fresh, WORKS.works[2]!] },
+        {
+          ...base,
+          pinnedEntities: [
+            { ref: "task/task_w2", kind: "task", title: "网关读面加缓存", status: "active", pinnedAt: AT },
+          ],
+        },
+        { days: 3, now: new Date().toISOString() },
+      );
+    expect(windowed.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
+  });
+
+  it("watchedWorks:活跃执行工作优先置顶,再按最新活动时间倒序,在跑工作不被窗口截断", () => {
+    const baseWorks: WorkIndexRead = {
+      schema: "daemon.work-index/v1",
+      ok: true,
+      status: "ready",
+      works: [
+        {
+          taskId: "work_pinned_older",
+          title: "旧置顶待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T08:00:00.000Z",
+          memberTaskIds: ["task_m_po"],
+        },
+        {
+          taskId: "work_pinned_newer",
+          title: "新置顶待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T10:00:00.000Z",
+          memberTaskIds: ["task_m_pn"],
+        },
+        {
+          taskId: "work_recent_older",
+          title: "旧近期待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T07:00:00.000Z",
+          memberTaskIds: ["task_m_ro"],
+        },
+        {
+          taskId: "work_recent_newer",
+          title: "新近期待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T11:00:00.000Z",
+          memberTaskIds: ["task_m_rn"],
+        },
+        {
+          taskId: "work_recent_running",
+          title: "近期在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 2,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T09:00:00.000Z",
+          memberTaskIds: ["task_m_rr"],
+        },
+        {
+          taskId: "work_pinned_running",
+          title: "置顶在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 2,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T09:30:00.000Z",
+          memberTaskIds: ["task_m_pr"],
+        },
+        {
+          taskId: "work_recent_running_stale_activity",
+          title: "窗口外但在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 2,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-01T00:00:00.000Z", // 远早于3天窗口
+          memberTaskIds: ["task_m_stale_running"],
+        },
+      ],
+      watermark: 1,
+      sourceRevision: 1,
+      warnings: [],
+    };
+
+    const agendaData = agenda({
+      pinnedEntities: [
+        { ref: "task/work_pinned_older", kind: "task", title: "旧置顶待命工作", status: "active", pinnedAt: AT },
+        { ref: "task/work_pinned_newer", kind: "task", title: "新置顶待命工作", status: "active", pinnedAt: AT },
+        { ref: "task/work_pinned_running", kind: "task", title: "置顶在跑工作", status: "active", pinnedAt: AT },
+      ],
+    });
+
+    const runtimeData = {
+      ok: true,
+      status: "ready",
+      installations: [],
+      instances: [],
+      sessions: [
+        {
+          runtimeSessionId: "rs_pr",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "gpt-6.1-sol" },
+          associations: [{ taskId: "task_m_pr" }],
+          activity: { lastObservedAt: "2026-10-14T09:30:00.000Z" },
+        },
+        {
+          runtimeSessionId: "rs_rr",
+          kindId: "zcode",
+          liveness: "live",
+          definitionSnapshot: { model: "glm-5.3" },
+          associations: [{ taskId: "task_m_rr" }],
+          activity: { lastObservedAt: "2026-10-14T09:00:00.000Z" },
+        },
+        {
+          runtimeSessionId: "rs_stale",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "gpt-6.1-sol" },
+          associations: [{ taskId: "task_m_stale_running" }],
+          activity: { lastObservedAt: "2026-10-14T08:30:00.000Z" },
+        },
+      ],
+      watermark: 3,
+      sourceRevision: 3,
+    } as unknown as AgentRuntimeOverviewResult;
+
+    const result = watchedWorks(baseWorks, agendaData, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtimeData);
+
+    // 1. 活跃执行中任务全部置顶(不论是否置顶),且按 lastActivityAt 倒序
+    //    - work_pinned_running (09:30)
+    //    - work_recent_running (09:00)
+    //    - work_recent_running_stale_activity (虽为 10-01 但在跑不被截断,排名下)
+    // 2. 待命中置顶工作保持在近期工作前,且按 lastActivityAt 倒序
+    //    - work_pinned_newer (10:00)
+    //    - work_pinned_older (08:00)
+    // 3. 待命中近期工作按 lastActivityAt 倒序
+    //    - work_recent_newer (11:00)
+    //    - work_recent_older (07:00)
+    expect(result.map(({ work }) => work.taskId)).toEqual([
+      "work_pinned_running",
+      "work_recent_running",
+      "work_recent_running_stale_activity",
+      "work_pinned_newer",
+      "work_pinned_older",
+      "work_recent_newer",
+      "work_recent_older",
+    ]);
+    expect(result.find(({ work }) => work.taskId === "work_recent_running_stale_activity")?.source).toBe("recent");
+  });
+
+  it("工作行排序:已收尾沉底;注意力优先于最近活动", () => {
+    const base = WORKS.works[0]!;
+    const rows = workRows(
+      {
+        ...WORKS,
+        works: [
+          { ...base, taskId: "task_done", status: "done", lastActivityAt: "2026-09-30T09:00:00.000Z" },
+          { ...base, taskId: "task_cancel", status: "cancelled", lastActivityAt: "2026-09-30T08:00:00.000Z" },
+          { ...base, taskId: "task_live", status: "active", lastActivityAt: "2026-09-20T00:00:00.000Z" },
+        ],
+      },
+      undefined,
     );
-    const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
-    expect(textOf(topbar)).not.toContain("执行中");
-    unmount();
+    expect(rows.map((row) => row.taskId)).toEqual(["task_live", "task_done", "task_cancel"]);
+  });
+
+  it("agentLanesOf:成员页给真块(起点/终点/状态/待拍板),latestRound 兜底块不生长", () => {
+    const nowMs = Date.parse("2026-09-29T02:00:00.000Z");
+    const glmGroup: AgentRuntimeSessionGroupDto = {
+      key: "agent:glm",
+      kind: "agent",
+      label: "GLM Worker",
+      agentId: "glm",
+      latestStatus: "running",
+      latestActivityAt: AT,
+      runningCount: 2,
+      sessionCount: 3,
+      roundCount: 3,
+      latestRound: null,
+    };
+    const idleGroup: AgentRuntimeSessionGroupDto = {
+      key: "agent:codex",
+      kind: "agent",
+      label: "Codex",
+      agentId: "codex",
+      latestStatus: "succeeded",
+      latestActivityAt: "2026-09-29T01:30:00.000Z",
+      runningCount: 0,
+      sessionCount: 1,
+      roundCount: 1,
+      latestRound: {
+        runtimeSessionId: "rs_cx",
+        dispatchId: "disp_cx",
+        agentName: "Codex",
+        instanceId: "inst_cx",
+        status: "succeeded",
+        startedAt: "2026-09-29T01:00:00.000Z",
+      },
+    };
+    const rows: readonly TaskDispatchProjectionRow[] = [
+      {
+        dispatchId: "disp_glm_1",
+        taskId: "task_run",
+        executionId: "exec_1",
+        runtimeSessionId: "rs_glm_1",
+        instanceId: "inst_glm",
+        attemptGroupId: "att",
+        attemptIndex: 0,
+        provider: { instance: "glm", model: "glm-5.3" },
+        classification: null,
+        reason: null,
+        fallbackState: null,
+        nextDispatchId: null,
+        providerSessionId: null,
+        eventStreamRef: null,
+        startedAt: "2026-09-29T01:10:00.000Z",
+        endedAt: null,
+        outcome: null,
+        status: "running",
+      },
+      {
+        dispatchId: "disp_glm_2",
+        taskId: "task_w1",
+        executionId: "exec_2",
+        runtimeSessionId: "rs_glm_2",
+        instanceId: "inst_glm",
+        attemptGroupId: "att2",
+        attemptIndex: 0,
+        provider: { instance: "glm", model: "glm-5.3" },
+        classification: null,
+        reason: "gate_red",
+        fallbackState: null,
+        nextDispatchId: null,
+        providerSessionId: null,
+        eventStreamRef: null,
+        startedAt: "2026-09-29T01:20:00.000Z",
+        endedAt: null,
+        outcome: null,
+        status: "blocked",
+        parentRuntimeSessionId: "rs_glm_1",
+        delegatedByAgentId: "leader",
+        delegatedByAgentName: "Leader",
+      },
+    ];
+    const lanes = agentLanesOf({
+      groups: [glmGroup, idleGroup],
+      memberPages: new Map([
+        [
+          "glm",
+          {
+            rows,
+            titleOf: new Map([
+              ["task_run", "运行中的任务"],
+              ["task_w1", "等你拍板的任务"],
+            ]),
+          },
+        ],
+      ]),
+      taskTitles: new Map(),
+      // task_w1 挂未决 awaits:问句取 awaits 原话,不落到 reason。
+      awaits: awaitsByTask(
+        agenda({
+          awaitingYou: [
+            {
+              relationId: "rel_w1",
+              sourceRef: "task/task_w1",
+              title: "提案 rel_w1",
+              status: "active",
+              personId: "person_me",
+              askKind: "question",
+              question: "继续还是收口?",
+              askedAt: AT,
+              askedBy: "person_worker",
+            },
+          ],
+        }),
+      ),
+      awaitingFallbackQuestion: "该任务已阻塞,需要你处理",
+      nowMs,
+    });
+    // 两条泳道:活跃 agent 用成员页真块;闲置 agent 只有 latestRound 兜底块(终点=组活动时间)。
+    expect(lanes.lanes.map(({ agentId, role }) => [agentId, role])).toEqual([
+      ["glm", "GLM Worker"],
+      ["codex", "Codex"],
+    ]);
+    const glmTasks = lanes.lanes[0]!.tasks;
+    // 成员页按 startedAt 新→旧排块(最新一块在最前)。
+    expect(glmTasks.map(({ id, status, endAt }) => [id, status, endAt])).toEqual([
+      // 阻塞块必须给 endAt(不随 now 生长),状态词落 awaiting(Orca 提问档)。
+      ["disp_glm_2", "awaiting", nowMs],
+      ["disp_glm_1", "running", null],
+    ]);
+    expect(glmTasks[0]!.awaiting).toEqual({ question: "继续还是收口?" });
+    expect(lanes.lanes[1]!.tasks[0]).toMatchObject({
+      id: "disp_cx",
+      status: "done",
+      endAt: Date.parse("2026-09-29T01:30:00.000Z"),
+    });
+    // 块源映射与运行会话集合:视图层据此接动作与缓存触达读。
+    expect(lanes.blockOf.get("disp_glm_2")).toEqual({
+      taskId: "task_w1",
+      runtimeSessionId: "rs_glm_2",
+      awaiting: true,
+      // 普通派工没有 reviewTarget:这一步是实现。
+      stage: "implementation",
+    });
+    // 无任务归属的兜底块没有落点,不进块源映射。
+    expect(lanes.blockOf.has("disp_cx")).toBe(false);
+    // 有任务归属的兜底块没有派工行(也就没有 reviewTarget):这一步如实给 null,不猜。
+    const fallback = agentLanesOf({
+      groups: [{ ...idleGroup, key: "task:task_fb", kind: "task", taskId: "task_fb", latestStatus: "running" }],
+      memberPages: new Map(),
+      taskTitles: new Map(),
+      awaits: new Map(),
+      awaitingFallbackQuestion: "x",
+      nowMs,
+    });
+    expect(fallback.blockOf.get("disp_cx")).toMatchObject({ taskId: "task_fb", stage: null });
+    expect(lanes.runningSessionIds).toEqual(["rs_glm_1"]);
+    // 跨 Agent 交接:parent 会话的块在窗口内 → 画边;leader 会话不在窗口内 → 不虚构。
+    expect(lanes.handoffs).toEqual([{ fromTaskId: "disp_glm_1", toTaskId: "disp_glm_2", label: "Leader →" }]);
+    // 空输入给空泳道,不猜。
+    expect(
+      agentLanesOf({
+        groups: [],
+        memberPages: new Map(),
+        taskTitles: new Map(),
+        awaits: new Map(),
+        awaitingFallbackQuestion: "x",
+        nowMs,
+      }).lanes,
+    ).toEqual([]);
+  });
+
+  it("agentLanesOf:blocked 无 awaits 问句时,提示退到派工行 reason,再退到兜底文案", () => {
+    const row: TaskDispatchProjectionRow = {
+      dispatchId: "disp_b",
+      taskId: "task_b",
+      executionId: "exec_b",
+      runtimeSessionId: "rs_b",
+      instanceId: "inst",
+      attemptGroupId: "att",
+      attemptIndex: 0,
+      provider: { instance: "glm", model: "glm-5.3" },
+      classification: null,
+      reason: "quota_exhausted",
+      fallbackState: null,
+      nextDispatchId: null,
+      providerSessionId: null,
+      eventStreamRef: null,
+      startedAt: AT,
+      endedAt: null,
+      outcome: null,
+      status: "blocked",
+    };
+    const group: AgentRuntimeSessionGroupDto = {
+      key: "agent:glm",
+      kind: "agent",
+      label: "GLM",
+      agentId: "glm",
+      latestStatus: "running",
+      latestActivityAt: AT,
+      runningCount: 1,
+      sessionCount: 1,
+      roundCount: 1,
+      latestRound: null,
+    };
+    const input = {
+      groups: [group] as const,
+      memberPages: new Map([["glm", { rows: [row] as const, titleOf: new Map() }]]),
+      taskTitles: new Map(),
+      awaits: new Map(),
+      nowMs: Date.parse(AT),
+    };
+    expect(agentLanesOf({ ...input, awaitingFallbackQuestion: "兜底" }).lanes[0]!.tasks[0]!.awaiting).toEqual({
+      question: "quota_exhausted",
+    });
+  });
+
+  it("runningTaskRows:与泳道同源的窄行——卡点优先、同任务收敛、只收运行与卡点块", () => {
+    const nowMs = Date.parse("2026-09-29T02:00:00.000Z");
+    const model = agentLanesOf({
+      groups: [
+        {
+          key: "agent:glm",
+          kind: "agent",
+          label: "GLM Worker",
+          agentId: "glm",
+          latestStatus: "running",
+          latestActivityAt: AT,
+          runningCount: 1,
+          sessionCount: 1,
+          roundCount: 1,
+          latestRound: null,
+        },
+        {
+          key: "agent:sol",
+          kind: "agent",
+          label: "Sol",
+          agentId: "sol",
+          latestStatus: "running",
+          latestActivityAt: AT,
+          runningCount: 1,
+          sessionCount: 1,
+          roundCount: 1,
+          latestRound: null,
+        },
+      ],
+      memberPages: new Map([
+        [
+          "glm",
+          {
+            rows: [
+              {
+                dispatchId: "disp_glm_new",
+                taskId: "task_new",
+                executionId: "exec_n",
+                runtimeSessionId: "rs_n",
+                instanceId: "i",
+                attemptGroupId: "a",
+                attemptIndex: 0,
+                provider: { instance: "glm", model: '["a-model","b-model"]' },
+                classification: null,
+                reason: null,
+                fallbackState: null,
+                nextDispatchId: null,
+                providerSessionId: null,
+                eventStreamRef: null,
+                startedAt: "2026-09-29T01:50:00.000Z",
+                endedAt: null,
+                outcome: null,
+                status: "running",
+              },
+              {
+                dispatchId: "disp_glm_old",
+                taskId: "task_old",
+                executionId: "exec_o",
+                runtimeSessionId: "rs_o",
+                instanceId: "i",
+                attemptGroupId: "a",
+                attemptIndex: 0,
+                provider: { instance: "glm", model: "glm-5.3" },
+                classification: null,
+                reason: null,
+                fallbackState: null,
+                nextDispatchId: null,
+                providerSessionId: null,
+                eventStreamRef: null,
+                startedAt: "2026-09-29T01:10:00.000Z",
+                endedAt: null,
+                outcome: null,
+                status: "running",
+              },
+              {
+                dispatchId: "disp_glm_done",
+                taskId: "task_done",
+                executionId: "exec_d",
+                runtimeSessionId: "rs_d",
+                instanceId: "i",
+                attemptGroupId: "a",
+                attemptIndex: 0,
+                provider: { instance: "glm", model: "glm-5.3" },
+                classification: null,
+                reason: null,
+                fallbackState: null,
+                nextDispatchId: null,
+                providerSessionId: null,
+                eventStreamRef: null,
+                startedAt: "2026-09-29T01:00:00.000Z",
+                endedAt: "2026-09-29T01:30:00.000Z",
+                outcome: "succeeded",
+                status: "succeeded",
+              },
+            ],
+            titleOf: new Map([
+              ["task_new", "新任务"],
+              ["task_old", "旧任务"],
+              ["task_done", "已收口"],
+            ]),
+          },
+        ],
+        [
+          "sol",
+          {
+            rows: [
+              {
+                dispatchId: "disp_sol_stuck",
+                taskId: "task_new",
+                executionId: "exec_s",
+                runtimeSessionId: "rs_s",
+                instanceId: "i",
+                attemptGroupId: "a",
+                attemptIndex: 0,
+                provider: { instance: "sol", model: "glm-5.3" },
+                classification: null,
+                reason: null,
+                fallbackState: null,
+                nextDispatchId: null,
+                providerSessionId: null,
+                eventStreamRef: null,
+                startedAt: "2026-09-29T01:40:00.000Z",
+                endedAt: null,
+                outcome: null,
+                status: "blocked",
+              },
+            ],
+            titleOf: new Map(),
+          },
+        ],
+      ]),
+      taskTitles: new Map(),
+      awaits: new Map([
+        [
+          "task_new",
+          {
+            relationId: "rel_n",
+            sourceRef: "task/task_new",
+            title: "提案",
+            status: "active",
+            personId: "person_me",
+            askKind: "question",
+            question: "继续?",
+            askedAt: AT,
+            askedBy: "person_worker",
+          },
+        ],
+      ]),
+      awaitingFallbackQuestion: "兜底",
+      nowMs,
+    });
+    const modelOf = new Map([
+      ["disp_glm_new", '["a-model","b-model"]'],
+      ["disp_glm_old", "glm-5.3"],
+      ["disp_sol_stuck", "glm-5.3"],
+    ]);
+    const rows = runningTaskRows(model, modelOf);
+    // task_new 同任务两块都挂问句(任务有未决 awaits 时运行块也带问句):取更新的 glm 块;
+    // 卡点问句优先于纯运行,已收口块不进名单。
+    expect(rows.map(({ taskId }) => taskId)).toEqual(["task_new", "task_old"]);
+    expect(rows[0]).toMatchObject({
+      id: "disp_glm_new",
+      title: "新任务",
+      agent: "GLM Worker",
+      // 模型查表是原样透传:候选清单的收短发生在视图层建表(runtimeModelShortLabel)。
+      model: '["a-model","b-model"]',
+      awaiting: "继续?",
+    });
+    expect(rows[1]).toMatchObject({ id: "disp_glm_old", model: "glm-5.3", awaiting: null });
+    // 查表键缺席的块如实给 null,模型层不猜。
+    const withMissing = runningTaskRows(model, new Map([["disp_glm_old", "m"]]));
+    expect(withMissing[0]!.model).toBeNull();
+    expect(withMissing[1]!.model).toBe("m");
+  });
+
+  it("watchedWorks:Needs you 工作压过在跑工作(五级第 1 级 > 第 3 级)", () => {
+    const baseWorks: WorkIndexRead = {
+      schema: "daemon.work-index/v1",
+      ok: true,
+      status: "ready",
+      works: [
+        {
+          taskId: "task_running",
+          title: "在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+          lastActivityAt: "2026-10-14T11:00:00.000Z",
+          memberTaskIds: ["task_running_m"],
+        },
+        {
+          taskId: "task_needs",
+          title: "等你拍板的工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T07:00:00.000Z",
+          memberTaskIds: ["task_needs_m"],
+        },
+      ],
+      watermark: 1,
+      sourceRevision: 1,
+      warnings: [],
+    };
+    const read = agenda({
+      attentionItems: [
+        {
+          ref: "relation/rel_needs",
+          title: "等你拍板的成员任务",
+          kind: "awaiting-you",
+          region: "mine",
+          workTaskId: "task_needs",
+          attention: { score: 90, reasons: [] },
+        },
+      ],
+      awaitingYou: [
+        {
+          relationId: "rel_needs",
+          sourceRef: "task/task_needs_m",
+          title: "等你拍板的成员任务",
+          status: "active",
+          personId: "person_me",
+          askKind: "question",
+          question: "继续?",
+          askedAt: AT,
+          askedBy: "person_worker",
+        },
+      ],
+    });
+    const runtime = {
+      ok: true,
+      status: "ready",
+      installations: [],
+      instances: [],
+      sessions: [
+        {
+          runtimeSessionId: "rs_r",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "gpt-6.1-sol" },
+          associations: [{ taskId: "task_running_m" }],
+          activity: { lastObservedAt: "2026-10-14T11:00:00.000Z" },
+        },
+      ],
+      watermark: 3,
+      sourceRevision: 3,
+    } as unknown as AgentRuntimeOverviewResult;
+    // 在跑工作活动更新(11:00 > 07:00),但 Needs you 是第 1 级:绝对排在一切运行态之前。
+    const watched = watchedWorks(baseWorks, read, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtime);
+    expect(watched.map(({ work }) => work.taskId)).toEqual(["task_needs", "task_running"]);
+  });
+
+  it("pinnedTaskRows:可派在前,其余按议程注意力分降序", () => {
+    const read = agenda({
+      pinnedEntities: [
+        { ref: "task/task_low", kind: "task", title: "低分置顶", status: "active", pinnedAt: AT },
+        { ref: "task/task_high", kind: "task", title: "高分置顶", status: "active", pinnedAt: AT },
+        { ref: "task/task_go", kind: "task", title: "可派置顶", status: "planned", pinnedAt: AT },
+      ],
+      dispatchable: [
+        {
+          taskId: "task_go",
+          title: "可派置顶",
+          work: null,
+          status: "planned",
+          pinned: true,
+          updatedAt: AT,
+          leaseExecutionId: null,
+          activeExecutionIds: [],
+          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "task/task_high",
+          title: "高分置顶",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 77, reasons: [] },
+        },
+        {
+          ref: "task/task_low",
+          title: "低分置顶",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 5, reasons: [] },
+        },
+      ],
+    });
+    expect(pinnedTaskRows(read, WORKS).map(({ taskId }) => taskId)).toEqual(["task_go", "task_high", "task_low"]);
   });
 });
-
 describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
   it("非纯本地仓给真实摘要入口,点击落到协作页;纯本地(null)不渲染入口", () => {
     const opened: string[] = [];
@@ -1316,7 +1784,6 @@ describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
     });
     const entry = center.querySelector<HTMLButtonElement>('[data-testid="overview-collaboration-entry"]');
     expect(entry).not.toBeNull();
-    // 只报总数:再并列一个按 lease phase 算的「执行中 2」就是同一个词指两件事(X4)。
     expect(entry!.textContent).toContain("8");
     expect(entry!.textContent).not.toContain("执行中");
     act(() => entry!.click());

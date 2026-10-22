@@ -10,7 +10,7 @@ export default {
   id: "overview-entity-unpin",
   feature: "overview",
   lane: "isolated",
-  description: "The overview pinned tab removes a non-task entity through the GUI unpin action.",
+  description: "The overview pins region removes a non-task entity through the GUI unpin action.",
   async run({ page, fixture, shot }) {
     const { endpoint, repoId } = fixture;
     const proposed = await rpc(endpoint, repoId, "repo.decision.propose", {
@@ -42,7 +42,7 @@ export default {
 
     await page.reload();
     await nav(page, /^(?:总览|Overview)$/u, "overview-view");
-    await page.getByTestId("overview-drill-pinned").click();
+    // 2026-10-21 四块定案:置顶实体直接住右上「置顶与议程」区,不再经 tab 下钻。
     const unpin = page.getByTestId(`overview-unpin-${entityRef}`);
     await unpin.waitFor({ timeout: 20_000 });
     await shot("overview-entity-unpin-before");

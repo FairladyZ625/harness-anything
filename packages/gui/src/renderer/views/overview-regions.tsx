@@ -1,78 +1,42 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { PushPinSlash } from "@phosphor-icons/react";
-import type { AgendaAttentionItem } from "../../api/renderer-dto.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AWAITS_KIND_LABEL } from "../awaits-answer.ts";
 import { STATUS_META } from "../components/badges";
-import { AgentLanes, type AgentHandoff, type AgentLane } from "../components/agent-ui/AgentLanes.tsx";
 import { DenseRow } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
-import { FilterChips } from "../components/primitives/FilterChips";
 import { Notice } from "../components/primitives/Notice";
 import { SegBar } from "../components/primitives/SegBar";
-import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
+import { StatusTag } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
 import type { MessageKey } from "../i18n/core.ts";
-import { actorDisplayName } from "../model/actor-name.ts";
 import type { SnapshotStatus } from "../model/types.ts";
-import { formatRelative, formatTime } from "../model/time.ts";
-import { taskReviewRef } from "../navigation/entityRoutes.ts";
+import { formatDuration, formatRelative, formatTime } from "../model/time.ts";
+// 步骤词表随工作页拆分移到 WorkProgressList;总览与工作页共用同一份 STEP_META。
 import { STEP_META } from "./workspace/WorkProgressList.tsx";
-import {
-  isDecisionKind,
-  type AttentionSource,
-  type DecisionRow,
-  type FollowUpKind,
-  type FollowUpRow,
-  type PinnedEntityRow,
-  type PinnedTaskRow,
-  type ReviewRow,
-  type WatchedWork,
-  type WorkRecentPath,
+import type {
+  AttestationPendingRow,
+  DecisionRow,
+  PinnedEntityRow,
+  PinnedTaskRow,
+  RunningTaskRow,
+  WatchedWork,
+  WorkRecentPath,
 } from "./overview-model.ts";
 
 /**
- * 总览三段的展示层(2026-10-07 三块区域返工,纯展示层;2026-10-20 W2-T1 接入 Orca 五级
- * 序数与 Agent 泳道):「需要你处理」是页面顶部的紧凑决策带——Needs you(class 1)绝对
- * 顶置、橙色提问档标签,默认只铺 COMPACT_DECISIONS 条明确事项,其余一键展开;主区
- * 「关注的工作」是全部关注工作的紧凑行列表(名下有 Needs you 的工作置顶);「执行与
- * 下钻」是 tab + Agent 泳道(进行中的任务 tab 由 AgentLanes 替换旧静态平铺名单,块内
- * 挂待拍板动作与 Prompt Cache 倒计时)。
+ * 总览四块的展示层(2026-10-21 业主 13:50 定案,泳道移出总览后的任务列表形态):
+ * 左上「在跑的任务」是窄行高密度名单(任务人话标题、谁在跑、跑了多久、现在哪一步),
+ * 右上「置顶与议程」把被重构撤下的 pin/agenda 拿回来(不管 pin 什么都在这可见),
+ * 左下「关注的工作」只留标题、进度与负责人,右下「等你处理的事」取待办签发前几条。
  * 动作全部接现有真实动作:答复走 AwaitsAnswerPanel、裁决落决策详情、任务/工作走实体
  * 导航、取消置顶走 pin 写通道。没有的字段如实写「未提供」,不生成假推荐。
  */
 
-const KIND_LABEL: Readonly<Record<AgendaAttentionItem["kind"], () => string>> = {
-  "awaiting-you": () => t("views.overviewView.kindAwaitingYou"),
-  rework: () => t("views.overviewView.kindRework"),
-  // 待初审住「跟进与返工」:是 owning CEO 的机器双闸,不是用户裁决,用评审词表同一名。
-  adjudication: () => t("views.overviewView.reviewAdjudication"),
-  decision: () => t("views.overviewView.kindDecision"),
-  blocked: () => t("views.overviewView.kindBlocked"),
-  stalled: () => t("views.overviewView.kindStalled"),
-  answered: () => t("views.overviewView.kindAnswered"),
-  archive: () => t("views.overviewView.kindArchive"),
-  "audit-finding": () => t("views.overviewView.kindAuditFinding"),
-};
-
-/**
- * 跟进与返工的行档:一律 wait/neutral——owning CEO/机器可处理的事不亮红,不冒充需要
- * 用户。返工的说明只陈述事实不断言归属(是否需要人由看的人判断);待初审如实写由
- * owning CEO 处理(CLI 帮助:`ha task adjudicate` 是 owning CEO 的双闸)。
- */
-const FOLLOW_UP_META: Readonly<Record<FollowUpKind, { readonly tone: StatusTone; readonly note: MessageKey }>> = {
-  answered: { tone: "wait", note: "views.overviewView.followAnsweredNote" },
-  adjudication: { tone: "wait", note: "views.overviewView.followAdjudicationNote" },
-  rework: { tone: "wait", note: "views.overviewView.followReworkNote" },
-  blocked: { tone: "wait", note: "views.overviewView.followBlockedNote" },
-  stalled: { tone: "neutral", note: "views.overviewView.followStalledNote" },
-  "audit-finding": { tone: "wait", note: "views.overviewView.followAuditFindingNote" },
-};
-
 export interface OverviewBoardDeps {
   readonly now: string;
-  /** 工作根 id → 标题(repo.works.index);首块行与工作卡的「受影响工作」用它,不另发请求。 */
+  /** 工作根 id → 标题(repo.works.index);「等你处理」行说明受影响工作时用,不另发请求。 */
   readonly workTitleOf: ReadonlyMap<string, string>;
   readonly onAnswer: (subject: AwaitsPanelSubject) => void;
   readonly onNavigateEntity: (ref: string) => void;
@@ -80,23 +44,26 @@ export interface OverviewBoardDeps {
   readonly onOpenWorks: () => void;
   readonly onOpenTasks: () => void;
   readonly onOpenSessions: () => void;
+  /** 任务侧人签的落点:待办签发总池的任务收口域(可寻址路由)。 */
+  readonly onOpenSignoffs: (taskId: string) => void;
+  /** 本块没列出的待办(评审中等)落回待办签发总池。 */
+  readonly onOpenPool: () => void;
   readonly onUnpin: (taskId: string) => void;
   /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
   readonly onUnpinEntity: (entityRef: string) => void;
 }
 
-/** 放大层的键:评审执行/跟进返工/置顶承诺(WIP 平铺名单已由 AgentLanes 原位替代,不再开层)。 */
-export type DrillFocusKey = "review" | "followups" | "pinned";
+/* ------------------------------------------------------------------ 右下:等你处理的事 */
 
-/* ------------------------------------------------------------------ 顶部:需要你处理(紧凑决策带) */
+/** 人签三类的块内标签;门名与同类项计数在行原因里如实给。 */
+const SIGNOFF_KIND_LABEL: Readonly<Record<AttestationPendingRow["kind"], MessageKey>> = {
+  gate: "views.overviewView.signoffGate",
+  breakGlass: "views.overviewView.signoffBreakGlass",
+  consent: "views.overviewView.signoffConsent",
+};
 
-/** 首块行的急件数(注意力 ≥80):带的标签用它,与旧 mine 区域同一阈值。 */
-export function decisionsUrgentCount(rows: readonly DecisionRow[]): number {
-  return rows.filter(({ score }) => score >= 80).length;
-}
-
-/** 紧凑默认档:只铺前三条明确事项,其余收进一键展开;展开后带上限内滚,不挤压工作主体。 */
-const COMPACT_DECISIONS = 3;
+/** 紧凑默认档:只铺前三条明确事项,其余一键展开;展开后带上限内滚,不挤压工作主体。 */
+const COMPACT_AWAITS = 3;
 
 const RISK_LABEL: Readonly<Record<"low" | "medium" | "high", MessageKey>> = {
   low: "views.decisionPropose.riskLow",
@@ -124,71 +91,70 @@ function decisionAction(
 }
 
 /**
- * 页面顶部的紧凑决策带(2026-10-04 视觉返工;2026-10-11 意见 2:计数并入标签,不再
- * 单独占大号数字位):不按条数瓜分列高——默认只铺 COMPACT_DECISIONS 条,其余「一键
- * 展开」;展开态给 42dvh 上限内部滚动,关注工作始终是首屏主体。空态收成一行正向信息。
+ * 「等你处理的事」的块体(2026-10-21 从顶部决策带移进右下块,判据不变):真实要本人
+ * 动手的 awaits 问句与待点头 decision;默认只铺 COMPACT_AWAITS 条,其余一键展开,
+ * 展开态在块内滚动。空态收成一行正向信息,不说「没有事项」的绝对话。
  */
-export function OverviewDecisionsBand({
+export function OverviewAwaitsBody({
   rows,
+  signoffs,
+  decisionInboxCount,
   deps,
 }: {
   readonly rows: readonly DecisionRow[];
+  /** 任务侧人签(待办签发前几条):与决策并列为「等你动手」。 */
+  readonly signoffs: readonly AttestationPendingRow[];
+  /**
+   * 待办签发「决策待裁」域的普查数(workspace summary 的 inboxCount,与侧栏角标同一读面
+   * 同一判据):它是 proposed 决策全集,含还在评审、议程不算「等你点头」的那些。块里只列
+   * 要本人动手的,差额如实指回总池——这就是 2026-10-21 冷眼评估里「空横幅 vs 侧栏 4」
+   * 矛盾的根:两处说的不是同一个集合,空态必须带上自己说的是哪一类。
+   */
+  readonly decisionInboxCount: number;
   readonly deps: OverviewBoardDeps;
 }) {
   const [expanded, setExpanded] = useState(false);
-  if (rows.length === 0) {
+  if (rows.length === 0 && signoffs.length === 0) {
     return (
-      <p
-        data-testid="overview-decisions-band"
-        className="flex flex-none items-center gap-2 rounded-sm glass-sub px-3 py-1.5 text-text-faint ui-meta"
-      >
-        <StatusTag tone="done" label={t("views.overviewView.mineClear")} />
-        {t("views.overviewView.decisionsEmpty")}
-      </p>
+      <div data-testid="overview-awaits" className="px-3.5 py-2">
+        <Empty>{t("views.overviewView.decisionsEmpty")}</Empty>
+        {decisionInboxCount > 0 && <OverviewPoolPointer count={decisionInboxCount} deps={deps} />}
+      </div>
     );
   }
-  const urgent = decisionsUrgentCount(rows),
-    needsYou = rows.some(({ kind }) => kind === "awaiting-you"),
-    visible = expanded ? rows : rows.slice(0, COMPACT_DECISIONS),
-    hidden = rows.length - visible.length;
+  const needsYou = rows.some(({ kind }) => kind === "awaiting-you"),
+    // 决策行与人签行共用紧凑名额:决策先占(带问句/风险),余下名额给人签;展开后全量滚动。
+    visible = expanded ? rows : rows.slice(0, COMPACT_AWAITS),
+    visibleSignoffs = expanded ? signoffs : signoffs.slice(0, Math.max(0, COMPACT_AWAITS - rows.length)),
+    hidden = rows.length + signoffs.length - visible.length - visibleSignoffs.length;
   return (
-    <section data-testid="overview-decisions-band" className="flex flex-none flex-col overflow-hidden rounded-sm glass">
-      <div className="flex flex-none flex-wrap items-center gap-2 px-3 pb-1.5 pt-2">
-        <h2 className="min-w-0 shrink-0 font-semibold ui-meta">{t("views.overviewView.regionDecisions")}</h2>
-        <StatusTag
-          tone={needsYou ? "agent-question" : urgent > 0 ? "bad" : "wait"}
-          label={
-            urgent > 0
-              ? t("views.overviewView.mineUrgentOf", { urgent: String(urgent), count: String(rows.length) })
-              : t("views.overviewView.decisionsPendingCount", { count: String(rows.length) })
-          }
-        />
-        {hidden > 0 && (
+    <div data-testid="overview-awaits" className="flex min-h-0 flex-1 flex-col">
+      {hidden > 0 && (
+        <div className="flex flex-none items-center gap-2 px-3.5 pb-1 pt-2">
           <button
             type="button"
-            data-testid="overview-decisions-expand"
+            data-testid="overview-awaits-expand"
             onClick={() => setExpanded(true)}
             className="h-6 shrink-0 rounded-xs border border-border bg-text/10 px-2.5 text-text-muted ui-meta hover:text-text"
           >
             {t("views.overviewView.decisionsMore", { count: String(hidden) })}
           </button>
-        )}
-        {expanded && (
+          {needsYou && <StatusTag tone="agent-question" label={t("agentRuntime.smartClassNeedsYou")} />}
+        </div>
+      )}
+      {expanded && (
+        <div className="flex flex-none items-center px-3.5 pb-1 pt-2">
           <button
             type="button"
-            data-testid="overview-decisions-collapse"
+            data-testid="overview-awaits-collapse"
             onClick={() => setExpanded(false)}
             className="h-6 shrink-0 rounded-xs border border-border bg-text/10 px-2.5 text-text-muted ui-meta hover:text-text"
           >
             {t("views.overviewView.decisionsCollapse")}
           </button>
-        )}
-      </div>
-      <div
-        data-testid="overview-decisions"
-        className={expanded ? "min-h-0 overflow-y-auto" : undefined}
-        style={expanded ? { maxHeight: "42dvh" } : undefined}
-      >
+        </div>
+      )}
+      <div data-testid="overview-awaits-rows" className={expanded ? "min-h-0 overflow-y-auto" : undefined}>
         {visible.map((row) => {
           const workTitle = row.workTaskId === null ? null : (deps.workTitleOf.get(row.workTaskId) ?? null),
             problem =
@@ -208,7 +174,7 @@ export function OverviewDecisionsBand({
             ].join(" · "),
             action = decisionAction(row, deps);
           return (
-            <div key={row.id} data-decision={row.id}>
+            <div key={row.id} data-awaits-row={row.id}>
               <DenseRow
                 tag={
                   <StatusTag
@@ -238,37 +204,248 @@ export function OverviewDecisionsBand({
             </div>
           );
         })}
+        {visibleSignoffs.map((row) => {
+          const action = signoffAction(row, deps);
+          return (
+            <div key={row.id} data-signoff-row={row.id}>
+              <DenseRow
+                tag={
+                  <StatusTag
+                    // 人签是本人动作但不是提问阻塞:用 wait 琥珀,不冒充 Needs you 橙。
+                    tone="wait"
+                    label={t(SIGNOFF_KIND_LABEL[row.kind])}
+                  />
+                }
+                title={row.title}
+                reason={
+                  row.gateId === null
+                    ? t("views.overviewView.signoffConsentReason")
+                    : t("views.overviewView.signoffGateReason", {
+                        gate: row.gateId,
+                        more: row.more > 0 ? t("views.overviewView.signoffMore", { count: String(row.more) }) : "",
+                      })
+                }
+                action={
+                  <OverviewActionButton primary onClick={action}>
+                    {t("views.overviewView.signoffOpen")}
+                  </OverviewActionButton>
+                }
+                onClick={action}
+              />
+            </div>
+          );
+        })}
+        {decisionInboxCount > 0 && (
+          <div data-testid="overview-awaits-inbox">
+            <OverviewPoolPointer count={decisionInboxCount} deps={deps} />
+          </div>
+        )}
       </div>
-      <p className="flex flex-none items-center gap-1.5 px-3 pb-1.5 pt-1 text-text-faint ui-meta">
-        {t("views.overviewView.decisionsFooter")}
-      </p>
-    </section>
+    </div>
   );
 }
 
-/* ------------------------------------------------------------------ 主区:关注的工作 */
+/**
+ * 总池指针:块里只列要本人动手的事项,「决策待裁」域里的其余 proposed 决策(还在评审等)
+ * 如实给条数与入口,不再让空态和侧栏角标互相矛盾。
+ */
+function OverviewPoolPointer({ count, deps }: { readonly count: number; readonly deps: OverviewBoardDeps }) {
+  return (
+    <div className="flex items-center gap-2 px-0.5 py-1 text-text-faint ui-meta">
+      <StatusTag tone="neutral" label={t("views.overviewView.awaitsInboxTag")} />
+      <span className="min-w-0 flex-1 truncate">{t("views.overviewView.awaitsInbox", { count: String(count) })}</span>
+      <button
+        type="button"
+        data-testid="overview-awaits-inbox-open"
+        onClick={deps.onOpenPool}
+        className="shrink-0 text-accent underline-offset-2 hover:underline"
+      >
+        {t("views.overviewView.awaitsInboxOpen")}
+      </button>
+    </div>
+  );
+}
+
+/** 人签行的落点:签发动作只在待办签发总池/任务详情里完成,总览不复制写通道。 */
+function signoffAction(row: AttestationPendingRow, deps: OverviewBoardDeps): () => void {
+  return row.kind === "consent" ? () => deps.onOpenSignoffs(row.taskId) : () => deps.onOpenTask(row.taskId);
+}
+
+/** 这一步的人话标签;reviewTarget 的两种评审分开写(任务评审 / 决策评审)。 */
+const RUNNING_STAGE_LABEL: Readonly<Record<RunningTaskRow["stage"] & string, MessageKey>> = {
+  implementation: "views.overviewView.runningStageImplementation",
+  "review-task": "views.overviewView.runningStageReviewTask",
+  "review-decision": "views.overviewView.runningStageReviewDecision",
+};
+
+/* ------------------------------------------------------------------ 左上:在跑的任务 */
+
+/**
+ * 「在跑的任务」的块体(2026-10-21 定案,替换总览全局泳道):窄行高密度名单,一行一个
+ * 任务——标题、执行者(agent · 模型短标签)、已跑时长(块起点至今),状态词用会话侧
+ * 运行词表(运行中/待拍板);卡点行的问句进悬停与「答复」动作,不挤窄行正文。
+ */
+export function OverviewRunningBody({
+  rows,
+  loading,
+  error,
+  nowMs,
+  resolveOf,
+  onOpenTask,
+}: {
+  readonly rows: readonly RunningTaskRow[];
+  /** 泳道读面(sessionGroups/成员页)首次取数进行中。 */
+  readonly loading: boolean;
+  /** 泳道读面失败的可读信息。 */
+  readonly error: string | null;
+  /** 数据时钟(ms):时长随读面前进重算,不立秒针。 */
+  readonly nowMs: number;
+  /** 卡点行的「答复」动作(接未决 awaits 源行);null = 无未决问句,行点击直接进任务。 */
+  readonly resolveOf: (row: RunningTaskRow) => (() => void) | null;
+  readonly onOpenTask: (taskId: string) => void;
+}) {
+  if (error !== null) {
+    return (
+      <Notice tone="bad" variant="strip" testId="overview-running-error">
+        {t("views.overviewView.runningError")}
+        {error}
+      </Notice>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div data-testid="overview-running-empty" className="px-3.5 py-2">
+        <Empty>{loading ? t("views.overviewView.runningLoading") : t("views.overviewView.runningEmpty")}</Empty>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="overview-running">
+      {rows.map((row) => {
+        const resolve = resolveOf(row),
+          who = row.model === null ? row.agent : `${row.agent} · ${row.model}`,
+          // 现在哪一步:卡点行给卡点问句,其余给这一步(实现/评审);读面没有这一步就不编。
+          step = row.awaiting ?? (row.stage === null ? null : t(RUNNING_STAGE_LABEL[row.stage])),
+          reason = step === null ? who : `${who} · ${step}`,
+          startedAt = formatTime(new Date(row.startedAt).toISOString(), {
+            style: "date-time",
+            now: new Date(nowMs).toISOString(),
+          });
+        return (
+          <div key={row.taskId} data-running-row={row.taskId}>
+            <DenseRow
+              tag={
+                <StatusTag
+                  tone={row.awaiting === null ? "active" : "agent-question"}
+                  label={t(row.awaiting === null ? "agentUi.activity.running" : "agentUi.activity.awaiting")}
+                />
+              }
+              title={row.title}
+              reason={reason}
+              hoverTitle={`${who} · ${step === null ? startedAt : `${step} · ${startedAt}`}`}
+              time={formatDuration(Math.max(0, nowMs - row.startedAt))}
+              action={
+                resolve === null ? undefined : (
+                  <OverviewActionButton primary onClick={resolve}>
+                    {t("components.awaitsAnswer.openAnswer")}
+                  </OverviewActionButton>
+                )
+              }
+              onClick={() => onOpenTask(row.taskId)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ 右上:置顶与议程 */
+
+/**
+ * 「置顶与议程」的块体(2026-10-21 定案,把重构时撤下的 pin 拿回总览):置顶的非工作
+ * 任务与置顶的非任务实体(Decision、Schedule…)各一行,行上可就地取消置顶;可派的
+ * 承诺在前。置顶的工作根住「关注的工作」(置顶在前),不在此重复列。
+ */
+export function OverviewPinsBody({
+  pinned,
+  pinnedOthers,
+  onOpenTask,
+  deps,
+}: {
+  readonly pinned: readonly PinnedTaskRow[];
+  readonly pinnedOthers: readonly PinnedEntityRow[];
+  readonly onOpenTask: (taskId: string) => void;
+  readonly deps: OverviewBoardDeps;
+}) {
+  if (pinned.length + pinnedOthers.length === 0) {
+    return (
+      <div data-testid="overview-pins-empty" className="px-3.5 py-2">
+        <Empty>{t("views.overviewView.pinsEmpty")}</Empty>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="overview-pins">
+      {pinned.map((task) => (
+        <div key={task.taskId} data-pin-row={task.taskId}>
+          <DenseRow
+            tag={
+              task.dispatchable ? (
+                <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
+              ) : (
+                <StatusTag status={task.status} />
+              )
+            }
+            title={task.title}
+            time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
+            action={
+              <UnpinIconButton
+                testId={`overview-unpin-${task.taskId}`}
+                onClick={() => deps.onUnpin(task.taskId)}
+                label={t("views.overviewView.unpinRowLabel", { title: task.title })}
+              />
+            }
+            onClick={() => onOpenTask(task.taskId)}
+          />
+        </div>
+      ))}
+      {/* 非任务实体(Decision、Schedule…)没有任务态与可派档:kind 用协议原词,点行走实体导航。 */}
+      {pinnedOthers.map((entity) => (
+        <div key={entity.ref} data-pin-row={entity.ref}>
+          <DenseRow
+            tag={<StatusTag tone="neutral" label={entity.kind} />}
+            title={entity.title}
+            action={
+              <UnpinIconButton
+                testId={`overview-unpin-${entity.ref}`}
+                onClick={() => deps.onUnpinEntity(entity.ref)}
+                label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
+              />
+            }
+            onClick={() => deps.onNavigateEntity(entity.ref)}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ 左下:关注的工作 */
 
 /** 工作行的阶段/还差枚举序(生命周期序);悬停明细的词表单源在 STATUS_META。 */
 const STAGE_ORDER: readonly SnapshotStatus[] = ["done", "active", "submitted", "in_review", "blocked", "planned"];
 
 export function OverviewWorksBody({
   watched,
-  pinnedClosed,
   activityDays,
-  attentionOf,
   handlersOf,
   recentOf,
   deps,
 }: {
   readonly watched: readonly WatchedWork[];
-  /** 已收尾的置顶工作数:不进列表,如实计数提及(收尾工作去侧栏置顶块管理)。 */
-  readonly pinnedClosed: number;
   /** 近期窗口天数(设置项「关注的工作活动天数」);行内展示与列表口径一致。 */
   readonly activityDays: number;
-  /** 工作根 id → 名下的注意力项(卡点行;全部类别,首块三类也会在此汇合)。 */
-  readonly attentionOf: (
-    workTaskId: string,
-  ) => readonly { readonly item: AgendaAttentionItem; readonly source: AttentionSource | null }[];
   readonly handlersOf: (entry: WatchedWork) => readonly string[];
   readonly recentOf: (workTaskId: string) => WorkRecentPath | null;
   readonly deps: OverviewBoardDeps;
@@ -298,11 +475,6 @@ export function OverviewWorksBody({
           </button>
         </div>
       )}
-      {pinnedClosed > 0 && (
-        <p className="px-3.5 pb-1 pt-2 text-text-faint ui-micro">
-          {t("views.overviewView.worksPinnedClosed", { count: String(pinnedClosed) })}
-        </p>
-      )}
       {watched.map((entry) => {
         const { work } = entry,
           effective =
@@ -315,9 +487,6 @@ export function OverviewWorksBody({
             const count = work.counts[status] ?? 0;
             return count > 0 ? [`${STATUS_META[status].label} ${count}`] : [];
           }),
-          blockers = attentionOf(work.taskId),
-          mine = blockers.filter(({ item }) => item.region === "mine" && isDecisionKind(item.kind)).length,
-          otherMine = blockers.filter(({ item }) => item.region === "mine" && !isDecisionKind(item.kind)).length,
           handlers = handlersOf(entry),
           recent = recentOf(work.taskId),
           // 悬停给完整明细(视觉基线 v2:主文字收束,原始信息悬停可见):子任务/未完成/最近。
@@ -337,10 +506,10 @@ export function OverviewWorksBody({
                 ]
               : []),
           ].join(" · ");
-        // 第二行是行内信息面(2026-10-11 意见 4;视觉规范 v2 改图形化):分段进度条复用
-        // SegBar(与工作页/看板同一原语),计数退成紧凑 done/total;空集给「暂无子任务」、
-        // 全取消给取消计数,不出 0/0 假进度,完整构成悬停给。live 行(有执行者会话)挂
-        // 呼吸光条;静止行安静排版,不再输出「无 agent 在跑」消极文本。
+        // 第二行是行内信息面(2026-10-21 定案:标题、进度、负责人):分段进度条复用 SegBar
+        // (与工作页/看板同一原语),计数退成紧凑 done/total,负责人是可读名(agent · 模型
+        // 短标签,候选清单在视图层已收短);尾部名字只拿自己的份额,长名截断,不挤压标题。
+        // 空集给「暂无子任务」、全取消给取消计数,不出 0/0 假进度。
         const cancelled = work.counts.cancelled ?? 0,
           second = [
             <span key="progress" className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -367,21 +536,9 @@ export function OverviewWorksBody({
               </span>
             ) : null,
             handlers.length > 0 ? (
-              <span key="handlers" className="min-w-0 truncate">
+              <span key="handlers" className="min-w-0 max-w-[40%] truncate">
                 <span className="text-text-faint">{t("views.overviewView.worksHandlersLabel")}</span>{" "}
                 <span className="text-text-muted">{handlers.join(" · ")}</span>
-              </span>
-            ) : null,
-            mine > 0 ? (
-              // Needs you 计数走 Orca 独立橙(与顶部决策带同一语义色):卡在等业主拍板。
-              <span key="mine" className="shrink-0 font-semibold" style={{ color: "var(--color-agent-question)" }}>
-                {t("views.overviewView.worksMine", { count: String(mine) })}
-              </span>
-            ) : null,
-            otherMine > 0 ? (
-              // 其余项(返工/已答复/裁决/审计发现)保持中性色,属于机器或后续跟进,不冒充 Needs you。
-              <span key="other-mine" className="shrink-0 text-text-muted">
-                {t("views.overviewView.worksOtherMine", { count: String(otherMine) })}
               </span>
             ) : null,
           ].filter((part) => part !== null);
@@ -419,481 +576,6 @@ export function OverviewWorksBody({
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ 执行与下钻:tab + 内联名单 */
-
-/** 评审执行 = 正在被评审的三组(打回/待初审/待点头住首块与跟进,不在此重复计)。 */
-const REVIEW_DRILL_GROUPS: readonly ReviewRow["group"][] = [
-  "taskReviewing",
-  "decisionReviewing",
-  "decisionNeedsReview",
-];
-
-const REVIEW_GROUP_LABEL: Readonly<Record<ReviewRow["group"], () => string>> = {
-  rework: () => t("views.overviewView.reviewRework"),
-  adjudication: () => t("views.overviewView.reviewAdjudication"),
-  taskReviewing: () => t("views.overviewView.reviewTaskReviewing"),
-  decisionNeedsReview: () => t("views.overviewView.reviewDecisionNeedsReview"),
-  decisionReviewing: () => t("views.overviewView.reviewDecisionReviewing"),
-  decisionPending: () => t("views.overviewView.reviewDecisionPending"),
-};
-
-/** 评审执行下钻的行集(条面计数、放大层 itemIds 与列表必须同源)。 */
-export function reviewDrillRows(rows: readonly ReviewRow[]): readonly ReviewRow[] {
-  const groups = new Set(REVIEW_DRILL_GROUPS);
-  return rows.filter(({ group }) => groups.has(group));
-}
-
-/** drill 区的 tab 键(评审执行 tab 只在有行时出现,与旧芯片同一条件)。 */
-export type DrillTabKey = "wip" | "review" | "followups" | "pinned";
-
-/**
- * 「执行与下钻」区(2026-10-07 三块区域返工;2026-10-11 意见 3 合并在飞任务流;
- * 2026-10-20 W2-T1:进行中的任务 tab 由 AgentLanes 泳道替换旧静态平铺名单——一条泳道
- * 一个 agent,任务块按时间比例定位、运行块随 now 生长,跨 Agent 交接连线,阻塞块挂
- * 待拍板徽标与快捷动作;块内/页头内嵌 Prompt Cache 倒计时。其余 tab(跟进与返工/
- * 置顶承诺/评审执行)保持内联名单。全部工作/全部任务/会话入口收进区域页脚。
- */
-export function OverviewDrillBody({
-  wipOccupancy,
-  wipFull,
-  wipError,
-  lanes,
-  handoffs,
-  lanesLoading,
-  lanesError,
-  onResolveAwaiting,
-  reviewRowsAll,
-  followUps,
-  pinned,
-  pinnedOthers,
-  onOpenFocus,
-  onOpenTask,
-  deps,
-}: {
-  /** 占用/上限(快照未到给「…/—」);WIP 是常驻观察面,tab 恒在。 */
-  readonly wipOccupancy: string;
-  readonly wipFull: boolean;
-  /** WIP 读面失败的可读信息。 */
-  readonly wipError: string | null;
-  /** AgentLanes 的当前泳道数据(agentLanesOf 的产物)。 */
-  readonly lanes: readonly AgentLane[];
-  readonly handoffs: readonly AgentHandoff[];
-  /** 泳道读面(sessionGroups/成员页)首次取数进行中。 */
-  readonly lanesLoading: boolean;
-  /** 泳道读面失败的可读信息。 */
-  readonly lanesError: string | null;
-  /** 泳道块「待拍板」动作:宿主把 blockId 接回 awaits 答复面板或任务详情。 */
-  readonly onResolveAwaiting: (blockId: string) => void;
-  readonly reviewRowsAll: readonly ReviewRow[];
-  readonly followUps: readonly FollowUpRow[];
-  readonly pinned: readonly PinnedTaskRow[];
-  /** 置顶的非任务实体(Decision、Schedule…):排在任务行后,行上取消置顶走实体解 pin 通道。 */
-  readonly pinnedOthers: readonly PinnedEntityRow[];
-  /** 点行落点:开对应放大层并选中该行(selectedId 与该层 itemIds 同源)。 */
-  readonly onOpenFocus: (key: DrillFocusKey, selectedId?: string) => void;
-  /** 任务行落点:直接跳转任务详情(业主 2026-10-13 裁定:总览点任务直接进,移除冗余二级弹窗)。 */
-  readonly onOpenTask: (taskId: string) => void;
-  readonly deps: OverviewBoardDeps;
-}) {
-  const [tab, setTab] = useState<DrillTabKey>("wip");
-  const review = reviewDrillRows(reviewRowsAll);
-  return (
-    <div data-testid="overview-drill" className="flex h-full min-h-0 flex-col">
-      <div
-        data-testid="overview-drill-tabs"
-        className="flex flex-none flex-wrap items-center gap-2 border-b border-border px-3 py-2"
-      >
-        <FilterChips
-          value={tab}
-          onChange={setTab}
-          chips={[
-            {
-              key: "wip" as const,
-              testId: "overview-drill-wip",
-              label: t("views.overviewView.drillWipTab"),
-              count: wipOccupancy,
-            },
-            ...(review.length > 0
-              ? [
-                  {
-                    key: "review" as const,
-                    testId: "overview-drill-review",
-                    label: t("views.overviewView.drillReview"),
-                    count: review.length,
-                  },
-                ]
-              : []),
-            {
-              key: "followups" as const,
-              testId: "overview-drill-followups",
-              label: t("views.overviewView.drillFollowUps"),
-              count: followUps.length,
-            },
-            {
-              key: "pinned" as const,
-              testId: "overview-drill-pinned",
-              label: t("views.overviewView.drillPinned"),
-              count: pinned.length + pinnedOthers.length,
-            },
-          ]}
-        />
-        {wipFull && <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} />}
-      </div>
-      <div data-testid="overview-drill-list" className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "wip" && (
-          <>
-            {wipError !== null && (
-              <Notice tone="bad" variant="strip" testId="overview-drill-wip-error">
-                {t("views.overviewView.drillWipError")}
-                {wipError}
-              </Notice>
-            )}
-            {lanesError !== null ? (
-              <Notice tone="bad" variant="strip" testId="overview-drill-lanes-error">
-                {t("views.overviewView.drillLanesError")}
-                {lanesError}
-              </Notice>
-            ) : lanes.length === 0 ? (
-              wipError === null && (
-                <div data-testid="overview-drill-wip-empty" className="px-3.5 py-2">
-                  <Empty>
-                    {lanesLoading ? t("views.overviewView.drillLanesLoading") : t("views.overviewView.drillLanesEmpty")}
-                  </Empty>
-                </div>
-              )
-            ) : (
-              <div data-testid="overview-drill-lanes" className="px-3 pb-3 pt-2">
-                <AgentLanes
-                  lanes={lanes}
-                  handoffs={handoffs}
-                  onResolveAwaiting={onResolveAwaiting}
-                  onOpenTask={onOpenTask}
-                  testId="overview-agent-lanes"
-                />
-              </div>
-            )}
-          </>
-        )}
-        {tab === "followups" &&
-          (followUps.length === 0 ? (
-            <div data-testid="overview-drill-followups-empty" className="px-3.5 py-2">
-              <Empty>{t("views.overviewView.drillFollowUpsEmpty")}</Empty>
-            </div>
-          ) : (
-            followUps.map((row) => (
-              <div key={row.id} data-drill-row={row.id}>
-                <DenseRow
-                  tag={<StatusTag tone={FOLLOW_UP_META[row.kind].tone} label={KIND_LABEL[row.kind]()} />}
-                  title={row.title}
-                  reason={t(FOLLOW_UP_META[row.kind].note)}
-                  time={row.since === null ? undefined : formatRelative(row.since, { now: deps.now })}
-                  onClick={() => onOpenFocus("followups", row.id)}
-                />
-              </div>
-            ))
-          ))}
-        {tab === "pinned" &&
-          (pinned.length + pinnedOthers.length === 0 ? (
-            <div data-testid="overview-drill-pinned-empty" className="px-3.5 py-2">
-              <Empty>{t("views.overviewView.drillPinnedEmpty")}</Empty>
-            </div>
-          ) : (
-            <>
-              {pinned.map((task) => (
-                <div key={task.taskId} data-drill-row={task.taskId}>
-                  <DenseRow
-                    tag={
-                      task.dispatchable ? (
-                        <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
-                      ) : (
-                        <StatusTag status={task.status} />
-                      )
-                    }
-                    title={task.title}
-                    time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
-                    action={
-                      <UnpinIconButton
-                        testId={`overview-unpin-${task.taskId}`}
-                        onClick={() => deps.onUnpin(task.taskId)}
-                        label={t("views.overviewView.unpinRowLabel", { title: task.title })}
-                      />
-                    }
-                    onClick={() => onOpenTask(task.taskId)}
-                  />
-                </div>
-              ))}
-              {/* 非任务实体(Decision、Schedule…)没有任务态与可派档:kind 用协议原词,点行走实体导航。 */}
-              {pinnedOthers.map((entity) => (
-                <div key={entity.ref} data-drill-row={entity.ref}>
-                  <DenseRow
-                    tag={<StatusTag tone="neutral" label={entity.kind} />}
-                    title={entity.title}
-                    action={
-                      <UnpinIconButton
-                        testId={`overview-unpin-${entity.ref}`}
-                        onClick={() => deps.onUnpinEntity(entity.ref)}
-                        label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
-                      />
-                    }
-                    onClick={() => deps.onNavigateEntity(entity.ref)}
-                  />
-                </div>
-              ))}
-            </>
-          ))}
-        {tab === "review" &&
-          review.map((row) => (
-            <div key={row.id} data-drill-row={row.id}>
-              <DenseRow
-                tag={<StatusTag tone="wait" label={REVIEW_GROUP_LABEL[row.group]()} />}
-                title={row.title}
-                time={formatRelative(row.since, { now: deps.now })}
-                onClick={() => onOpenFocus("review", row.id)}
-              />
-            </div>
-          ))}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ 左列:最新产物速览架 */
-
-export { ARTIFACTS_SHELF_LIMIT, OverviewArtifactsShelf } from "./overview-artifacts.tsx";
-
-/* ------------------------------------------------------------------ 放大层列表与详情 */
-
-/** 评审执行放大层的列表:三组混排,组标签区分。 */
-export function ReviewFocusList({
-  rows,
-  selectedId,
-  onSelect,
-  deps,
-}: {
-  readonly rows: readonly ReviewRow[];
-  readonly selectedId: string | null;
-  readonly onSelect: (id: string) => void;
-  readonly deps: OverviewBoardDeps;
-}) {
-  return (
-    <>
-      {rows.map((row) => (
-        <DenseRow
-          key={row.id}
-          tag={<StatusTag tone="wait" label={REVIEW_GROUP_LABEL[row.group]()} />}
-          title={row.title}
-          time={formatRelative(row.since, { now: deps.now })}
-          selected={selectedId === row.id}
-          onClick={() => onSelect(row.id)}
-        />
-      ))}
-    </>
-  );
-}
-
-export function ReviewFocusDetail({ row, deps }: { readonly row: ReviewRow; readonly deps: OverviewBoardDeps }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <StatusTag tone="wait" label={REVIEW_GROUP_LABEL[row.group]()} />
-      <h3 className="text-text ui-title">{row.title}</h3>
-      <p className="ui-meta text-text-muted">
-        {t("views.overviewView.reviewSince", { age: formatRelative(row.since, { now: deps.now }) })}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {row.taskId !== null && (
-          <OverviewActionButton primary onClick={() => deps.onNavigateEntity(taskReviewRef(row.taskId!))}>
-            {t("views.overviewView.actionOpenCloseout")}
-          </OverviewActionButton>
-        )}
-        {row.decisionId !== null && (
-          <OverviewActionButton primary onClick={() => deps.onNavigateEntity(`decision/${row.decisionId}`)}>
-            {t("views.overviewView.actionOpenDecision")}
-          </OverviewActionButton>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** 跟进与返工放大层:不冒充需要用户——琥珀/中性档,行内说明由谁处理。 */
-export function FollowUpsFocusList({
-  rows,
-  selectedId,
-  onSelect,
-  deps,
-}: {
-  readonly rows: readonly FollowUpRow[];
-  readonly selectedId: string | null;
-  readonly onSelect: (id: string) => void;
-  readonly deps: OverviewBoardDeps;
-}) {
-  return (
-    <>
-      {rows.map((row) => (
-        <DenseRow
-          key={row.id}
-          tag={<StatusTag tone={FOLLOW_UP_META[row.kind].tone} label={KIND_LABEL[row.kind]()} />}
-          title={row.title}
-          reason={t(FOLLOW_UP_META[row.kind].note)}
-          time={row.since === null ? null : formatRelative(row.since, { now: deps.now })}
-          selected={selectedId === row.id}
-          onClick={() => onSelect(row.id)}
-        />
-      ))}
-    </>
-  );
-}
-
-export function FollowUpsFocusDetail({ row, deps }: { readonly row: FollowUpRow; readonly deps: OverviewBoardDeps }) {
-  const source = row.source,
-    target =
-      source?.kind === "answered"
-        ? { label: t("components.awaitsAnswer.openSource"), run: () => deps.onNavigateEntity(source.row.sourceRef) }
-        : source?.kind === "rework" || source?.kind === "adjudication"
-          ? {
-              label: t("views.overviewView.actionOpenCloseout"),
-              run: () => deps.onNavigateEntity(taskReviewRef(source.row.taskId)),
-            }
-          : source?.kind === "task"
-            ? { label: t("views.overviewView.actionOpenTask"), run: () => deps.onOpenTask(source.row.taskId) }
-            : null;
-  return (
-    <div className="flex flex-col gap-3">
-      <StatusTag tone={FOLLOW_UP_META[row.kind].tone} label={KIND_LABEL[row.kind]()} />
-      <h3 className="text-text ui-title">{row.title}</h3>
-      <p className="ui-meta text-text-muted">{t(FOLLOW_UP_META[row.kind].note)}</p>
-      {source?.kind === "answered" && (
-        <p className="ui-meta text-text-muted">
-          {t("views.overviewView.answeredWith", { answer: source.row.answer })} ·{" "}
-          {t("components.awaitsAnswer.answeredBy", {
-            actor: actorDisplayName(source.row.answeredBy).name,
-            time: row.since === null ? "" : formatRelative(row.since, { now: deps.now }),
-          })}
-        </p>
-      )}
-      {row.since !== null && (
-        <p className="ui-meta text-text-faint">{formatTime(row.since, { style: "date-time", now: deps.now }) ?? "—"}</p>
-      )}
-      {target !== null && (
-        <div className="flex flex-wrap gap-1.5">
-          <OverviewActionButton primary onClick={target.run}>
-            {target.label}
-          </OverviewActionButton>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 置顶承诺放大层:可派在前,行上可就地取消置顶(pin 写通道);非任务实体排在任务行后。 */
-export function PinnedFocusList({
-  rows,
-  entityRows,
-  selectedId,
-  onSelect,
-  deps,
-}: {
-  readonly rows: readonly PinnedTaskRow[];
-  readonly entityRows: readonly PinnedEntityRow[];
-  readonly selectedId: string | null;
-  readonly onSelect: (id: string) => void;
-  readonly deps: OverviewBoardDeps;
-}) {
-  return (
-    <>
-      {rows.map((task) => (
-        <DenseRow
-          key={task.taskId}
-          tag={
-            task.dispatchable ? (
-              <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
-            ) : (
-              <StatusTag status={task.status} />
-            )
-          }
-          title={task.title}
-          time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
-          action={
-            <UnpinIconButton
-              testId={`overview-unpin-${task.taskId}`}
-              onClick={() => deps.onUnpin(task.taskId)}
-              label={t("views.overviewView.unpinRowLabel", { title: task.title })}
-            />
-          }
-          selected={selectedId === task.taskId}
-          onClick={() => onSelect(task.taskId)}
-        />
-      ))}
-      {entityRows.map((entity) => (
-        <DenseRow
-          key={entity.ref}
-          tag={<StatusTag tone="neutral" label={entity.kind} />}
-          title={entity.title}
-          action={
-            <UnpinIconButton
-              testId={`overview-unpin-${entity.ref}`}
-              onClick={() => deps.onUnpinEntity(entity.ref)}
-              label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
-            />
-          }
-          selected={selectedId === entity.ref}
-          onClick={() => onSelect(entity.ref)}
-        />
-      ))}
-    </>
-  );
-}
-
-export function PinnedFocusDetail({ task, deps }: { readonly task: PinnedTaskRow; readonly deps: OverviewBoardDeps }) {
-  return (
-    <div className="flex flex-col gap-3">
-      {task.dispatchable ? (
-        <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
-      ) : (
-        <StatusTag status={task.status} />
-      )}
-      <h3 className="text-text ui-title">{task.title}</h3>
-      {task.updatedAt !== null && (
-        <p className="ui-meta text-text-muted">
-          {t("views.overviewView.queueUpdatedAt", { age: formatRelative(task.updatedAt, { now: deps.now }) })}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-1.5">
-        <OverviewActionButton primary onClick={() => deps.onOpenTask(task.taskId)}>
-          {task.dispatchable ? t("views.overviewView.actionDispatch") : t("views.overviewView.actionOpenTask")}
-        </OverviewActionButton>
-        <OverviewActionButton onClick={() => deps.onUnpin(task.taskId)}>
-          {t("views.overviewView.actionUnpin")}
-        </OverviewActionButton>
-      </div>
-    </div>
-  );
-}
-
-/** 置顶的非任务实体的放大层详情:没有任务态与可派档,动作只有实体导航与取消置顶。 */
-export function PinnedEntityFocusDetail({
-  row,
-  deps,
-}: {
-  readonly row: PinnedEntityRow;
-  readonly deps: OverviewBoardDeps;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <StatusTag tone="neutral" label={row.kind} />
-      <h3 className="text-text ui-title">{row.title}</h3>
-      <div className="flex flex-wrap gap-1.5">
-        <OverviewActionButton primary onClick={() => deps.onNavigateEntity(row.ref)}>
-          {t("views.overviewView.actionOpenDetail")}
-        </OverviewActionButton>
-        <OverviewActionButton onClick={() => deps.onUnpinEntity(row.ref)}>
-          {t("views.overviewView.actionUnpin")}
-        </OverviewActionButton>
-      </div>
     </div>
   );
 }

@@ -11,12 +11,13 @@ import type {
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
+import type { AttestationPoolLanes } from "../model/attestation-pool.ts";
+import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 import type { SnapshotStatus } from "../model/types";
 import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
 import { workDayGroups } from "../model/workspace-narrative.ts";
 import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
 import type { AgentHandoff, AgentLane, AgentLaneTask } from "../components/agent-ui/AgentLanes.tsx";
-import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 
 /**
  * 总览的纯派生层(2026-10-04 重构:注意力优先;2026-10-20 W2-T1 接入 Orca 五级序数与
@@ -170,37 +171,60 @@ export function needsYouWorkIds(agenda: AgendaSuccess | undefined): ReadonlySet<
 }
 
 /**
- * 「跟进与返工」下钻入口的行:不需要本人动手的五类。tone 一律 wait/neutral——机器/
- * owning CEO 可处理的阻塞与初审不亮红,避免视觉上冒充需要用户;返工的文案只陈述事实
- * (评审打回、待返工),不断言归属,是否需要人由看的人判断。
+ * 「等你处理的事」第三类:任务侧的人签(待我签门禁 / 待我同意收口 / 阻断需特批)。
+ * 判据不在这里重推——直接消费 model/attestation-pool.ts 的同一条派生(与侧栏角标、
+ * 待办签发总池同一读面同一判据),每任务收敛成一行,行上给真实动作。
+ * 2026-10-21 冷眼评估指出的矛盾:「没有等你处理的事项」与侧栏「待办签发 4」并存;
+ * 两类事项同属「等人动手」,总览必须一起呈现,空态才有资格说「没有」。
  */
-export type FollowUpKind = "answered" | "adjudication" | "rework" | "blocked" | "stalled" | "audit-finding";
-
-export interface FollowUpRow {
+export interface AttestationPendingRow {
   readonly id: string;
-  readonly kind: FollowUpKind;
+  readonly taskId: string;
   readonly title: string;
-  readonly workTaskId: string | null;
-  readonly since: string | null;
-  readonly source: AttentionSource | null;
+  /** 三类动作之一:签门禁 / 特批放行 / 同意收口。 */
+  readonly kind: "gate" | "breakGlass" | "consent";
+  /** 具体门名(gate/breakGlass);consent 为 null。 */
+  readonly gateId: string | null;
+  /** 同一任务上还有几项同类动作(一行收敛,计数如实)。 */
+  readonly more: number;
 }
 
-const isFollowUpKind = (kind: AgendaAttentionItem["kind"]): kind is FollowUpKind =>
-  kind === "answered" ||
-  kind === "adjudication" ||
-  kind === "rework" ||
-  kind === "blocked" ||
-  kind === "stalled" ||
-  kind === "audit-finding";
-
-export function followUpRows(agenda: AgendaSuccess | undefined): readonly FollowUpRow[] {
-  if (agenda === undefined) return [];
-  return [...attentionEntries(agenda, "mine"), ...attentionEntries(agenda, "stuck")].flatMap(
-    ({ item, since, source }) => {
-      if (!isFollowUpKind(item.kind)) return [];
-      return [{ id: item.ref, kind: item.kind, title: item.title, workTaskId: item.workTaskId, since, source }];
-    },
-  );
+export function attestationPendingRows(lanes: AttestationPoolLanes): readonly AttestationPendingRow[] {
+  // 每任务一行:动作都落在同一个任务详情,门名保留第一项,其余只在 more 里如实计数。
+  const byTask = new Map<string, { row: AttestationPendingRow; count: number }>();
+  const add = (row: AttestationPendingRow): void => {
+    const held = byTask.get(row.taskId);
+    if (held === undefined) byTask.set(row.taskId, { row, count: 1 });
+    else held.count += 1;
+  };
+  for (const gate of lanes.gates)
+    add({
+      id: `${gate.taskId}:${gate.gateId}`,
+      taskId: gate.taskId,
+      title: gate.taskTitle,
+      kind: "gate",
+      gateId: gate.gateId,
+      more: 0,
+    });
+  for (const gate of lanes.breakGlass)
+    add({
+      id: `${gate.taskId}:${gate.gateId}`,
+      taskId: gate.taskId,
+      title: gate.taskTitle,
+      kind: "breakGlass",
+      gateId: gate.gateId,
+      more: 0,
+    });
+  for (const consent of lanes.consents)
+    add({
+      id: `${consent.taskId}:consent`,
+      taskId: consent.taskId,
+      title: consent.taskTitle,
+      kind: "consent",
+      gateId: null,
+      more: 0,
+    });
+  return [...byTask.values()].map(({ row, count }) => ({ ...row, more: count - 1 }));
 }
 
 /** live 会话一行(who = kind · model):关注工作卡的「处理者」与安静状态行的计数来源。 */
@@ -231,9 +255,9 @@ export function runRows(
     .map((session) => {
       const taskId = session.associations[0]?.taskId ?? null,
         definition = session.definitionSnapshot,
-        // model 字段允许是候选清单的 JSON 数组文本(声明 schema 只要非空字符串):
-        // 主表面只给列表短标签(首个候选 +N),原文不上屏(X2)。解析失败/空串退化成 kindId。
-        model = definition === null ? null : runtimeModelShortLabel(definition.model);
+        // 会话型运行时把候选清单写进 model(JSON 数组文本):列表行只给短标签,完整
+        // 候选悬停可见,元组字符串不进正文(解析单点在 model/runtime-models.ts)。
+        model = runtimeModelShortLabel(definition?.model);
       return {
         runtimeSessionId: session.runtimeSessionId,
         who: model === null ? session.kindId : `${session.kindId} · ${model}`,
@@ -313,7 +337,8 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
  * 2. 静止待命中置顶优先:均无 live 会话在跑时,显式置顶的非终态工作保留在前,近期活跃工作列于其后;
  * 3. 最新活动倒序:同等状态组内(同为在跑、同为待命置顶、同为待命近期),按最近活动时间(lastActivityAt)倒序排列(新活动在前);
  * 4. 稳定兜底:时间相同时平滑回退至注意力最高分降序、本人卡点数与 taskId 定序。
- * 此外:处于活跃执行状态的工作即使超出活动窗口天数,也绝不被截断隐藏。已收尾的置顶工作不进列表,只计数提及。
+ * 此外:处于活跃执行状态的工作即使超出活动窗口天数,也绝不被截断隐藏;已收尾的置顶工作
+ * 仍然列出(业主 2026-10-21:不管 pin 什么,总览上都要能看到),只是按终态沉到后面。
  */
 export interface WatchedWork {
   readonly work: WorkRow;
@@ -330,7 +355,7 @@ export function watchedWorks(
   agenda: AgendaSuccess | undefined,
   activity?: { readonly days: number; readonly now: string },
   runtime?: AgentRuntimeOverviewResult | undefined,
-): { readonly watched: readonly WatchedWork[]; readonly pinnedClosed: number } {
+): readonly WatchedWork[] {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
   const needsYouIds = needsYouWorkIds(agenda);
@@ -339,10 +364,6 @@ export function watchedWorks(
       .filter((entity) => entity.kind === "task")
       .map((entity) => entity.ref.replace(/^task\//u, "")),
   );
-  const pinnedClosed = [...pinnedIds].filter((id) => {
-    const row = rows.find((entry) => entry.taskId === id);
-    return row !== undefined && TERMINAL_WORK.has(row.status);
-  }).length;
   const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000;
   const runningOf = (taskId: string, memberTaskIds: readonly string[]): number =>
     workHandlers(runtime, taskId, memberTaskIds).length > 0 ? 1 : 0;
@@ -352,9 +373,8 @@ export function watchedWorks(
     memberTaskIds: members.get(work.taskId) ?? [],
   });
 
-  const pinnedEntries = rows
-    .filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status))
-    .map(entryOf("pinned"));
+  // 置顶的工作根一律列出,含已收尾的:pin 是业主的显式承诺,终态只影响排序,不隐藏。
+  const pinnedEntries = rows.filter((row) => pinnedIds.has(row.taskId)).map(entryOf("pinned"));
   const recentEntries = rows
     .filter((row) => {
       if (pinnedIds.has(row.taskId) || TERMINAL_WORK.has(row.status)) return false;
@@ -365,6 +385,11 @@ export function watchedWorks(
     .map(entryOf("recent"));
 
   const watched = [...pinnedEntries, ...recentEntries].sort((left, right) => {
+    // -1. 已收尾的置顶工作仍列出,但沉到非终态之后:它们不再需要注意力,只是仍被 pin 住。
+    const leftTerminal = TERMINAL_WORK.has(left.work.status) ? 1 : 0;
+    const rightTerminal = TERMINAL_WORK.has(right.work.status) ? 1 : 0;
+    if (rightTerminal !== leftTerminal) return leftTerminal - rightTerminal;
+
     // 0. Needs you 绝对顶置(Orca 五级序数的第 1 级,dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):
     //    名下有 awaiting-you/待点头项的工作排在一切运行态之前——它卡在等人,不是在干活。
     const leftNeedsYou = needsYouIds.has(left.work.taskId) ? 1 : 0;
@@ -401,7 +426,7 @@ export function watchedWorks(
     );
   });
 
-  return { watched, pinnedClosed };
+  return watched;
 }
 
 /**
@@ -471,6 +496,13 @@ const LANE_ACTIVITY_OF_DISPATCH: Readonly<Record<TaskDispatchProjectionRow["stat
   lost: "idle",
 };
 
+/** 派工行的这一步:reviewTarget 是 daemon 对「这次派工在评审什么」的直接读法。 */
+function stageOfDispatch(row: TaskDispatchProjectionRow): AgentLaneStage {
+  if (row.reviewTarget?.kind === "decision") return "review-decision";
+  if (row.reviewTarget?.kind === "task") return "review-task";
+  return "implementation";
+}
+
 /** 组轮次状态词(session 词表)→ 泳道块状态。 */
 const LANE_ACTIVITY_OF_ROUND: Readonly<Record<AgentRuntimeSessionGroupDto["latestStatus"], AgentActivity>> = {
   running: "running",
@@ -488,6 +520,9 @@ const LANE_ACTIVITY_OF_ROUND: Readonly<Record<AgentRuntimeSessionGroupDto["lates
 /** 组级 latestStatus 的终态集合(非 running 即视为已收口,块给确定的 endAt)。 */
 const GROUP_RUNNING: ReadonlySet<AgentRuntimeSessionGroupDto["latestStatus"]> = new Set(["running"]);
 
+/** 块在生命周期的哪一步:实现(普通派工)或评审(派工头带 reviewTarget)。 */
+export type AgentLaneStage = "implementation" | "review-task" | "review-decision";
+
 export interface AgentLaneBlockSource {
   /** 块归属任务的 id(待拍板动作的落点)。 */
   readonly taskId: string;
@@ -495,6 +530,8 @@ export interface AgentLaneBlockSource {
   readonly runtimeSessionId: string | null;
   /** 该块当前挂未决 awaits(动作开答复面板而不是跳任务)。 */
   readonly awaiting: boolean;
+  /** 这一步是派工行 reviewTarget 的直接读法;兜底块没有派工行时为 null(不猜)。 */
+  readonly stage: AgentLaneStage | null;
 }
 
 export interface OverviewAgentLanes {
@@ -582,6 +619,7 @@ export function agentLanesOf(input: {
           taskId: row.taskId,
           runtimeSessionId: row.runtimeSessionId,
           awaiting: awaitingRow !== undefined,
+          stage: stageOfDispatch(row),
         });
         if (running) runningSessionIds.push(row.runtimeSessionId);
         dispatchRows.push(row);
@@ -598,7 +636,6 @@ export function agentLanesOf(input: {
         const blockId = round.dispatchId ?? round.runtimeSessionId;
         tasks.push({
           id: blockId,
-          // 兜底块的块 id 是派工/会话 id;跳转要用 group 上的真 taskId,没有就不给点击入口。
           ...(group.taskId === undefined ? {} : { taskId: group.taskId }),
           label: group.taskId === undefined ? group.label : (input.taskTitles.get(group.taskId) ?? group.label),
           startAt: Date.parse(round.startedAt),
@@ -617,6 +654,8 @@ export function agentLanesOf(input: {
             taskId: group.taskId,
             runtimeSessionId: round.runtimeSessionId,
             awaiting: awaitingRow !== undefined,
+            // 组头轮次没有 reviewTarget(它只在派工行上):没读面就不给这一步,不猜。
+            stage: null,
           });
         }
       }
@@ -639,6 +678,63 @@ export function agentLanesOf(input: {
     });
   }
   return { lanes, handoffs, blockOf, runningSessionIds };
+}
+
+/* ------------------------------------------------------------------ 在跑的任务(2026-10-21 总览四块) */
+
+/** 「在跑的任务」的行(窄行高密度):标题、谁在跑、起点、卡点问句。 */
+export interface RunningTaskRow {
+  /** 泳道块 id(dispatchId 或兜底会话 id);行上「待拍板」动作经 blockOf 接回源。 */
+  readonly id: string;
+  readonly taskId: string;
+  readonly title: string;
+  /** 执行 agent 的可读名(泳道 role,sessionGroups 的分组标签)。 */
+  readonly agent: string;
+  /** 模型短标签(成员派工页的 provider.model,候选清单已收短);无派工行时为 null。 */
+  readonly model: string | null;
+  /** 块起点(ms):「跑了多久」的分母。 */
+  readonly startedAt: number;
+  /** 卡点问句(blocked 且挂未决 awaits 时);null = 正在运行。 */
+  readonly awaiting: string | null;
+  /** 这一步:实现或评审(派工行 reviewTarget);兜底块没有派工行时为 null。 */
+  readonly stage: AgentLaneStage | null;
+}
+
+/**
+ * 「在跑的任务」的窄行名单(2026-10-21 业主 13:50 定案):从 agentLanesOf 的产物派生,
+ * 不另立第二份窗口/兜底/awaits 拼装——泳道(任务弹层/现场页)与名单是同一份块模型的
+ * 两个视图。同一任务多 agent 并行时收敛为一行(卡点优先于运行,再比起始新者),列表
+ * 本身按同一准则排序:卡住的在前(业主要看「卡在哪」),其余按起始倒序。
+ */
+export function runningTaskRows(
+  model: OverviewAgentLanes,
+  modelOf: ReadonlyMap<string, string | null>,
+): readonly RunningTaskRow[] {
+  const byTask = new Map<string, RunningTaskRow>();
+  // 行序:卡点(挂未决 awaits/blocked)优先于运行,同级按起始时间倒序(新的在前)。
+  const comesBefore = (left: RunningTaskRow, right: RunningTaskRow): boolean =>
+    (left.awaiting === null) !== (right.awaiting === null) ? left.awaiting !== null : left.startedAt > right.startedAt;
+  for (const lane of model.lanes) {
+    for (const task of lane.tasks) {
+      // 已收口/失败的块不是「在跑」;无任务归属的兜底块没有落点,不进名单。
+      const source = model.blockOf.get(task.id);
+      if (source === undefined) continue;
+      if (task.status !== "running" && task.status !== "awaiting") continue;
+      const row: RunningTaskRow = {
+        id: task.id,
+        taskId: source.taskId,
+        title: task.label,
+        agent: lane.role,
+        model: modelOf.get(task.id) ?? null,
+        startedAt: task.startAt,
+        awaiting: task.awaiting?.question ?? null,
+        stage: source.stage,
+      };
+      const held = byTask.get(row.taskId);
+      if (held === undefined || comesBefore(row, held)) byTask.set(row.taskId, row);
+    }
+  }
+  return [...byTask.values()].sort((left, right) => (comesBefore(left, right) ? -1 : comesBefore(right, left) ? 1 : 0));
 }
 
 /** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)
@@ -763,115 +859,4 @@ export function pinnedEntityRows(agenda: AgendaSuccess | undefined): readonly Pi
   return agenda.pinnedEntities
     .filter((entity) => entity.kind !== "task")
     .map((entity) => ({ ref: entity.ref, kind: entity.kind, title: entity.title }));
-}
-
-/** 评审与合并的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */
-export interface ReviewRow {
-  readonly id: string;
-  readonly group:
-    | "rework"
-    | "adjudication"
-    | "taskReviewing"
-    | "decisionNeedsReview"
-    | "decisionReviewing"
-    | "decisionPending";
-  readonly title: string;
-  readonly detail: string | null;
-  readonly since: string;
-  readonly taskId: string | null;
-  readonly decisionId: string | null;
-}
-
-export function reviewRows(agenda: AgendaSuccess | undefined): readonly ReviewRow[] {
-  if (agenda === undefined) return [];
-  return [
-    ...agenda.awaitingRework.map((row): ReviewRow => {
-      const entry: ReviewRow = {
-        id: `rework:${row.taskId}`,
-        group: "rework",
-        title: row.title,
-        detail: null,
-        since: row.updatedAt,
-        taskId: row.taskId,
-        decisionId: null,
-      };
-      return entry;
-    }),
-    ...agenda.awaitingAdjudication.map(
-      (row): ReviewRow => ({
-        id: `adjudication:${row.executionId}`,
-        group: "adjudication",
-        title: row.title,
-        detail: null,
-        since: row.submittedAt,
-        taskId: row.taskId,
-        decisionId: null,
-      }),
-    ),
-    ...agenda.underReview.map(
-      (row): ReviewRow => ({
-        id: `taskReviewing:${row.executionId}`,
-        group: "taskReviewing",
-        title: row.title,
-        detail: null,
-        since: row.submittedAt,
-        taskId: row.taskId,
-        decisionId: null,
-      }),
-    ),
-    ...agenda.awaitingDecisionReview.map(
-      (row): ReviewRow => ({
-        id: `decisionNeedsReview:${row.decisionId}`,
-        group: "decisionNeedsReview",
-        title: row.title,
-        detail: null,
-        since: row.proposedAt,
-        taskId: null,
-        decisionId: row.decisionId,
-      }),
-    ),
-    ...agenda.decisionReviewInProgress.flatMap((row): ReviewRow[] => [
-      {
-        id: `decisionReviewing:${row.decisionId}`,
-        group: "decisionReviewing",
-        title: row.title,
-        detail: null,
-        since: row.proposedAt,
-        taskId: null,
-        decisionId: row.decisionId,
-      },
-    ]),
-    ...agenda.awaitingDecision.map(
-      (row): ReviewRow => ({
-        id: `decisionPending:${row.decisionId}`,
-        group: "decisionPending",
-        title: row.title,
-        detail: null,
-        since: row.proposedAt,
-        taskId: null,
-        decisionId: row.decisionId,
-      }),
-    ),
-  ];
-}
-
-/** ReviewRow 的评审计数分布(下钻入口与放大层顶部计数条用)。 */
-export function reviewCounts(rows: readonly ReviewRow[]): {
-  readonly rework: number;
-  readonly adjudication: number;
-  readonly taskReviewing: number;
-  readonly decisionNeedsReview: number;
-  readonly decisionReviewing: number;
-  readonly decisionPending: number;
-} {
-  const counts = {
-    rework: 0,
-    adjudication: 0,
-    taskReviewing: 0,
-    decisionNeedsReview: 0,
-    decisionReviewing: 0,
-    decisionPending: 0,
-  };
-  for (const row of rows) counts[row.group] += 1;
-  return counts;
 }

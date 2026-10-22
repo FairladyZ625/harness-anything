@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
-import { artifactsClient, artifactsQueryKeys } from "./artifacts-client.ts";
 import { harnessClient, type TaskDispatchMemberRead } from "./api-client.ts";
 import { agentRuntimeClient, pollSessionEventsOnce, runtimeQueryKeys } from "./agent-runtime-client.ts";
 import { cadenceEventOf, type CadenceFeedEvent } from "./model/cadence.ts";
@@ -50,22 +49,6 @@ export function overviewRuntimeQuery(repoId: string) {
 /** 执行中:repo 级 runtime overview(与研发态势同一读面,key 共享去重;cut 扇出覆盖)。 */
 export function useOverviewRuntime(repoId: string | null) {
   return useQuery({ ...overviewRuntimeQuery(repoId ?? "unselected"), enabled: repoId !== null });
-}
-
-/**
- * 最新 HTML 产物速览架的读面(task_8a83698):与产物页共用同一条 `repo.artifacts.list`
- * 缓存(artifactsQueryKeys 同 key),台账 cut 扇出失效它,这里不立任何轮询。
- */
-export function useOverviewArtifacts(repoId: string | null) {
-  const selectedRepoId = repoId ?? "unselected";
-  return useQuery({
-    queryKey: artifactsQueryKeys.list(selectedRepoId, "html"),
-    queryFn: () => artifactsClient.list(selectedRepoId, "html"),
-    enabled: repoId !== null,
-    staleTime: 60_000,
-    gcTime: 300_000,
-    retry: 1,
-  });
 }
 
 /* ------------------------------------------------------------------ Agent 泳道读面(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4) */

@@ -51,7 +51,6 @@ import {
 } from "./task-data.ts";
 import { harnessClient } from "./api-client.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
-import { useOverviewArtifacts } from "./overview-data.ts";
 import {
   FULL_TRIADIC_PROJECTION_VIEWS,
   useActiveEdgesQuery,
@@ -183,7 +182,6 @@ function AppShell() {
     useAppLocation(projectId);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
-  useOverviewArtifacts(activeRepoId);
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
@@ -627,6 +625,7 @@ function AppShell() {
                     titles={taskTitles}
                     workspaceSummary={workspaceSummaryQuery.data}
                     health={runtimeHealth}
+                    tasks={projectTasks}
                     collaboration={collaborationSummary}
                     onNavigateEntity={navigateToEntity}
                     onOpenTask={(taskId, docPath) => {
@@ -638,18 +637,20 @@ function AppShell() {
                     onOpenWorks={() => goto("work")}
                     onOpenTasks={() => goto("board")}
                     onOpenCollaboration={() => goto("collaboration")}
+                    onOpenPool={() => goto("decisionPool")}
+                    onOpenSignoffs={(taskId) =>
+                      // 人签落点与堵点直达同一可寻址路由:总池任务收口域 + 任务焦点。
+                      navigate({
+                        view: "decisionPool",
+                        poolTab: "taskCloseout",
+                        focusedEntityRef: `task/${taskId}`,
+                        selectedId: null,
+                        previewId: null,
+                        drill: null,
+                      })
+                    }
                     onUnpin={(taskId) => handleSetPin({ taskId }, false)}
                     onUnpinEntity={handleUnpinEntity}
-                    // 总览页内层(产物二级页/放大层)走全局导航历史:开层推栈、层内换选中
-                    // 原地改、关层弹栈(栈底恢复的孤立层条目原地收层)——与预览抽屉同一
-                    // 条路径(业主 2026-10-11「有的页面能退能进,有的不能」)。
-                    overviewLayer={{
-                      overviewArtifactId: location.overviewArtifactId ?? null,
-                      overviewFocus: location.overviewFocus ?? null,
-                    }}
-                    onOverviewLayerNavigate={navigate}
-                    onOverviewLayerPatch={updateLocation}
-                    onOverviewLayerClose={(fields) => (canBack ? back() : updateLocation(fields))}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />

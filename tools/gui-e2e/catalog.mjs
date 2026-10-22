@@ -49,10 +49,8 @@ import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import taskReturnChoice from "./scenarios/task-return-choice.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
-import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewLaneBlockOpenTask from "./scenarios/overview-lane-block-open-task.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
-import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
 import overviewSplitBoard from "./scenarios/overview-split-board.mjs";
 import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-default.mjs";
 import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
@@ -120,10 +118,8 @@ export const catalog = [
   decisionSupersedeChain,
   taskCloseoutLongValues,
   pageSplitLayout,
-  overviewWipRegion,
   overviewLaneBlockOpenTask,
   overviewAttentionFocus,
-  overviewArtifactsShelf,
   overviewSplitBoard,
   taskDetailExplainerDefault,
   tokenUsageCosts,

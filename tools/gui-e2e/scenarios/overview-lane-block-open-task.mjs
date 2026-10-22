@@ -2,47 +2,35 @@ import assert from "node:assert/strict";
 import { nav } from "./helpers.mjs";
 
 /**
- * R8/R9 验收场景(GUI 验收 RETURN,dispatch_4298530a9dea90304dedf328):证明「点泳道块
- * 打开对应任务」与「任务预览里按需展开该任务的执行泳道」两条闭环真的在 Electron 里跑通,
- * 而不是只有单测覆盖。
+ * 总览任务列表与任务预览泳道场景:证明任务行能打开对应任务,任务预览里能按需展开
+ * 该任务的执行泳道,而不是只有单测覆盖。
  *
  * 数据用隔离 lane 的夹具(不是 canonical 只读挂载):`task-e2e-lanes` 有一轮真实派工,
- * 总览「进行中的任务」里画得出带 taskId 的块。canonical 仓库此刻只有一个 live 会话
- * (本 worker 自己),没有第二个可点的块,所以这条证据只能在隔离 lane 里种出来。
+ * 总览「在跑的任务」里有真实任务行。canonical 仓库此刻没有稳定的任务样本,
+ * 所以这条证据只能在隔离 lane 里种出来。
  *
  * 断言顺序与业主看到的一致:
- * ① 块有 button 语义、可读标签、点得动;② 点块落到该任务详情(复用现有导航入口);
+ * ① 总览任务行可点且标题可读;② 点行落到该任务详情(复用现有导航入口);
  * ③ 同一条任务从看板开预览抽屉(业主 5.1:扫一眼就回去 → 抽屉);
  * ④ 预览里有「展开泳道」入口,展开后画出该任务的真实轮次块(不是生命周期条冒充)。
  */
 export default {
-  id: "overview-lane-block-open-task",
+  id: "overview-task-preview-lanes",
   feature: "overview",
   lane: "isolated",
-  description: "Clicking a lane block opens its task; the task preview expands that task's lanes on demand.",
+  description: "A running task row opens its task; the task preview expands that task's lanes on demand.",
   async run({ page, shot, assertBackground }) {
     await nav(page, /^(?:总览|Overview)$/u, "overview-view");
 
-    // ① 总览「执行与下钻 → 进行中的任务」:至少一块带 taskId 的真任务块(role=button)。
-    await page.getByTestId("overview-drill-wip").click();
-    await page.getByTestId("overview-agent-lanes").waitFor({ timeout: 20_000 });
-    await page.waitForFunction(
-      () =>
-        [...globalThis.document.querySelectorAll('[data-testid^="overview-agent-lanes-task-"]')].some(
-          (node) => node.getAttribute("role") === "button",
-        ),
-      null,
-      { timeout: 20_000 },
-    );
-    const clickable = page.locator('[data-testid^="overview-agent-lanes-task-"][role="button"]').first();
-    const blockLabel = await clickable.getAttribute("aria-label");
-    assert.ok(blockLabel !== null && blockLabel.trim() !== "", "the clickable lane block must carry a readable label");
-    // 没有 taskId 的兜底块是 role=group 的纯展示块:这里断言的是真入口,不是兜底块。
-    assert.equal(await clickable.getAttribute("role"), "button");
-    await shot("01-overview-lane-block-clickable");
+    // ① 总览「在跑的任务」:真实任务名一行展示,点击行进入任务详情。
+    const runningRow = page.locator('[data-running-row="task-e2e-lanes"]');
+    await runningRow.waitFor({ timeout: 20_000 });
+    const rowText = (await runningRow.innerText()).trim();
+    assert.ok(rowText.includes("并行 Agent 泳道时间线"), `the running row must show its task title: ${rowText}`);
+    await shot("01-overview-running-task-row");
 
     // ② 点块 → 该任务详情。标题必须是人话任务名(不是派工/执行 id)。
-    await clickable.click();
+    await runningRow.click();
     await page.getByTestId("task-detail-view").waitFor({ timeout: 20_000 });
     const detailTitle = (await page.locator('[data-testid="task-detail-header"] h1').first().innerText()).trim();
     assert.ok(detailTitle !== "", "the task detail must show a human task title");
