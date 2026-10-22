@@ -11,10 +11,16 @@ const quota =
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 
-/** Codex reports a stream reconnect as a plain `error` frame that carries the provider's own
- * `n/m` budget. It is a transport event, not a turn failure: the attempt keeps running, and a
- * turn that ends right after the budget is spent may still answer as if it had finished. */
-const reconnect = /^Reconnecting\.\.\. (\d+)\/(\d+) \(([^)]*)\)$/iu;
+/** Codex reports a stream reconnect as a plain `error` frame whose message starts with
+ * `Reconnecting...`. It is a transport event, not a turn failure: the attempt keeps running, and a
+ * turn that ends right after the budget is spent may still answer as if it had finished.
+ *
+ * The `n/m` budget is optional — `Reconnecting... waiting for network (...)` and proxy/websocket
+ * errors arrive without one — and the provider's detail is free text that may itself contain
+ * parentheses and newlines (`Connection reset by peer (os error 54)`, an HTML 502 body). So the
+ * prefix is the marker, and the budget and detail are parsed separately from it. */
+const reconnectPrefix = /^Reconnecting\.\.\.[ \t]*/iu,
+  reconnectBudget = /^(\d+)\s*\/\s*(\d+)(?=[ \t]*\(|[ \t]*$)/u;
 
 export function providerReconnectFromFrame(
   kindId: RuntimeInstanceKind,
@@ -26,13 +32,17 @@ export function providerReconnectFromFrame(
 }
 
 export function reconnectFromDiagnostic(diagnostic: string): ProviderReconnect | null {
-  const match = reconnect.exec(diagnostic.trim());
-  if (!match) return null;
-  const attempt = Number(match[1]),
-    limit = Number(match[2]);
-  return Number.isInteger(attempt) && Number.isInteger(limit) && limit > 0
-    ? { attempt, limit, diagnostic: diagnostic.trim() }
-    : null;
+  const text = diagnostic.trim(),
+    prefix = reconnectPrefix.exec(text);
+  if (!prefix) return null;
+  const rest = text.slice(prefix[0].length),
+    budget = reconnectBudget.exec(rest),
+    attempt = budget === null ? null : Number(budget[1]),
+    limit = budget === null ? null : Number(budget[2]),
+    counted = attempt !== null && limit !== null && Number.isInteger(attempt) && Number.isInteger(limit) && limit > 0;
+  // The full message stays the diagnostic: it is what the provider said, and the reason quotes it
+  // verbatim after naming whichever budget the frame carried.
+  return { attempt: counted ? attempt : null, limit: counted ? limit : null, diagnostic: text };
 }
 
 export function providerFaultFromFrame(
@@ -186,7 +196,11 @@ function reconnectExhaustedTail(active: ActiveRuntime): boolean {
 
 function reconnectExhaustedReason(active: ActiveRuntime): string {
   const last = active.lastProviderReconnect,
-    diagnostic = last ? ` (${String(last.attempt)}/${String(last.limit)}): ${last.diagnostic}` : ".";
+    budget =
+      last !== null && last.attempt !== null && last.limit !== null
+        ? ` (${String(last.attempt)}/${String(last.limit)})`
+        : "",
+    diagnostic = last ? `${budget}: ${last.diagnostic}` : ".";
   return (
     `Provider stream reconnected ${String(active.providerReconnectCount)} time(s) and the attempt ` +
     `closed after the last reconnect without a successful tool call${diagnostic}`

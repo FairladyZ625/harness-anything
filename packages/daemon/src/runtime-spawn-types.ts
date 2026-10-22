@@ -238,11 +238,12 @@ export type ProviderFrame = {
   readonly observedCurrentModel?: string;
 };
 
-/** One provider stream reconnect: `attempt`/`limit` come from the provider's own counter, so an
- * operator can see how much of the budget the attempt had left when the tail was written. */
+/** One provider stream reconnect. Codex spends a bounded `attempt/limit` budget on most of them, but
+ * not all: `Reconnecting... waiting for network (...)` carries no budget, so both fields are null
+ * there. `diagnostic` is the provider's own detail text, never the local reasoning about it. */
 export type ProviderReconnect = {
-  readonly attempt: number;
-  readonly limit: number;
+  readonly attempt: number | null;
+  readonly limit: number | null;
   readonly diagnostic: string;
 };
 

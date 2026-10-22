@@ -16,7 +16,9 @@ type SkeletonFrame =
   | { readonly kind: "turn.completed" }
   | { readonly kind: "reconnect"; readonly message: string }
   | { readonly kind: "agent_message" }
-  | { readonly kind: "tool"; readonly ok: number; readonly failed: number };
+  | { readonly kind: "tool"; readonly ok: number; readonly failed: number }
+  | { readonly kind: "web_search"; readonly results: number | null }
+  | { readonly kind: "collab" };
 
 const okTool = (count: number): SkeletonFrame[] =>
   Array.from({ length: count }, () => ({ kind: "tool" as const, ok: 1, failed: 0 }));
@@ -216,6 +218,85 @@ test("a failed tool call after the last reconnect does not prove recovery", () =
   assert.equal(result.classification, "provider_fault");
 });
 
+test("a web_search that returned results after the last reconnect proves recovery", () => {
+  const frames: SkeletonFrame[] = [
+      { kind: "thread.started" },
+      busy,
+      { kind: "web_search", results: 3 },
+      { kind: "agent_message" },
+      { kind: "turn.completed" },
+    ],
+    result = classifyRuntimeExit(replay(frames), 0);
+  assert.equal(
+    result.classification,
+    "worker_stop",
+    "a settled search with results is a served tool call, like any other completed tool",
+  );
+});
+
+test("a web_search that never returned results does not prove recovery", () => {
+  const result = classifyRuntimeExit(
+    replay([
+      { kind: "thread.started" },
+      busy,
+      { kind: "web_search", results: null },
+      { kind: "agent_message" },
+      { kind: "turn.completed" },
+    ]),
+    0,
+  );
+  assert.equal(
+    result.classification,
+    "provider_fault",
+    "80 of the archive's 286 completed web_search frames carry no results field: the call never settled",
+  );
+});
+
+test("a web_search that settled with zero hits still proves recovery", () => {
+  // The results array is present but empty, which is a real answer ("nothing matched"), not a
+  // dropped call. Only its absence means the provider never served the search.
+  const result = classifyRuntimeExit(
+    replay([
+      { kind: "thread.started" },
+      busy,
+      { kind: "web_search", results: 0 },
+      { kind: "agent_message" },
+      { kind: "turn.completed" },
+    ]),
+    0,
+  );
+  assert.equal(result.classification, "worker_stop");
+});
+
+test("a settled collab_tool_call after the last reconnect proves recovery", () => {
+  const frames: SkeletonFrame[] = [
+      { kind: "thread.started" },
+      busy,
+      { kind: "collab" },
+      { kind: "agent_message" },
+      { kind: "turn.completed" },
+    ],
+    result = classifyRuntimeExit(replay(frames), 0);
+  assert.equal(result.classification, "worker_stop", "the sub-agent tool is a tool call, not a message");
+});
+
+test("the tool success predicate states each Codex item type explicitly", () => {
+  const success = (item: Record<string, unknown>): boolean | undefined =>
+    parseProviderFrame("codex", { type: "item.completed", item }).toolCallSucceeded;
+  assert.equal(success({ id: "1", type: "command_execution", status: "completed", exit_code: 0 }), true);
+  assert.equal(success({ id: "2", type: "command_execution", status: "completed", exit_code: 2 }), false);
+  assert.equal(success({ id: "3", type: "command_execution", status: "failed", exit_code: 1 }), false);
+  assert.equal(success({ id: "4", type: "file_change", status: "completed", changes: [] }), true);
+  assert.equal(success({ id: "5", type: "file_change", status: "failed", changes: [] }), false);
+  assert.equal(success({ id: "6", type: "mcp_tool_call", status: "completed", server: "s", tool: "t" }), true);
+  assert.equal(success({ id: "7", type: "mcp_tool_call", status: "failed", server: "s", tool: "t" }), false);
+  // The archive's web_search frames carry neither status nor exit_code (286/286), so those two
+  // fields cannot decide them; `results` is the outcome the provider actually reports.
+  assert.equal(success({ id: "8", type: "web_search", query: "q", action: { type: "search" }, results: [] }), true);
+  assert.equal(success({ id: "9", type: "web_search", query: "q", action: { type: "search" } }), false);
+  assert.equal(success({ id: "10", type: "collab_tool_call", status: "completed", tool: "wait" }), true);
+});
+
 test("a reconnect after which the attempt never answers is not a drained tail", () => {
   const frames: SkeletonFrame[] = [{ kind: "thread.started" }, busy, { kind: "turn.completed" }],
     result = classifyRuntimeExit(replay(frames), 0);
@@ -243,6 +324,55 @@ test("reconnect frames stay provider events, never provider faults", () => {
     undefined,
     "the budget frame is Codex's protocol",
   );
+});
+
+test("every reconnect form found in the archive is recognized", () => {
+  // Byte-for-byte the seven distinct messages that the old `n/m (...) }$` pattern rejected: 21
+  // frames across 8 dispatches, including two streams whose *last* reconnect was one of these.
+  // Whatever the provider puts inside the detail — nested parentheses, a socket errno, the body of
+  // an nginx 502, or no budget at all — the frame is still a reconnect.
+  const messages = [
+    "Reconnecting... waiting for network (Connection failed: error sending request)",
+    "Reconnecting... 1/5 (stream disconnected before completion: Upstream rate limit exceeded, please retry later (request id: 202609071812552766244088268d9d6whPMtuds))",
+    "Reconnecting... 2/5 (stream disconnected before completion: Connection reset by peer (os error 54))",
+    "Reconnecting... 3/5 (stream disconnected before completion: Connection reset by peer (os error 54))",
+    "Reconnecting... 1/5 (stream disconnected before completion: websocket: close 1006 (abnormal closure): unexpected EOF)",
+    "Reconnecting... 2/5 (stream disconnected before completion: websocket: close 1006 (abnormal closure): unexpected EOF)",
+    "Reconnecting... 2/5 (unexpected status 502 Bad Gateway: <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx/1.18.0 (Ubuntu)</center>\r\n</body>\r\n</html>, url: https://token.qianbaner.top/v1/responses)",
+  ];
+  for (const message of messages) {
+    const reconnect = parseProviderFrame("codex", { type: "error", message }).providerReconnect;
+    assert.ok(reconnect, `unrecognized reconnect: ${message.slice(0, 60)}`);
+    assert.equal(reconnect.diagnostic, message, "the reason quotes the provider verbatim");
+  }
+  assert.deepEqual(
+    messages.map((message) => parseProviderFrame("codex", { type: "error", message }).providerReconnect),
+    [
+      { attempt: null, limit: null, diagnostic: messages[0] },
+      { attempt: 1, limit: 5, diagnostic: messages[1] },
+      { attempt: 2, limit: 5, diagnostic: messages[2] },
+      { attempt: 3, limit: 5, diagnostic: messages[3] },
+      { attempt: 1, limit: 5, diagnostic: messages[4] },
+      { attempt: 2, limit: 5, diagnostic: messages[5] },
+      { attempt: 2, limit: 5, diagnostic: messages[6] },
+    ],
+    "the budget is parsed when present and left null when the frame has none",
+  );
+});
+
+test("a frame without a budget still counts as a reconnect and flips the drained tail", () => {
+  const frames: SkeletonFrame[] = [
+      { kind: "thread.started" },
+      { kind: "reconnect", message: "Reconnecting... waiting for network (Connection failed: error sending request)" },
+      { kind: "agent_message" },
+      { kind: "turn.completed" },
+    ],
+    runtime = replay(frames),
+    result = classifyRuntimeExit(runtime, 0);
+  assert.equal(runtime.providerReconnectCount, 1);
+  assert.equal(result.classification, "provider_fault");
+  assert.match(result.reason, /reconnected 1 time\(s\)/u);
+  assert.match(result.reason, /waiting for network \(Connection failed: error sending request\)/u);
 });
 
 /** Feeds the skeleton through the same parse and observation entry points the daemon uses. */
@@ -293,6 +423,34 @@ function valuesOf(frame: SkeletonFrame): readonly Record<string, unknown>[] {
       })),
     ];
   }
+  if (frame.kind === "web_search") {
+    // Archive shape: web_search carries no status and no exit_code; `results` is its only outcome.
+    // 206 of 286 completed web_search frames have results, 80 have none.
+    const item: Record<string, unknown> = {
+      id: "search",
+      type: "web_search",
+      query: "sample",
+      action: { type: "search" },
+    };
+    if (frame.results !== null) item.results = Array.from({ length: frame.results }, () => ({ title: "hit" }));
+    return [{ type: "item.completed", item }];
+  }
+  if (frame.kind === "collab")
+    return [
+      {
+        type: "item.completed",
+        item: {
+          id: "collab",
+          type: "collab_tool_call",
+          tool: "wait",
+          status: "completed",
+          sender_thread_id: "a",
+          receiver_thread_ids: ["b"],
+          prompt: null,
+          agents_states: {},
+        },
+      },
+    ];
   if (frame.kind === "agent_message")
     return [{ type: "item.completed", item: { id: "message", type: "agent_message", text: "sample tail" } }];
   if (frame.kind === "turn.completed") return [{ type: "turn.completed", usage: { input_tokens: 1 } }];
