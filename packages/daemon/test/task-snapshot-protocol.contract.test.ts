@@ -107,6 +107,18 @@ test("task snapshot protocol requires the completedAt projection field", () => {
   assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [rowWithoutCompletedAt] }), []);
 });
 
+test("task snapshot protocol tolerates rows from daemon builds before deliveryStage", () => {
+  // GUI 是 attach-only:新 GUI 的入站校验会读到旧构建 daemon 的行(isTaskSnapshotProjectionRow
+  // 对 completedAt 的同一先例)。缺 deliveryStage 放行;出现即必须是词表里的阶段词。
+  const { deliveryStage: _deliveryStage, ...rowWithoutStage } = row;
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [rowWithoutStage] }), []);
+  const isolated = isolateDaemonTaskSnapshotRows([{ ...row, deliveryStage: "shipping" }]);
+  assert.deepEqual(
+    isolated.invalidRows.map(({ field }) => field),
+    ["rows[0].deliveryStage"],
+  );
+});
+
 test("task snapshot protocol isolates a malformed field with its source row identity", () => {
   const malformed = {
       ...row,
