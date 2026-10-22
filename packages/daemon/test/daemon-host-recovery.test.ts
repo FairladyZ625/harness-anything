@@ -991,6 +991,7 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "ahead-projection");
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId: "ahead-projection", userRoot, createConvenienceLinks: false });
   const event = { ...lifecycleFixture().events[0]!, workspaceRevision: 5 },
     headlessStore = {
       readHead: () => null,
@@ -1001,14 +1002,13 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
   projection.apply(event, taskLifecycleWritePlan(event));
   projection.close();
   const retained = readFileSync(projection.path);
-  registerDaemonRepo({ canonicalRoot: rootDir, repoId: "ahead-projection", userRoot, createConvenienceLinks: false });
   const host = await openSignedInHost({ daemonId: "ahead-projection", userRoot });
   await host.attachmentsSettled();
   try {
     const unavailable = host.status().repos.find((repo) => repo.repoId === "ahead-projection")!;
     assert.equal(unavailable.state, "unavailable");
     assert.equal(unavailable.causeClass, "data-shape", JSON.stringify(unavailable));
-    assert.match(String(unavailable.lastError), /event stream head is 1.*revisions 2-5.*cache retained/iu);
+    assert.match(String(unavailable.lastError), /generation 3 ledger revision precedes its persisted projection/u);
     const rebuild = await host.run("ahead-projection", { kind: "projection-rebuild" }, auth);
     assert.equal(rebuild.code, "repo_unavailable");
     assert.deepEqual(rebuild.diagnostic, { kind: "failure", code: "repo_unavailable" });

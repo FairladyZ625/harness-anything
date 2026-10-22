@@ -4,7 +4,6 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import { canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
-import { consumeKnownError } from "../error-consumption.ts";
 import { openUnactivatedGenerationThreeEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
 import { publishGenerationThreeActivation, type GenerationThreeActivation } from "./generation-three-activation.ts";
 
@@ -113,30 +112,17 @@ function assertGenerationThreeActivationLedger(
 function assertGenerationThreeProjectionDoesNotExceedLedger(projectionPath: string, ledgerRevision: number): void {
   const projectionSize = files.fileSize(projectionPath);
   if (projectionSize === null || projectionSize === 0) return;
-  let projection: DatabaseSync;
-  try {
-    projection = new DatabaseSync(projectionPath, { readOnly: true });
-  } catch (error) {
-    consumeKnownError(error);
-    return;
-  }
+  const projection = new DatabaseSync(projectionPath, { readOnly: true });
   try {
     const hasMetadata = projection
       .prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='projection_meta'")
       .get();
     if (!hasMetadata) return;
-    const metadata = projection.prepare("SELECT scanned_revision FROM projection_meta WHERE singleton=1").get() as
-      | { readonly scanned_revision?: number }
-      | undefined;
-    if (
-      metadata &&
-      Number.isSafeInteger(Number(metadata.scanned_revision)) &&
-      Number(metadata.scanned_revision) > ledgerRevision
-    )
+    const metadata = projection
+      .prepare("SELECT watermark, scanned_revision FROM projection_meta WHERE singleton=1")
+      .get() as { readonly watermark?: number; readonly scanned_revision?: number } | undefined;
+    if (metadata && (Number(metadata.watermark) > ledgerRevision || Number(metadata.scanned_revision) > ledgerRevision))
       throw new TaskEventStoreError("invalid_store", "generation 3 ledger revision precedes its persisted projection");
-  } catch (error) {
-    if (error instanceof TaskEventStoreError) throw error;
-    consumeKnownError(error);
   } finally {
     projection.close();
   }

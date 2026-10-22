@@ -150,6 +150,21 @@ test("canonical writable attach rejects revision zero when the persisted project
   assert.equal(statSync(databasePath).size, statSync(revisionZeroPath).size);
 });
 
+test("canonical attach surfaces unreadable projection metadata instead of accepting an unproven head", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-unreadable-canonical-projection-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite"),
+    ledgerSize = statSync(databasePath).size;
+  mkdirSync(path.dirname(projectionPath), { recursive: true });
+  writeFileSync(projectionPath, "unreadable projection database\n");
+
+  assert.throws(() => openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }), Error);
+  assert.equal(statSync(databasePath).size, ledgerSize, "the failed preflight must not mutate the canonical ledger");
+});
+
 test("canonical attach does not recreate a missing ledger covered by its activation certificate", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-missing-canonical-ledger-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
