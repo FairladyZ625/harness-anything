@@ -282,7 +282,6 @@ function previousReviewerContinuation(
   };
 }
 
-
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
