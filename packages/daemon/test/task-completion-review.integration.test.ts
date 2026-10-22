@@ -125,6 +125,7 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
   const f = await fixture(false, true, true, false, false, undefined, {
     autoSubmit: false,
     guiDelivery: true,
+    submitCommit: true,
     create: { riskTier: "low" },
   });
   try {
