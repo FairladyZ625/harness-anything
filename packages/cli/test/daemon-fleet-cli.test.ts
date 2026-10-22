@@ -929,6 +929,55 @@ test("daemon connection and repo update options reject missing or invalid fields
   }
 });
 
+test("fleet center start takes the certificate pair together or not at all", async () => {
+  // Half a pair is a caller mistake; a full omission is the supported GUI shape (the daemon
+  // resolves the login service certificate), so the missing-field hint no longer demands --key/--cert.
+  for (const argv of [
+    [
+      "daemon",
+      "fleet",
+      "center",
+      "start",
+      "--port",
+      "0",
+      "--repo",
+      "demo",
+      "--quota-bytes",
+      "1048576",
+      "--key",
+      "/tmp/key",
+    ],
+    [
+      "daemon",
+      "fleet",
+      "center",
+      "start",
+      "--port",
+      "0",
+      "--repo",
+      "demo",
+      "--quota-bytes",
+      "1048576",
+      "--cert",
+      "/tmp/cert",
+    ],
+  ]) {
+    const receipts: Record<string, unknown>[] = [],
+      exit = await runDaemonControl(argv, (receipt) => receipts.push(receipt));
+    assert.equal(exit, 2, argv.join(" "));
+    assert.equal(receipts[0]?.code, "invalid_field");
+    assert.match(String(receipts[0]?.nextAction), /together, or neither/u);
+  }
+  const incomplete: Record<string, unknown>[] = [],
+    exit = await runDaemonControl(["daemon", "fleet", "center", "start", "--port", "0", "--repo", "demo"], (receipt) =>
+      incomplete.push(receipt),
+    );
+  assert.equal(exit, 2);
+  assert.equal(incomplete[0]?.code, "missing_field");
+  assert.doesNotMatch(String(incomplete[0]?.nextAction), /--key/u);
+  assert.doesNotMatch(String(incomplete[0]?.nextAction), /--cert/u);
+});
+
 test("fleet edge sync and daemon connection failures return receipts instead of bare stacks", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-cli-unregistered-")),
     workspace = path.join(root, "workspace"),

@@ -274,6 +274,35 @@ async function fleetStatusControl(
   console.log(renderDaemonFleetStatus(result));
   return 0;
 }
+/**
+ * The center-start payload, or the receipt fields that refuse the shape. The TLS certificate
+ * pair is together-or-neither: an omitted pair makes the daemon reuse the login service
+ * listener certificate, which is the only source a human user can be expected to have; half a
+ * pair is a caller mistake and is refused here, before a transport is opened.
+ */
+function fleetCenterStartPayload(
+  argv: readonly string[],
+): { readonly payload: JsonObject } | { readonly code: string; readonly nextAction: string } {
+  const flag = (name: string) => daemonOption(argv, name),
+    key = flag("--key"),
+    cert = flag("--cert");
+  if ((key === undefined) !== (cert === undefined))
+    return {
+      code: "invalid_field",
+      nextAction: "Pass --key and --cert together, or neither to reuse the login service certificate.",
+    };
+  return {
+    payload: {
+      port: Number(flag("--port")),
+      ...(key === undefined ? {} : { keyPath: path.resolve(key), certPath: path.resolve(cert!) }),
+      repoId: flag("--repo"),
+      quotaBytes: Number(flag("--quota-bytes")),
+      ...(flag("--bind") ? { bind: flag("--bind") } : {}),
+      ...(flag("--external-url") ? { externalUrl: flag("--external-url") } : {}),
+      ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
+    } as JsonObject,
+  };
+}
 async function fleetControl(
   argv: readonly string[],
   at: number,
@@ -299,13 +328,15 @@ async function fleetControl(
       "unsupported_command",
       "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
     );
-  const required = center ? ["--port", "--key", "--cert", "--repo", "--quota-bytes"] : [],
+  const required = center ? ["--port", "--repo", "--quota-bytes"] : [],
     missing = required.filter((name) => !flag(name));
   if (missing.length > 0)
     return reject(
       "missing_field",
       `Add ${missing.join(" ")} to ${center ? "start the fleet TLS center" : "mirror the fleet center ledger"}.`,
     );
+  const centerStart = center ? fleetCenterStartPayload(argv) : null;
+  if (centerStart && !("payload" in centerStart)) return reject(centerStart.code, centerStart.nextAction);
   const edgeTarget = edge
     ? await resolveLocalDaemonTarget({
         rootDir: path.resolve(flag("--root") ?? process.cwd()),
@@ -359,16 +390,6 @@ async function fleetControl(
     if (credential === undefined)
       return reject("missing_field", "Add --credential, or set credential in the workspace fleet-edge.json.");
   }
-  const centerPayload = () => ({
-    port: Number(flag("--port")),
-    keyPath: path.resolve(flag("--key")!),
-    certPath: path.resolve(flag("--cert")!),
-    repoId: flag("--repo"),
-    quotaBytes: Number(flag("--quota-bytes")),
-    ...(flag("--bind") ? { bind: flag("--bind") } : {}),
-    ...(flag("--external-url") ? { externalUrl: flag("--external-url") } : {}),
-    ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
-  });
   const edgePayload = () => ({
     host: edgeValue("host", "--host"),
     port: Number(edgeValue("port", "--port")),
@@ -384,7 +405,7 @@ async function fleetControl(
       : {}),
     timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000,
   });
-  const payload = (center ? centerPayload() : edgePayload()) as JsonObject;
+  const payload = (centerStart ? centerStart.payload : edgePayload()) as JsonObject;
   try {
     const result = await requestDaemonJsonRpcAt(
       edgeTarget?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),

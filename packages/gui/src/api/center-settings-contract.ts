@@ -23,8 +23,41 @@ export type CenterSettingsReply<T> =
       readonly rejectionExplanation?: string;
     };
 
+/** The fleet center service read (`daemon.fleet.center.read`): the live listener flag plus the saved start parameters. */
+export interface CenterFleetStatus {
+  readonly ok: true;
+  readonly running: boolean;
+  readonly port: number | null;
+  readonly bind: string | null;
+  readonly externalUrl: string | null;
+  readonly repoId: string | null;
+  readonly quotaBytes: number | null;
+  readonly certificateSource: "login-listener" | "explicit" | null;
+}
+
+/**
+ * One fleet center start. The TLS certificate is deliberately absent: the daemon reuses the
+ * login service listener certificate when the start carries no pair, so no key path is ever
+ * typed, stored, or displayed here.
+ */
+export interface CenterStartInput {
+  readonly port: number;
+  readonly repoId: string;
+  readonly quotaBytes: number;
+  readonly bind: string;
+  readonly externalUrl?: string;
+}
+
 export interface CenterSettingsApi {
   readonly listener: () => Promise<CenterSettingsReply<CenterListenerSettings>>;
+  readonly fleetStatus: () => Promise<CenterSettingsReply<CenterFleetStatus>>;
+  readonly startCenter: (input: CenterStartInput) => Promise<
+    CenterSettingsReply<{
+      readonly ok: true;
+      readonly port?: number;
+      readonly externalAddressWarning?: string;
+    }>
+  >;
   readonly externalAddress: () => Promise<
     CenterSettingsReply<{ readonly ok: true; readonly externalUrl: string | null }>
   >;

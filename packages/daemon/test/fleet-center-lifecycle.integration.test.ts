@@ -60,11 +60,13 @@ async function fixture(t: TestContext) {
     daemonId: string,
     records: DaemonLifecycleEntry[] = [],
     openCell?: DaemonHostOpenInput["openCell"],
+    managedRbac?: DaemonHostOpenInput["managedRbac"],
   ) => {
     const host = await openDaemonHost({
       daemonId,
       userRoot,
       openCell,
+      ...(managedRbac ? { managedRbac } : {}),
       recordLifecycle: (entry) => records.push(entry),
     });
     hosts.push(host);
@@ -428,3 +430,67 @@ test(
     await handshake(Number(original.port), f.certPath);
   },
 );
+
+test("a start without a certificate pair reuses the login listener pair and the status read reports it", async (t) => {
+  const f = await fixture(t),
+    // Hermetic login service stand-in: only the certificate pair is answered; nothing is started.
+    host = await f.open("reuse-login-certificate", [], undefined, {
+      run: async () => {
+        throw new Error("the login service lifecycle is not part of this test");
+      },
+      resume: async () => undefined,
+      stop: async () => undefined,
+      loginListenerCertificate: () => ({ certificateFile: f.certPath, certificateKeyFile: f.keyPath }),
+    }),
+    before = await host.fleet.readCenterState(auth);
+  assert.equal(before.running, false);
+  assert.equal(before.repoId, null);
+  const started = await host.fleet.startCenter(
+    { port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes, bind: "127.0.0.1" },
+    auth,
+  );
+  assert.equal(started.ok, true);
+  assert.equal(started.serviceStatus, "listening");
+  // The resolved pair is what gets persisted, so a daemon restart restores the same certificate.
+  assert.equal(readFleetCenterConfig(f.userRoot, "reuse-login-certificate")?.keyPath, f.keyPath);
+  assert.equal(readFleetCenterConfig(f.userRoot, "reuse-login-certificate")?.certPath, f.certPath);
+  const status = await host.fleet.readCenterState(auth);
+  assert.equal(status.running, true);
+  assert.equal(status.port, started.port);
+  assert.equal(status.bind, "127.0.0.1");
+  assert.equal(status.repoId, f.request.repoId);
+  assert.equal(status.certificateSource, "login-listener");
+  await host.close();
+  const restored = await f.open("reuse-login-certificate", [], undefined, {
+    run: async () => {
+      throw new Error("the login service lifecycle is not part of this test");
+    },
+    resume: async () => undefined,
+    stop: async () => undefined,
+    loginListenerCertificate: () => ({ certificateFile: f.certPath, certificateKeyFile: f.keyPath }),
+  });
+  assert.equal((await restored.fleet.readCenterState(auth)).running, true);
+  await restored.close();
+});
+
+test("a start without any reusable login listener certificate is refused, not defaulted further", async (t) => {
+  const f = await fixture(t),
+    host = await f.open("no-certificate");
+  await assert.rejects(
+    host.fleet.startCenter({ port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes }, auth),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, "rbac_listener_invalid");
+      assert.match(error.message, /no listener certificate to reuse/u);
+      return true;
+    },
+  );
+  // Half a pair is a caller mistake, not a defaultable state.
+  await assert.rejects(
+    host.fleet.startCenter(
+      { port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes, keyPath: f.keyPath },
+      auth,
+    ),
+    (error: Error & { code?: string }) => error.code === "invalid_field",
+  );
+  assert.equal(existsSync(fleetCenterConfigPath(f.userRoot, "no-certificate")), false);
+});

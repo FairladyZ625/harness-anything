@@ -107,6 +107,17 @@ async function mountView(
     readonly probeResult?: unknown;
     /** `null` models a machine with no login listener certificate configured yet. */
     readonly listener?: CenterListenerSettings["listener"];
+    /** Overrides the fleet center service read; default is a running center. */
+    readonly fleetStatus?: {
+      readonly ok: true;
+      readonly running: boolean;
+      readonly port: number | null;
+      readonly bind: string | null;
+      readonly externalUrl: string | null;
+      readonly repoId: string | null;
+      readonly quotaBytes: number | null;
+      readonly certificateSource: "login-listener" | "explicit" | null;
+    };
   } = {},
 ): Promise<{ container: HTMLElement; bridge: Bridge }> {
   let centerState: CenterListenerSettings = {
@@ -188,6 +199,24 @@ async function mountView(
     },
     centerSettings: {
       listener: vi.fn(async () => centerState),
+      fleetStatus: vi.fn(async () =>
+        options.fleetStatus === undefined
+          ? {
+              ok: true as const,
+              running: true,
+              port: 7545,
+              bind: "0.0.0.0",
+              externalUrl: null,
+              repoId: "local-repo",
+              quotaBytes: 1024 * 1024 * 1024,
+              certificateSource: "login-listener" as const,
+            }
+          : options.fleetStatus,
+      ),
+      startCenter: vi.fn(async () => ({
+        ok: true as const,
+        port: 7545,
+      })),
       externalAddress: vi.fn(async () => ({ ok: true as const, externalUrl: "https://center.example.com:7545" })),
       setExternalAddress: vi.fn(async ({ externalUrl }: { readonly externalUrl: string }) => ({
         ok: true as const,
@@ -280,10 +309,19 @@ async function click(container: HTMLElement, testId: string): Promise<void> {
 
 async function type(container: HTMLElement, testId: string, value: string): Promise<void> {
   const input = container.querySelector(`[data-testid="${testId}"]`) as HTMLInputElement;
-  expect(input, `${testId} 未渲染`).toBeTruthy();
+  expect(input, `${testId} did not render`).toBeTruthy();
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function selectOption(container: HTMLElement, testId: string, value: string): Promise<void> {
+  const select = container.querySelector(`[data-testid="${testId}"]`) as HTMLSelectElement;
+  expect(select, `${testId} did not render`).toBeTruthy();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -421,6 +459,132 @@ describe("repositories and connections page", () => {
     await settle(8);
     expect(container.querySelector('[data-testid="center-connection-panel"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="center-certificate-save"]')).not.toBeNull();
+  });
+
+  it("shows the center service status and starts it through the panel without certificate paths", async () => {
+    const { container, bridge } = await mountView({
+      fleetStatus: {
+        ok: true,
+        running: false,
+        port: null,
+        bind: null,
+        externalUrl: null,
+        repoId: null,
+        quotaBytes: null,
+        certificateSource: null,
+      },
+    });
+    await click(container, "connection-node-center");
+    await settle(8);
+    expect(container.querySelector('[data-testid="center-connection-panel"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="center-service-status"]')?.textContent).toContain("Not started");
+    await type(container, "center-service-port", "7546");
+    await selectOption(container, "center-service-repo", "local-repo");
+    await selectOption(container, "center-service-bind", "0.0.0.0");
+    await click(container, "center-service-start");
+    await settle(8);
+    // The panel start carries no certificate pair: the daemon reuses the login listener certificate.
+    expect(bridge.centerSettings.startCenter).toHaveBeenCalledWith({
+      port: 7546,
+      repoId: "local-repo",
+      quotaBytes: 50 * 1024 ** 3,
+      bind: "0.0.0.0",
+      // The panel prefilled the saved external address, so it rides along with the start.
+      externalUrl: "https://center.example.com:7545",
+    });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("7545");
+  });
+
+  it("renders the listening center service with its external address and reused certificate", async () => {
+    const { container } = await mountView({
+      fleetStatus: {
+        ok: true,
+        running: true,
+        port: 7545,
+        bind: "0.0.0.0",
+        externalUrl: "https://center.example.com:7545",
+        repoId: "local-repo",
+        quotaBytes: 1024 * 1024 * 1024,
+        certificateSource: "login-listener",
+      },
+    });
+    await click(container, "connection-node-center");
+    await settle(8);
+    const status = container.querySelector('[data-testid="center-service-status"]')?.textContent;
+    expect(status).toContain("7545");
+    expect(status).toContain("https://center.example.com:7545");
+    expect(status).toContain("login service");
+  });
+
+  it("blocks the invite entry while the center service is stopped and starts it in one click", async () => {
+    const { container, bridge } = await mountView({
+      fleetStatus: {
+        ok: true,
+        running: false,
+        port: null,
+        bind: null,
+        externalUrl: null,
+        repoId: null,
+        quotaBytes: null,
+        certificateSource: null,
+      },
+    });
+    await click(container, "invite-entry-open");
+    await settle(8);
+    const blocked = container.querySelector('[data-testid="invite-entry-blocked-service"]');
+    expect(blocked?.textContent).toContain("center service");
+    expect(container.querySelector('[data-testid="edge-invite-issue"]')).toBeNull();
+    // One click derives everything: the only local repo, the login hostname, the default port.
+    bridge.centerSettings.fleetStatus.mockImplementation(async () => ({
+      ok: true as const,
+      running: true,
+      port: 7545,
+      bind: "0.0.0.0",
+      externalUrl: "https://127.0.0.1:7545",
+      repoId: "local-repo",
+      quotaBytes: 1024 * 1024 * 1024,
+      certificateSource: "login-listener" as const,
+    }));
+    await click(container, "invite-entry-start-center");
+    await settle(8);
+    expect(bridge.centerSettings.startCenter).toHaveBeenCalledWith({
+      port: 7545,
+      repoId: "local-repo",
+      quotaBytes: 50 * 1024 ** 3,
+      bind: "0.0.0.0",
+      externalUrl: "https://127.0.0.1:7545",
+    });
+    expect(container.querySelector('[data-testid="edge-invite-issue"]')).not.toBeNull();
+  });
+
+  it("falls back to center navigation when the one-click authority repository is ambiguous", async () => {
+    const secondLocal: SystemRepoRow = {
+      ...localRepo,
+      repoId: "local-repo-2",
+      displayName: "Second Local",
+      canonicalRoot: "/repo/local-2",
+    };
+    const { container } = await mountView({
+      repos: [localRepo, proxyRepo, secondLocal],
+      fleetStatus: {
+        ok: true,
+        running: false,
+        port: null,
+        bind: null,
+        externalUrl: null,
+        repoId: null,
+        quotaBytes: null,
+        certificateSource: null,
+      },
+    });
+    await click(container, "invite-entry-open");
+    await settle(8);
+    // Two local repositories: starting the center on a guess would anchor the fleet on the wrong one.
+    expect(container.querySelector('[data-testid="invite-entry-start-center"]')).toBeNull();
+    await click(container, "invite-entry-open-center");
+    await settle(8);
+    expect(container.querySelector('[data-testid="center-connection-panel"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="center-service-start"]')).not.toBeNull();
   });
 
   it("counts repositories on the center row like every other connection row", async () => {

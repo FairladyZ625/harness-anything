@@ -10,6 +10,12 @@ export function centerSettingsPreloadApi(
   return {
     listener: () =>
       invoke(CENTER_SETTINGS_CHANNEL, { operation: "listener" }) as ReturnType<CenterSettingsApi["listener"]>,
+    fleetStatus: () =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "fleet-status" }) as ReturnType<CenterSettingsApi["fleetStatus"]>,
+    startCenter: (input) =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "center-start", ...input }) as ReturnType<
+        CenterSettingsApi["startCenter"]
+      >,
     externalAddress: () =>
       invoke(CENTER_SETTINGS_CHANNEL, { operation: "external-address" }) as ReturnType<
         CenterSettingsApi["externalAddress"]

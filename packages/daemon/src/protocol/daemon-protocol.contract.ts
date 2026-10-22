@@ -379,8 +379,9 @@ export const fleetProtocolMethods = Object.freeze([
     params: shape({
       payload: shape({
         port: "number",
-        keyPath: "string",
-        certPath: "string",
+        // Omitted pair: the daemon resolves the login service listener certificate.
+        keyPath: "string?",
+        certPath: "string?",
         repoId: "string",
         quotaBytes: "number",
         bind: "string?",
@@ -388,6 +389,13 @@ export const fleetProtocolMethods = Object.freeze([
         stateRoot: "string?",
       }),
     }),
+  },
+  {
+    id: "daemon.fleet.center.read",
+    phase: "Fleet-Wiring",
+    method: "daemon.fleet.center.read",
+    requiresRepo: false,
+    params: shape({ payload: shape({}) }),
   },
   {
     id: "daemon.fleet.center.external-address.read",

@@ -235,7 +235,8 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "daemon-fleet-center-start",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "center", "start"],
-    summary: "Start or explicitly replace the daemon-owned fleet TLS center; replacement interrupts edge connections.",
+    summary:
+      "Start or explicitly replace the daemon-owned fleet TLS center; replacement interrupts edge connections. Without --key/--cert the login service listener certificate is reused.",
     method: "daemon.fleet.center.start",
     inputs: [
       cliInput(
@@ -247,11 +248,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         },
         { regex: "^(?:0|[1-9][0-9]{0,4})$" },
       ),
-      cliInput("--key", "single", true, {
-        code: "missing_field",
+      cliInput("--key", "single", false, {
+        code: "invalid_field",
       }),
-      cliInput("--cert", "single", true, {
-        code: "missing_field",
+      cliInput("--cert", "single", false, {
+        code: "invalid_field",
       }),
       cliInput("--repo", "single", true, {
         code: "missing_field",

@@ -189,6 +189,18 @@ export class ManagedRbacService {
     await this.run({ operation: "start" });
   }
 
+  /**
+   * The login listener's certificate pair for daemon-owned TLS surfaces that serve the same
+   * machines (the fleet center reuses it when its start carries no explicit certificate).
+   * The private-key path stays daemon-side; the sanitized listener read never carries it out.
+   */
+  loginListenerCertificate(): { readonly certificateFile: string; readonly certificateKeyFile: string } | null {
+    const listener = this.#readConfigIfPresent()?.listener;
+    return listener
+      ? { certificateFile: listener.certificateFile, certificateKeyFile: listener.certificateKeyFile }
+      : null;
+  }
+
   async #run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
     const operation = request.operation ?? "bootstrap";
     if (request.mode === "external") return this.#configureExternal(request);

@@ -102,4 +102,53 @@ describe("center settings IPC", () => {
       payload: { externalUrl: "https://center.example.test:7545" },
     });
   });
+
+  it("forwards the fleet status read through the fleet status endpoint", async () => {
+    const f = fixture();
+    await expect(f.handler(f.event, { operation: "fleet-status" })).resolves.toMatchObject({ ok: true });
+    expect(f.calls.at(-1)).toEqual({ method: "daemon.fleet.center.read", payload: {} });
+    await expect(f.handler(f.event, { operation: "fleet-status", extra: 1 })).rejects.toThrow(/takes no fields/u);
+  });
+
+  it("starts the center through the fleet start endpoint without any certificate field", async () => {
+    const f = fixture();
+    await expect(
+      f.handler(f.event, {
+        operation: "center-start",
+        port: 7545,
+        repoId: "canonical",
+        quotaBytes: 1024,
+        bind: "0.0.0.0",
+        externalUrl: "https://center.example.test:7545",
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    const forwarded = f.calls.at(-1) as { method: string; payload: Record<string, unknown> };
+    expect(forwarded.method).toBe("daemon.fleet.center.start");
+    // The certificate pair never crosses this IPC: the daemon resolves the login listener pair.
+    expect(forwarded.payload).toEqual({
+      port: 7545,
+      repoId: "canonical",
+      quotaBytes: 1024,
+      bind: "0.0.0.0",
+      externalUrl: "https://center.example.test:7545",
+    });
+    await expect(f.handler(f.event, { operation: "center-start", keyPath: "/tmp/key" })).rejects.toThrow(
+      /does not take keyPath/u,
+    );
+    await expect(
+      f.handler(f.event, { operation: "center-start", port: 0, repoId: "canonical", quotaBytes: 1, bind: "0.0.0.0" }),
+    ).rejects.toThrow(/between 1 and 65535/u);
+    await expect(
+      f.handler(f.event, {
+        operation: "center-start",
+        port: 7545,
+        repoId: "Canonical",
+        quotaBytes: 1,
+        bind: "0.0.0.0",
+      }),
+    ).rejects.toThrow(/authority repository/u);
+    await expect(
+      f.handler(f.event, { operation: "center-start", port: 7545, repoId: "canonical", quotaBytes: 1, bind: "eth0" }),
+    ).rejects.toThrow(/interfaces or loopback/u);
+  });
 });
