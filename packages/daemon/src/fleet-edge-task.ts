@@ -504,9 +504,12 @@ export async function runFleetEdgeTask(
     if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
-    const blocked = preScan.blocked.filter((row) =>
-      action.kind === "task-review-execution" ? row.path === reportPath : row.path.startsWith(`${packagePath}/`),
-    );
+    const blocked =
+      action.kind === "task-review-consent"
+        ? []
+        : preScan.blocked.filter((row) =>
+            action.kind === "task-review-execution" ? row.path === reportPath : row.path.startsWith(`${packagePath}/`),
+          );
     if (blocked.length)
       throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => `${row.path}: ${row.reason}`).join("; "));
     const candidates = preScan.changes.filter((change) =>
