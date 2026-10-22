@@ -1,4 +1,6 @@
 import { isRecord, validateWriteSource } from "./write-chain.contract.ts";
+import { retiredCodeDocGateId } from "./retired-code-doc-gate.ts";
+export { retiredCodeDocGateId } from "./retired-code-doc-gate.ts";
 import type { ContractValidationIssue } from "./task.ts";
 
 /**
@@ -11,7 +13,6 @@ import type { ContractValidationIssue } from "./task.ts";
  * rejected by current admission. A task whose frozen contract still lists the retired gate reports
  * it as `not_applicable` instead of a missing witness.
  */
-export const retiredCodeDocGateId = "code-doc-reconciliation";
 export const retiredCodeDocEventTypes = ["code_doc_reconciled", "code_doc_repointed"] as const;
 export const retiredCodeDocAnchorFile = "code-doc-anchors.json";
 export type RetiredCodeDocEventType = (typeof retiredCodeDocEventTypes)[number];

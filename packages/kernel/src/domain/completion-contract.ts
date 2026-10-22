@@ -15,7 +15,10 @@ import {
   type CloseoutSettingsV1,
 } from "./settings-closeout.ts";
 import { gateAppliesTo, type GateAppliesTo } from "./completion-source.ts";
-import { retiredCodeDocGateId } from "./code-doc-retirement.ts";
+// The retired gate id lives in a browser-safe leaf: this module is exported from
+// kernel/browser, and pulling it through code-doc-retirement would drag the write
+// chain (and node:crypto with it) into the renderer module graph.
+import { retiredCodeDocGateId } from "./retired-code-doc-gate.ts";
 export { gateAppliesTo, type GateAppliesTo } from "./completion-source.ts";
 export interface GithubWitnessOptions {
   readonly workflows: readonly string[];
