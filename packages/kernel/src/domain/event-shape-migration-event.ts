@@ -192,7 +192,10 @@ export function withReviewerQualifiedDispatchKey(value: unknown): unknown {
     return value;
   const prefix = `task-review:${payload.taskId}:${payload.executionId}:`;
   if (!payload.dispatchKey.startsWith(prefix)) return value;
-  const match = /^([0-9]+):(sha256:[0-9a-f]{64})(?::attempt([1-9][0-9]*))?$/u.exec(
+  // A reviewer dispatch key continues with `:attemptN` when the cut retried the reviewer, and with
+  // `:fallback:N` when the provider fallback chain continued the same dispatch; either may follow
+  // the other. Reviewer qualification belongs directly after the digest, before both suffixes.
+  const match = /^([0-9]+):(sha256:[0-9a-f]{64})((?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?)$/u.exec(
     payload.dispatchKey.slice(prefix.length),
   );
   if (!match) return value;
@@ -206,9 +209,8 @@ export function withReviewerQualifiedDispatchKey(value: unknown): unknown {
       target.digest !== match[2])
   )
     return value;
-  const attempt = match[3] === undefined ? "" : `:attempt${match[3]}`;
   return {
     ...value,
-    payload: { ...payload, dispatchKey: `${prefix}${match[1]}:${match[2]}:reviewer:${payload.agentId}${attempt}` },
+    payload: { ...payload, dispatchKey: `${prefix}${match[1]}:${match[2]}:reviewer:${payload.agentId}${match[3]}` },
   };
 }
