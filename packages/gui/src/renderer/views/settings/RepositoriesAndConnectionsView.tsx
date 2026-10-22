@@ -331,12 +331,17 @@ function CenterConnectionPanel({
     if (!centerSettings) return;
     void Promise.all([centerSettings.listener(), centerSettings.externalAddress()])
       .then(([value, address]) => {
+        if (!value.ok) {
+          setStatus(value.rejectionExplanation ?? value.code);
+          return;
+        }
         setSettings(value);
         setMode(value.certificateMode);
         setHostname(value.listener?.hostname ?? "");
         setPort(String(value.listener?.port ?? 8443));
         setCertificateFile(value.listener?.certificateFile ?? "");
-        setExternalUrl(address.externalUrl ?? "");
+        if (!address.ok) setStatus(address.rejectionExplanation ?? address.code);
+        else setExternalUrl(address.externalUrl ?? "");
       })
       .catch((error: unknown) => {
         setStatus(error instanceof Error ? error.message : String(error));
@@ -373,18 +378,18 @@ function CenterConnectionPanel({
               certificateKeyFile,
             }),
       });
-      if (
-        typeof result === "object" &&
-        result !== null &&
-        "code" in result &&
-        (result as { code?: unknown }).code === "version_conflict"
-      ) {
-        setStatus(t("views.repositories.centerCertificateConflict"));
+      if (!result.ok) {
+        setStatus(
+          result.code === "version_conflict"
+            ? t("views.repositories.centerCertificateConflict")
+            : (result.rejectionExplanation ?? result.code),
+        );
         return;
       }
       setStatus(t("views.repositories.centerCertificateSaved"));
       const refreshed = await centerSettings.listener();
-      setSettings(refreshed);
+      if (!refreshed.ok) setStatus(refreshed.rejectionExplanation ?? refreshed.code);
+      else setSettings(refreshed);
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : String(error));
       consumeKnownError(error);
@@ -398,6 +403,10 @@ function CenterConnectionPanel({
     setStatus(null);
     try {
       const result = await centerSettings.setExternalAddress({ externalUrl: externalUrl.trim() });
+      if (!result.ok) {
+        setStatus(result.rejectionExplanation ?? result.code);
+        return;
+      }
       setStatus(result.warning || t("views.repositories.centerExternalAddressSaved"));
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : String(error));

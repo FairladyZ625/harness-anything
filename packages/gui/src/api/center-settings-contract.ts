@@ -15,14 +15,26 @@ export interface CenterListenerSettings {
   readonly version: string;
 }
 
+export type CenterSettingsReply<T> =
+  | T
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly rejectionExplanation?: string;
+    };
+
 export interface CenterSettingsApi {
-  readonly listener: () => Promise<CenterListenerSettings>;
-  readonly externalAddress: () => Promise<{ readonly ok: true; readonly externalUrl: string | null }>;
-  readonly setExternalAddress: (input: { readonly externalUrl: string }) => Promise<{
-    readonly ok: true;
-    readonly externalUrl: string;
-    readonly warning?: string | null;
-  }>;
+  readonly listener: () => Promise<CenterSettingsReply<CenterListenerSettings>>;
+  readonly externalAddress: () => Promise<
+    CenterSettingsReply<{ readonly ok: true; readonly externalUrl: string | null }>
+  >;
+  readonly setExternalAddress: (input: { readonly externalUrl: string }) => Promise<
+    CenterSettingsReply<{
+      readonly ok: true;
+      readonly externalUrl: string;
+      readonly warning?: string | null;
+    }>
+  >;
   readonly setCertificate: (input: {
     readonly expectedVersion: string;
     readonly certificateMode: CertificateMode;
@@ -31,6 +43,6 @@ export interface CenterSettingsApi {
     readonly port?: number;
     readonly certificateFile?: string;
     readonly certificateKeyFile?: string;
-  }) => Promise<unknown>;
+  }) => Promise<CenterSettingsReply<{ readonly ok: true }>>;
   readonly selectFile: (kind: "certificate" | "private-key") => Promise<string | null>;
 }

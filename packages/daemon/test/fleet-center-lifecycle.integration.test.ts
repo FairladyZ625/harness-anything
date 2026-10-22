@@ -291,7 +291,8 @@ test("concurrent authorized starts publish only one daemon listener and one enab
 test("restored centers replace the same and different ports only after valid input", async (t) => {
   const f = await fixture(t),
     initial = await f.open("replace"),
-    original = await initial.fleet.startCenter(f.request, auth);
+    externalUrl = `https://localhost:${await unusedPort()}`,
+    original = await initial.fleet.startCenter({ ...f.request, externalUrl }, auth);
   await initial.close();
   const restored = await f.open("replace"),
     file = fleetCenterConfigPath(f.userRoot, "replace"),
@@ -302,6 +303,29 @@ test("restored centers replace the same and different ports only after valid inp
   await restored.settleMaterialization(f.request.repoId, "restored center replacement fixture ready");
   const badCert = path.join(f.root, "invalid.crt");
   writeFileSync(badCert, "not a certificate");
+  const replacementKey = path.join(f.root, "replacement.key"),
+    replacementCert = path.join(f.root, "replacement.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      replacementKey,
+      "-out",
+      replacementCert,
+      "-subj",
+      "/CN=127.0.0.1",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
   for (const invalid of [
     { port: -1 },
     { port: 65536 },
@@ -312,6 +336,7 @@ test("restored centers replace the same and different ports only after valid inp
     { stateRoot: "" },
     { keyPath: path.join(f.root, "missing.key") },
     { certPath: badCert },
+    { certPath: replacementCert, keyPath: replacementKey },
     { repoId: "unknown" },
     { stateRoot: badCert },
     { keyPath: "bad\0path" },
@@ -324,17 +349,26 @@ test("restored centers replace the same and different ports only after valid inp
   assert.equal(same.replaced, true);
   assert.equal(same.serviceStatus, "listening");
   assert.equal(same.port, port);
+  assert.equal(same.externalUrl, externalUrl);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, externalUrl);
   await handshake(port, f.certPath);
   const otherPort = await unusedPort(),
     different = await restored.fleet.startCenter({ ...f.request, port: otherPort }, auth);
   assert.equal(different.replaced, true);
   assert.equal(different.port, otherPort);
+  assert.equal(different.externalUrl, externalUrl);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, externalUrl);
   await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
   await handshake(otherPort, f.certPath);
+  const changedUrl = `https://127.0.0.1:${otherPort}`,
+    changed = await restored.fleet.startCenter({ ...f.request, port: otherPort, externalUrl: changedUrl }, auth);
+  assert.equal(changed.externalUrl, changedUrl);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, changedUrl);
   await restored.close();
   await f.open("replace");
   await handshake(otherPort, f.certPath);
   assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.port, otherPort);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, changedUrl);
 });
 
 test("failed replacement startup leaves no listener and restart restores the last successful intent", async (t) => {

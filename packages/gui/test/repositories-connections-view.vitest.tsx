@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { daemonProtocolError } from "../../daemon/src/protocol/daemon-protocol-validate-results.ts";
 import type { CenterListenerSettings } from "../src/api/center-settings-contract.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import { connectionQueryKeys } from "../src/renderer/connection-data.ts";
@@ -488,6 +489,71 @@ describe("repositories and connections page", () => {
       externalUrl: "https://center.example.com:7545",
     });
     expect(container.textContent).toContain("Center service address saved.");
+  });
+
+  it.each(["cert_san_mismatch", "authorization_denied"])("shows rejected address saves (%s)", async (code) => {
+    const { container, bridge } = await mountView();
+    const rejection = daemonProtocolError("daemon.fleet.center.external-address.set", code, `Save rejected: ${code}`);
+    bridge.centerSettings.setExternalAddress.mockResolvedValue(rejection);
+    await click(container, "connection-node-center");
+    await settle(8);
+    await click(container, "center-external-address-save");
+    await settle(6);
+    expect(container.textContent).toContain(`Save rejected: ${code}`);
+    expect(container.textContent).not.toContain("Center service address saved.");
+  });
+
+  it("distinguishes a denied address read from an unconfigured address", async () => {
+    const { container, bridge } = await mountView();
+    const rejection = daemonProtocolError(
+      "daemon.fleet.center.external-address.read",
+      "authorization_denied",
+      "Address read denied.",
+    );
+    bridge.centerSettings.externalAddress.mockResolvedValue(rejection);
+    await click(container, "connection-node-center");
+    await settle(8);
+    expect(container.textContent).toContain("Address read denied.");
+  });
+
+  it("shows certificate save rejections instead of success", async () => {
+    const { container, bridge } = await mountView();
+    const rejection = daemonProtocolError("rbac-listener-set", "cert_san_mismatch", "Login certificate SAN mismatch.");
+    bridge.centerSettings.setCertificate.mockResolvedValue(rejection);
+    await click(container, "connection-node-center");
+    await settle(8);
+    await click(container, "center-certificate-save");
+    await settle(6);
+    expect(container.textContent).toContain("Login certificate SAN mismatch.");
+    expect(container.textContent).not.toContain("Login service certificate settings saved.");
+    expect(bridge.centerSettings.listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows listener read rejections without configuring editable certificate settings", async () => {
+    const { container, bridge } = await mountView();
+    bridge.centerSettings.listener.mockResolvedValue(
+      daemonProtocolError("rbac-listener", "authorization_denied", "Listener read denied."),
+    );
+    await click(container, "connection-node-center");
+    await settle(8);
+    expect(container.textContent).toContain("Listener read denied.");
+    expect((container.querySelector('[data-testid="center-certificate-save"]') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows a saved address's reachability warning", async () => {
+    const { container, bridge } = await mountView();
+    bridge.centerSettings.setExternalAddress.mockResolvedValue({
+      ok: true,
+      externalUrl: "https://center.example.com:7545",
+      warning: "Address saved, but the center could not reach it.",
+    });
+    await click(container, "connection-node-center");
+    await settle(8);
+    await click(container, "center-external-address-save");
+    await settle(6);
+    expect(container.textContent).toContain("Address saved, but the center could not reach it.");
   });
 
   it("registers a picked folder that already has a ledger instead of bootstrapping", async () => {

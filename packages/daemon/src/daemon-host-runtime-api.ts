@@ -328,10 +328,7 @@ export function createDaemonHostRuntimeApi(
         centerStarting = true;
         try {
           const rawRequest = payload as unknown as FleetCenterAdmissionRequest["payload"],
-            request = rawRequest.externalUrl
-              ? { ...rawRequest, externalUrl: parseFleetCenterExternalUrl(rawRequest.externalUrl) }
-              : rawRequest,
-            authorityRepoId = request.repoId,
+            authorityRepoId = rawRequest.repoId,
             authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
               (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
                 repo.repoId === authorityRepoId &&
@@ -351,6 +348,13 @@ export function createDaemonHostRuntimeApi(
             actionId: `daemon-fleet-center-start:${authorityRepo.repoId}`,
             evaluatedAtCut: "fleet-center:current",
           });
+          const externalUrl =
+              rawRequest.externalUrl ??
+              readFleetCenterConfig(context.input.userRoot, context.input.daemonId)?.externalUrl,
+            request =
+              externalUrl === undefined
+                ? rawRequest
+                : { ...rawRequest, externalUrl: parseFleetCenterExternalUrl(externalUrl) };
           const prepared = await prepareFleetCenterAdmission({
             host: context.host,
             buildDraining: context.input.buildDraining,
