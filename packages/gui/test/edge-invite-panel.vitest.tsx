@@ -43,12 +43,37 @@ const REPOS = [
   repoRow({ repoId: "repo-b", displayName: "repo-b" }),
 ];
 const GROUPS = [
-  { id: "viewer", displayName: "Viewer", effectiveScopes: ["repo-read"], version: "viewer-v1" },
+  {
+    id: "viewer",
+    displayName: "Viewer",
+    scopes: ["repo-read"],
+    composites: [],
+    effectiveScopes: ["repo-read"],
+    version: "viewer-v1",
+  },
   {
     id: "contributor",
     displayName: "Contributor",
+    scopes: ["task-create"],
+    composites: ["viewer"],
     effectiveScopes: ["repo-read", "task-create"],
     version: "contributor-v1",
+  },
+] as const;
+const ACTIONS = [
+  {
+    action: "repo-read",
+    presentation: { domain: "repositories", name: "读取仓库", description: "查看仓库内容" },
+    executionClass: "repo-read",
+    policyTier: "viewer",
+    residencyScope: "canonical",
+  },
+  {
+    action: "task-create",
+    presentation: { domain: "records", name: "创建记录", description: "创建任务记录" },
+    executionClass: "repo-write",
+    policyTier: "contributor",
+    residencyScope: "canonical",
   },
 ] as const;
 const PEOPLE = [
@@ -126,7 +151,7 @@ async function mountPanel(
     setTimeout: (handler: TimerHandler, ms?: number) => globalThis.setTimeout(handler, ms),
     harness: {
       access: {
-        groups: async () => ({ ok: true, groups: GROUPS, actions: [] }),
+        groups: async () => ({ ok: true, groups: GROUPS, actions: ACTIONS }),
         grants,
         issueEdgeJoin: issue,
         edgeJoinList: list,
@@ -409,6 +434,27 @@ describe("EdgeInvitePanel", () => {
     const { container, revoke } = await mountPanel();
     await click(container, "edge-invite-revoke-join-1");
     expect(revoke).toHaveBeenCalledWith({ joinId: "join-1" });
+  });
+
+  it("previews each group's effective permissions and marks the inherited ones", async () => {
+    const { container } = await mountPanel();
+    expect(container.querySelector('[data-testid="edge-invite-group-preview-contributor"]')).toBeNull();
+    await click(container, "edge-invite-group-preview-toggle-contributor");
+    const preview = container.querySelector('[data-testid="edge-invite-group-preview-contributor"]');
+    expect(preview?.textContent).toContain("task-create");
+    expect(preview?.textContent).toContain("repo-read");
+    // repo-read comes from the inherited viewer group; task-create is the group's own.
+    expect(preview?.textContent).toContain("inherited from Read only (viewer)");
+    const ownRow = [...preview!.querySelectorAll("p")].find((row) => row.textContent!.includes("task-create"));
+    expect(ownRow?.textContent).not.toContain("inherited from");
+    // Collapsing hides the preview again.
+    await click(container, "edge-invite-group-preview-toggle-contributor");
+    expect(container.querySelector('[data-testid="edge-invite-group-preview-contributor"]')).toBeNull();
+    // A base group inherits nothing, so its preview carries no inherited marks.
+    await click(container, "edge-invite-group-preview-toggle-viewer");
+    const viewerPreview = container.querySelector('[data-testid="edge-invite-group-preview-viewer"]');
+    expect(viewerPreview?.textContent).toContain("repo-read");
+    expect(viewerPreview?.textContent).not.toContain("inherited from");
   });
 
   it("surfaces daemon refusal and requires a member, repository, and group selections", async () => {

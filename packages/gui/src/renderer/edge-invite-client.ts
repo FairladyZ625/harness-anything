@@ -1,4 +1,5 @@
 import type {
+  AccessAction,
   AccessPolicyGroup,
   EdgeJoinIssued,
   EdgeJoinPlatform,
@@ -42,15 +43,22 @@ export async function issueEdgeJoin(input: CreateJoinInput): Promise<EdgeJoinIss
   return readIssued(await accessBridge().issueEdgeJoin(input));
 }
 
-export async function fetchEdgeJoinGroups(): Promise<{ readonly groups: readonly AccessPolicyGroup[] }> {
+export async function fetchEdgeJoinGroups(): Promise<{
+  readonly groups: readonly AccessPolicyGroup[];
+  readonly actions: readonly AccessAction[];
+}> {
   const value = await accessBridge().groups();
-  if (!isRendererRecord(value) || value.ok !== true || !Array.isArray(value.groups))
+  if (!isRendererRecord(value) || value.ok !== true || !Array.isArray(value.groups) || !Array.isArray(value.actions))
     throw rendererReadError(value, "Edge join permission groups returned an invalid result.");
   const groups = value.groups.map((group) => {
     if (
       !isRendererRecord(group) ||
       typeof group.id !== "string" ||
       typeof group.displayName !== "string" ||
+      !Array.isArray(group.scopes) ||
+      !group.scopes.every((scope) => typeof scope === "string") ||
+      !Array.isArray(group.composites) ||
+      !group.composites.every((groupId) => typeof groupId === "string") ||
       !Array.isArray(group.effectiveScopes) ||
       !group.effectiveScopes.every((scope) => typeof scope === "string") ||
       typeof group.version !== "string"
@@ -58,7 +66,20 @@ export async function fetchEdgeJoinGroups(): Promise<{ readonly groups: readonly
       throw rendererReadError(group, "Edge join permission groups returned an invalid group.");
     return group as unknown as AccessPolicyGroup;
   });
-  return { groups };
+  // The declared facets a permission preview reads its human-readable names from.
+  const actions = value.actions.map((action) => {
+    if (
+      !isRendererRecord(action) ||
+      typeof action.action !== "string" ||
+      !isRendererRecord(action.presentation) ||
+      typeof action.presentation.domain !== "string" ||
+      typeof action.presentation.name !== "string" ||
+      typeof action.presentation.description !== "string"
+    )
+      throw rendererReadError(action, "Edge join permission groups returned an invalid action.");
+    return action as unknown as AccessAction;
+  });
+  return { groups, actions };
 }
 
 /** The people a grant can address, through the same grant-list read the members page uses. */

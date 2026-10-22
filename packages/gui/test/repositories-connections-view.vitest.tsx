@@ -223,6 +223,8 @@ async function mountView(
           {
             id: "contributor",
             displayName: "Contributor",
+            scopes: ["repo-read"],
+            composites: [],
             effectiveScopes: ["repo-read"],
             version: "contributor-v1",
           },

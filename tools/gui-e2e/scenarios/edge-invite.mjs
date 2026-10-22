@@ -15,7 +15,7 @@ export default {
   feature: "settings",
   lane: "isolated",
   description:
-    "Create an invited member from the picker, issue a multi-repository edge invitation with a permission group, hide its one-time link, inspect the audit row, and revoke it.",
+    "Create an invited member from the picker, preview a permission group's effective actions with its inherited ones badged, issue a multi-repository edge invitation, hide its one-time link, inspect the audit row, and revoke it.",
   async run({ page, app, fixture, shot }) {
     const keyPath = path.join(fixture.userRoot, "edge-invite-key.pem"),
       certPath = path.join(fixture.userRoot, "edge-invite-cert.pem");
@@ -87,6 +87,21 @@ export default {
     assert.match(await page.getByTestId("edge-invite-new-person-id").innerText(), /edge\.operator/u);
     await page.getByTestId(`edge-invite-repo-${fixture.repoId}`).check();
     await page.getByTestId("edge-invite-group-contributor").check();
+    // The permission preview expands in place: effective actions with the inherited one badged by
+    // its source group, and collapsing hides it again before the invitation is issued.
+    await page.getByTestId("edge-invite-group-preview-toggle-contributor").click();
+    const preview = page.getByTestId("edge-invite-group-preview-contributor");
+    await preview
+      .getByText(/继承自|inherited from/u)
+      .first()
+      .waitFor();
+    // repository-read is the viewer tier's only declared action, so it is the one contributor inherits.
+    const inheritedAction = preview.getByText("repository-read", { exact: true }).first();
+    assert.ok(await inheritedAction.isVisible(), "preview names the inherited action");
+    await inheritedAction.scrollIntoViewIfNeeded();
+    await shot("edge-invite-group-preview");
+    await page.getByTestId("edge-invite-group-preview-toggle-contributor").click();
+    await preview.waitFor({ state: "detached" });
     await shot("edge-invite-new-member");
     await page.getByTestId("edge-invite-issue").click();
 
