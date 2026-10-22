@@ -4,8 +4,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
+import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { steerRuntime } from "../src/runtime-spawn-control.ts";
 import { launchNative } from "../src/runtime-spawn-process.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
@@ -190,12 +192,15 @@ test(
     const runtimeProcess = launchNative(
       {
         executablePath,
-        args: ["exec", "--json", "--model", "test-model", "-"],
+        // Production fresh-exec argv: the steer resume path must be proven against the argv a
+        // dispatch really launches with, which carries the fresh `--sandbox` block.
+        args: codexHostLaunchArgs("read-only"),
         env: { ...runtimeWorkerProviderEnvironment(process.env), STEER_TRACE: tracePath },
         cwd: rootDir,
         prompt: "initial prompt",
         installation: { kindId: "codex" },
         protocolFamily: "codex",
+        permissionMode: "read-only",
       } as never,
       { rootDir, dispatchId },
     );
@@ -241,11 +246,16 @@ test(
       "exec",
       "resume",
       "--json",
+      "--config",
+      'sandbox_mode="read-only"',
       "--model",
       "test-model",
       "provider-thread-stable",
       "-",
     ]);
+    // The pre-existing steer path had the same defect the compaction continuation was built on:
+    // its resume argv carried the fresh `--sandbox` block and the real CLI exited 2.
+    assert.equal(invocations[1]!.args.includes("--sandbox"), false);
     const records = readDispatchStream(rootDir, dispatchId)!.records;
     assert.equal(records.filter((record) => record.kind === "steer_resumed").length, 1);
     assert.equal(records.filter((record) => record.kind === "process_exit").length, 1);
@@ -431,6 +441,250 @@ function steeredTurnResults(rootDir: string, dispatchId: string): (string | unde
     .filter((record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "acp.result")
     .map((record) => (record.event as { stopReason?: string }).stopReason);
 }
+
+/** Production fresh-launch argv for a codex dispatch, from the same builder `prepareLaunch` uses.
+ * A hand-written argv here is what hid the fresh `--sandbox` block from the first iteration's
+ * fixture: the host only ever sees production argv, so the test must see it too. */
+function codexHostLaunchArgs(mode: "bypass" | "workspace-write" | "read-only"): string[] {
+  return launchArgs(
+    {
+      schemaVersion: 2,
+      instanceId: "codex-host-test",
+      name: "Codex Host Test",
+      kindId: "codex",
+      installationId: "codex-installation",
+      providerId: "openai",
+      models: ["test-model"],
+      defaultModel: "test-model",
+      enabled: true,
+      isolationState: "enforced",
+      auth: { mode: "subscription" },
+      codex: {},
+    },
+    "test-model",
+    "initial prompt",
+    undefined,
+    null,
+    mode,
+    false,
+  );
+}
+
+/** The exact warning Codex 0.163.0 emits right after it replaces history with a compaction
+ * summary (codex-rs/core/src/compact.rs), recorded verbatim in the incident's dispatch stream
+ * as item.completed with item.type "error". exec never forwards the ContextCompaction item, so
+ * this frame plus the absence of a later agent message is the whole observable signature. */
+const codexCompactionWarning =
+  "Heads up: Long threads and multiple compactions can cause the model to be less accurate. Start a new thread when possible to keep threads small and targeted.";
+
+/** Runs one Codex-shaped dispatch to completion and returns the provider invocations and the
+ * records the worker host appended. `frames` decides what each invocation emits. */
+async function driveCodexWorker(
+  name: string,
+  frames: (invocation: number) => Record<string, unknown>[],
+): Promise<{
+  readonly invocations: { readonly args: string[]; readonly prompt: string }[];
+  readonly records: Record<string, unknown>[];
+  readonly cleanup: () => void;
+}> {
+  const parent = mkdtempSync(path.join(tmpdir(), `ha-runtime-worker-${name}-`)),
+    rootDir = path.join(parent, "repo"),
+    executablePath = path.join(parent, "provider.mjs"),
+    tracePath = path.join(parent, "provider-trace.jsonl"),
+    // Dispatch ids are pinned to dispatch_<24 hex>; derive one per fixture so parallel tests differ.
+    dispatchId = `dispatch_${createHash("sha256").update(name).digest("hex").slice(0, 24)}`,
+    runtimeSessionId = `runtime_${createHash("sha256").update(`runtime:${name}`).digest("hex").slice(0, 24)}`;
+  mkdirSync(rootDir);
+  writeFileSync(
+    executablePath,
+    `#!/usr/bin/env node\n` +
+      `import fs from "node:fs";\n` +
+      `let prompt = ""; for await (const chunk of process.stdin) prompt += chunk;\n` +
+      `fs.appendFileSync(process.env.STEER_TRACE, JSON.stringify({ args: process.argv.slice(2), prompt }) + "\\n");\n` +
+      `const emit = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\n` +
+      `const invocation = fs.readFileSync(process.env.STEER_TRACE, "utf8").trim().split("\\n").length;\n` +
+      `emit({ type: "thread.started", thread_id: "provider-thread-compaction" });\n` +
+      `for (const frame of JSON.parse(process.env.STEER_FRAMES)[invocation - 1] ?? []) emit(frame);\n` +
+      `process.exit(0);\n`,
+  );
+  chmodSync(executablePath, 0o755);
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId,
+    instanceId: "codex-test",
+    startedAt: new Date().toISOString(),
+    dispatchOpId: `dispatch-op-${name}`,
+    kindId: "codex",
+    permissionMode: null,
+    binding: operatorBinding,
+    cwd: rootDir,
+    prompt: "initial prompt",
+    model: "test-model",
+    reasoningEffort: null,
+    fast: false,
+  });
+  const runtimeProcess = launchNative(
+    {
+      executablePath,
+      // Production fresh-exec argv, built by the same `launchArgs` the daemon uses: the first
+      // iteration's fixture hand-wrote `exec --json --model … -`, which no launch ever produces, so
+      // it could not observe the fresh `--sandbox` block leaking into the resume argv.
+      args: codexHostLaunchArgs("bypass"),
+      env: {
+        ...runtimeWorkerProviderEnvironment(process.env),
+        STEER_TRACE: tracePath,
+        // One entry per invocation the fixture may see; the host's own bound decides how many run.
+        STEER_FRAMES: JSON.stringify(Array.from({ length: 8 }, (_, index) => frames(index))),
+      },
+      cwd: rootDir,
+      prompt: "initial prompt",
+      installation: { kindId: "codex" },
+      protocolFamily: "codex",
+      permissionMode: "bypass",
+    } as never,
+    { rootDir, dispatchId },
+  );
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("worker host did not settle")), 15_000);
+    runtimeProcess.onExit((code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`worker exited ${String(code)}`));
+    });
+  });
+  return {
+    invocations: readFileSync(tracePath, "utf8")
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as { args: string[]; prompt: string }),
+    records: readDispatchStream(rootDir, dispatchId)!.records,
+    cleanup: () => rmSync(parent, { recursive: true, force: true }),
+  };
+}
+
+/** The tool call the incident dispatch completed right before its compaction. */
+const codexToolCompleted = {
+  type: "item.completed",
+  item: { id: "tool-1", type: "command_execution", command: "npm test", status: "completed" },
+} as const;
+
+test(
+  "a Codex turn that ended right after a compaction with no agent message resumes the same thread",
+  { timeout: 20_000 },
+  async () => {
+    const read = await driveCodexWorker("compaction-empty-end", (invocation) =>
+      invocation === 0
+        ? [
+            codexToolCompleted,
+            { type: "item.completed", item: { id: "warning-1", type: "error", message: codexCompactionWarning } },
+            { type: "turn.completed", usage: { input_tokens: 1323364, output_tokens: 13568 } },
+          ]
+        : [
+            { type: "item.completed", item: { id: "message-1", type: "agent_message", text: "resumed and delivered" } },
+            { type: "turn.completed", usage: { input_tokens: 1400000, output_tokens: 13800 } },
+          ],
+    );
+    try {
+      // The compaction ended the first turn; the worker keeps going in the same thread instead
+      // of the dispatch settling as a stop.
+      assert.equal(read.invocations.length, 2);
+      assert.equal(read.invocations[0]!.prompt, "initial prompt");
+      assert.match(read.invocations[1]!.prompt, /Continue the current task/u);
+      assert.deepEqual(read.invocations[1]!.args, [
+        "exec",
+        "resume",
+        "--json",
+        // The resume subcommand parser rejects the fresh `--sandbox` block, so the continuation
+        // must carry the mode's declared resume form. This assertion is the one the first
+        // iteration lacked: its fixture argv had no permission block at all.
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--model",
+        "test-model",
+        "provider-thread-compaction",
+        "-",
+      ]);
+      assert.equal(read.invocations[1]!.args.includes("--sandbox"), false);
+      assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 1);
+      assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+      // The resumed turn's own frames reach the daemon unchanged: no synthetic outcome.
+      assert.ok(
+        read.records.some(
+          (record) =>
+            record.kind === "provider_event" && JSON.stringify(record.event).includes("resumed and delivered"),
+        ),
+      );
+    } finally {
+      read.cleanup();
+    }
+  },
+);
+
+test("a Codex turn that answered after a compaction is never resumed", { timeout: 20_000 }, async () => {
+  const read = await driveCodexWorker("compaction-answered", () => [
+    codexToolCompleted,
+    { type: "item.completed", item: { id: "warning-1", type: "error", message: codexCompactionWarning } },
+    { type: "item.completed", item: { id: "message-1", type: "agent_message", text: "still working" } },
+    { type: "turn.completed", usage: { input_tokens: 1323364, output_tokens: 13568 } },
+  ]);
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 0);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("a turn-end compaction after a final answer is not an empty turn", { timeout: 20_000 }, async () => {
+  // Post-turn compaction: the answer was delivered, then Codex compacted history and emitted
+  // the same warning. Nothing is pending, so resuming would be a retry on a finished turn.
+  const read = await driveCodexWorker("compaction-after-answer", () => [
+    codexToolCompleted,
+    { type: "item.completed", item: { id: "message-1", type: "agent_message", text: "delivered" } },
+    { type: "item.completed", item: { id: "warning-1", type: "error", message: codexCompactionWarning } },
+    { type: "turn.completed", usage: { input_tokens: 900000, output_tokens: 9000 } },
+  ]);
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 0);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("an empty Codex turn without a compaction stays a stop: no retry loop", { timeout: 20_000 }, async () => {
+  const read = await driveCodexWorker("empty-without-compaction", () => [
+    codexToolCompleted,
+    { type: "turn.completed", usage: { input_tokens: 1200, output_tokens: 0 } },
+  ]);
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 0);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("compaction continuations are bounded per dispatch, one compaction each", { timeout: 20_000 }, async () => {
+  // A session that always answers a compaction with nothing: the third continuation is the last,
+  // so the dispatch still settles instead of looping.
+  const read = await driveCodexWorker("compaction-bounded", () => [
+    codexToolCompleted,
+    { type: "item.completed", item: { id: "warning-1", type: "error", message: codexCompactionWarning } },
+    { type: "turn.completed", usage: { input_tokens: 2000, output_tokens: 0 } },
+  ]);
+  try {
+    assert.equal(read.invocations.length, 4);
+    assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 3);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});
 
 async function eventually(check: () => boolean): Promise<void> {
   while (!check()) await new Promise<void>((resolve) => setImmediate(resolve));

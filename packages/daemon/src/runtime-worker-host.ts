@@ -27,6 +27,25 @@ type RuntimeWorkerManifest = {
   readonly model?: string;
 };
 
+// Codex compacts inside the turn (core/src/session/turn.rs keeps looping after a mid-turn
+// compaction), but the sampling request that follows a compaction can return no assistant
+// message; Codex then ends that turn normally with `task_complete.last_agent_message: null`
+// and `exec` exits 0. A dispatched worker still owns its task at that point, so the host
+// resumes the same thread rather than letting settlement read a stop. The judgment is only
+// the observable shape — a completed compaction, no non-empty agent message after it, a clean
+// exit — and every later resume must reproduce that shape, so this is not a retry on failure.
+// The bound matches Codex's own empty-continuation breaker (three turns without activity), and
+// it stops a session that answers every compaction with nothing from looping forever.
+const compactionContinuationPrompt = "Continue the current task from where it left off.",
+  maxCompactionContinuations = 3;
+
+// `exec` drops the app-server's ContextCompaction item (`map_completed_item_mut` has no arm
+// for it), so the only compaction trace in the JSON stream is the warning Codex emits right
+// after replacing history (core/src/compact.rs), which exec maps to an error item. The wording
+// is therefore the discriminator, and it must tolerate upstream renaming "threads" to
+// "conversations" — the phrase "multiple compactions" is what the warning is about.
+const codexCompactionWarning = /^Heads up: Long (?:threads|conversations) and multiple compactions\b/u;
+
 const providerGitCredentialEnvironment = new Set([
   "GH_TOKEN",
   "HARNESS_GITHUB_TOKEN",
@@ -120,8 +139,10 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     queuedPrompt: string | null = null,
     interruptTimer: NodeJS.Timeout | undefined;
   const activeTools = new Set<string>();
+  // Continuations already granted to this dispatch: the bound is the dispatch's, not a process's.
   let settled = false,
-    terminationRequested = false;
+    terminationRequested = false,
+    compactionContinuations = 0;
   process.once("SIGTERM", () => {
     terminationRequested = true;
     queuedPrompt = null;
@@ -189,6 +210,16 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       // An ACP kind steers in place: session/cancel ends the turn, the same session reprompts.
       if (acp) control.handler = acp.steer;
       let outputBuffer = "";
+      // Per-attempt compaction recollection. A resume starts a new process and a new turn, so
+      // each attempt's trace is independent: the continuation only happens when its own attempt
+      // compacted after tool work and then completed a turn without answering. `toolWorkSinceAnswer`
+      // separates the two compaction phases Codex emits the same warning for: mid-turn (tool work
+      // pending, so the answer never came) and post-turn (the answer came first, then the warning,
+      // which must not be read as an empty turn).
+      let compactionCompleted = false,
+        turnCompletedAfterCompaction = false,
+        agentMessageAfterCompaction = false,
+        toolWorkSinceAnswer = false;
       const consumeOutput = (chunk: string, flush = false): void => {
         outputBuffer += chunk;
         const lines = outputBuffer.split(/\r?\n/u);
@@ -202,6 +233,16 @@ export async function runRuntimeWorkerHost(): Promise<void> {
           if (state.toolStart) activeTools.add(state.toolStart);
           if (state.toolEnd === "") activeTools.clear();
           else if (state.toolEnd) activeTools.delete(state.toolEnd);
+          if (parsed && manifest.kindId === "codex") {
+            if (codexCompactionWarning.test(codexErrorItemMessage(parsed))) {
+              compactionCompleted = true;
+              turnCompletedAfterCompaction = false;
+              agentMessageAfterCompaction = false;
+            } else if (compactionCompleted && codexAgentMessageText(parsed).trim()) agentMessageAfterCompaction = true;
+            if (parsed.type === "turn.completed" && compactionCompleted) turnCompletedAfterCompaction = true;
+            if (state.toolEnd && state.toolEnd !== "") toolWorkSinceAnswer = true;
+            else if (codexAgentMessageText(parsed).trim()) toolWorkSinceAnswer = false;
+          }
           if (queuedPrompt !== null && activeTools.size === 0) interrupt();
         }
       };
@@ -242,6 +283,31 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         append({ kind: "steer_resumed", providerSessionId, occurredAt: new Date().toISOString() });
         continue;
       }
+      if (
+        !terminationRequested &&
+        queuedPrompt === null &&
+        declaration?.steer?.strategy === "interrupt-resume" &&
+        providerSessionId &&
+        compactionContinuations < maxCompactionContinuations &&
+        compactionCompleted &&
+        toolWorkSinceAnswer &&
+        turnCompletedAfterCompaction &&
+        !agentMessageAfterCompaction &&
+        exitCode === 0
+      ) {
+        compactionContinuations += 1;
+        args = [...declaration.steer.resumeArgs(baseArgs, providerSessionId)];
+        prompt = compactionContinuationPrompt;
+        activeTools.clear();
+        interrupted = false;
+        append({
+          kind: "compaction_continued",
+          providerSessionId,
+          continuation: compactionContinuations,
+          occurredAt: new Date().toISOString(),
+        });
+        continue;
+      }
       finish(child.pid === undefined ? null : exitCode, signal);
       break;
     }
@@ -265,6 +331,23 @@ function appendProviderLine(
     append({ kind: "provider_output_invalid", output: scrubProviderValue(line) });
     return null;
   }
+}
+
+/** The message of a Codex `item.completed` error item, or "" for every other frame. Codex emits
+ * its non-fatal warnings this way, so the item type alone never identifies one. */
+function codexErrorItemMessage(value: Record<string, unknown>): string {
+  const item = value.item as Record<string, unknown> | undefined;
+  return value.type === "item.completed" && item?.type === "error" && typeof item.message === "string" && item.message
+    ? item.message
+    : "";
+}
+
+/** The assistant text of a Codex `item.completed` agent message, or "" for every other frame. */
+function codexAgentMessageText(value: Record<string, unknown>): string {
+  const item = value.item as Record<string, unknown> | undefined;
+  return value.type === "item.completed" && item?.type === "agent_message" && typeof item.text === "string"
+    ? item.text
+    : "";
 }
 
 function providerSteerState(

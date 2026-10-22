@@ -106,6 +106,36 @@ function acpKind<K extends RuntimeKindId>(
   } as RuntimeProviderDeclaration & { readonly kindId: K };
 }
 
+// Codex spells the three permission modes differently for a fresh exec and for `exec resume`:
+// resume is a subcommand with its own parser and rejects `--sandbox` outright (exit 2), accepting
+// the bypass flag or `-c sandbox_mode=…` instead. Both blocks live here so launch
+// (`agent-runtime-launch-config.ts`) and resume (`steer.resumeArgs` below) read one definition;
+// a resume argv built from the fresh block dies before the provider ever sees the thread.
+const codexFreshPermissionArgs = {
+    bypass: ["--sandbox", "danger-full-access"],
+    "workspace-write": [
+      "--sandbox",
+      "workspace-write",
+      "--config",
+      "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+      "--config",
+      "sandbox_workspace_write.exclude_slash_tmp=true",
+    ],
+    "read-only": ["--sandbox", "read-only"],
+  } as const,
+  codexResumePermissionArgs = {
+    bypass: ["--dangerously-bypass-approvals-and-sandbox"],
+    "workspace-write": [
+      "--config",
+      'sandbox_mode="workspace-write"',
+      "--config",
+      "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+      "--config",
+      "sandbox_workspace_write.exclude_slash_tmp=true",
+    ],
+    "read-only": ["--config", 'sandbox_mode="read-only"'],
+  } as const;
+
 export const runtimeKinds = [
   {
     kindId: "claude",
@@ -277,35 +307,21 @@ export const runtimeKinds = [
         "$session",
         "-",
       ],
-      permissionArgs: {
-        bypass: ["--sandbox", "danger-full-access"],
-        "workspace-write": [
-          "--sandbox",
-          "workspace-write",
-          "--config",
-          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-          "--config",
-          "sandbox_workspace_write.exclude_slash_tmp=true",
-        ],
-        "read-only": ["--sandbox", "read-only"],
-      },
-      resumePermissionArgs: {
-        bypass: ["--dangerously-bypass-approvals-and-sandbox"],
-        "workspace-write": [
-          "--config",
-          'sandbox_mode="workspace-write"',
-          "--config",
-          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-          "--config",
-          "sandbox_workspace_write.exclude_slash_tmp=true",
-        ],
-        "read-only": ["--config", 'sandbox_mode="read-only"'],
-      },
+      permissionArgs: codexFreshPermissionArgs,
+      resumePermissionArgs: codexResumePermissionArgs,
       fastArgs: ["--config", 'service_tier="fast"'],
     },
     steer: {
       strategy: "interrupt-resume",
       resumeArgs: (args, providerSessionId) => {
+        // `codex exec resume` is a subcommand with its own parser: it rejects `--sandbox`, which is
+        // how a fresh exec spells all three modes, and accepts the bypass flag or `-c sandbox_mode`
+        // instead. Production argv always carries the launched block contiguously (`$permission` is
+        // one template slot), so replace that block in place with the resume block of the same mode.
+        // The mode is read back out of the argv rather than passed in: the argv is the only input
+        // both call sites (steer, compaction continuation) share, and a separate parameter could
+        // disagree with the mode the dispatch launched with. An argv already carrying the resume
+        // block (a resumed dispatch steered again) needs no rewrite.
         const clean = [...args],
           execIndex = clean.indexOf("exec"),
           inputIndex = clean.lastIndexOf("-");
@@ -314,6 +330,15 @@ export const runtimeKinds = [
           clean.splice(execIndex + 1, 1);
           clean.splice(clean.lastIndexOf("-") - 1, 1);
         }
+        const mode = codexPermissionMode(clean);
+        if (mode === null) throw new Error("Codex resume arguments carry no declared permission mode.");
+        const freshBlock = codexFreshPermissionArgs[mode],
+          freshIndex = contiguousIndex(clean, freshBlock);
+        if (freshIndex >= 0) clean.splice(freshIndex, freshBlock.length, ...codexResumePermissionArgs[mode]);
+        // Fail closed rather than spawn an argv the resume parser is known to reject: a block this
+        // transform could not recognise would otherwise turn the dispatch into a `gate_red`.
+        if (clean.includes("--sandbox"))
+          throw new Error("Codex resume arguments still carry the fresh --sandbox flag.");
         const options = clean.slice(execIndex + 1, clean.lastIndexOf("-"));
         return [...clean.slice(0, execIndex + 1), "resume", ...options, providerSessionId, "-"];
       },
@@ -1009,6 +1034,36 @@ export const runtimeProtocolFamilies: readonly RuntimeProtocolFamily[] = runtime
 );
 export function isRuntimeKindId(value: unknown): value is RuntimeKindId {
   return typeof value === "string" && runtimeKindIds.some((kindId) => kindId === value);
+}
+
+type CodexPermissionMode = keyof typeof codexFreshPermissionArgs;
+
+const codexSandboxModes: Readonly<Record<string, CodexPermissionMode>> = {
+  "danger-full-access": "bypass",
+  "workspace-write": "workspace-write",
+  "read-only": "read-only",
+};
+
+/** The mode an argv carries, whether it still has the fresh block or already the resume block. */
+function codexPermissionMode(args: readonly string[]): CodexPermissionMode | null {
+  if (args.includes("--dangerously-bypass-approvals-and-sandbox")) return "bypass";
+  const sandboxIndex = args.indexOf("--sandbox");
+  if (sandboxIndex >= 0) return codexSandboxModes[args[sandboxIndex + 1] ?? ""] ?? null;
+  for (const token of args) {
+    const match = /^sandbox_mode="(danger-full-access|workspace-write|read-only)"$/u.exec(
+      token.startsWith("--config=") ? token.slice("--config=".length) : token,
+    );
+    if (match) return codexSandboxModes[match[1]!]!;
+  }
+  return null;
+}
+
+/** First index where `block` appears contiguously in `args`, or -1. */
+function contiguousIndex(args: readonly string[], block: readonly string[]): number {
+  if (block.length === 0) return -1;
+  for (let index = 0; index + block.length <= args.length; index += 1)
+    if (block.every((token, offset) => args[index + offset] === token)) return index;
+  return -1;
 }
 
 export function runtimeKindForInstallation(installation: RuntimeInstallation): RuntimeKindInventory {
