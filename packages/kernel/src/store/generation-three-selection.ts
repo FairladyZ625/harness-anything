@@ -2,6 +2,15 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
+import {
+  assertLedgerIdentity,
+  ProjectionEventStreamIncompleteError,
+  ProjectionSchemaMismatchError,
+  projectionSchemaVersion,
+  readProjectionCoverage,
+  withQueryOnlyDatabaseSession,
+} from "../projection/rebuildable-task-projection-database.ts";
+import { taskProjectionSchemaVersion } from "../projection/projection-schema.ts";
 import { canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { openUnactivatedGenerationThreeEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
@@ -98,37 +107,51 @@ function assertGenerationThreeActivationLedger(
       actualCut.headDigest !== certificate.acceptedCut.headDigest
     )
       throw new TaskEventStoreError("invalid_store", "generation 3 activation cut is absent from its ledger");
-    if (projectionPath) assertGenerationThreeProjectionDoesNotExceedLedger(projectionPath, revision);
+    if (projectionPath) assertGenerationThreeProjectionMatchesLedger(ledger, projectionPath, revision);
   } finally {
     ledger.close();
   }
 }
 
-function assertGenerationThreeProjectionDoesNotExceedLedger(projectionPath: string, ledgerRevision: number): void {
+/**
+ * The writable attach preflight borrows the projection module's own verdicts instead of keeping a
+ * second hand-rolled projection_meta reader. A cache from a future daemon build is refused as a
+ * schema mismatch (its columns may not even shape-match this build), a current-build cache must
+ * pin this ledger's head digest and hold no accepted history beyond the ledger, and an older
+ * cache — which the projection module discards and rebuilds downstream — is only refused when the
+ * ledger cannot prove its coverage. The head digest is read from the same event row the store's
+ * readHead reports, so the identity comparison pins the ledger the cache claims to have scanned.
+ */
+function assertGenerationThreeProjectionMatchesLedger(
+  ledger: DatabaseSync,
+  projectionPath: string,
+  ledgerRevision: number,
+): void {
   const projectionSize = files.fileSize(projectionPath);
   if (projectionSize === null || projectionSize === 0) return;
-  const projection = new DatabaseSync(projectionPath, { readOnly: true });
-  try {
-    const hasMetadata = projection
-      .prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='projection_meta'")
-      .get();
-    if (!hasMetadata) return;
-    const metadata = projection
-      .prepare("SELECT watermark, scanned_revision FROM projection_meta WHERE singleton=1")
-      .get() as { readonly watermark?: number; readonly scanned_revision?: number } | undefined;
-    if (metadata) {
-      const projectionRevision = Math.max(Number(metadata.watermark), Number(metadata.scanned_revision));
-      if (projectionRevision > ledgerRevision)
-        throw new TaskEventStoreError(
-          "invalid_store",
-          "generation 3 ledger revision precedes its persisted projection: revisions " +
-            `${ledgerRevision + 1}-${projectionRevision} are missing from the ledger ` +
-            `(ledger revision ${ledgerRevision}, projection through revision ${projectionRevision})`,
-        );
+  const headRow = ledger.prepare("SELECT digest FROM event WHERE revision=?").get(ledgerRevision);
+  const readHead = () =>
+    headRow === undefined
+      ? null
+      : { revision: ledgerRevision, eventDigest: String(headRow.digest) as `sha256:${string}` };
+  withQueryOnlyDatabaseSession(projectionPath, readHead, (projection) => {
+    const schemaVersion = projectionSchemaVersion(projection);
+    // No projection_meta: the cache never completed a scan, so it holds no accepted history.
+    if (schemaVersion === null) return;
+    if (schemaVersion > taskProjectionSchemaVersion)
+      throw new ProjectionSchemaMismatchError(schemaVersion, projectionPath);
+    if (schemaVersion === taskProjectionSchemaVersion) {
+      assertLedgerIdentity(projection, readHead());
+      return;
     }
-  } finally {
-    projection.close();
-  }
+    const coverage = readProjectionCoverage(projectionPath, readHead),
+      coverageRevision = Math.max(coverage.watermark, coverage.scannedRevision);
+    if (coverageRevision > ledgerRevision)
+      throw new ProjectionEventStreamIncompleteError(coverage.watermark, coverage.scannedRevision, ledgerRevision, {
+        from: ledgerRevision + 1,
+        to: coverageRevision,
+      });
+  });
 }
 
 /**

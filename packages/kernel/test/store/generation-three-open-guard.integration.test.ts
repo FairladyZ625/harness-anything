@@ -6,6 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import {
@@ -149,11 +150,111 @@ test("canonical writable attach rejects revision zero when the persisted project
       error instanceof Error &&
       "code" in error &&
       error.code === "invalid_store" &&
-      /revision precedes its persisted projection/u.test(error.message) &&
-      /revisions 1-1 are missing/u.test(error.message),
+      /projection cache through revision 1 cannot be discarded/u.test(error.message) &&
+      /revisions 1-1 are not continuously readable/u.test(error.message),
     "the refusal must name the missing revision range so the operator knows what to restore",
   );
   assert.equal(statSync(databasePath).size, statSync(revisionZeroPath).size);
+});
+
+async function scannedProjectionAtHead(rootDir: string): Promise<string> {
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    revisionZeroPath = path.join(rootDir, "revision-zero-ledger.sqlite");
+  copyFileSync(databasePath, revisionZeroPath);
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
+  try {
+    const event = eventAt(1),
+      eventJson = serializePersistedCanonicalEvent(event);
+    store.appendCommand({
+      fence,
+      intent: {
+        opId: event.opId,
+        intentDigest: `sha256:${sha256Text(eventJson)}`,
+        summary: event.type,
+      },
+      events: [event],
+    });
+  } finally {
+    store.close();
+  }
+  const projectionStore = makeTaskEventStore({ repoId, rootDir, mutable: false }),
+    projection = makeTaskProjection({ rootDir, eventStore: projectionStore });
+  try {
+    projection.catchUp?.();
+  } finally {
+    projection.close();
+    await projectionStore.drain();
+  }
+  return revisionZeroPath;
+}
+
+function rewriteProjectionSchemaVersion(rootDir: string, schemaVersion: number): void {
+  const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite"),
+    projectionMeta = new DatabaseSync(projectionPath);
+  projectionMeta.prepare("UPDATE projection_meta SET schema_version=? WHERE singleton=1").run(schemaVersion);
+  projectionMeta.close();
+}
+
+function restoreLedger(rootDir: string, savedLedgerPath: string): void {
+  const databasePath = sqliteLedgerPath(rootDir, 3);
+  for (const sidecar of [`${databasePath}-wal`, `${databasePath}-shm`]) if (existsSync(sidecar)) unlinkSync(sidecar);
+  copyFileSync(savedLedgerPath, databasePath);
+}
+
+test("a projection cache from a future daemon build is refused as a schema mismatch, not a lagging ledger", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-future-projection-canonical-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const revisionZeroPath = await scannedProjectionAtHead(rootDir);
+  rewriteProjectionSchemaVersion(rootDir, taskProjectionSchemaVersion + 1);
+  restoreLedger(rootDir, revisionZeroPath);
+
+  assert.throws(
+    () => openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "kernel_schema_mismatch" &&
+      /run a daemon build that understands/u.test(error.message),
+    "a future-version cache names the daemon build instead of claiming the ledger lost history",
+  );
+});
+
+test("a projection cache from an older daemon build that proves lost history still blocks the attach", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-past-projection-canonical-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const revisionZeroPath = await scannedProjectionAtHead(rootDir);
+  rewriteProjectionSchemaVersion(rootDir, taskProjectionSchemaVersion - 1);
+  restoreLedger(rootDir, revisionZeroPath);
+
+  assert.throws(
+    () => openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "invalid_store" &&
+      /revisions 1-1 are not continuously readable/u.test(error.message),
+    "a rebuildable older cache must still be refused when the ledger cannot prove its history",
+  );
+});
+
+test("a projection cache from an older daemon build at the ledger head does not block the attach", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-past-projection-caughtup-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  await scannedProjectionAtHead(rootDir);
+  rewriteProjectionSchemaVersion(rootDir, taskProjectionSchemaVersion - 1);
+
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
+  try {
+    assert.equal(store.revision(), 1);
+  } finally {
+    store.close();
+  }
 });
 
 test("canonical attach surfaces unreadable projection metadata instead of accepting an unproven head", (t) => {

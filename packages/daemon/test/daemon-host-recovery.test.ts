@@ -1010,7 +1010,7 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
     assert.equal(unavailable.causeClass, "data-shape", JSON.stringify(unavailable));
     assert.match(
       String(unavailable.lastError),
-      /generation 3 ledger revision precedes its persisted projection: revisions 2-5 are missing/u,
+      /projection cache through revision 5 cannot be discarded: event stream head is 1 and revisions 2-5 are not continuously readable/u,
     );
     const rebuild = await host.run("ahead-projection", { kind: "projection-rebuild" }, auth);
     assert.equal(rebuild.code, "repo_unavailable");

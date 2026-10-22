@@ -347,7 +347,7 @@ function projectionFileFingerprint(projectionPath: string): string | null {
 // current head revision but pins a different digest belongs to another ledger: discard it. A cache
 // which has scanned or applied beyond the current source cut may be the only readable copy of those
 // revisions, so opening must retain it and fail closed.
-function assertLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): void {
+export function assertLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): void {
   const row = prepareQuery(
     db,
     "SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1",
@@ -365,7 +365,7 @@ function assertLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort
     throw new ProjectionIdentityMismatchError();
 }
 
-function readProjectionCoverage(
+export function readProjectionCoverage(
   projectionPath: string,
   readHead: EventStreamPort["readHead"],
 ): {
