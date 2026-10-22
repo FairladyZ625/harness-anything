@@ -363,23 +363,30 @@ function headCommitOrNull(buildRoot) {
   return value || null;
 }
 
-/** The receipt may only name the build that actually ran: whenever the checkout names a commit,
- *  the daemon dist must be stamped with that same commit. A dist left behind by an older HEAD —
- *  the normal state of a worktree after a rebase — is rebuilt, never trusted. */
-async function ensureDaemonDist(buildRoot) {
+/** Pure decision half of dist provisioning, so the trust table is testable without a build:
+ *  whenever the checkout names a commit, the daemon dist must be stamped with that same commit,
+ *  and a dist left behind by an older HEAD — the normal state of a worktree after a rebase — is
+ *  rebuilt, never trusted. Tests must exercise this as the pure function, never by poisoning a
+ *  real checkout's marker: daemons concurrently running from that dist exit for build
+ *  supersession (the invariant smoke-identity.integration.test.mjs asserts). */
+export function planDaemonDistSteps({ nodeModules, distEntry, head, marker }) {
   const steps = [];
-  if (!existsSync(path.join(buildRoot, "node_modules"))) {
-    await runText("npm", ["ci"], buildRoot);
-    steps.push("npm ci");
-  }
+  if (!nodeModules) steps.push({ command: "npm", args: ["ci"] });
+  if (!distEntry || (head !== null && marker !== head))
+    steps.push({ command: "npm", args: ["run", "build", "--workspace", "@harness-anything/daemon"] });
+  return steps;
+}
+
+async function ensureDaemonDist(buildRoot) {
   const head = headCommitOrNull(buildRoot);
-  const marker = readMarkerOrNull(path.join(buildRoot, "packages", "daemon", "dist", "build-id.txt"));
-  const distEntry = existsSync(path.join(buildRoot, "packages", "daemon", "dist", "index.js"));
-  if (!distEntry || (head !== null && marker !== head)) {
-    await runText("npm", ["run", "build", "--workspace", "@harness-anything/daemon"], buildRoot);
-    steps.push("npm run build --workspace @harness-anything/daemon");
-  }
-  return { steps, head };
+  const plan = planDaemonDistSteps({
+    nodeModules: existsSync(path.join(buildRoot, "node_modules")),
+    distEntry: existsSync(path.join(buildRoot, "packages", "daemon", "dist", "index.js")),
+    head,
+    marker: readMarkerOrNull(path.join(buildRoot, "packages", "daemon", "dist", "build-id.txt")),
+  });
+  for (const step of plan) await runText(step.command, step.args, buildRoot);
+  return { steps: plan.map((step) => [step.command, ...step.args].join(" ")), head };
 }
 
 /** The forensic env strips HARNESS_DAEMON_USER_ROOT (a worker injection), so EVERY CLI call

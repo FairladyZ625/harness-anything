@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   rmSync,
   statSync,
   truncateSync,
@@ -22,6 +21,7 @@ import {
   forensicEnv,
   parseLastJsonObject,
   parsePeakRssBytes,
+  planDaemonDistSteps,
   resolveSourceRoot,
 } from "./old-data-copy-evidence.mjs";
 
@@ -168,31 +168,32 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
   }
 });
 
-test("stale dist marker: the command rebuilds so the loaded build is the checkout HEAD", () => {
-  const headCommit = repoHead();
-  assert.equal(headCommit.status, 0, "this arm needs a git checkout to name the required build");
-  const marker = path.join(repoRoot, "packages", "daemon", "dist", "build-id.txt");
-  assert.ok(existsSync(marker), "a previous arm provisioned the daemon dist");
-  const original = readFileSync(marker, "utf8");
-  // The normal state of a worktree after a rebase: dist from an older HEAD.
-  writeFileSync(marker, `${"0".repeat(40)}\n`, "utf8");
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-evidence-test-"));
-  try {
-    const source = createSourceFixture(parent);
-    const result = runCommand(["--source", source, "--attach-timeout-ms", "120000"]);
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    const receipt = JSON.parse(result.stdout);
-    assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
-    assert.ok(
-      receipt.build.prepared.includes("npm run build --workspace @harness-anything/daemon"),
-      "a marker that disagrees with HEAD forces a rebuild",
-    );
-    assert.equal(receipt.build.commit, receipt.build.loadedBuildId);
-    assert.equal(receipt.build.loadedBuildId, headCommit.stdout.trim(), "the rebuilt dist is stamped with HEAD");
-  } finally {
-    writeFileSync(marker, original, "utf8");
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-  }
+test("dist plan: a marker that disagrees with HEAD forces a rebuild; a current one is trusted", () => {
+  const head = "a".repeat(40);
+  const npmCi = { command: "npm", args: ["ci"] };
+  const daemonBuild = { command: "npm", args: ["run", "build", "--workspace", "@harness-anything/daemon"] };
+  // The normal state of a worktree after a rebase — dist stamped by an older HEAD — is rebuilt,
+  // never trusted. This is pinned as the pure decision only: provisioning a deliberately stale
+  // marker in a real checkout makes daemons concurrently running from that dist exit for build
+  // supersession, the invariant smoke-identity.integration.test.mjs asserts.
+  assert.deepEqual(planDaemonDistSteps({ nodeModules: true, distEntry: true, head, marker: "0".repeat(40) }), [
+    daemonBuild,
+  ]);
+  // A dist already stamped with the checkout HEAD is trusted: no provisioning step runs.
+  assert.deepEqual(planDaemonDistSteps({ nodeModules: true, distEntry: true, head, marker: head }), []);
+  // A fresh build worktree: dependencies first, and a missing dist entry builds regardless of
+  // any marker value.
+  assert.deepEqual(planDaemonDistSteps({ nodeModules: false, distEntry: false, head, marker: head }), [
+    npmCi,
+    daemonBuild,
+  ]);
+  // A tree with no git HEAD names no required build, so only a missing dist entry builds.
+  assert.deepEqual(planDaemonDistSteps({ nodeModules: true, distEntry: true, head: null, marker: "stale" }), []);
+  assert.deepEqual(planDaemonDistSteps({ nodeModules: true, distEntry: false, head: null, marker: null }), [
+    daemonBuild,
+  ]);
+  // A missing or empty marker file is as stale as a mismatched one.
+  assert.deepEqual(planDaemonDistSteps({ nodeModules: true, distEntry: true, head, marker: null }), [daemonBuild]);
 });
 
 /** Interruptible phase targeting: the fixture's .harness/wal carries many small files, so the
