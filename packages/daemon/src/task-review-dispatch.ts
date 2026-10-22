@@ -128,14 +128,36 @@ export async function dispatchDecisionReview(
     ids = reviewDispatchIds(cell.input.repoId, key);
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   }
-  if (existing !== null)
+  if (existing !== null) {
+    // One content cut holds one review dispatch at a time: an explicit --agent must never
+    // masquerade as another agent's in-flight dispatch, so refuse naming both agents instead.
+    const holdingAgent = typeof existing.payload.agentId === "string" ? existing.payload.agentId : null;
+    if (typeof action.agentId === "string" && action.agentId.length > 0 && holdingAgent !== action.agentId)
+      throw cell.cellCodedError(
+        "review_dispatch_failed",
+        `Decision ${decisionId} already holds review dispatch ${existing.payload.dispatchId} by agent ` +
+          `${holdingAgent ?? "with no recorded agent"} (runtime session ${existing.payload.runtimeSessionId}, ` +
+          `instance ${existing.payload.instanceId}); --agent ${action.agentId} was not dispatched. Re-run ` +
+          `ha decision dispatch-review ${decisionId} --agent ${action.agentId} after that review session ends.`,
+      );
     return {
       outcome: "applied",
       opId: existing.opId,
       revision,
       summary: `Decision ${decisionId} already has review dispatch ${ids.dispatchId} for ${digest}.`,
-      dispatches: [{ decisionId, digest, ...ids, dispatchOpId: existing.opId, outcome: "already_dispatched" }],
+      dispatches: [
+        {
+          decisionId,
+          digest,
+          ...ids,
+          dispatchOpId: existing.opId,
+          ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+          instanceId: existing.payload.instanceId,
+          outcome: "already_dispatched",
+        },
+      ],
     } as WriteReceiptDraft;
+  }
   const reviewerId =
       typeof action.agentId === "string" && action.agentId.length > 0
         ? action.agentId
@@ -169,14 +191,27 @@ export async function dispatchDecisionReview(
     });
   if (authorizationDecision.outcome !== "allowed")
     throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }),
+  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+  // The spawner resolved the concrete instance; read it from the dispatch event this spawn just
+  // applied so the receipt names the agent and instance that will run the review.
+  const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event,
     dispatchOpId = typeof spawned.opId === "string" ? spawned.opId : ids.dispatchOpId;
   return {
     outcome: "applied",
     opId: dispatchOpId,
     revision,
     summary: `Dispatched Decision ${decisionId} review ${ids.dispatchId} for ${digest}.`,
-    dispatches: [{ decisionId, digest, ...ids, dispatchOpId, outcome: "dispatched" }],
+    dispatches: [
+      {
+        decisionId,
+        digest,
+        ...ids,
+        dispatchOpId,
+        agentId: resolved.declaration.id,
+        ...(dispatched === undefined ? {} : { instanceId: dispatched.payload.instanceId }),
+        outcome: "dispatched",
+      },
+    ],
   } as WriteReceiptDraft;
 }
 
@@ -295,6 +330,10 @@ type DispatchStep = {
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
   readonly dispatchOpId?: string;
+  /** The agent the step's dispatch carries, or the requested reviewer on a failed step. */
+  readonly agentId?: string;
+  /** The runtime instance the dispatch actually landed on, from its dispatch request. */
+  readonly instanceId?: string;
   /** The configured path-review lane beside the cut review; absent means the primary cut lane. */
   readonly lane?: string;
   readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
@@ -651,10 +690,17 @@ export async function dispatchTaskReview(
         "Installed reviewer overrides must not select an instance default model.",
     );
   const revision = cell.store.readHead()?.revision ?? 0,
-    steps: DispatchStep[] = [];
+    steps: DispatchStep[] = [],
+    reviewerFromArgument = typeof action.agentId === "string" && action.agentId.length > 0;
   for (const taskId of taskIds) {
     const fail = (error: string, executionId?: string) =>
-      steps.push({ taskId, ...(executionId ? { executionId } : {}), outcome: "failed", error });
+      steps.push({
+        taskId,
+        agentId: reviewerId,
+        ...(executionId ? { executionId } : {}),
+        outcome: "failed",
+        error,
+      });
     const read = requireCurrentTaskProjection(cell.projection, taskId, "task dispatch-review"),
       snapshot = read.snapshot,
       candidates = currentSubmittedExecutions(snapshot);
@@ -710,6 +756,7 @@ export async function dispatchTaskReview(
               taskId,
               executionId: execution.executionId,
               lane: lane.lane,
+              agentId: lane.lane,
               outcome: "failed",
               error: lane.error ?? "path-review lane dispatch failed",
             }
@@ -717,6 +764,7 @@ export async function dispatchTaskReview(
               taskId,
               executionId: execution.executionId,
               lane: lane.lane,
+              agentId: lane.lane,
               dispatchId: lane.ids.dispatchId,
               runtimeSessionId: lane.ids.runtimeSessionId,
               dispatchOpId: lane.ids.dispatchOpId,
@@ -725,6 +773,20 @@ export async function dispatchTaskReview(
       );
     const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution));
     if (existing !== null) {
+      // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
+      // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.
+      const holdingAgent = typeof existing.payload.agentId === "string" ? existing.payload.agentId : null;
+      if (reviewerFromArgument && holdingAgent !== agent.id) {
+        fail(
+          `Task ${taskId}'s submitted cut already holds review dispatch ${existing.payload.dispatchId} by agent ` +
+            `${holdingAgent ?? "with no recorded agent"} (runtime session ${existing.payload.runtimeSessionId}, ` +
+            `instance ${existing.payload.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
+            `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
+          execution.executionId,
+        );
+        steps.push(...laneSteps);
+        continue;
+      }
       steps.push(...laneSteps);
       steps.push({
         taskId,
@@ -732,6 +794,8 @@ export async function dispatchTaskReview(
         dispatchId: ids.dispatchId,
         runtimeSessionId: ids.runtimeSessionId,
         dispatchOpId: existing.opId,
+        ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+        instanceId: existing.payload.instanceId,
         outcome: "already_dispatched",
       });
       continue;
@@ -772,12 +836,17 @@ export async function dispatchTaskReview(
     try {
       // Already inside the center queue. Only launch admission is awaited; provider completion is not.
       await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+      // The spawner resolved the concrete instance; read it from the dispatch event this spawn
+      // just applied so the receipt names the agent and instance that will run the review.
+      const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
       steps.push({
         taskId,
         executionId: execution.executionId,
         dispatchId: ids.dispatchId,
         runtimeSessionId: ids.runtimeSessionId,
         dispatchOpId: ids.dispatchOpId,
+        agentId: agent.id,
+        ...(dispatched === undefined ? {} : { instanceId: dispatched.payload.instanceId }),
         outcome: "dispatched",
       });
       steps.push(...laneSteps);
