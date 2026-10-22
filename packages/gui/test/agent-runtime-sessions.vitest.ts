@@ -180,6 +180,15 @@ const groupList = (overrides: Partial<Parameters<typeof SessionGroupList>[0]> = 
     } as never),
   );
 
+/**
+ * 取 `<details ...>` 的起始标签原文(含全部属性),用于断言「默认折叠」。
+ * 不从 data-testid 往右切:属性顺序是自由的,`open` 排在 testid 之前时切出来的是空串。
+ */
+function detailsStartTag(markup: string): string | null {
+  const open = /<details\b[^>]*>/u.exec(markup);
+  return open === null ? null : open[0];
+}
+
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) =>
   renderToStaticMarkup(
     createElement(SessionDetailView, {
@@ -305,9 +314,12 @@ describe("session detail readable surface", () => {
     const markup = detailView(),
       technical = markup.indexOf('data-testid="session-technical-details"'),
       firstScreen = markup.slice(0, technical);
-    // 技术详情默认收起:没有 open 属性,首屏不展开原始字段。
+    // 技术详情默认收起:解析 <details> 起始标签本身,不按 data-testid 切字符串——后者在
+    // `open` 排在 data-testid 之前时会切掉属性而假绿(评审 F2 用变异证明过)。
+    const detailsTag = detailsStartTag(markup);
     expect(technical).toBeGreaterThan(0);
-    expect(markup.slice(technical, markup.indexOf(">", technical))).not.toContain(" open");
+    expect(detailsTag).not.toBeNull();
+    expect(/\sopen(?:=|\s|>)/u.test(detailsTag!)).toBe(false);
     for (const raw of [
       "Provider session",
       "Definition snapshot",
@@ -421,6 +433,116 @@ describe("session detail achieved first", () => {
     expect(markup).toContain('data-path="artifacts/report.md"');
     // 没有任何产出时整块不画,而不是空壳。
     expect(detailView()).not.toContain('data-testid="session-outputs"');
+  });
+
+  it("leads with the review verdict and its reason for a review dispatch, not the reviewer's last message", () => {
+    // 评审派工的「结论」是它登记的 verdict + 一句理由;agent 最后一条消息是过程叙述。
+    const markup = detailView({
+      row: {
+        ...rounds[1]!,
+        reviewTarget: {
+          kind: "task",
+          taskId: "task_1994d52c",
+          executionId: "execution-1",
+          digest: "sha256:" + "a".repeat(64),
+        },
+      },
+      task: {
+        packagePath: "tasks/task-1994",
+        executions: [
+          {
+            executionId: "execution-1",
+            submittedAt: "2026-08-23T03:00:00.000Z",
+            submission: {
+              completionClaim: "worker claim that must not win",
+              deliverables: [],
+              commitSha: "c".repeat(40),
+            },
+          },
+        ],
+        reviews: [
+          {
+            reviewId: "review-1",
+            executionId: "execution-1",
+            verdict: "changes_requested",
+            reason: "Contract conformance is FULL except the explainer is blank.",
+            reviewedAt: "2026-08-23T04:00:00.000Z",
+          },
+        ],
+      } as never,
+      result: "I'll start by loading the required skills.\n\nNow let me run the tests.",
+    });
+    const text = /data-testid="session-conclusion-text"[^>]*>([\s\S]*?)<\/p>/u.exec(markup)?.[1] ?? "";
+    expect(text).toContain("explainer is blank");
+    expect(text).not.toContain("I'll start by loading");
+    // claim 与评审同场时评审优先(谁有权下结论)。
+    expect(text).not.toContain("worker claim that must not win");
+    expect(markup).toContain('data-testid="session-conclusion-source"');
+    expect(markup).toContain("from the review verdict");
+  });
+
+  it("uses the submission's completion claim for a worker session and never the process narration", () => {
+    const markup = detailView({
+      task: {
+        packagePath: "tasks/task-1994",
+        executions: [
+          {
+            executionId: "execution-1",
+            submittedAt: "2026-08-23T03:00:00.000Z",
+            submission: {
+              completionClaim: "SessionsPanel now leads with the verdict; 39 tests green.",
+              deliverables: [],
+              commitSha: "d".repeat(40),
+            },
+          },
+        ],
+        reviews: [],
+      } as never,
+      result: "I'll start by loading the skills.\n\nNow let me run the affected tests.",
+    });
+    const text = /data-testid="session-conclusion-text"[^>]*>([\s\S]*?)<\/p>/u.exec(markup)?.[1] ?? "";
+    expect(text).toContain("39 tests green");
+    expect(text).not.toContain("I'll start by loading");
+    expect(text).not.toContain("Now let me run");
+    // renderToStaticMarkup 会把撇号转义成 &#x27;;断言来源标注的稳定片段。
+    expect(markup).toContain('data-testid="session-conclusion-source"');
+    expect(markup).toContain("completion claim");
+  });
+
+  it("falls back to the settlement reason for a failed session, and strips narration from a raw result", () => {
+    const failed = detailView({
+      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      settlement: {
+        outcome: "failed",
+        exitCode: 1,
+        code: "provider_exit",
+        reason: "Internal error: turn failed: SSE event type mismatch",
+      },
+      result: null,
+    });
+    expect(failed).toContain("SSE event type mismatch");
+    expect(failed).toContain("from the daemon settlement");
+
+    // 没有 claim/评审时退回 result 原文,但过程叙述行不进首屏;结论段落保留。
+    const raw = detailView({
+      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      result:
+        "I'll start by loading the task plan.\n\nDelivered the session-detail rewrite: verdict head, wrapped conclusion, basename output paths, and the dispatch start time fallback. All 39 targeted tests pass.",
+    });
+    const text = /data-testid="session-conclusion-text"[^>]*>([\s\S]*?)<\/p>/u.exec(raw)?.[1] ?? "";
+    expect(text).toContain("Delivered the session-detail rewrite");
+    expect(text).not.toContain("I'll start by loading");
+    expect(raw).toContain("narration removed");
+  });
+
+  it("wraps long conclusion lines instead of clipping them off the right edge", () => {
+    // rt-pre 的 white-space:pre 会压掉 Tailwind 的 whitespace-pre-wrap(无层规则优先),
+    // 长行右侧被裁就是这条层叠冲突;换行口径现在收在 .rt-pre-wrap 一处。
+    const long = "x".repeat(400);
+    const markup = detailView({ result: long, task: null });
+    expect(markup).toContain('data-testid="session-conclusion-text"');
+    expect(markup).toContain("rt-pre-wrap");
+    expect(markup).not.toContain("whitespace-pre-wrap");
   });
 
   it("labels the two token quantities separately and draws each once", () => {

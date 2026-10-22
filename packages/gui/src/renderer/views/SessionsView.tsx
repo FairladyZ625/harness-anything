@@ -577,6 +577,26 @@ export function SessionsView({
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
   const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;
+  // 组没展开时列表里没有这一轮的行(行只随展开的组读回),详情却仍可选中一条会话:
+  // 这时开始时间/耗时/报告/评审目标会整排消失(业主截图「开始 —」)。用同一个派工读面
+  // 按选中会话补这一行——queryKey 与展开组共用,展开与否不产生第二次 RPC。
+  const selectedDispatchRead = useQuery({
+    queryKey: runtimeQueryKeys.dispatches(repoId, selectedTaskId ?? ""),
+    queryFn: () => harnessClient.getTaskDispatches({ repoId, taskId: selectedTaskId! }),
+    enabled: selectedRow === null && selectedTaskId !== null,
+    staleTime: 4_000,
+  });
+  // 行的构造只走 sessionRounds 一处(与组展开行同源),不在这里另拼一份字段。
+  const selectedFallbackRow = useMemo(() => {
+    if (selectedRow !== null || selectedTaskId === null || selectedSessionId === null) return null;
+    return (
+      sessionRounds(selectedTaskId, null, selectedDispatchRead.data?.dispatches ?? []).find(
+        (round) => round.runtimeSessionId === selectedSessionId,
+      ) ?? null
+    );
+  }, [selectedRow, selectedTaskId, selectedSessionId, selectedDispatchRead.data]);
+  // 详情一律读这一行:展开的组行优先,组收起时用同源补读的行,字段口径完全一致。
+  const detailRow = selectedRow ?? selectedFallbackRow;
   const selectedSessionNeedsYou = useMemo(() => {
     if (selectedSessionId === null) return false;
     if (selectedTaskId !== null && attentionRefs.has(`task/${selectedTaskId}`)) return true;
@@ -625,7 +645,9 @@ export function SessionsView({
   const selectedTaskRow = useMemo(() => {
     if (selectedTaskId === null) return null;
     const row = (tasksQuery.data?.rows ?? []).find((candidate) => candidate.taskId === selectedTaskId);
-    return row === undefined ? null : { executions: row.snapshot.executions, packagePath: row.packagePath };
+    return row === undefined
+      ? null
+      : { executions: row.snapshot.executions, reviews: row.snapshot.reviews, packagePath: row.packagePath };
   }, [tasksQuery.data, selectedTaskId]);
 
   // 组列表的行回调用 useCallback 稳定:App 层台账探针每 ~2s 推进一次 cut 都会让本页
@@ -944,7 +966,7 @@ export function SessionsView({
                         : String(selectedSession.error)
                       : null
                   }
-                  row={selectedRow}
+                  row={detailRow}
                   squadNames={squadNames}
                   taskTitles={taskTitles}
                   decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}

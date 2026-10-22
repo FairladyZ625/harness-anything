@@ -781,5 +781,9 @@
   "agentRuntime.loadMoreSessions": "Load more sessions",
   "agentRuntime.loadingMoreSessions": "Loading more sessions…",
   "agentRuntime.copyThinking": "Copy thinking",
-  "agentRuntime.copyThinkingTip": "Copy the full thinking text"
+  "agentRuntime.copyThinkingTip": "Copy the full thinking text",
+  "agentRuntime.sessionConclusionFromReview": "from the review verdict",
+  "agentRuntime.sessionConclusionFromClaim": "from the submission's completion claim",
+  "agentRuntime.sessionConclusionFromSettlement": "from the daemon settlement",
+  "agentRuntime.sessionConclusionFromResult": "from the session result, narration removed"
 }

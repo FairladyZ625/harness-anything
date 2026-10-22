@@ -11,8 +11,18 @@ const styles = readFileSync("src/renderer/styles.css", "utf8");
 
 function declarationBlocks(): { selector: string; body: string }[] {
   const blocks: { selector: string; body: string }[] = [];
-  for (const match of styles.matchAll(/(^|\})([^{}]*)\{([^{}]*)\}/gu)) {
-    blocks.push({ selector: (match[2] ?? "").trim(), body: match[3] ?? "" });
+  // 先把注释整段剔除再解析:注释里出现的 `{`/`}` 与说明文字会粘到紧随其后的选择器上,
+  // 让那条规则看起来「不是一条规则」而被静默跳过(实测:`.rt-pre-wrap` 前有注释时,
+  // 给它加 font-family 却测不出缺开关)。
+  const source = styles.replace(/\/\*[\s\S]*?\*\//gu, "");
+  // 不要用 `(^|\})` 做前导:那个分组会把上一个块的收尾 `}` 一起吃掉,而它也属于「本块
+  // 结束」的判定,于是每两条规则只解析出后面那条(本文件 164 条只解析出 89 条)。判断
+  // 「某条规则是否缺开关」时这是抽样的错位——新增一条规则就能改变被看到的那一半(本任务
+  // 实测:加 .rt-pre-wrap 后 direct 从 1 变 0,测试报红而生产 0 处违规)。
+  for (const match of source.matchAll(/([^{}]*)\{([^{}]*)\}/gu)) {
+    const selector = (match[1] ?? "").trim();
+    if (selector === "" || selector.startsWith("@")) continue;
+    blocks.push({ selector, body: match[2] ?? "" });
   }
   return blocks;
 }

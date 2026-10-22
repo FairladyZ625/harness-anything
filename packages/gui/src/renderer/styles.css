@@ -1028,6 +1028,14 @@ html[data-theme="light"] .selection-row {
   overflow-x: auto;
   color: var(--color-text-muted);
 }
+/* 需要换行的正文块(结论全文):`.rt-pre` 是无层规则,优先级高于 Tailwind utilities 层里的
+   `whitespace-pre-wrap`,调用点单独加 utility 会被它压掉(实测计算值仍是 pre,长行右侧被裁)。
+   换行口径收在这一处,调用点只挑语义修饰符,不再各自和层叠打架。 */
+.rt-pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
 .rt-node rect {
   fill: var(--color-surface);
   stroke: var(--color-border-strong);

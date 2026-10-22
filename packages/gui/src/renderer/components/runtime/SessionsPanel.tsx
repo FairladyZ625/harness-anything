@@ -17,6 +17,11 @@ import {
   type SessionOutput,
   type SessionSettlement,
 } from "../../model/session-achievement.ts";
+import {
+  conclusionVerdictTone,
+  sessionConclusion,
+  sessionConclusionSourceKey,
+} from "../../model/session-conclusion.ts";
 import { exactTokens } from "../../token-format.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
@@ -292,7 +297,7 @@ function SessionOutputsCard({
                 </KVRow>
               ) : output.kind === "file" ? (
                 <KVRow key={`file:${output.path}`} name={t("agentRuntime.sessionOutputFile")} title={output.path}>
-                  <span className="font-mono">{output.path}</span>
+                  <OutputPath path={output.path} />
                 </KVRow>
               ) : (
                 <KVRow
@@ -314,6 +319,19 @@ function SessionOutputsCard({
   );
 }
 
+/**
+ * 长路径的可读呈现:首屏给文件名,左对齐、单行截断,完整路径放悬停(title)。
+ * 业主截图里的居中折行与参差缩进来自把整条路径塞进按钮的可见文字;文件名 + 悬停是
+ * 同一条事实的两种密度,不丢内容。
+ */
+function OutputPath({ path }: { readonly path: string }) {
+  return (
+    <span className="block max-w-full truncate text-left font-mono" title={path}>
+      {path.split("/").at(-1) ?? path}
+    </span>
+  );
+}
+
 /** 包内文档:能定位到包相对路径且宿主给了打开口 → 可点的按钮;否则只显示路径文本。 */
 function OutputDocLink({
   path,
@@ -324,12 +342,9 @@ function OutputDocLink({
   readonly relative: string | null;
   readonly onOpenDoc: ((path: string) => void) | null;
 }) {
-  if (relative === null || onOpenDoc === null)
-    return (
-      <span className="font-mono" title={path}>
-        {path}
-      </span>
-    );
+  if (relative === null || onOpenDoc === null) return <OutputPath path={path} />;
+  // 按钮默认是居中 inline-block(inline 内容的默认对齐),显式改成左对齐块级截断:
+  // 业主截图里路径居中折行、缩进参差就是少了这一层。
   return (
     <button
       type="button"
@@ -337,9 +352,9 @@ function OutputDocLink({
       data-path={relative}
       title={path}
       onClick={() => onOpenDoc(relative)}
-      className="font-mono text-accent hover:underline"
+      className="block max-w-full truncate text-left font-mono text-accent hover:underline"
     >
-      {path}
+      {path.split("/").at(-1) ?? path}
     </button>
   );
 }
@@ -371,8 +386,8 @@ export function SessionDetailView({
   /** 同 SessionsPanel:缺省空表 = 没有挂载的投影,回落 id。 */
   readonly taskTitles?: ReadonlyMap<string, string>;
   readonly decisionRefs: readonly string[];
-  /** 绑定任务的投影行:只取执行记录(提交/交付文件/产物),不复制整行的读面。 */
-  readonly task?: Pick<TaskRow, "executions" | "packagePath"> | null;
+  /** 绑定任务的投影行:只取执行记录(提交/交付文件/产物)与评审记录,不复制整行的读面。 */
+  readonly task?: Pick<TaskRow, "executions" | "reviews" | "packagePath"> | null;
   /** daemon 的终局裁决;没有它时按会话语义状态判。 */
   readonly settlement?: SessionSettlement | null;
   readonly result: string | null;
@@ -427,6 +442,16 @@ export function SessionDetailView({
         }),
       [task?.executions, association?.executionId, row],
     ),
+    // 首屏结论:评审派工的 verdict+理由 / 本次执行的提交 claim / 失败裁决理由,
+    // 最后才退回剔除过程叙述后的 result 原文(见 model/session-conclusion.ts)。
+    conclusion = sessionConclusion({
+      reviewTarget: row?.kind === "round" ? row.reviewTarget : null,
+      reviews: task?.reviews,
+      executions: task?.executions,
+      executionId: association?.executionId ?? null,
+      settlement,
+      result,
+    }),
     openOutputDoc =
       onOpenTaskDoc === undefined || target === null ? null : (path: string) => onOpenTaskDoc(target.taskId, path);
   const [confirmResume, setConfirmResume] = useState(false);
@@ -608,21 +633,42 @@ export function SessionDetailView({
               </div>
             )}
           </dl>
-          {/* 最终结论:daemon 下发的 result.text 全文,块内滚动;没有就如实说没有,不留空壳。 */}
+          {/* 最终结论:先给这次会话的裁决/结论(评审 verdict+理由、worker 的提交 claim、
+              失败裁决理由),不是 agent 最后一条消息的过程叙述;全文可展开,长行换行不裁。 */}
           <div className="mt-2.5" data-testid="session-conclusion">
-            <p className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
-              {t("agentRuntime.sessionConclusion")}
+            <p className="mb-1 flex flex-wrap items-baseline gap-x-2 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
+              <span>{t("agentRuntime.sessionConclusion")}</span>
+              {conclusion.source !== "none" && (
+                <span data-testid="session-conclusion-source" className="normal-case tracking-normal text-text-faint">
+                  {t(sessionConclusionSourceKey[conclusion.source] as never)}
+                </span>
+              )}
+              {conclusion.verdict !== null && (
+                <span data-testid="session-conclusion-verdict">
+                  <StatusTag
+                    tone={conclusionVerdictTone[conclusion.verdict]}
+                    label={t(
+                      (conclusion.verdict === "approved"
+                        ? "views.decisionReview.verdictApproved"
+                        : conclusion.verdict === "changes_requested"
+                          ? "views.decisionReview.verdictChangesRequested"
+                          : "agentRuntime.sessionVerdictUnknown") as never,
+                    )}
+                  />
+                </span>
+              )}
             </p>
-            {result !== null ? (
-              <pre className="rt-pre bounded-content overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {result}
-              </pre>
-            ) : (
+            {conclusion.source === "none" ? (
               <Empty>
                 {session.liveness === "live"
                   ? t("agentRuntime.sessionConclusionRunning")
                   : t("agentRuntime.sessionConclusionMissing")}
               </Empty>
+            ) : (
+              // 全文照给,长行换行(rt-pre-wrap 收换行口径),块内滚动而不截断成几句。
+              <p data-testid="session-conclusion-text" className="rt-pre rt-pre-wrap bounded-content">
+                {conclusion.text}
+              </p>
             )}
           </div>
           {session.activity.missingEvidence !== null && (

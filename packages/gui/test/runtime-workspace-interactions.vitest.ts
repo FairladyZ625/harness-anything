@@ -548,6 +548,19 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("session-detail").closest('[data-testid="sessions-detail"]')).not.toBeNull();
   });
 
+  it("states the dispatch start time when the selected session's group is still collapsed", async () => {
+    // 默认选中第一组最新一轮,但组没展开=列表里没有轮次行:详情仍要给开始时间,
+    // 不能是业主截图里的「Started —」。补读走同一个 task.dispatches 缓存键,是异步的,
+    // 因此按判定条件等待读面落定,不写固定墙钟等待。
+    await mountSessions(null);
+    expect(byTestId("session-group-toggle-task-bound").getAttribute("aria-expanded")).not.toBe("true");
+    await waitFor(() => /Started\s*\d{4}-\d{2}-\d{2}/u.test(byTestId("session-identity").textContent ?? ""));
+    const identity = byTestId("session-identity").textContent ?? "";
+    // boundDispatch.startedAt = 2026-08-23T02:00:00.000Z:有真实时刻,不是占位符。
+    expect(identity).not.toMatch(/Started\s*—/u);
+    expect(identity).toMatch(/Started\s*\d{4}-\d{2}-\d{2}/u);
+  });
+
   it("resolves a session deep link before the target task group is expanded", async () => {
     const firstGroup = {
       ...sessionGroups.groups[0]!,
@@ -1796,6 +1809,15 @@ async function clickCheckbox(model: string) {
     (checkbox as HTMLInputElement).click();
   });
   await flushEffects();
+}
+
+/** 轮询内部状态直到判定成立(不用墙钟 sleep 当等待):每次推进微任务/宏任务轮。 */
+async function waitFor(predicate: () => boolean, attempts = 40): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) return;
+    await flushEffects();
+  }
+  if (!predicate()) throw new Error("waitFor: condition did not hold within the bounded attempts");
 }
 
 async function flushEffects() {
