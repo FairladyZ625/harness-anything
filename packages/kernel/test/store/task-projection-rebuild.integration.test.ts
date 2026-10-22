@@ -155,7 +155,9 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
     };
     rewrite(1, (event) => {
       const payload = event.payload as { task: Record<string, unknown> };
-      payload.task.closeoutOverrides = { fact: false };
+      // One accepted write can carry both retired keys: the fact quota gate and the code/doc gate
+      // were removed at different times, and neither may make a cold rebuild unreadable.
+      payload.task.closeoutOverrides = { fact: false, codeDoc: true };
     });
     rewrite(2, (event) => {
       const payload = event.payload as { schedule: { status: Record<string, unknown> } };
@@ -210,7 +212,9 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
       settingsDocument = projection.readDocument("harness.yaml").document,
       verticalDocument = projection.readDocument("vertical.json").document;
     assert.ok(taskSnapshot);
+    assert.deepEqual(taskSnapshot.closeoutOverrides, undefined);
     assert.equal(JSON.stringify(taskSnapshot).includes('"fact"'), false);
+    assert.equal(JSON.stringify(taskSnapshot).includes('"codeDoc"'), false);
     assert.ok(scheduleEntity);
     assert.equal(Object.hasOwn(scheduleEntity.value.status as object, "ciObserve"), false);
     assert.ok(settingsEntity);

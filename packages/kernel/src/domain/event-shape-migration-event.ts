@@ -14,6 +14,7 @@ import {
 
 export const eventShapeMigrationNames = Object.freeze([
   "closeout-overrides.fact",
+  "closeout-overrides.codeDoc",
   "schedule.ciObserve",
   "squad-run.subject",
   "settings.ci",
@@ -25,6 +26,8 @@ export const eventShapeMigrationNames = Object.freeze([
 export type EventShapeMigrationName = (typeof eventShapeMigrationNames)[number];
 export const retiredPersistedSchemaFields = Object.freeze([
   "Task.closeoutOverrides.fact",
+  "Task.closeoutOverrides.codeDoc",
+  "PresetSnapshot.profile.closeoutOverrides.codeDoc",
   "Schedule.status.ciObserve",
   "SquadRun.taskId+executionId",
   "Settings.gates.ci",
@@ -120,10 +123,20 @@ export function assertEventShapeMigrationWritePlan(
     throw new Error("event-shape migration plan must exactly declare event, head, and migration projection targets");
 }
 
+/**
+ * Closeout override keys retired by the code/doc deletion (owner ruling 2026-10-21 14:35, B3).
+ * `fact` is the earlier precedent: a task-bound or preset-profile override that no profile or
+ * setting can still produce. The two read carriers (Task/v2 snapshots and preset-snapshot profiles)
+ * share this one stripper so a new carrier cannot grow its own copy.
+ */
+export const retiredCloseoutOverrideKeys = Object.freeze(["fact", "codeDoc"] as const);
+
 /** Pure transformations shared by attach replay, generation conversion, and document reads. */
-export function withoutRetiredFactCloseoutOverride(value: unknown): unknown {
-  if (!isRecord(value) || typeof value.fact !== "boolean") return value;
-  const remaining = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "fact"));
+export function withoutRetiredCloseoutOverrides(value: unknown): unknown {
+  if (!isRecord(value) || !retiredCloseoutOverrideKeys.some((key) => Object.hasOwn(value, key))) return value;
+  const remaining = Object.fromEntries(
+    Object.entries(value).filter(([key]) => !(retiredCloseoutOverrideKeys as readonly string[]).includes(key)),
+  );
   return Object.keys(remaining).length ? remaining : undefined;
 }
 

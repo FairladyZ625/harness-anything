@@ -74,6 +74,7 @@ test("attach migration registry covers each retired historical field and is idem
     attachMigrationRegistry.map(({ name }) => name),
     [
       "closeout-overrides.fact",
+      "closeout-overrides.codeDoc",
       "schedule.ciObserve",
       "squad-run.subject",
       "settings.ci",
@@ -89,6 +90,7 @@ test("attach migration registry covers each retired historical field and is idem
   );
   const { store, events, reads } = fakeStore([
     envelope("task-event/v1", { task: { closeoutOverrides: { fact: false } } }, "old-task"),
+    envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true } } }, "old-task-code-doc"),
     envelope("schedule-event/v1", { schedule: { status: { ciObserve: { workflow: "retired" } } } }, "old-schedule"),
     envelope(
       "agent-runtime-event/v1",
@@ -141,6 +143,7 @@ test("attach migration registry covers each retired historical field and is idem
   const first = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" });
   assert.deepEqual(first.applied, [
     "closeout-overrides.fact",
+    "closeout-overrides.codeDoc",
     "schedule.ciObserve",
     "squad-run.subject",
     "settings.ci",
@@ -334,6 +337,56 @@ test("attach notices a retired source embedded in a task preset snapshot blob", 
       },
     } as unknown as CanonicalEventStore;
   assert.deepEqual(applyAttachMigrations({ store }).applied, ["vertical.completion.sources"]);
+});
+
+test("attach records the retired codeDoc override on both of its carriers", () => {
+  // `codeDoc` is not only a task-bound override: a preset profile froze it into
+  // `preset-snapshot/v1`, and that snapshot is content the matcher must read. One step covers both
+  // carriers; the snapshot's declared `completion` default is a different field with its own step.
+  const events = [
+      envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true, review: false } } }, "old-task"),
+      envelope("task-bootstrap-event/v1", { presetSnapshotClaim: { sha256: "profile-blob" } }, "old-bootstrap"),
+    ] as PersistedCanonicalEventV1[],
+    store = {
+      readHead: () => ({ revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) }),
+      queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+      readContentBlob: () =>
+        Buffer.from(
+          JSON.stringify({
+            schema: "preset-snapshot/v1",
+            profile: { id: "baseline", completionGateIds: [], closeoutOverrides: { codeDoc: true } },
+            completion: { sources: {}, gates: {}, closeoutDefaults: {} },
+          }),
+        ),
+      append: ({ event }: { readonly event: PersistedCanonicalEventV1 }) => {
+        events.push(event);
+        return {};
+      },
+    } as unknown as CanonicalEventStore;
+  assert.deepEqual(applyAttachMigrations({ store }).applied, ["closeout-overrides.codeDoc"]);
+});
+
+test("historical projection strips the retired codeDoc override from task and preset carriers", () => {
+  const task = normalizeHistoricalEvent(
+      envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true, review: false } } }, "task-code-doc"),
+    ) as unknown as { readonly payload: { readonly task: { readonly closeoutOverrides?: unknown } } },
+    onlyCodeDoc = normalizeHistoricalEvent(
+      envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true } } }, "task-code-doc-only"),
+    ) as unknown as { readonly payload: { readonly task: Record<string, unknown> } };
+  assert.deepEqual(task.payload.task.closeoutOverrides, { review: false });
+  assert.equal(Object.hasOwn(onlyCodeDoc.payload.task, "closeoutOverrides"), false);
+  assert.deepEqual(
+    normalizeHistoricalPresetSnapshot({
+      schema: "preset-snapshot/v1",
+      profile: { id: "baseline", completionGateIds: [], closeoutOverrides: { codeDoc: true, consent: false } },
+      completion: { sources: {}, gates: {}, closeoutDefaults: {} },
+    }),
+    {
+      schema: "preset-snapshot/v1",
+      profile: { id: "baseline", completionGateIds: [], closeoutOverrides: { consent: false } },
+      completion: { sources: {}, gates: {}, closeoutDefaults: {} },
+    },
+  );
 });
 
 test("historical projection normalizes each registered retired field without changing claims", () => {

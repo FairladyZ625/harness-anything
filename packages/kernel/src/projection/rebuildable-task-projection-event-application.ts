@@ -7,8 +7,8 @@ import {
   normalizeHistoricalEvent,
   normalizeHistoricalPresetSnapshot,
   normalizeHistoricalScheduleValue,
-  hasRetiredFactCloseoutOverride,
-  withoutRetiredFactCloseoutOverride,
+  hasRetiredCloseoutOverride,
+  withoutRetiredCloseoutOverrides,
 } from "./historical-event-normalization.ts";
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
@@ -633,7 +633,7 @@ export function applyEvent(
       // that no longer declares one drops the field entirely rather than freezing a stale value.
       baseTask = { ...currentTaskForWrite(current.task) },
       declaredCloseoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides,
-      closeoutOverrides = withoutRetiredFactCloseoutOverride(declaredCloseoutOverrides),
+      closeoutOverrides = withoutRetiredCloseoutOverrides(declaredCloseoutOverrides),
       archiveOnComplete = (snapshot.profile as { readonly archiveOnComplete?: unknown }).archiveOnComplete;
     if (closeoutOverrides !== undefined && !isValidCloseoutOverrides(closeoutOverrides))
       throw new Error(`preset snapshot upgrade declared invalid closeoutOverrides for ${event.taskId}`);
@@ -1035,9 +1035,10 @@ export function catchUpRound(
 }
 
 function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
-  // Historical ledger rows predate the removed fact gate. New writes still use the strict serializer.
+  // Historical ledger rows predate the removed fact and code/doc gates. New writes still use the
+  // strict serializer.
   const eventJson = (
-    hasRetiredFactCloseoutOverride(event)
+    hasRetiredCloseoutOverride(event)
       ? serializeCanonicalEventUnchecked(event)
       : serializePersistedCanonicalEvent(event)
   ).trimEnd();

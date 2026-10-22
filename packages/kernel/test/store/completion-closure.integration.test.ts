@@ -71,6 +71,12 @@ test("R2: two snapshots collapse, two amendments retain every review cut, dispos
       for (let i = 1; i < cuts.length; i++)
         assert.equal(cuts[i].payload.supersedesSubmissionId, submissionId(cuts[i - 1].payload.execution.submission));
       for (const event of converted.slice(0, 2)) {
+        // Generation 3 must hold the current preset snapshot shape: the retired code/doc override is
+        // removed during conversion, not carried forward into a schema that rejects it.
+        const snapshot = JSON.parse(
+          Buffer.from(target.readContentObject(event.payload.presetSnapshotClaim.sha256)!).toString(),
+        ) as { readonly profile: Record<string, unknown> };
+        assert.equal(Object.hasOwn(snapshot.profile, "closeoutOverrides"), false);
         const claim = event.payload.taskContractClaim ?? event.payload.initialDocumentClaims[0];
         const contract = JSON.parse(Buffer.from(target.readContentObject(claim.sha256)!).toString());
         assert.equal(contract.presetSnapshotDigest, event.payload.task.presetSnapshotDigest);

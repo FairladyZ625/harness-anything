@@ -6,33 +6,38 @@ import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import {
+  retiredCloseoutOverrideKeys,
   withoutRetiredCloseoutCodeDoc,
-  withoutRetiredFactCloseoutOverride,
+  withoutRetiredCloseoutOverrides,
   withoutRetiredScheduleCiObserve,
   withoutRetiredSettings,
   withoutRetiredVerticalHostedCi,
   withReviewerQualifiedDispatchKey,
 } from "../domain/event-shape-migration-event.ts";
-export { withoutRetiredFactCloseoutOverride } from "../domain/event-shape-migration-event.ts";
+export { withoutRetiredCloseoutOverrides } from "../domain/event-shape-migration-event.ts";
 
-export function hasRetiredFactCloseoutOverride(event: PersistedCanonicalEventV1): boolean {
+export function hasRetiredCloseoutOverride(event: PersistedCanonicalEventV1): boolean {
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return false;
   const task =
     isMigrationImportEvent(event) && isRecord(payload.entity) && payload.entity.kind === "task"
       ? payload.entity.task
       : payload.task;
-  return isRecord(task) && isRecord(task.closeoutOverrides) && typeof task.closeoutOverrides.fact === "boolean";
+  return (
+    isRecord(task) &&
+    isRecord(task.closeoutOverrides) &&
+    retiredCloseoutOverrideKeys.some((key) => Object.hasOwn(task.closeoutOverrides as object, key))
+  );
 }
 
-function withoutFactOverride(task: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+function withoutRetiredTaskOverrides(task: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   const overrides = task.closeoutOverrides;
-  if (!isRecord(overrides) || typeof overrides.fact !== "boolean") return task;
+  if (!isRecord(overrides) || !retiredCloseoutOverrideKeys.some((key) => Object.hasOwn(overrides, key))) return task;
   const next = Object.fromEntries(Object.entries(task).filter(([key]) => key !== "closeoutOverrides")) as Record<
     string,
     unknown
   >;
-  const remaining = withoutRetiredFactCloseoutOverride(overrides);
+  const remaining = withoutRetiredCloseoutOverrides(overrides);
   if (remaining !== undefined) next.closeoutOverrides = remaining;
   return next;
 }
@@ -43,7 +48,7 @@ function normalizeTaskCarrier(event: PersistedCanonicalEventV1): PersistedCanoni
   if (isMigrationImportEvent(event)) {
     const entity = payload.entity;
     if (isRecord(entity) && entity.kind === "task" && isRecord(entity.task)) {
-      const task = withoutFactOverride(entity.task);
+      const task = withoutRetiredTaskOverrides(entity.task);
       if (task !== entity.task)
         return {
           ...event,
@@ -52,7 +57,7 @@ function normalizeTaskCarrier(event: PersistedCanonicalEventV1): PersistedCanoni
     }
   }
   if (!isRecord(payload.task)) return event;
-  const task = withoutFactOverride(payload.task);
+  const task = withoutRetiredTaskOverrides(payload.task);
   return task === payload.task
     ? event
     : ({ ...event, payload: { ...payload, task } } as unknown as PersistedCanonicalEventV1);
@@ -109,7 +114,15 @@ export function normalizeHistoricalVerticalDocument(value: unknown): unknown {
   return definition === value.definition ? value : { ...value, definition };
 }
 
-/** Preset snapshots carry the same vertical completion declaration at their root. */
+/**
+ * Preset snapshots carry the same vertical completion declaration at their root, and a profile may
+ * still name a retired closeout override the preset manifest used to accept.
+ */
 export function normalizeHistoricalPresetSnapshot(value: unknown): unknown {
-  return withoutRetiredVerticalHostedCi(withoutRetiredCloseoutCodeDoc(value));
+  const completion = withoutRetiredVerticalHostedCi(withoutRetiredCloseoutCodeDoc(value));
+  if (!isRecord(completion) || !isRecord(completion.profile)) return completion;
+  const overrides = withoutRetiredCloseoutOverrides(completion.profile.closeoutOverrides);
+  if (overrides === completion.profile.closeoutOverrides) return completion;
+  const { closeoutOverrides: _retired, ...profile } = completion.profile;
+  return { ...completion, profile: overrides === undefined ? profile : { ...profile, closeoutOverrides: overrides } };
 }

@@ -28,10 +28,12 @@ export function completionClosureFixture(root: string) {
     return { sha256, size: Buffer.byteLength(bytes), mediaType: "application/json" as const };
   };
   const snapshots = ["old-checker-a", "old-checker-b"].map((checkerProfile) => {
+    // Installed objects also froze the retired code/doc override into the same profile; conversion
+    // has to drop it or the produced snapshot fails the narrowed closeout vocabulary.
     const body = {
       schema: "preset-snapshot/v1",
       identity: { id: "standard-task", version: "1" },
-      profile: { id: "baseline", completionGateIds: [], checkerProfile },
+      profile: { id: "baseline", completionGateIds: [], checkerProfile, closeoutOverrides: { codeDoc: true } },
     };
     const digest = `sha256:${sha256Text(stableStringify(body))}` as const;
     return { digest, ...content({ ...body, digest }) };

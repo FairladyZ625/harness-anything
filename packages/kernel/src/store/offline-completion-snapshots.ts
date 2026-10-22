@@ -2,6 +2,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import type { PresetSnapshotClaim } from "../domain/task-bootstrap-event.ts";
 import type { VerticalCompletionDeclaration } from "../domain/completion-source.ts";
 import { isRetiredCodeDocRequirement } from "../domain/code-doc-retirement.ts";
+import { withoutRetiredCloseoutOverrides } from "../domain/event-shape-migration-event.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
 
 interface HistoricalSnapshot extends Record<string, unknown> {
@@ -19,7 +20,8 @@ export interface ConvertedCompletionSnapshot {
 export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uint8Array): ConvertedCompletionSnapshot {
   const original = JSON.parse(new TextDecoder().decode(bytes)) as HistoricalSnapshot,
     { digest: _oldDigest, ...body } = original,
-    { checkerProfile: _retired, ...profile } = original.profile;
+    { checkerProfile: _retired, closeoutOverrides: declaredOverrides, ...profile } = original.profile,
+    overrides = withoutRetiredCloseoutOverrides(declaredOverrides);
   if (original.digest !== claim.digest)
     throw new Error(`snapshot claim does not name its logical digest: ${claim.digest}`);
   const sources: Record<string, VerticalCompletionDeclaration["sources"][string]> = {},
@@ -35,7 +37,12 @@ export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uin
       gates,
       closeoutDefaults: { review: false, consent: false, factDisposition: false },
     },
-    current = { ...body, profile, completion, completionPackages: {} },
+    current = {
+      ...body,
+      profile: overrides === undefined ? profile : { ...profile, closeoutOverrides: overrides },
+      completion,
+      completionPackages: {},
+    },
     digest = `sha256:${sha256Text(stableStringify(current))}` as const,
     value = { ...current, digest } as ConvertedCompletionSnapshot["value"],
     serialized = `${stableStringify(value)}\n`,

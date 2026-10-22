@@ -24,14 +24,43 @@ export type AttachMigrationRegistryEntry = Readonly<{
   ) => boolean;
 }>;
 
-function taskHasRetiredFact(event: PersistedCanonicalEventV1): boolean {
+function taskOverrideAt(event: PersistedCanonicalEventV1, key: "fact" | "codeDoc"): boolean {
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return false;
   const task =
     event.schema === "migration-import-event/v1" && isRecord(payload.entity) && payload.entity.kind === "task"
       ? payload.entity.task
       : payload.task;
-  return isRecord(task) && isRecord(task.closeoutOverrides) && typeof task.closeoutOverrides.fact === "boolean";
+  return isRecord(task) && isRecord(task.closeoutOverrides) && typeof task.closeoutOverrides[key] === "boolean";
+}
+
+function taskHasRetiredFact(event: PersistedCanonicalEventV1): boolean {
+  return taskOverrideAt(event, "fact");
+}
+
+/**
+ * The same retired key rides two carriers: the task-bound override set and the
+ * `preset-snapshot/v1` profile it was frozen from. The snapshot is content, so the matcher reads
+ * the claimed blob. `vertical.completion.closeoutCodeDoc` owns the declaration default and cannot
+ * absorb this field: a step name already applied on a ledger is skipped wholesale.
+ */
+function hasRetiredCodeDocCloseoutOverride(
+  event: PersistedCanonicalEventV1,
+  readContentBlob?: (sha256: string) => Uint8Array | null,
+): boolean {
+  if (taskOverrideAt(event, "codeDoc")) return true;
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload) || !isRecord(payload.presetSnapshotClaim)) return false;
+  if (typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
+  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
+  if (!bytes) return false;
+  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  return (
+    isRecord(snapshot) &&
+    isRecord(snapshot.profile) &&
+    isRecord(snapshot.profile.closeoutOverrides) &&
+    typeof snapshot.profile.closeoutOverrides.codeDoc === "boolean"
+  );
 }
 
 function hasRetiredScheduleCiObserve(event: PersistedCanonicalEventV1): boolean {
@@ -152,6 +181,11 @@ function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean
 
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
   { name: "closeout-overrides.fact", fields: ["Task.closeoutOverrides.fact"], matches: taskHasRetiredFact },
+  {
+    name: "closeout-overrides.codeDoc",
+    fields: ["Task.closeoutOverrides.codeDoc", "PresetSnapshot.profile.closeoutOverrides.codeDoc"],
+    matches: hasRetiredCodeDocCloseoutOverride,
+  },
   { name: "schedule.ciObserve", fields: ["Schedule.status.ciObserve"], matches: hasRetiredScheduleCiObserve },
   {
     name: "squad-run.subject",
