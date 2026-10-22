@@ -3,7 +3,6 @@ import { DatabaseSync } from "node:sqlite";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import {
-  assertLedgerIdentity,
   closeQueryOnlyProjectionConnection,
   ProjectionEventStreamIncompleteError,
   ProjectionSchemaMismatchError,
@@ -108,7 +107,7 @@ function assertGenerationThreeActivationLedger(
       actualCut.headDigest !== certificate.acceptedCut.headDigest
     )
       throw new TaskEventStoreError("invalid_store", "generation 3 activation cut is absent from its ledger");
-    if (projectionPath) assertGenerationThreeProjectionMatchesLedger(ledger, projectionPath, revision);
+    if (projectionPath) assertGenerationThreeProjectionDoesNotExceedLedger(projectionPath, revision);
   } finally {
     ledger.close();
   }
@@ -117,24 +116,18 @@ function assertGenerationThreeActivationLedger(
 /**
  * The writable attach preflight borrows the projection module's own verdicts instead of keeping a
  * second hand-rolled projection_meta reader. A cache from a future daemon build is refused as a
- * schema mismatch (its columns may not even shape-match this build), a current-build cache must
- * pin this ledger's head digest and hold no accepted history beyond the ledger, and an older
- * cache — which the projection module discards and rebuilds downstream — is only refused when the
- * ledger cannot prove its coverage. The head digest is read from the same event row the store's
- * readHead reports, so the identity comparison pins the ledger the cache claims to have scanned.
+ * schema mismatch (its columns may not even shape-match this build), and a cache holding accepted
+ * history beyond the ledger is refused because the ledger cannot prove those revisions readable.
+ * A same-revision cache whose head digest differs is deliberately left to the projection module,
+ * which heals that shape itself (makeTaskProjection consumes the mismatch and a rebuild discards
+ * the cache): refusing it before the cell exists would cut the repair path that the mismatch
+ * message itself names.
  */
-function assertGenerationThreeProjectionMatchesLedger(
-  ledger: DatabaseSync,
-  projectionPath: string,
-  ledgerRevision: number,
-): void {
+function assertGenerationThreeProjectionDoesNotExceedLedger(projectionPath: string, ledgerRevision: number): void {
   const projectionSize = files.fileSize(projectionPath);
   if (projectionSize === null || projectionSize === 0) return;
-  const headRow = ledger.prepare("SELECT digest FROM event WHERE revision=?").get(ledgerRevision);
-  const readHead = () =>
-    headRow === undefined
-      ? null
-      : { revision: ledgerRevision, eventDigest: String(headRow.digest) as `sha256:${string}` };
+  // The verdicts below compare revisions only, so the query-only session never reads a head digest.
+  const readHead = (): null => null;
   try {
     withQueryOnlyDatabaseSession(projectionPath, readHead, (projection) => {
       const schemaVersion = projectionSchemaVersion(projection);
@@ -142,10 +135,6 @@ function assertGenerationThreeProjectionMatchesLedger(
       if (schemaVersion === null) return;
       if (schemaVersion > taskProjectionSchemaVersion)
         throw new ProjectionSchemaMismatchError(schemaVersion, projectionPath);
-      if (schemaVersion === taskProjectionSchemaVersion) {
-        assertLedgerIdentity(projection, readHead());
-        return;
-      }
       const coverage = readProjectionCoverage(projectionPath, readHead),
         coverageRevision = Math.max(coverage.watermark, coverage.scannedRevision);
       if (coverageRevision > ledgerRevision)

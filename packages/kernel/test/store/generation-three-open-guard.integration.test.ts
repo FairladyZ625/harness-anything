@@ -257,6 +257,79 @@ test("a projection cache from an older daemon build at the ledger head does not 
   }
 });
 
+test("a same-revision cache scanned from another history does not block the attach or its rebuild", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-foreign-history-cache-")),
+    altDir = mkdtempSync(path.join(tmpdir(), "ha-foreign-history-alt-"));
+  t.after(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(altDir, { recursive: true, force: true });
+  });
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  await scannedProjectionAtHead(rootDir);
+  // A restored snapshot can replace the ledger with another history that reached the same
+  // revision; the cache keeps pinning the head digest it actually scanned.
+  initRepo(altDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: altDir });
+  const altStore = openSqliteEventStore({ repoId, rootInput: altDir, generation: 3 }),
+    restored = eventAt(1);
+  try {
+    const rewritten = {
+        ...restored,
+        payload: {
+          ...restored.payload,
+          task: { ...restored.payload.task, title: "Task 00001 restored from a backup" },
+        },
+      },
+      eventJson = serializePersistedCanonicalEvent(rewritten);
+    altStore.appendCommand({
+      fence,
+      intent: { opId: rewritten.opId, intentDigest: `sha256:${sha256Text(eventJson)}`, summary: rewritten.type },
+      events: [rewritten],
+    });
+  } finally {
+    altStore.close();
+  }
+  restoreLedger(rootDir, sqliteLedgerPath(altDir, 3));
+
+  const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite"),
+    ledger = new DatabaseSync(sqliteLedgerPath(rootDir, 3), { readOnly: true }),
+    ledgerDigest = String(ledger.prepare("SELECT digest FROM event WHERE revision=1").get()!.digest);
+  ledger.close();
+  const pinned = new DatabaseSync(projectionPath, { readOnly: true }),
+    scanned = pinned.prepare("SELECT scanned_revision, head_digest FROM projection_meta WHERE singleton=1").get() as {
+      readonly scanned_revision: number;
+      readonly head_digest: string;
+    };
+  pinned.close();
+  assert.equal(scanned.scanned_revision, 1);
+  assert.notEqual(scanned.head_digest, ledgerDigest, "the shape must be same revision with a different head digest");
+
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
+  try {
+    assert.equal(store.revision(), 1);
+  } finally {
+    store.close();
+  }
+
+  // The repair named by the mismatch error stays reachable: the projection module consumes the
+  // mismatch and a rebuild re-pins the cache to the ledger that is actually in place.
+  const projectionStore = makeTaskEventStore({ repoId, rootDir, mutable: false }),
+    projection = makeTaskProjection({ rootDir, eventStore: projectionStore });
+  try {
+    assert.equal(projection.rebuild().watermark, 1);
+  } finally {
+    projection.close();
+    await projectionStore.drain();
+  }
+  const realigned = new DatabaseSync(projectionPath, { readOnly: true }),
+    rePinned = realigned.prepare("SELECT head_digest FROM projection_meta WHERE singleton=1").get() as {
+      readonly head_digest: string;
+    };
+  realigned.close();
+  assert.equal(rePinned.head_digest, ledgerDigest);
+});
+
 test("canonical attach surfaces unreadable projection metadata instead of accepting an unproven head", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-unreadable-canonical-projection-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));

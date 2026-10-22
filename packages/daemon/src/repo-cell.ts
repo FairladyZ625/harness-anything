@@ -10,6 +10,7 @@ import {
   installLedgerCommitGuard,
   makeTaskEventStore,
   makeTaskProjection,
+  ProjectionIdentityMismatchError,
   resolveHarnessLayout,
   resolveActiveGeneration,
   sqliteLedgerPath,
@@ -190,12 +191,21 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       projection.readTaskIndex({ limit: 1 });
     } catch (error) {
       consumeKnownError(error);
-      recovery = {
-        ...recovery,
-        status: "indeterminate",
-        error: cellErrorMessage(error),
-        errorCode: cellErrorCode(error),
-      };
+      if (error instanceof ProjectionIdentityMismatchError) {
+        // A cache pinning another ledger's digest at this ledger's own revision is discardable
+        // damage whose reads fail closed until an explicit rebuild (a restored snapshot produces
+        // it). Attach performs that rebuild so the repository opens healed instead of stranded on
+        // a repair command the latched cell could never reach.
+        projection.rebuild();
+        projection.readTaskIndex({ limit: 1 });
+      } else {
+        recovery = {
+          ...recovery,
+          status: "indeterminate",
+          error: cellErrorMessage(error),
+          errorCode: cellErrorCode(error),
+        };
+      }
     }
     context.input.onOpenProgress?.({
       phase: "opening",
