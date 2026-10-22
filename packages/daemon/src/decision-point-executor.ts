@@ -13,13 +13,26 @@ import {
   type DecisionQuestionDeclaration,
   type DecisionRequest,
   type DecisionProviderRecord,
+  type SettingsV1,
+  type TaskProjectionQueries,
   type VerticalDefinition,
 } from "@harness-anything/kernel";
 import type { RepoCell } from "./repo-cell-types.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { decisionAdvisoryFromProvider, openDecisionAnnotationStore } from "./decision-annotations.ts";
+import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
+import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
+import {
+  executeIncidentAction,
+  incidentActionBinding,
+  incidentDecisionFields,
+  incidentDispositionQuestionVersion,
+  planIncidentAction,
+  type IncidentActionEvidence,
+  type IncidentDecisionFields,
+} from "./decision-incident-action.ts";
 
-type OutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>;
+type OutcomeEvent = Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>;
 type DecisionPort = { readonly decide: (request: DecisionRequest) => Promise<AdvisoryDecision> };
 
 export function openDecisionPointExecutor(input: {
@@ -28,6 +41,43 @@ export function openDecisionPointExecutor(input: {
   readonly now: () => string;
 }) {
   const annotations = openDecisionAnnotationStore(input.rootDir);
+  // The single escalation path every executable failure funnels into: provider unavailable,
+  // input unreadable, or an inadmissible selection all end as one owner awaits relation.
+  const settleEscalation = async (args: {
+    readonly cell: RepoCell;
+    readonly key: string;
+    readonly taskId: string;
+    readonly dispatchId: string;
+    readonly reason: string;
+    readonly ownerId: string | null;
+    readonly budget: IncidentDecisionFields["reworkBudget"] | null;
+  }): Promise<void> => {
+    const outcome = await executeIncidentAction({
+      cell: args.cell,
+      plan: {
+        action: "needs_attention",
+        rationale: `question: Decisions API could not safely select an incident action for dispatch ${args.dispatchId}: ${args.reason}`,
+      },
+      binding: incidentActionBinding(input.rootDir, args.dispatchId),
+      taskId: args.taskId,
+      dispatchId: args.dispatchId,
+      ownerId: args.ownerId,
+    });
+    await annotations.settleAction(
+      args.key,
+      {
+        taskId: args.taskId,
+        dispatchId: args.dispatchId,
+        selected: "needs_attention",
+        action: outcome.action,
+        status: outcome.status,
+        reason: [args.reason, outcome.reason].filter(Boolean).join("; ") || null,
+        successorDispatchId: outcome.successorDispatchId,
+        budget: args.budget,
+      },
+      input.now(),
+    );
+  };
   return {
     async settle(cell: RepoCell, event: OutcomeEvent): Promise<void> {
       const dispatchId = event.payload.dispatchId;
@@ -72,21 +122,59 @@ export function openDecisionPointExecutor(input: {
         if (!descriptor?.finalOnly) continue;
         const bindingDigest = decisionPointBindingDigest(pointId, point, question);
         if (!enabledPoints.includes(`${pointId}@${bindingDigest.slice(0, 12)}`)) continue;
-        const projected = projectDecisionInput({ point, event, report: sessionResult.result.text });
-        if (!projected) continue;
+        const executable = question.version === incidentDispositionQuestionVersion,
+          incident = executable
+            ? await readIncidentFields(
+                cell,
+                input.rootDir,
+                task.taskId,
+                dispatchRead.dispatches.length,
+                event,
+                settingsRead.settings,
+                annotations,
+              )
+            : null,
+          projected =
+            incident === null
+              ? projectDecisionInput({ point, event, report: sessionResult.result.text })
+              : incident.fields
+                ? projectDecisionInput({
+                    point,
+                    event,
+                    report: sessionResult.result.text,
+                    incident: incident.fields,
+                  })
+                : null;
+        if (!projected && !executable) continue;
         const model = provider?.model ?? null,
-          inputDigest = createHash("sha256").update(projected.state, "utf8").digest("hex"),
-          key = createHash("sha256")
-            .update(
-              stableStringify({
-                pointId,
-                questionVersion: question.version,
-                inputDigest,
-                providerModel: `${providerId}:${model ?? ""}`,
-              }),
-              "utf8",
-            )
-            .digest("hex"),
+          inputDigest =
+            projected === null
+              ? "incident-input-unavailable"
+              : createHash("sha256").update(projected.state, "utf8").digest("hex"),
+          key = executable
+            ? `incident-action/${createHash("sha256")
+                .update(
+                  stableStringify({
+                    taskId: task.taskId,
+                    dispatchId,
+                    pointId,
+                    questionVersion: question.version,
+                    inputDigest,
+                  }),
+                  "utf8",
+                )
+                .digest("hex")}`
+            : createHash("sha256")
+                .update(
+                  stableStringify({
+                    pointId,
+                    questionVersion: question.version,
+                    inputDigest,
+                    providerModel: `${providerId}:${model ?? ""}`,
+                  }),
+                  "utf8",
+                )
+                .digest("hex"),
           subjectRef = `dispatch/${dispatchId}`,
           sentAt = input.now(),
           claim = await annotations.reserve({
@@ -103,7 +191,7 @@ export function openDecisionPointExecutor(input: {
               subjectRef,
               dispatchId,
               pointId,
-              fields: projected.fields,
+              fields: projected?.fields ?? [],
               providerId,
               model,
               sentAt,
@@ -111,12 +199,31 @@ export function openDecisionPointExecutor(input: {
             },
           });
         if (!claim.created) continue;
+        const recordBudget = incident?.fields?.reworkBudget ?? null;
+        const escalate = (reason: string) =>
+          settleEscalation({
+            cell,
+            key,
+            taskId: task.taskId,
+            dispatchId,
+            reason,
+            ownerId: incident?.ownerId ?? null,
+            budget: recordBudget,
+          });
+        if (!projected) {
+          // Executable contracts never fire the provider on an unreadable incident input.
+          await annotations.fail(key, "incident_input_unavailable", input.now());
+          await escalate(`the incident input could not be projected: ${incident?.failure ?? "unknown read failure"}`);
+          continue;
+        }
         if (!provider) {
           await annotations.fail(key, "provider_not_found", input.now());
+          if (executable) await escalate("the configured Decisions provider does not exist.");
           continue;
         }
         if (!provider.enabled) {
           await annotations.fail(key, "provider_disabled", input.now());
+          if (executable) await escalate("the configured Decisions provider is disabled.");
           continue;
         }
         let answer: AdvisoryDecision;
@@ -134,6 +241,7 @@ export function openDecisionPointExecutor(input: {
               ? error.code
               : "decision_error";
           await annotations.fail(key, code, input.now());
+          if (executable) await escalate(`the Decisions provider failed with ${code}.`);
           consumeKnownError(error);
           continue;
         }
@@ -146,9 +254,117 @@ export function openDecisionPointExecutor(input: {
           }),
           input.now(),
         );
+        if (executable && incident !== null) {
+          const snapshot = incident.runtimeContext?.snapshot,
+            incidentTask = snapshot?.task ?? null,
+            evidence: IncidentActionEvidence = {
+              submitted:
+                incidentTask !== null &&
+                (snapshot?.executions ?? []).some(
+                  (execution) => execution.submission !== null && execution.iteration === incidentTask.iteration,
+                ),
+              successorActive: dispatchRead.dispatches.some(
+                (row) => row.status === "running" || row.status === "blocked",
+              ),
+              leaseOccupied: snapshot?.lease != null,
+              resumable: Boolean(dispatch?.resume),
+              agentId: dispatch?.agentId ?? null,
+              budgetRemaining: incident.fields
+                ? incident.fields.reworkBudget.limit - incident.fields.reworkBudget.used
+                : 0,
+            };
+          const plan = planIncidentAction({
+            selected: answer.result.type === "choice" ? answer.result.selected : "",
+            taskId: task.taskId,
+            dispatchId,
+            evidence,
+          });
+          const outcome = await executeIncidentAction({
+            cell,
+            plan,
+            binding: incidentActionBinding(input.rootDir, dispatchId),
+            taskId: task.taskId,
+            dispatchId,
+            ownerId: incident.ownerId,
+          });
+          await annotations.settleAction(
+            key,
+            {
+              taskId: task.taskId,
+              dispatchId,
+              selected: answer.result.type === "choice" ? answer.result.selected : "",
+              action: outcome.action,
+              status: outcome.status,
+              reason: outcome.reason,
+              successorDispatchId: outcome.successorDispatchId,
+              budget: incident.fields?.reworkBudget ?? null,
+            },
+            input.now(),
+          );
+        }
       }
     },
   };
+}
+
+interface IncidentRead {
+  readonly runtimeContext: DaemonTaskRuntimeContextResult | null;
+  readonly fields: IncidentDecisionFields | undefined;
+  readonly failure: string | null;
+  readonly ownerId: string | null;
+}
+
+/** One incident-context read at the projection cut: continuation seed and worktree HEAD reuse
+ * task_3fedf360's construction, the budget comes from the single effective-budget source, and
+ * the used count is this task's applied automatic dispositions so far. */
+async function readIncidentFields(
+  cell: RepoCell,
+  rootDir: string,
+  taskId: string,
+  dispatchCount: number,
+  event: OutcomeEvent,
+  settings: SettingsV1,
+  annotations: ReturnType<typeof openDecisionAnnotationStore>,
+): Promise<IncidentRead> {
+  try {
+    const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", { taskId }),
+      toolCallCount = event.payload.runtimeMetrics?.toolCallCount,
+      fields = await incidentDecisionFields({
+        rootDir,
+        runtimeContext,
+        dispatchCount,
+        toolCallCount: typeof toolCallCount === "number" ? toolCallCount : null,
+        effectiveBudget: readEffectiveReviewReturnBudget(
+          {
+            // The merged settings facet carries repository-owned fields verbatim; the function
+            // itself still owns the absent-entity default, so no default is copied here. Only
+            // `.value` is read on this row.
+            getEntity: (kind: string, id: string) =>
+              kind === "settings" && id === "repository"
+                ? // Only `.value` is read on this row; the surrounding entity freshness fields are
+                  // not part of the effective-budget read.
+                  ({ value: settings } as unknown as ReturnType<TaskProjectionQueries["getEntity"]>)
+                : null,
+          },
+          runtimeContext.snapshot.task,
+        ),
+        used: await annotations.countAppliedIncidentActions(taskId),
+      });
+    return {
+      runtimeContext,
+      fields,
+      failure: null,
+      ownerId: runtimeContext.snapshot.task?.createdBy.principal.personId ?? null,
+    };
+  } catch (error) {
+    consumeKnownError(error);
+    return {
+      runtimeContext: null,
+      fields: undefined,
+      failure: error instanceof Error ? error.message : String(error),
+      ownerId: null,
+    };
+  }
 }
 
 export function projectDecisionInput(input: {
@@ -157,6 +373,7 @@ export function projectDecisionInput(input: {
     readonly payload: { readonly attempt?: { readonly reason?: string; readonly classification?: string } };
   };
   readonly report: string;
+  readonly incident?: IncidentDecisionFields;
 }): { readonly state: string; readonly fields: readonly DecisionInputField[] } | null {
   const descriptor = decisionEventDescriptor(input.point.on);
   if (!descriptor?.finalOnly) return null;
@@ -186,9 +403,45 @@ export function projectDecisionInput(input: {
         segments.push(`classification: ${projectFieldValue(classification, fieldDescriptor)}`);
         fields.push(field);
       }
+    } else {
+      const segment = incidentFieldSegment(field, input.incident, fieldDescriptor);
+      if (segment) {
+        segments.push(segment);
+        fields.push(field);
+      }
     }
   }
   return segments.length === 0 ? null : { state: segments.join("\n"), fields };
+}
+
+/** Structured incident fields are daemon-measured: unavailable is a measured value and stays in
+ * the projection; only a missing incident context (the caller could not read it) drops a field. */
+function incidentFieldSegment(
+  field: DecisionInputField,
+  incident: IncidentDecisionFields | undefined,
+  descriptor: { readonly maxLength: number; readonly redactionRevision: string },
+): string | null {
+  if (incident === undefined) return null;
+  switch (field) {
+    case "runtime.toolCallCount":
+      return `tool_call_count: ${incident.toolCallCount == null ? "unavailable" : String(incident.toolCallCount)}`;
+    case "runtime.headStatus":
+      return `head_status: ${incident.headStatus}`;
+    case "runtime.lastConclusion":
+      return incident.lastConclusion === null
+        ? "last_conclusion: unavailable"
+        : `last_conclusion: ${projectFieldValue(incident.lastConclusion, descriptor)}`;
+    case "runtime.exitHead":
+      return `exit_head: ${incident.exitHead ?? "unavailable"}`;
+    case "runtime.currentHead":
+      return `current_head: ${incident.currentHead ?? "unavailable"}`;
+    case "task.roundsUsed":
+      return `rounds_used: ${String(incident.roundsUsed)}`;
+    case "task.reworkBudget":
+      return `rework_budget: used=${String(incident.reworkBudget.used)} limit=${String(incident.reworkBudget.limit)} source=${incident.reworkBudget.source}`;
+    default:
+      return null;
+  }
 }
 
 function projectFieldValue(

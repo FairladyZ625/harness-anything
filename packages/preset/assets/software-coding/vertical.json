@@ -30,6 +30,26 @@
           "insufficient_information": "信息不足：文本存在但不支持上述任何类别。"
         },
         "abstainOptionId": "insufficient_information"
+      },
+      "runtime-incident-disposition": {
+        "version": "runtime-incident-disposition/v1",
+        "type": "choice",
+        "prompt": "以下结构化输入来自一次无头派工结算后的事故证据（结局分类、worker 收尾报告与最后结论、工具调用数、worktree HEAD 对比、任务已用轮次与返工预算）。为一个运行事故选择唯一处置动作。不确定、证据缺失、预算耗尽或动作前提不成立时选 needs_attention；不得凭模型自称完成代替台账证据。",
+        "options": [
+          { "id": "resume_original", "text": "续跑原会话" },
+          { "id": "rerun_same_identity", "text": "同身份新会话重跑" },
+          { "id": "switch_declared_next", "text": "换声明的下一个身份或 runtime" },
+          { "id": "needs_attention", "text": "升级 CEO" },
+          { "id": "no_action", "text": "不处理" }
+        ],
+        "criteria": {
+          "resume_original": "事故未显示已提交；原 dispatch 存在可恢复的 provider session；worktree 仍与任务绑定且 HEAD 状态已知；预算尚未耗尽。续跑沿用原会话上下文，损失最小。",
+          "rerun_same_identity": "仍需自动推进，但原 session 不可恢复或无 provider session；原身份与 runtime 仍可用；worktree 未被其他 execution 占用；预算尚未耗尽。新会话会收到上一轮结论与 HEAD 对比上下文。",
+          "switch_declared_next": "分类是 provider_fault/provider_quota，或当前身份明确不可用；声明顺序存在下一个可用 candidate 且满足模型/权限契约。worker_stop 类事故不得选此项。",
+          "needs_attention": "输入不完整、provider 弃权、预算耗尽、无可用 candidate、worktree 被占用、事故与选项不匹配，或任何动作前提不确定。把任务升级给业主，不猜测重跑。",
+          "no_action": "仅当台账证据显示该任务已提交（submission 已被接受）或该 dispatch 已有 successor/正在跑的 execution。模型或 worker 自称完成不构成证据。"
+        },
+        "abstainOptionId": "needs_attention"
       }
     },
     "points": {
@@ -43,6 +63,28 @@
         "input": ["report.body", "dispatch.reason", "dispatch.classification"],
         "question": "stop-reason",
         "show": ["task.dispatches"]
+      },
+      "runtime-incident-worker-stop": {
+        "revision": "1",
+        "on": "dispatch.settled",
+        "when": {
+          "outcome": ["stopped", "succeeded"],
+          "classification": ["worker_stop"]
+        },
+        "input": [
+          "dispatch.classification",
+          "dispatch.reason",
+          "runtime.toolCallCount",
+          "runtime.headStatus",
+          "runtime.lastConclusion",
+          "runtime.exitHead",
+          "runtime.currentHead",
+          "task.roundsUsed",
+          "task.reworkBudget",
+          "report.body"
+        ],
+        "question": "runtime-incident-disposition",
+        "show": ["task.dispatches", "agenda"]
       }
     }
   },

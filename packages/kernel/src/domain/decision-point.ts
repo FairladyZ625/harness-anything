@@ -2,7 +2,22 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { DECISION_EVENT_CATALOG } from "./decision-event-catalog.ts";
 
 export type DecisionEventName = "dispatch.settled";
-export type DecisionInputField = "report.body" | "dispatch.reason" | "dispatch.classification";
+/**
+ * Structured incident fields are daemon-measured values, not worker free text: the projector
+ * formats them from its own reads, so their descriptors only bound length. Only
+ * `runtime.lastConclusion` carries worker prose and keeps the report-summary scrub.
+ */
+export type DecisionInputField =
+  | "report.body"
+  | "dispatch.reason"
+  | "dispatch.classification"
+  | "runtime.toolCallCount"
+  | "runtime.headStatus"
+  | "runtime.lastConclusion"
+  | "runtime.exitHead"
+  | "runtime.currentHead"
+  | "task.roundsUsed"
+  | "task.reworkBudget";
 export type DecisionReadSurface = "task.dispatches" | "agenda" | "gui.dispatch";
 
 export type DecisionWhenField = "outcome" | "classification";

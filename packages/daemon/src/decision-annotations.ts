@@ -26,6 +26,23 @@ export interface DecisionEgressReceipt {
   readonly inputDigest: string;
 }
 
+/** The executed disposition one incident decision produced, appended to its reservation. A
+ * `resume`/`rerun` with status `applied` consumes one automatic-disposition budget slot. */
+export interface DecisionActionRecord {
+  readonly taskId: string;
+  readonly dispatchId: string;
+  readonly selected: string;
+  readonly action: "resume" | "rerun" | "needs_attention" | "no_action";
+  readonly status: "applied" | "failed";
+  readonly reason: string | null;
+  readonly successorDispatchId: string | null;
+  readonly budget: { readonly used: number; readonly limit: number; readonly source: "task" | "repository" } | null;
+  readonly decidedAt: string;
+}
+
+/** The record a caller hands to `settleAction`; the store stamps `decidedAt` itself. */
+export type DecisionActionDraft = Omit<DecisionActionRecord, "decidedAt">;
+
 export interface DecisionAnnotationEntry {
   readonly key: string;
   readonly pointId: string;
@@ -41,6 +58,7 @@ export interface DecisionAnnotationEntry {
   readonly egress: DecisionEgressReceipt;
   readonly advisory?: DispatchAdvisoryDecision;
   readonly failureCode?: string;
+  readonly action?: DecisionActionRecord;
 }
 
 interface AnnotationFile {
@@ -131,6 +149,29 @@ export function openDecisionAnnotationStore(rootDir: string) {
         entries[index] = { ...entries[index]!, status: "failed", failureCode, updatedAt: now };
         write(entries);
       });
+    },
+    /** Appends the executed disposition to the claim that owns it; one claim carries at most one action. */
+    settleAction(key: string, action: DecisionActionDraft, now: string): Promise<void> {
+      return enqueue(() => {
+        const entries = [...read().entries],
+          index = entries.findIndex((entry) => entry.key === key);
+        if (index < 0) throw new Error(`Decision annotation reservation ${key} is missing.`);
+        if (entries[index]!.action) return;
+        entries[index] = { ...entries[index]!, action: { ...action, decidedAt: now }, updatedAt: now };
+        write(entries);
+      });
+    },
+    /** Automatic dispositions already consumed by a task: applied resume/rerun receipts only. */
+    countAppliedIncidentActions(taskId: string): Promise<number> {
+      return enqueue(
+        () =>
+          read().entries.filter(
+            (entry) =>
+              entry.action?.taskId === taskId &&
+              (entry.action.action === "resume" || entry.action.action === "rerun") &&
+              entry.action.status === "applied",
+          ).length,
+      );
     },
     export(): Promise<readonly DecisionAnnotationEntry[]> {
       return enqueue(() => read().entries);
