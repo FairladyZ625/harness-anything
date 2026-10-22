@@ -484,6 +484,9 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
             taskId,
             executionId: firstExecutionId,
             forward: true,
+            // #3894 auto-dispatches the frozen reviewer on submit; a later forward must still name
+            // the reviewer it selects or replaces.
+            reviewer: "closeout-reviewer",
             reason: "Forward r1",
           },
           owner,
@@ -545,6 +548,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
             taskId,
             executionId: secondExecutionId,
             forward: true,
+            reviewer: "closeout-reviewer",
             reason: "Forward r2",
           },
           owner,
