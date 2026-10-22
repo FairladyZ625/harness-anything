@@ -27,6 +27,13 @@ const auxiliaryEventTypes = Object.freeze([
   "runtime_handoff_revoked",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][]);
 
+function reviewerLaneKey(dispatchKey: unknown): string | null {
+  if (typeof dispatchKey !== "string") return null;
+  if (dispatchKey.startsWith("task-review-lane:")) return dispatchKey.split(":").slice(0, 3).join(":");
+  if (dispatchKey.startsWith("task-review:")) return "task-review";
+  return null;
+}
+
 export function appendAuxiliaryRuntimeIngress(
   cell: RepoCellActionContext,
   action: RuntimeIngressAction,
@@ -150,17 +157,26 @@ export function appendAuxiliaryRuntimeIngress(
           source.payload.executionId,
           action.payload.executionId,
         );
+      const reviewerContinuation =
+        source.payload.role === "reviewer" &&
+        action.payload.role === "reviewer" &&
+        source.payload.taskId === action.payload.taskId &&
+        source.payload.agentId === action.payload.agentId &&
+        reviewerLaneKey(source.payload.dispatchKey) !== null &&
+        reviewerLaneKey(source.payload.dispatchKey) === reviewerLaneKey(action.payload.dispatchKey);
       if (
         !isSamePerson(source.actor, binding.actor) ||
         source.payload.taskId !== action.payload.taskId ||
         (action.payload.handoffCheckpointId === undefined &&
           source.payload.executionId !== action.payload.executionId &&
-          !returnedContinuation) ||
+          !returnedContinuation &&
+          !reviewerContinuation) ||
         (remote &&
           ((source.payload.taskId ?? null) !== dispatch?.taskId ||
             (action.payload.handoffCheckpointId === undefined &&
               (source.payload.executionId ?? null) !== dispatch?.executionId &&
-              !returnedContinuation)))
+              !returnedContinuation &&
+              !reviewerContinuation)))
       )
         throw cell.cellCodedError(
           "runtime_resume_binding_mismatch",

@@ -17,6 +17,8 @@ import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "./review-path-lanes.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -229,6 +231,56 @@ function reviewAttemptEnded(cell: RepoCellOperationalContext, runtimeSessionId: 
     );
 }
 
+type ReviewerContinuation = {
+  readonly dispatchId: string;
+  readonly reportRef: string;
+  readonly resume: boolean;
+};
+
+/** Find the latest completed reviewer round for exactly one task/lane. */
+function previousReviewerContinuation(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly reviewerId: string;
+    readonly dispatchKey: string;
+    readonly packagePath: string;
+  },
+): ReviewerContinuation | null {
+  const lanePrefix = input.dispatchKey.startsWith(`task-review-lane:${input.reviewerId}:${input.taskId}:`)
+    ? `task-review-lane:${input.reviewerId}:${input.taskId}:`
+    : `task-review:${input.taskId}:`;
+  const candidates = cell.projection
+    .readRuntimeDispatches()
+    .filter((row) => {
+      const payload = row.payload;
+      const reportRef = `${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`;
+      return (
+        payload.role === "reviewer" &&
+        payload.taskId === input.taskId &&
+        payload.agentId === input.reviewerId &&
+        typeof payload.dispatchKey === "string" &&
+        payload.dispatchKey.startsWith(lanePrefix) &&
+        payload.dispatchKey !== input.dispatchKey &&
+        reviewAttemptEnded(cell, payload.runtimeSessionId) &&
+        cell.projection.readDocument(reportRef).document !== null
+      );
+    })
+    .sort((left, right) => String(right.payload.startedAt ?? "").localeCompare(String(left.payload.startedAt ?? "")));
+  const previous = candidates[0];
+  if (!previous) return null;
+  const payload = previous.payload,
+    session = cell.projection.readRuntimeSession(payload.runtimeSessionId),
+    declaration = session === null ? null : runtimeKindForId(session.kindId),
+    canResume = Boolean(session?.providerSessionId && declaration?.declaredCapabilities.includes("resume"));
+  const reportRef = `${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`;
+  return {
+    dispatchId: payload.dispatchId,
+    reportRef,
+    resume: canResume,
+  };
+}
+
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
@@ -312,7 +364,8 @@ export function reviewDispatchPrompt(input: {
       "evidence: a witness produced only after merge is not a source defect merely because this review " +
       "runs before merge. Report unverified evidence without claiming a gate passed or waiving it.",
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
-    "Read the task plan, closeout, and submitted delivery yourself. " +
+    "Read the task plan, closeout, and submitted delivery yourself. On the first review, list every " +
+      "blocking finding visible in the frozen cut; do not defer a visible blocker to a later round. " +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
@@ -398,6 +451,21 @@ export async function spawnCutReviewDispatch(
         "Installed reviewer overrides must not select an instance default model.",
     };
   const extras = input.extras ?? {},
+    continuation = previousReviewerContinuation(cell, {
+      taskId: input.taskId,
+      reviewerId: input.reviewerId,
+      dispatchKey: key,
+      packagePath: input.packagePath,
+    }),
+    continuationNote = continuation
+      ? [
+          "This is a re-review of the same task and reviewer lane.",
+          `Read the previous registered report at harness/${continuation.reportRef} with ha doc show --path ${continuation.reportRef} --raw.`,
+          "On the first review, list every blocking finding that is visible in the frozen cut.",
+          "On this re-review, verify each previous finding and inspect only the new diff relative to that report's cut.",
+          "Do not reopen a finding that was visible in the first review but was omitted; record it as non-blocking follow-up.",
+        ].join("\n")
+      : "On the first review, list every blocking finding visible in the frozen cut; do not defer a visible blocker to a later round.",
     payload = {
       agentId: agent.id,
       role: "reviewer",
@@ -405,11 +473,12 @@ export async function spawnCutReviewDispatch(
       executionId: input.execution.executionId,
       cwd: { scope: "repo-root" },
       dispatchKey: key,
+      ...(continuation?.resume ? { dispatchId: continuation.dispatchId } : {}),
       ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
       ...(typeof extras.model === "string" ? { model: extras.model } : {}),
       ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
       ...(extras.fast === true ? { fast: true } : {}),
-      prompt:
+      prompt: `${
         input.prompt ??
         reviewDispatchPrompt({
           ownerNote: input.ownerNote,
@@ -421,7 +490,8 @@ export async function spawnCutReviewDispatch(
             cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
             input.execution.submission,
           ),
-        }),
+        })
+      }\n${continuationNote}`,
     },
     authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
@@ -438,8 +508,41 @@ export async function spawnCutReviewDispatch(
     // Already inside the center queue. Only launch admission is awaited; provider completion is not.
     await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
   } catch (error) {
-    consumeKnownError(error);
-    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+    if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
+      // A provider can reject a previously valid session after admission (for example after its
+      // local transcript was compacted). The source remains consumed; retry once as a fresh
+      // reviewer session with the same lane key and the prior report in the mission.
+      const fallbackPrompt =
+        `${String(payload.prompt)}\nThe provider could not resume the prior session; this is a fresh session. ` +
+        "Use the previous report as input and keep the same old-findings-plus-new-diff scope.";
+      // Dispatch identity is derived from dispatchKey. Keep the reviewer lane prefix so ingress
+      // can still prove this is the same lane, while giving the fallback a fresh identity.
+      const fallbackPayload = {
+        ...payload,
+        dispatchKey: `${key}:resume-fallback`,
+        prompt: fallbackPrompt,
+      };
+      delete (fallbackPayload as { dispatchId?: string }).dispatchId;
+      const fallbackKey = String(fallbackPayload.dispatchKey),
+        fallbackIds = reviewDispatchIds(cell.input.repoId, fallbackKey);
+      const fallbackError = await cell.runtimeSpawner
+        .spawn(fallbackPayload, { ...input.binding, authorizationDecision })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      if (fallbackError !== null) {
+        consumeKnownError(fallbackError);
+        return {
+          outcome: "failed",
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        };
+      }
+      return { outcome: "dispatched", ids: fallbackIds };
+    } else {
+      consumeKnownError(error);
+      return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+    }
   }
   return { outcome: "dispatched", ids };
 }

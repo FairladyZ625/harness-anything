@@ -41,6 +41,8 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.match(prompt, /ha task show task_review_bounds --json/u);
   assert.match(prompt, /ha doc show --path <anchor.path> --raw/u);
   assert.match(prompt, /registered anchors at their frozen revisions/u);
+  assert.match(prompt, /first review.*every blocking finding visible/u);
+  assert.doesNotMatch(prompt, /previous report at/u);
 });
 
 test("decision review prompts hand the reviewer the exact registration identity fields", () => {

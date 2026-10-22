@@ -310,7 +310,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     path: ["reviewReturnBudget"],
     ownership: repository,
     valueKind: "integer",
-    defaultValue: 3,
+    defaultValue: 2,
     minimum: 1,
     description: "How many times review may send a task back for rework.",
     effect: "A task sent back more times than this goes to a person instead of another review round.",

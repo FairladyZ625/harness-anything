@@ -40,6 +40,7 @@ async function recordReview(
   sessionId: string,
   reviewId: string,
   verdict: "approved" | "changes_requested",
+  reviewExecutionId = executionId,
 ) {
   const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`,
     report = `${f.packagePath}/artifacts/reports/${reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId}.md`;
@@ -56,7 +57,13 @@ async function recordReview(
   return f
     .cell()
     .run(
-      { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: `harness/${packet}` },
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId: reviewExecutionId,
+        reviewId,
+        fromFile: `harness/${packet}`,
+      },
       reviewerActor(sessionId),
     );
 }
@@ -186,6 +193,84 @@ test("changes requested remains in review until the owner returns the cut with i
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
     assert.equal(f.launches.length, 1, "the reviewer verdict must not dispatch implementation work");
+  } finally {
+    await f.close();
+  }
+});
+
+test("the third review return stays at the CEO gate after the default budget of two", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false, autoForward: false });
+  try {
+    await f.install();
+    const dispatchReview = async (roundExecutionId: string, reviewId: string) => {
+      const dispatch = f
+        .events()
+        .filter((event) => event.type === "runtime_dispatch_requested")
+        .at(-1);
+      assert.ok(dispatch?.type === "runtime_dispatch_requested");
+      const reviewed = await recordReview(
+        f,
+        dispatch.payload.runtimeSessionId,
+        reviewId,
+        "changes_requested",
+        roundExecutionId,
+      );
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const returned = await f.run({
+        kind: "task-adjudicate",
+        taskId,
+        executionId: roundExecutionId,
+        return: true,
+        workerMode: "none",
+        reviewId,
+        reason: `Revise round ${roundExecutionId}.`,
+      });
+      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    };
+    assert.equal((await f.submit()).outcome, "applied");
+    assert.equal((await f.forward()).outcome, "applied");
+    await dispatchReview(executionId, "review-budget-1");
+    for (const roundExecutionId of ["execution-review-budget-2", "execution-review-budget-3"]) {
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })).outcome, "applied");
+      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundExecutionId })).outcome, "applied");
+      const forwarded = await f.run({
+        kind: "task-adjudicate",
+        taskId,
+        executionId: roundExecutionId,
+        forward: true,
+        reason: `Forward round ${roundExecutionId}.`,
+      });
+      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+      if (roundExecutionId.endsWith("-2")) await dispatchReview(roundExecutionId, "review-budget-2");
+      else {
+        const dispatch = f
+          .events()
+          .filter((event) => event.type === "runtime_dispatch_requested")
+          .at(-1);
+        assert.ok(dispatch?.type === "runtime_dispatch_requested");
+        const reviewed = await recordReview(
+          f,
+          dispatch.payload.runtimeSessionId,
+          "review-budget-3",
+          "changes_requested",
+          roundExecutionId,
+        );
+        assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+        const blocked = await f.run({
+          kind: "task-adjudicate",
+          taskId,
+          executionId: roundExecutionId,
+          return: true,
+          workerMode: "none",
+          reviewId: "review-budget-3",
+          reason: "CEO must decide after the return budget is exhausted.",
+        });
+        assert.equal(blocked.outcome, "op_rejected", JSON.stringify(blocked));
+        assert.equal(blocked.code, "invalid_transition", JSON.stringify(blocked));
+        assert.match(String(blocked.rejectionExplanation), /CEO attention/u);
+        assert.equal(f.events().filter((event) => event.type === "submission_returned").length, 2);
+      }
+    }
   } finally {
     await f.close();
   }

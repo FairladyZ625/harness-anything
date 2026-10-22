@@ -45,7 +45,7 @@ const SETTINGS_VALUES = {
   defaultPreset: "standard-task",
   defaultProfile: "baseline",
   reviewIndependence: "execution",
-  reviewReturnBudget: 3,
+  reviewReturnBudget: 2,
   taskScaffold: "governance/task-scaffold.json",
   repositoryScaffold: "governance/repository-scaffold.json",
   closeoutProfile: "standard",
@@ -357,7 +357,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(container.querySelector('[data-testid="settings-defaultReviewer-input"]')).toBeNull();
     expect(
       (container.querySelector('[data-testid="settings-restoreDrillRetention-input"]') as HTMLInputElement).value,
-    ).toBe("3");
+    ).toBe("2");
   });
 
   it("字段面从契约派生:历史缺失的三个字段全部出现且类型正确,提交时进 payload", async () => {
@@ -379,7 +379,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(lastUpdatePayload()).toMatchObject({
       roles: { defaultReviewer: "arch-reviewer" },
       reviewIndependence: "execution",
-      reviewReturnBudget: 3,
+      reviewReturnBudget: 2,
       closeoutProfile: "standard",
       closeoutReview: false,
       restoreDrillRetention: 3,

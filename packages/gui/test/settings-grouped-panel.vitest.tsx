@@ -45,7 +45,7 @@ const SETTINGS_VALUES = {
   defaultProfile: "baseline",
   roles: {},
   reviewIndependence: "execution",
-  reviewReturnBudget: 3,
+  reviewReturnBudget: 2,
   taskScaffold: "governance/task-scaffold.json",
   repositoryScaffold: "governance/repository-scaffold.json",
   closeoutProfile: "standard",
@@ -295,7 +295,7 @@ describe("设置页按用途分组并逐项解释", () => {
     const container = await mountView();
     const note = (testId: string) => container.querySelector(`[data-testid="${testId}"]`)?.textContent;
     expect(container.querySelector('[data-testid="settings-reviewReturnBudget-modified"]')).toBeNull();
-    expect(note("settings-reviewReturnBudget-default")).toBe("默认值：3");
+    expect(note("settings-reviewReturnBudget-default")).toBe("默认值：2");
     expect(note("settings-reviewIndependence-default")).toBe("默认值：execution");
     expect(note("settings-closeoutReview-default")).toBe("默认值：关闭");
     expect(note("settings-roles-defaultWorker-default")).toBe("默认值：未设置");
@@ -342,7 +342,7 @@ describe("设置页按用途分组并逐项解释", () => {
   });
 
   it("当前值 ≠ 默认值时出现「已修改」标记,恢复默认拨回默认值并随提交带出", async () => {
-    const container = await mountView({ restoreDrillRetention: 5, reviewReturnBudget: 3 });
+    const container = await mountView({ restoreDrillRetention: 5, reviewReturnBudget: 2 });
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
     });
