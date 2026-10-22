@@ -76,6 +76,7 @@ function fixture(
       definitionSnapshotRef: current.definitionSnapshotRef,
       attemptGroupId: dispatchId,
       attemptIndex: 0,
+      role: "implementation",
       reviewTarget: { kind: "decision", decisionId: "decision-1", digest: "a".repeat(64) },
     },
   } as unknown as Dispatch;
@@ -138,6 +139,26 @@ test("accepted liveness and terminal evidence determine public dispatch status w
     assert.equal(row.eventStreamRef, null);
     assert.equal(taskDispatchRowsSettled([row]), outcome !== null);
   }
+});
+
+test("dispatch rows expose their source role, last observed activity, and daemon activity judgment", () => {
+  const row = fixture(session("live", null)).rows()[0]!;
+  assert.equal(row.role, "implementation");
+  assert.equal(row.lastObservedAt, "2026-08-23T00:00:00.000Z");
+  assert.equal(row.activityStatus, "stalled");
+  assert.deepEqual(
+    validateDaemonTaskDispatches({
+      ok: true,
+      status: "ready",
+      taskId,
+      dispatches: [row],
+      outcome: "unknown",
+      exitCode: 0,
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+    [],
+  );
 });
 
 test("public dispatch, session group and attempt chain queries tolerate a filesystem trap", (t) => {

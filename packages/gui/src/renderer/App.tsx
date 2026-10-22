@@ -6,6 +6,7 @@ import type { TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
+import { LiveFloorView } from "./views/LiveFloorView.tsx";
 import { myAsksViewEntry } from "./views/my-asks/my-asks-view-entry.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
@@ -578,6 +579,8 @@ function AppShell() {
                   navigateToEntity={navigateToEntity}
                   openProjectInNewWindow={openProjectInNewWindow}
                 />
+              ) : redesignView === "liveFloor" ? (
+                <LiveFloorView repoId={projectId} taskTitles={taskTitles} works={works} onOpenTask={openTaskDetail} />
               ) : ledgerUnavailable ? (
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (

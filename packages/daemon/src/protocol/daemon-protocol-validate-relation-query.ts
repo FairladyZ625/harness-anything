@@ -194,6 +194,11 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
       value.attemptGroupId,
     ].every(dispatchText) &&
     validTaskDispatchAttemptValues(value) &&
+    (value.role === undefined || dispatchText(value.role)) &&
+    (value.lastObservedAt === undefined ||
+      (dispatchText(value.lastObservedAt) && isUtcTimestamp(value.lastObservedAt))) &&
+    (value.activityStatus === undefined ||
+      ["progressing", "waiting_ci", "stalled", "unknown"].includes(String(value.activityStatus))) &&
     ["agentId", "agentName", "delegatedByAgentId", "delegatedByAgentName", "squadId", "parentRuntimeSessionId"].every(
       (field) => value[field] === undefined || dispatchText(value[field]),
     ) &&

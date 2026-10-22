@@ -5,6 +5,7 @@ import {
   type RuntimeSession,
   type TaskProjection,
   type TaskProjectionQueries,
+  latestRuntimeActivityAt,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
@@ -28,6 +29,7 @@ import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
+import { dispatchActivityStatus } from "./dispatch-activity.ts";
 
 type DispatchEvent = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
 type DispatchQueries = Pick<
@@ -427,7 +429,8 @@ function canonicalDispatchRow(
   annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
 ): TaskDispatchRow {
   const payload = event.payload,
-    packagePath = payload.taskId ? projection.read(payload.taskId).packagePath : null,
+    taskRead = payload.taskId ? projection.read(payload.taskId) : null,
+    packagePath = taskRead?.packagePath ?? null,
     documentPath = packagePath ? `${packagePath}/artifacts/dispatches/${payload.dispatchId}.json` : null,
     document = documentPath ? projection.readDocument(documentPath).document : null,
     archive = document ? parseArchive(document.body) : null,
@@ -455,6 +458,24 @@ function canonicalDispatchRow(
       ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
     }),
     dispatchStream = rootDir ? readDispatchStreamSummary(rootDir, payload.dispatchId) : null,
+    lastObservedAt = latestRuntimeActivityAt([
+      ...(session ? [session.lastObservedAt] : []),
+      ...(dispatchStream ? [dispatchStream.lastObservedAt] : []),
+    ]),
+    activityObservedAt =
+      lastObservedAt === "1970-01-01T00:00:00.000Z" ? (payload.startedAt ?? event.occurredAt) : lastObservedAt,
+    status =
+      outcome === "stopped" && taskExecutionDelivered(projection, event)
+        ? "succeeded"
+        : outcome === "stopped" && taskHasStructuredBlock(projection, event)
+          ? "blocked"
+          : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
+    activityStatus = dispatchActivityStatus({
+      status,
+      taskStatus: taskRead?.snapshot.task?.status,
+      role: payload.role,
+      lastObservedAt: activityObservedAt,
+    }),
     fallbackReason = dispatchStream?.records.findLast(
       (record) => record.kind === "fallback_state" && typeof record.reason === "string",
     )?.reason,
@@ -499,6 +520,9 @@ function canonicalDispatchRow(
         }
       : {}),
     runtimeSessionId: payload.runtimeSessionId,
+    ...(payload.role ? { role: payload.role } : {}),
+    lastObservedAt: activityObservedAt,
+    activityStatus,
     instanceId: payload.instanceId,
     attemptGroupId: groupId,
     attemptIndex: payload.attemptIndex ?? 0,
@@ -527,12 +551,7 @@ function canonicalDispatchRow(
     startedAt: payload.startedAt ?? event.occurredAt,
     endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
     outcome,
-    status:
-      outcome === "stopped" && taskExecutionDelivered(projection, event)
-        ? "succeeded"
-        : outcome === "stopped" && taskHasStructuredBlock(projection, event)
-          ? "blocked"
-          : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
+    status,
     // The artifact is keyed by dispatch id, so its presence means this dispatch wrote the ask. Read
     // it here rather than gating on the settled classification: the question must stay visible even
     // when the stream cut predates the classification.
