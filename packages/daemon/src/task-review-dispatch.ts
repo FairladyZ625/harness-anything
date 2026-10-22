@@ -634,7 +634,7 @@ async function dispatchPathReviewLanes(
       dispatchKey: key,
       promptFor: (dispatchId) =>
         reviewLanePrompt({
-          agentId: lane.agentId,
+          agentId,
           taskId: input.taskId,
           packagePath: input.packagePath,
           dispatchId,
@@ -691,8 +691,8 @@ export function activeCutReviewDispatches(
       suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
       isCutReviewKey =
         suffix === "" ||
-        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?$/.u.test(suffix ?? "") ||
-        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?$/.u.test(suffix ?? "");
+        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?$/u.test(suffix ?? "") ||
+        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?$/u.test(suffix ?? "");
     return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
   });
 }
