@@ -61,6 +61,10 @@ export interface RuntimeDispatchArchive {
   readonly exitCode: number | null;
   readonly resultRef: string;
   readonly resultText: string;
+  /** The provider's final conclusion, kept separate from the terminal result diagnostics. */
+  readonly lastConclusion?: string | null;
+  /** The task worktree HEAD observed when this runtime settled. */
+  readonly exitHead?: string | null;
   readonly eventStreamRef?: string;
   readonly attemptGroupId: string;
   readonly attemptIndex: number;
@@ -173,6 +177,8 @@ export function archiveRuntimeDispatch(
       outcome: value.outcome,
       exitCode: value.exitCode,
       resultRef: value.resultRef,
+      ...(value.lastConclusion === undefined ? {} : { lastConclusion: value.lastConclusion }),
+      ...(value.exitHead === undefined ? {} : { exitHead: value.exitHead }),
       ...(value.eventStreamRef ? { eventStreamRef: value.eventStreamRef } : {}),
       attemptGroupId: value.attemptGroupId,
       attemptIndex: value.attemptIndex,

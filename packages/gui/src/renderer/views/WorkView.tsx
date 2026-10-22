@@ -42,6 +42,7 @@ const ATTENTION_TONE: Record<string, StatusTone> = {
   stalled: "wait",
   answered: "wait",
   archive: "neutral",
+  "unsubmitted-delivery": "bad",
 };
 
 type WorkFilter = "attn" | "me" | "blocked" | "moving" | "stale" | "finished" | "all";

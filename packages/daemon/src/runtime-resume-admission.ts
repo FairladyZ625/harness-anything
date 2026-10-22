@@ -18,6 +18,7 @@ import {
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { noWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 
 export function admitRuntimeResume(
   rootDir: string,
@@ -49,11 +50,17 @@ export function admitRuntimeResume(
   const admission = runtimeResumeAdmission({
     dispatchId: leaf,
     agentId: resumed?.header.agentId ?? null,
+    kindId: resumed?.header.kindId ?? null,
     providerSessionId: resumed?.providerSessionId ?? null,
     resumedDispatches: resumedDispatchesBySource(resumedDispatch ? [resumedDispatch.event.payload] : []),
   });
   if (!admission.resumable && admission.reason === "missing_provider_session")
     throw runtimeSpawnError("runtime_dispatch_not_resumable", `Dispatch ${leaf} has no provider session to resume.`);
+  if (!admission.resumable && admission.reason === "runtime_kind_unsupported")
+    throw runtimeSpawnError(
+      "runtime_dispatch_not_resumable",
+      `Runtime ${admission.kindId} does not support provider-session resume.`,
+    );
   if (!admission.resumable && admission.reason === "already_resumed")
     throw runtimeSpawnError(
       "runtime_dispatch_already_resumed",
@@ -89,6 +96,7 @@ function resumeChainLeaf(
 export type RuntimeResumeAdmission =
   | { readonly resumable: true; readonly dispatchId: string; readonly agentId: string | null }
   | { readonly resumable: false; readonly reason: "missing_provider_session" }
+  | { readonly resumable: false; readonly reason: "runtime_kind_unsupported"; readonly kindId: string }
   | { readonly resumable: false; readonly reason: "already_resumed"; readonly resumedDispatchId: string };
 
 export function resumedDispatchesBySource(
@@ -105,10 +113,17 @@ export function resumedDispatchesBySource(
 export function runtimeResumeAdmission(input: {
   readonly dispatchId: string;
   readonly agentId: string | null;
+  readonly kindId?: string | null;
   readonly providerSessionId: string | null;
   readonly resumedDispatches: ReadonlyMap<string, string>;
 }): RuntimeResumeAdmission {
   if (!input.providerSessionId) return { resumable: false, reason: "missing_provider_session" };
+  if (
+    input.kindId !== undefined &&
+    input.kindId !== null &&
+    runtimeKindForId(input.kindId).capabilities.resume !== "supported"
+  )
+    return { resumable: false, reason: "runtime_kind_unsupported", kindId: input.kindId };
   const resumedDispatchId = input.resumedDispatches.get(input.dispatchId);
   if (resumedDispatchId) return { resumable: false, reason: "already_resumed", resumedDispatchId };
   return { resumable: true, dispatchId: input.dispatchId, agentId: input.agentId };

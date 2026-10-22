@@ -415,6 +415,7 @@ export function openFleetEdgeRuntime(input: {
           profileId,
           taskClass: current.task!.taskClass,
           ownerReturnBody,
+          continuationContext: runtimeContext.continuationContext,
           planBody: plan,
           mission: (reachedPackageRoot) =>
             [taskPlanSection(plan, reachedPackageRoot), ...missionAfterPackage].join("\n\n"),
@@ -886,6 +887,7 @@ function taskRuntimeContext(
   readonly causalContext: string | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
+  readonly continuationContext: import("./runtime-continuation-context.ts").RuntimeContinuationSeed | null;
   readonly snapshot: import("./repo-cell-types.ts").Snapshot & {
     readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
   };
@@ -906,6 +908,40 @@ function taskRuntimeContext(
       causalContext: read.causalContext,
       profileId: read.profileId === null ? null : (read.profileId as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
+      continuationContext:
+        read.continuationContext === null
+          ? null
+          : {
+              dispatchId:
+                typeof (read.continuationContext as { readonly dispatchId?: unknown }).dispatchId === "string"
+                  ? (read.continuationContext as { readonly dispatchId: string }).dispatchId
+                  : (() => {
+                      throw edgeRuntimeError(
+                        "runtime_read_invalid",
+                        "Replica returned an invalid continuation context.",
+                      );
+                    })(),
+              lastConclusion:
+                (read.continuationContext as { readonly lastConclusion?: unknown }).lastConclusion === null ||
+                typeof (read.continuationContext as { readonly lastConclusion?: unknown }).lastConclusion === "string"
+                  ? (read.continuationContext as { readonly lastConclusion: string | null }).lastConclusion
+                  : (() => {
+                      throw edgeRuntimeError(
+                        "runtime_read_invalid",
+                        "Replica returned an invalid continuation context.",
+                      );
+                    })(),
+              exitHead:
+                (read.continuationContext as { readonly exitHead?: unknown }).exitHead === null ||
+                typeof (read.continuationContext as { readonly exitHead?: unknown }).exitHead === "string"
+                  ? (read.continuationContext as { readonly exitHead: string | null }).exitHead
+                  : (() => {
+                      throw edgeRuntimeError(
+                        "runtime_read_invalid",
+                        "Replica returned an invalid continuation context.",
+                      );
+                    })(),
+            },
       snapshot: read.snapshot as import("./repo-cell-types.ts").Snapshot & {
         readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
       },

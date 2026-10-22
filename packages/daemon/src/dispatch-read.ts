@@ -519,7 +519,11 @@ function canonicalDispatchRow(
 }
 
 function resumeDispatch(
-  dispatch: { readonly dispatchId: string; readonly agentId?: string | null },
+  dispatch: {
+    readonly dispatchId: string;
+    readonly agentId?: string | null;
+    readonly definitionSnapshot?: { readonly kindId?: string };
+  },
   providerSessionId: string | null,
   resumedDispatches: ReadonlyMap<string, string>,
   classification: TaskDispatchRow["classification"],
@@ -527,6 +531,7 @@ function resumeDispatch(
   const admission = runtimeResumeAdmission({
     dispatchId: dispatch.dispatchId,
     agentId: dispatch.agentId ?? null,
+    kindId: dispatch.definitionSnapshot?.kindId ?? null,
     providerSessionId,
     resumedDispatches,
   });

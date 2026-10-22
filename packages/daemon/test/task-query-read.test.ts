@@ -370,6 +370,103 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
+test("agenda flags a stopped worker without delivery, but excludes leased, submitted, and resumed executions", () => {
+  const taskRow = (taskId: string, executionId: string, options: { lease?: boolean; submitted?: boolean } = {}) => {
+      const row = protocolTaskRow(taskId, [], { status: "active" }),
+        execution = {
+          ...executionRow(executionId, 0, "active", taskId),
+          submission: options.submitted ? { commitSha: "a".repeat(40), artifacts: [] } : null,
+        };
+      return {
+        ...row,
+        snapshot: {
+          ...row.snapshot,
+          executions: [execution],
+          ...(options.lease ? { lease: { executionId, taskId } } : {}),
+        },
+      };
+    },
+    dispatch = (
+      taskId: string,
+      executionId: string,
+      dispatchId: string,
+      runtimeSessionId: string,
+      options: { readonly role?: string; readonly squadId?: string } = {},
+    ) => ({
+      outcome: "stopped" as const,
+      event: {
+        occurredAt: "2026-10-22T01:00:00.000Z",
+        payload: { taskId, executionId, dispatchId, runtimeSessionId, ...options },
+      },
+    }),
+    dispatches = [
+      dispatch("task_unsubmitted", "exe_unsubmitted", "dispatch_unsubmitted", "runtime_unsubmitted"),
+      dispatch("task_leased", "exe_leased", "dispatch_leased", "runtime_leased"),
+      dispatch("task_submitted", "exe_submitted", "dispatch_submitted", "runtime_submitted"),
+      dispatch("task_resumed", "exe_resumed", "dispatch_resumed", "runtime_resumed"),
+      dispatch("task_reviewer", "exe_reviewer", "dispatch_reviewer", "runtime_reviewer", { role: "reviewer" }),
+      dispatch("task_squad", "exe_squad", "dispatch_squad", "runtime_squad", { squadId: "squad_x" }),
+    ],
+    sessionEvents = new Map(
+      dispatches.map(({ event }) => [
+        event.payload.runtimeSessionId,
+        [
+          {
+            schema: "agent-runtime-event/v1",
+            type: "runtime_session_outcome_observed",
+            payload: {
+              outcome: "stopped",
+              endedAt: "2026-10-22T01:01:00.000Z",
+              attempt: { classification: "worker_stop" },
+            },
+          },
+        ],
+      ]),
+    ),
+    base = projectionStub({
+      taskRows: [
+        taskRow("task_unsubmitted", "exe_unsubmitted"),
+        taskRow("task_leased", "exe_leased", { lease: true }),
+        taskRow("task_submitted", "exe_submitted", { submitted: true }),
+        taskRow("task_resumed", "exe_resumed"),
+        taskRow("task_reviewer", "exe_reviewer"),
+        taskRow("task_squad", "exe_squad"),
+      ],
+    }),
+    projection = {
+      ...base,
+      readTaskStatuses: (taskIds: readonly string[]) => ({
+        ...readyCut,
+        rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
+      }),
+      readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
+        dispatches.filter(({ event }) => event.payload.taskId === taskId && event.payload.executionId === executionId),
+      readRuntimeSessionEvents: (runtimeSessionId: string) => sessionEvents.get(runtimeSessionId) ?? [],
+      readRuntimeDispatchByResumeSource: (dispatchId: string) =>
+        dispatchId === "dispatch_resumed" ? { event: { payload: { dispatchId: "dispatch_next" } } } : null,
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection,
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.attentionItems.filter(({ kind }) => kind === "unsubmitted-delivery").map(({ ref, region }) => [ref, region]),
+    [["task/task_unsubmitted", "mine"]],
+  );
+  assert.equal(
+    result.inFlight.some(({ taskId }) => taskId === "task_unsubmitted"),
+    true,
+  );
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
 test("agenda adds idle active tasks after seven days and ranks indexed downstream blockers", () => {
   const stale = protocolTaskRow("task_stale", [], { status: "active" }),
     recent = { ...protocolTaskRow("task_recent", [], { status: "active" }), updatedAt: "2026-09-25T00:00:00.000Z" },
@@ -1046,6 +1143,9 @@ function projectionStub(
         : null,
     }),
     readRuntimeSession: () => null,
+    readRuntimeDispatchesByTaskExecution: () => [],
+    readRuntimeDispatchByResumeSource: () => null,
+    readRuntimeSessionEvents: () => [],
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
       decisions: decisionAgendaRows,

@@ -312,7 +312,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : preparedWorktree,
         taskPackageRoot,
       );
-    const { taskMission, mission } = resolveRuntimeMission({
+    const { taskMission, mission } = await resolveRuntimeMission({
       rootDir: input.rootDir,
       cwd,
       taskId,

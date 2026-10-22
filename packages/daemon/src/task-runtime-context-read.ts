@@ -1,6 +1,7 @@
 import { resolveHarnessLayout, type TaskProjection } from "@harness-anything/kernel";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { openTaskWorktreeBinding, presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
+import { latestRuntimeContinuationSeed } from "./runtime-continuation-context.ts";
 
 /** Runtime preparation reads the same task context at the selected center or replica cut. */
 export function readTaskRuntimeContext(
@@ -10,6 +11,7 @@ export function readTaskRuntimeContext(
 ): import("./protocol/daemon-protocol-runtime-context.ts").DaemonTaskRuntimeContextResult {
   const read = projection.read(taskId),
     task = read.snapshot.task;
+  const executionIds = read.snapshot.executions.map(({ executionId }) => executionId);
   return {
     schema: "task-runtime-context-read/v1" as const,
     ok: true as const,
@@ -17,6 +19,7 @@ export function readTaskRuntimeContext(
     causalContext: assembleTaskCausalContext({ projection: projection, taskId }),
     profileId: task?.metadata?.profileId ?? null,
     worktree: openTaskWorktreeBinding(task, presetSnapshotReader(projection)),
+    continuationContext: latestRuntimeContinuationSeed(projection, taskId, executionIds),
     snapshot: {
       ...read.snapshot,
       workspace: taskWorkspaceView(

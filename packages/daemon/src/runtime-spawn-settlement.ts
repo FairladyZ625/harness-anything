@@ -24,6 +24,7 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
+import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -121,7 +122,11 @@ export async function publishExit(
           ? "Worker completed the attempt successfully."
           : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
     };
-    const endedAt = context.input.now();
+    const endedAt = context.input.now(),
+      exitHead = active.task ? await currentWorktreeHead(active.cwd) : null,
+      lastConclusion = boundedRuntimeConclusion(
+        active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
+      );
     active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
@@ -238,6 +243,8 @@ export async function publishExit(
       exitCode: cancelled ? null : code,
       resultRef,
       resultText: body,
+      lastConclusion,
+      exitHead,
       eventStreamRef: active.stream.ref,
       attemptGroupId: attemptOutcome.attemptGroupId,
       attemptIndex: attemptOutcome.attemptIndex,

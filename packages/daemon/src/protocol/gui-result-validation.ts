@@ -140,6 +140,13 @@ const validateTaskRuntimeContextRead: ResultValidator = (value) =>
       Object.keys(value.worktree).length === 2 &&
       typeof value.worktree.branch === "string" &&
       typeof value.worktree.path === "string")) &&
+  (value.continuationContext === null ||
+    (isJsonObject(value.continuationContext) &&
+      Object.keys(value.continuationContext).length === 3 &&
+      typeof value.continuationContext.dispatchId === "string" &&
+      (value.continuationContext.lastConclusion === null ||
+        typeof value.continuationContext.lastConclusion === "string") &&
+      (value.continuationContext.exitHead === null || typeof value.continuationContext.exitHead === "string"))) &&
   isJsonObject(value.snapshot)
     ? []
     : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];

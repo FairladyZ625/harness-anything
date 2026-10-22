@@ -1197,6 +1197,32 @@ test("terminal settlement keeps a clean task exit unknown without its execution 
   assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
 });
 
+test("task settlement archives a bounded, scrubbed conclusion and the worktree exit HEAD", async (context) => {
+  const fixture = workerGitFixture(context, "settle-continuation-context", { reachableRemote: true }),
+    conclusion = `Last conclusion secret=do-not-persist ${"x".repeat(9_000)}`,
+    runtime = workerSettlementRuntime(fixture, { finalText: conclusion }),
+    archived: Record<string, unknown>[] = [],
+    baseContext = workerSettlementContext(fixture, async () => ({ outcome: "applied" })),
+    settleContext = {
+      ...baseContext,
+      input: {
+        ...baseContext.input,
+        remote: {
+          archive: async (value: Record<string, unknown>) => {
+            archived.push(value);
+            return { outcome: "applied" };
+          },
+        },
+      },
+    } as RuntimeSpawnerContext;
+  await publishExit(settleContext, runtime, 0);
+  assert.equal(archived.length, 1);
+  assert.ok(String(archived[0]?.lastConclusion).startsWith("Last conclusion [REDACTED]"));
+  assert.equal(String(archived[0]?.lastConclusion).length, 8_192);
+  assert.doesNotMatch(String(archived[0]?.lastConclusion), /do-not-persist/u);
+  assert.equal(archived[0]?.exitHead, git(fixture.worker, "rev-parse", "HEAD").trim());
+});
+
 test("terminal settlement accepts an already submitted commitless task delivery", async (context) => {
   const fixture = workerGitFixture(context, "settle-commitless-submission", { reachableRemote: true, delivery: false }),
     runtime = workerSettlementRuntime(fixture, { finalText: "analysis complete", publicationOwner: "commander" }),
