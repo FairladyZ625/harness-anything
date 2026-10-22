@@ -6,7 +6,11 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { history, digest } from "./completion-history.fixtures.ts";
-import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import {
+  openSqliteEventStore,
+  openUnactivatedGenerationThreeEventStore,
+  sqliteLedgerPath,
+} from "../../src/store/sqlite-event-store.ts";
 import { sha256Text, stableStringify } from "../../src/integrity/stable-hash.ts";
 import { planCompletionGeneration } from "../../src/store/completion-generation-plan.ts";
 import {
@@ -82,7 +86,7 @@ test("offline target preserves missing-snapshot acceptance, every outcome, and e
     assert.equal(result.events, 4);
     assert.equal(result.commandOutcomes, 6);
     assert.throws(() => selectGenerationThree({ rootInput: targetRoot, repoId }), /upgrade is incomplete/);
-    const target = openSqliteEventStore({ repoId, rootInput: targetRoot, generation: 3 });
+    const target = openUnactivatedGenerationThreeEventStore({ repoId, rootInput: targetRoot });
     const projection = makeTaskProjection({ rootDir: targetRoot, eventStore: completionConversionStream(target) });
     try {
       projection.rebuild();

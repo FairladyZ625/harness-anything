@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
+  activateEmptyCanonicalGeneration,
   compileEntityUpsert,
   makeTaskEventReader,
   openSqliteEventStore,
@@ -735,13 +736,14 @@ test("owned-content objects preserve raw bytes and reject absent or oversized co
         },
       },
     },
-    store = openSqliteEventStore({ repoId, rootInput: rootDir }),
     fence = { repoId, holder: "owned-content-test", epoch: 1 },
     intent = {
       opId: event.opId,
       intentDigest: `sha256:${"1".repeat(64)}` as const,
       summary: "raw owned content",
     };
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir });
   try {
     store.claimWriter(fence);
     assert.throws(

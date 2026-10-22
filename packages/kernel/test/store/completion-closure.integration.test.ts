@@ -12,7 +12,11 @@ import {
   verifyCompletionGeneration,
   completionConversionStream,
 } from "../../src/store/completion-generation-target.ts";
-import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import {
+  openSqliteEventStore,
+  openUnactivatedGenerationThreeEventStore,
+  sqliteLedgerPath,
+} from "../../src/store/sqlite-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection-factory.ts";
 import { submissionDigest, submissionId } from "../../src/domain/execution.ts";
 import { reviewDigest } from "../../src/domain/review.ts";
@@ -33,7 +37,7 @@ test("R2: two snapshots collapse, two amendments retain every review cut, dispos
     const verified = verifyCompletionGeneration(source, targetRoot, plan);
     assert.equal(verified.events, 13);
     assert.equal(verified.commandOutcomes, 14);
-    const target = openSqliteEventStore({ repoId: "closure", rootInput: targetRoot, generation: 3 }),
+    const target = openUnactivatedGenerationThreeEventStore({ repoId: "closure", rootInput: targetRoot }),
       projection = makeTaskProjection({ rootDir: targetRoot, eventStore: completionConversionStream(target) });
     try {
       const once = projection.rebuild(),

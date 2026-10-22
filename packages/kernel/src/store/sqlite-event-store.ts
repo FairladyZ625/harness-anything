@@ -1,5 +1,9 @@
 import path from "node:path";
-import { activateEmptyGenerationThree, selectGenerationThree } from "./generation-three-selection.ts";
+import {
+  activateEmptyGenerationThree,
+  readGenerationThreeActivationAtPath,
+  selectGenerationThree,
+} from "./generation-three-selection.ts";
 import { DatabaseSync } from "node:sqlite";
 import {
   serializeCanonicalEventUnchecked,
@@ -337,7 +341,7 @@ function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
   }
 }
 
-export function openSqliteEventStore(options: {
+type SqliteEventStoreOpenOptions = {
   readonly repoId?: string;
   readonly rootInput?: HarnessLayoutInput;
   readonly databasePath?: string;
@@ -346,7 +350,25 @@ export function openSqliteEventStore(options: {
   /** Offline generation conversion only; ordinary writers cannot backfill acceptance time. */
   readonly conversionSourceGeneration?: 1 | 2;
   readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
+};
+
+export function openSqliteEventStore(options: SqliteEventStoreOpenOptions): SqliteEventStore {
+  return openSqliteEventStoreInternal(options, false);
+}
+
+/** Empty bootstrap and offline conversion are the only writers allowed to open an unactivated generation 3 file. */
+export function openUnactivatedGenerationThreeEventStore(options: {
+  readonly repoId: string;
+  readonly rootInput: HarnessLayoutInput;
+  readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): SqliteEventStore {
+  return openSqliteEventStoreInternal({ ...options, generation: 3 }, true);
+}
+
+function openSqliteEventStoreInternal(
+  options: SqliteEventStoreOpenOptions,
+  allowUnactivatedGenerationThree: boolean,
+): SqliteEventStore {
   if (!options.readOnly && options.repoId === undefined)
     throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
   const generation =
@@ -355,9 +377,26 @@ export function openSqliteEventStore(options: {
         ? resolveActiveGeneration({ rootInput: options.rootInput, repoId: options.repoId })
         : SQLITE_LEDGER_GENERATION),
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
-    objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
+    objectRoot = path.join(path.dirname(databasePath), "objects", "sha256"),
+    layout = options.rootInput === undefined ? null : resolveHarnessLayout(options.rootInput),
+    canonicalDatabase =
+      layout !== null && path.resolve(databasePath) === path.resolve(sqliteLedgerPath(options.rootInput!, 3)),
+    canonicalProjectionPath =
+      canonicalDatabase && !options.readOnly ? path.join(layout!.localRoot, "cache", "task.sqlite") : undefined;
   if (options.conversionSourceGeneration !== undefined && ((generation !== 2 && generation !== 3) || options.readOnly))
     throw new TaskEventStoreError("invalid_store", "conversion requires a writable generation 2 or 3 destination");
+  if (generation === 3 && options.conversionSourceGeneration === undefined) {
+    if (canonicalDatabase && allowUnactivatedGenerationThree) {
+      if (localRuntimeStateFileSystem.exists(`${databasePath}.activation.json`))
+        readGenerationThreeActivationAtPath(databasePath, options.repoId, canonicalProjectionPath);
+    } else if (canonicalDatabase) {
+      const activation = readGenerationThreeActivationAtPath(databasePath, options.repoId, canonicalProjectionPath);
+      if (!options.readOnly && !activation)
+        throw new TaskEventStoreError("invalid_store", "generation 3 ledger has not been activated");
+    } else if (localRuntimeStateFileSystem.exists(`${databasePath}.activation.json`)) {
+      readGenerationThreeActivationAtPath(databasePath, options.repoId);
+    }
+  }
   if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath, {
     readOnly: options.readOnly ?? false,
