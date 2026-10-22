@@ -29,6 +29,8 @@ test("submitted contract migration continues through the CLI without losing hist
     "Contract lifecycle",
     "--preset",
     "standard-task",
+    "--risk-tier",
+    "low",
   );
   published(fixture.root, fixture.userRoot, created);
   const packagePath = String(created.packagePath);
@@ -70,6 +72,11 @@ test("submitted contract migration continues through the CLI without losing hist
   const started = cli("task", "start", taskId, "--execution-id", "execution-new-contract");
   assert.equal(started.outcome, "applied", JSON.stringify(started));
   assert.equal(show().task.status, "active");
+  writeFileSync(
+    path.join(fixture.root, "harness", packagePath, "artifacts", "iteration-two.md"),
+    "# Contract migration deliverable\n\nThe new contract has a deliverable.\n",
+  );
+  assert.equal(cli("doc", "sync", "--submit", "--task", taskId).outcome, "applied");
   assert.equal(cli("task", "submit", taskId, "--execution-id", "execution-new-contract").outcome, "applied");
   const after = show();
   assert.equal(after.task.status, "submitted");

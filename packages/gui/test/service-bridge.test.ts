@@ -71,7 +71,7 @@ test("GUI main reports every isolated task snapshot row with field-level context
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({
-    task: { taskId: "task-gui-smoke", title: "Resident GUI task", presetId: "docs-task" },
+    task: { taskId: "task-gui-smoke", title: "Resident GUI task", presetId: "docs-task", riskTier: "low" },
     runtimeInstance: {
       instanceId: "codex-gui",
       name: "Codex GUI",

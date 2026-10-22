@@ -268,7 +268,7 @@ test("executor declaration and completion context refusals name projection rebui
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
-    const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits", riskTier: "low" }, owner);
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, owner);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>

@@ -66,6 +66,7 @@ async function fixture(script: string, metadata: unknown, mixed = false) {
         title: "Witness matrix",
         presetId: "research-checks",
         profileId: "experiment",
+        riskTier: "low",
       }),
       packagePath = String((created as { packagePath?: string }).packagePath);
     await realizeTaskPlanFixture(

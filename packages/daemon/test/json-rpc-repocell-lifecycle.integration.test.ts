@@ -161,7 +161,7 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
   try {
     roots.forEach(initDeterministicRepo);
     for (const [index, rootDir] of roots.entries()) cells.push(await openRepoCell({ repoId: workspaceId("submit-ab"), rootDir: canonicalRoot(rootDir), ownerId: `submit-ab-${index}`, now }));
-    for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding); assert.equal(created.outcome, "applied"); const visible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
+    for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B", riskTier: "medium" }, binding); assert.equal(created.outcome, "applied"); const visible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
     for (const [index, rootDir] of roots.entries()) {
       const commitSha = await writeCloseout(
         () => cells[index]!.settlePendingMaterialization("closeout git commit"),
@@ -181,7 +181,17 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     assert.ok(events[1]?.schema === "task-event/v1" && events[1].type === "execution_submitted");
     const cliSubmission = events[0].payload.execution.submission, guiSubmission = events[1].payload.execution.submission;
     assert.ok(cliSubmission && guiSubmission);
-    assert.deepEqual({ taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: { ...guiSubmission, commitSha: "<repo-cut>" } }, { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: { ...cliSubmission, commitSha: "<repo-cut>" } });
+    const comparableSubmission = (submission: NonNullable<typeof guiSubmission>) => ({
+      ...submission,
+      commitSha: "<repo-cut>",
+      riskTierAssessment: submission.riskTierAssessment
+        ? { ...submission.riskTierAssessment, deliveryBaseSha: "<repo-cut>", deliveryHeadSha: "<repo-cut>" }
+        : submission.riskTierAssessment,
+    });
+    assert.deepEqual(
+      { taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: comparableSubmission(guiSubmission) },
+      { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: comparableSubmission(cliSubmission) },
+    );
     const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!;
     assert.deepEqual(row.snapshotAvailability, { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" });
     assert.deepEqual({ parentTaskId: row.placement.parentTaskId, origin: row.placement.origin, packageDisposition: row.placement.packageDisposition }, { parentTaskId: null, origin: "native", packageDisposition: "active" });
@@ -199,7 +209,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
   const taskId = "task-life", executionId = "execution-life", packagePath = "tasks/task-life-lifecycle-files", binding = repoWriteBinding;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("lifecycle-files"), rootDir: canonicalRoot(rootDir), ownerId: "lifecycle-daemon" });
-    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle files" }, binding); assert.equal(created.outcome, "applied"); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
+    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle files", riskTier: "high" }, binding); assert.equal(created.outcome, "applied"); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
     const assertCut = async (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.status, "accepted_durable"); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); const visible = await waitForAcceptedReceipt(cell!, receipt as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
     const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`, codeDocPath = `${packagePath}/code-doc-anchors.json`;
     const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
@@ -218,7 +228,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
       packagePath,
       "Lifecycle output is ready.",
     );
-    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "submitted/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "in_review/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
     const forwarded = await cell.run(
       {
         kind: "task-adjudicate",

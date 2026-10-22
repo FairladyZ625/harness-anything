@@ -122,6 +122,7 @@ test("CLI submit of a pushed delivery automatically dispatches the default and m
       taskId,
       title: "Automatic CLI review",
       presetId: "standard-task",
+      riskTier: "high",
     });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await publish(created.opId);
