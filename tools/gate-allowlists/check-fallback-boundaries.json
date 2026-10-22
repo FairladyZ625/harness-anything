@@ -109,8 +109,6 @@
    "packages/daemon/src/dispatch-stream.ts#parseRecord",
    "packages/daemon/src/dispatch-stream.ts#readStoredDispatchLiveIndex",
    "packages/daemon/src/dispatch-stream.ts#appendRuntimeWorkerRecord",
-      "packages/daemon/src/runtime-continuation-context.ts#currentWorktreeHead",
-      "packages/daemon/src/runtime-continuation-context.ts#latestRuntimeContinuationSeed",
    "packages/daemon/src/squad-coordinator-publication.ts#settleScheduleSubjectRun",
    "packages/daemon/src/doc-sync-candidate-scanner.ts#textualBytes",
    "packages/daemon/src/doc-sync-files.ts#gitModified",
