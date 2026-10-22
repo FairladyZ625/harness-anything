@@ -21,6 +21,8 @@ import {
   unsettledCutReviewDispatches,
 } from "../src/dispatch-read.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
+import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
+import { openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
 import type { TaskProjectionQueries } from "../src/protocol/daemon-protocol.contract.ts";
 import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
@@ -865,5 +867,56 @@ test("cut review settlement selects reviewer dispatches of one submission digest
     unsettled.map((row) => [row.dispatchId, row.status]),
     [["dispatch-live", "running"]],
     "only the live reviewer of this digest is unsettled",
+  );
+});
+
+test("the canonical dispatch row carries the executed incident disposition", async (t) => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-decision-action-"));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId,
+    executionId: "execution-1",
+    runtimeSessionId,
+    instanceId: "instance-1",
+    startedAt: "2026-08-23T00:00:00.000Z",
+    binding: { actor: { principal: { personId: "person_owner_1" } }, source: "local" },
+  });
+  appendIncidentActionReceipt(rootDir, dispatchId, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    status: "applied",
+    selected: "rerun_same_identity",
+    action: "rerun",
+    reason: null,
+    successorDispatchId: "dispatch_successor_000000000001",
+    budget: { used: 1, limit: 3, source: "repository" },
+    decidedAt: "2026-10-19T00:00:01.000Z",
+  });
+  const result = readTaskDispatches({
+      projection: fixture(session("exited", "stopped")).projection,
+      taskId,
+      rootDir,
+    }),
+    row = result.dispatches[0]!;
+  assert.deepEqual(row.decisionAction, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    status: "applied",
+    selected: "rerun_same_identity",
+    action: "rerun",
+    reason: null,
+    successorDispatchId: "dispatch_successor_000000000001",
+    budget: { used: 1, limit: 3, source: "repository" },
+    decidedAt: "2026-10-19T00:00:01.000Z",
+  });
+  // The result is what the daemon protocol validates before it reaches a client.
+  assert.deepEqual(validateDaemonTaskDispatches(result), []);
+  // Without a local stream there is no execution evidence, so the field stays absent rather than
+  // fabricated from the annotation store.
+  assert.equal(
+    readTaskDispatches({ projection: fixture(session("exited", "stopped")).projection, taskId }).dispatches[0]!
+      .decisionAction,
+    undefined,
   );
 });

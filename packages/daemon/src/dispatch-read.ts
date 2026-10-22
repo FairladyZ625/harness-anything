@@ -8,6 +8,7 @@ import {
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
+import { incidentActionFromRecord } from "./decision-incident-receipt.ts";
 import {
   agentRuntimeSessionGroupTotals,
   buildAgentRuntimeSessionGroups,
@@ -547,6 +548,14 @@ function canonicalDispatchRow(
             entry.advisory ? [{ ...entry.advisory, evaluatedAt: entry.updatedAt }] : [],
           ),
         }
+      : {}),
+    // The executed incident disposition rides the dispatch's own durable stream, so it is visible
+    // on this canonical row even when the decision annotation store has since evicted the advisory.
+    ...(dispatchStream?.decisionActionRecord
+      ? (() => {
+          const decisionAction = incidentActionFromRecord(dispatchStream.decisionActionRecord);
+          return decisionAction === null ? {} : { decisionAction };
+        })()
       : {}),
   };
 }

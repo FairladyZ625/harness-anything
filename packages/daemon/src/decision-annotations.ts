@@ -161,18 +161,6 @@ export function openDecisionAnnotationStore(rootDir: string) {
         write(entries);
       });
     },
-    /** Automatic dispositions already consumed by a task: applied resume/rerun receipts only. */
-    countAppliedIncidentActions(taskId: string): Promise<number> {
-      return enqueue(
-        () =>
-          read().entries.filter(
-            (entry) =>
-              entry.action?.taskId === taskId &&
-              (entry.action.action === "resume" || entry.action.action === "rerun") &&
-              entry.action.status === "applied",
-          ).length,
-      );
-    },
     export(): Promise<readonly DecisionAnnotationEntry[]> {
       return enqueue(() => read().entries);
     },

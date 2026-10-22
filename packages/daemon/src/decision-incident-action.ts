@@ -74,6 +74,9 @@ export interface IncidentActionEvidence {
   readonly resumable: boolean;
   readonly agentId: string | null;
   readonly budgetRemaining: number;
+  /** Whether the worktree HEAD is measurably known. A restart inherits the worktree; without a
+   * measured HEAD there is no base to continue from, so automatic execution fails closed. */
+  readonly headKnown: boolean;
 }
 
 export type IncidentActionPlan =
@@ -105,7 +108,9 @@ export function planIncidentAction(input: {
           ? "the task lease is occupied."
           : input.evidence.budgetRemaining <= 0
             ? "the automatic disposition budget is exhausted."
-            : null;
+            : !input.evidence.headKnown
+              ? "the worktree HEAD is unknown, so no automatic restart has a known base."
+              : null;
   if (input.selected === "needs_attention")
     return { action: "needs_attention", rationale: awaitRationale(input.taskId, input.dispatchId) };
   if (input.selected === "no_action") {

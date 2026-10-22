@@ -26,7 +26,32 @@ export interface TaskDispatchAdvisory {
   readonly latencyMs: number;
 }
 
+/** The runtime-incident disposition the center daemon recorded for this dispatch. `claimed` is the
+ * durable pre-action fence, appended before any launch; it is replaced by `applied`/`failed` once
+ * the action settles. Because the fence is keyed by the dispatch itself, a later settlement
+ * observation can never act twice, and a crash between claim and settlement stays visible instead
+ * of silently replaying. */
+export type TaskDispatchDecisionAction =
+  | {
+      readonly pointId: string;
+      readonly questionVersion: string;
+      readonly status: "claimed";
+      readonly decidedAt: string;
+    }
+  | {
+      readonly pointId: string;
+      readonly questionVersion: string;
+      readonly status: "applied" | "failed";
+      readonly selected: string;
+      readonly action: "resume" | "rerun" | "needs_attention" | "no_action";
+      readonly reason: string | null;
+      readonly successorDispatchId: string | null;
+      readonly budget: { readonly used: number; readonly limit: number; readonly source: "task" | "repository" } | null;
+      readonly decidedAt: string;
+    };
+
 export interface TaskDispatchRow {
+  readonly decisionAction?: TaskDispatchDecisionAction;
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
     | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };

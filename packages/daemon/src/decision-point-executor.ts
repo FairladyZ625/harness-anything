@@ -17,9 +17,15 @@ import {
   type TaskProjectionQueries,
   type VerticalDefinition,
 } from "@harness-anything/kernel";
+import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { RepoCell } from "./repo-cell-types.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { decisionAdvisoryFromProvider, openDecisionAnnotationStore } from "./decision-annotations.ts";
+import {
+  appendIncidentActionReceipt,
+  countAppliedIncidentActions,
+  readIncidentActionReceipt,
+} from "./decision-incident-receipt.ts";
 import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
 import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import {
@@ -48,6 +54,8 @@ export function openDecisionPointExecutor(input: {
     readonly key: string;
     readonly taskId: string;
     readonly dispatchId: string;
+    readonly pointId: string;
+    readonly questionVersion: string;
     readonly reason: string;
     readonly ownerId: string | null;
     readonly budget: IncidentDecisionFields["reworkBudget"] | null;
@@ -63,6 +71,8 @@ export function openDecisionPointExecutor(input: {
       dispatchId: args.dispatchId,
       ownerId: args.ownerId,
     });
+    const decidedAt = input.now(),
+      reason = [args.reason, outcome.reason].filter(Boolean).join("; ") || null;
     await annotations.settleAction(
       args.key,
       {
@@ -71,12 +81,25 @@ export function openDecisionPointExecutor(input: {
         selected: "needs_attention",
         action: outcome.action,
         status: outcome.status,
-        reason: [args.reason, outcome.reason].filter(Boolean).join("; ") || null,
+        reason,
         successorDispatchId: outcome.successorDispatchId,
         budget: args.budget,
       },
-      input.now(),
+      decidedAt,
     );
+    // The canonical receipt is what the dispatch read and the budget fence consume; the annotation
+    // claim above is the audit copy and may be evicted by its retention window.
+    appendIncidentActionReceipt(input.rootDir, args.dispatchId, {
+      pointId: args.pointId,
+      questionVersion: args.questionVersion,
+      status: outcome.status === "applied" ? "applied" : "failed",
+      selected: "needs_attention",
+      action: outcome.action,
+      reason,
+      successorDispatchId: outcome.successorDispatchId,
+      budget: args.budget,
+      decidedAt,
+    });
   };
   return {
     async settle(cell: RepoCell, event: OutcomeEvent): Promise<void> {
@@ -128,10 +151,9 @@ export function openDecisionPointExecutor(input: {
                 cell,
                 input.rootDir,
                 task.taskId,
-                dispatchRead.dispatches.length,
+                dispatchRead.dispatches,
                 event,
                 settingsRead.settings,
-                annotations,
               )
             : null,
           projected =
@@ -151,6 +173,9 @@ export function openDecisionPointExecutor(input: {
             projected === null
               ? "incident-input-unavailable"
               : createHash("sha256").update(projected.state, "utf8").digest("hex"),
+          // The claim key names the incident, never a measurement: rounds used, HEAD and budget
+          // all move between observations, and a key built from them would mint a fresh claim for
+          // the same dispatch. task + dispatch + point + question is the whole incident identity.
           key = executable
             ? `incident-action/${createHash("sha256")
                 .update(
@@ -159,7 +184,6 @@ export function openDecisionPointExecutor(input: {
                     dispatchId,
                     pointId,
                     questionVersion: question.version,
-                    inputDigest,
                   }),
                   "utf8",
                 )
@@ -206,10 +230,32 @@ export function openDecisionPointExecutor(input: {
             key,
             taskId: task.taskId,
             dispatchId,
+            pointId,
+            questionVersion: question.version,
             reason,
             ownerId: incident?.ownerId ?? null,
             budget: recordBudget,
           });
+        if (executable) {
+          // The durable fence outlives the annotation store's retention window. A settled receipt
+          // means an earlier observation already executed this dispatch's disposition; a `claimed`
+          // fence without settlement means the launch outcome is unknown, which is owner business,
+          // never a reason to launch again.
+          const priorReceipt = readIncidentActionReceipt(input.rootDir, dispatchId);
+          if (priorReceipt?.status === "claimed") {
+            await escalate("a previous disposition was claimed but never settled, so the launch outcome is unknown.");
+            continue;
+          }
+          if (priorReceipt !== null) continue;
+          // Pre-action fence on the dispatch's own durable record: a crash between this line and
+          // the settled receipt leaves a visible `claimed` disposition instead of a silent replay.
+          appendIncidentActionReceipt(input.rootDir, dispatchId, {
+            pointId,
+            questionVersion: question.version,
+            status: "claimed",
+            decidedAt: input.now(),
+          });
+        }
         if (!projected) {
           // Executable contracts never fire the provider on an unreadable incident input.
           await annotations.fail(key, "incident_input_unavailable", input.now());
@@ -257,6 +303,7 @@ export function openDecisionPointExecutor(input: {
         if (executable && incident !== null) {
           const snapshot = incident.runtimeContext?.snapshot,
             incidentTask = snapshot?.task ?? null,
+            selected = answer.result.type === "choice" ? answer.result.selected : "",
             evidence: IncidentActionEvidence = {
               submitted:
                 incidentTask !== null &&
@@ -272,35 +319,45 @@ export function openDecisionPointExecutor(input: {
               budgetRemaining: incident.fields
                 ? incident.fields.reworkBudget.limit - incident.fields.reworkBudget.used
                 : 0,
-            };
-          const plan = planIncidentAction({
-            selected: answer.result.type === "choice" ? answer.result.selected : "",
-            taskId: task.taskId,
-            dispatchId,
-            evidence,
-          });
-          const outcome = await executeIncidentAction({
-            cell,
-            plan,
-            binding: incidentActionBinding(input.rootDir, dispatchId),
-            taskId: task.taskId,
-            dispatchId,
-            ownerId: incident.ownerId,
-          });
+              // A continuation inherits the worktree; with no measured HEAD there is no known base
+              // to continue from, so automatic execution is not admissible.
+              headKnown: incident.fields !== undefined && incident.fields.headStatus !== "unavailable",
+            },
+            plan = planIncidentAction({ selected, taskId: task.taskId, dispatchId, evidence }),
+            outcome = await executeIncidentAction({
+              cell,
+              plan,
+              binding: incidentActionBinding(input.rootDir, dispatchId),
+              taskId: task.taskId,
+              dispatchId,
+              ownerId: incident.ownerId,
+            }),
+            decidedAt = input.now();
           await annotations.settleAction(
             key,
             {
               taskId: task.taskId,
               dispatchId,
-              selected: answer.result.type === "choice" ? answer.result.selected : "",
+              selected,
               action: outcome.action,
               status: outcome.status,
               reason: outcome.reason,
               successorDispatchId: outcome.successorDispatchId,
               budget: incident.fields?.reworkBudget ?? null,
             },
-            input.now(),
+            decidedAt,
           );
+          appendIncidentActionReceipt(input.rootDir, dispatchId, {
+            pointId,
+            questionVersion: question.version,
+            status: outcome.status === "applied" ? "applied" : "failed",
+            selected,
+            action: outcome.action,
+            reason: outcome.reason,
+            successorDispatchId: outcome.successorDispatchId,
+            budget: incident.fields?.reworkBudget ?? null,
+            decidedAt,
+          });
         }
       }
     },
@@ -321,10 +378,9 @@ async function readIncidentFields(
   cell: RepoCell,
   rootDir: string,
   taskId: string,
-  dispatchCount: number,
+  dispatches: readonly TaskDispatchRow[],
   event: OutcomeEvent,
   settings: SettingsV1,
-  annotations: ReturnType<typeof openDecisionAnnotationStore>,
 ): Promise<IncidentRead> {
   try {
     const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", { taskId }),
@@ -332,7 +388,7 @@ async function readIncidentFields(
       fields = await incidentDecisionFields({
         rootDir,
         runtimeContext,
-        dispatchCount,
+        dispatchCount: dispatches.length,
         toolCallCount: typeof toolCallCount === "number" ? toolCallCount : null,
         effectiveBudget: readEffectiveReviewReturnBudget(
           {
@@ -348,7 +404,10 @@ async function readIncidentFields(
           },
           runtimeContext.snapshot.task,
         ),
-        used: await annotations.countAppliedIncidentActions(taskId),
+        // The budget fence counts durable receipts on canonical dispatch rows, not the local
+        // annotation store: that store truncates to its newest entries and would let a busy
+        // repository forget old automatic dispositions and reopen the cap.
+        used: countAppliedIncidentActions(dispatches),
       });
     return {
       runtimeContext,

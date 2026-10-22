@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   decisionPointBindingDigest,
+  resolveHarnessLayout,
   type AdvisoryDecision,
   type AgentRuntimeEventV1,
   type DecisionPointDeclaration,
@@ -22,9 +23,11 @@ import {
 } from "../src/decision-point-executor.ts";
 import {
   decisionAdvisoryFromProvider,
+  decisionAnnotationRetention,
   openDecisionAnnotationStore,
   readDecisionAnnotationsByDispatch,
 } from "../src/decision-annotations.ts";
+import { appendIncidentActionReceipt, readIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   pointId = "dispatch-stop-reason",
@@ -432,6 +435,14 @@ function incidentOutcomeEvent(): Extract<AgentRuntimeEventV1, { type: "runtime_s
 }
 
 function fakeIncidentCell(input: {
+  /** When set, the canonical dispatch read carries the durable receipt this task's stream holds,
+   * exactly like the real read surface, so budget and fence behaviour are observable. */
+  readonly rootDir?: string;
+  /** Older dispatches of the same task that already carry an applied receipt. */
+  readonly priorDispatches?: readonly {
+    readonly dispatchId: string;
+    readonly receipt: ReturnType<typeof readIncidentActionReceipt>;
+  }[];
   readonly submission?: object | null;
   readonly lease?: object | null;
   readonly resume?: { readonly dispatchId: string; readonly agentId: string | null };
@@ -440,6 +451,16 @@ function fakeIncidentCell(input: {
   readonly spawnFails?: boolean;
   readonly providerEnabled?: boolean;
   readonly reviewReturnBudget?: number;
+  readonly continuationContext?: {
+    readonly dispatchId: string;
+    readonly lastConclusion: string | null;
+    readonly exitHead: string | null;
+  };
+  readonly workspace?: {
+    readonly kind: "worktree";
+    readonly path: string;
+    readonly state: "materialized" | "retained";
+  };
 }) {
   const spawns: Array<{ readonly payload: Record<string, unknown>; readonly binding: unknown }> = [],
     relates: Array<{ readonly action: Record<string, unknown>; readonly binding: unknown }> = [],
@@ -451,9 +472,23 @@ function fakeIncidentCell(input: {
             session: { associations: [{ taskId: "task-1" }] },
             result: { text: "worker stopped after partial progress; nothing submitted" },
           };
-        if (method === "repo.task.dispatches")
+        if (method === "repo.task.dispatches") {
+          const receipt = input.rootDir ? readIncidentActionReceipt(input.rootDir, dispatchId) : null;
           return {
             dispatches: [
+              ...(input.priorDispatches ?? []).flatMap((prior) =>
+                prior.receipt
+                  ? [
+                      {
+                        dispatchId: prior.dispatchId,
+                        fallbackState: null,
+                        nextDispatchId: null,
+                        status: "stopped",
+                        decisionAction: prior.receipt,
+                      },
+                    ]
+                  : [],
+              ),
               {
                 dispatchId,
                 fallbackState: null,
@@ -461,12 +496,14 @@ function fakeIncidentCell(input: {
                 status: "stopped",
                 ...(input.resume ? { resume: input.resume } : {}),
                 ...(input.agentId ? { agentId: input.agentId } : {}),
+                ...(receipt ? { decisionAction: receipt } : {}),
               },
-              ...(input.running
+              ...(input.running || spawns.length > 0
                 ? [{ dispatchId: "dispatch_running", fallbackState: null, nextDispatchId: null, status: "running" }]
                 : []),
             ],
           };
+        }
         if (method === "repo.vertical.declaration.read")
           return {
             declaration: {
@@ -491,12 +528,12 @@ function fakeIncidentCell(input: {
             causalContext: null,
             profileId: null,
             worktree: null,
-            continuationContext: null,
+            continuationContext: input.continuationContext ?? null,
             snapshot: {
               task: { createdBy: { principal: { personId: "person_owner_1" } }, iteration: 1 },
               executions: [{ executionId: "execution-1", iteration: 1, submission: input.submission ?? null }],
               lease: input.lease ?? null,
-              workspace: null,
+              workspace: input.workspace ?? null,
             },
           };
         throw new Error(`Unexpected fake read ${method}`);
@@ -515,12 +552,12 @@ function fakeIncidentCell(input: {
 }
 
 /** The action actor comes from the source dispatch's persisted stream binding (fallback-continuation precedent). */
-function seedIncidentStream(rootDir: string): void {
+function seedIncidentStream(rootDir: string, target = dispatchId): void {
   openDispatchStream(rootDir, {
-    dispatchId,
+    dispatchId: target,
     taskId: "task-1",
     executionId: "execution-1",
-    runtimeSessionId: "runtime-1",
+    runtimeSessionId: target === dispatchId ? "runtime-1" : `runtime-${target.slice(-6)}`,
     instanceId: "instance-codex",
     startedAt: "2026-10-19T00:00:00.000Z",
     agentId: "terra",
@@ -612,48 +649,32 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const store = openDecisionAnnotationStore(rootDir);
-  await store.reserve({
-    key: "prior-incident",
+  // The prior automatic disposition is evidence on the dispatch's own stream, the surface the
+  // budget fence counts; the local annotation copy is deliberately absent here.
+  const priorDispatchId = "dispatch_00000000000000000000aaaa";
+  seedIncidentStream(rootDir, priorDispatchId);
+  appendIncidentActionReceipt(rootDir, priorDispatchId, {
     pointId: incidentPointId,
     questionVersion: incidentDispositionQuestionVersion,
-    bindingDigest: "0".repeat(64),
-    event: "dispatch.settled",
-    show: ["task.dispatches"],
-    dispatchId: "dispatch_prior",
-    subjectRef: "dispatch/dispatch_prior",
-    now: "2026-10-18T00:00:00.000Z",
-    egress: {
-      subjectRef: "dispatch/dispatch_prior",
-      dispatchId: "dispatch_prior",
-      pointId: incidentPointId,
-      fields: [],
-      providerId: provider.providerId,
-      model: provider.model,
-      sentAt: "2026-10-18T00:00:00.000Z",
-      inputDigest: "0".repeat(64),
-    },
+    status: "applied",
+    selected: "rerun_same_identity",
+    action: "rerun",
+    reason: null,
+    successorDispatchId: "dispatch_prior_successor",
+    budget: { used: 0, limit: 3, source: "repository" },
+    decidedAt: "2026-10-18T00:00:01.000Z",
   });
-  await store.settleAction(
-    "prior-incident",
-    {
-      taskId: "task-1",
-      dispatchId: "dispatch_prior",
-      selected: "rerun_same_identity",
-      action: "rerun",
-      status: "applied",
-      reason: null,
-      successorDispatchId: "dispatch_prior_successor",
-      budget: { used: 0, limit: 3, source: "repository" },
-    },
-    "2026-10-18T00:00:01.000Z",
-  );
   const executor = openDecisionPointExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("rerun_same_identity") } },
       now: () => "2026-10-19T00:00:01.000Z",
     }),
-    { cell, spawns, relates } = fakeIncidentCell({ agentId: "terra", reviewReturnBudget: 1 });
+    { cell, spawns, relates } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      reviewReturnBudget: 1,
+      priorDispatches: [{ dispatchId: priorDispatchId, receipt: readIncidentActionReceipt(rootDir, priorDispatchId) }],
+    });
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(spawns.length, 0);
   assert.equal(relates.length, 1);
@@ -663,11 +684,11 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
   assert.equal(relates[0]?.action.relationType, "awaits");
   assert.match(String(relates[0]?.action.rationale), /^question: /u);
   assert.match(String(relates[0]?.action.rationale), /budget is exhausted/u);
-  const stored = await store.export();
-  assert.equal(stored.length, 2);
-  assert.equal(stored[1]?.action?.action, "needs_attention");
-  assert.equal(stored[1]?.action?.status, "applied");
-  assert.deepEqual(stored[1]?.action?.budget, { used: 1, limit: 1, source: "repository" });
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.action?.status, "applied");
+  assert.deepEqual(stored[0]?.action?.budget, { used: 1, limit: 1, source: "repository" });
 });
 
 test("an unavailable provider escalates without asking or launching", async (t) => {
@@ -778,4 +799,142 @@ test("incident projection scrubs worker prose before it leaves the daemon", () =
   assert.match(projected.state, /last_conclusion: .*LOCAL_PATH/u);
   assert.match(projected.state, /rework_budget: used=1 limit=2 source=task/u);
   assert.ok(projected.state.includes("a".repeat(40)) && projected.state.includes("b".repeat(40)));
+});
+
+// ── Review blockers: one claim per dispatch, HEAD fail-closed, durable canonical receipts ──────
+
+test("a later settlement observation after the first action lands never acts twice", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  let calls = 0;
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: { decide: async () => (calls++, choiceAnswer("rerun_same_identity")) },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir, agentId: "terra" });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(calls, 1);
+  assert.equal(spawns.length, 1);
+
+  // The second observation measures a different state: the successor is now running, the launch
+  // consumed a budget slot and the receipt is on the row. A key built from those measurements
+  // would mint a fresh claim; the dispatch-scoped key must not.
+  await executor.settle(cell, incidentOutcomeEvent());
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(calls, 1, "a duplicate settlement must not ask the provider again");
+  assert.equal(spawns.length, 1, "a duplicate settlement must not launch a second successor");
+  assert.equal(relates.length, 0, "a duplicate settlement must not add an owner await either");
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  assert.equal(receipt?.status, "applied");
+  assert.equal(receipt?.action, "rerun");
+});
+
+test("an unknown worktree HEAD makes an automatic restart inadmissible and escalates", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: { list: () => [provider], port: { decide: async () => choiceAnswer("rerun_same_identity") } },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    // A continuation seed exists but no worktree resolves, so the measured HEAD is unavailable.
+    { cell, spawns, relates } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      continuationContext: { dispatchId, lastConclusion: "stopped before delivery", exitHead: "a".repeat(40) },
+      workspace: undefined,
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "unknown HEAD must never launch a successor");
+  assert.equal(relates.length, 1, "unknown HEAD belongs to the owner");
+  assert.equal(relates[0]?.action.relationType, "awaits");
+  assert.match(String(relates[0]?.action.rationale), /HEAD is unknown/u);
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  assert.equal(receipt?.status, "applied");
+  assert.equal(receipt?.action, "needs_attention");
+});
+
+test("the automatic budget counts durable dispatch receipts after the annotation store evicts them", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  // A retired dispatch whose applied receipt survives on its stream while the annotation store has
+  // already rotated past it. The file below is exactly the shape retention leaves behind: the
+  // newest N entries, none of them the retired action.
+  const retiredDispatchId = "dispatch_00000000000000000000ffff",
+    retiredAt = "2026-10-18T00:00:00.000Z";
+  seedIncidentStream(rootDir, retiredDispatchId);
+  appendIncidentActionReceipt(rootDir, retiredDispatchId, {
+    pointId: incidentPointId,
+    questionVersion: incidentDispositionQuestionVersion,
+    status: "applied",
+    selected: "rerun_same_identity",
+    action: "rerun",
+    reason: null,
+    successorDispatchId: "dispatch_retired_successor_01",
+    budget: { used: 0, limit: 1, source: "repository" },
+    decidedAt: retiredAt,
+  });
+  const filler = Array.from({ length: decisionAnnotationRetention }, (_, index) => {
+    const id = `dispatch_${index.toString(16).padStart(24, "0")}`;
+    return {
+      key: `evicting-${String(index)}`,
+      pointId: incidentPointId,
+      questionVersion: incidentDispositionQuestionVersion,
+      bindingDigest: "0".repeat(64),
+      event: "dispatch.settled",
+      show: ["task.dispatches"],
+      dispatchIds: [id],
+      subjectRef: `dispatch/${id}`,
+      status: "pending",
+      createdAt: retiredAt,
+      updatedAt: retiredAt,
+      egress: {
+        subjectRef: `dispatch/${id}`,
+        dispatchId: id,
+        pointId: incidentPointId,
+        fields: [],
+        providerId: provider.providerId,
+        model: provider.model,
+        sentAt: retiredAt,
+        inputDigest: "0".repeat(64),
+      },
+    };
+  });
+  writeFileSync(
+    path.join(resolveHarnessLayout(rootDir).localRoot, "decision-annotations.json"),
+    `${JSON.stringify({ schema: "decision-annotation-store/v1", entries: filler })}\n`,
+  );
+  const store = openDecisionAnnotationStore(rootDir);
+  assert.equal((await store.export()).length, decisionAnnotationRetention);
+  assert.equal(
+    (await store.export()).some((entry) => entry.dispatchIds.includes(retiredDispatchId)),
+    false,
+    "the fixture must model the retention window having rotated past the retired action",
+  );
+
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: { list: () => [provider], port: { decide: async () => choiceAnswer("rerun_same_identity") } },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      reviewReturnBudget: 1,
+      // The canonical read the executor consumes still carries the retired receipt.
+      priorDispatches: [
+        { dispatchId: retiredDispatchId, receipt: readIncidentActionReceipt(rootDir, retiredDispatchId) },
+      ],
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "an evicted receipt must still enforce the cap");
+  assert.equal(relates.length, 1);
+  assert.match(String(relates[0]?.action.rationale), /budget is exhausted/u);
 });
