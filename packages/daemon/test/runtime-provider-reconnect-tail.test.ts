@@ -327,7 +327,7 @@ test("reconnect frames stay provider events, never provider faults", () => {
 });
 
 test("every reconnect form found in the archive is recognized", () => {
-  // Byte-for-byte the seven distinct messages that the old `n/m (...) }$` pattern rejected: 21
+  // Byte-for-byte the seven distinct messages that the old `n/m (...)$` pattern rejected: 21
   // frames across 8 dispatches, including two streams whose *last* reconnect was one of these.
   // Whatever the provider puts inside the detail — nested parentheses, a socket errno, the body of
   // an nginx 502, or no budget at all — the frame is still a reconnect.
