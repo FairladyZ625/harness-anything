@@ -10,9 +10,8 @@ import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
  * mechanism; which agents watch which paths is repository configuration, and what a lane
  * reviews lives in the agent's own declaration.
  *
- * The hit input is the manifest submit froze into the submission (deliverables plus the
- * Deleted-Production-Paths output lines, see repo-cell-submit), so dispatch-time matching
- * involves no Git invocation and stays deterministic on an edge as on the center.
+ * The hit input is the complete changedFiles list frozen into new submissions, so dispatch-time
+ * matching involves no Git invocation and stays deterministic on an edge as on the center.
  */
 
 /** One configured lane after grouping entries by agent. */
@@ -56,10 +55,13 @@ export function reviewLaneHits(
 ): ReadonlyMap<string, readonly string[]> {
   const hits = new Map<string, string[]>();
   if (!submission || lanes.length === 0) return hits;
-  const deleted = submission.outputs
-    .filter((line) => line.startsWith(DELETED_OUTPUT_PREFIX))
-    .map((line) => line.slice(DELETED_OUTPUT_PREFIX.length));
-  const manifest = [...submission.deliverables, ...deleted];
+  const manifest =
+    submission.changedFiles ?? [
+      ...submission.deliverables,
+      ...submission.outputs
+        .filter((line) => line.startsWith(DELETED_OUTPUT_PREFIX))
+        .map((line) => line.slice(DELETED_OUTPUT_PREFIX.length)),
+    ];
   for (const lane of lanes) {
     const matched = [
       ...new Set(

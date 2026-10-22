@@ -94,7 +94,7 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /Pending is not green/u);
     assert.match(prompt, /repair change-caused regressions.*failures also present on latest main/u);
     assert.match(prompt, /checks cannot be read.*unverified/u);
-    assert.match(prompt, /Sync delivery documents before task submit, which freezes the cut/u);
+    assert.match(prompt, /Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync/u);
     assert.match(prompt, /Final merge authority belongs to the CEO/u);
     assert.doesNotMatch(prompt, /mutate only the declared execution surface|ha task pr|git push origin|gh pr create/u);
   });

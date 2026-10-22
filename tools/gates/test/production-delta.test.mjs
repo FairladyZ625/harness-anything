@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { computeProductionDelta, evaluateProductionDelta, reportComputedDelta } from "../production-delta.mjs";
+import { computeProductionDelta, evaluateProductionDelta, main, reportComputedDelta } from "../production-delta.mjs";
 import { git } from "../git.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
@@ -77,6 +77,62 @@ test("G33 measures the branch from its merge-base, so the target advancing does 
   const mainTip = git(repo, ["rev-parse", "HEAD"]).trim();
   git(repo, ["checkout", "-q", "feature"]);
   const after = computeProductionDelta({ rootDir: repo, base: mainTip });
+  const featureTip = git(repo, ["rev-parse", "HEAD"]).trim(),
+    explicitHead = computeProductionDelta({ rootDir: repo, base: mainTip, head: featureTip });
   assert.deepEqual([after.added, after.deleted], [before.added, before.deleted]);
   assert.deepEqual([after.added, after.deleted], [2, 0]);
+  assert.deepEqual(explicitHead, after);
+});
+
+test("G33 JSON output names the resolved base and explicit delivery commit", () => {
+  const { rootDir, base } = makeRepo({ "packages/kernel/src/a.ts": "export const a = 1;\n" });
+  writeRepoFile(rootDir, "packages/kernel/src/b.ts", "export const b = 1;\nexport const c = 2;\n");
+  git(rootDir, ["add", "-A"]);
+  git(rootDir, ["commit", "-q", "-m", "delivery"]);
+  const head = git(rootDir, ["rev-parse", "HEAD"]).trim(),
+    messages = [],
+    originalLog = console.log,
+    originalGateResults = process.env.HARNESS_CI_GATE_RESULTS;
+  process.env.HARNESS_CI_GATE_RESULTS = path.join(rootDir, "gate-results.json");
+  console.log = (message) => messages.push(message);
+  try {
+    assert.equal(main(["--base", base, "--head", head, "--root", rootDir, "--json"]), 0);
+  } finally {
+    console.log = originalLog;
+    if (originalGateResults === undefined) delete process.env.HARNESS_CI_GATE_RESULTS;
+    else process.env.HARNESS_CI_GATE_RESULTS = originalGateResults;
+  }
+  assert.equal(messages.length, 1);
+  assert.deepEqual(JSON.parse(messages[0]), {
+    base: git(rootDir, ["rev-parse", "HEAD^1"]).trim(),
+    head,
+    ok: true,
+    added: 2,
+    deleted: 0,
+    churn: 2,
+    net: 2,
+    changed: [
+      { filePath: "packages/kernel/src/b.ts", module: "kernel", added: 2, deleted: 0 },
+    ],
+    unclassified: [],
+    errors: [],
+  });
+});
+
+test("G33 rejects --head without a ref", () => {
+  const { rootDir, base } = makeRepo({ "README.md": "fixture\n" }),
+    messages = [],
+    errors = [],
+    originalLog = console.log,
+    originalError = console.error;
+  console.log = (message) => messages.push(message);
+  console.error = (message) => errors.push(message);
+  try {
+    assert.equal(main(["--base", base, "--head", "--json"], rootDir), 1);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+  assert.deepEqual(messages, []);
+  assert.match(errors.join("\n"), /--head requires a ref/u);
 });

@@ -121,8 +121,10 @@ export function scanDocCandidates(input: {
       ? [...new Set(selected)]
       : [
           ...new Set(
-            input.inventory?.rows.map((row) => row.path) ??
-              dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? ""),
+            [
+              ...dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? ""),
+              ...(input.inventory?.rows.map((row) => row.path) ?? []),
+            ],
           ),
         ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates.sort(),

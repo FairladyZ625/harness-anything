@@ -262,9 +262,9 @@ agent operator's configured git identity.
 
 ## Prepare the PR body
 
-Do this after all contribution commits, because the production-delta gate
-measures committed `HEAD` from its merge-base. Refresh and synchronize first,
-then rerun affected tests and gates if the rebase changes the branch:
+Do this after all contribution commits and after `ha task submit` freezes the
+delivery cut. Refresh and synchronize first, then rerun affected tests and
+resubmit if a rebase changes the branch:
 
 ```bash
 git fetch origin
@@ -279,14 +279,25 @@ If the initial worktree check found approved pre-existing commits, describe the
 complete `origin/main...HEAD` delta in the PR body and explicitly separate
 those commits from the changes authored in the current run.
 
-Copy the current template; never reconstruct its sections from memory:
+Generate the body from the live template and frozen submission; the generated
+Delivery Facts block owns the commit, merge base, changed paths, and production
+delta. Never hand-copy those values:
 
 ```bash
-cp .github/pull_request_template.md /tmp/harness-anything-pr-body.md
+node tools/gates/render-task-pr-body.mjs --task <task-id> > /tmp/harness-anything-pr-body.md
 ${EDITOR:-vi} /tmp/harness-anything-pr-body.md
 ```
 
-Fill every uncommented section with real delivery facts. Governance
+Fill the human-authored sections with real delivery facts. Keep the generated
+Delivery Facts block intact. After an amended submission, rerun the renderer
+against the current body file so the block follows the new frozen cut:
+
+```bash
+node tools/gates/render-task-pr-body.mjs --task <task-id> --body-file /tmp/harness-anything-pr-body.md > /tmp/harness-anything-pr-body.next.md
+mv /tmp/harness-anything-pr-body.next.md /tmp/harness-anything-pr-body.md
+```
+
+Governance
 Declaration and the Dependency-Change line are required only when their
 trigger applies — a manifest-derived protected surface is touched, or a
 package manifest or lockfile changes; otherwise the template defaults are
@@ -310,13 +321,9 @@ indirectly runs `npm run harness:check-import-boundaries`,
 `npm run harness:check-legacy-intake-readiness`; list anything else that was
 not run with a reason.
 
-Run the authoritative production-delta calculator after all commits. It
-reports the computed addition, deletion, churn, and net values from the diff
-alone — no PR body declaration is involved:
-
-```bash
-node tools/gates/production-delta.mjs --base origin/main
-```
+Do not calculate or hand-copy production delta into the body. The submission
+freezes G33's result for its delivery commit; the PR renderer inserts it, and
+the PR workflow independently runs G33 against the current delivery diff.
 
 Preflight the completed body through the requested environment interface,
 then run the manifest's full PR-body job:
@@ -334,8 +341,8 @@ unset PR_BODY PR_BASE_SHA PR_HEAD_SHA
 docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
-> 中文：所有 commit 完成后运行 production-delta 计算器（它只从 diff 实算，不读 PR
-> 正文）。PR body 按模板填写所有未注释的节；治理声明与 `Dependency-Change:` 仅在
+> 中文：task submit 冻结交付 cut 后，用 renderer 生成 PR body 的 Delivery Facts；不得
+> 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；治理声明与 `Dependency-Change:` 仅在
 > 触发条件成立时必填。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID；无
 > 依赖文件变化时删除整条 `Dependency-Change:`。Verification 只记录直接通过、或由
 > runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生的 CI、人工
@@ -346,7 +353,8 @@ always copy the live repository template for a real PR.
 This section is the external-contributor path: it uses the contributor's own
 Git credentials. A different model exists for dispatched, task-bound workers in
 a registered Harness workspace — they publish the branch through the daemon with
-`ha task push <task-id>`, open the PR with `gh pr create --head <task-id>`, with direct-push
+`ha task push <task-id>`, open the PR with
+`gh pr create --head <task-id> --body-file /tmp/harness-anything-pr-body.md`, with direct-push
 protection limiting any push to the task's own branch. Read hosted checks and
 failure logs directly with the hosting platform CLI and your own platform
 credentials. If your session runs as such a worker, use those publishing
@@ -421,7 +429,7 @@ Before handoff, report:
 - what changed and what stayed out of scope;
 - exact tests and manifest jobs run, with pass/fail results;
 - commands not run and the scoped reason;
-- the production delta and PR-body preflight result;
+- the frozen submission facts and PR-body preflight result;
 - open findings, residual risk, and the files needing human attention; and
 - that merge remains maintainer-owned.
 

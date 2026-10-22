@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   completionGuidance,
@@ -9,10 +9,12 @@ import {
   isSamePerson,
   isTaskEvent,
   resolveCompletionContract,
+  productionDeltaFromNumstat,
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
   sha256Text,
+  resolveHarnessLayout,
   type DocEventChange,
   type SubmissionV1,
   type WriteSource,
@@ -28,6 +30,7 @@ import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
+import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -191,7 +194,8 @@ export function deriveCloseoutSubmission(
             (unclaimedPublishedMerge ||
               git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok))
         : baseline === undefined && bound === commitSha;
-  let deliverables: readonly string[], commitOutputs: readonly string[];
+  let deliverables: readonly string[], commitOutputs: readonly string[], changedFiles: readonly string[] | undefined,
+    productionDelta: SubmissionV1["productionDelta"];
   // An unchanged published HEAD is a delivery only when this task's record owns it: another
   // execution's cut, or this execution's own frozen cut — an amendment re-derived at its merged
   // tip froze that merge's second parent. The execution baseline detects new work; task history,
@@ -220,6 +224,8 @@ export function deriveCloseoutSubmission(
     // shrink a branch-wide diff to the last commit; prose and artifacts remain freshly derived.
     deliverables = frozen.deliverables;
     commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
+    changedFiles = frozen.changedFiles;
+    productionDelta = frozen.productionDelta;
   } else {
     // One delivery commit owns one manifest: the comparison cut derives from the commit's own fork
     // point on the default branch unless start explicitly pinned an approved upstream delivery; never
@@ -253,6 +259,25 @@ export function deriveCloseoutSubmission(
         );
     }
     if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    changedFiles = runProcessText("git", ["diff", "--name-only", "--no-renames", "-z", base, commitSha, "--"], root)
+      .split("\0")
+      .filter(Boolean)
+      .sort();
+    const numstat = runProcessText("git", ["diff", "--no-renames", "--numstat", "-z", base, commitSha, "--"], root)
+      .split("\0")
+      .filter(Boolean)
+      .map((record) => {
+        const firstTab = record.indexOf("\t"),
+          secondTab = record.indexOf("\t", firstTab + 1);
+        if (firstTab < 0 || secondTab < 0)
+          throw cell.cellCodedError("invalid_submission", "Git produced an invalid numstat record.");
+        return {
+          addedText: record.slice(0, firstTab),
+          deletedText: record.slice(firstTab + 1, secondTab),
+          filePath: record.slice(secondTab + 1),
+        };
+      });
+    productionDelta = { baseSha: base, ...productionDeltaFromNumstat(numstat) };
     deliverables = runProcessText(
       "git",
       ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],
@@ -272,12 +297,19 @@ export function deriveCloseoutSubmission(
     ...prose,
     ...(artifacts.length ? { artifacts } : {}),
     deliverables,
+    ...(changedFiles ? { changedFiles } : {}),
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
+    ...(productionDelta ? { productionDelta } : {}),
   };
   // An empty public manifest has no code cut to witness, including when HEAD is an empty commit.
   return deliverables.length || commitOutputs.length
     ? { ...delivery, commitSha }
-    : { ...delivery, commitSha: null, artifacts };
+    : (() => {
+        const artifactOnly = { ...delivery };
+        delete artifactOnly.changedFiles;
+        delete artifactOnly.productionDelta;
+        return { ...artifactOnly, commitSha: null, artifacts };
+      })();
 }
 
 /** Accepted task artifacts select implicit deliveries; reviewer outputs are credentials, not deliveries. */
@@ -313,6 +345,77 @@ function automaticSubmissionArtifactPaths(
         path.startsWith(`${packagePath}/artifacts/`) && !path.endsWith("/.gitkeep") && !runtimeReportPaths.has(path),
     )
     .sort();
+}
+
+function taskWorktreeRoot(
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection">,
+  snapshot: Snapshot,
+): string | null {
+  const binding = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection));
+  if (binding === null) return null;
+  const taskRoot = path.join(cell.rootDir, binding.path),
+    directory = lstatSync(taskRoot, { throwIfNoEntry: false }),
+    top = directory?.isDirectory() && !directory.isSymbolicLink()
+      ? makeGitReadinessSource().run(taskRoot, ["rev-parse", "--show-toplevel"])
+      : null;
+  return top?.ok && realpathSync(top.stdout.trim()) === realpathSync(taskRoot) ? taskRoot : null;
+}
+
+function taskWorktreeCandidateInventory(
+  rootDir: string,
+  taskRoot: string,
+  packagePath: string | null,
+  baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
+  projection: RepoCellOperationalContext["projection"],
+): AuthoredCandidateInventoryV1 | undefined {
+  if (packagePath === null) return undefined;
+  const layout = resolveHarnessLayout(rootDir),
+    authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
+    authoredOutsideCheckout =
+      authoredRelative === ".." || authoredRelative.startsWith(`..${path.sep}`) || path.isAbsolute(authoredRelative),
+    packageRoot = authoredOutsideCheckout
+      ? null
+      : path.resolve(taskRoot, authoredRelative, ...packagePath.split("/")),
+    taskRootResolved = path.resolve(taskRoot);
+  if (packageRoot === null) return undefined;
+  if (packageRoot !== taskRootResolved && !packageRoot.startsWith(`${taskRootResolved}${path.sep}`))
+    throw new Error(`Task package ${packagePath} escapes its bound worktree.`);
+  const rows: Array<AuthoredCandidateInventoryV1["rows"][number]> = [];
+  collectTaskPackageCandidates(packageRoot, packagePath, rows);
+  return {
+    schema: "harness-authored-candidate-inventory/v1",
+    baseLedgerSha,
+    rows: rows.filter(
+      (row) =>
+        row.path.startsWith(`${packagePath}/artifacts/`) &&
+        !row.path.endsWith("/.gitkeep") &&
+        projection.readDocument(row.path).document === null,
+    ),
+  };
+}
+
+function collectTaskPackageCandidates(
+  directory: string,
+  logicalDirectory: string,
+  rows: Array<AuthoredCandidateInventoryV1["rows"][number]>,
+): void {
+  const directoryStat = lstatSync(directory, { throwIfNoEntry: false });
+  if (!directoryStat || !directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name),
+      logical = `${logicalDirectory}/${entry.name}`,
+      stat = lstatSync(absolute);
+    if (stat.isDirectory()) {
+      collectTaskPackageCandidates(absolute, logical, rows);
+      continue;
+    }
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      rows.push({ path: logical, safe: false, size: null, bytes: null, conflicts: [] });
+      continue;
+    }
+    const bytes = readFileSync(absolute);
+    rows.push({ path: logical, safe: true, size: bytes.byteLength, bytes, conflicts: [] });
+  }
 }
 
 function freezeCompletionContract(
@@ -500,7 +603,18 @@ export async function submitTask(
   }
   // Assignment callers carry their changed documents above. With no carried changes,
   // consume center-accepted content; never scan the center worktree on an edge's behalf.
-  const synced =
+  const taskRoot = taskWorktreeRoot(cell, current.snapshot),
+    authoredCandidateInventory =
+      taskRoot === null || (typeof binding.source === "object" && binding.source.kind === "node")
+        ? undefined
+        : taskWorktreeCandidateInventory(
+            cell.rootDir,
+            taskRoot,
+            current.packagePath,
+            cell.store.currentCut(),
+            cell.projection,
+          ),
+    synced =
     typeof binding.source === "object" && binding.source.kind === "node"
       ? null
       : await runDocAction({
@@ -511,6 +625,7 @@ export async function submitTask(
           store: cell.store,
           projection: cell.projection,
           now: cell.now,
+          ...(authoredCandidateInventory ? { authoredCandidateInventory } : {}),
         });
   if (synced && !["applied", "no_changes"].includes(synced.outcome))
     return {

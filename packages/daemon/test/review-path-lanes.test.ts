@@ -6,10 +6,15 @@ import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLane
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
 import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
 
-const submission = (deliverables: readonly string[], deleted: readonly string[] = []): SubmissionV1 =>
+const submission = (
+  deliverables: readonly string[],
+  deleted: readonly string[] = [],
+  changedFiles?: readonly string[],
+): SubmissionV1 =>
   ({
     completionClaim: "claim",
     deliverables,
+    ...(changedFiles === undefined ? {} : { changedFiles }),
     outputs: deleted.map((target) => `Deleted-Production-Paths: ${target}`),
     verificationNotes: [],
     knownGaps: [],
@@ -63,6 +68,18 @@ test("a cut hits a lane through its frozen deliverables or its deleted productio
       ["gui-reviewer", ["packages/gui/src/App.tsx"]],
     ],
   );
+});
+
+test("new cuts route deleted non-production paths from the complete frozen file list", () => {
+  const hits = reviewLaneHits(
+    submission(
+      ["README.md"],
+      [],
+      ["README.md", "packages/kernel/src/domain/retired.test.ts"],
+    ),
+    reviewPathLanes(["data-migration packages/kernel/src/domain/"]),
+  );
+  assert.deepEqual([...hits], [["data-migration", ["packages/kernel/src/domain/retired.test.ts"]]]);
 });
 
 test("matching stays path-exact: a near-miss file or a sibling directory never fires", () => {

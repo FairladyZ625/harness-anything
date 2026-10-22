@@ -144,6 +144,12 @@ function validArtifactDelivery(value: unknown): boolean {
 
 export function validateGuiSubmission(value: unknown): readonly string[] {
   const arrayFields = ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const,
+    optionalFacts = isJsonObject(value)
+      ? [
+          ...(value.changedFiles === undefined ? [] : ["changedFiles"]),
+          ...(value.productionDelta === undefined ? [] : ["productionDelta"]),
+        ]
+      : [],
     fields = [
       "completionClaim",
       ...arrayFields,
@@ -153,7 +159,7 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
     // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
     // requires and fully validates it on every new submission, so the wire shape only checks its envelope.
-    shapeError = recordShapeError(entityId, value, fields, [...fields, "completionContract"]),
+    shapeError = recordShapeError(entityId, value, fields, [...fields, ...optionalFacts, "completionContract"]),
     anchorsOk =
       isJsonObject(value) &&
       (value.artifacts === undefined ||
@@ -166,6 +172,10 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   for (const field of arrayFields)
     if (!stringArray(value[field]))
       errors.push(validationError(entityId, field, value[field], "must be an array of non-empty strings"));
+  if (value.changedFiles !== undefined && !stringArray(value.changedFiles))
+    errors.push(validationError(entityId, "changedFiles", value.changedFiles, "must be an array of non-empty strings"));
+  if (value.productionDelta !== undefined && (value.commitSha === null || value.changedFiles === undefined))
+    errors.push(validationError(entityId, "productionDelta", value.productionDelta, "requires a code commit and changedFiles"));
   if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),

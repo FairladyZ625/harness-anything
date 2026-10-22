@@ -18,6 +18,31 @@ test("#1546: a valid submission has no issues", () => {
   assert.deepEqual(validateGuiSubmission(valid), []);
 });
 
+test("submission machine facts are accepted by the wire contract", () => {
+  assert.deepEqual(
+    validateGuiSubmission({
+      ...valid,
+      changedFiles: ["packages/kernel/src/domain/execution.ts", "docs/retired.md"],
+      productionDelta: {
+        baseSha: "b".repeat(40),
+        added: 5,
+        deleted: 2,
+        changed: [{ filePath: "packages/kernel/src/domain/execution.ts", module: "kernel", added: 5, deleted: 2 }],
+        unclassified: [],
+      },
+    }),
+    [],
+  );
+  assert.match(
+    validateGuiSubmission({ ...valid, changedFiles: [""] })[0]!,
+    /field=changedFiles must be an array of non-empty strings/u,
+  );
+  assert.match(
+    validateGuiSubmission({ ...valid, productionDelta: {} })[0]!,
+    /field=productionDelta requires a code commit and changedFiles/u,
+  );
+});
+
 test("a submission frozen before the completion contract stays valid on the wire", () => {
   const { completionContract: _frozen, ...preFreeze } = valid;
   assert.deepEqual(validateGuiSubmission(preFreeze), []);

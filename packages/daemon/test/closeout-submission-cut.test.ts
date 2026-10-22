@@ -625,6 +625,37 @@ test("a multi-commit delivery lists every path changed since the frozen baseline
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
 });
 
+test("submission facts freeze the full changed-path set and G33 result at the delivery base", (t) => {
+  const { root, base } = fixture(t);
+  put(root, "docs/retired.md", "retired documentation\n");
+  put(root, "packages/kernel/src/retired.ts", "export const retired = 1;\n");
+  const deliveryBase = commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", deliveryBase);
+  git(root, "checkout", "-q", "-b", "feature");
+  put(root, "docs/new.md", "new documentation\n");
+  put(root, "packages/kernel/src/added.ts", "export const first = 1;\nexport const second = 2;\n");
+  git(root, "rm", "-q", "docs/retired.md", "packages/kernel/src/retired.ts");
+  const sha = commit(root),
+    packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, { kind: "commit", commitSha: base }, sha);
+
+  assert.deepEqual(packet.changedFiles, [
+    "docs/new.md",
+    "docs/retired.md",
+    "packages/kernel/src/added.ts",
+    "packages/kernel/src/retired.ts",
+  ]);
+  assert.deepEqual(packet.productionDelta, {
+    baseSha: deliveryBase,
+    added: 2,
+    deleted: 1,
+    changed: [
+      { filePath: "packages/kernel/src/added.ts", module: "kernel", added: 2, deleted: 0 },
+      { filePath: "packages/kernel/src/retired.ts", module: "kernel", added: 0, deleted: 1 },
+    ],
+    unclassified: [],
+  });
+});
+
 test("an execution started before the baseline froze keeps the comparison cut in force when it started", (t) => {
   const { root } = fixture(t);
   put(root, "src/earlier.ts", "export const earlierValue = 8;\n");

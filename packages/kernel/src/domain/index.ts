@@ -106,6 +106,14 @@ export { assessFactRetirement, validFactStillHoldsAttestation } from "./fact-ret
 export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
+export {
+  classifyModule,
+  classifyPath,
+  isProductionPath,
+  isTestPath,
+  normalizeRepoPath,
+  productionDeltaFromNumstat,
+} from "./production-delta.ts";
 
 export {
   taskBoardPlacement,
