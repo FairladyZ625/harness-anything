@@ -262,7 +262,7 @@ test("a save failure rejects start and closes its unrecorded listener", async (t
     file = fleetCenterConfigPath(f.userRoot, "save-failure");
   mkdirSync(file, { recursive: true });
   await assert.rejects(
-    host.fleet.startCenter({ ...f.request, port }, auth),
+    host.fleet.startCenter({ ...f.request, port, externalUrl: `https://localhost:${port}` }, auth),
     /not listening.*EISDIR|not listening.*ENOTEMPTY|not listening.*EPERM/u,
   );
   await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
