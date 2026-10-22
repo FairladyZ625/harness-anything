@@ -168,7 +168,12 @@ export function renderThinHelp(
           "",
           `Active works (${works.length} shown, newest activity first — the same rows ha work list returns):`,
           ...works.map(({ taskId, title }) => `  ${taskId} — ${title}`),
-          "File this task with --work <id>; ha work create --title <name> starts a new one.",
+          // The rule the receipt candidates enforce: placement follows the work's goal, so a task
+          // never lands under whichever line happens to be busy.
+          "File this task with --work <id>, chosen by the work's goal: the task belongs where it serves that",
+          "goal, not under whichever line is currently busy (ha work show <id> states the goal). No fitting",
+          "work? ha work create --title <name> starts one, or file under a general work (defect fixes,",
+          "system-friction governance).",
         ]
       : [];
   return ["Harness Anything thin CLI", "", ...body, ...workRows, ...presetRows].join("\n");

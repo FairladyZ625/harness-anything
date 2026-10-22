@@ -311,9 +311,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     path: ["task", "move", "<task-id>"],
     summary:
       "Move a task, with its subtree, under another parent task or work by amending parentTaskId. " +
-      "Refused while a live lease holds the task, when the new parent does not exist, or when the " +
-      "move would make the parent chain cyclic (including moving a task under itself or its own " +
-      "descendant).",
+      "A live lease does not block the move: it re-hangs the task only, so a running worker is " +
+      "unaffected. Refused when the new parent does not exist or when the move would make the " +
+      "parent chain cyclic (including moving a task under itself or its own descendant).",
     method: "repo.task.run",
     inputs: [cliInput("--parent", "single", true, { code: "missing_field" }, { field: "parentTaskId" })],
   }),

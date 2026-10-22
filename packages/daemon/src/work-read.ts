@@ -53,39 +53,135 @@ export function workListFromProjection(
 }
 
 /**
- * The one line a create receipt owes the reader: which work the task landed under (id and title), or,
- * for a task that landed nowhere, the answer plus the work roots it could join. Both the live create
- * paths and a replay of the create event render through this function, so a retried receipt cannot
- * say less than the first one did.
+ * The one line a create receipt owes the reader: which work the task landed under (id and title,
+ * plus that work's stated goal), or, for a task that landed nowhere, the answer plus the work roots
+ * it could join. A landed task also hears which other open works match its title best, each with
+ * the move command that re-hangs it, so a mismatched placement is corrected at creation time
+ * instead of surfacing later as an unexplainable grouping. Both the live create paths and a replay
+ * of the create event render through this function, so a retried receipt cannot say less than the
+ * first one did.
  */
 export function workReceiptLine(
-  projection: Pick<TaskProjection, "read" | "readTaskIndex">,
+  projection: Pick<TaskProjection, "read" | "readTaskIndex" | "readDocument">,
   task: Pick<TaskV2, "taskId" | "title" | "taskClass" | "metadata">,
 ): string {
   const parentTaskId = task.metadata?.parentTaskId ?? null,
     work = parentTaskId === null ? null : workRootOf(projection, parentTaskId);
-  if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
+  if (work !== null) {
+    const goal = workGoal(projection, work.taskId),
+      candidates = candidateWorkLines(projection, task.taskId, task.title, work.taskId, true);
+    return [
+      `\nwork: ${work.taskId} ${work.title}`,
+      ...(goal === null ? [] : [`goal: ${goal}`]),
+      ...(candidates.length ? ["if this task does not belong to that work, move it now:", ...candidates] : []),
+    ].join("\n");
+  }
   if (task.taskClass === "work")
     return `\nwork: ${task.taskId} ${task.title} (new work root; add tasks with --work ${task.taskId})`;
-  const candidates = projection.readTaskIndex({
-    workRootsOnly: true,
-    openOnly: true,
-    activePackagesOnly: true,
-    presentationStatus: true,
-    limit: 5,
-  }).rows;
+  const candidates = candidateWorkLines(projection, task.taskId, task.title, null, false);
   return [
     "\nwork: none (standalone task)",
-    ...(candidates.length
-      ? [
-          "candidate works:",
-          ...candidates.map(
-            ({ taskId, title }) => `- ${taskId} ${title}: ha task move ${task.taskId} --parent ${taskId}`,
-          ),
-        ]
-      : []),
+    ...(candidates.length ? ["candidate works:", ...candidates] : []),
     "next: ha work list",
   ].join("\n");
+}
+
+/** How many open works a receipt offers as move candidates; enough to choose, few enough to scan. */
+const WORK_RECEIPT_CANDIDATE_LIMIT = 3,
+  /** Title-screened works that earn a goal read, so relevance spans the pool while reads stay bounded. */
+  WORK_RECEIPT_CANDIDATE_POOL = 8;
+
+/**
+ * Open, unfinished work roots a create could move to, most title/goal-similar first, each rendered
+ * as the move command that re-hangs the task. The terminal filter runs on the presented status, so
+ * a work whose subtree all finished never poses as a "move it now" target even while its raw root
+ * status is still planned/active — the same rule `workListFromProjection` applies. `requireOverlap`
+ * keeps a landed task's receipt quiet unless some other work actually shares words with the title;
+ * a standalone create always hears the open roots. The pool is every open work root: the index's
+ * `limit` pages by task id, so ranking a limited read would silently hide most of the ledger behind
+ * its earliest ids. The task's own subtree never poses as a candidate — moving a task under itself
+ * or a descendant is always a parent_cycle rejection, and the created task is itself a root at
+ * receipt time (a nested work create) or by replay (a standalone task that grew child works), so a
+ * self-subtree candidate would rank first on a perfect title match and always fail. The subtree is
+ * excluded by walking children reads down from the task, not by widening the pool read: the pool
+ * stays a roots-only read and the walk costs no rows at all for a childless task. Titles screen
+ * first — no document reads — and only the shortlist reads task_plan.md goals for a repriced rank,
+ * so goal-only matches surface without one document read per work root. Equal scores keep the
+ * index's task-id order.
+ */
+function candidateWorkLines(
+  projection: Pick<TaskProjection, "readTaskIndex" | "read" | "readDocument">,
+  taskId: string,
+  taskTitle: string,
+  excludeTaskId: string | null,
+  requireOverlap: boolean,
+): string[] {
+  const titleTokens = workReceiptTokens(taskTitle),
+    excluded = new Set<string>(excludeTaskId === null ? [taskId] : [taskId, excludeTaskId]),
+    below = [taskId];
+  while (below.length) {
+    for (const row of projection.readTaskIndex({
+      parentTaskId: below.pop()!,
+      activePackagesOnly: true,
+      presentationStatus: true,
+    }).rows)
+      if (!excluded.has(row.taskId)) {
+        excluded.add(row.taskId);
+        below.push(row.taskId);
+      }
+  }
+  const shortlist = projection
+    .readTaskIndex({
+      workRootsOnly: true,
+      openOnly: true,
+      activePackagesOnly: true,
+      presentationStatus: true,
+    })
+    .rows.filter((row) => !excluded.has(row.taskId) && !isTerminalStatus(row.status))
+    .map((row) => ({ row, titleScore: workReceiptOverlap(titleTokens, workReceiptTokens(row.title)) }))
+    .sort((left, right) => right.titleScore - left.titleScore)
+    .slice(0, WORK_RECEIPT_CANDIDATE_POOL);
+  return shortlist
+    .map(({ row, titleScore }) => ({
+      row,
+      score: titleScore + workReceiptOverlap(titleTokens, workReceiptTokens(workGoal(projection, row.taskId) ?? "")),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .filter((entry) => entry.score > 0 || !requireOverlap)
+    .slice(0, WORK_RECEIPT_CANDIDATE_LIMIT)
+    .map(({ row }) => `- ${row.taskId} ${row.title}: ha task move ${taskId} --parent ${row.taskId}`);
+}
+
+/** The work root's stated goal, from the same plan sections ha work show reads; null when unstated. */
+function workGoal(projection: Pick<TaskProjection, "read" | "readDocument">, workTaskId: string): string | null {
+  const packagePath = projection.read(workTaskId).packagePath;
+  if (packagePath === null) return null;
+  const plan = projection.readDocument(`${packagePath}/task_plan.md`).document;
+  if (plan === null) return null;
+  const goal = planGoalSummary(plan.body);
+  return goal === null || goal.length <= 240 ? goal : `${goal.slice(0, 239)}…`;
+}
+
+/** Latin words plus CJK character bigrams: one token vocabulary over mixed-language titles and goals. */
+function workReceiptTokens(text: string): Set<string> {
+  const lowered = text.toLowerCase(),
+    tokens = new Set<string>();
+  for (const match of lowered.matchAll(/[a-z0-9][a-z0-9'.+-]*/gu)) tokens.add(match[0]);
+  for (const match of lowered.matchAll(/\p{Script=Han}+/gu)) {
+    const run = match[0];
+    if (run.length === 1) {
+      tokens.add(run);
+      continue;
+    }
+    for (let index = 0; index < run.length - 1; index += 1) tokens.add(run.slice(index, index + 2));
+  }
+  return tokens;
+}
+
+function workReceiptOverlap(left: Set<string>, right: Set<string>): number {
+  let shared = 0;
+  for (const token of left) if (right.has(token)) shared += 1;
+  return shared;
 }
 
 export interface WorkIndexRow extends WorkListRow {
