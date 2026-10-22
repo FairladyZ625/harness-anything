@@ -114,6 +114,7 @@ export function reviewLanePrompt(input: {
       `--review-id review-${dispatchId} --from-file harness/${packet}. ` +
       "These dispatch-specific paths and the review id are fixed; any other value is rejected.",
     "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +
-      "do not review the replacement under this dispatch.",
+      "do not review the replacement under this dispatch. If ha task review-execution returns error code " +
+      "review_cut_superseded, the cut has been replaced; this error is terminal and must not be retried.",
   ].join("\n");
 }

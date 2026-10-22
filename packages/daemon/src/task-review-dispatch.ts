@@ -374,7 +374,8 @@ export function reviewDispatchPrompt(input: {
     `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
       `--review-id review-${dispatchId} --from-file harness/${packet}.`,
     "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +
-      "do not review the replacement under this dispatch.",
+      "do not review the replacement under this dispatch. If ha task review-execution returns error code " +
+      "review_cut_superseded, the cut has been replaced; this error is terminal and must not be retried.",
   ].join("\n");
 }
 

@@ -67,6 +67,56 @@ export function uniqueDerivedExecutionId(
   return rejectExecutionSelection(candidates, label, zeroNext, commandFor);
 }
 
+export function reviewCutSupersededExplanation(
+  snapshot: Snapshot,
+  executionId: string,
+): {
+  readonly superseded: boolean;
+  readonly reason?: string;
+  readonly replacementText?: string;
+  readonly candidate?: Snapshot["executions"][number];
+} {
+  const candidate = snapshot.executions.find((entry) => entry.executionId === executionId);
+  const currentIteration = snapshot.task?.iteration ?? 0;
+  if (!candidate) return { superseded: false };
+  if (candidate.iteration < currentIteration) {
+    const currentOnIter = snapshot.executions.filter((entry) => entry.iteration === currentIteration);
+    const currentSubmitted = currentOnIter.find((entry) => entry.state === "submitted" && entry.submission !== null);
+    const currentActive = currentOnIter.find((entry) => entry.state === "active");
+    const replacement = currentSubmitted ?? currentActive ?? currentOnIter[0];
+    const replacementText = replacement
+      ? `iteration ${currentIteration} (execution ${replacement.executionId})`
+      : `iteration ${currentIteration}`;
+    return {
+      superseded: true,
+      reason: `Execution cut ${executionId} (iteration ${candidate.iteration}) has been superseded by ${replacementText}; review cannot be registered against a superseded cut.`,
+      replacementText,
+      candidate,
+    };
+  }
+  if (candidate.iteration === currentIteration && (candidate.state !== "submitted" || !candidate.submission)) {
+    if (candidate.submission !== null || candidate.state === "changes_requested" || candidate.state === "abandoned") {
+      const otherSubmitted = snapshot.executions.find(
+        (entry) =>
+          entry.iteration === currentIteration &&
+          entry.executionId !== executionId &&
+          entry.state === "submitted" &&
+          entry.submission !== null,
+      );
+      const replacementText = otherSubmitted
+        ? `iteration ${currentIteration} (execution ${otherSubmitted.executionId})`
+        : `iteration ${currentIteration} (state ${candidate.state})`;
+      return {
+        superseded: true,
+        reason: `Execution cut ${executionId} on iteration ${currentIteration} is no longer submitted (state=${candidate.state}); superseded by ${replacementText}; review cannot be registered against a superseded cut.`,
+        replacementText,
+        candidate,
+      };
+    }
+  }
+  return { superseded: false, candidate };
+}
+
 export function reviewExecutionSelection(
   action: RepoTaskAction,
   snapshot: Snapshot,
@@ -80,18 +130,28 @@ export function reviewExecutionSelection(
   const requestedExecutionId = explicitExecutionId(action),
     submittedExecutions = currentSubmittedExecutions(snapshot);
   const executionId =
-      requestedExecutionId ??
-      uniqueDerivedExecutionId(
-        submittedExecutions,
-        "Current submitted execution",
-        `Run ha task show ${taskId}; if the task is active, run ha task submit ${taskId}.`,
-        (candidate) =>
-          `ha task review-execution ${taskId} --execution-id ${candidate} ` +
-          "--review-id <review-id> --from-file <review.json>",
-      ),
-    submitted = snapshot.executions.find(
-      (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
+    requestedExecutionId ??
+    uniqueDerivedExecutionId(
+      submittedExecutions,
+      "Current submitted execution",
+      `Run ha task show ${taskId}; if the task is active, run ha task submit ${taskId}.`,
+      (candidate) =>
+        `ha task review-execution ${taskId} --execution-id ${candidate} ` +
+        "--review-id <review-id> --from-file <review.json>",
     );
+  const supersededCheck = reviewCutSupersededExplanation(snapshot, executionId);
+  if (supersededCheck.superseded) {
+    throw cellCodedError("review_cut_superseded", supersededCheck.reason!, {
+      kind: "validation",
+      entity: `execution ${executionId}`,
+      field: "status",
+      actual: `iteration=${supersededCheck.candidate?.iteration} state=${supersededCheck.candidate?.state}`,
+      expectation: `superseded by ${supersededCheck.replacementText}`,
+    });
+  }
+  const submitted = snapshot.executions.find(
+    (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
+  );
   if (!submitted?.submission) throw reviewExecutionStateError(snapshot, taskId, submitted, executionId);
   return {
     executionId,

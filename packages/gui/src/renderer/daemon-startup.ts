@@ -5,6 +5,7 @@ const retryableDaemonCodes = new Set([
   "daemon_response_timeout",
   "daemon_stopping",
   "daemon_unavailable",
+  "repo_unavailable",
 ]);
 
 export type DaemonStartupPhase = "pending" | "waiting" | "timeout" | "ready";
