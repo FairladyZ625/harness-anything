@@ -22,3 +22,30 @@ The agent declaration converter recognizes the pre-runtimes shape (`runtime_type
 Declaration conversion writes a new file and never overwrites the input or accepted history. Copy the reviewed repository candidate to `harness/vertical.json`, submit it with the command above, and reopen before continuing writes. Offline conversion never activates a pin. Concurrent edge installation requests use the same center RepoCell write queue; edges are not independent preset writers. The candidate must be accessible to the center installer. Updating a preset pin affects subsequent resolutions, not frozen task snapshots. A repository whose historical ledger cannot open must use the ledger conversion path; an online document append is not evidence of historical replay.
 
 Historical samples live in `packages/preset/fixtures/completion-migration/`. Guidance tests and isolated integration tests cover the old decoder failure, explicit CLI migration, active catalog/resolution, preserved source bytes, idempotence, rejected unknown formats, and repository acceptance/reopen. They run through the existing tier manifest; no additional CI gate or compatibility reader is introduced.
+
+## Real old-data copy evidence in one command
+
+The "new code starts and reads a real old copy, and a full cold rebuild succeeds" leg of a
+migration review is produced by a single command, never by hand-assembled copies:
+
+```sh
+node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|sha>]
+```
+
+Run it from any checkout of this repository. It snapshots the live source workspace into a
+system temp directory (git local clone of `harness/`, APFS clone of `store/generations`, then
+read-only `VACUUM INTO` snapshots — projections first, ledger last, so the copied projection
+can never be ahead of the copied ledger), starts an isolated daemon under a fresh user root
+and daemon id so the production daemon and its data are untouched by construction, registers
+the copy, waits for the daemon's own `repo_attach_completed` lifecycle record, stops the
+daemon, reads through the build's production functions, cold-rebuilds the projection from
+zero, and prints one JSON receipt: build commit (`loadedBuildId`), source revision, attach
+record with duration, rebuild watermark and `stateDigest`, peak RSS of both the daemon and the
+rebuild process, and the raw error of whichever phase failed. `--build` accepts a worktree
+path or any revision; a revision is checked out and built in a temporary worktree. The command
+already strips dispatched `HARNESS_*` and provider credentials from the daemon environment
+(local identity is the sanctioned way to attach a temporary copy) and sets the production heap
+ceiling, so a dispatched worker runs it without touching their environment. Temporary files
+live under the system temp directory and are removed when the command finishes; pass `--keep`
+to keep the copy, and `--reuse-workspace <ws>` to run a second build against the same copy
+(the negative-control shape: identical data, only the build differs).
