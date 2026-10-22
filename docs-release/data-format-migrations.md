@@ -33,19 +33,31 @@ node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|
 ```
 
 Run it from any checkout of this repository. It snapshots the live source workspace into a
-system temp directory (git local clone of `harness/`, APFS clone of `store/generations`, then
-read-only `VACUUM INTO` snapshots — projections first, ledger last, so the copied projection
-can never be ahead of the copied ledger), starts an isolated daemon under a fresh user root
-and daemon id so the production daemon and its data are untouched by construction, registers
-the copy, waits for the daemon's own `repo_attach_completed` lifecycle record, stops the
-daemon, reads through the build's production functions, cold-rebuilds the projection from
-zero, and prints one JSON receipt: build commit (`loadedBuildId`), source revision, attach
-record with duration, rebuild watermark and `stateDigest`, peak RSS of both the daemon and the
-rebuild process, and the raw error of whichever phase failed. `--build` accepts a worktree
-path or any revision; a revision is checked out and built in a temporary worktree. The command
-already strips dispatched `HARNESS_*` and provider credentials from the daemon environment
-(local identity is the sanctioned way to attach a temporary copy) and sets the production heap
-ceiling, so a dispatched worker runs it without touching their environment. Temporary files
-live under the system temp directory and are removed when the command finishes; pass `--keep`
-to keep the copy, and `--reuse-workspace <ws>` to run a second build against the same copy
-(the negative-control shape: identical data, only the build differs).
+system temp directory (git local clone of `harness/`, block clone of `store/generations`,
+block clone of the cache databases with a forced checkpoint on the copy — a torn clone is
+discarded and attach catches up from the ledger — then a read-only `VACUUM INTO` of the
+ledger last, so the copied projection can never be ahead of the copied ledger), starts an
+isolated daemon under a fresh user root and daemon id so the production daemon and its data
+are untouched by construction, registers the copy, waits for the daemon's own
+`repo_attach_completed` lifecycle record, stops the daemon, reads through the build's
+production functions, cold-rebuilds the projection from zero, and prints one JSON receipt:
+build commit (`loadedBuildId`), source revision, attach record and the run's full attach
+history with duration, rebuild watermark and `stateDigest`, peak RSS of both the daemon and
+the rebuild process, and the raw error of whichever phase failed.
+
+The receipt may only name the build that actually ran: whenever the checkout names a commit,
+a daemon dist stamped with a different (older) commit is rebuilt before anything can load it,
+and a daemon whose own commit stamp disagrees with its loaded dist marker is recorded as a
+`build-identity` failure — a worktree carrying a stale dist after a rebase can no longer
+produce evidence attributed to the new HEAD.
+
+`--build` accepts a worktree path or any revision; a revision is checked out and built in a
+temporary worktree. The command already strips dispatched `HARNESS_*` and provider
+credentials from the daemon environment (local identity is the sanctioned way to attach a
+temporary copy) and sets the production heap ceiling, so a dispatched worker runs it without
+touching their environment. Temporary files live under the system temp directory and are
+removed when the command finishes; SIGINT/SIGTERM at any stage stop the isolated daemon,
+delete the whole temp copy, and exit non-zero (130/143) without printing a receipt. Pass
+`--keep` to keep the copy after a normal run, and `--reuse-workspace <ws>` to run a second
+build against the same copy (the negative-control shape: identical data, only the build
+differs).
