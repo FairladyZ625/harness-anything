@@ -140,12 +140,18 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
     assert.ok(event?.type === "execution_submitted");
     const submission = event.payload.execution.submission;
     assert.ok(submission);
-    assert.equal(submission.riskTierAssessment?.declaredTier, "low");
-    assert.equal(submission.riskTierAssessment?.effectiveTier, "high");
+    const assessment = submission.riskTierAssessment;
+    assert.ok(assessment, "the accepted submission freezes its risk assessment");
+    assert.equal(assessment.declaredTier, "low");
+    assert.equal(assessment.effectiveTier, "high");
+    assert.match(assessment.deliveryBaseSha ?? "", /^[0-9a-f]{40}$/u);
+    assert.match(assessment.deliveryHeadSha ?? "", /^[0-9a-f]{40}$/u);
+    assert.deepEqual(assessment.matchedPathReviewers, []);
     assert.equal(submission.completionContract.closeoutGates.consent, true);
-    assert.equal(submission.riskTierAssessment?.guiAcceptanceRequired, true);
+    assert.equal(assessment.guiAcceptanceRequired, true);
     assert.ok(submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
-    assert.match(submission.riskTierAssessment?.reasons.join("\n") ?? "", /fixture high floor/u);
+    assert.match(assessment.reasons.join("\n"), /fixture high floor/u);
+    console.info(`SUBMISSION_RISK_TIER_ASSESSMENT ${JSON.stringify(assessment)}`);
   } finally {
     await f.close();
   }
