@@ -192,3 +192,33 @@ test("agent instructions and prompts append to the role baseline without a repla
   assert.ok(prompt.indexOf("APPENDED_WITNESS") < prompt.indexOf("MISSION_WITNESS"));
   assert.equal(prompt.split("# Worker Role").length, 2);
 });
+
+test("the private read section rides after the declared prompts and before the mission", () => {
+  const prompt = assembleAgentPrompt(
+    {
+      id: "worker",
+      name: "Worker",
+      instructions: "IDENTITY_WITNESS",
+      prompts: ["APPENDED_WITNESS"],
+      role: "worker",
+      runtimes: [],
+    },
+    "MISSION_WITNESS",
+    undefined,
+    [],
+    "# Private Ledger Paths (read-only)\n- harness/x.md -> /canonical/harness/x.md",
+  );
+  assert.ok(prompt.indexOf("APPENDED_WITNESS") < prompt.indexOf("# Private Ledger Paths"));
+  assert.ok(prompt.indexOf("# Private Ledger Paths") < prompt.indexOf("MISSION_WITNESS"));
+  assert.equal(
+    assembleAgentPrompt({ id: "w", name: "W", instructions: "I", role: "worker", runtimes: [] }, "M"),
+    assembleAgentPrompt(
+      { id: "w", name: "W", instructions: "I", role: "worker", runtimes: [] },
+      "M",
+      undefined,
+      [],
+      null,
+    ),
+    "a canonical checkout adds no section",
+  );
+});

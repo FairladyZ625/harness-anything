@@ -60,6 +60,7 @@ export function assembleAgentPrompt(
   mission: string,
   preset?: string,
   skills: readonly ResolvedAgentSkill[] = [],
+  privateReads: string | null = null,
 ): string {
   return [
     `# Agent Identity: ${agent.name} (${agent.id})`,
@@ -74,6 +75,7 @@ export function assembleAgentPrompt(
           ...skills.map((skill) => `- ${skill.id}: ${skill.skillFile}`),
         ]
       : []),
+    ...(privateReads === null ? [] : [privateReads]),
     "# Mission",
     mission,
   ].join("\n\n");
@@ -362,7 +364,9 @@ export function taskQueryGuidance(taskId: string): string {
     "# 台账查询引导",
     `- 本任务的 task_plan.md 全文与 <task-context> 已注入上面的 mission，不必再读文件；` +
       `ha task read-set ${taskId} 点名的资料与 ha task show ${taskId} 的任务状态，信息不够时再查。` +
-      `资料不足时向 owner 报告具体缺项。`,
+      `read-set 的 locator 是台账相对路径，worktree 里读不到，用 ha doc show --path <ledger path> --raw 打开：` +
+      `任务 locator 是任务包目录，要打开包内文件（如 tasks/<package>/task_plan.md）；` +
+      `decision 与 fact 的 locator 本身就是文件，照抄即可。资料不足时向 owner 报告具体缺项。`,
   ].join("\n");
 }
 
