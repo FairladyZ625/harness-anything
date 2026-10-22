@@ -15,7 +15,7 @@ export default {
   feature: "settings",
   lane: "isolated",
   description:
-    "Create an invited member from the picker, issue a multi-repository edge invitation with a permission group, hide its one-time link, inspect the audit row, and revoke it.",
+    "Create an invited member from the picker, preview permission groups as folded action categories with inheritance named at the category level, issue a multi-repository edge invitation, hide its one-time link, inspect the audit row, and revoke it.",
   async run({ page, app, fixture, shot }) {
     const keyPath = path.join(fixture.userRoot, "edge-invite-key.pem"),
       certPath = path.join(fixture.userRoot, "edge-invite-cert.pem");
@@ -87,6 +87,54 @@ export default {
     assert.match(await page.getByTestId("edge-invite-new-person-id").innerText(), /edge\.operator/u);
     await page.getByTestId(`edge-invite-repo-${fixture.repoId}`).check();
     await page.getByTestId("edge-invite-group-contributor").check();
+    // 权限预览:动作按声明 domain 分组、默认折叠,组层汇总「本级/继承」并标注继承来源,
+    // 行内只留声明的人话名 + 原始 scope。viewer 与 admin 各留折叠/展开两张验收截图。
+    await page.getByTestId("edge-invite-group-preview-toggle-viewer").click();
+    const viewerPreview = page.getByTestId("edge-invite-group-preview-viewer");
+    await viewerPreview.getByText(/生效动作 \d+ 项|Effective actions:/u).waitFor();
+    assert.equal(
+      await viewerPreview.locator("details").evaluateAll((all) => all.every((node) => !node.open)),
+      true,
+      "categories fold by default",
+    );
+    await shot("edge-invite-group-preview-viewer-folded");
+    await viewerPreview.locator("summary").first().click();
+    await viewerPreview.getByText("读取仓库").waitFor();
+    await shot("edge-invite-group-preview-viewer-open");
+    await page.getByTestId("edge-invite-group-preview-toggle-viewer").click();
+    await viewerPreview.waitFor({ state: "detached" });
+
+    await page.getByTestId("edge-invite-group-preview-toggle-admin").click();
+    const adminPreview = page.getByTestId("edge-invite-group-preview-admin");
+    await adminPreview.getByText(/生效动作 \d+ 项|Effective actions:/u).waitFor();
+    const adminCategories = adminPreview.locator("details");
+    assert.ok((await adminCategories.count()) > 10, "admin preview groups its actions into categories");
+    assert.equal(
+      await adminCategories.evaluateAll((all) => all.every((node) => !node.open)),
+      true,
+      "admin categories fold by default",
+    );
+    // The repository category is wholly inherited from viewer: named once at the category level.
+    const adminRepository = page.getByTestId("edge-invite-group-preview-admin-category-repository");
+    const adminRepositorySummary = await adminRepository.locator("summary").innerText();
+    assert.match(adminRepositorySummary, /继承 \d+ 项|\d+ inherited/u);
+    assert.match(adminRepositorySummary, /继承自|inherited from/u);
+    await shot("edge-invite-group-preview-admin-folded");
+    await adminRepository.locator("summary").click();
+    await adminRepository.getByText("读取仓库").waitFor();
+    await shot("edge-invite-group-preview-admin-open");
+    await page.getByTestId("edge-invite-group-preview-toggle-admin").click();
+    await adminPreview.waitFor({ state: "detached" });
+
+    // The invited group's preview still names the inherited action: repository-read is the viewer
+    // tier's only declared action, so it is the one contributor inherits.
+    await page.getByTestId("edge-invite-group-preview-toggle-contributor").click();
+    const preview = page.getByTestId("edge-invite-group-preview-contributor");
+    await preview.getByTestId("edge-invite-group-preview-contributor-category-repository").locator("summary").click();
+    const inheritedAction = preview.getByText("repository-read", { exact: true }).first();
+    assert.ok(await inheritedAction.isVisible(), "preview names the inherited action");
+    await page.getByTestId("edge-invite-group-preview-toggle-contributor").click();
+    await preview.waitFor({ state: "detached" });
     await shot("edge-invite-new-member");
     await page.getByTestId("edge-invite-issue").click();
 

@@ -12,8 +12,10 @@ import {
 } from "../../edge-invite-client.ts";
 import type { EdgeJoinIssued } from "../../../api/access-admin-contract.ts";
 import type { SystemRepoRow } from "../../api-client.ts";
+import { roleLabel } from "../../access-model.ts";
 import { CopyContextButton } from "../../components/CopyContextButton.tsx";
 import { Row } from "../../components/ui/widgets.tsx";
+import { GroupScopePreview } from "../../components/identityAccess/GroupScopePreview.tsx";
 import { Section } from "../../components/primitives/Section.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";
@@ -42,6 +44,7 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
     [nodeLabel, setNodeLabel] = useState(""),
     [selectedRepoIds, setSelectedRepoIds] = useState<readonly string[]>([]),
     [selectedGroupIds, setSelectedGroupIds] = useState<readonly string[]>([]),
+    [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set()),
     [issued, setIssued] = useState<EdgeJoinIssued | null>(null),
     [feedback, setFeedback] = useState<string | null>(null);
   const groupQuery = useQuery({ queryKey: ["edge-join", "groups"], queryFn: fetchEdgeJoinGroups }),
@@ -73,6 +76,7 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
       onSuccess: async () => await queryClient.invalidateQueries({ queryKey: ["edge-join", "list"] }),
     });
   const groups = groupQuery.data?.groups ?? [],
+    actions = groupQuery.data?.actions ?? [],
     people = peopleQuery.data?.people ?? [],
     selectedPerson = people.find((person) => person.personId === selected),
     matches = people.filter((person) =>
@@ -265,24 +269,58 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
           <legend className="px-1 font-mono ui-meta text-text-muted">
             {t("views.repositories.inviteGroupsLabel")}
           </legend>
-          {groups.map((group) => (
-            <label key={group.id} className="flex items-center gap-2 ui-meta text-text">
-              <input
-                data-testid={`edge-invite-group-${group.id}`}
-                type="checkbox"
-                checked={selectedGroupIds.includes(group.id)}
-                onChange={(event) =>
-                  setSelectedGroupIds((current) =>
-                    event.target.checked
-                      ? [...new Set([...current, group.id])]
-                      : current.filter((groupId) => groupId !== group.id),
-                  )
-                }
-              />
-              <span>{group.displayName}</span>
-              <span className="font-mono text-text-faint">{group.id}</span>
-            </label>
-          ))}
+          {groups.map((group) => {
+            // Base groups carry the raw id as their display name, so the localized role label
+            // reads better — and the mono id chip stays only when the label does not spell it.
+            const label = roleLabel(group.id, group.displayName);
+            return (
+              <div key={group.id} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 ui-meta text-text">
+                  <label className="flex items-center gap-2">
+                    <input
+                      data-testid={`edge-invite-group-${group.id}`}
+                      type="checkbox"
+                      checked={selectedGroupIds.includes(group.id)}
+                      onChange={(event) =>
+                        setSelectedGroupIds((current) =>
+                          event.target.checked
+                            ? [...new Set([...current, group.id])]
+                            : current.filter((groupId) => groupId !== group.id),
+                        )
+                      }
+                    />
+                    <span>{label}</span>
+                    {label.toLowerCase().includes(group.id.toLowerCase()) ? null : (
+                      <span className="font-mono text-text-faint">{group.id}</span>
+                    )}
+                  </label>
+                  <button
+                    type="button"
+                    data-testid={`edge-invite-group-preview-toggle-${group.id}`}
+                    aria-expanded={expandedGroups.has(group.id)}
+                    className="text-text-faint underline decoration-dotted ui-meta"
+                    onClick={() =>
+                      setExpandedGroups((current) => {
+                        const next = new Set(current);
+                        if (next.has(group.id)) next.delete(group.id);
+                        else next.add(group.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {t(
+                      expandedGroups.has(group.id)
+                        ? "views.repositories.inviteGroupPreviewHide"
+                        : "views.repositories.inviteGroupPreviewShow",
+                    )}
+                  </button>
+                </div>
+                {expandedGroups.has(group.id) ? (
+                  <GroupScopePreview group={group} groups={groups} actions={actions} />
+                ) : null}
+              </div>
+            );
+          })}
           {groupQuery.isLoading ? (
             <p className="ui-meta text-text-faint">{t("views.repositories.inviteLoadingGroups")}</p>
           ) : null}
