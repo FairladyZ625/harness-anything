@@ -17,6 +17,7 @@ import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fix
 import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
+import { activeCutReviewDispatches } from "../src/task-review-dispatch.ts";
 
 // The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
 const overGuiWire = (receipt: object) =>
@@ -752,6 +753,32 @@ test(
     }
   },
 );
+
+test("active cut review lookup skips historical reviewer rows without dispatchKey", () => {
+  const cell = {
+      projection: {
+        readRuntimeDispatchesByTaskExecution: () => [
+          { event: { payload: { role: "reviewer", dispatchKey: undefined } } },
+        ],
+      },
+    } as unknown as Parameters<typeof activeCutReviewDispatches>[0],
+    execution = {
+      taskId,
+      executionId,
+      iteration: 0,
+      submission: {
+        commitSha: null,
+        artifacts: [],
+        completionClaim: "test",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: [],
+        knownGaps: [],
+        residualRisks: [],
+      },
+    } as unknown as Parameters<typeof activeCutReviewDispatches>[2];
+  assert.deepEqual(activeCutReviewDispatches(cell, taskId, execution), []);
+});
 
 test(
   "a fresh dispatch-review step names the dispatched agent and its runtime instance",

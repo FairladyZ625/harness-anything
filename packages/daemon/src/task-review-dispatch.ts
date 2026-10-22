@@ -660,12 +660,16 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
 }
 
 /** A task cut can have only one active primary reviewer, including keys written before migration. */
-function activeCutReviewDispatches(cell: RepoCellOperationalContext, taskId: string, execution: ExecutionV1) {
+export function activeCutReviewDispatches(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  execution: ExecutionV1,
+): ReturnType<RepoCellOperationalContext["projection"]["readRuntimeDispatchesByTaskExecution"]> {
   const baseKey = reviewDispatchKey(taskId, execution);
   return cell.projection.readRuntimeDispatchesByTaskExecution(taskId, execution.executionId).filter(({ event }) => {
     const payload = event.payload,
       key = payload.dispatchKey,
-      suffix = key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
+      suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
       isCutReviewKey =
         suffix === "" ||
         suffix?.startsWith(":reviewer:") === true ||

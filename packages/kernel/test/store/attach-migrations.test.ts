@@ -113,10 +113,10 @@ test("attach migration registry covers each retired historical field and is idem
     "runtime.reviewDispatchKey",
     "vertical.completion.sources",
   ]);
-  assert.equal(events.length, 10);
+  assert.equal(events.length, 12);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 10);
+  assert.equal(events.length, 12);
 });
 
 test("historical reviewer dispatch key normalization preserves all dispatch identities and ignores other lanes", () => {
@@ -156,6 +156,22 @@ test("historical reviewer dispatch key normalization preserves all dispatch iden
   assert.equal(migrated.payload.dispatchId, "dispatch-original");
   assert.equal(migrated.payload.runtimeSessionId, "runtime-original");
   assert.deepEqual(normalizeHistoricalEvent(migrated as unknown as PersistedCanonicalEventV1), migrated);
+  const { dispatchKey: legacyIdempotencyKey, ...payloadWithoutDispatchKey } = legacy.payload,
+    oldSpelling = {
+      ...legacy,
+      payload: { ...payloadWithoutDispatchKey, idempotencyKey: legacyIdempotencyKey },
+    } as unknown as PersistedCanonicalEventV1,
+    migration = attachMigrationRegistry.find(({ name }) => name === "runtime.reviewDispatchKey");
+  assert.ok(migration);
+  assert.equal(migration.matches(oldSpelling), true, "attach detects the old idempotencyKey spelling");
+  const normalizedOldSpelling = normalizeHistoricalEvent(oldSpelling) as unknown as {
+    readonly payload: Readonly<Record<string, unknown>>;
+  };
+  assert.equal(
+    normalizedOldSpelling.payload.dispatchKey,
+    `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}:reviewer:reviewer-b:attempt3`,
+  );
+  assert.equal(Object.hasOwn(normalizedOldSpelling.payload, "idempotencyKey"), false);
   const base = `task-review:task-a:execution-a:2:sha256:${"a".repeat(64)}`,
     keyAfter = (dispatchKey: string) => {
       const normalized = normalizeHistoricalEvent({
@@ -180,7 +196,14 @@ test("historical reviewer dispatch key normalization preserves all dispatch iden
     ...legacy,
     payload: { ...legacy.payload, dispatchKey: "task-review-lane:task-a:execution-a:data-migration" },
   } as unknown as PersistedCanonicalEventV1;
-  assert.equal(normalizeHistoricalEvent(pathLane), pathLane);
+  assert.deepEqual(normalizeHistoricalEvent(pathLane), pathLane);
+  const { dispatchKey: laneIdempotencyKey, ...pathPayloadWithoutDispatchKey } = pathLane.payload,
+    legacyPathLane = {
+      ...pathLane,
+      payload: { ...pathPayloadWithoutDispatchKey, idempotencyKey: laneIdempotencyKey },
+    } as unknown as PersistedCanonicalEventV1;
+  assert.equal(migration.matches(legacyPathLane), false, "the cut-key migration excludes path-review lane keys");
+  assert.deepEqual(normalizeHistoricalEvent(legacyPathLane), legacyPathLane);
 });
 
 test("attach notices a retired source embedded in a task preset snapshot blob", () => {
