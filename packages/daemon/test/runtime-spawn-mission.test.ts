@@ -1,9 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import {
   continuationContext,
   continuationContextPrompt,
+  currentWorktreeHead,
   latestRuntimeContinuationSeed,
 } from "../src/runtime-continuation-context.ts";
 import {
@@ -70,6 +74,31 @@ test("continuation seed selects the newest archived dispatch across task executi
     lastConclusion: "latest conclusion",
     exitHead: "new-head",
   });
+});
+
+test("a malformed latest dispatch archive surfaces its parse error instead of falling back to older context", () => {
+  const projection = {
+    read: () => ({ packagePath: "tasks/task_x" }),
+    readRuntimeDispatchesByTaskExecution: () => [
+      {
+        event: {
+          payload: { taskId: "task_x", executionId: "execution_x", dispatchId: "dispatch_0123456789abcdef01234567" },
+          occurredAt: "2026-10-22T00:00:00Z",
+        },
+      },
+    ],
+    readDocument: () => ({ document: { body: "{" } }),
+  } as never;
+  assert.throws(() => latestRuntimeContinuationSeed(projection, "task_x", ["execution_x"]), SyntaxError);
+});
+
+test("a Git worktree without a HEAD returns unavailable", async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "ha-runtime-continuation-no-head-"));
+  try {
+    assert.equal(await currentWorktreeHead(cwd), null);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("task mission includes the previous conclusion and compares it with current HEAD", async () => {

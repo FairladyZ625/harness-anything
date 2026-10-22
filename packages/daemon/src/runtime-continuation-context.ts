@@ -1,5 +1,5 @@
-import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
-import { runProcessTextAsync } from "./process-port.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
+import { runProcessExitAsync } from "./process-port.ts";
 
 /** The bounded context a later dispatch needs from a stopped provider session. */
 export interface RuntimeContinuationContext {
@@ -62,46 +62,35 @@ export function latestRuntimeContinuationSeed(
       `${packagePath}/artifacts/dispatches/${row.event.payload.dispatchId}.json`,
     ).document;
     if (document === null) continue;
-    try {
-      const value: unknown = JSON.parse(document.body);
-      if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
-      const archive = value as {
-        readonly schema?: unknown;
-        readonly lastConclusion?: unknown;
-        readonly exitHead?: unknown;
-      };
-      if (archive.schema !== "runtime-dispatch/v1") continue;
-      return {
-        dispatchId: row.event.payload.dispatchId,
-        lastConclusion: typeof archive.lastConclusion === "string" ? archive.lastConclusion : null,
-        exitHead: typeof archive.exitHead === "string" ? archive.exitHead : null,
-      };
-    } catch (error) {
-      consumeKnownError(error);
-    }
+    const value: unknown = JSON.parse(document.body);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+    const archive = value as {
+      readonly schema?: unknown;
+      readonly lastConclusion?: unknown;
+      readonly exitHead?: unknown;
+    };
+    if (archive.schema !== "runtime-dispatch/v1") continue;
+    return {
+      dispatchId: row.event.payload.dispatchId,
+      lastConclusion: typeof archive.lastConclusion === "string" ? archive.lastConclusion : null,
+      exitHead: typeof archive.exitHead === "string" ? archive.exitHead : null,
+    };
   }
   return null;
 }
 
 /** A task worktree can be absent on an edge or for a task package; that is a measured unavailable value. */
 export async function currentWorktreeHead(cwd: string): Promise<string | null> {
-  try {
-    const head = await runProcessTextAsync(
-      "git",
-      ["-C", cwd, "rev-parse", "HEAD"],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      {
-        timeoutMs: 5_000,
-      },
-    );
-    return head.trim() || null;
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
+  const result = await runProcessExitAsync(
+    "git",
+    ["-C", cwd, "rev-parse", "HEAD"],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { timeoutMs: 5_000 },
+  );
+  return result.exitCode === 0 ? result.stdout.trim() || null : null;
 }
 
 export function boundedRuntimeConclusion(value: string | null): string | null {
