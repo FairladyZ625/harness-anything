@@ -383,6 +383,10 @@ describe("repositories and connections page", () => {
     await settle(8);
     expect(container.querySelector('[data-testid="edge-invite-issue"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="edge-invite-person-select"]')).not.toBeNull();
+    // The repo checkbox reads by its display name, the same source as the tree on the left.
+    expect(
+      container.querySelector('[data-testid="edge-invite-repo-local-repo"]')?.closest("label")?.textContent,
+    ).toContain("Local Repo");
     // Reached without ever selecting the center node: the entry is the destination itself.
     expect(container.querySelector('[data-testid="center-connection-panel"]')).toBeNull();
     expect(bridge.centerSettings.listener).toHaveBeenCalled();

@@ -11,6 +11,7 @@ import {
   type EdgeInvitePerson,
 } from "../../edge-invite-client.ts";
 import type { EdgeJoinIssued } from "../../../api/access-admin-contract.ts";
+import type { SystemRepoRow } from "../../api-client.ts";
 import { CopyContextButton } from "../../components/CopyContextButton.tsx";
 import { Row } from "../../components/ui/widgets.tsx";
 import { Section } from "../../components/primitives/Section.tsx";
@@ -31,7 +32,7 @@ const NEW_MEMBER = "__new__";
  * (their id comes along, never typed); a new member is created by the same daemon write, so their
  * member id is derived from the username they type.
  */
-export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly repoId: string }[] }) {
+export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepoRow[] }) {
   const queryClient = useQueryClient(),
     [selected, setSelected] = useState(""),
     [search, setSearch] = useState(""),
@@ -236,23 +237,28 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly
           {repos.length === 0 ? (
             <p className="ui-meta text-text-faint">{t("views.repositories.inviteNoRepos")}</p>
           ) : (
-            repos.map((repo) => (
-              <label key={repo.repoId} className="flex items-center gap-2 ui-meta text-text">
-                <input
-                  data-testid={`edge-invite-repo-${repo.repoId}`}
-                  type="checkbox"
-                  checked={selectedRepoIds.includes(repo.repoId)}
-                  onChange={(event) =>
-                    setSelectedRepoIds((current) =>
-                      event.target.checked
-                        ? [...new Set([...current, repo.repoId])]
-                        : current.filter((repoId) => repoId !== repo.repoId),
-                    )
-                  }
-                />
-                <span className="font-mono">{repo.repoId}</span>
-              </label>
-            ))
+            repos.map((repo) => {
+              // Same label source as the local list in the tree: displayName, falling back to the id.
+              const label = repo.displayName || repo.repoId;
+              return (
+                <label key={repo.repoId} className="flex items-center gap-2 ui-meta text-text">
+                  <input
+                    data-testid={`edge-invite-repo-${repo.repoId}`}
+                    type="checkbox"
+                    checked={selectedRepoIds.includes(repo.repoId)}
+                    onChange={(event) =>
+                      setSelectedRepoIds((current) =>
+                        event.target.checked
+                          ? [...new Set([...current, repo.repoId])]
+                          : current.filter((repoId) => repoId !== repo.repoId),
+                      )
+                    }
+                  />
+                  <span>{label}</span>
+                  {repo.repoId !== label ? <span className="font-mono text-text-faint">{repo.repoId}</span> : null}
+                </label>
+              );
+            })
           )}
         </fieldset>
         <fieldset className="flex flex-col gap-1 rounded border border-border px-3 py-2">
