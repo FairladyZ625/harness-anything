@@ -37,6 +37,7 @@ import artifactsSpreadsheetPreview from "./scenarios/artifacts-spreadsheet-previ
 import settings from "./scenarios/settings-appearance.mjs";
 import edgeInvite from "./scenarios/edge-invite.mjs";
 import edgeInviteEntry from "./scenarios/edge-invite-entry.mjs";
+import centerServiceStart from "./scenarios/center-service-start.mjs";
 import edgeJoinEntry from "./scenarios/edge-join-entry.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
@@ -104,6 +105,7 @@ export const catalog = [
   settings,
   edgeInvite,
   edgeInviteEntry,
+  centerServiceStart,
   edgeJoinEntry,
   declaredEntityKinds,
   systemDaemonLogs,

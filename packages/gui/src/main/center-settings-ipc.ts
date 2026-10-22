@@ -34,6 +34,34 @@ export function registerCenterSettingsIpc(
       if (Object.keys(record).length !== 1) throw new Error("Center settings listener takes no fields.");
       return ports.daemonRequest({ operation: "listener" }).then(sanitizeListenerReply);
     }
+    if (operation === "fleet-status") {
+      if (Object.keys(record).length !== 1) throw new Error("Center fleet status takes no fields.");
+      return ports.fleetRequest("daemon.fleet.center.read", { payload: {} });
+    }
+    if (operation === "center-start") {
+      const allowed = ["operation", "port", "repoId", "quotaBytes", "bind", "externalUrl"];
+      const unknown = Object.keys(record).filter((key) => !allowed.includes(key));
+      if (unknown.length > 0) throw new Error(`Center start does not take ${unknown.join(", ")}.`);
+      if (!Number.isInteger(record.port) || Number(record.port) < 1 || Number(record.port) > 65535)
+        throw new Error("Center start port must be an integer between 1 and 65535.");
+      if (typeof record.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(record.repoId))
+        throw new Error("Center start requires one authority repository id.");
+      if (!Number.isSafeInteger(record.quotaBytes) || Number(record.quotaBytes) <= 0)
+        throw new Error("Center start requires a positive integer mirror quota.");
+      if (record.bind !== "0.0.0.0" && record.bind !== "127.0.0.1")
+        throw new Error("Center start binds either all interfaces or loopback only.");
+      if (record.externalUrl !== undefined && (typeof record.externalUrl !== "string" || record.externalUrl === ""))
+        throw new Error("Center start external address must be an HTTPS origin.");
+      return ports.fleetRequest("daemon.fleet.center.start", {
+        payload: {
+          port: record.port as number,
+          repoId: record.repoId,
+          quotaBytes: record.quotaBytes as number,
+          bind: record.bind,
+          ...(typeof record.externalUrl === "string" ? { externalUrl: record.externalUrl } : {}),
+        },
+      });
+    }
     if (operation === "external-address") {
       if (Object.keys(record).length !== 1) throw new Error("Center external-address read takes no fields.");
       return ports.fleetRequest("daemon.fleet.center.external-address.read", { payload: {} });

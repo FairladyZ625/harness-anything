@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Desktop, HardDrives, Plus, Sailboat, UserPlus } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
@@ -13,6 +14,7 @@ import {
   type ConnectionTreeNode,
   type TreeSelection,
 } from "./connectionTree.ts";
+import { centerDefaultPort, centerMirrorQuotaBytes } from "./centerService.ts";
 import { AddLocalRepositoryPanel } from "./AddLocalRepositoryPanel.tsx";
 import { ConnectionDetailPanel } from "./ConnectionDetailPanel.tsx";
 import { InviteMembersSurface } from "./InviteMembersSurface.tsx";
@@ -190,7 +192,17 @@ export function RepositoriesAndConnectionsView({
                   />
                 );
               if (node.nodeId === "center")
-                return <CenterConnectionPanel connections={connections} repos={node.repos} onInvite={openInvite} />;
+                return (
+                  <CenterConnectionPanel
+                    connections={connections}
+                    repos={node.repos}
+                    authorityRepos={repos.filter(
+                      (repo) =>
+                        repo.registrationState === "enabled" && repo.canonicalRoot !== null && repo.mode === "local",
+                    )}
+                    onInvite={openInvite}
+                  />
+                );
               return (
                 <ConnectionDetailPanel
                   mode="edit"
@@ -303,21 +315,28 @@ function ConnectionTreeNode({
 }
 
 /**
- * 中心连接面板(设计稿 §3.2):中心登录服务证书由 daemon 持久化,renderer 只传文件路径,
- * 私钥内容永远不进入 GUI。邀请不再挂在这里:它有自己的页顶入口和详情面(task_aebe0026),
+ * 中心连接面板(设计稿 §3.2):三层事实从上到下——中心服务(监听状态与开启入口)、
+ * 对外地址、登录服务证书。中心服务的开启复用 daemon 的 fleet center start 协议命令,
+ * 证书不出现界面上:daemon 沿用登录服务已管理的证书对,私钥路径不出 daemon。
+ * 登录证书由 daemon 持久化,renderer 只传文件路径,私钥内容永远不进入 GUI。
+ * 邀请不再挂在这里:它有自己的页顶入口和详情面(task_aebe0026),
  * 本面板只保留证书与中心连接事实,并给不熟悉「中心节点」的人一条去邀请的次入口。
  */
 function CenterConnectionPanel({
   connections,
   repos,
+  authorityRepos,
   onInvite,
 }: {
   readonly connections: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly displayName: string }>;
   readonly repos: readonly SystemRepoRow[];
+  /** 启动中心服务时的权威仓候选:已启用、有本机台账的 local 仓。 */
+  readonly authorityRepos: readonly SystemRepoRow[];
   readonly onInvite: () => void;
 }) {
   const centers = connections.filter((connection) => connection.kind === "fleet-center");
   const centerSettings = guiHostBridge()?.centerSettings;
+  const queryClient = useQueryClient();
   const [settings, setSettings] = useState<CenterListenerSettings | null>(null);
   const [mode, setMode] = useState<CertificateMode>("self-signed");
   const [hostname, setHostname] = useState("");
@@ -327,6 +346,65 @@ function CenterConnectionPanel({
   const [externalUrl, setExternalUrl] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [servicePort, setServicePort] = useState(String(centerDefaultPort));
+  const [serviceRepoId, setServiceRepoId] = useState("");
+  const [serviceBind, setServiceBind] = useState("0.0.0.0");
+  const serviceFormInitialized = useRef(false);
+  const fleetStatus = useQuery({
+    queryKey: ["center", "fleet-status"],
+    queryFn: () => centerSettings!.fleetStatus(),
+    enabled: centerSettings !== undefined,
+  });
+  const service = fleetStatus.data,
+    serviceRunning = service !== undefined && service.ok === true && service.running;
+  // 表单只在首个确定状态到达时取一次保存值;之后用户怎么改都不被查询结果覆盖。
+  useEffect(() => {
+    if (serviceFormInitialized.current || service === undefined || service.ok !== true) return;
+    serviceFormInitialized.current = true;
+    setServicePort(String(service.port ?? centerDefaultPort));
+    setServiceBind(service.bind === "127.0.0.1" ? "127.0.0.1" : "0.0.0.0");
+    if (service.repoId !== null && authorityRepos.some((repo) => repo.repoId === service.repoId))
+      setServiceRepoId(service.repoId);
+    else if (authorityRepos.length === 1) setServiceRepoId(authorityRepos[0]!.repoId);
+  }, [service, authorityRepos]);
+  const startCenter = useMutation({
+    mutationFn: (input: Parameters<NonNullable<typeof centerSettings>["startCenter"]>[0]) =>
+      centerSettings!.startCenter(input),
+    onSuccess: async (result) => {
+      const started =
+        result.ok === true && result.port !== undefined
+          ? t("views.repositories.centerServiceStarted", { port: String(result.port) })
+          : t("views.repositories.centerServiceStartedPlain");
+      // 可达性警告与成功同现时一起说:地址已保存,但本机 hairpin NAT 探测不通是事实。
+      setStatus(
+        result.ok === true && result.externalAddressWarning ? `${started} ${result.externalAddressWarning}` : started,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["center", "fleet-status"] });
+    },
+    onError: (error) => setStatus(error instanceof Error ? error.message : String(error)),
+  });
+  const startService = () => {
+    const portNumber = Number(servicePort);
+    if (centerSettings === undefined || !Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
+      setStatus(t("views.repositories.centerServicePortInvalid"));
+      return;
+    }
+    if (serviceRepoId === "") {
+      setStatus(t("views.repositories.centerServiceNoRepo"));
+      return;
+    }
+    setStatus(null);
+    startCenter.mutate({
+      port: portNumber,
+      repoId: serviceRepoId,
+      quotaBytes:
+        service !== undefined && service.ok === true && service.quotaBytes !== null
+          ? service.quotaBytes
+          : centerMirrorQuotaBytes,
+      bind: serviceBind,
+      ...(externalUrl.trim() !== "" ? { externalUrl: externalUrl.trim() } : {}),
+    });
+  };
   useEffect(() => {
     if (!centerSettings) return;
     void Promise.all([centerSettings.listener(), centerSettings.externalAddress()])
@@ -442,6 +520,109 @@ function CenterConnectionPanel({
             </dd>
           </div>
         </dl>
+        {centerSettings ? (
+          <div className="border-t border-border px-3 py-3">
+            <h3 className="ui-meta font-medium text-text">{t("views.repositories.centerServiceTitle")}</h3>
+            <p className="mt-1 ui-micro text-text-muted">{t("views.repositories.centerServiceSummary")}</p>
+            {fleetStatus.isPending ? (
+              <p data-testid="center-service-status" className="mt-2 ui-micro text-text-faint">
+                {t("views.repositories.inviteEntryChecking")}
+              </p>
+            ) : fleetStatus.isError ? (
+              <p data-testid="center-service-status" className="mt-2 ui-micro text-status-blocked" role="status">
+                {fleetStatus.error instanceof Error ? fleetStatus.error.message : String(fleetStatus.error)}
+              </p>
+            ) : service !== undefined && service.ok === false ? (
+              <p data-testid="center-service-status" className="mt-2 ui-micro text-status-blocked" role="status">
+                {service.rejectionExplanation ?? service.code}
+              </p>
+            ) : serviceRunning && service !== undefined && service.ok === true ? (
+              <p data-testid="center-service-status" className="mt-2 font-mono ui-meta text-text">
+                {t("views.repositories.centerServiceRunning", {
+                  port: String(service.port ?? "?"),
+                  bind: service.bind ?? "?",
+                })}
+                {service.externalUrl !== null
+                  ? t("views.repositories.centerServiceExternal", { url: service.externalUrl })
+                  : t("views.repositories.centerServiceExternalNone")}
+                {service.certificateSource === "login-listener"
+                  ? t("views.repositories.centerServiceCertificateReused")
+                  : t("views.repositories.centerServiceCertificateExplicit")}
+              </p>
+            ) : (
+              <p data-testid="center-service-status" className="mt-2 font-mono ui-meta text-status-blocked">
+                {t("views.repositories.centerServiceStopped")}
+              </p>
+            )}
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <label className="ui-meta">
+                {t("views.repositories.centerServicePort")}
+                <input
+                  data-testid="center-service-port"
+                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                  value={servicePort}
+                  onChange={(event) => setServicePort(event.target.value)}
+                  inputMode="numeric"
+                />
+              </label>
+              <label className="ui-meta">
+                {t("views.repositories.centerServiceRepo")}
+                <select
+                  data-testid="center-service-repo"
+                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                  value={serviceRepoId}
+                  onChange={(event) => setServiceRepoId(event.target.value)}
+                >
+                  {authorityRepos.length === 0 ? <option value="">{t("views.repositories.centerNone")}</option> : null}
+                  {authorityRepos.map((repo) => (
+                    <option key={repo.repoId} value={repo.repoId}>
+                      {repo.displayName || repo.repoId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="ui-meta">
+                {t("views.repositories.centerServiceBind")}
+                <select
+                  data-testid="center-service-bind"
+                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                  value={serviceBind}
+                  onChange={(event) => setServiceBind(event.target.value)}
+                >
+                  <option value="0.0.0.0">{t("views.repositories.centerServiceBindAll")}</option>
+                  <option value="127.0.0.1">{t("views.repositories.centerServiceBindLoopback")}</option>
+                </select>
+              </label>
+            </div>
+            <p className="mt-2 ui-micro text-text-faint">
+              {t("views.repositories.centerServiceQuota", {
+                gb: String(
+                  Math.round(
+                    ((service !== undefined && service.ok === true && service.quotaBytes !== null
+                      ? service.quotaBytes
+                      : centerMirrorQuotaBytes) /
+                      1024 ** 3) *
+                      10,
+                  ) / 10,
+                ),
+              })}
+              {t("views.repositories.centerServiceExternalHint")}
+            </p>
+            <button
+              type="button"
+              data-testid="center-service-start"
+              disabled={startCenter.isPending || authorityRepos.length === 0}
+              className="mt-2 rounded bg-accent px-3 py-1.5 ui-meta text-white disabled:opacity-50"
+              onClick={startService}
+            >
+              {startCenter.isPending
+                ? t("views.repositories.centerServiceStarting")
+                : serviceRunning
+                  ? t("views.repositories.centerServiceRestart")
+                  : t("views.repositories.centerServiceStart")}
+            </button>
+          </div>
+        ) : null}
         <div className="border-t border-border px-3 py-3">
           <h3 className="ui-meta font-medium text-text">{t("views.repositories.centerExternalAddressTitle")}</h3>
           <p className="mt-1 ui-micro text-text-muted">{t("views.repositories.centerExternalAddressHint")}</p>

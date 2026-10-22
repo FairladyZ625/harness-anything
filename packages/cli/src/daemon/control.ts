@@ -299,12 +299,19 @@ async function fleetControl(
       "unsupported_command",
       "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
     );
-  const required = center ? ["--port", "--key", "--cert", "--repo", "--quota-bytes"] : [],
+  // The TLS certificate pair is optional: an omitted pair makes the daemon reuse the login
+  // service listener certificate, which is the only source a human user can be expected to have.
+  const required = center ? ["--port", "--repo", "--quota-bytes"] : [],
     missing = required.filter((name) => !flag(name));
   if (missing.length > 0)
     return reject(
       "missing_field",
       `Add ${missing.join(" ")} to ${center ? "start the fleet TLS center" : "mirror the fleet center ledger"}.`,
+    );
+  if (center && (flag("--key") === undefined) !== (flag("--cert") === undefined))
+    return reject(
+      "invalid_field",
+      "Pass --key and --cert together, or neither to reuse the login service certificate.",
     );
   const edgeTarget = edge
     ? await resolveLocalDaemonTarget({
@@ -361,8 +368,8 @@ async function fleetControl(
   }
   const centerPayload = () => ({
     port: Number(flag("--port")),
-    keyPath: path.resolve(flag("--key")!),
-    certPath: path.resolve(flag("--cert")!),
+    ...(flag("--key") ? { keyPath: path.resolve(flag("--key")!) } : {}),
+    ...(flag("--cert") ? { certPath: path.resolve(flag("--cert")!) } : {}),
     repoId: flag("--repo"),
     quotaBytes: Number(flag("--quota-bytes")),
     ...(flag("--bind") ? { bind: flag("--bind") } : {}),

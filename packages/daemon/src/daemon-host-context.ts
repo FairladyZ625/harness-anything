@@ -148,6 +148,11 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     repoId: string,
     mode?: DaemonRepoMode,
   ) => Promise<ReturnType<typeof registerDaemonRepo>>;
+  /** The login listener's certificate pair for TLS surfaces without their own explicit certificate. */
+  readonly loginListenerCertificate: () => {
+    readonly certificateFile: string;
+    readonly certificateKeyFile: string;
+  } | null;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly oidc: import("./oidc-session-service.ts").OidcSessionService;

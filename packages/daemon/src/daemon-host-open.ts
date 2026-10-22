@@ -124,7 +124,7 @@ export interface DaemonHostOpenInput {
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: OidcSessionService;
   /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
-  readonly managedRbac?: Pick<ManagedRbacService, "run" | "resume" | "stop">;
+  readonly managedRbac?: Pick<ManagedRbacService, "run" | "resume" | "stop" | "loginListenerCertificate">;
   readonly attachTimeoutMs?: number;
   readonly openCell?: (
     input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
@@ -603,6 +603,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     };
   };
   const accessAdminRef: { current: AccessAdminService | null } = { current: null };
+  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot);
   const hostContext: DaemonHostApiContext = {
     remoteProxy,
     cells,
@@ -616,6 +617,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakCenter,
     keycloakSession,
     oidc,
+    loginListenerCertificate: () => managedRbac.loginListenerCertificate(),
     get accessAdmin() {
       return accessAdminRef.current!;
     },
@@ -691,7 +693,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
-  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot);
   // A node removal settles in the access-admin queue; the fleet center owns the node's
   // live TLS sessions, so the settled cut is handed from one to the other here.
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {

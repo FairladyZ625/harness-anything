@@ -283,6 +283,36 @@ export function createDaemonHostRuntimeApi(
         await authorizeCenterConfiguration(config.repoId, auth);
         return { ok: true, externalUrl: config.externalUrl ?? null };
       },
+      // The read the GUI's center panel and invite entry consult: an honest running flag (the live
+      // listener, not the saved config) plus the fields the panel displays. A saved config whose
+      // restore failed reports running=false — that machine still needs an authorized start.
+      readCenterState: async (auth) => {
+        const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
+        if (!config)
+          return {
+            ok: true,
+            running: false,
+            port: null,
+            bind: null,
+            externalUrl: null,
+            repoId: null,
+            quotaBytes: null,
+            certificateSource: null,
+          };
+        await authorizeCenterConfiguration(config.repoId, auth);
+        const loginListener = context.loginListenerCertificate();
+        return {
+          ok: true,
+          running: context.fleetCenter !== null,
+          port: config.port,
+          bind: config.bind,
+          externalUrl: config.externalUrl ?? null,
+          repoId: config.repoId,
+          quotaBytes: config.quotaBytes,
+          certificateSource:
+            loginListener !== null && loginListener.certificateFile === config.certPath ? "login-listener" : "explicit",
+        };
+      },
       setCenterExternalAddress: async (payload, auth) => {
         if (centerStarting)
           throw context.hostCodedError(
@@ -327,8 +357,28 @@ export function createDaemonHostRuntimeApi(
           );
         centerStarting = true;
         try {
-          const rawRequest = payload as unknown as FleetCenterAdmissionRequest["payload"],
-            authorityRepoId = rawRequest.repoId,
+          // A start without an explicit certificate reuses the login service's listener pair; the
+          // private-key path is resolved daemon-side and never crosses a transport. Both paths or
+          // neither — half a pair is a caller's mistake, not a defaultable state.
+          const rawRequest = payload as unknown as FleetCenterAdmissionRequest["payload"];
+          if ((rawRequest.keyPath === undefined) !== (rawRequest.certPath === undefined))
+            throw context.hostCodedError(
+              "invalid_field",
+              "Fleet TLS takes --key and --cert together; pass both, or neither to reuse the login service certificate.",
+            );
+          const loginListener = rawRequest.keyPath === undefined ? context.loginListenerCertificate() : null;
+          const certificate =
+            rawRequest.keyPath !== undefined
+              ? { keyPath: rawRequest.keyPath, certPath: rawRequest.certPath as string }
+              : loginListener !== null
+                ? { keyPath: loginListener.certificateKeyFile, certPath: loginListener.certificateFile }
+                : null;
+          if (certificate === null)
+            throw context.hostCodedError(
+              "rbac_listener_invalid",
+              "The start carried no certificate and the login service has no listener certificate to reuse; configure the login listener first, or pass --key and --cert.",
+            );
+          const authorityRepoId = rawRequest.repoId,
             authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
               (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
                 repo.repoId === authorityRepoId &&
@@ -351,10 +401,12 @@ export function createDaemonHostRuntimeApi(
           const externalUrl =
               rawRequest.externalUrl ??
               readFleetCenterConfig(context.input.userRoot, context.input.daemonId)?.externalUrl,
-            request =
-              externalUrl === undefined
-                ? rawRequest
-                : { ...rawRequest, externalUrl: parseFleetCenterExternalUrl(externalUrl) };
+            request = {
+              ...rawRequest,
+              keyPath: certificate.keyPath,
+              certPath: certificate.certPath,
+              ...(externalUrl === undefined ? {} : { externalUrl: parseFleetCenterExternalUrl(externalUrl) }),
+            };
           const prepared = await prepareFleetCenterAdmission({
             host: context.host,
             buildDraining: context.input.buildDraining,

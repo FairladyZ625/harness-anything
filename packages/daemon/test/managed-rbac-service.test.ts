@@ -473,6 +473,21 @@ test("the self-signed certificate mode generates a private listener certificate 
     assert.doesNotThrow(() =>
       validateCertificateNames(readFileSync(config.listener.certificateFile), ["127.0.0.1", "center.example.test"]),
     );
+    // The daemon-side pair read for TLS surfaces without their own certificate: same files the
+    // listener was configured with, null once the listener is removed again.
+    const pair = managed.service.loginListenerCertificate();
+    assert.equal(pair?.certificateFile, config.listener.certificateFile);
+    assert.equal(pair?.certificateKeyFile, config.listener.certificateKeyFile);
+    assert.equal(
+      (
+        await managed.service.run({
+          operation: "listener-set",
+          expectedVersion: await managed.version(),
+        })
+      ).ok,
+      true,
+    );
+    assert.equal(managed.service.loginListenerCertificate(), null);
   } finally {
     await managed.close();
   }
