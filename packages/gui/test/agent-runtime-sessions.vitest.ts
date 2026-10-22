@@ -535,6 +535,34 @@ describe("session detail achieved first", () => {
     expect(raw).toContain("narration removed");
   });
 
+  it("never attributes another iteration's submission to a session that has not submitted", () => {
+    // 运行中的会话绑定了 execution-2,但任务里只有 execution-1 提交过:不能把上一轮的
+    // claim / 产物说成这一轮的(实测真实数据时发现的错误归属)。
+    const twoExec = [
+      {
+        executionId: "execution-1",
+        submittedAt: "2026-08-23T03:00:00.000Z",
+        submission: {
+          completionClaim: "Previous iteration claim.",
+          deliverables: ["old/file.ts"],
+          commitSha: "a".repeat(40),
+        },
+      },
+      { executionId: "execution-2", submittedAt: null, submission: null },
+    ];
+    const markup = detailView({
+      session: {
+        ...sessionDto,
+        associations: [{ taskId: "task_1994d52c", executionId: "execution-2", holder: null, lease: null }],
+      } as typeof sessionDto,
+      task: { packagePath: "tasks/task-1994", executions: twoExec, reviews: [] } as never,
+    });
+    expect(markup).not.toContain("Previous iteration claim.");
+    expect(markup).not.toContain("old/file.ts");
+    // 没有本轮结论时如实说没有,不用上一轮冒充。
+    expect(markup).toContain("Still running");
+  });
+
   it("wraps long conclusion lines instead of clipping them off the right edge", () => {
     // rt-pre 的 white-space:pre 会压掉 Tailwind 的 whitespace-pre-wrap(无层规则优先),
     // 长行右侧被裁就是这条层叠冲突;换行口径现在收在 .rt-pre-wrap 一处。

@@ -84,13 +84,12 @@ function ownExecution(executions: readonly Execution[] | undefined, executionId:
       (archived ? execution.archivedSubmission !== null : execution.submission !== null)
     );
   });
-  const own =
-    executionId === undefined || executionId === null
-      ? undefined
-      : submitted.find((execution) => execution.executionId === executionId);
-  return (
-    own ?? [...submitted].sort((left, right) => (right.submittedAt ?? "").localeCompare(left.submittedAt ?? ""))[0]
-  );
+  // 会话已绑定 executionId 时只认那一条,不再退到「最近一次提交」:退让会把上一轮迭代的
+  // 提交 claim 说成本轮结论——实测运行中的会话(runtime_8a5fd3c9…)因此显示了 iteration 0
+  // 的交付声明,而它自己还没有提交任何东西。没有绑定时才按最近一次提交退让。
+  if (executionId !== undefined && executionId !== null)
+    return submitted.find((execution) => execution.executionId === executionId);
+  return [...submitted].sort((left, right) => (right.submittedAt ?? "").localeCompare(left.submittedAt ?? ""))[0];
 }
 
 /**

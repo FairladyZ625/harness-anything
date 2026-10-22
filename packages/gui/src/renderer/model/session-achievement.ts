@@ -100,7 +100,7 @@ export type SessionOutput =
  */
 export function sessionOutputs(input: {
   readonly executions: NonNullable<TaskSnapshotProjectionRow["snapshot"]["executions"]> | undefined;
-  /** 本会话绑定的执行 id:优先这一条,缺记录时才退到最近一次提交。 */
+  /** 本会话绑定的执行 id:有绑定时只认这一条;没有绑定(历史会话)才退到最近一次提交。 */
   readonly executionId?: string | null;
   readonly reportPath: string | null | undefined;
 }): readonly SessionOutput[] {
@@ -112,12 +112,16 @@ export function sessionOutputs(input: {
       (archived ? execution.archivedSubmission !== null : execution.submission !== null)
     );
   });
-  const own =
+  // 会话已绑定执行时只认那一条:退到「最近一次提交」会把上一轮迭代的产物列成本轮的
+  // (实测运行中的会话显示 iteration 0 的交付文件,而它自己还没有提交)。
+  const bound =
     input.executionId === undefined || input.executionId === null
       ? undefined
       : submitted.find((execution) => execution.executionId === input.executionId);
   const latest =
-    own ?? [...submitted].sort((left, right) => (right.submittedAt ?? "").localeCompare(left.submittedAt ?? ""))[0];
+    input.executionId === undefined || input.executionId === null
+      ? [...submitted].sort((left, right) => (right.submittedAt ?? "").localeCompare(left.submittedAt ?? ""))[0]
+      : bound;
   if (latest !== undefined) {
     if ("archivedSubmission" in latest) {
       // 归档执行(v0)没有 commitSha 与 outputs,只有交付文件与证据引用:按能读到的字段出。
