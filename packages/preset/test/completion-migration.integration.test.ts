@@ -60,3 +60,21 @@ test("offline CLI converts the historical declaration without changing the sourc
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("offline CLI converts an old repository declaration that still stores codeDoc", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-completion-retired-closeout-"));
+  try {
+    const source = path.join(root, "old.json"),
+      destination = path.join(root, "new.json"),
+      historical = JSON.parse(sample("repository-after"));
+    historical.definition.completion.closeoutDefaults.codeDoc = true;
+    writeFileSync(source, JSON.stringify(historical));
+    assert.throws(() => parseVerticalDeclarationDocument(historical), /ha migrate completion/u);
+    const converted = invoke("--source", source, "--mode", "convert", "--destination", destination);
+    assert.equal(converted.status, 0, JSON.stringify(converted));
+    assert.deepEqual(JSON.parse(readFileSync(destination, "utf8")), JSON.parse(sample("repository-after")));
+    assert.deepEqual(JSON.parse(readFileSync(source, "utf8")), historical);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

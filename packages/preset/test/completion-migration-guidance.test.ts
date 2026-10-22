@@ -34,6 +34,13 @@ test("bare vertical conversion preserves explicit completion and rejects unmappe
   );
 });
 
+test("completion migration strips the retired closeout default from an old repository declaration", () => {
+  const historical = structuredClone(fixture("repository-after"));
+  historical.definition.completion.closeoutDefaults.codeDoc = true;
+  assert.throws(() => parseVerticalDeclarationDocument(historical), /ha migrate completion --help/u);
+  assert.deepEqual(convertCompletionDeclaration(historical), fixture("repository-after"));
+});
+
 test("unrelated profile errors keep field diagnostics without a completion migration hint", () => {
   const current = fixture("gui-development");
   for (const profile of current.profiles) delete profile.checkerProfile;

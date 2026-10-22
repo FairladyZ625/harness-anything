@@ -1,6 +1,7 @@
 import {
   decodeVerticalDefinition,
   isRetiredCodeDocRequirement,
+  normalizeHistoricalVerticalDocument,
   parseVerticalDeclarationDocument,
 } from "@harness-anything/kernel";
 import { isPresetResolutionRecord as record } from "./preset-resolver-common.ts";
@@ -21,13 +22,18 @@ const standardCompletion = {
 /** Explicit conversion only. Readers continue rejecting retired fields. */
 export function convertCompletionDeclaration(value: unknown): unknown {
   if (!record(value)) throw new Error("Completion migration requires a JSON object.");
-  if (value.schema === "repository-vertical-declaration/v1") {
-    const converted = { ...value, definition: convertCompletionDeclaration(value.definition) };
+  const historical = normalizeHistoricalVerticalDocument(
+    value.schema === "vertical-definition/v1" ? { definition: value } : value,
+  ) as Record<string, unknown>;
+  const current = value.schema === "vertical-definition/v1" ? historical.definition : historical;
+  if (!record(current)) throw new Error("Completion migration requires a JSON object.");
+  if (current.schema === "repository-vertical-declaration/v1") {
+    const converted = { ...current, definition: convertCompletionDeclaration(current.definition) };
     parseVerticalDeclarationDocument(converted);
     return converted;
   }
-  if (value.schema !== "vertical-definition/v1") throw new Error("Unsupported completion declaration schema.");
-  const { checkerProfile, ...converted } = value;
+  if (current.schema !== "vertical-definition/v1") throw new Error("Unsupported completion declaration schema.");
+  const { checkerProfile, ...converted } = current;
   if (checkerProfile !== undefined && checkerProfile !== "software-coding-standard")
     throw new Error(`No completion migration mapping for checkerProfile ${String(checkerProfile)}.`);
   if (converted.completion === undefined) {
