@@ -1,0 +1,9 @@
+# CEO format rendering probe
+
+Valid synthetic two-page PDF with real xref/font/text and a minimal OOXML DOCX with Chinese text and a table were generated locally. The actual candidate BinaryDocumentPreview and full product CSS rendered in hidden Electron; fixtures were passed as authorized-byte props, so this probe does not independently prove the upstream file authorization or remote transport.
+
+PDF rendered two canvases, first-page text visually confirmed, internal content height1945 vs viewport223. DOCX initially centered its816px sheet in730px wrapper, placing left=-8 and clipping the start; table cell inherited a light color under dark mode. CEO source commit82df8824a changes the shared Word preview skin: wrapper flex-start and table inherit color, canvas host black. Final sheet left65, table black, header and cell text personally inspected. Internal scroll remains on DocumentFrame; window invisible, renderer errors empty. No production daemon configuration or user clipboard was touched.
+
+An initial probe put Electron cache under Vite's watched temp root and caused reloads; corrected to separate temporary profile before using results. Tailwind source scanning was then explicitly pointed at candidate renderer, so generated utility classes actually exist. These are probe fixes, not evidence of product failure.
+
+Remaining: real product entry and CSP, local/remote byte chain, corrupted-file recovery and larger formats, Markdown wide columns, PDF lifecycle cleanup, and final tests/review/CI. Current task is active and not submitted after CEO takeover.

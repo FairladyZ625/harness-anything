@@ -11,6 +11,12 @@ import {
 } from "../../src/projection/historical-event-normalization.ts";
 import type { CanonicalEventStore } from "../../src/store/task-event-store-types.ts";
 import type { PersistedCanonicalEventV1 } from "../../src/domain/doc-sync-types.ts";
+import {
+  classifyTextualArtifactPath,
+  OPAQUE_TEXTUAL_MEDIA_TYPE,
+  OPAQUE_TEXTUAL_POLICY_ID,
+} from "../../src/domain/artifact-text-classification.ts";
+import { validDocEventChange } from "../../src/domain/doc-sync-validation.ts";
 
 function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
   const events = [...initial];
@@ -575,4 +581,26 @@ test("the retired code/doc closeout default never makes an accepted declaration 
   // A record without the retired field is returned unchanged, so normalization stays a no-op.
   const current = { schema: "preset-snapshot/v1", completion: { sources: {}, gates: {}, closeoutDefaults: {} } };
   assert.equal(normalizeHistoricalPresetSnapshot(current), current);
+});
+
+// The doc-claim change rewrote which policy a *new* write chooses at a binary-claiming artifact name.
+// It did not retire the opaque textual policy, so no attach step belongs in the registry. This test
+// pins the two properties that make that true, so the day either stops holding the "no step needed"
+// conclusion fails here instead of being discovered by a cold replay.
+test("the opaque textual artifact policy is live, not retired, so doc claims need no attach step", () => {
+  assert.deepEqual(
+    retiredPersistedSchemaFields.filter((field) => /artifact|policy|doc/i.test(field)),
+    [],
+  );
+  const artifactPath = "tasks/task_legacy/artifacts/review/test.pdf",
+    classification = classifyTextualArtifactPath(artifactPath);
+  assert.equal(classification?.policyId, OPAQUE_TEXTUAL_POLICY_ID);
+  const historicalChange = {
+    path: artifactPath,
+    baseBlobSha256: null,
+    candidate: { sha256: "a".repeat(64), size: 873, mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE },
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+    regionProofs: [],
+  };
+  assert.equal(validDocEventChange(historicalChange, true), true);
 });

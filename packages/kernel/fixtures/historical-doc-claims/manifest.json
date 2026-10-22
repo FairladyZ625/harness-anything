@@ -1,0 +1,20 @@
+[
+  {
+    "revision": 134383,
+    "opId": "op_0300e5c74ebdb58422160c4ab50aecea51be3f2c920811eac53d4e1e617340b1",
+    "eventId": "event-d586bbc5ab672e06cd273e45004c6417cb68dbc01a4e3f8d0b6b2039046f6989",
+    "path": "packages/kernel/fixtures/historical-doc-claims/events/134383-op_0300e5c74ebdb58422160c4ab50aecea51be3f2c920811eac53d4e1e617340b1.json",
+    "sha256": "43001f78f6c6ba39e1577ac036a6525e9412dad6fc9081cbf23a747f1d32e952",
+    "ledgerDigest": "sha256:43001f78f6c6ba39e1577ac036a6525e9412dad6fc9081cbf23a747f1d32e952",
+    "occurredAt": "2026-10-02T08:44:30.674Z"
+  },
+  {
+    "revision": 134508,
+    "opId": "op_e44b13efca5d6ea4d52d75f7193d9d35a5a3d19515e4e2747b12c81ac2f92b49",
+    "eventId": "event-483e767e5183e02262f9c84e05a25038ae821214902dd2db7add0e0ca478c9ad",
+    "path": "packages/kernel/fixtures/historical-doc-claims/events/134508-op_e44b13efca5d6ea4d52d75f7193d9d35a5a3d19515e4e2747b12c81ac2f92b49.json",
+    "sha256": "246858aa9f4de0cc9cb44066bd05e82e825106a88c4dfb682c6afce23cf8a475",
+    "ledgerDigest": "sha256:246858aa9f4de0cc9cb44066bd05e82e825106a88c4dfb682c6afce23cf8a475",
+    "occurredAt": "2026-10-02T09:51:18.845Z"
+  }
+]

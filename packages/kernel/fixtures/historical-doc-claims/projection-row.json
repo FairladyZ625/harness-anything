@@ -1,0 +1,20 @@
+{
+  "schema": "historical-projection-row-fixture/v1",
+  "source": {
+    "repository": "canonical",
+    "projectionCache": "<root>/.harness/cache/task.sqlite",
+    "projectionSchemaVersion": 37,
+    "ledgerWatermark": 134508,
+    "capturedBeforeChange": "delivery baseline b8833454"
+  },
+  "path": "tasks/task_b13be1ea63c151501a626eaa24-document-viewer-scroll-and-formats/artifacts/ceo-format-preview/test.pdf",
+  "row": {
+    "blobSha256": "a581e4b6ba94d86374be3e295be7b718e732d958575dd4264b9378af7f1cd0a1",
+    "body": "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 53 >>\nstream\nBT /F1 24 Tf 50 700 Td (Harness PDF first page) Tj ET\nendstream\nendobj\n5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>\nendobj\n6 0 obj\n<< /Length 54 >>\nstream\nBT /F1 24 Tf 50 700 Td (Harness PDF second page) Tj ET\nendstream\nendobj\n7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\nxref\n0 8\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000121 00000 n \n0000000247 00000 n \n0000000350 00000 n \n0000000476 00000 n \n0000000580 00000 n \ntrailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n650\n%%EOF\n",
+    "mediaType": "text/x-harness-opaque",
+    "path": "tasks/task_b13be1ea63c151501a626eaa24-document-viewer-scroll-and-formats/artifacts/ceo-format-preview/test.pdf",
+    "policyId": "opaque-textual-whole-file/v1",
+    "size": 873,
+    "workspaceRevision": 134508
+  }
+}
