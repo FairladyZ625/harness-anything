@@ -373,7 +373,14 @@ export async function fixture(
   };
   // The owner may explicitly select a reviewer; ordinary submissions dispatch automatically.
   const forward = async (reason = "Owner forwards the cut for independent review.", roundExecutionId = executionId) =>
-    run({ kind: "task-adjudicate", taskId, executionId: roundExecutionId, forward: true, reviewer: "closeout-reviewer", reason });
+    run({
+      kind: "task-adjudicate",
+      taskId,
+      executionId: roundExecutionId,
+      forward: true,
+      reviewer: "closeout-reviewer",
+      reason,
+    });
   const returnCut = async (reason: string, reviewId?: string, roundExecutionId = executionId) =>
     run({
       kind: "task-adjudicate",
