@@ -6,6 +6,7 @@ import {
   effectiveDocCandidateClassification,
   DOC_SYNC_INLINE_MAX_BYTES,
   RAW_ARTIFACT_MAX_BYTES,
+  RAW_ARTIFACT_POLICY_ID,
   documentPath,
   makeTaskProjectionReader,
   openSqliteEventStore,
@@ -14,6 +15,7 @@ import {
   serializeEventHead,
   sha256Bytes,
   sha256Text,
+  type DocCandidateClassification,
 } from "@harness-anything/kernel";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet/basebackup-layout.ts";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -260,14 +262,25 @@ export function scanFleetMirrorWorktree(
     // package's artifacts subtree. Outside that subtree the edge keeps the canonical-prose scope:
     // only `.md`/`.txt` documents travel this channel.
     //
-    // Membership keeps the delivered bytes/name rule: a persisted policy decides only *how* an
-    // in-scope candidate is classified, never which files this channel carries. A persisted row keeps
-    // the policy it was written under, so a document whose bytes now read as raw (a NUL byte, a binary
-    // name) is still an edit of that document; the center's write boundary judges the edit itself.
+    // Membership and classification both follow the persisted row, exactly as the local scanner
+    // judges any dirty path: a row the center wrote under a document policy is an edit of that
+    // document, whatever its name or how its bytes read today. `channelMember` and
+    // `effectiveDocCandidateClassification` are that one pair of rules. Only a path with no
+    // persisted document row is judged by today's bytes/name rule, so a stray source file or a
+    // brand-new text-named artifact outside the delivered scope still stays out.
     const byteVerdict = classifyDocCandidate(logical, bytes),
-      inChannel = byteVerdict?.kind === "raw-artifact" || logical.endsWith(".md") || logical.endsWith(".txt"),
-      docClass = effectiveDocCandidateClassification(logical, byteVerdict, base?.policyId ?? null);
-    if (!inChannel) continue;
+      persistedPolicyId = base?.policyId ?? null,
+      docClass = effectiveDocCandidateClassification(logical, byteVerdict, persistedPolicyId),
+      unchanged = base !== undefined && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes);
+    // Membership first, then the unchanged check: an untouched file the channel does not carry is
+    // simply not a candidate, and an untouched file it does carry is clean.
+    if (!channelMember(logical, byteVerdict, persistedPolicyId)) continue;
+    if (unchanged || (hasMarkerWithoutBaseline && base)) {
+      cleanPaths.push(logical);
+      continue;
+    }
+    // A channel member always exits as a change or a block: a persisted row whose path judgment
+    // answers nothing, or whose route another surface owns, is reported instead of dropped.
     if (!docClass || !resolveDocRoute(documentPath(logical)).allowed) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
@@ -284,16 +297,13 @@ export function scanFleetMirrorWorktree(
       });
       continue;
     }
-    if (base && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) cleanPaths.push(logical);
-    else if (hasMarkerWithoutBaseline && base) cleanPaths.push(logical);
-    else
-      changes.push({
-        path: logical,
-        bytes,
-        baseBlobSha256: base?.sha256 ?? null,
-        mediaType: docClass.mediaType,
-        policyId: docClass.policyId,
-      });
+    changes.push({
+      path: logical,
+      bytes,
+      baseBlobSha256: base?.sha256 ?? null,
+      mediaType: docClass.mediaType,
+      policyId: docClass.policyId,
+    });
   }
   const deletedPaths = [...view.entries.keys()].filter(
     (logical) =>
@@ -432,6 +442,26 @@ export function fleetConflictSideFile(
 export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: string, _row: FleetMirrorBlob): void {
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
 }
+/**
+ * Whether this edge channel carries a path at all. A row the center already wrote under a document
+ * policy is a member on its own terms — its bytes today are an edit of that document, not evidence
+ * about which channel owns it. Only a path with no persisted document row falls back to the delivered
+ * bytes/name rule. The policy half of this rule lives once, in `effectiveDocCandidateClassification`;
+ * this adds only the membership question, which no other reader asks.
+ */
+function channelMember(
+  logical: string,
+  byteVerdict: DocCandidateClassification | null,
+  persistedPolicyId: string | null,
+): boolean {
+  return (
+    (persistedPolicyId !== null && persistedPolicyId !== RAW_ARTIFACT_POLICY_ID) ||
+    byteVerdict?.kind === "raw-artifact" ||
+    logical.endsWith(".md") ||
+    logical.endsWith(".txt")
+  );
+}
+
 function materializedPaths(root: string): string[] {
   const found: string[] = [],
     // The view's own state directory is not a materialized repository path; which name it has is the

@@ -20,7 +20,10 @@ import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";
 
 // Real shape of the row: valid UTF-8 (a NUL byte decodes) written under the opaque textual policy.
 const persistedBody = Buffer.concat([Buffer.from("report line one\n"), Buffer.from([0x00]), Buffer.from("tail\n")]),
-  editedBody = persistedBody;
+  editedBody = persistedBody,
+  // The reviewer's real row, plain-text edited: the same persisted document on the other side of the
+  // byte rule. Its status must not depend on which side the edit lands.
+  decodableEdit = Buffer.from("report line one\ntail\ntrailing note\n");
 
 function scanFixture(
   policyId: string | null,
@@ -74,14 +77,36 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
   const textNamed = "tasks/task_policy/artifacts/notes/report.txt",
     binaryNamed = "tasks/task_policy/artifacts/notes/preview.pdf",
     rawNamed = "tasks/task_policy/artifacts/logs/run.log";
-  // The real regression: a persisted opaque row whose bytes now read non-textual (NUL) must stay
-  // submittable under the policy it was written with, at a text name and at a binary name.
-  for (const logical of [textNamed, binaryNamed, rawNamed]) {
-    assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, logical, editedBody), {
-      policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
-      blocked: [],
-    });
-  }
+  // A persisted row is a member on its own terms, whatever its name and whatever its bytes read as
+  // today. The reviewer's real row is exactly this shape — a `.log` the center wrote under the opaque
+  // policy, edited to bytes that decode as plain text. Deciding membership by bytes silently dropped
+  // it (the command then reported `no_changes` + ok) while the same row with one NUL byte submitted,
+  // so the status of one persisted document flipped with the bytes of the edit. Both byte outcomes
+  // now reach the same exit the local scanner reaches.
+  for (const logical of [
+    textNamed,
+    binaryNamed,
+    rawNamed,
+    "tasks/task_44d5009838e66ef1dcb7c6c3b3-migration-entity-backfill/artifacts/production-dryrun-resolved-20260901.log",
+    "tasks/task_policy/artifacts/data/rows.json",
+  ])
+    for (const bytes of [decodableEdit, persistedBody])
+      assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, logical, bytes), {
+        policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
+        blocked: [],
+      });
+  // A persisted row whose path shape names no document (`application/json` outside the artifacts
+  // subtree) cannot be submitted by either channel; the edge reports it for the operator, exactly as
+  // the local scanner does, instead of the byte-decided silent skip. Byte-decided, this case was a
+  // change under the decodable edit and an invisible non-event under the NUL edit.
+  assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/architecture/notes.json", decodableEdit), {
+    policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
+    blocked: [],
+  });
+  assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/architecture/notes.json", persistedBody), {
+    policyIds: [],
+    blocked: ["path is not an allowed canonical document"],
+  });
   // A persisted raw row is not rescued by the path judgment: its bytes still decide.
   assert.deepEqual(scanFixture(RAW_ARTIFACT_POLICY_ID, binaryNamed, editedBody), {
     policyIds: [RAW_ARTIFACT_POLICY_ID],
@@ -97,18 +122,13 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     policyIds: [RAW_ARTIFACT_POLICY_ID],
     blocked: [],
   });
-  // A persisted policy never widens the channel's membership. Outside the artifacts subtree the edge
-  // carries `.md`/`.txt` only, so a persisted opaque row at another name is still skipped rather than
-  // surfacing as a new blocked row: the live ledger holds 187 such rows (124 `.json`, 11 `.html`, 34
-  // `.log`, …) that this channel has never owned. Keeping the rule policy-only would have turned each
-  // edit of them into a block.
-  assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/architecture/notes.json", editedBody), {
+  // No persisted row means today's bytes/name rule alone: the 187-like shapes the channel never
+  // owned stay out rather than newly entering it.
+  assert.deepEqual(scanFixture(null, "context/architecture/notes.json", decodableEdit), {
     policyIds: [],
     blocked: [],
   });
-  // Inside the artifacts subtree the same holds for a text-named row whose bytes no longer decode:
-  // a persisted policy keeps an existing row writable, it does not admit a new undecodable `.json`.
-  assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "tasks/task_policy/artifacts/data/rows.json", editedBody), {
+  assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/data/rows.json", decodableEdit), {
     policyIds: [],
     blocked: [],
   });
@@ -183,6 +203,63 @@ test(
     assert.equal(
       (submittedEvent?.payload as { readonly carriedDocumentClaims?: unknown }).carriedDocumentClaims !== undefined,
       true,
+    );
+  },
+);
+
+test(
+  "an edge task command carries a persisted opaque .log row edited to decodable text",
+  { timeout: 90_000 },
+  async (t) => {
+    // The reviewer's real row: `.../artifacts/production-dryrun-resolved-20260901.log`, persisted under
+    // `opaque-textual-whole-file/v1` with `text/x-harness-opaque`. Its name is neither `.md`/`.txt` nor
+    // a binary-table name, so a byte-decided membership test reads the plain-text edit as opaque-textual
+    // and drops it: the command then reports `no_changes` + ok while the local edit never lands. The
+    // same document carrying a NUL byte submits, so the row's status would flip on the edit's bytes.
+    const fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    const created = await fixture.createTask("node-one", "task-edge-log-policy", "Edge opaque log policy"),
+      logical = `${created.packagePath}/artifacts/production-dryrun-resolved.log`,
+      source = path.join(fixture.repo, "edge-policy-log-source.log"),
+      decodableEdit = "report line one\ntail\ntrailing note\n";
+    writeFileSync(source, "report line one\ntail\n");
+    const seeded = await fixture.centerRun({
+      kind: "task-artifact-add",
+      taskId: created.taskId,
+      source: "edge-policy-log-source.log",
+      destination: "production-dryrun-resolved.log",
+    });
+    assert.equal(seeded.outcome, "applied", JSON.stringify(seeded).slice(0, 600));
+    await fixture.waitPublished(String(seeded.opId));
+    assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+    const target = fixture.worktree("node-one", logical);
+    // The center wrote the row under the opaque policy although its bytes decode as text.
+    assert.equal(readFileSync(target, "utf8"), "report line one\ntail\n");
+    writeFileSync(target, decodableEdit);
+
+    const carried = await fixture.edgeTask("node-one", {
+      kind: "task-start",
+      taskId: created.taskId,
+      executionId: "exe-edge-log-policy",
+    });
+    assert.equal(carried.ok, true, JSON.stringify(carried).slice(0, 800));
+    await fixture.waitPublished(String(carried.opId));
+    const submittedEvent = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+        .read()
+        .events.filter((event) => JSON.stringify(event.payload).includes(`"path":"${logical}"`))
+        .at(-1),
+      payload = submittedEvent?.payload as
+        | { readonly carriedDocumentClaims?: readonly Record<string, unknown>[] }
+        | undefined,
+      submittedChange = payload?.carriedDocumentClaims?.find((claim) => claim.path === logical) as
+        | { readonly policyId?: string; readonly candidate?: { readonly sha256?: string; readonly mediaType?: string } }
+        | undefined;
+    // The decodable edit is carried under the policy the center wrote the row with, not dropped and not
+    // reclassified as a raw artifact.
+    assert.deepEqual(
+      [submittedChange?.policyId, submittedChange?.candidate?.mediaType, submittedChange?.candidate?.sha256],
+      [OPAQUE_TEXTUAL_POLICY_ID, "text/x-harness-opaque", sha256Bytes(Buffer.from(decodableEdit))],
+      JSON.stringify(carried).slice(0, 800),
     );
   },
 );

@@ -198,13 +198,15 @@ function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean
  * the live ledger succeeds. The bytes may still be re-judged raw today — the old write boundary
  * classified by path, so a persisted opaque row can carry a NUL byte and the current byte judgment
  * calls that non-textual — and that is exactly why the policy must come from the row, not from the
- * bytes. No field needs rewriting either way: the policy id itself is still valid, and every path
- * that reads or re-submits the row derives its policy from the stored `policyId`. The byte classifier
- * changed which policy *new* writes choose; the rows already written keep the policy they were
- * written under. `historical-doc-claims.integration.test.ts` pins that on a frozen cut of the real
- * ledger; `attach-migrations.test.ts` pins that this reasoning stays true (`retiredPersistedSchemaFields`
- * never names an artifact policy, and a NUL-bearing persisted row still reads and edits under its
- * written policy).
+ * bytes. No field needs rewriting either way: the policy id itself is still valid, and both readers
+ * that decide a persisted row's fate — the local scanner and the edge mirror — take its policy *and*
+ * its channel membership from the stored `policyId` (`effectiveDocCandidateClassification`, plus the
+ * mirror's `channelMember`); only a path with no persisted document row is judged by bytes. The byte
+ * classifier changed which policy *new* writes choose; the rows already written keep the policy they
+ * were written under. `historical-doc-claims.integration.test.ts` pins that on a frozen cut of the
+ * real ledger; `attach-migrations.test.ts` pins that this reasoning stays true
+ * (`retiredPersistedSchemaFields` never names an artifact policy, and a NUL-bearing persisted row
+ * still reads and edits under its written policy).
  */
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
   {
