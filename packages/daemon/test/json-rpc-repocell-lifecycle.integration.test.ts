@@ -180,6 +180,8 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     assert.ok(events[1]?.schema === "task-event/v1" && events[1].type === "execution_submitted");
     const cliSubmission = events[0].payload.execution.submission, guiSubmission = events[1].payload.execution.submission;
     assert.ok(cliSubmission && guiSubmission);
+    assert.ok(cliSubmission.riskTierAssessment, "CLI submission freezes its assessed risk tier");
+    assert.ok(guiSubmission.riskTierAssessment, "GUI submission freezes its assessed risk tier");
     const comparableSubmission = (submission: NonNullable<typeof guiSubmission>) => ({
       ...submission,
       commitSha: "<repo-cut>",

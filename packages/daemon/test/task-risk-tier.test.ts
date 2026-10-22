@@ -92,13 +92,32 @@ test("script floors and prior effective tiers can only raise the declared tier",
 
   const assessment = await assessTaskRiskTier({
     rootDir: root,
-    task: { ...task, declaredTier: "medium" },
+    task,
     delivery,
     matchedPathReviewers: [],
     previousEffectiveTier: "high",
   });
 
   assert.equal(assessment.effectiveTier, "high");
+});
+
+test("configured GUI acceptance survives a risk-tier increase", async (t) => {
+  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const assessment = await assessTaskRiskTier({
+    rootDir: root,
+    task: { ...task, declaredTier: "medium" },
+    delivery: {
+      ...delivery,
+      files: [{ ...delivery.files[0]!, path: "packages/gui/src/App.tsx" }],
+    },
+    matchedPathReviewers: [],
+    previousEffectiveTier: "high",
+  });
+
+  assert.equal(assessment.effectiveTier, "high");
+  assert.equal(assessment.guiAcceptanceRequired, true);
 });
 
 test("missing scripts use the declared tier and GUI acceptance follows repository configuration", async (t) => {

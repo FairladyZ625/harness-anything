@@ -35,7 +35,7 @@ vertical 定义领域；选中的 preset/profile 定义某个 Task 适用哪些�
 kernel 校验非空 gate-ID 语法,daemon 在完成路径上按 `completion-readiness.ts` 执行已实现的门,
 拒绝未知或重复 gate。所以 `--ci` 类要求是 coding 契约的要求,不是 CLI 的全局要求（ADR-0027 D7）。
 
-profile 还可以声明 `closeoutOverrides` 与 `archiveOnComplete`。风险等级决定任务流程：low 不派评审且不要求 consent，preset 声明短档时自动采用；medium（默认）派一轮功能评审；high 走完整评审并要求 consent。提交时仓库定级脚本检查实际 delivery diff，只能抬高评审等级。代码改动仍须通过 PR CI。`--profile lightweight` 不再是建任务选项。
+profile 还可以声明 `closeoutOverrides` 与 `archiveOnComplete`。风险等级决定任务流程：low 不派评审且不要求 consent，preset 声明短档时自动采用；medium（默认）派一轮功能评审；high 走完整评审并要求 consent。提交时仓库定级脚本检查实际 delivery diff，只能抬高生效等级；生效等级决定评审、consent 与 low 档 GUI 验收，medium 档原有 consent 门继续生效。代码改动仍须通过 PR CI。`--profile lightweight` 不再是建任务选项。
 
 真实 Task 的 preset/profile 无法解析时,完成路径 fail closed;`task-contract.json` 会钉住
 创建时的 `presetSnapshotDigest`,让契约不随 preset 演进悄悄漂移。
