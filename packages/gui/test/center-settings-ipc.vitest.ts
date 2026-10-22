@@ -32,6 +32,10 @@ describe("center settings IPC", () => {
             version: "v1",
           };
         },
+        fleetRequest: async (method, params) => {
+          calls.push({ method, ...params });
+          return { ok: true, externalUrl: "https://center.example.test:7545", warning: null };
+        },
         dialog: { selectFile: async () => "/tmp/selected.pem" },
       },
     );
@@ -83,5 +87,19 @@ describe("center settings IPC", () => {
         certificateKeyFile: "/tmp/key",
       }),
     ).rejects.toThrow(/manages its own/u);
+  });
+
+  it("reads and saves only the center external URL through the fleet configuration endpoint", async () => {
+    const f = fixture();
+    await expect(f.handler(f.event, { operation: "external-address" })).resolves.toMatchObject({
+      externalUrl: "https://center.example.test:7545",
+    });
+    await expect(
+      f.handler(f.event, { operation: "external-address-set", externalUrl: "https://center.example.test:7545" }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(f.calls.at(-1)).toEqual({
+      method: "daemon.fleet.center.external-address.set",
+      payload: { externalUrl: "https://center.example.test:7545" },
+    });
   });
 });

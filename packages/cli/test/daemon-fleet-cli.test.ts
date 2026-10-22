@@ -108,9 +108,12 @@ test(
         "fleet-demo",
         "--quota-bytes",
         String(quotaBytes),
+        "--external-url",
+        "https://localhost:7545",
       ]);
       assert.equal(center.ok, true);
       assert.equal(center.bind, "127.0.0.1");
+      assert.equal(center.externalUrl, "https://localhost:7545");
       assert.equal(center.stateRoot, path.join(fixture.centerUser, "fleet"));
       assert.equal("assignments" in center, false);
       const port = center.port as number;
@@ -124,6 +127,7 @@ test(
       assert.equal(enabled.port, port, "port 0 persists the actual bound port");
       assert.equal(enabled.keyPath, fixture.key);
       assert.equal(enabled.certPath, fixture.cert);
+      assert.equal(enabled.externalUrl, "https://localhost:7545");
       stop(fixture, "center");
       assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
       // No second center-start: the same verified TLS port must survive a real CLI restart.

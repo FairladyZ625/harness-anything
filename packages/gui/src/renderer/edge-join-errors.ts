@@ -2,6 +2,18 @@ import { t, type MessageKey } from "./i18n/index.tsx";
 
 /** daemon 错误码 → 一句人话 + 下一步;未映射的码原样显示 daemon 的说明。 */
 const explanations: Readonly<Record<string, { readonly message: MessageKey; readonly next: MessageKey }>> = {
+  center_address_unreachable: {
+    message: "views.edgeJoin.error.center_address_unreachable.message",
+    next: "views.edgeJoin.error.center_address_unreachable.next",
+  },
+  login_address_unreachable: {
+    message: "views.edgeJoin.error.login_address_unreachable.message",
+    next: "views.edgeJoin.error.login_address_unreachable.next",
+  },
+  edge_join_addresses_unreachable: {
+    message: "views.edgeJoin.error.edge_join_addresses_unreachable.message",
+    next: "views.edgeJoin.error.edge_join_addresses_unreachable.next",
+  },
   edge_join_invalid: {
     message: "views.edgeJoin.error.edge_join_invalid.message",
     next: "views.edgeJoin.error.edge_join_invalid.next",

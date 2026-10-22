@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { daemonProtocolError } from "../../daemon/src/protocol/daemon-protocol-validate-results.ts";
 import type { CenterListenerSettings } from "../src/api/center-settings-contract.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import { connectionQueryKeys } from "../src/renderer/connection-data.ts";
@@ -187,22 +188,29 @@ async function mountView(
     },
     centerSettings: {
       listener: vi.fn(async () => centerState),
+      externalAddress: vi.fn(async () => ({ ok: true as const, externalUrl: "https://center.example.com:7545" })),
+      setExternalAddress: vi.fn(async ({ externalUrl }: { readonly externalUrl: string }) => ({
+        ok: true as const,
+        externalUrl,
+        warning: null,
+      })),
       selectFile: vi.fn(async (kind: "certificate" | "private-key") =>
         kind === "certificate" ? "/tmp/selected.pem" : "/tmp/selected.key",
       ),
       setCertificate: vi.fn(async (input: Record<string, unknown>) => {
+        const currentListener = centerState.listener;
         centerState = {
           ...centerState,
           certificateMode: input.certificateMode as CenterListenerSettings["certificateMode"],
-          listener:
-            input.certificateMode === "self-signed"
-              ? centerState.listener
-              : {
-                  ...centerState.listener!,
-                  hostname: String(input.hostname),
-                  port: Number(input.port),
-                  certificateFile: String(input.certificateFile),
-                },
+          listener: {
+            ...(currentListener ?? {
+              address: "127.0.0.1",
+              certificateFile: "/tmp/self-signed.pem",
+            }),
+            hostname: String(input.hostname ?? currentListener?.hostname ?? "127.0.0.1"),
+            port: Number(input.port ?? currentListener?.port ?? 8443),
+            ...(input.certificateMode === "self-signed" ? {} : { certificateFile: String(input.certificateFile) }),
+          },
           version: "center-v2",
         };
         return centerState;
@@ -434,6 +442,118 @@ describe("repositories and connections page", () => {
     expect(
       container.querySelector('[data-testid="connection-tree-footer"] [data-testid="connection-add-open"]'),
     ).not.toBeNull();
+  });
+
+  it("lets administrators set the login address while using a generated certificate", async () => {
+    const { container, bridge } = await mountView();
+    await click(container, "connection-node-center");
+    await settle(8);
+
+    await type(container, "center-login-hostname", "login.example.net");
+    await type(container, "center-login-port", "18544");
+    await click(container, "center-certificate-save");
+    await settle(8);
+
+    expect(bridge.centerSettings.setCertificate).toHaveBeenCalledWith({
+      expectedVersion: "center-v1",
+      certificateMode: "self-signed",
+      hostname: "login.example.net",
+      port: 18544,
+    });
+  });
+
+  it("omits an empty login hostname when a self-signed listener has not been configured", async () => {
+    const { container, bridge } = await mountView({ listener: null });
+    await click(container, "connection-node-center");
+    await settle(8);
+
+    await click(container, "center-certificate-save");
+    await settle(8);
+
+    expect(bridge.centerSettings.setCertificate).toHaveBeenCalledWith({
+      expectedVersion: "center-v1",
+      certificateMode: "self-signed",
+      port: 8443,
+    });
+  });
+
+  it("saves the center external service address separately from the login listener", async () => {
+    const { container, bridge } = await mountView();
+    await click(container, "connection-node-center");
+    await settle(8);
+    const input = container.querySelector('[data-testid="center-external-address"]') as HTMLInputElement;
+    expect(input.value).toBe("https://center.example.com:7545");
+    await click(container, "center-external-address-save");
+    await settle(6);
+    expect(bridge.centerSettings.setExternalAddress).toHaveBeenCalledWith({
+      externalUrl: "https://center.example.com:7545",
+    });
+    expect(container.textContent).toContain("Center service address saved.");
+  });
+
+  it.each(["cert_san_mismatch", "authorization_denied"])("shows rejected address saves (%s)", async (code) => {
+    const { container, bridge } = await mountView();
+    const rejection = daemonProtocolError("daemon.fleet.center.external-address.set", code, `Save rejected: ${code}`);
+    bridge.centerSettings.setExternalAddress.mockResolvedValue(rejection);
+    await click(container, "connection-node-center");
+    await settle(8);
+    await click(container, "center-external-address-save");
+    await settle(6);
+    expect(container.textContent).toContain(`Save rejected: ${code}`);
+    expect(container.textContent).not.toContain("Center service address saved.");
+  });
+
+  it("distinguishes a denied address read from an unconfigured address", async () => {
+    const { container, bridge } = await mountView();
+    const rejection = daemonProtocolError(
+      "daemon.fleet.center.external-address.read",
+      "authorization_denied",
+      "Address read denied.",
+    );
+    bridge.centerSettings.externalAddress.mockResolvedValue(rejection);
+    await click(container, "connection-node-center");
+    await settle(8);
+    expect(container.textContent).toContain("Address read denied.");
+  });
+
+  it("shows certificate save rejections instead of success", async () => {
+    const { container, bridge } = await mountView();
+    const rejection = daemonProtocolError("rbac-listener-set", "cert_san_mismatch", "Login certificate SAN mismatch.");
+    bridge.centerSettings.setCertificate.mockResolvedValue(rejection);
+    await click(container, "connection-node-center");
+    await settle(8);
+    await click(container, "center-certificate-save");
+    await settle(6);
+    expect(container.textContent).toContain("Login certificate SAN mismatch.");
+    expect(container.textContent).not.toContain("Login service certificate settings saved.");
+    expect(bridge.centerSettings.listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows listener read rejections without configuring editable certificate settings", async () => {
+    const { container, bridge } = await mountView();
+    bridge.centerSettings.listener.mockResolvedValue(
+      daemonProtocolError("rbac-listener", "authorization_denied", "Listener read denied."),
+    );
+    await click(container, "connection-node-center");
+    await settle(8);
+    expect(container.textContent).toContain("Listener read denied.");
+    expect((container.querySelector('[data-testid="center-certificate-save"]') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows a saved address's reachability warning", async () => {
+    const { container, bridge } = await mountView();
+    bridge.centerSettings.setExternalAddress.mockResolvedValue({
+      ok: true,
+      externalUrl: "https://center.example.com:7545",
+      warning: "Address saved, but the center could not reach it.",
+    });
+    await click(container, "connection-node-center");
+    await settle(8);
+    await click(container, "center-external-address-save");
+    await settle(6);
+    expect(container.textContent).toContain("Address saved, but the center could not reach it.");
   });
 
   it("registers a picked folder that already has a ledger instead of bootstrapping", async () => {

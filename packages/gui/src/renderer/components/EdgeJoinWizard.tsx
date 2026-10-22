@@ -143,7 +143,12 @@ export function EdgeJoinWizard({
     // A refused IPC call is reported like a daemon refusal; the promise form keeps the failure
     // path explicit rather than a try/catch that could swallow it.
     const outcome = await beginEdgeJoin(value).catch((error: unknown) => {
-      if (run === runRef.current) fail({ explanation: error instanceof Error ? error.message : String(error) });
+      const code =
+        typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+          ? error.code
+          : undefined;
+      if (run === runRef.current)
+        fail({ ...(code ? { code } : {}), explanation: error instanceof Error ? error.message : String(error) });
       return null;
     });
     if (run !== runRef.current) return;

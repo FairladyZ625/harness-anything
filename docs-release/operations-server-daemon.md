@@ -301,13 +301,15 @@ ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-For edge synchronization, set the Fleet listener to a reachable address and include its hostname in the certificate SAN. Use `listener-set`; the daemon validates the SAN before opening the listener and reports bind failures such as an occupied, unavailable, or permission-denied address:
+For edge synchronization, configure the Fleet TLS listener with its bind address and a separate externally reachable HTTPS origin. The origin host must be covered by the Fleet certificate SAN; the bind address may be `0.0.0.0`. Start or replace the Fleet listener with `--external-url`:
 
 ```bash
-ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 9443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+ha daemon fleet center start --bind 0.0.0.0 --port 7545 --external-url https://center.example.test:7545 --key /etc/harness/fleet-key.pem --cert /etc/harness/fleet.pem --repo <repo-id> --quota-bytes 1073741824
 ```
 
-Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections until they trust the new listener certificate.
+When replacing a listener, omitting `--external-url` preserves the saved external origin; supplying it replaces that origin. The replacement certificate must cover the effective origin in either case.
+
+The daemon validates the certificate SAN for the concrete bind address (when applicable) and the external origin host before listening. A GUI setting is also available under **Settings → Repositories and Connections → Center**. The login service hostname and issuer remain the separate Keycloak listener configuration above. Re-signing the Fleet certificate with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections until they trust the new listener certificate.
 
 The supported new-edge path is a one-time invitation. In the center GUI, open **Settings → Repositories and Connections → Center**, invite the person, select one or more repositories and permission groups, then deliver the resulting `harness-edge://join/...` link separately. The pending invitation can be revoked there and expires after 72 hours. The edge owner runs:
 

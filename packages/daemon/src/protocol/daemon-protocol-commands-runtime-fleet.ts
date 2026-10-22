@@ -268,6 +268,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--bind", "single", false, {
         code: "invalid_field",
       }),
+      cliInput("--external-url", "single", false, {
+        code: "invalid_field",
+      }),
       cliInput("--state-root", "single", false, {
         code: "invalid_field",
       }),

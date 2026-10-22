@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { KeycloakPolicyAdapter } from "../../../packages/daemon/src/keycloak-policy-adapter.ts";
-import { saveFleetCenterConfig } from "../../../packages/daemon/src/fleet-center-config.ts";
+import { readFleetCenterConfig, saveFleetCenterConfig } from "../../../packages/daemon/src/fleet-center-config.ts";
 import { keycloakRealm, keycloakUrl } from "../../../packages/daemon/test/keycloak.fixtures.ts";
 
 /**
@@ -48,6 +48,7 @@ export default {
     saveFleetCenterConfig(fixture.userRoot, fixture.daemonId, {
       bind: "127.0.0.1",
       port: 8443,
+      externalUrl: "https://127.0.0.1:8443",
       repoId: fixture.repoId,
       keyPath,
       certPath,
@@ -61,6 +62,18 @@ export default {
     await page.getByRole("button", { name: /^(?:设置|Settings)$/u }).click();
     await page.getByTestId("settings-content").waitFor();
     await page.getByRole("button", { name: /^(?:仓库与连接|Repos & connections)/u }).click();
+    // Daemon refusals arrive as resolved command receipts. The GUI must show the refusal and
+    // retain the last successful address before opening the invitation form.
+    await page.getByTestId("connection-node-center").click();
+    const externalAddress = page.getByTestId("center-external-address");
+    await externalAddress.fill("https://uncovered.example.test:7545");
+    await page.getByTestId("center-external-address-save").click();
+    const addressStatus = page.getByTestId("center-connection-panel").getByRole("status");
+    await addressStatus.waitFor();
+    assert.match(await addressStatus.innerText(), /TLS certificate SAN does not cover uncovered\.example\.test/u);
+    assert.doesNotMatch(await addressStatus.innerText(), /(?:已保存|address saved)/iu);
+    assert.equal(readFleetCenterConfig(fixture.userRoot, fixture.daemonId)?.externalUrl, "https://127.0.0.1:8443");
+    await shot("center-external-address-rejected");
     // 邀请入口在页顶,点开就是邀请面板;不再需要先点「中心节点」理解连接树。
     await page.getByTestId("invite-entry-open").click();
 
@@ -91,6 +104,7 @@ export default {
     assert.ok(linkText.startsWith(linkPrefix));
     const link = JSON.parse(Buffer.from(linkText.slice(linkPrefix.length), "base64url").toString("utf8"));
     assert.equal(link.version, 2);
+    assert.equal(link.centerOrigin, "https://127.0.0.1:8443");
     assert.equal(typeof link.token, "string");
     assert.equal(Object.hasOwn(link, "credential"), false);
 

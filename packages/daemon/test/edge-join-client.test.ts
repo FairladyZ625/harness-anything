@@ -1,7 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -49,7 +51,14 @@ test("one invitation creates and syncs an independent workspace for every reposi
     registrations: string[] = [],
     syncs: Record<string, unknown>[] = [],
     progress: { readonly joinId: string; readonly repository: { repoId: string; phase: string } }[] = [],
+    probes: string[] = [],
     ports: EdgeJoinClientPorts = {
+      probeCenter: async () => {
+        probes.push("center");
+      },
+      probeLogin: async () => {
+        probes.push("login");
+      },
       session: async () => ({
         accessToken: "person-access-token",
         authority: { url: "https://login.example", realm: "harness", certificate: cert.toString("utf8") },
@@ -91,6 +100,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
     );
 
   assert.deepEqual(result.repoIds, ["repo-a", "repo-b"]);
+  assert.deepEqual(probes, ["center", "login"], "both external addresses are checked before session or join use");
   assert.equal(result.state, "synced");
   assert.equal(result.ok, true);
   assert.deepEqual(
@@ -177,6 +187,153 @@ test("one invitation creates and syncs an independent workspace for every reposi
     ],
   );
   assert.ok(progress.every(({ joinId }) => joinId === invite.record.joinId));
+});
+
+test("both external addresses are probed before login, and each failure names its address", async () => {
+  const invite = createEdgeJoinStore().create({
+      centerOrigin: "https://center.example:7545",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [{ groupId: "viewer", version: "snapshot-digest" }],
+      spkiSha256: "a".repeat(64),
+      loginUrl: "https://login.example:18544",
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    link = encodeEdgeJoinLink(invite.link);
+  const run = (probeCenter: () => Promise<void>, probeLogin: () => Promise<void>, probes: string[]) =>
+    joinFleetEdge(
+      { link },
+      {
+        probeCenter: async () => {
+          probes.push("center");
+          await probeCenter();
+        },
+        probeLogin: async () => {
+          probes.push("login");
+          await probeLogin();
+        },
+        session: async () => assert.fail("both network probes must precede session lookup"),
+        beginLogin: async () => assert.fail("both network probes must precede device login"),
+        register: async () => undefined,
+        sync: async () => ({ ok: true }),
+      },
+    );
+  const unreachable = (address: string, code: string) =>
+    Object.assign(new Error("Address " + address + " is unreachable."), { code });
+
+  for (const [centerFails, loginFails, expectedCode, expectedMessage] of [
+    [true, false, "center_address_unreachable", /center\.example:7545/u],
+    [false, true, "login_address_unreachable", /login\.example:18544/u],
+  ] as const) {
+    const probes: string[] = [];
+    await assert.rejects(
+      run(
+        () =>
+          centerFails
+            ? Promise.reject(unreachable("https://center.example:7545", "center_address_unreachable"))
+            : Promise.resolve(),
+        () =>
+          loginFails
+            ? Promise.reject(unreachable("https://login.example:18544", "login_address_unreachable"))
+            : Promise.resolve(),
+        probes,
+      ),
+      { code: expectedCode, message: expectedMessage },
+    );
+    assert.deepEqual(probes, ["center", "login"]);
+  }
+
+  const probes: string[] = [];
+  await assert.rejects(
+    run(
+      () => Promise.reject(unreachable("https://center.example:7545", "center_address_unreachable")),
+      () => Promise.reject(unreachable("https://login.example:18544", "login_address_unreachable")),
+      probes,
+    ),
+    (error: unknown) => {
+      assert.equal((error as { code?: unknown }).code, "edge_join_addresses_unreachable");
+      assert.match((error as Error).message, /center\.example:7545/u);
+      assert.match((error as Error).message, /login\.example:18544/u);
+      return true;
+    },
+  );
+  assert.deepEqual(probes, ["center", "login"]);
+});
+
+test("login address probing preserves an authority path prefix", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-login-prefix-")),
+    keyFile = path.join(root, "login.key"),
+    certFile = path.join(root, "login.pem");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certFile,
+      "-subj",
+      "/CN=127.0.0.1",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  const requests: string[] = [],
+    server = createServer({ key: readFileSync(keyFile), cert: readFileSync(certFile) }, (request, response) => {
+      requests.push(request.url ?? "");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const invite = createEdgeJoinStore().create({
+      centerOrigin: "https://center.example:7545",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [],
+      spkiSha256: "a".repeat(64),
+      loginUrl: `https://127.0.0.1:${address.port}/auth`,
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      loginCertificate: readFileSync(certFile, "utf8"),
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    result = await joinFleetEdge(
+      { link: encodeEdgeJoinLink(invite.link) },
+      {
+        probeCenter: async () => undefined,
+        session: async () => undefined,
+        beginLogin: async (authority) => {
+          assert.equal(authority.url, `https://127.0.0.1:${address.port}/auth`);
+          return { ok: true, pending: true };
+        },
+        register: async () => undefined,
+        sync: async () => ({ ok: true }),
+      },
+    );
+
+  assert.deepEqual(result, { ok: true, pending: true, command: "edge-join" });
+  assert.deepEqual(requests, ["/auth/realms/harness"]);
 });
 
 test("the progress tap replaces a repository's phase and never mixes two joins", () => {

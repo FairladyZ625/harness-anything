@@ -20,7 +20,11 @@ const modes = new Set<CertificateMode>(["self-signed", "domain", "internal-ca"])
 export function registerCenterSettingsIpc(
   registrar: Registrar,
   trustPolicy: IpcWebContentsTrustPolicy,
-  ports: { readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>; readonly dialog: DialogPort },
+  ports: {
+    readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>;
+    readonly fleetRequest: (method: string, params: JsonObject) => Promise<JsonObject>;
+    readonly dialog: DialogPort;
+  },
 ): void {
   registrar.handle(CENTER_SETTINGS_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
@@ -29,6 +33,21 @@ export function registerCenterSettingsIpc(
     if (operation === "listener") {
       if (Object.keys(record).length !== 1) throw new Error("Center settings listener takes no fields.");
       return ports.daemonRequest({ operation: "listener" }).then(sanitizeListenerReply);
+    }
+    if (operation === "external-address") {
+      if (Object.keys(record).length !== 1) throw new Error("Center external-address read takes no fields.");
+      return ports.fleetRequest("daemon.fleet.center.external-address.read", { payload: {} });
+    }
+    if (operation === "external-address-set") {
+      if (
+        Object.keys(record).length !== 2 ||
+        typeof record.externalUrl !== "string" ||
+        record.externalUrl.trim() === ""
+      )
+        throw new Error("Center external-address setting requires an HTTPS URL.");
+      return ports.fleetRequest("daemon.fleet.center.external-address.set", {
+        payload: { externalUrl: record.externalUrl.trim() },
+      });
     }
     if (operation === "select-file") {
       if (Object.keys(record).length !== 2 || (record.kind !== "certificate" && record.kind !== "private-key"))

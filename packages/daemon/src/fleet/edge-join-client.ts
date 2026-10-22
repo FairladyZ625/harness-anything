@@ -9,7 +9,8 @@ import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { OidcLoginAuthority } from "../oidc-session-service.ts";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
-import { requestFleetEdgeJoinPinned } from "./peer.ts";
+import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
+import { fetchWithTlsCa } from "../tls-ca-certificate.ts";
 
 const defaultQuotaBytes = 1024 * 1024 * 1024;
 
@@ -59,6 +60,8 @@ export interface EdgeJoinClientPorts {
   readonly register: (rootDir: string, repoId: string) => Promise<unknown>;
   readonly sync: (payload: JsonObject) => Promise<Record<string, unknown>>;
   readonly join?: typeof requestFleetEdgeJoinPinned;
+  readonly probeCenter?: typeof probeFleetEdgeCenterAddress;
+  readonly probeLogin?: (authority: OidcLoginAuthority) => Promise<void>;
   readonly homeDir?: string;
   /** Receives each repository's phase as the join loop advances, so a viewer can show progress. */
   readonly onProgress?: (progress: {
@@ -77,12 +80,46 @@ export async function joinFleetEdge(
       code: "edge_join_invalid",
     });
   const authority = {
-      url: link.loginUrl,
-      realm: link.loginRealm,
-      clientId: link.loginClientId,
-      ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
-    },
-    session = await ports.session();
+    url: link.loginUrl,
+    realm: link.loginRealm,
+    clientId: link.loginClientId,
+    ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
+  };
+  const center = new URL(link.centerOrigin),
+    centerProbe = Promise.resolve().then(() =>
+      (ports.probeCenter ?? probeFleetEdgeCenterAddress)({
+        hostname: center.hostname,
+        port: Number(center.port || 443),
+        servername: center.hostname,
+        spkiSha256: link.spkiSha256,
+      }),
+    ),
+    loginProbe = Promise.resolve().then(() => (ports.probeLogin ?? probeLoginAddress)(authority)),
+    [centerResult, loginResult] = await Promise.allSettled([centerProbe, loginProbe]),
+    failedAddresses = [
+      ...(centerResult.status === "rejected" ? [{ address: "Center service", error: centerResult.reason }] : []),
+      ...(loginResult.status === "rejected" ? [{ address: "Sign-in service", error: loginResult.reason }] : []),
+    ];
+  if (failedAddresses.length === 1) throw failedAddresses[0]!.error;
+  if (failedAddresses.length > 1)
+    throw Object.assign(
+      new Error(
+        failedAddresses
+          .map(
+            ({ address, error }) =>
+              address + " address check failed: " + (error instanceof Error ? error.message : String(error)),
+          )
+          .join(" "),
+      ),
+      {
+        code: "edge_join_addresses_unreachable",
+        cause: new AggregateError(
+          failedAddresses.map(({ error }) => error),
+          "Both invitation addresses are unreachable.",
+        ),
+      },
+    );
+  const session = await ports.session();
   // An invitation CA is authoritative when present; public-trust invitations leave CA rotation unpinned.
   if (
     !session ||
@@ -91,8 +128,7 @@ export async function joinFleetEdge(
     (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
   )
     return { ...(await ports.beginLogin(authority)), command: "edge-join" };
-  const center = new URL(link.centerOrigin),
-    port = Number(center.port || 443),
+  const port = Number(center.port || 443),
     admitted = await (ports.join ?? requestFleetEdgeJoinPinned)({
       hostname: center.hostname,
       port,
@@ -159,6 +195,25 @@ export async function joinFleetEdge(
     nodeId: admitted.nodeId,
     personId: admitted.personId,
   };
+}
+
+async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
+  const realmUrl = new URL(`realms/${encodeURIComponent(authority.realm)}`, `${authority.url.replace(/\/$/u, "")}/`),
+    address = new URL(authority.url).origin;
+  try {
+    const response = await (authority.certificate
+      ? fetchWithTlsCa(fetch, authority.certificate, realmUrl, { signal: AbortSignal.timeout(5_000) })
+      : fetch(realmUrl, { signal: AbortSignal.timeout(5_000) }));
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  } catch (error) {
+    throw Object.assign(
+      new Error(
+        `Login service address ${address} is unreachable or refused its realm check; check its DNS, routing, port mapping, HTTPS certificate, and realm.`,
+      ),
+      { code: "login_address_unreachable", cause: error },
+    );
+  }
 }
 
 function edgeWorkspaceRoot(repoId: string, requestedRoot: string | undefined, homeDir: string): string {

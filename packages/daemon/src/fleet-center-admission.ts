@@ -14,6 +14,7 @@ import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
@@ -56,6 +57,7 @@ export interface FleetCenterAdmissionRequest {
   readonly payload: {
     readonly port: number;
     readonly bind?: string;
+    readonly externalUrl?: string;
     readonly keyPath: string;
     readonly certPath: string;
     readonly repoId: string;
@@ -90,8 +92,12 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     cert = material(request.certPath, "--cert");
   createSecureContext({ key, cert });
   const bind = request.bind ?? "127.0.0.1";
-  await lookup(bind);
-  validateCertificateNames(cert, [bind]);
+  if (bind !== "0.0.0.0" && bind !== "::") await lookup(bind);
+  const externalUrl = request.externalUrl === undefined ? undefined : parseFleetCenterExternalUrl(request.externalUrl);
+  validateCertificateNames(cert, [
+    bind,
+    ...(externalUrl ? [new URL(externalUrl).hostname.replace(/^\[|\]$/gu, "")] : []),
+  ]);
   return {
     host: input.host,
     buildDraining: input.buildDraining,

@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -13,7 +13,7 @@ import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
 import { managedRbacReceiptJournal, managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
-import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
+import { fleetCenterConfigPath, saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
@@ -118,6 +118,7 @@ async function edgeJoinCenter(t: TestContext, base: Awaited<ReturnType<typeof fi
   }
   saveFleetCenterConfig(base.root, "default", {
     bind: "127.0.0.1",
+    externalUrl: "https://center.example:7545",
     port: 8443,
     repoId: "repo-a",
     keyPath: key,
@@ -795,8 +796,14 @@ test("edge invitations grant each selected repository and reject inherited permi
     readonly token?: string;
     readonly repoIds: readonly string[];
     readonly loginClientId: string;
+    readonly centerOrigin: string;
   };
   assert.ok(link.token);
+  assert.equal(link.centerOrigin, "https://center.example:7545");
+  const decodedLink = JSON.parse(
+    Buffer.from(String(issuedLink).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+  ) as { readonly centerOrigin: string };
+  assert.equal(decodedLink.centerOrigin, "https://center.example:7545");
   assert.deepEqual([issued.ok, issued.state, link.repoIds], [true, "pending", ["repo-a", "repo-b"]]);
   assert.equal(
     JSON.stringify(journal()).includes(link.token),
@@ -864,6 +871,40 @@ test("edge invitations grant each selected repository and reject inherited permi
     { code: "join_revoked" },
   );
   signIn("person-admin");
+});
+
+test("edge invitations require a configured external center URL even when the listener binds wildcard", async (t) => {
+  const { root, keycloak, run } = await edgeJoinCenter(t, await fixture(t));
+  const config = JSON.parse(readFileSync(fleetCenterConfigPath(root, "default"), "utf8")) as Record<string, unknown>;
+  config.bind = "0.0.0.0";
+  writeFileSync(fleetCenterConfigPath(root, "default"), JSON.stringify(config));
+  keycloak.account("person-invited");
+  const issued = await run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      repoIds: ["repo-a"],
+      groupIds: ["viewer"],
+    }),
+    decoded = JSON.parse(
+      Buffer.from(String(issued.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+    ) as { readonly centerOrigin: string };
+  assert.equal(new URL(decoded.centerOrigin).origin, "https://center.example:7545");
+  t.diagnostic(`decoded invitation center origin: ${new URL(decoded.centerOrigin).origin}`);
+
+  delete config.externalUrl;
+  writeFileSync(fleetCenterConfigPath(root, "default"), JSON.stringify(config));
+  await assert.rejects(
+    run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      repoIds: ["repo-a"],
+      groupIds: ["viewer"],
+    }),
+    {
+      code: "fleet_center_address_unavailable",
+      message: /ha daemon fleet center start --external-url https:\/\/center\.example:7545/u,
+    },
+  );
 });
 
 test("a win32 invitation registers a win32 edge node, and an unknown platform is refused", async (t) => {

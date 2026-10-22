@@ -4,7 +4,32 @@ import { localDaemonTargetKey } from "./client/local-daemon-target.ts";
 import { writeFileDurably } from "./durable-file.ts";
 import type { FleetCenterAdmissionRequest } from "./fleet-center-admission.ts";
 
-export type FleetCenterConfig = Required<FleetCenterAdmissionRequest["payload"]>;
+export function parseFleetCenterExternalUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Fleet TLS --external-url must be a complete HTTPS origin, such as https://center.example:7545.");
+  }
+  const hostname = url.hostname.replace(/^\[|\]$/gu, "");
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::"
+  )
+    throw new Error(
+      "Fleet TLS --external-url must be a complete HTTPS origin without credentials, path, query, or fragment.",
+    );
+  return url.origin;
+}
+
+export type FleetCenterConfig = Omit<Required<FleetCenterAdmissionRequest["payload"]>, "externalUrl"> &
+  Pick<FleetCenterAdmissionRequest["payload"], "externalUrl">;
 
 export function fleetCenterConfigPath(userRoot: string, daemonId: string): string {
   return path.join(userRoot, "fleet", localDaemonTargetKey(userRoot, daemonId), "center.json");
@@ -24,6 +49,8 @@ export function readFleetCenterConfig(userRoot: string, daemonId: string): Fleet
   for (const field of ["keyPath", "certPath", "stateRoot"]) if (!path.isAbsolute(row[field] as string)) fail();
   if (!Number.isSafeInteger(row.port) || Number(row.port) < 1 || Number(row.port) > 65535) fail();
   if (!Number.isSafeInteger(row.quotaBytes) || Number(row.quotaBytes) <= 0) fail();
+  if (row.externalUrl !== undefined && typeof row.externalUrl !== "string") fail();
+  const externalUrl = typeof row.externalUrl === "string" ? parseFleetCenterExternalUrl(row.externalUrl) : undefined;
   return {
     port: row.port as number,
     bind: row.bind as string,
@@ -32,6 +59,7 @@ export function readFleetCenterConfig(userRoot: string, daemonId: string): Fleet
     certPath: row.certPath as string,
     stateRoot: row.stateRoot as string,
     quotaBytes: row.quotaBytes as number,
+    ...(externalUrl ? { externalUrl } : {}),
   };
 }
 

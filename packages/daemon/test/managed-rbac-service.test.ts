@@ -478,6 +478,29 @@ test("the self-signed certificate mode generates a private listener certificate 
   }
 });
 
+test("self-signed listener defaults its hostname when the UI has no existing listener", async () => {
+  const managed = managedFixture();
+  try {
+    const result = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      port: await availablePort(),
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(result.ok, true);
+    const config = managed.config();
+    assert.equal(config.listener.hostname, config.listener.address);
+    assert.doesNotThrow(() =>
+      validateCertificateNames(readFileSync(config.listener.certificateFile), [
+        config.listener.address,
+        config.listener.hostname,
+      ]),
+    );
+  } finally {
+    await managed.close();
+  }
+});
+
 test("self-signed listener input validates hostname and port before generating a certificate", async () => {
   const managed = managedFixture();
   try {

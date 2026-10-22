@@ -2,6 +2,7 @@
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
 import { createHash, X509Certificate } from "node:crypto";
+import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -785,6 +786,58 @@ export async function requestFleetEdgeJoinPinned(options: {
       },
     );
     return { ...response, certificate: new X509Certificate(peer.raw).raw.toString("base64") };
+  } finally {
+    socket.destroy();
+  }
+}
+
+/** Checks the invitation's center endpoint and SPKI before asking the member to sign in. */
+export async function probeFleetEdgeCenterAddress(options: {
+  readonly hostname: string;
+  readonly port: number;
+  readonly servername?: string;
+  readonly spkiSha256: string;
+  readonly timeoutMs?: number;
+}): Promise<void> {
+  const hostname = options.hostname.replace(/^\[|\]$/gu, "");
+  const socket = await new Promise<TLSSocket>((resolve, reject) => {
+    const candidate = connect({
+      host: hostname,
+      port: options.port,
+      ...(isIP(hostname) === 0 ? { servername: options.servername ?? hostname } : {}),
+      rejectUnauthorized: false,
+    });
+    const unreachable = (cause?: unknown) =>
+      Object.assign(
+        new Error(
+          `Center address https://${options.hostname}:${options.port} is unreachable; check its DNS, routing, firewall, and port mapping.`,
+        ),
+        { code: "center_address_unreachable", ...(cause === undefined ? {} : { cause }) },
+      );
+    const timer = setTimeout(() => {
+      candidate.destroy();
+      reject(unreachable());
+    }, options.timeoutMs ?? 5_000);
+    candidate.once("secureConnect", () => {
+      clearTimeout(timer);
+      resolve(candidate);
+    });
+    candidate.once("error", (error) => {
+      clearTimeout(timer);
+      reject(unreachable(error));
+    });
+  });
+  try {
+    const peer = socket.getPeerCertificate(true);
+    if (!peer.raw)
+      throw Object.assign(new Error("The center did not present a certificate."), { code: "pin_mismatch" });
+    const pin = createHash("sha256")
+      .update(new X509Certificate(peer.raw).publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex");
+    if (pin !== options.spkiSha256)
+      throw Object.assign(new Error("The center certificate fingerprint does not match the invitation."), {
+        code: "pin_mismatch",
+      });
   } finally {
     socket.destroy();
   }

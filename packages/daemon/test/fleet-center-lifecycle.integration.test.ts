@@ -10,7 +10,11 @@ import test, { type TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { fleetCenterConfigPath, readFleetCenterConfig } from "../src/fleet-center-config.ts";
+import {
+  fleetCenterConfigPath,
+  parseFleetCenterExternalUrl,
+  readFleetCenterConfig,
+} from "../src/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -134,6 +138,34 @@ test("successful starts persist actual ports and restore separate daemon identit
   );
 });
 
+test("wildcard listeners use a separately configured external origin covered by the certificate", async (t) => {
+  const f = await fixture(t),
+    host = await f.open("external-address"),
+    port = await unusedPort(),
+    externalUrl = `https://localhost:${port}`,
+    started = await host.fleet.startCenter({ ...f.request, port, bind: "0.0.0.0", externalUrl }, auth);
+  assert.equal(started.ok, true);
+  assert.equal(started.bind, "0.0.0.0");
+  assert.equal(readFleetCenterConfig(f.userRoot, "external-address")?.externalUrl, externalUrl);
+  await handshake(port, f.certPath);
+  await assert.rejects(
+    host.fleet.startCenter(
+      { ...f.request, port: await unusedPort(), bind: "0.0.0.0", externalUrl: "https://uncovered.invalid:7545" },
+      auth,
+    ),
+    /TLS certificate SAN does not cover uncovered\.invalid/u,
+  );
+  const saved = await host.fleet.setCenterExternalAddress({ externalUrl }, auth);
+  assert.equal(saved.externalUrl, externalUrl);
+  assert.equal((await host.fleet.readCenterExternalAddress(auth)).externalUrl, externalUrl);
+  const unreachableUrl = `https://127.0.0.1:${await unusedPort()}`,
+    unreachable = await host.fleet.setCenterExternalAddress({ externalUrl: unreachableUrl }, auth);
+  assert.equal(unreachable.externalUrl, unreachableUrl);
+  assert.match(String(unreachable.warning), /could not reach/u);
+  assert.equal(readFleetCenterConfig(f.userRoot, "external-address")?.externalUrl, unreachableUrl);
+  assert.throws(() => parseFleetCenterExternalUrl("https://[::]:7545"), /complete HTTPS origin/u);
+});
+
 test("an unenabled successor does not listen and invalid saved references report restore failure", async (t) => {
   const f = await fixture(t),
     first = await f.open("enabled"),
@@ -230,7 +262,7 @@ test("a save failure rejects start and closes its unrecorded listener", async (t
     file = fleetCenterConfigPath(f.userRoot, "save-failure");
   mkdirSync(file, { recursive: true });
   await assert.rejects(
-    host.fleet.startCenter({ ...f.request, port }, auth),
+    host.fleet.startCenter({ ...f.request, port, externalUrl: `https://localhost:${port}` }, auth),
     /not listening.*EISDIR|not listening.*ENOTEMPTY|not listening.*EPERM/u,
   );
   await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
@@ -259,7 +291,8 @@ test("concurrent authorized starts publish only one daemon listener and one enab
 test("restored centers replace the same and different ports only after valid input", async (t) => {
   const f = await fixture(t),
     initial = await f.open("replace"),
-    original = await initial.fleet.startCenter(f.request, auth);
+    externalUrl = `https://localhost:${await unusedPort()}`,
+    original = await initial.fleet.startCenter({ ...f.request, externalUrl }, auth);
   await initial.close();
   const restored = await f.open("replace"),
     file = fleetCenterConfigPath(f.userRoot, "replace"),
@@ -270,6 +303,29 @@ test("restored centers replace the same and different ports only after valid inp
   await restored.settleMaterialization(f.request.repoId, "restored center replacement fixture ready");
   const badCert = path.join(f.root, "invalid.crt");
   writeFileSync(badCert, "not a certificate");
+  const replacementKey = path.join(f.root, "replacement.key"),
+    replacementCert = path.join(f.root, "replacement.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      replacementKey,
+      "-out",
+      replacementCert,
+      "-subj",
+      "/CN=127.0.0.1",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
   for (const invalid of [
     { port: -1 },
     { port: 65536 },
@@ -280,6 +336,7 @@ test("restored centers replace the same and different ports only after valid inp
     { stateRoot: "" },
     { keyPath: path.join(f.root, "missing.key") },
     { certPath: badCert },
+    { certPath: replacementCert, keyPath: replacementKey },
     { repoId: "unknown" },
     { stateRoot: badCert },
     { keyPath: "bad\0path" },
@@ -292,17 +349,26 @@ test("restored centers replace the same and different ports only after valid inp
   assert.equal(same.replaced, true);
   assert.equal(same.serviceStatus, "listening");
   assert.equal(same.port, port);
+  assert.equal(same.externalUrl, externalUrl);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, externalUrl);
   await handshake(port, f.certPath);
   const otherPort = await unusedPort(),
     different = await restored.fleet.startCenter({ ...f.request, port: otherPort }, auth);
   assert.equal(different.replaced, true);
   assert.equal(different.port, otherPort);
+  assert.equal(different.externalUrl, externalUrl);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, externalUrl);
   await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
   await handshake(otherPort, f.certPath);
+  const changedUrl = `https://127.0.0.1:${otherPort}`,
+    changed = await restored.fleet.startCenter({ ...f.request, port: otherPort, externalUrl: changedUrl }, auth);
+  assert.equal(changed.externalUrl, changedUrl);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, changedUrl);
   await restored.close();
   await f.open("replace");
   await handshake(otherPort, f.certPath);
   assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.port, otherPort);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.externalUrl, changedUrl);
 });
 
 test("failed replacement startup leaves no listener and restart restores the last successful intent", async (t) => {
