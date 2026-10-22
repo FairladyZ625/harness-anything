@@ -95,6 +95,6 @@
     "playwright-core": "1.62.1",
     "tailwindcss": "^4.3.2",
     "vite": "8.1.6",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }
