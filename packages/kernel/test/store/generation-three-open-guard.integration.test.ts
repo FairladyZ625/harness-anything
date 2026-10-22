@@ -145,7 +145,13 @@ test("canonical writable attach rejects revision zero when the persisted project
   copyFileSync(revisionZeroPath, databasePath);
   assert.throws(
     () => openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 }),
-    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "invalid_store" &&
+      /revision precedes its persisted projection/u.test(error.message) &&
+      /revisions 1-1 are missing/u.test(error.message),
+    "the refusal must name the missing revision range so the operator knows what to restore",
   );
   assert.equal(statSync(databasePath).size, statSync(revisionZeroPath).size);
 });
@@ -215,4 +221,58 @@ test("empty activation refuses to recreate a missing ledger while its projection
     (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_store",
   );
   assert.equal(existsSync(databasePath), false);
+});
+
+for (const [shape, contents] of [
+  ["zero-byte", null],
+  ["schema-less 4096-byte", "CREATE TABLE temporary_table(value TEXT); DROP TABLE temporary_table; VACUUM"],
+] as const) {
+  test(`a brand-new repository initialises through a leftover ${shape} projection cache`, (t) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-empty-cache-bootstrap-"));
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    initRepo(rootDir);
+    const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
+    mkdirSync(path.dirname(projectionPath), { recursive: true });
+    if (contents === null) {
+      writeFileSync(projectionPath, Buffer.alloc(0));
+    } else {
+      const cache = new DatabaseSync(projectionPath);
+      cache.exec(contents);
+      cache.close();
+    }
+
+    activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+
+    assert.equal(existsSync(`${sqliteLedgerPath(rootDir, 3)}.activation.json`), true);
+    const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
+    try {
+      assert.equal(store.revision(), 0);
+    } finally {
+      store.close();
+    }
+  });
+}
+
+test("a projection cache that already scanned accepted history still blocks empty initialisation", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-scanned-cache-bootstrap-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
+  mkdirSync(path.dirname(projectionPath), { recursive: true });
+  const cache = new DatabaseSync(projectionPath);
+  cache.exec(
+    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), " +
+      "watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 7)",
+  );
+  cache.close();
+
+  assert.throws(
+    () => activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "invalid_store" &&
+      /upgrade is incomplete/u.test(error.message),
+  );
+  assert.equal(existsSync(sqliteLedgerPath(rootDir, 3)), false);
 });

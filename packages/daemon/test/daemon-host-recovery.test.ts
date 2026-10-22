@@ -1008,7 +1008,10 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
     const unavailable = host.status().repos.find((repo) => repo.repoId === "ahead-projection")!;
     assert.equal(unavailable.state, "unavailable");
     assert.equal(unavailable.causeClass, "data-shape", JSON.stringify(unavailable));
-    assert.match(String(unavailable.lastError), /generation 3 ledger revision precedes its persisted projection/u);
+    assert.match(
+      String(unavailable.lastError),
+      /generation 3 ledger revision precedes its persisted projection: revisions 2-5 are missing/u,
+    );
     const rebuild = await host.run("ahead-projection", { kind: "projection-rebuild" }, auth);
     assert.equal(rebuild.code, "repo_unavailable");
     assert.deepEqual(rebuild.diagnostic, { kind: "failure", code: "repo_unavailable" });

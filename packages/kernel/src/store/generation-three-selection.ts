@@ -116,8 +116,52 @@ function assertGenerationThreeProjectionDoesNotExceedLedger(projectionPath: stri
     const metadata = projection
       .prepare("SELECT watermark, scanned_revision FROM projection_meta WHERE singleton=1")
       .get() as { readonly watermark?: number; readonly scanned_revision?: number } | undefined;
-    if (metadata && (Number(metadata.watermark) > ledgerRevision || Number(metadata.scanned_revision) > ledgerRevision))
-      throw new TaskEventStoreError("invalid_store", "generation 3 ledger revision precedes its persisted projection");
+    if (metadata) {
+      const projectionRevision = Math.max(Number(metadata.watermark), Number(metadata.scanned_revision));
+      if (projectionRevision > ledgerRevision)
+        throw new TaskEventStoreError(
+          "invalid_store",
+          "generation 3 ledger revision precedes its persisted projection: revisions " +
+            `${ledgerRevision + 1}-${projectionRevision} are missing from the ledger ` +
+            `(ledger revision ${ledgerRevision}, projection through revision ${projectionRevision})`,
+        );
+    }
+  } finally {
+    projection.close();
+  }
+}
+
+/**
+ * Only a cache that records a nonzero watermark holds accepted history. SQLite creates the 0-byte
+ * main file before any DDL, so an interrupted open leaves a file whose bare existence proves nothing;
+ * a cache without `projection_meta` never completed its first scan either.
+ */
+function projectionCacheCarriesAcceptedHistory(projectionPath: string): boolean {
+  const projectionSize = files.fileSize(projectionPath);
+  if (projectionSize === null || projectionSize === 0) return false;
+  let projection: DatabaseSync;
+  try {
+    projection = new DatabaseSync(projectionPath, { readOnly: true });
+  } catch (error) {
+    throw new TaskEventStoreError(
+      "invalid_store",
+      `projection cache cannot be opened: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  try {
+    const hasMetadata = projection
+      .prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='projection_meta'")
+      .get();
+    if (!hasMetadata) return false;
+    const metadata = projection.prepare("SELECT watermark FROM projection_meta WHERE singleton=1").get() as
+      | { readonly watermark?: number }
+      | undefined;
+    return metadata !== undefined && Number(metadata.watermark) > 0;
+  } catch (error) {
+    throw new TaskEventStoreError(
+      "invalid_store",
+      `projection cache cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     projection.close();
   }
@@ -134,11 +178,13 @@ export function selectGenerationThree(input: SelectionInput): 3 {
     })
     .concat([
       path.join(layout.localRoot, "store", "imports", "generation-0.snapshot.json"),
-      path.join(layout.localRoot, "cache", "task.sqlite"),
       path.join(layout.authoredRoot, "events"),
       path.join(layout.authoredRoot, "objects"),
     ]);
-  if (history.some((candidate) => files.exists(candidate)))
+  if (
+    history.some((candidate) => files.exists(candidate)) ||
+    projectionCacheCarriesAcceptedHistory(path.join(layout.localRoot, "cache", "task.sqlite"))
+  )
     throw new TaskEventStoreError(
       "invalid_store",
       "generation 3 upgrade is incomplete; run offline conversion before attaching this repository. Run ha migrate ledger --help for backup, conversion, verification and activation.",
