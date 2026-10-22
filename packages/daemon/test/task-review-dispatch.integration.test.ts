@@ -385,6 +385,8 @@ type DispatchStep = {
   executionId?: string;
   dispatchId?: string;
   runtimeSessionId?: string;
+  agentId?: string;
+  instanceId?: string;
   lane?: string;
   outcome: string;
   error?: string;
@@ -617,6 +619,93 @@ test(
       }
       // Duplicate task ids in one invocation are rejected: one review execution never covers two tasks.
       await expectCoded(f.run({ kind: "task-dispatch-review", taskIds: [taskId, taskId] }), "invalid_command");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "dispatch-review --agent refuses instead of returning another agent's in-flight review dispatch",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoForward: false,
+    });
+    try {
+      await f.install();
+      const second = await f.run({
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "second-reviewer",
+          name: "Second reviewer",
+          instructions: "Inspect submitted bytes and record your independent verdict.",
+          runtimes: [{ type: "codex", model: "review-model" }],
+          instance: "review-second",
+          role: "reviewer",
+        },
+      });
+      assert.equal(second.outcome, "applied", JSON.stringify(second));
+      // The forward dispatches the default reviewer first; its session stays in flight.
+      assert.equal((await f.forward()).outcome, "applied");
+      assert.equal(f.launches.length, 1);
+      const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "second-reviewer" });
+      assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+      assert.equal(receipt.code, "review_dispatch_failed", JSON.stringify(receipt));
+      const steps = dispatchesOf(receipt);
+      assert.equal(steps.length, 1);
+      assert.equal(steps[0]!.outcome, "failed");
+      assert.equal(steps[0]!.agentId, "second-reviewer");
+      assert.match(
+        steps[0]!.error ?? "",
+        /already holds review dispatch \S+ by agent closeout-reviewer .*--agent second-reviewer was not dispatched/u,
+        JSON.stringify(steps[0]),
+      );
+      assert.equal(f.launches.length, 1, "the refusal must not launch the requested reviewer");
+      // Without --agent the idempotent path remains, now naming the holding agent and its instance.
+      const plain = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+      assert.equal(plain.outcome, "applied", JSON.stringify(plain));
+      const plainStep = dispatchesOf(plain)[0]!;
+      assert.equal(plainStep.outcome, "already_dispatched");
+      assert.equal(plainStep.agentId, "closeout-reviewer");
+      assert.equal(plainStep.instanceId, "review-first");
+      // The holding agent's own explicit --agent stays idempotent.
+      const same = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
+      assert.equal(same.outcome, "applied", JSON.stringify(same));
+      assert.equal(dispatchesOf(same)[0]!.outcome, "already_dispatched");
+      assert.equal(dispatchesOf(same)[0]!.agentId, "closeout-reviewer");
+      assert.equal(f.launches.length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a fresh dispatch-review step names the dispatched agent and its runtime instance",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoForward: false,
+    });
+    try {
+      await f.install();
+      assert.equal((await f.forward()).outcome, "applied");
+      const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(first?.type === "runtime_dispatch_requested");
+      f.failPending();
+      await f.awaitOutcome(first.payload.runtimeSessionId);
+      const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const step = dispatchesOf(receipt)[0]!;
+      assert.equal(step.outcome, "dispatched", JSON.stringify(step));
+      assert.equal(step.agentId, "closeout-reviewer");
+      assert.equal(step.instanceId, "review-first");
+      assert.notEqual(step.runtimeSessionId, first.payload.runtimeSessionId);
+      assert.equal(f.launches.length, 2);
     } finally {
       await f.close();
     }

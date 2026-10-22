@@ -189,11 +189,18 @@ test("a dispatch-review receipt names the reviewed task on every row", () => {
     outcome: "applied",
     summary: "dispatch-review: 1 of 2 task(s) have a review dispatch.",
     dispatches: [
-      { taskId: "task_one", dispatchId: "review-dispatch-one", runtimeSessionId: "runtime-one", outcome: "dispatched" },
+      {
+        taskId: "task_one",
+        agentId: "closeout-reviewer",
+        instanceId: "review-first",
+        dispatchId: "review-dispatch-one",
+        runtimeSessionId: "runtime-one",
+        outcome: "dispatched",
+      },
       { taskId: "task_two", outcome: "failed", error: "no submitted execution" },
     ],
   });
-  assert.match(text, /^task_one\tdispatched\treview-dispatch-one\truntime-one$/mu);
+  assert.match(text, /^task_one\tdispatched\tcloseout-reviewer\treview-first\treview-dispatch-one\truntime-one$/mu);
   assert.match(text, /^task_two\tfailed\tno submitted execution$/mu);
   assert.doesNotMatch(text, /undefined/u);
 });

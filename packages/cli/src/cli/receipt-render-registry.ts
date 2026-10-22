@@ -306,13 +306,13 @@ function renderRuntimeBatchReceipt(receipt: Record<string, unknown>): string {
   return dispatches.length ? dispatches.map(renderRuntimeBatchRow).join("\n") : "No batch dispatches.";
 }
 
-/** Review-dispatch steps carry the reviewed task and an outcome, never a dispatch status. */
+/** Review-dispatch steps carry the reviewed task, the actual agent and runtime instance, and an outcome. */
 function renderReviewDispatches(receipt: Record<string, unknown>): string {
   const steps = (Array.isArray(receipt.dispatches) ? receipt.dispatches : []) as readonly Record<string, unknown>[];
   return [
     String(receipt.summary),
     ...steps.map((step) =>
-      [step.taskId, step.outcome, step.dispatchId, step.runtimeSessionId, step.error]
+      [step.taskId, step.outcome, step.agentId, step.instanceId, step.dispatchId, step.runtimeSessionId, step.error]
         .filter((cell) => cell !== undefined)
         .map(String)
         .join("\t"),
