@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { EdgeInvitePanel } from "../src/renderer/views/settings/EdgeInvitePanel.tsx";
 
@@ -18,7 +19,29 @@ vi.mock("motion/react", async (original) => {
 });
 
 const LINK = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEiLCJ0b2tlbiI6Im9wYXF1ZS10b2tlbiJ9";
-const REPOS = [{ repoId: "repo-a" }, { repoId: "repo-b" }] as const;
+
+function repoRow(overrides: { readonly repoId: string; readonly displayName: string }): SystemRepoRow {
+  return {
+    canonicalRoot: `/repo/${overrides.repoId}`,
+    authoredBranch: "main",
+    registrationState: "enabled",
+    mode: "local",
+    connectionId: "local",
+    cellState: "attached",
+    generation: 1,
+    queueDepth: 0,
+    lockState: "not_applicable",
+    recoveryMs: null,
+    lastError: null,
+    unavailableReason: null,
+    ...overrides,
+  };
+}
+
+const REPOS = [
+  repoRow({ repoId: "repo-a", displayName: "Alpha Workspace" }),
+  repoRow({ repoId: "repo-b", displayName: "repo-b" }),
+];
 const GROUPS = [
   { id: "viewer", displayName: "Viewer", effectiveScopes: ["repo-read"], version: "viewer-v1" },
   {
@@ -87,6 +110,7 @@ async function mountPanel(
     readonly listResults?: readonly unknown[];
     readonly people?: readonly unknown[];
     readonly peopleError?: string;
+    readonly repos?: readonly SystemRepoRow[];
   } = {},
 ) {
   const listQueue = [...(options.listResults ?? [{ ok: true, joins: [join()] }])],
@@ -116,7 +140,9 @@ async function mountPanel(
   document.body.append(container);
   mounted.push({ root, container });
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(EdgeInvitePanel, { repos: REPOS })));
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(EdgeInvitePanel, { repos: options.repos ?? REPOS })),
+    );
   });
   await settle();
   return { container, grants, issue, list, revoke } satisfies Harness;
@@ -226,6 +252,35 @@ describe("EdgeInvitePanel", () => {
     expect(container.textContent).toContain("2030-01-01");
     expect(list).toHaveBeenCalled();
     expect(container.textContent).toContain("Pending");
+  });
+
+  it("lists repositories by display name, keeping the repo id secondary only when they differ", async () => {
+    const { container, issue } = await mountPanel({
+      repos: [
+        repoRow({ repoId: "canonical", displayName: "harness-anything" }),
+        repoRow({ repoId: "same-name", displayName: "same-name" }),
+        repoRow({ repoId: "no-name", displayName: "" }),
+      ],
+    });
+    const row = (repoId: string) =>
+      container.querySelector(`[data-testid="edge-invite-repo-${repoId}"]`)?.closest("label");
+    // The owner's exact case: the row reads by its name, like the local list on the left.
+    expect(row("canonical")?.textContent).toContain("harness-anything");
+    expect(row("canonical")?.textContent).toContain("canonical");
+    // When the name already is the id, or the name is empty so the id is the label,
+    // the id is not printed a second time.
+    expect(row("same-name")?.textContent?.match(/same-name/g)).toHaveLength(1);
+    expect(row("no-name")?.textContent?.match(/no-name/g)).toHaveLength(1);
+    // What goes to the daemon is still the repo id, never the display name.
+    await pick(container, "edge-invite-person-select", "person-gui");
+    await check(container, "edge-invite-repo-canonical");
+    await check(container, "edge-invite-group-contributor");
+    await click(container, "edge-invite-issue");
+    expect(issue).toHaveBeenCalledWith({
+      personId: "person-gui",
+      repoIds: ["canonical"],
+      groupIds: ["contributor"],
+    });
   });
 
   it("creates a new member in the same form with the derived member id shown", async () => {
