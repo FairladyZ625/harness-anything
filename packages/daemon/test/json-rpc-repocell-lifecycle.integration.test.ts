@@ -181,7 +181,7 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     const cliSubmission = events[0].payload.execution.submission, guiSubmission = events[1].payload.execution.submission;
     assert.ok(cliSubmission && guiSubmission);
     const normalizeSubmission = (submission: NonNullable<typeof cliSubmission>) => {
-      const { commitSha, productionDelta, ...rest } = submission;
+      const { productionDelta, ...rest } = submission;
       return {
         ...rest,
         commitSha: "<repo-cut>",
