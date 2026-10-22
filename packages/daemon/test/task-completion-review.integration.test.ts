@@ -54,18 +54,16 @@ async function recordReview(
       evidenceChecked: ["closeout.md"],
     }),
   );
-  return f
-    .cell()
-    .run(
-      {
-        kind: "task-review-execution",
-        taskId,
-        executionId: reviewExecutionId,
-        reviewId,
-        fromFile: `harness/${packet}`,
-      },
-      reviewerActor(sessionId),
-    );
+  return f.cell().run(
+    {
+      kind: "task-review-execution",
+      taskId,
+      executionId: reviewExecutionId,
+      reviewId,
+      fromFile: `harness/${packet}`,
+    },
+    reviewerActor(sessionId),
+  );
 }
 
 test("owner forward is the only path from submitted into independent review and completion is mechanical", async () => {
