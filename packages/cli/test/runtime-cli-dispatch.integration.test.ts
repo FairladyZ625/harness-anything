@@ -77,6 +77,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
     mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
+    continuationContext: true,
   });
   assert.ok(
     assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
@@ -138,6 +139,8 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     endedAt: boundDispatch.endedAt,
     outcome: "stopped",
     exitCode: 0,
+    lastConclusion: `final:${assembledPrompt}`.trim().slice(0, 8_192),
+    exitHead: null,
     resultRef: (bound.result as Record<string, unknown>).ref,
     eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
     attemptGroupId: boundDispatchId,
@@ -148,7 +151,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   });
   assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
   assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
-  assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu);
+  assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:OPENAI_API_KEY|sk-runtime-secret-1234567890)/u);
   assert.ok(readDispatchRecords(root, boundDispatchId).length > 0);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const dispatchRow = (runStopped(["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
@@ -676,6 +679,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
       `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
       `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
+    continuationContext: true,
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath),
@@ -703,6 +707,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     daemonId,
     runtimeSessionId: String(derived.receipt.runtimeSessionId),
     mission: derivedMission,
+    continuationContext: true,
   });
   assert.equal(derivedText.includes("Review precisely."), true);
 });

@@ -291,6 +291,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonId,
     runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),
     mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nfollow up`,
+    continuationContext: true,
   });
   const resumedRow = (
     runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>

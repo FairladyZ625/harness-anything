@@ -90,7 +90,7 @@ export function runAsync(
 function writeProvider(target: string, version: string): void {
   writeProviderExecutable(
     target,
-    `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8"), mission = prompt.split("\\n# Assigned Mission\\n").at(-1), body = mission.includes("# 台账查询引导") ? mission.split("\\n\\n").at(-1) : mission, secret = "sk-runtime-secret-1234567890";\nif (body === "failure:empty") process.exit(1);\nif (body === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (body === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed = args[0] === "exec" && args[1] === "resume", readOnly = body === "read-only", noAction = body === "no-action";\nif (readOnly && !args.includes("read-only")) process.exit(9);\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst batch = body.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\nconst emit = () => { mark("start"); console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly) console.log(JSON.stringify({ type: "item.completed", item: { id: "inspect", type: "command_execution", command: "ls packages", aggregated_output: "cli daemon kernel", exit_code: 0, status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (body === "hold") setInterval(() => {}, 1000); else { if (!readOnly && !noAction) console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); mark("end"); } };\nif (body === "stream prompt") setTimeout(emit, 3000); else if (batch) setTimeout(emit, 250); else emit(); }\n`,
+    `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8"), assignment = "\\n# Assigned Mission\\n", assignmentOffset = prompt.indexOf(assignment), mission = assignmentOffset < 0 ? prompt : prompt.slice(assignmentOffset + assignment.length), taskMission = mission.split("\\n\\n# Previous runtime continuation context\\n")[0], body = taskMission.includes("# 台账查询引导") ? taskMission.split("\\n\\n").at(-1) : taskMission, secret = "sk-runtime-secret-1234567890";\nif (prompt.includes("failure:empty")) process.exit(1);\nif (prompt.includes("failure:secret")) process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt.includes("failure:structured")) process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed = args[0] === "exec" && args[1] === "resume", readOnly = body === "read-only", noAction = body === "no-action";\nif (readOnly && !args.includes("read-only")) process.exit(9);\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst batch = body.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\nconst emit = () => { mark("start"); console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly) console.log(JSON.stringify({ type: "item.completed", item: { id: "inspect", type: "command_execution", command: "ls packages", aggregated_output: "cli daemon kernel", exit_code: 0, status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (body === "hold") setInterval(() => {}, 1000); else { if (!readOnly && !noAction) console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); mark("end"); } };\nif (body === "stream prompt") setTimeout(emit, 3000); else if (batch) setTimeout(emit, 250); else emit(); }\n`,
   );
 }
 export function writeProgressProvider(target: string, version: string): void {
@@ -475,6 +475,7 @@ export function assertTaskMissionPrompt(
     readonly daemonId: string;
     readonly runtimeSessionId: string;
     readonly mission: string;
+    readonly continuationContext?: boolean;
   },
 ): void {
   assert.ok(
@@ -484,5 +485,19 @@ export function assertTaskMissionPrompt(
     prompt,
   );
   assert.ok(prompt.includes(`\nRuntime actor: agent:runtime-session:${expected.runtimeSessionId}\n`), prompt);
-  assert.ok(prompt.endsWith(`# Assigned Mission\n${expected.mission}`), prompt);
+  const assignment = "# Assigned Mission\n",
+    assignmentOffset = prompt.indexOf(assignment);
+  assert.notEqual(assignmentOffset, -1, prompt);
+  const assembledMission = prompt.slice(assignmentOffset + assignment.length);
+  if (!expected.continuationContext) {
+    assert.equal(assembledMission, expected.mission, prompt);
+    return;
+  }
+  const continuationHeading = "# Previous runtime continuation context\n",
+    expectedPrefix = `${expected.mission}\n\n${continuationHeading}`;
+  assert.ok(assembledMission.startsWith(expectedPrefix), assembledMission);
+  assert.match(
+    assembledMission.slice(expectedPrefix.length),
+    /^Previous dispatch: \S+\nLast conclusion: [\s\S]*\nExit worktree HEAD: .*\nCurrent worktree HEAD: .*\nHEAD comparison: (?:same|changed|unavailable)$/u,
+  );
 }
