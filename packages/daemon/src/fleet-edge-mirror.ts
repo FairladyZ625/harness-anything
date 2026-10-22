@@ -6,7 +6,6 @@ import {
   effectiveDocCandidateClassification,
   DOC_SYNC_INLINE_MAX_BYTES,
   RAW_ARTIFACT_MAX_BYTES,
-  RAW_ARTIFACT_POLICY_ID,
   documentPath,
   makeTaskProjectionReader,
   openSqliteEventStore,
@@ -273,8 +272,13 @@ export function scanFleetMirrorWorktree(
       docClass = effectiveDocCandidateClassification(logical, byteVerdict, persistedPolicyId),
       unchanged = base !== undefined && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes);
     // Membership first, then the unchanged check: an untouched file the channel does not carry is
-    // simply not a candidate, and an untouched file it does carry is clean.
-    if (!channelMember(logical, byteVerdict, persistedPolicyId)) continue;
+    // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
+    // channel is still reported so callers cannot turn an unsupported edit into `no_changes`.
+    if (!channelMember(logical, byteVerdict, base !== undefined)) {
+      if (unchanged || (hasMarkerWithoutBaseline && base)) cleanPaths.push(logical);
+      else blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
+      continue;
+    }
     if (unchanged || (hasMarkerWithoutBaseline && base)) {
       cleanPaths.push(logical);
       continue;
@@ -443,23 +447,17 @@ export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: str
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
 }
 /**
- * Whether this edge channel carries a path at all. A row the center already wrote under a document
- * policy is a member on its own terms — its bytes today are an edit of that document, not evidence
- * about which channel owns it. Only a path with no persisted document row falls back to the delivered
- * bytes/name rule. The policy half of this rule lives once, in `effectiveDocCandidateClassification`;
- * this adds only the membership question, which no other reader asks.
+ * Whether this edge channel carries a path at all. Any persisted row is a member on its own terms —
+ * its bytes today are an edit of that row, not evidence about which channel owns it. Only a path with
+ * no persisted row falls back to the delivered bytes/name rule. The policy half lives once in
+ * `effectiveDocCandidateClassification`; this adds only the membership question.
  */
 function channelMember(
   logical: string,
   byteVerdict: DocCandidateClassification | null,
-  persistedPolicyId: string | null,
+  hasPersistedRow: boolean,
 ): boolean {
-  return (
-    (persistedPolicyId !== null && persistedPolicyId !== RAW_ARTIFACT_POLICY_ID) ||
-    byteVerdict?.kind === "raw-artifact" ||
-    logical.endsWith(".md") ||
-    logical.endsWith(".txt")
-  );
+  return hasPersistedRow || byteVerdict?.kind === "raw-artifact" || logical.endsWith(".md") || logical.endsWith(".txt");
 }
 
 function materializedPaths(root: string): string[] {

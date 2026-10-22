@@ -15,7 +15,7 @@ import {
   RAW_ARTIFACT_POLICY_ID,
   sha256Bytes,
 } from "@harness-anything/kernel";
-import { scanFleetMirrorWorktree, type FleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { locateFleetMirrorView, scanFleetMirrorWorktree, type FleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";
 
 // Real shape of the row: valid UTF-8 (a NUL byte decodes) written under the opaque textual policy.
@@ -51,17 +51,20 @@ function scanFixture(
       ledgerGeneration: 1,
       readerProfile: null,
       authorizationShapeDigest: "",
-      entries: new Map([
-        [
-          logical,
-          {
-            sha256: sha256Bytes(Buffer.from("base bytes\n")),
-            size: Buffer.byteLength("base bytes\n"),
-            mediaType: "text/x-harness-opaque",
-            policyId,
-          },
-        ],
-      ]),
+      entries:
+        policyId === null
+          ? new Map()
+          : new Map([
+              [
+                logical,
+                {
+                  sha256: sha256Bytes(Buffer.from("base bytes\n")),
+                  size: Buffer.byteLength("base bytes\n"),
+                  mediaType: "text/x-harness-opaque",
+                  policyId,
+                },
+              ],
+            ]),
     };
     const scan = scanFleetMirrorWorktree(view, root, [logical]);
     return {
@@ -122,15 +125,15 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     policyIds: [RAW_ARTIFACT_POLICY_ID],
     blocked: [],
   });
-  // No persisted row means today's bytes/name rule alone: the 187-like shapes the channel never
-  // owned stay out rather than newly entering it.
+  // No persisted row means today's bytes/name rule alone: unsupported dirty paths are surfaced as
+  // blocked instead of disappearing into a successful no-op.
   assert.deepEqual(scanFixture(null, "context/architecture/notes.json", decodableEdit), {
     policyIds: [],
-    blocked: [],
+    blocked: ["path is not an allowed canonical document"],
   });
   assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/data/rows.json", decodableEdit), {
     policyIds: [],
-    blocked: [],
+    blocked: ["path is not an allowed canonical document"],
   });
   // `.md`/`.txt` rows stay in channel everywhere, so a persisted opaque `.md` still submits. Its
   // policy is the path judgment's answer (canonical prose), exactly as the local scanner answers; the
@@ -263,3 +266,74 @@ test(
     );
   },
 );
+
+test("an edge task-start carries a persisted raw .log row edited to decodable text", { timeout: 90_000 }, async (t) => {
+  const fixture = await dualSyncFixture();
+  t.after(() => fixture.close());
+  const created = await fixture.createTask("node-one", "task-edge-raw-policy", "Edge raw policy"),
+    logical = `${created.packagePath}/artifacts/production-dryrun-resolved.log`,
+    source = path.join(fixture.repo, "edge-raw-policy-source.log"),
+    rawBytes = Buffer.from([0x80]),
+    decodableEdit = Buffer.from("report line one\ntail\ntrailing note\n");
+  writeFileSync(source, rawBytes);
+  const seeded = await fixture.centerRun({
+    kind: "task-artifact-add",
+    taskId: created.taskId,
+    source: "edge-raw-policy-source.log",
+    destination: "production-dryrun-resolved.log",
+  });
+  assert.equal(seeded.outcome, "applied", JSON.stringify(seeded).slice(0, 600));
+  await fixture.waitPublished(String(seeded.opId));
+  const seededEvent = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo }).readEvent(
+      String(seeded.opId),
+    ),
+    seededPayload = seededEvent?.payload as { readonly changes?: readonly Record<string, unknown>[] } | undefined;
+  assert.equal(seededPayload?.changes?.[0]?.policyId, RAW_ARTIFACT_POLICY_ID);
+  assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+  const target = fixture.worktree("node-one", logical);
+  assert.equal(
+    locateFleetMirrorView(path.join(fixture.root, "node-one-edge"), "dual-repo", "node-one")?.entries.get(logical)
+      ?.policyId,
+    RAW_ARTIFACT_POLICY_ID,
+    "the replica row retains the raw policy used for membership",
+  );
+  assert.deepEqual(readFileSync(target), rawBytes);
+  writeFileSync(target, decodableEdit);
+
+  const started = await fixture.edgeTask("node-one", {
+    kind: "task-start",
+    taskId: created.taskId,
+    executionId: "exe-edge-raw-policy",
+  });
+  assert.equal(started.ok, true, JSON.stringify(started).slice(0, 800));
+  await fixture.waitPublished(String(started.opId));
+  const submittedEvent = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+      .read()
+      .events.filter((event) => JSON.stringify(event.payload).includes(`"path":"${logical}"`))
+      .at(-1),
+    payload = submittedEvent?.payload as
+      | { readonly carriedDocumentClaims?: readonly Record<string, unknown>[] }
+      | undefined,
+    submittedChange = payload?.carriedDocumentClaims?.find((claim) => claim.path === logical) as
+      | { readonly policyId?: string; readonly candidate?: { readonly sha256?: string; readonly mediaType?: string } }
+      | undefined;
+  assert.deepEqual(
+    [submittedChange?.policyId, submittedChange?.candidate?.mediaType, submittedChange?.candidate?.sha256],
+    [OPAQUE_TEXTUAL_POLICY_ID, "text/x-harness-opaque", sha256Bytes(decodableEdit)],
+    JSON.stringify(started).slice(0, 800),
+  );
+  const unsupported = `${created.packagePath}/artifacts/data/rows.json`;
+  fixture.writeWorktree("node-one", unsupported, '{"draft":true}\n');
+  await assert.rejects(
+    () =>
+      fixture.edgeTask("node-one", {
+        kind: "task-start",
+        taskId: created.taskId,
+        executionId: "exe-edge-raw-policy",
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { readonly code?: string }).code === "preview_blocked" &&
+      error.message.includes(unsupported),
+  );
+});

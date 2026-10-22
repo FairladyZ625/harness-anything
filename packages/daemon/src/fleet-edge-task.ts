@@ -18,14 +18,7 @@ import { randomUUID } from "node:crypto";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import {
-  classifyRawArtifactPath,
-  resolveDocRoute,
-  documentPath,
-  consumeKnownError,
-  RAW_ARTIFACT_MAX_BYTES,
-  resolveHarnessLayout,
-} from "@harness-anything/kernel";
+import { consumeKnownError, RAW_ARTIFACT_MAX_BYTES, resolveHarnessLayout } from "@harness-anything/kernel";
 import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
@@ -242,11 +235,7 @@ export async function runFleetEdgeTask(
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
       if (admission.actionAllowed !== true)
         throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
-      const blocked = scan.blocked.filter(
-        (row) =>
-          row.path.startsWith(`${packagePath}/`) &&
-          (resolveDocRoute(documentPath(row.path)).allowed || classifyRawArtifactPath(row.path) !== null),
-      );
+      const blocked = scan.blocked.filter((row) => row.path.startsWith(`${packagePath}/`));
       if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
       if (changes.length === 0)
         return { schema: "command-receipt/v2", command: action.kind, ok: true, outcome: "no_changes" };
@@ -515,6 +504,11 @@ export async function runFleetEdgeTask(
     if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
+    const blocked = preScan.blocked.filter((row) =>
+      action.kind === "task-review-execution" ? row.path === reportPath : row.path.startsWith(`${packagePath}/`),
+    );
+    if (blocked.length)
+      throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => `${row.path}: ${row.reason}`).join("; "));
     const candidates = preScan.changes.filter((change) =>
       action.kind === "task-review-execution" ? change.path === reportPath : change.path.startsWith(`${packagePath}/`),
     );
