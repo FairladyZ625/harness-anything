@@ -551,7 +551,7 @@ test("an artifactless private delivery guides the next action at artifacts/, not
     receipt.next.map(({ action }) => action),
     [
       `Write the deliverable into harness/${packagePath}/artifacts/ (closeout.md and runtime reports are not deliverables), ` +
-        `run ha doc sync --submit --task task-1, then run ha task submit task-1.`,
+        `then run ha task submit task-1.`,
     ],
   );
   // Control: every stop whose guard carries no remedy of its own keeps the closeout-first guidance.
@@ -561,9 +561,7 @@ test("an artifactless private delivery guides the next action at artifacts/, not
         code: "invalid_submission",
       }),
     ).next.map(({ action }) => action),
-    [
-      `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task task-1, then run ha task submit task-1.`,
-    ],
+    [`Fill harness/${packagePath}/closeout.md, then run ha task submit task-1.`],
   );
 });
 
@@ -662,6 +660,81 @@ test("submission facts freeze the full changed-path set and G33 result at the de
     ],
     unclassified: [],
   });
+});
+
+test("amending the same legacy commit recomputes missing submission facts", (t) => {
+  const { root, base } = fixture(t);
+  put(root, "packages/kernel/src/new.ts", "export const added = 1;\n");
+  const sha = commit(root),
+    first = derive(
+      root,
+      "Delivered the change.",
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: base },
+      sha,
+    ),
+    legacyFrozen = Object.fromEntries(
+      Object.entries(first).filter(([key]) => !["changedFiles", "productionDelta"].includes(key)),
+    ) as ReturnType<typeof deriveCloseoutSubmission>,
+    amended = derive(
+      root,
+      "Amended the legacy cut.",
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: base },
+      sha,
+      "repository-diff",
+      undefined,
+      legacyFrozen,
+    );
+  assert.equal(amended.commitSha, sha);
+  assert.deepEqual(amended.changedFiles, ["packages/kernel/src/new.ts"]);
+  assert.equal(amended.productionDelta?.baseSha, base);
+  assert.equal(amended.productionDelta?.added, 1);
+});
+
+test("re-freezing after rebase uses the advanced origin main and excludes its paths", (t) => {
+  const { root, base } = fixture(t),
+    worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, base);
+  put(worker, "packages/kernel/src/own.ts", "export const own = 1;\n");
+  const firstCommit = commit(worker),
+    first = derive(
+      root,
+      "Initial delivery.",
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: base },
+      firstCommit,
+    );
+  assert.equal(first.productionDelta?.baseSha, base);
+
+  put(root, "packages/kernel/src/foreign.ts", "export const foreign = 1;\n");
+  const advancedMain = commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", advancedMain);
+  git(worker, "rebase", "--quiet", "origin/main");
+  const rebasedCommit = git(worker, "rev-parse", "HEAD"),
+    refrozen = derive(
+      root,
+      "Re-froze after rebase.",
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: base },
+      rebasedCommit,
+      "repository-diff",
+      undefined,
+      first,
+    );
+
+  assert.notEqual(rebasedCommit, firstCommit);
+  assert.deepEqual(refrozen.changedFiles, ["packages/kernel/src/own.ts"]);
+  assert.equal(refrozen.productionDelta?.baseSha, advancedMain);
+  assert.equal(refrozen.productionDelta?.added, 1);
 });
 
 test("an execution started before the baseline froze keeps the comparison cut in force when it started", (t) => {

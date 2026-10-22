@@ -90,7 +90,7 @@ export function deriveCloseoutSubmission(
     if (acceptedRevision === undefined)
       throw cell.cellCodedError(
         "invalid_submission",
-        `Artifact ${artifact}: no center-accepted revision exists. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+        `Artifact ${artifact}: no center-accepted revision exists. Keep it under the bound task package artifacts/ directory and retry task submit.`,
       );
     return readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor;
   };
@@ -105,12 +105,12 @@ export function deriveCloseoutSubmission(
       throw Object.assign(
         cell.cellCodedError(
           "invalid_submission",
-          `No accepted task artifacts were found. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+          `No accepted task artifacts were found. Put the deliverable under the bound task package artifacts/ directory and retry task submit.`,
         ),
         {
           nextAction:
             `Write the deliverable into harness/${document.packagePath}/artifacts/ (closeout.md and runtime reports are not deliverables), ` +
-            `run ha doc sync --submit --task ${taskId}, then run ha task submit ${taskId}.`,
+            `then run ha task submit ${taskId}.`,
         },
       );
     return {
@@ -221,7 +221,11 @@ export function deriveCloseoutSubmission(
   if (unchanged && mergeBase.ok && mergeBase.stdout === commitSha && !priorDelivery) {
     deliverables = [];
     commitOutputs = [];
-  } else if (frozen?.commitSha === commitSha) {
+  } else if (
+    frozen?.commitSha === commitSha &&
+    frozen.changedFiles !== undefined &&
+    frozen.productionDelta !== undefined
+  ) {
     // A submitted commit already owns its file manifest. Advancing main must not
     // shrink a branch-wide diff to the last commit; prose and artifacts remain freshly derived.
     deliverables = frozen.deliverables;
@@ -774,8 +778,7 @@ export function submissionStopped(
         submissionStopNextAction(error) ??
           (code === "gate_mapping_invalid"
             ? `Map every declared gate in harness.yaml settings.gates, then run ha task submit ${String(action.taskId)}.`
-            : `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
-              `then run ha task submit ${String(action.taskId)}.`),
+            : `Fill harness/${packagePath}/closeout.md, then run ha task submit ${String(action.taskId)}.`),
         error.message,
       ),
     ],

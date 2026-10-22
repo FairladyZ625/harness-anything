@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { readSubmissionFacts } from "../../packages/kernel/src/domain/submission-facts.ts";
 import { git, repoRoot } from "./git.mjs";
 
 const START = "<!-- harness:submission-facts:start -->";
@@ -65,8 +66,18 @@ function deliveryFacts(submission) {
     ].join("\n");
   }
   if (!isSha(submission.commitSha)) throw new Error("submitted cut has an invalid delivery commit SHA");
-  const files = submittedPaths(submission.changedFiles, "changedFiles");
-  const delta = submission.productionDelta;
+  const facts = readSubmissionFacts(submission);
+  const files = submittedPaths(facts.changedFiles, "changedFiles");
+  if (facts.kind === "legacy")
+    return [
+      "## Delivery Facts",
+      `- Delivery commit: ${inlineCode(submission.commitSha)}`,
+      "- Legacy submission facts: this historical cut predates frozen changedFiles and productionDelta.",
+      "- Changed paths (stored delivery evidence):",
+      ...(files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"]),
+      "- Production delta: unavailable on this legacy cut.",
+    ].join("\n");
+  const delta = facts.productionDelta;
   if (
     !record(delta) ||
     !isSha(delta.baseSha) ||
@@ -79,9 +90,7 @@ function deliveryFacts(submission) {
     !Array.isArray(delta.unclassified) ||
     !delta.unclassified.every((entry) => typeof entry === "string")
   )
-    throw new Error(
-      "submitted code cut has no valid frozen productionDelta; amend the submission before opening the PR",
-    );
+    throw new Error("submitted code cut has no valid frozen productionDelta");
   const net = delta.added - delta.deleted,
     unclassified = delta.unclassified.length
       ? ["- G33 unclassified production paths:", ...delta.unclassified.map((entry) => `  - ${pathCode(entry)}`)]

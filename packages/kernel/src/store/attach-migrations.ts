@@ -24,6 +24,17 @@ export type AttachMigrationRegistryEntry = Readonly<{
   ) => boolean;
 }>;
 
+/** Additive Submission/v1 facts need a read conclusion for historical rows, not a write migration. */
+export const historicalReadConclusions = Object.freeze([
+  {
+    name: "submission.delivery-facts",
+    fields: ["Execution.submission.changedFiles", "Execution.submission.productionDelta"],
+    attachRequired: false,
+    conclusion:
+      "Legacy rows remain byte-identical; the shared submission-facts reader exposes stored paths and no production delta.",
+  },
+] as const);
+
 function taskOverrideAt(event: PersistedCanonicalEventV1, key: "fact" | "codeDoc"): boolean {
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return false;

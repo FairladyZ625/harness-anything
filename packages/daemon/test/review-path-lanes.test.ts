@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExecutionV1, SubmissionV1 } from "@harness-anything/kernel";
+import { readSubmissionFacts, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
 import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "../src/review-path-lanes.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
 import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
@@ -76,6 +76,25 @@ test("new cuts route deleted non-production paths from the complete frozen file 
     reviewPathLanes(["data-migration packages/kernel/src/domain/"]),
   );
   assert.deepEqual([...hits], [["data-migration", ["packages/kernel/src/domain/retired.test.ts"]]]);
+});
+
+test("legacy lane routing uses the same normalized paths exposed by submission facts", () => {
+  const cut = submission(
+      ["README.md", "packages/kernel/src/domain/settings.ts"],
+      ["packages/kernel/src/domain/old.ts"],
+    ),
+    facts = readSubmissionFacts(cut),
+    hits = reviewLaneHits(cut, reviewPathLanes(["data-migration packages/kernel/src/domain/"]));
+  assert.equal(facts.kind, "legacy");
+  assert.deepEqual(facts.changedFiles, [
+    "README.md",
+    "packages/kernel/src/domain/old.ts",
+    "packages/kernel/src/domain/settings.ts",
+  ]);
+  assert.deepEqual(
+    [...hits],
+    [["data-migration", ["packages/kernel/src/domain/old.ts", "packages/kernel/src/domain/settings.ts"]]],
+  );
 });
 
 test("matching stays path-exact: a near-miss file or a sibling directory never fires", () => {

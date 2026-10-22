@@ -1,4 +1,4 @@
-import { submissionDigest, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
+import { readSubmissionFacts, submissionDigest, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
 import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 
 /**
@@ -20,8 +20,6 @@ export interface ReviewPathLane {
   readonly prefixes: readonly string[];
   readonly files: readonly string[];
 }
-
-const DELETED_OUTPUT_PREFIX = "Deleted-Production-Paths: ";
 
 /**
  * Group the configured entries into lanes. The settings write boundary already rejects
@@ -55,12 +53,7 @@ export function reviewLaneHits(
 ): ReadonlyMap<string, readonly string[]> {
   const hits = new Map<string, string[]>();
   if (!submission || lanes.length === 0) return hits;
-  const manifest = submission.changedFiles ?? [
-    ...submission.deliverables,
-    ...submission.outputs
-      .filter((line) => line.startsWith(DELETED_OUTPUT_PREFIX))
-      .map((line) => line.slice(DELETED_OUTPUT_PREFIX.length)),
-  ];
+  const manifest = readSubmissionFacts(submission).changedFiles;
   for (const lane of lanes) {
     const matched = [
       ...new Set(

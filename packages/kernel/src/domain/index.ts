@@ -114,6 +114,7 @@ export {
   normalizeRepoPath,
   productionDeltaFromNumstat,
 } from "./production-delta.ts";
+export { readSubmissionFacts } from "./submission-facts.ts";
 
 export {
   taskBoardPlacement,

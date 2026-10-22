@@ -91,12 +91,23 @@ test("PR renderer keeps unusual file paths on one literal Markdown line", () => 
   assert.doesNotMatch(body, /src\/backtick`and\n- injected/u);
 });
 
-test("PR renderer fails closed for missing frozen delta, stale HEAD, and broken markers", () => {
+test("PR renderer labels legacy facts, rejects stale HEAD, and rejects broken markers", () => {
   const submission = { commitSha, deliverables: [], changedFiles: [], outputs: [] };
-  assert.throws(
-    () => renderTaskPrBody({ taskId, receipt: receipt(submission), template: `# PR\n\n${marker}`, headSha: commitSha }),
-    /no valid frozen productionDelta/u,
-  );
+  const legacy = renderTaskPrBody({
+    taskId,
+    receipt: receipt({
+      commitSha,
+      deliverables: ["README.md", "packages/kernel/old.ts"],
+      outputs: ["Deleted-Production-Paths: packages/kernel/retired.ts"],
+    }),
+    template: `# PR\n\n${marker}`,
+    headSha: commitSha,
+  });
+  assert.match(legacy, /Legacy submission facts/u);
+  assert.match(legacy, /Production delta: unavailable on this legacy cut/u);
+  assert.match(legacy, /README\.md/u);
+  assert.match(legacy, /packages\/kernel\/retired\.ts/u);
+  assert.doesNotMatch(legacy, /amend the submission/u);
   assert.throws(
     () =>
       renderTaskPrBody({
@@ -106,21 +117,6 @@ test("PR renderer fails closed for missing frozen delta, stale HEAD, and broken 
         headSha: firstSha,
       }),
     /HEAD differs/u,
-  );
-  assert.throws(
-    () =>
-      renderTaskPrBody({
-        taskId,
-        receipt: receipt({
-          commitSha,
-          deliverables: [],
-          outputs: [],
-          productionDelta: { baseSha, added: 0, deleted: 0, changed: [], unclassified: [] },
-        }),
-        template: `# PR\n\n${marker}`,
-        headSha: commitSha,
-      }),
-    /invalid changedFiles list/u,
   );
   assert.throws(() => renderTaskPrBody({ taskId, receipt: receipt(submission), template: "# PR\n" }), /marker pair/u);
 });
