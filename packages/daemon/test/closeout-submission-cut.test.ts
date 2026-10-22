@@ -8,6 +8,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { deriveCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
+import { reviewLaneHits, reviewPathLanes } from "../src/review-path-lanes.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 
 const packagePath = "tasks/task-1";
@@ -1093,4 +1094,99 @@ test("stacked delivery uses its approved baseline for merged files and deletions
     ).deliverables,
     ["src/ceo.ts", "src/upstream.ts"],
   );
+});
+
+// -- an empty task branch rebased onto an advanced main (task_96720a8e) ------------------------
+/**
+ * A zero-commit delivery branch rebased onto main that advanced after the execution started: the
+ * branch tip IS main's tip, a merge commit another task's PR produced. The frozen baseline sits
+ * behind it, so the checkout did "move", but no commit in the range belongs to this task.
+ */
+function emptyBranchOnAdvancedMain(t: TestContext) {
+  const { root, base } = fixture(t);
+  // Another task's PR lands on main after this execution started.
+  git(root, "checkout", "-qb", "foreign/pr");
+  put(root, "packages/kernel/src/store/foreign-migration.ts", "export const foreignMigration = 1;\n");
+  commit(root);
+  git(root, "checkout", "-q", "main");
+  git(root, "merge", "--no-ff", "-qm", "Merge pull request #3859 from other/task_9777b4a1", "foreign/pr");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  // The task's own branch carries no commit of its own; the pre-handoff rebase makes its tip main's.
+  const worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, base);
+  git(worker, "rebase", "--quiet", "origin/main");
+  return { root, base, merged, worker, branchTip: git(worker, "rev-parse", "HEAD") };
+}
+
+test("an artifact-only cut whose empty branch rebased onto an advanced main freezes no foreign files", (t) => {
+  const { root, base, merged, branchTip } = emptyBranchOnAdvancedMain(t),
+    packet = derive(root, "Analysis delivered as accepted artifacts.", undefined, [], undefined, {
+      kind: "commit",
+      commitSha: base,
+    });
+  assert.equal(branchTip, merged);
+  // RED: the published-cut first-parent rule used to adopt #3859's whole manifest here.
+  assert.equal(packet.commitSha, null);
+  assert.deepEqual(packet.deliverables, []);
+  assert.deepEqual(packet.outputs, []);
+});
+
+test("the artifact-only cut drives no path-review lane while the same mechanism still fires for its own migration commit", (t) => {
+  const { root, base, worker } = emptyBranchOnAdvancedMain(t),
+    laneEntries = ["data-migration packages/kernel/src/store/"],
+    lanes = reviewPathLanes(laneEntries),
+    emptyCut = derive(root, "Analysis delivered as accepted artifacts.", undefined, [], undefined, {
+      kind: "commit",
+      commitSha: base,
+    });
+  assert.equal(reviewLaneHits(emptyCut, lanes).size, 0);
+  // Positive control: a real persisted-shape change on the task's own branch still hits the lane.
+  put(worker, "packages/kernel/src/store/own-migration.ts", "export const ownMigration = 1;\n");
+  commit(worker);
+  const realCut = derive(root, "Migrated the stored shape.", undefined, [], undefined, {
+    kind: "commit",
+    commitSha: base,
+  });
+  assert.deepEqual(realCut.deliverables, ["packages/kernel/src/store/own-migration.ts"]);
+  assert.equal(reviewLaneHits(realCut, lanes).get("data-migration")?.length, 1);
+});
+
+// Positive control for the same gate: a real delivery already merged into main keeps its own
+// first-parent manifest when the execution re-derives it after the merge, with no --commit.
+test("an inferred re-derivation at this task's own merged tip keeps its first-parent manifest", (t) => {
+  const { root } = fixture(t),
+    // This task's PR merges into main; its branch tip is the merge's second parent.
+    branch = path.join(root, "own"),
+    worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "own/pr", branch);
+  put(branch, "src/own-delivery.ts", "own\n");
+  commit(branch);
+  git(root, "merge", "--no-ff", "-qm", "Merge pull request #1 from x/task-1", "own/pr");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  git(root, "worktree", "remove", branch);
+  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
+  // No --commit: the bound worktree HEAD is the merged tip, the execution started before main
+  // advanced to it, and the earlier cut recorded this task's own merged branch.
+  const packet = derive(
+    root,
+    "Re-derived the merged delivery.",
+    undefined,
+    [],
+    undefined,
+    { kind: "commit", commitSha: git(root, "rev-parse", `${merged}^1`) },
+    undefined,
+    "repository-diff",
+    git(root, "rev-parse", `${merged}^2`),
+  );
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["src/own-delivery.ts"]);
+  // Without that earlier cut nothing proves the merge is this task's: the cut freezes empty.
+  const unproven = derive(root, "Re-derived without a prior cut.", undefined, [], undefined, {
+    kind: "commit",
+    commitSha: git(root, "rev-parse", `${merged}^1`),
+  });
+  assert.equal(unproven.commitSha, null);
+  assert.deepEqual(unproven.deliverables, []);
 });

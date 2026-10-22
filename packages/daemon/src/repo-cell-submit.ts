@@ -167,24 +167,35 @@ export function deriveCloseoutSubmission(
     baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
     defaultBranch = repositoryBaseRef(root),
     mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" },
+    // The delivery commit is the default branch's own tip. A delivery lands there as a merge commit
+    // (ordinary merge, never squash), and an artifact-only branch rebased onto an advanced main is
+    // that very merge commit too — so its first-parent diff is the merged PR of whichever task wrote
+    // it. Such a commit belongs to this task only through its own record: a frozen cut naming it, or
+    // an earlier cut this merge introduced (the ownership test below) (task_96720a8e).
+    publishedMerge =
+      mergeBase.ok && mergeBase.stdout === commitSha
+        ? git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^2`])
+        : null,
+    unclaimedPublishedMerge =
+      requestedCommit === undefined && frozen?.commitSha !== commitSha && publishedMerge?.ok === true,
     // No new work: an inferred delivery commit at or behind the frozen baseline never moved past
     // where its delivery began — the branch's fork for a bound task, where the project HEAD sat at
-    // start otherwise. An explicitly requested commit stays the operator's own cut assertion and
-    // keeps the fork-point manifest rule (F-70FB11C4).
+    // start otherwise — and one main publishes without this task's record produced no commit of its
+    // own, so its first-parent merge diff would bill another task's PR here. An explicitly requested
+    // commit stays the operator's own cut assertion and keeps the fork-point manifest rule
+    // (F-70FB11C4).
     unchanged =
       baseline?.kind === "commit"
         ? baseline.commitSha === commitSha ||
           (requestedCommit === undefined &&
-            git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok)
+            (unclaimedPublishedMerge ||
+              git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok))
         : baseline === undefined && bound === commitSha;
   let deliverables: readonly string[], commitOutputs: readonly string[];
   // An unchanged published HEAD is a delivery only when this task's earlier cut owns it.
   // The execution baseline detects new work; task history, rather than that observation,
   // distinguishes a restarted delivery from another task's baseline merge.
-  const secondParent =
-      unchanged && mergeBase.stdout === commitSha
-        ? git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^2`])
-        : null,
+  const secondParent = unchanged ? publishedMerge : null,
     priorDelivery =
       unchanged &&
       snapshot.executions.some((prior) => {
