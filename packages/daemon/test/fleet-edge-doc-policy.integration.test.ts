@@ -336,4 +336,11 @@ test("an edge task-start carries a persisted raw .log row edited to decodable te
       (error as Error & { readonly code?: string }).code === "preview_blocked" &&
       error.message.includes(unsupported),
   );
+  await assert.rejects(
+    () => fixture.edgeTask("node-one", { kind: "doc-submit", taskId: created.taskId }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { readonly code?: string }).code === "preview_blocked" &&
+      error.message.includes("path is not an allowed canonical document"),
+  );
 });
