@@ -357,7 +357,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(container.querySelector('[data-testid="settings-defaultReviewer-input"]')).toBeNull();
     expect(
       (container.querySelector('[data-testid="settings-restoreDrillRetention-input"]') as HTMLInputElement).value,
-    ).toBe("2");
+    ).toBe("3");
   });
 
   it("字段面从契约派生:历史缺失的三个字段全部出现且类型正确,提交时进 payload", async () => {
@@ -368,7 +368,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(select(container, "settings-reviewIndependence-select").value).toBe("execution");
     expect(
       (container.querySelector('[data-testid="settings-reviewReturnBudget-input"]') as HTMLInputElement).value,
-    ).toBe("3");
+    ).toBe("2");
     // closeout 档位与四个门也来自契约(此前由 CloseoutRows 硬编码渲染)。
     expect(optionValues(select(container, "settings-closeoutProfile-select"))).toEqual(["standard", "strict"]);
     await act(async () => {
