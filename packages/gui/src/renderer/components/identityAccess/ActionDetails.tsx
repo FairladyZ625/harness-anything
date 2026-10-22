@@ -1,5 +1,4 @@
 import type { AccessAction } from "../../../api/access-admin-contract.ts";
-import { currentLocale } from "../../i18n/core.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { BoundedContent } from "../primitives/BoundedContent.tsx";
 
@@ -24,10 +23,8 @@ export function ActionDetails({
             .filter((action) => action.presentation.domain === domain)
             .map((action) => (
               <p key={action.action} className="py-1 ui-body">
-                <b>{currentLocale() === "zh-CN" ? action.presentation.name : action.action}</b>
-                <span className="ml-2 text-text-muted">
-                  {currentLocale() === "zh-CN" ? action.presentation.description : ""}
-                </span>
+                <b>{action.presentation.name}</b>
+                <span className="ml-2 text-text-muted">{action.presentation.description}</span>
                 <code className="ml-2 text-text-faint ui-meta">{action.action}</code>
               </p>
             ))}

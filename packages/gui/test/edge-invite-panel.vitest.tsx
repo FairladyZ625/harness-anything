@@ -63,14 +63,14 @@ const GROUPS = [
 const ACTIONS = [
   {
     action: "repo-read",
-    presentation: { domain: "repositories", name: "读取仓库", description: "查看仓库内容" },
+    presentation: { domain: "repository", name: "读取仓库", description: "查看仓库内容" },
     executionClass: "repo-read",
     policyTier: "viewer",
     residencyScope: "canonical",
   },
   {
     action: "task-create",
-    presentation: { domain: "records", name: "创建记录", description: "创建任务记录" },
+    presentation: { domain: "task", name: "创建记录", description: "创建任务记录" },
     executionClass: "repo-write",
     policyTier: "contributor",
     residencyScope: "canonical",
@@ -436,24 +436,51 @@ describe("EdgeInvitePanel", () => {
     expect(revoke).toHaveBeenCalledWith({ joinId: "join-1" });
   });
 
-  it("previews each group's effective permissions and marks the inherited ones", async () => {
+  it("previews effective permissions grouped by category with inheritance marked per category", async () => {
     const { container } = await mountPanel();
+    // The group row names a base group by its localized role instead of repeating the raw id.
+    const viewerRow = [...container.querySelectorAll("label")].find((label) =>
+      label.querySelector('[data-testid="edge-invite-group-viewer"]'),
+    );
+    expect(viewerRow?.textContent).toContain("Read only (viewer)");
+    expect(viewerRow?.textContent?.match(/viewer/gu)).toHaveLength(1);
     expect(container.querySelector('[data-testid="edge-invite-group-preview-contributor"]')).toBeNull();
     await click(container, "edge-invite-group-preview-toggle-contributor");
-    const preview = container.querySelector('[data-testid="edge-invite-group-preview-contributor"]');
-    expect(preview?.textContent).toContain("task-create");
-    expect(preview?.textContent).toContain("repo-read");
-    // repo-read comes from the inherited viewer group; task-create is the group's own.
-    expect(preview?.textContent).toContain("inherited from Read only (viewer)");
-    const ownRow = [...preview!.querySelectorAll("p")].find((row) => row.textContent!.includes("task-create"));
-    expect(ownRow?.textContent).not.toContain("inherited from");
+    const preview = container.querySelector('[data-testid="edge-invite-group-preview-contributor"]')!;
+    // The preview leads with the group's own versus inherited totals.
+    expect(preview.textContent).toContain("Effective actions: 2 — 1 own, 1 inherited");
+    const repository = preview.querySelector<HTMLDetailsElement>(
+      '[data-testid="edge-invite-group-preview-contributor-category-repository"]',
+    )!;
+    const tasks = preview.querySelector<HTMLDetailsElement>(
+      '[data-testid="edge-invite-group-preview-contributor-category-task"]',
+    )!;
+    // Categories fold their rows by default; each summary carries the own/inherited split.
+    expect(repository.open).toBe(false);
+    expect(tasks.open).toBe(false);
+    const repositorySummary = repository.querySelector("summary")?.textContent ?? "";
+    expect(repositorySummary).toContain("Repository reading");
+    expect(repositorySummary).toContain("0 own / 1 inherited");
+    // Inheritance is named once at the category level, never per row.
+    expect(repositorySummary).toContain("inherited from Read only (viewer)");
+    const taskSummary = tasks.querySelector("summary")?.textContent ?? "";
+    expect(taskSummary).toContain("Tasks");
+    expect(taskSummary).toContain("1 own / 0 inherited");
+    expect(taskSummary).not.toContain("inherited from");
+    // Rows show the declared human-readable name in every locale, and the raw scope exactly once.
+    await act(async () => repository.querySelector("summary")!.click());
+    const inheritedRow = [...preview.querySelectorAll("p")].find((row) => row.textContent!.includes("repo-read"));
+    expect(inheritedRow?.textContent).toContain("读取仓库");
+    expect(inheritedRow?.textContent).toContain("查看仓库内容");
+    expect(inheritedRow?.textContent).not.toContain("inherited from");
+    expect(inheritedRow?.textContent!.match(/repo-read/gu)).toHaveLength(1);
     // Collapsing hides the preview again.
     await click(container, "edge-invite-group-preview-toggle-contributor");
     expect(container.querySelector('[data-testid="edge-invite-group-preview-contributor"]')).toBeNull();
     // A base group inherits nothing, so its preview carries no inherited marks.
     await click(container, "edge-invite-group-preview-toggle-viewer");
     const viewerPreview = container.querySelector('[data-testid="edge-invite-group-preview-viewer"]');
-    expect(viewerPreview?.textContent).toContain("repo-read");
+    expect(viewerPreview?.textContent).toContain("Effective actions: 1 — 1 own, 0 inherited");
     expect(viewerPreview?.textContent).not.toContain("inherited from");
   });
 

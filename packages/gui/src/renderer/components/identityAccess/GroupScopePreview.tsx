@@ -1,7 +1,7 @@
 import type { AccessAction, AccessPolicyGroup } from "../../../api/access-admin-contract.ts";
-import { inheritedScopes, roleLabel } from "../../access-model.ts";
+import { roleLabel } from "../../access-model.ts";
 import { currentLocale } from "../../i18n/core.ts";
-import { t } from "../../i18n/index.tsx";
+import { t, type MessageKey } from "../../i18n/index.tsx";
 
 /** The nearest group under `groupId`'s inheritance that names `scope` itself, breadth-first over composites. */
 function inheritedSourceOf(
@@ -27,10 +27,22 @@ function inheritedSourceOf(
   return undefined;
 }
 
+interface PreviewCategory {
+  readonly domain: string;
+  /** Actions the group declares itself versus the ones its composites bring in. */
+  own: number;
+  inherited: number;
+  /** Lower groups the inherited actions resolve to, nearest declarer first. */
+  readonly sources: AccessPolicyGroup[];
+  readonly scopes: string[];
+}
+
 /**
- * What a group really grants: every effective action with its declared human-readable name, and a
- * badge naming the lower group each inherited action comes from — own scopes win over inheritance,
- * as the daemon's set union does.
+ * What a group really grants: its effective actions grouped by the domain the declarations carry,
+ * each category folded by default behind an「own N / inherited M」summary that names the lower
+ * groups the inherited actions come from once. Rows show the declared name, description, and raw
+ * scope with nothing repeated — an undeclared scope keeps the domain it id-spells and shows its
+ * id only as the code chip.
  */
 export function GroupScopePreview({
   group,
@@ -41,8 +53,25 @@ export function GroupScopePreview({
   readonly groups: readonly AccessPolicyGroup[];
   readonly actions: readonly AccessAction[];
 }) {
-  const inherited = inheritedScopes(groups, group.composites),
-    declared = new Map(actions.map((action) => [action.action, action] as const));
+  const declared = new Map(actions.map((action) => [action.action, action] as const)),
+    byDomain = new Map<string, PreviewCategory>();
+  for (const scope of group.effectiveScopes) {
+    const declaration = declared.get(scope),
+      separator = scope.indexOf("-"),
+      domain = declaration?.presentation.domain ?? (separator < 0 ? scope : scope.slice(0, separator));
+    const category = byDomain.get(domain) ?? { domain, own: 0, inherited: 0, sources: [], scopes: [] };
+    category.scopes.push(scope);
+    if (group.scopes.includes(scope)) category.own += 1;
+    else {
+      category.inherited += 1;
+      const source = inheritedSourceOf(groups, group.id, scope);
+      if (source && !category.sources.some((known) => known.id === source.id)) category.sources.push(source);
+    }
+    byDomain.set(domain, category);
+  }
+  const categories = [...byDomain.values()].sort((left, right) =>
+    left.domain < right.domain ? -1 : left.domain > right.domain ? 1 : 0,
+  );
   return (
     <div
       data-testid={`edge-invite-group-preview-${group.id}`}
@@ -50,33 +79,56 @@ export function GroupScopePreview({
     >
       {group.effectiveScopes.length === 0 ? (
         <p className="ui-meta text-text-faint">{t("views.repositories.inviteGroupNoActions")}</p>
-      ) : null}
-      {group.effectiveScopes.map((scope) => {
-        const declaration = declared.get(scope),
-          source =
-            inherited.has(scope) && !group.scopes.includes(scope)
-              ? inheritedSourceOf(groups, group.id, scope)
-              : undefined;
-        return (
-          <p key={scope} className="ui-meta text-text">
-            {source ? (
-              <span
-                title={t("accessControl.groups.inheritedAction")}
-                className="mr-2 rounded bg-surface px-1 py-0.5 text-text-faint"
-              >
-                {t("views.repositories.inviteGroupInheritedFrom", {
-                  group: roleLabel(source.id, source.displayName),
-                })}
-              </span>
-            ) : null}
-            <b>{currentLocale() === "zh-CN" ? (declaration?.presentation.name ?? scope) : scope}</b>
-            {currentLocale() === "zh-CN" && declaration ? (
-              <span className="ml-2 text-text-muted">{declaration.presentation.description}</span>
-            ) : null}
-            <code className="ml-2 text-text-faint">{scope}</code>
+      ) : (
+        <>
+          <p className="ui-meta text-text-faint">
+            {t("views.repositories.inviteGroupPreviewSummary", {
+              total: group.effectiveScopes.length,
+              own: categories.reduce((sum, category) => sum + category.own, 0),
+              inherited: categories.reduce((sum, category) => sum + category.inherited, 0),
+            })}
           </p>
-        );
-      })}
+          {categories.map((category) => (
+            <details
+              key={category.domain}
+              data-testid={`edge-invite-group-preview-${group.id}-category-${category.domain}`}
+              className="border-t border-border py-1"
+            >
+              <summary className="cursor-pointer ui-meta text-text">
+                <b>{t(`accessControl.domain.${category.domain}` as MessageKey)}</b>
+                <span className="ml-2 text-text-faint">
+                  {t("views.repositories.inviteGroupCategoryOwn", { count: category.own })}
+                  {" / "}
+                  {t("views.repositories.inviteGroupCategoryInherited", { count: category.inherited })}
+                </span>
+                {category.sources.length > 0 ? (
+                  <span className="ml-2 rounded bg-surface px-1 py-0.5 text-text-faint">
+                    {t("views.repositories.inviteGroupInheritedFrom", {
+                      group: category.sources
+                        .map((source) => roleLabel(source.id, source.displayName))
+                        .join(currentLocale() === "zh-CN" ? "、" : ", "),
+                    })}
+                  </span>
+                ) : null}
+              </summary>
+              {category.scopes.map((scope) => {
+                const declaration = declared.get(scope);
+                return (
+                  <p key={scope} className="ui-meta text-text">
+                    {declaration ? (
+                      <>
+                        <b>{declaration.presentation.name}</b>
+                        <span className="ml-2 text-text-muted">{declaration.presentation.description}</span>
+                      </>
+                    ) : null}
+                    <code className="ml-2 text-text-faint">{scope}</code>
+                  </p>
+                );
+              })}
+            </details>
+          ))}
+        </>
+      )}
     </div>
   );
 }
