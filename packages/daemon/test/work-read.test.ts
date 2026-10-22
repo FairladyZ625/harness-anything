@@ -231,6 +231,7 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
         openOnly?: boolean;
         limit?: number;
         presentationStatus?: boolean;
+        parentTaskId?: string;
       } = {},
     ) => {
       // Kernel contract (task-query-projection.ts): the SQL filters run on the raw event status,
@@ -242,7 +243,8 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
             (!query.workRootsOnly ||
               row.taskClass === "work" ||
               (row.parentTaskId === null && rowsFor.some((candidate) => candidate.parentTaskId === row.taskId))) &&
-            (!query.openOnly || (row.status !== "done" && row.status !== "cancelled")),
+            (!query.openOnly || (row.status !== "done" && row.status !== "cancelled")) &&
+            (query.parentTaskId === undefined || row.parentTaskId === query.parentTaskId),
         )
         .sort((left, right) => (left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0))
         .map((row) =>
