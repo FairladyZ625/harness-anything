@@ -366,7 +366,7 @@ function riskTierCloseoutGates(
   return {
     ...gates,
     review: assessment.effectiveTier !== "low",
-    consent: assessment.declaredTier === "high",
+    consent: assessment.effectiveTier === "low" ? false : assessment.effectiveTier === "high" ? true : gates.consent,
   };
 }
 

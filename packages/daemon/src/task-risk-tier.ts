@@ -164,7 +164,6 @@ export async function assessTaskRiskTier(input: {
     reasons,
     guiAcceptanceRequired:
       manifest.lowGuiAcceptance &&
-      input.task.declaredTier === "low" &&
       input.delivery.files.some(({ path: filePath }) => filePath.startsWith("packages/gui/")),
   };
 }

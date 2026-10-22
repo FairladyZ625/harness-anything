@@ -105,6 +105,71 @@ test("submit enters independent review automatically and completion still requir
   }
 });
 
+test("a low declaration raised to high freezes the assessed tier, consent, and configured GUI acceptance", async () => {
+  const f = await fixture(false, true, true, false, false, undefined, {
+    autoSubmit: false,
+    guiDelivery: true,
+    create: { riskTier: "low" },
+  });
+  try {
+    await f.install();
+    const tools = path.join(f.root, "tools");
+    mkdirSync(tools, { recursive: true });
+    writeFileSync(
+      path.join(tools, "task-risk-manifest.json"),
+      JSON.stringify({
+        schema: "task-risk-manifest/v1",
+        lowGuiAcceptance: true,
+        scripts: [
+          {
+            id: "fixture-high-floor",
+            command: [
+              process.execPath,
+              "-e",
+              "process.stdout.write(JSON.stringify({ schema: 'task-risk-tier-result/v1', minimumTier: 'high', reasons: ['fixture high floor'] }));",
+            ],
+          },
+        ],
+      }),
+    );
+
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = f.events().find((candidate) => candidate.type === "execution_submitted");
+    assert.ok(event?.type === "execution_submitted");
+    const submission = event.payload.execution.submission;
+    assert.ok(submission);
+    assert.equal(submission.riskTierAssessment?.declaredTier, "low");
+    assert.equal(submission.riskTierAssessment?.effectiveTier, "high");
+    assert.equal(submission.completionContract.closeoutGates.consent, true);
+    assert.equal(submission.riskTierAssessment?.guiAcceptanceRequired, true);
+    assert.ok(submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
+    assert.match(submission.riskTierAssessment?.reasons.join("\n") ?? "", /fixture high floor/u);
+  } finally {
+    await f.close();
+  }
+});
+
+test("medium tier preserves the repository's resolved consent gate", async () => {
+  const f = await fixture(false, true, true, false, false, undefined, {
+    autoSubmit: false,
+    create: { riskTier: "medium" },
+  });
+  try {
+    await f.install();
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = f.events().find((candidate) => candidate.type === "execution_submitted");
+    assert.ok(event?.type === "execution_submitted");
+    const submission = event.payload.execution.submission;
+    assert.ok(submission);
+    assert.equal(submission.riskTierAssessment?.effectiveTier, "medium");
+    assert.equal(submission.completionContract.closeoutGates.consent, true);
+  } finally {
+    await f.close();
+  }
+});
+
 test("a lightweight task's forward order upgrades the cut into the review corridor instead of deadlocking", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,

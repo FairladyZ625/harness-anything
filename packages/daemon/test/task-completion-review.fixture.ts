@@ -128,6 +128,7 @@ export async function fixture(
   options: {
     readonly autoSubmit?: boolean;
     readonly submitCommit?: boolean;
+    readonly guiDelivery?: boolean;
     readonly providerRoundBackoffBaseSeconds?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
@@ -156,6 +157,12 @@ export async function fixture(
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
+  if (options.guiDelivery) {
+    mkdirSync(path.join(root, "packages/gui/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/gui/src/App.tsx"), "export const App = () => null;\n");
+    git(root, "add", "packages/gui/src/App.tsx");
+    git(root, "commit", "-qm", "feat: fixture GUI delivery");
+  }
   const launches: { prompt: string; instanceId: string; model: string; args: readonly string[] }[] = [],
     launchWaiters = new Set<() => void>();
   const pendingProviders: {
@@ -254,7 +261,10 @@ export async function fixture(
           onErrorOutput: () => undefined,
           terminate: () => undefined,
           onExit: (listener) => {
-            pending.exit = listener;
+            pending.exit = (code) => {
+              pending.exit = undefined;
+              listener(code);
+            };
             if (remainingProviderFailures > 0) {
               remainingProviderFailures -= 1;
               setImmediate(() => {
@@ -659,6 +669,7 @@ export async function fixture(
       return awaitOutcome(runtimeSessionId);
     },
     close: async () => {
+      for (const pending of pendingProviders) pending.exit?.(1);
       await cell.close();
       await eventsReader?.drain();
       rmSync(root, { recursive: true, force: true });

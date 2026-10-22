@@ -520,7 +520,9 @@ test(
   "submitted cuts reject explicit dispatch-review and generic reviewer runtime ingress before owner forward",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    // A low-tier code delivery still needs an accepted artifact before submission.
+    const f = await fixture(false, true, true, false, false, undefined, {
+      autoSubmit: false,
       closeoutProfile: "standard",
       autoForward: false,
       create: { riskTier: "low" },
