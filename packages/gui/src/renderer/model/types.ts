@@ -215,6 +215,13 @@ interface TaskRowFields {
     readonly directChildCount: number;
     readonly threshold: number;
   };
+  /**
+   * 交付阶段判定(daemon `task-delivery-stage.ts`,`repo.tasks.list` 逐行投影):现场页
+   * 流水线消费;词表单源是 daemon 协议的 `TaskDeliveryStage`,不在这里手抄第二份。
+   * null = daemon 已判不在流水线(取消、超出 24h 窗的终态、未识别状态);undefined
+   * 仅出现在未投影该字段的旧 daemon 构建上。
+   */
+  deliveryStage?: import("@harness-anything/daemon/protocol").TaskDeliveryStage | null;
 }
 
 /** Renderer task state is an immutable view over one projection cut. */

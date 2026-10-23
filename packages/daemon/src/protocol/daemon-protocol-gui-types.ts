@@ -820,6 +820,25 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
       }
   );
 
+/**
+ * The daemon-owned delivery-stage judgment for the live floor (task-delivery-stage.ts):
+ * where a task sits on the 实现 → 交付/PR·CI → 评审 → 等业主 → 可合并 main path, plus the
+ * pipeline surroundings — `queued` (planned), `waiting_upstream` (depends-on block) and
+ * `done` (terminal within TASK_DELIVERY_DONE_WINDOW_MS, 24h). `null` = genuinely off the
+ * pipeline (cancelled, terminal older than the window, unrecognized status); `undefined`
+ * on the wire means an older daemon build that does not project the field yet.
+ */
+export type TaskDeliveryStage =
+  | "implementing"
+  | "rework"
+  | "delivered"
+  | "reviewing"
+  | "awaiting_owner"
+  | "merge_ready"
+  | "queued"
+  | "waiting_upstream"
+  | "done";
+
 export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
@@ -833,6 +852,7 @@ export type DaemonTaskSnapshotListResult = {
     };
     readonly closeoutAssessment: import("@harness-anything/kernel/internal/domain/closeout-readiness").CloseoutAssessment;
     readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
+    readonly deliveryStage: TaskDeliveryStage | null;
     readonly placement: TaskPlacementSupplement;
     readonly executionEvidence: readonly ExecutionEvidenceProjection[];
     readonly board: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskBoardPlacement;

@@ -36,6 +36,7 @@ import {
   taskBoardColumnWords,
   taskCapabilityIdWords,
   taskCapabilityReasonWords,
+  taskDeliveryStageWords,
   taskPhaseReasonWords,
   taskPhaseStepWords,
   relationStrengthWords,
@@ -398,6 +399,12 @@ export function isolateDaemonTaskSnapshotRows<T>(values: readonly T[]): {
   return { rows, invalidRows };
 }
 
+/**
+ * Presence-required row fields. `deliveryStage` is deliberately absent here: it is newer than
+ * running daemon builds, and the GUI's inbound parse attaches those builds (attach-only, the
+ * completedAt precedent in isTaskSnapshotProjectionRow); a row without it validates, a row with
+ * a bad value is isolated. The daemon's own producer always emits it.
+ */
 const taskSnapshotListRowFields = [
   "taskId",
   "packagePath",
@@ -411,6 +418,7 @@ const taskSnapshotListRowFields = [
   "snapshotAvailability",
   "closeoutAssessment",
   "blockingAssessment",
+  "deliveryStage",
   "placement",
   "executionEvidence",
   "board",
@@ -420,6 +428,8 @@ const taskSnapshotListRowFields = [
   "risk",
   "workspace",
 ] as const;
+
+const requiredRowFields: readonly string[] = taskSnapshotListRowFields.filter((field) => field !== "deliveryStage");
 
 function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
   const taskId = isJsonObject(value) && nonEmpty(value.taskId) ? value.taskId : "<unknown>",
@@ -432,7 +442,7 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
         "Task snapshot field is invalid.",
     });
   if (!isJsonObject(value)) return [error("")];
-  const missing = taskSnapshotListRowFields.find((field) => !Object.hasOwn(value, field));
+  const missing = requiredRowFields.find((field) => !Object.hasOwn(value, field));
   if (missing) return [error(missing)];
   const unknown = Object.keys(value).find((field) => !taskSnapshotListRowFields.includes(field as never));
   if (unknown) return [error(unknown)];
@@ -449,6 +459,8 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
     errors.push(...snapshotFailurePaths(value.snapshot, value.snapshotAvailability).map(error));
   if (!closeoutAssessment(value.closeoutAssessment)) errors.push(error("closeoutAssessment"));
   if (!blockingAssessment(value.blockingAssessment)) errors.push(error("blockingAssessment"));
+  if (value.deliveryStage != null && !statusWord(taskDeliveryStageWords, value.deliveryStage))
+    errors.push(error("deliveryStage"));
   if (!placement(value.placement)) errors.push(error("placement"));
   if (!boardPlacement(value.board)) errors.push(error("board"));
   if (

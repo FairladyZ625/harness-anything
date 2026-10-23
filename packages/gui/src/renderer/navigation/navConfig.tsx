@@ -74,22 +74,22 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
 export const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
 
 /**
- * 重构区视图 id(dec_C612E69B7C7E3480A5F9D2CAD3):新页面从头实现、与旧页面并存试用。
+ * 临时承载的新视图 id(dec_C612E69B7C7E3480A5F9D2CAD3):新页面从头实现、与旧页面并存试用。
  * 这一版不进 ViewId 联合——viewHistory.ts 正被 task_48399f09 改(任务禁区),
  * viewHistoryStorage 的恢复白名单也不认识新 id;路由先由 App 级状态承载,窗口
- * 历史任务合入后再把 homeOverview/myAsks/today 纳入 ViewId 与白名单转正。「主页」来自
- * task_9569401085732d86d1f658e3a1(PR #3731),与「今天」「你交代的事」并列住在重构组。
+ * 历史任务合入后再把 homeOverview/liveFloor/myAsks/today 纳入 ViewId 与白名单转正。
  */
-export type RedesignViewId = "homeOverview" | "myAsks" | "today";
+export type RedesignViewId = "homeOverview" | "liveFloor" | "myAsks" | "today";
 
 /** 侧栏导航能导航到的全集:旧 ViewId + 重构区页面。 */
 export type NavViewId = ViewId | RedesignViewId;
 
 export const isRedesignViewId = (id: NavViewId): id is RedesignViewId =>
-  id === "homeOverview" || id === "myAsks" || id === "today";
+  id === "homeOverview" || id === "liveFloor" || id === "myAsks" || id === "today";
 
 const REDESIGN_LABEL_KEY: Readonly<Record<RedesignViewId, MessageKey>> = {
   homeOverview: "shell.nav.homeOverview",
+  liveFloor: "shell.nav.liveFloor",
   myAsks: "shell.nav.myAsks",
   today: "shell.nav.today",
 };
@@ -120,6 +120,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     labelKey: "shell.nav.workspace",
     items: [
       { id: "overview", icon: <SquaresFour weight="duotone" /> },
+      { id: "liveFloor", icon: <Waveform weight="duotone" /> },
       { id: "work", icon: <Stack weight="duotone" /> },
       { id: "agenda", icon: <ListChecks weight="duotone" /> },
       { id: "board", icon: <Kanban weight="duotone" /> },

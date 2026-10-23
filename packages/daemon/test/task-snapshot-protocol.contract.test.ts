@@ -62,6 +62,7 @@ const row = {
   snapshotAvailability: { consents: "known", gateWitnesses: "known" },
   closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] },
   blockingAssessment: { taskId: "task-repoint", state: "clear", label: "none", blockers: [], warnings: [] },
+  deliveryStage: null,
   placement: {
     productLines: [],
     spawningDecisionIds: [],
@@ -104,6 +105,25 @@ test("task snapshot protocol accepts audited gate witnesses", () => {
 test("task snapshot protocol requires the completedAt projection field", () => {
   const { completedAt: _completedAt, ...rowWithoutCompletedAt } = row;
   assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [rowWithoutCompletedAt] }), []);
+});
+
+test("task snapshot protocol tolerates rows from daemon builds before deliveryStage", () => {
+  // GUI 是 attach-only:新 GUI 的入站校验会读到旧构建 daemon 的行(isTaskSnapshotProjectionRow
+  // 对 completedAt 的同一先例)。缺 deliveryStage 放行;出现即必须是词表里的阶段词。
+  const { deliveryStage: _deliveryStage, ...rowWithoutStage } = row;
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [rowWithoutStage] }), []);
+  const isolated = isolateDaemonTaskSnapshotRows([{ ...row, deliveryStage: "shipping" }]);
+  assert.deepEqual(
+    isolated.invalidRows.map(({ field }) => field),
+    ["rows[0].deliveryStage"],
+  );
+});
+
+test("task snapshot protocol admits the pipeline-surrounding stage words on the wire", () => {
+  // 排队/等上游/完成(24h 窗)与主路径词走同一词表;这里锁住「新词在入站校验里合法」,
+  // 防止词表与校验器各改一半导致 GUI 把合法行隔离成 invalidRows。
+  for (const stage of ["queued", "waiting_upstream", "done"] as const)
+    assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [{ ...row, deliveryStage: stage }] }), [], stage);
 });
 
 test("task snapshot protocol isolates a malformed field with its source row identity", () => {

@@ -42,6 +42,12 @@ export interface TaskDispatchRow {
   readonly dispatchId: string;
   readonly taskId: string;
   readonly executionId: string;
+  /** Source role from runtime_dispatch_requested; absent only on older unclassified events. */
+  readonly role?: string;
+  /** Latest canonical or local dispatch observation, projected beside the dispatch row. */
+  readonly lastObservedAt?: string;
+  /** Daemon-owned activity judgment for the live-floor page. */
+  readonly activityStatus?: "progressing" | "waiting_ci" | "stalled" | "unknown";
   readonly runtimeSessionId: string;
   readonly instanceId: string;
   readonly attemptGroupId: string;
