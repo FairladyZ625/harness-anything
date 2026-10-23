@@ -569,7 +569,7 @@ export function completeProof(
     );
   const delivery = projection ? readCompletionDeliveryStatus(projection, snapshot, rootDir) : undefined,
     receipts = canonicalGateReceipts(snapshot, execution, delivery);
-  if (receipts.length !== requiredGateWitnessCount(snapshot, execution, delivery))
+  if (receipts.length !== requiredGateWitnessCount(snapshot, execution))
     throw cellCriterionError(
       "gate_witness_missing",
       "Task completion canonical gate-witness proof was not satisfied.",
