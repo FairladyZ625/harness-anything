@@ -7,9 +7,12 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
+
+// Typed through the sanctioned fixture, never through packages/daemon/src/repo-cell directly:
+// the import-boundary gate requires tests to obtain repositories from this fixture.
+type OpenedCell = Awaited<ReturnType<typeof openFencedRepoCell>>;
 import { initRepo } from "./doc-sync-slice-a.fixtures.ts";
 
 // 2026-10-23 实测的 brain-os-frontend:台账是当前一代(revision 793),但 793 个事件里没有一条
@@ -65,7 +68,7 @@ const missingSettings = (caught: unknown): boolean => {
 
 test("a ledger that never minted Settings reports a missing entity with the command that creates it", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-missing-"));
-  let cell: Awaited<ReturnType<typeof openProductRepoCell>> | undefined;
+  let cell: OpenedCell | undefined;
   try {
     initRepo(rootDir);
     cell = await openLedgerWithoutSettings(rootDir, "settings-entity-missing");
@@ -78,7 +81,7 @@ test("a ledger that never minted Settings reports a missing entity with the comm
 
 test("a locale-only update mints Settings from the authored harness.yaml instead of deadlocking", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-locale-"));
-  let cell: Awaited<ReturnType<typeof openProductRepoCell>> | undefined;
+  let cell: OpenedCell | undefined;
   try {
     initRepo(rootDir);
     // The authored document is the only declaration surface; it deliberately carries a value that
@@ -114,7 +117,7 @@ test("a locale-only update mints Settings from the authored harness.yaml instead
 
 test("projection rebuild initializes a missing Settings entity from the authored document", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-rebuild-"));
-  let cell: Awaited<ReturnType<typeof openProductRepoCell>> | undefined;
+  let cell: OpenedCell | undefined;
   try {
     initRepo(rootDir);
     writeFileSync(
@@ -144,7 +147,7 @@ test("projection rebuild initializes a missing Settings entity from the authored
 
 test("a malformed authored settings facet names itself instead of failing codelessly", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-invalid-"));
-  let cell: Awaited<ReturnType<typeof openProductRepoCell>> | undefined;
+  let cell: OpenedCell | undefined;
   try {
     initRepo(rootDir);
     writeFileSync(
@@ -170,7 +173,7 @@ test("a malformed authored settings facet names itself instead of failing codele
 
 test("a ledger that already accepted Settings is never re-initialized from the worktree copy", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-existing-"));
-  let cell: Awaited<ReturnType<typeof openProductRepoCell>> | undefined;
+  let cell: OpenedCell | undefined;
   try {
     initRepo(rootDir);
     cell = await openLedgerWithoutSettings(rootDir, "settings-entity-existing");
