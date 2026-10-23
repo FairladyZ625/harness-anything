@@ -8,6 +8,10 @@
 //     --page 总览 --page 会话 --click "已成功" --scroll-to "会话事实"
 // --click / --scroll-to 归属于它前面最近的一个 --page:先按出现顺序点击,再按出现顺序滚动,
 // 然后等读面就绪再截图。找不到项目(精确匹配,不退回第一个)或导航文字即失败退出。
+// --scroll-to 按「标题优先」梯度解析:标题精确 → 文字精确 → 标题包含 → 文字包含,命中后把目标
+// 对齐到滚动口顶部。只按包含匹配取第一个可见节点会把页头说明里的同一个词当成节标题
+// (2026-10-23 CEO 验收 #3924 时「在干活」命中页头副标题「显示此刻正在干活的会话」,三张分节
+// 截图全是页顶)。
 // 需要点「第几个/哪一个」的确定性入口用 --testid-click <testid>[::<内部 CSS>]:验收证据要
 // 重复复现同一条会话,按可见文字点会被截断文案或同名行带偏(2026-10-22 两次点到别行)。
 import { spawn, execFileSync } from "node:child_process";
@@ -17,6 +21,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { startGuiDriver } from "./driver.mjs";
 import { openProject, navLocator } from "./capture-nav.mjs";
+import { resolveScrollTarget, scrollTargetToTop } from "./capture-scroll.mjs";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..", "..");
 // 单页 6s 与项目切换等待同源;可用 --settle-ms 覆盖单页等待。
@@ -33,7 +38,8 @@ options:
   --page <nav>        侧栏导航按钮文字;--click/--scroll-to 作用于它前面最近的 --page
   --click <text>      截图前点击页面内该文字(第一个可见匹配)
   --testid-click <t>  截图前点击 data-testid=<t> 的元素;<t>::<css> 点它内部的选择器
-  --scroll-to <text>  截图前把该文字滚入视口(第一个匹配)
+  --scroll-to <text>  截图前把该文字滚到视口顶部:标题精确 → 文字精确 → 标题包含 → 文字包含,
+                      取第一个有可见匹配的层级(节标题优先于页头说明里的同词)
   --settle-ms <n>     每页截图前的等待毫秒数(默认 6000)
   --window-size WxH   窗口尺寸(默认 1440x900);改前改后对比须同尺寸`,
   );
@@ -66,7 +72,8 @@ function parseArgs(argv) {
       const match = /^(\d+)x(\d+)$/u.exec(value() ?? "");
       if (!match) throw new Error("--window-size 需要 WxH 形式,如 2000x1200");
       options.windowSize = { width: Number(match[1]), height: Number(match[2]) };
-    } else if (arg === "--page") options.pages.push({ nav: value(), clicks: [], scrolls: [], testids: [] });
+    } else if (arg === "--page")
+      options.pages.push({ nav: value(), clicks: [], scrolls: [], testids: [], matches: [] });
     else if (arg === "--testid-click") {
       const page = options.pages.at(-1);
       if (!page) throw new Error(`${arg} 必须跟在某个 --page 之后`);
@@ -146,7 +153,11 @@ async function capturePage(driver, entry, filePath, settleMs) {
   }
   for (const scroll of entry.scrolls) {
     // 滚不到 = 截图里不会有要验收的区域,按失败处理而不是静默跳过。
-    await page.getByText(scroll).filter({ visible: true }).first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+    const resolved = await resolveScrollTarget(page, scroll);
+    const alignment = await scrollTargetToTop(resolved.locator);
+    // 到不了口顶 = 这一节上方已滚到底(文档剩余高度不够),画面顶部仍是本节内容,不是工具没滚;
+    // 记进 matches 让日志与验收一眼能分辨。
+    entry.matches.push({ text: scroll, tier: resolved.tier, matches: resolved.matches, ...alignment });
   }
   await page.waitForTimeout(settleMs);
   await page.screenshot({ path: filePath });
@@ -198,7 +209,18 @@ async function main(argv) {
     for (const entry of options.pages) {
       const filePath = path.join(outDir, fileNameFor(entry.nav, usedNames));
       const title = await capturePage(driver, entry, filePath, options.settleMs);
-      console.log(`[capture] ${entry.nav} -> ${filePath} | project=${project} | title=${title}`);
+      // 滚动命中层级与对齐结果写进日志:验收时「这一张是从哪个标题开始的、为什么没到口顶」
+      // 不该靠猜。
+      const scrolled =
+        entry.matches.length === 0
+          ? ""
+          : ` | scroll=${entry.matches
+              .map(
+                ({ text, tier, matches, gapPx, atMaxScroll }) =>
+                  `${text}@${tier}(${matches})${gapPx === 0 ? "" : ` gap=${gapPx}px${atMaxScroll ? " at-max-scroll" : ""}`}`,
+              )
+              .join(",")}`;
+      console.log(`[capture] ${entry.nav} -> ${filePath} | project=${project} | title=${title}${scrolled}`);
     }
     console.log(`[capture] done: ${options.pages.length} 页,输出目录 ${outDir},project=${project}`);
     if (driver.consoleFailures.length > 0) {
