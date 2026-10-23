@@ -1079,10 +1079,35 @@ async function assertRoundInteractions(page, shot) {
     !(await transcript.innerText()).includes("tool_call_update"),
     "the transcript must not dump raw provider events",
   );
-  // 结论:结果卡里有 daemon 下发的最终文本,不是空的「输出 / 结果」壳。
+  // 结论:结论区里有 daemon 下发的最终文本,不是空的「输出 / 结果」壳。
   assert.ok(
-    (await detail.innerText()).includes("gui-e2e hierarchy fixture round-4"),
+    (await detail.getByTestId("session-conclusion").innerText()).includes("gui-e2e hierarchy fixture round-4"),
     "the detail must show the session's final result text",
+  );
+  // 首屏先给「做成了什么」:结局标签在卡头,原始字段收进默认收起的「技术详情」。
+  const verdict = detail.getByTestId("session-verdict");
+  await verdict.waitFor();
+  assert.ok((await verdict.innerText()).trim().length > 0, "the detail head must state the session's verdict");
+  const technical = detail.getByTestId("session-technical-details");
+  assert.equal(
+    await technical.getAttribute("open"),
+    null,
+    "the technical details must stay collapsed on the first screen",
+  );
+  const firstScreen = await verdict.evaluate((node) => {
+    const root = node.closest('[data-testid="session-detail"]');
+    if (root === null) return "";
+    const clone = root.cloneNode(true);
+    for (const details of clone.querySelectorAll('[data-testid="session-technical-details"]')) details.remove();
+    return clone.textContent ?? "";
+  });
+  assert.ok(
+    !firstScreen.includes("provider-round-4"),
+    "the provider session id must not sit on the first screen outside the collapsed technical details",
+  );
+  assert.ok(
+    firstScreen.includes("gui-e2e hierarchy fixture round-4"),
+    "the final conclusion must be on the first screen, above the collapsed technical details",
   );
   await transcript.scrollIntoViewIfNeeded();
   const painted = await transcript.evaluate((node) => {

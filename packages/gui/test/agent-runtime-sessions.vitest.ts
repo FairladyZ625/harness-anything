@@ -180,6 +180,15 @@ const groupList = (overrides: Partial<Parameters<typeof SessionGroupList>[0]> = 
     } as never),
   );
 
+/**
+ * 取 `<details ...>` 的起始标签原文(含全部属性),用于断言「默认折叠」。
+ * 不从 data-testid 往右切:属性顺序是自由的,`open` 排在 testid 之前时切出来的是空串。
+ */
+function detailsStartTag(markup: string): string | null {
+  const open = /<details\b[^>]*>/u.exec(markup);
+  return open === null ? null : open[0];
+}
+
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) =>
   renderToStaticMarkup(
     createElement(SessionDetailView, {
@@ -301,24 +310,294 @@ describe("session detail readable surface", () => {
     expect(markup).not.toContain(`>${longId}<`);
   });
 
-  it("keeps raw fields off the facts table: provider UUID, snapshot sha, auth, lease, result ref", () => {
-    const markup = detailView();
+  it("keeps raw fields out of the first screen: they live inside the collapsed technical details", () => {
+    const markup = detailView(),
+      technical = markup.indexOf('data-testid="session-technical-details"'),
+      firstScreen = markup.slice(0, technical);
+    // 技术详情默认收起:解析 <details> 起始标签本身,不按 data-testid 切字符串——后者在
+    // `open` 排在 data-testid 之前时会切掉属性而假绿(评审 F2 用变异证明过)。
+    const detailsTag = detailsStartTag(markup);
+    expect(technical).toBeGreaterThan(0);
+    expect(detailsTag).not.toBeNull();
+    expect(/\sopen(?:=|\s|>)/u.test(detailsTag!)).toBe(false);
     for (const raw of [
       "Provider session",
       "Definition snapshot",
       "provider-1",
       "artifact:runtime-definition/test",
-      "Auth",
-      "subscription",
+      "Auth mode",
+      "Subscription login",
       "Lease",
       "held",
       "2026-08-23T01:00:00.000Z",
-      "Result ref",
     ])
-      expect(markup).not.toContain(raw);
-    // 可读行仍在:实例、模型、结局、持有人、最近活动。
-    for (const readable of ["Instance", "Model", "Outcome", "Holder", "Last activity", "w4c-verify-codex"])
-      expect(markup).toContain(readable);
+      expect(firstScreen).not.toContain(raw);
+    // 原始值仍然可查(折叠块里在 DOM,展开即见),不是删掉了事实。
+    expect(markup).toContain("provider-1");
+    // 首屏可读行:身份(agent/模型/实例)、结局、最近活动。
+    for (const readable of ["Agent", "Model", "Instance", "Last activity", "w4c-verify-codex", "Running"])
+      expect(firstScreen).toContain(readable);
+  });
+});
+
+// 业主定案的核心:会话详情首屏回答「这次会话做成了什么」——任务名、结局、耗时、结论、
+// 产出在首屏;原始字段在折叠块里。这一组逐条锁住这几个答案的位置与措辞。
+describe("session detail achieved first", () => {
+  const settlement = (outcome: "succeeded" | "failed" | "cancelled" | "stopped" | "unknown") =>
+    ({ outcome, exitCode: outcome === "succeeded" ? 0 : 1, code: null, reason: null }) as const;
+
+  it("titles the card with the task and verdicts the session from the daemon settlement", () => {
+    const markup = detailView(),
+      technical = markup.indexOf('data-testid="session-technical-details"'),
+      firstScreen = markup.slice(0, technical);
+    // 任务名是卡头主文字,并且仍点得进任务详情。
+    expect(firstScreen).toContain('data-testid="session-open-task"');
+    expect(firstScreen).toContain("GUI 会话页重构");
+    expect(firstScreen).toContain('data-testid="session-verdict"');
+    // live 会话就是「正在跑」,不被上一轮结局抢先命名。
+    expect(firstScreen).toContain("Running");
+    // 终局裁决:settlement 是 daemon 的裁决,优先于会话语义状态(会话已退出才有终局)。
+    const ended = { ...sessionDto, liveness: "exited" } as typeof sessionDto;
+    expect(detailView({ session: ended, settlement: settlement("failed") })).toContain("Failed");
+    expect(detailView({ session: ended, settlement: settlement("succeeded") })).toContain("Delivered");
+    expect(detailView({ session: ended, settlement: settlement("stopped") })).toContain("Stopped");
+    // 没有 settlement 时按会话语义状态退,不把「已结束但判不出」说成失败。
+    expect(detailView({ session: { ...ended, semanticState: "ended-indeterminate" } as typeof sessionDto })).toContain(
+      "Result unconfirmed",
+    );
+  });
+
+  it("shows the elapsed time from the dispatch row instead of inventing one", () => {
+    // rounds[1] 是 02:00 那轮(轮次按新→旧编号);收口时刻显式给到 03:31 → 1h 31m。
+    const markup = detailView({
+      row: { ...rounds[1]!, endedAt: "2026-08-23T03:31:00.000Z" },
+    });
+    expect(markup).toContain("Duration");
+    expect(markup).toContain("1h 31m");
+    // 没有收口时刻(仍在跑)时不编造时长,如实显示开始时间。
+    expect(detailView()).toContain("Started");
+  });
+
+  it("states the missing conclusion in words rather than drawing an empty result shell", () => {
+    const markup = detailView();
+    expect(markup).toContain('data-testid="session-conclusion"');
+    expect(markup).toContain("Still running");
+    const settled = detailView({
+      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+    });
+    expect(settled).toContain("no conclusion text");
+  });
+
+  it("lists what the session produced: commit, delivered files, artifacts, and the result report", () => {
+    const markup = detailView({
+      task: {
+        packagePath: "tasks/task-1994",
+        executions: [
+          {
+            schema: "execution/v1",
+            executionId: "execution-1",
+            taskId: "task_1994d52c",
+            nodeId: "implementation",
+            iteration: 0,
+            state: "submitted",
+            actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "terra" } },
+            claimedAt: "2026-08-23T02:00:00.000Z",
+            submittedAt: "2026-08-23T03:00:00.000Z",
+            closedAt: null,
+            submission: {
+              completionClaim: "done",
+              deliverables: ["packages/gui/src/renderer/views/SessionsView.tsx"],
+              outputs: ["Artifact-Anchor: tasks/task-1994/artifacts/report.md@3"],
+              verificationNotes: [],
+              knownGaps: [],
+              residualRisks: [],
+              commitSha: "b".repeat(40),
+              completionContract: { gates: [] },
+              artifacts: [
+                { path: "tasks/task-1994/artifacts/report.md", revision: 3, blobSha256: `sha256:${"c".repeat(64)}` },
+              ],
+            },
+          },
+        ],
+      } as never,
+      row: { ...rounds[1]!, reportPath: "tasks/task-1994/artifacts/reports/dispatch_000000000000000000000001.md" },
+      onOpenTaskDoc: noop,
+    });
+    expect(markup).toContain('data-testid="session-outputs"');
+    expect(markup).toContain("bbbbbbbbbb");
+    expect(markup).toContain("packages/gui/src/renderer/views/SessionsView.tsx");
+    expect(markup).toContain("tasks/task-1994/artifacts/report.md");
+    expect(markup).toContain("tasks/task-1994/artifacts/reports/dispatch_000000000000000000000001.md");
+    // 包内产物是真能打开的落点(包相对路径),不是假链接。
+    expect(markup).toContain('data-testid="session-open-output"');
+    expect(markup).toContain('data-path="artifacts/report.md"');
+    // 没有任何产出时整块不画,而不是空壳。
+    expect(detailView()).not.toContain('data-testid="session-outputs"');
+  });
+
+  it("leads with the review verdict and its reason for a review dispatch, not the reviewer's last message", () => {
+    // 评审派工的「结论」是它登记的 verdict + 一句理由;agent 最后一条消息是过程叙述。
+    const markup = detailView({
+      row: {
+        ...rounds[1]!,
+        reviewTarget: {
+          kind: "task",
+          taskId: "task_1994d52c",
+          executionId: "execution-1",
+          digest: "sha256:" + "a".repeat(64),
+        },
+      },
+      task: {
+        packagePath: "tasks/task-1994",
+        executions: [
+          {
+            executionId: "execution-1",
+            submittedAt: "2026-08-23T03:00:00.000Z",
+            submission: {
+              completionClaim: "worker claim that must not win",
+              deliverables: [],
+              commitSha: "c".repeat(40),
+            },
+          },
+        ],
+        reviews: [
+          {
+            reviewId: "review-1",
+            executionId: "execution-1",
+            verdict: "changes_requested",
+            reason: "Contract conformance is FULL except the explainer is blank.",
+            reviewedAt: "2026-08-23T04:00:00.000Z",
+          },
+        ],
+      } as never,
+      result: "I'll start by loading the required skills.\n\nNow let me run the tests.",
+    });
+    const text = /data-testid="session-conclusion-text"[^>]*>([\s\S]*?)<\/p>/u.exec(markup)?.[1] ?? "";
+    expect(text).toContain("explainer is blank");
+    expect(text).not.toContain("I'll start by loading");
+    // claim 与评审同场时评审优先(谁有权下结论)。
+    expect(text).not.toContain("worker claim that must not win");
+    expect(markup).toContain('data-testid="session-conclusion-source"');
+    expect(markup).toContain("from the review verdict");
+  });
+
+  it("uses the submission's completion claim for a worker session and never the process narration", () => {
+    const markup = detailView({
+      task: {
+        packagePath: "tasks/task-1994",
+        executions: [
+          {
+            executionId: "execution-1",
+            submittedAt: "2026-08-23T03:00:00.000Z",
+            submission: {
+              completionClaim: "SessionsPanel now leads with the verdict; 39 tests green.",
+              deliverables: [],
+              commitSha: "d".repeat(40),
+            },
+          },
+        ],
+        reviews: [],
+      } as never,
+      result: "I'll start by loading the skills.\n\nNow let me run the affected tests.",
+    });
+    const text = /data-testid="session-conclusion-text"[^>]*>([\s\S]*?)<\/p>/u.exec(markup)?.[1] ?? "";
+    expect(text).toContain("39 tests green");
+    expect(text).not.toContain("I'll start by loading");
+    expect(text).not.toContain("Now let me run");
+    // renderToStaticMarkup 会把撇号转义成 &#x27;;断言来源标注的稳定片段。
+    expect(markup).toContain('data-testid="session-conclusion-source"');
+    expect(markup).toContain("completion claim");
+  });
+
+  it("falls back to the settlement reason for a failed session, and strips narration from a raw result", () => {
+    const failed = detailView({
+      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      settlement: {
+        outcome: "failed",
+        exitCode: 1,
+        code: "provider_exit",
+        reason: "Internal error: turn failed: SSE event type mismatch",
+      },
+      result: null,
+    });
+    expect(failed).toContain("SSE event type mismatch");
+    expect(failed).toContain("from the daemon settlement");
+
+    // 没有 claim/评审时退回 result 原文,但过程叙述行不进首屏;结论段落保留。
+    const raw = detailView({
+      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      result:
+        "I'll start by loading the task plan.\n\nDelivered the session-detail rewrite: verdict head, wrapped conclusion, basename output paths, and the dispatch start time fallback. All 39 targeted tests pass.",
+    });
+    const text = /data-testid="session-conclusion-text"[^>]*>([\s\S]*?)<\/p>/u.exec(raw)?.[1] ?? "";
+    expect(text).toContain("Delivered the session-detail rewrite");
+    expect(text).not.toContain("I'll start by loading");
+    expect(raw).toContain("narration removed");
+  });
+
+  it("never attributes another iteration's submission to a session that has not submitted", () => {
+    // 运行中的会话绑定了 execution-2,但任务里只有 execution-1 提交过:不能把上一轮的
+    // claim / 产物说成这一轮的(实测真实数据时发现的错误归属)。
+    const twoExec = [
+      {
+        executionId: "execution-1",
+        submittedAt: "2026-08-23T03:00:00.000Z",
+        submission: {
+          completionClaim: "Previous iteration claim.",
+          deliverables: ["old/file.ts"],
+          commitSha: "a".repeat(40),
+        },
+      },
+      { executionId: "execution-2", submittedAt: null, submission: null },
+    ];
+    const markup = detailView({
+      session: {
+        ...sessionDto,
+        associations: [{ taskId: "task_1994d52c", executionId: "execution-2", holder: null, lease: null }],
+      } as typeof sessionDto,
+      task: { packagePath: "tasks/task-1994", executions: twoExec, reviews: [] } as never,
+    });
+    expect(markup).not.toContain("Previous iteration claim.");
+    expect(markup).not.toContain("old/file.ts");
+    // 没有本轮结论时如实说没有,不用上一轮冒充。
+    expect(markup).toContain("Still running");
+  });
+
+  it("wraps long conclusion lines instead of clipping them off the right edge", () => {
+    // rt-pre 的 white-space:pre 会压掉 Tailwind 的 whitespace-pre-wrap(无层规则优先),
+    // 长行右侧被裁就是这条层叠冲突;换行口径现在收在 .rt-pre-wrap 一处。
+    const long = "x".repeat(400);
+    const markup = detailView({ result: long, task: null });
+    expect(markup).toContain('data-testid="session-conclusion-text"');
+    expect(markup).toContain("rt-pre-wrap");
+    expect(markup).not.toContain("whitespace-pre-wrap");
+  });
+
+  it("labels the two token quantities separately and draws each once", () => {
+    const markup = detailView({
+      session: {
+        ...sessionDto,
+        context: { usedTokens: 243_138, windowTokens: 1_000_000 },
+        metrics: {
+          inputTokens: 9_300_000,
+          cacheReadTokens: 4_400_000,
+          outputTokens: 120_000,
+          totalTokens: 13_820_000,
+          toolCallCount: 80,
+          compacted: false,
+        },
+      } as typeof sessionDto,
+    });
+    // 当前上下文只一处,且是 provider 自报的窗口比值。
+    expect(markup.match(/data-testid="session-detail-context-meter"/gu) ?? []).toHaveLength(1);
+    expect(markup).toContain("243K / 1M · 24%");
+    expect(markup).toContain("Current context");
+    // 累计口径如实标注,不冒充窗口占用,也不出现业主截图里的 4634% 假报警。
+    expect(markup).toContain("Cumulative totals; not context-window occupancy");
+    expect(markup).not.toContain("4634%");
+    expect(markup).not.toContain('data-context-level="danger"');
+    // 同一组数字只出现一次:没有第二个窗口 meter。
+    expect(markup.match(/role="meter"/gu) ?? []).toHaveLength(1);
   });
 });
 

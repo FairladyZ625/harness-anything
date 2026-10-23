@@ -8,6 +8,8 @@
 //     --page 总览 --page 会话 --click "已成功" --scroll-to "会话事实"
 // --click / --scroll-to 归属于它前面最近的一个 --page:先按出现顺序点击,再按出现顺序滚动,
 // 然后等读面就绪再截图。找不到项目(精确匹配,不退回第一个)或导航文字即失败退出。
+// 需要点「第几个/哪一个」的确定性入口用 --testid-click <testid>[::<内部 CSS>]:验收证据要
+// 重复复现同一条会话,按可见文字点会被截断文案或同名行带偏(2026-10-22 两次点到别行)。
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +32,7 @@ options:
   --out <dir>         截图输出目录(默认 artifacts/screenshots)
   --page <nav>        侧栏导航按钮文字;--click/--scroll-to 作用于它前面最近的 --page
   --click <text>      截图前点击页面内该文字(第一个可见匹配)
+  --testid-click <t>  截图前点击 data-testid=<t> 的元素;<t>::<css> 点它内部的选择器
   --scroll-to <text>  截图前把该文字滚入视口(第一个匹配)
   --settle-ms <n>     每页截图前的等待毫秒数(默认 6000)
   --window-size WxH   窗口尺寸(默认 1440x900);改前改后对比须同尺寸`,
@@ -63,8 +66,12 @@ function parseArgs(argv) {
       const match = /^(\d+)x(\d+)$/u.exec(value() ?? "");
       if (!match) throw new Error("--window-size 需要 WxH 形式,如 2000x1200");
       options.windowSize = { width: Number(match[1]), height: Number(match[2]) };
-    } else if (arg === "--page") options.pages.push({ nav: value(), clicks: [], scrolls: [] });
-    else if (arg === "--click") {
+    } else if (arg === "--page") options.pages.push({ nav: value(), clicks: [], scrolls: [], testids: [] });
+    else if (arg === "--testid-click") {
+      const page = options.pages.at(-1);
+      if (!page) throw new Error(`${arg} 必须跟在某个 --page 之后`);
+      page.testids.push(value());
+    } else if (arg === "--click") {
       const page = options.pages.at(-1);
       if (!page) throw new Error(`${arg} 必须跟在某个 --page 之后`);
       page.clicks.push(value());
@@ -128,6 +135,13 @@ async function capturePage(driver, entry, filePath, settleMs) {
   await (await navLocator(page, entry.nav)).click();
   for (const click of entry.clicks) {
     const target = page.getByText(click).filter({ visible: true }).first();
+    await target.click({ timeout: 10_000 });
+  }
+  for (const spec of entry.testids) {
+    // `testid::selector` = 先定位 data-testid,再点它内部的选择器(如 details 的 summary)。
+    const [testId, inner] = spec.split("::");
+    const root = page.getByTestId(testId);
+    const target = inner === undefined ? root : root.locator(inner).first();
     await target.click({ timeout: 10_000 });
   }
   for (const scroll of entry.scrolls) {
