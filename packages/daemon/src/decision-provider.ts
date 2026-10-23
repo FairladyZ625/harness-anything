@@ -16,10 +16,16 @@ import { credentialPort, isCredentialReferenceText, type CredentialPort } from "
 import { writeFileDurably } from "./durable-file.ts";
 
 const fileSchema = "decision-providers/v1" as const;
-const defaultServerUrl = "https://openrouter.ai";
 const providerIdPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u;
 const apiKeyPattern = /^[^\r\n\u0000-\u001f\u007f]{1,1280}$/u;
 const requestTimeoutMs = 30_000;
+/** Sent through the real Decisions operation so a probe cannot pass on an endpoint decisions never use. */
+const probeState = "probe";
+const probeQuestion = {
+  type: "noul",
+  instructions: "Reachability probe. Answer true if you can read this request.",
+  criteria: { true: "The request is readable.", false: "The request is not readable." },
+} as const satisfies OpenRouterQuestion;
 
 type ProviderFile = { readonly schema: typeof fileSchema; readonly providers: readonly DecisionProviderRecord[] };
 type ProviderCommand = Readonly<Record<string, unknown>>;
@@ -41,12 +47,11 @@ type OpenRouterQuestion =
     };
 type DecisionInvoker = (input: {
   readonly apiKey: string;
-  readonly serverURL: string;
+  readonly serverURL: string | undefined;
   readonly model: string;
   readonly state: readonly string[];
   readonly question: OpenRouterQuestion;
 }) => Promise<DecisionsResponse>;
-type ProviderProbe = (input: { readonly apiKey: string; readonly serverURL: string }) => Promise<void>;
 
 export type DecisionPort = {
   readonly decide: (request: DecisionRequest) => Promise<AdvisoryDecision>;
@@ -56,13 +61,11 @@ export function openDecisionProviderService(input: {
   readonly userRoot: string;
   readonly vault?: CredentialPort;
   readonly invokeDecision?: DecisionInvoker;
-  readonly probeProvider?: ProviderProbe;
   readonly now?: () => string;
   readonly isCredentialInUse?: (reference: string) => boolean;
 }) {
   const vault = input.vault ?? credentialPort();
   const invokeDecision = input.invokeDecision ?? openRouterDecision;
-  const probeProvider = input.probeProvider ?? openRouterProbe;
   const now = input.now ?? (() => new Date().toISOString());
   const target = path.join(input.userRoot, "decision-providers.json");
   let cached: readonly DecisionProviderRecord[] | null = null;
@@ -247,12 +250,21 @@ export function openDecisionProviderService(input: {
         throw providerError("provider_credential_unavailable", `The credential for ${id} is unavailable.`);
       }
       try {
-        await probeProvider({ apiKey, serverURL: serverUrl(current) });
+        await invokeDecision({
+          apiKey,
+          serverURL: serverUrl(current),
+          model: current.model,
+          state: [probeState],
+          question: probeQuestion,
+        });
       } catch (error) {
-        const code = decisionFailureCode(error);
-        const failed = { ...current, probe: { state: "failed" as const, checkedAt: now(), code } };
+        const mapped = mapOpenRouterFailure(error),
+          failed = {
+            ...current,
+            probe: { state: "failed" as const, checkedAt: now(), code: decisionFailureCode(mapped) },
+          };
         persist(read().map((entry) => (entry.providerId === id ? failed : entry)));
-        throw error;
+        throw mapped;
       }
       const checkedAt = now(),
         updated = { ...current, probe: { state: "ready" as const, checkedAt } };
@@ -424,18 +436,18 @@ function toOpenRouterQuestion(question: DecisionQuestion): OpenRouterQuestion {
   };
 }
 
-function serverUrl(provider: DecisionProviderRecord): string {
-  return provider.baseUrl ?? defaultServerUrl;
+function serverUrl(provider: DecisionProviderRecord): string | undefined {
+  return provider.baseUrl ?? undefined;
 }
 
 async function openRouterDecision(input: {
   readonly apiKey: string;
-  readonly serverURL: string;
+  readonly serverURL: string | undefined;
   readonly model: string;
   readonly state: readonly string[];
   readonly question: OpenRouterQuestion;
 }): Promise<DecisionsResponse> {
-  const client = openRouterClient(input.apiKey, input.serverURL);
+  const client = openRouterClient(input.apiKey);
   return client.alpha.decisions.create(
     {
       decisionsRequest: {
@@ -444,20 +456,19 @@ async function openRouterDecision(input: {
         questions: { decision: input.question },
       },
     },
-    { serverURL: input.serverURL, timeoutMs: requestTimeoutMs, retries: { strategy: "none" }, retryCodes: [] },
+    {
+      // Omitted when the provider has no base URL: the SDK's own Decisions
+      // operation default then applies, so this repository stores no copy of it.
+      ...(input.serverURL === undefined ? {} : { serverURL: input.serverURL }),
+      timeoutMs: requestTimeoutMs,
+      retries: { strategy: "none" },
+      retryCodes: [],
+    },
   );
 }
 
-async function openRouterProbe(input: { readonly apiKey: string; readonly serverURL: string }): Promise<void> {
-  const client = openRouterClient(input.apiKey, input.serverURL);
-  await client.models.count(
-    {},
-    { serverURL: input.serverURL, timeoutMs: requestTimeoutMs, retries: { strategy: "none" }, retryCodes: [] },
-  );
-}
-
-function openRouterClient(apiKey: string, serverURL: string): OpenRouter {
-  return new OpenRouter({ apiKey, serverURL, retryConfig: { strategy: "none" }, timeoutMs: requestTimeoutMs });
+function openRouterClient(apiKey: string): OpenRouter {
+  return new OpenRouter({ apiKey, retryConfig: { strategy: "none" }, timeoutMs: requestTimeoutMs });
 }
 
 function decodeDecision(
