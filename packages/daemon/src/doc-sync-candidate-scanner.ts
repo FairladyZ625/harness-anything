@@ -189,7 +189,7 @@ export function scanDocCandidates(input: {
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
-    if (inspection.disposition === "route-owned") {
+    if (inspection.kind === "route-owned") {
       if (safe && candidate !== null && candidate === base)
         return scannedCandidateRow("clean", null, bytes, base, candidate, effective?.mediaType ?? null);
       // A route-owned document is a pure projection of its owning event route: local bytes are
@@ -288,7 +288,7 @@ export function scanDocCandidates(input: {
         projected.document?.blobSha256 ?? null,
         null,
       );
-    if (inspection.disposition === "too-large")
+    if (inspection.kind === "too-large")
       return scannedCandidateRow(
         "blocked",
         artifactSubtreePath(logical)

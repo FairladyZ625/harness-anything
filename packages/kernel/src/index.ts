@@ -164,7 +164,6 @@ export {
   classifyDocCandidate,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
-  effectiveDocCandidateClassification,
   mediaTypeForBinaryPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   type DocCandidateClassification,
@@ -185,7 +184,6 @@ export {
 } from "./domain/doc-sync.contract.ts";
 export type {
   CanonicalEventV1,
-  DocCandidateInspection,
   DocClaimRef,
   DocEventChange,
   DocEventV1,

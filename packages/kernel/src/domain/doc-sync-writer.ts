@@ -419,12 +419,12 @@ interface DocCandidateInspectionBase {
 }
 export type DocCandidateInspection =
   | (DocCandidateInspectionBase & {
-      readonly disposition: "candidate";
+      readonly kind: "candidate";
       readonly bytes: Uint8Array | null;
       readonly classification: DocCandidateClassification;
     })
   | (DocCandidateInspectionBase & {
-      readonly disposition: "route-owned" | "inapplicable" | "unsupported" | "too-large";
+      readonly kind: "route-owned" | "inapplicable" | "unsupported" | "too-large";
       readonly bytes: Uint8Array | null;
       readonly classification: DocCandidateClassification | null;
     });
@@ -447,7 +447,7 @@ export function inspectDocCandidate(
     classification = effectiveDocCandidateClassification(path, byteVerdict, persistedPolicyId),
     route = resolveDocRoute(path),
     channelMember = hasPersistedRow || byteVerdict !== null,
-    disposition = !route.allowed
+    kind = !route.allowed
       ? "route-owned"
       : !channelMember
         ? "inapplicable"
@@ -456,11 +456,11 @@ export function inspectDocCandidate(
           : fileSize !== null && fileSize > maxBytes
             ? "too-large"
             : "candidate";
-  if (disposition === "candidate") {
+  if (kind === "candidate") {
     if (classification === null) throw new Error("candidate inspection requires a classification");
-    return { disposition, maxBytes, bytes, classification, route };
+    return { kind, maxBytes, bytes, classification, route };
   }
-  return { disposition, maxBytes, bytes, classification, route };
+  return { kind, maxBytes, bytes, classification, route };
 }
 
 export function isValidDocEventChange(value: unknown, allowUnknownFields = false): value is DocEventChange {

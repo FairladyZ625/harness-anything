@@ -33,7 +33,7 @@ import {
 test("center and edge share route ownership and the path-specific read cap", () => {
   const reviewsPath = documentPath("tasks/task_policy/reviews/.DS_Store"),
     reviews = inspectDocCandidate(reviewsPath, 24, null, false, () => Buffer.from([0, 1, 2]));
-  assert.equal(reviews.disposition, "route-owned");
+  assert.equal(reviews.kind, "route-owned");
   assert.deepEqual(reviews.route, { allowed: false, requiredRoute: "task-review-execution" });
 
   for (const logical of [
@@ -46,7 +46,7 @@ test("center and edge share route ownership and the path-specific read cap", () 
       read = true;
       return Buffer.from('{"ok":true}\\n');
     });
-    assert.equal(oversized.disposition, "inapplicable", logical);
+    assert.equal(oversized.kind, "inapplicable", logical);
     assert.equal(oversized.maxBytes, 256 * 1024, logical);
     assert.equal(read, false, `${logical}: over-cap bytes must not be opened`);
   }
@@ -61,7 +61,7 @@ test("center and edge share route ownership and the path-specific read cap", () 
       return Buffer.from('{"ok":true}');
     },
   );
-  assert.equal(artifact.disposition, "too-large");
+  assert.equal(artifact.kind, "too-large");
   assert.equal(artifact.maxBytes, RAW_ARTIFACT_MAX_BYTES);
   assert.equal(artifactRead, false);
 });

@@ -286,7 +286,7 @@ export function scanFleetMirrorWorktree(
       cleanPaths.push(logical);
       continue;
     }
-    if (inspection.disposition === "route-owned") {
+    if (inspection.kind === "route-owned") {
       blocked.push({
         path: logical,
         reason: `path is owned by ${route.requiredRoute}`,
@@ -295,15 +295,15 @@ export function scanFleetMirrorWorktree(
       });
       continue;
     }
-    if (inspection.disposition === "inapplicable") {
+    if (inspection.kind === "inapplicable") {
       inapplicablePaths.push(logical);
       continue;
     }
-    if (inspection.disposition === "unsupported") {
+    if (inspection.kind === "unsupported") {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
     }
-    if (inspection.disposition === "too-large") {
+    if (inspection.kind === "too-large") {
       blocked.push({
         path: logical,
         size: fileSize,
@@ -314,7 +314,7 @@ export function scanFleetMirrorWorktree(
       });
       continue;
     }
-    if (inspection.disposition !== "candidate") continue;
+    if (inspection.kind !== "candidate") continue;
     const { bytes, classification: docClass } = inspection;
     if (bytes === null || docClass === null) continue;
     changes.push({

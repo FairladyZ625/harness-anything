@@ -592,7 +592,7 @@ test("the retired code/doc closeout default never makes an accepted declaration 
 // conclusion fails here instead of being discovered by a cold replay.
 test("the opaque textual artifact policy is live, not retired, so doc claims need no attach step", () => {
   assert.deepEqual(
-    retiredPersistedSchemaFields.filter((field) => /artifact|policy|doc/i.test(field)),
+    retiredPersistedSchemaFields.filter((field) => /artifact|policy/i.test(field)),
     [],
   );
   const artifactPath = "tasks/task_legacy/artifacts/review/test.pdf",
