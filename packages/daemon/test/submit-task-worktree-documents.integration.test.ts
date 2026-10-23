@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -71,10 +71,21 @@ test("task submit carries new artifacts from its bound worktree into the center 
     const worker = path.join(rootDir, ".worktrees", taskId),
       artifactPath = `${packagePath}/artifacts/worker-generated.md`,
       canonicalArtifact = path.join(ledger, artifactPath),
-      workerArtifact = path.join(worker, "harness", artifactPath);
+      workerArtifact = path.join(worker, "harness", artifactPath),
+      closeoutPath = `${packagePath}/closeout.md`,
+      canonicalCloseout = path.join(ledger, closeoutPath),
+      workerCloseout = path.join(worker, "harness", closeoutPath),
+      revisedCloseout =
+        "## Summary\nTask submit carries the revised closeout with the repository cut.\n" +
+        "## Verification\nThe integration fixture inspected the durable submission event.\n" +
+        "## Residual Risk\nNo additional risk in this fixture.\n" +
+        "## Same Mechanism Elsewhere\nNew task-package files must cross the same document acceptance path.\n";
+    unlinkSync(workerCloseout);
+    writeFileSync(workerCloseout, revisedCloseout);
     mkdirSync(path.dirname(workerArtifact), { recursive: true });
     writeFileSync(workerArtifact, "# Worker generated artifact\n");
     assert.equal(existsSync(canonicalArtifact), false, "new files are not hard-linked into the canonical ledger");
+    assert.doesNotMatch(readFileSync(canonicalCloseout, "utf8"), /revised closeout/u);
     mkdirSync(path.join(worker, "src"), { recursive: true });
     writeFileSync(path.join(worker, "src", "delivery.ts"), "export const delivered = true;\n");
     git(worker, "add", "src/delivery.ts");
@@ -97,6 +108,9 @@ test("task submit carries new artifacts from its bound worktree into the center 
       event.payload.execution.submission?.artifacts?.some((artifact) => artifact.path === artifactPath),
       `submission must accept ${artifactPath} from the task worktree`,
     );
+    assert.ok(event.payload.execution.submission?.changedFiles?.includes("src/delivery.ts"));
+    assert.ok(event.payload.execution.submission?.productionDelta);
+    assert.equal(readFileSync(canonicalCloseout, "utf8"), revisedCloseout);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

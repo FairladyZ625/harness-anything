@@ -15,6 +15,17 @@ const submission = (
     completionClaim: "claim",
     deliverables,
     ...(changedFiles === undefined ? {} : { changedFiles }),
+    ...(changedFiles === undefined
+      ? {}
+      : {
+          productionDelta: {
+            baseSha: "1".repeat(40),
+            added: 0,
+            deleted: 0,
+            changed: [],
+            unclassified: [],
+          },
+        }),
     outputs: deleted.map((target) => `Deleted-Production-Paths: ${target}`),
     verificationNotes: [],
     knownGaps: [],
@@ -95,6 +106,30 @@ test("legacy lane routing uses the same normalized paths exposed by submission f
     [...hits],
     [["data-migration", ["packages/kernel/src/domain/old.ts", "packages/kernel/src/domain/settings.ts"]]],
   );
+});
+
+test("incomplete legacy manifests conservatively dispatch every configured lane", () => {
+  const cut = submission(["none", "merge commit 8ba0c5978 on main"]),
+    lanes = reviewPathLanes(["data-migration packages/kernel/src/store/", "gui-reviewer packages/gui/src/"]),
+    hits = reviewLaneHits(cut, lanes);
+  assert.equal(hits.size, 2);
+  for (const matched of hits.values())
+    assert.deepEqual(matched, ["Legacy submission path evidence is incomplete; review the full delivery."]);
+  const execution = {
+    executionId: "execution-legacy-incomplete",
+    iteration: 1,
+    submission: cut,
+  } as unknown as ExecutionV1;
+  const prompt = reviewLanePrompt({
+    agentId: "data-migration",
+    taskId: "task-legacy-incomplete",
+    packagePath: "tasks/task-legacy-incomplete",
+    dispatchId: "dispatch_legacy01",
+    execution,
+    hits: hits.get("data-migration")!,
+  });
+  assert.match(prompt, /dispatched conservatively/u);
+  assert.match(prompt, /review the full delivery/u);
 });
 
 test("matching stays path-exact: a near-miss file or a sibling directory never fires", () => {

@@ -13,6 +13,7 @@ import {
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
+  sha256Bytes,
   sha256Text,
   resolveHarnessLayout,
   type DocEventChange,
@@ -167,7 +168,24 @@ export function deriveCloseoutSubmission(
   // file manifest only; it is not submission admission.
   const execution = snapshot.executions.find((value) => value.executionId === executionId),
     baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
-    defaultBranch = repositoryBaseRef(root),
+    origin = git.run(root, ["remote", "get-url", "origin"]);
+  if (origin.ok) {
+    try {
+      runProcessText("git", ["fetch", "--quiet", "origin"], root, { ...process.env, GIT_TERMINAL_PROMPT: "0" }, 30_000);
+    } catch (error) {
+      const details =
+        error instanceof Error && "stderr" in error && typeof error.stderr === "string" && error.stderr !== ""
+          ? error.stderr.trim()
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Could not refresh origin before deriving delivery facts; refusing to freeze against a stale default branch. ${details}`,
+      );
+    }
+  }
+  const defaultBranch = repositoryBaseRef(root),
     mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" },
     // The delivery commit is the default branch's own tip. A delivery lands there as a merge commit
     // (ordinary merge, never squash), and an artifact-only branch rebased onto an advanced main is
@@ -390,12 +408,17 @@ function taskWorktreeCandidateInventory(
   return {
     schema: "harness-authored-candidate-inventory/v1",
     baseLedgerSha,
-    rows: rows.filter(
-      (row) =>
-        row.path.startsWith(`${packagePath}/artifacts/`) &&
-        !row.path.endsWith("/.gitkeep") &&
-        projection.readDocument(row.path).document === null,
-    ),
+    rows: rows.filter((row) => {
+      const closeoutPath = `${packagePath}/closeout.md`,
+        isCloseout = row.path === closeoutPath,
+        isArtifact = row.path.startsWith(`${packagePath}/artifacts/`) && !row.path.endsWith("/.gitkeep");
+      if (!isCloseout && !isArtifact) return false;
+      if (isCloseout) {
+        const current = projection.readDocument(row.path).document;
+        return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
+      }
+      return projection.readDocument(row.path).document === null;
+    }),
   };
 }
 

@@ -21,6 +21,8 @@ export interface ReviewPathLane {
   readonly files: readonly string[];
 }
 
+const LEGACY_PATH_EVIDENCE_UNAVAILABLE = "Legacy submission path evidence is incomplete; review the full delivery.";
+
 /**
  * Group the configured entries into lanes. The settings write boundary already rejects
  * malformed entries by pattern; this reader stays total and skips anything that does not
@@ -53,7 +55,9 @@ export function reviewLaneHits(
 ): ReadonlyMap<string, readonly string[]> {
   const hits = new Map<string, string[]>();
   if (!submission || lanes.length === 0) return hits;
-  const manifest = readSubmissionFacts(submission).changedFiles;
+  const facts = readSubmissionFacts(submission),
+    manifest = facts.changedFiles,
+    incompleteLegacy = facts.kind === "legacy" && facts.pathEvidence !== "complete";
   for (const lane of lanes) {
     const matched = [
       ...new Set(
@@ -61,6 +65,7 @@ export function reviewLaneHits(
           (target) => lane.files.includes(target) || lane.prefixes.some((prefix) => target.startsWith(prefix)),
         ),
       ),
+      ...(incompleteLegacy ? [LEGACY_PATH_EVIDENCE_UNAVAILABLE] : []),
     ].sort();
     if (matched.length > 0) hits.set(lane.agentId, matched);
   }
@@ -96,8 +101,15 @@ export function reviewLanePrompt(input: {
     `Independently review task ${taskId}, execution ${execution.executionId}, iteration ` +
       `${execution.iteration}, through the additional review lane for agent ${agentId}.`,
     `The exact submission digest is ${submissionDigest(execution.submission!)}.`,
-    `This lane fired because the delivery's frozen manifest touches paths configured for this reviewer:` +
-      `\n${hits.map((hit) => `- ${hit}`).join("\n")}`,
+    hits.includes(LEGACY_PATH_EVIDENCE_UNAVAILABLE)
+      ? "This historical delivery has incomplete legacy path evidence. The lane was dispatched conservatively; " +
+        "review the full delivery for this lane's configured scope. Known stored paths follow:\n" +
+        hits
+          .filter((hit) => hit !== LEGACY_PATH_EVIDENCE_UNAVAILABLE)
+          .map((hit) => `- ${hit}`)
+          .join("\n")
+      : `This lane fired because the delivery's frozen manifest touches paths configured for this reviewer:` +
+        `\n${hits.map((hit) => `- ${hit}`).join("\n")}`,
     `Read ha task show ${taskId} --json and select execution ${execution.executionId}; its submission ` +
       "is the authoritative delivery. Read the delivery diff yourself (deliveryBaseline -> submission " +
       "commit). Your own Agent declaration defines this lane's review focus, required output, and " +

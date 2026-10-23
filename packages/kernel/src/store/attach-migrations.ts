@@ -12,28 +12,27 @@ import {
 } from "../domain/event-shape-migration-event.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { RETIRED_SETTINGS_PATHS } from "../domain/settings.ts";
+import { historicalReadConclusions } from "../domain/index.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 
-export type AttachMigrationRegistryEntry = Readonly<{
-  readonly name: EventShapeMigrationName;
-  readonly fields: readonly string[];
-  readonly matches: (
-    event: PersistedCanonicalEventV1,
-    readContentBlob?: (sha256: string) => Uint8Array | null,
-  ) => boolean;
-}>;
-
-/** Additive Submission/v1 facts need a read conclusion for historical rows, not a write migration. */
-export const historicalReadConclusions = Object.freeze([
-  {
-    name: "submission.delivery-facts",
-    fields: ["Execution.submission.changedFiles", "Execution.submission.productionDelta"],
-    attachRequired: false,
-    conclusion:
-      "Legacy rows remain byte-identical; the shared submission-facts reader exposes stored paths and no production delta.",
-  },
-] as const);
+export type AttachMigrationRegistryEntry =
+  | Readonly<{
+      readonly kind: "event-migration";
+      readonly name: EventShapeMigrationName;
+      readonly fields: readonly string[];
+      readonly matches: (
+        event: PersistedCanonicalEventV1,
+        readContentBlob?: (sha256: string) => Uint8Array | null,
+      ) => boolean;
+    }>
+  | Readonly<{
+      readonly kind: "read-conclusion";
+      readonly name: string;
+      readonly fields: readonly string[];
+      readonly attachRequired: false;
+      readonly conclusion: string;
+    }>;
 
 function taskOverrideAt(event: PersistedCanonicalEventV1, key: "fact" | "codeDoc"): boolean {
   const payload = (event as { readonly payload?: unknown }).payload;
@@ -191,46 +190,78 @@ function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean
 }
 
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
-  { name: "closeout-overrides.fact", fields: ["Task.closeoutOverrides.fact"], matches: taskHasRetiredFact },
   {
+    kind: "event-migration",
+    name: "closeout-overrides.fact",
+    fields: ["Task.closeoutOverrides.fact"],
+    matches: taskHasRetiredFact,
+  },
+  {
+    kind: "event-migration",
     name: "closeout-overrides.codeDoc",
     fields: ["Task.closeoutOverrides.codeDoc", "PresetSnapshot.profile.closeoutOverrides.codeDoc"],
     matches: hasRetiredCodeDocCloseoutOverride,
   },
-  { name: "schedule.ciObserve", fields: ["Schedule.status.ciObserve"], matches: hasRetiredScheduleCiObserve },
   {
+    kind: "event-migration",
+    name: "schedule.ciObserve",
+    fields: ["Schedule.status.ciObserve"],
+    matches: hasRetiredScheduleCiObserve,
+  },
+  {
+    kind: "event-migration",
+    name: "closeout-overrides.fact",
+    fields: ["Task.closeoutOverrides.fact"],
+    matches: taskHasRetiredFact,
+  },
+  {
+    kind: "event-migration",
+    name: "schedule.ciObserve",
+    fields: ["Schedule.status.ciObserve"],
+    matches: hasRetiredScheduleCiObserve,
+  },
+  {
+    kind: "event-migration",
     name: "squad-run.subject",
     fields: ["SquadRun.taskId+executionId"],
     matches: hasFlatSquadRunIdentity,
   },
   {
+    kind: "event-migration",
     name: "settings.ci",
     fields: ["Settings.gates.ci", "Settings.ci.workflows"],
     matches: hasRetiredSettingsCi,
   },
   {
-    name: "settings.closeout.codeDoc",
-    fields: ["Settings.closeout.overrides.codeDoc"],
-    matches: hasRetiredSettingsCloseoutCodeDoc,
-  },
-  {
+    kind: "event-migration",
     name: "runtime.reviewDispatchKey",
     fields: ["RuntimeDispatchRequested.payload.dispatchKey"],
     matches: hasLegacyReviewerDispatchKey,
   },
   {
+    kind: "event-migration",
     name: "vertical.completion.sources",
     fields: ["Vertical.completion.sources.*.kind"],
     matches: hasRetiredVerticalHostedCi,
   },
   {
+    kind: "event-migration",
+    name: "settings.closeout.codeDoc",
+    fields: ["Settings.closeout.overrides.codeDoc"],
+    matches: hasRetiredSettingsCloseoutCodeDoc,
+  },
+  {
+    kind: "event-migration",
     name: "vertical.completion.closeoutCodeDoc",
     fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
     matches: hasRetiredVerticalCloseoutCodeDoc,
   },
+  ...historicalReadConclusions,
 ]);
 
-const registeredRetiredFields = new Set(attachMigrationRegistry.flatMap(({ fields }) => fields));
+const registeredRetiredFields = new Set(
+  attachMigrationRegistry.flatMap((entry) => (entry.kind === "event-migration" ? entry.fields : [])),
+);
 if (
   registeredRetiredFields.size !== retiredPersistedSchemaFields.length ||
   retiredPersistedSchemaFields.some((field) => !registeredRetiredFields.has(field))
@@ -254,12 +285,17 @@ export function applyAttachMigrations(input: {
   readonly onProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): AttachMigrationReport {
   const applied = new Set(
-      attachMigrationRegistry.flatMap(({ name }) => {
+      attachMigrationRegistry.flatMap((entry) => {
+        if (entry.kind === "read-conclusion") return [];
+        const { name } = entry;
         const event = input.store.readEvent(`upgrade-${name.replaceAll(".", "-")}`);
         return event !== null && isEventShapeMigrationEvent(event) && event.payload.migration === name ? [name] : [];
       }),
     ),
-    pending = attachMigrationRegistry.filter(({ name }) => !applied.has(name)),
+    pending = attachMigrationRegistry.filter(
+      (entry): entry is Extract<AttachMigrationRegistryEntry, { readonly kind: "event-migration" }> =>
+        entry.kind === "event-migration" && !applied.has(entry.name),
+    ),
     affectedEvents = new Map(pending.map(({ name }) => [name, 0])),
     total = input.store.readHead()?.revision ?? 0;
 
@@ -285,6 +321,9 @@ export function applyAttachMigrations(input: {
 
   const appliedNow: EventShapeMigrationName[] = [];
   for (const migration of attachMigrationRegistry) {
+    // Read conclusions belong to this registry so attach and the public reader share one
+    // historical contract, but they intentionally append no event and leave old bytes intact.
+    if (migration.kind === "read-conclusion") continue;
     if (applied.has(migration.name)) continue;
     const affectedCount = affectedEvents.get(migration.name) ?? 0;
     if (affectedCount === 0) continue;

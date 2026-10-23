@@ -46,6 +46,56 @@ test("legacy code submissions expose stored deliverables and deleted paths witho
     kind: "legacy",
     changedFiles: ["README.md", "packages/kernel/new.ts", "packages/kernel/old.ts"],
     productionDelta: null,
+    pathEvidence: "complete",
+  });
+});
+
+test("legacy free-form prose is excluded and marks the manifest incomplete", () => {
+  const facts = readSubmissionFacts({
+    ...base,
+    commitSha: "a".repeat(40),
+    deliverables: [
+      "merge commit 8ba0c5978 on main",
+      "none",
+      "artifacts/design/10-table-shape.md(489->330 行,r3)",
+      "packages/kernel/src/real.ts",
+    ],
+  });
+  assert.deepEqual(facts, {
+    kind: "legacy",
+    changedFiles: ["packages/kernel/old.ts", "packages/kernel/src/real.ts"],
+    productionDelta: null,
+    pathEvidence: "partial",
+  });
+});
+
+test("legacy manifests without trustworthy paths are marked unavailable", () => {
+  const facts = readSubmissionFacts({
+    ...base,
+    commitSha: "a".repeat(40),
+    deliverables: ["merge commit 8ba0c5978 on main", "none"],
+    outputs: [],
+  });
+  assert.deepEqual(facts, {
+    kind: "legacy",
+    changedFiles: [],
+    productionDelta: null,
+    pathEvidence: "unavailable",
+  });
+});
+
+test("legacy artifact-only outputs do not make an empty code manifest complete", () => {
+  const facts = readSubmissionFacts({
+    ...base,
+    commitSha: "a".repeat(40),
+    deliverables: [],
+    outputs: ["Artifact-Anchor: tasks/task-old/artifacts/report.md@12"],
+  });
+  assert.deepEqual(facts, {
+    kind: "legacy",
+    changedFiles: [],
+    productionDelta: null,
+    pathEvidence: "unavailable",
   });
 });
 

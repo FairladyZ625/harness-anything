@@ -5,6 +5,7 @@ import {
   gateAppliesToSubmission,
   createEntityStore,
   currentSubmittedExecutions,
+  historicalReadConclusions,
   submissionDigest,
   decisionReviewContentDigest,
   type ExecutionV1,
@@ -354,9 +355,10 @@ export function reviewDispatchPrompt(input: {
       "The prompt references that submission; it does not inline evidence or enumerate anchors.",
     `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; ` +
       "treat it and the submission delivery as authoritative. Read the G33 production-delta result for this cut " +
-      "when frozen facts are present; historical submissions may predate these optional fields, so consult the shared " +
-      "Kernel readSubmissionFacts result for their legacy path evidence and unavailable productionDelta. " +
-      "Do not reject a legacy cut solely for absent frozen facts or compare either machine-derived value against closeout prose.",
+      "when frozen facts are present. Historical read conclusion: " +
+      `${historicalReadConclusions[0]!.conclusion} ` +
+      "Use the shared Kernel readSubmissionFacts result for legacy paths; do not reject a legacy cut solely for " +
+      "absent frozen facts or compare either machine-derived value against closeout prose.",
     "For every artifact anchor in that submission, read the full center-accepted frozen content with " +
       "ha doc show --path <anchor.path> --raw; do not substitute local files or require Git ancestry. " +
       `Resolve package-relative artifacts/ paths under ${packagePath}/; full tasks/ paths are already resolved. ` +

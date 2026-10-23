@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { deriveCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
+import {
+  deriveCloseoutSubmission,
+  readCloseoutSubmission,
+  submissionAnchorDriftWarnings,
+  submissionStopped,
+} from "../src/repo-cell-submit.ts";
 import { reviewLaneHits, reviewPathLanes } from "../src/review-path-lanes.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 
@@ -86,7 +91,7 @@ function baseline(root: string) {
   return { kind: "commit" as const, commitSha: git(root, "rev-list", "--max-parents=0", "HEAD") };
 }
 
-function derive(
+function deriveInput(
   rootDir: string,
   summary: string,
   missingPath?: string,
@@ -112,7 +117,7 @@ function derive(
   accepted: readonly { readonly path: string; readonly revision: number }[] = [],
   reviews: readonly { readonly reviewId: string }[] = [],
   reviewerDispatches: readonly string[] = [],
-) {
+): Parameters<typeof deriveCloseoutSubmission> {
   const snapshot = {
       reviews,
       executions: [
@@ -170,7 +175,7 @@ function derive(
               },
       }),
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["projection"];
-  return deriveCloseoutSubmission(
+  return [
     {
       rootDir,
       projection,
@@ -193,7 +198,11 @@ function derive(
     snapshot,
     undefined,
     commitSha,
-  );
+  ];
+}
+
+function derive(...args: Parameters<typeof deriveInput>) {
+  return deriveCloseoutSubmission(...deriveInput(...args));
 }
 
 function dispatch(root: string, cwd: string, dispatchId = "dispatch_111111111111111111111111") {
@@ -696,45 +705,53 @@ test("amending the same legacy commit recomputes missing submission facts", (t) 
   assert.equal(amended.productionDelta?.added, 1);
 });
 
-test("re-freezing after rebase uses the advanced origin main and excludes its paths", (t) => {
+test("re-freezing after rebase fetches a stale origin main and excludes its paths", async (t) => {
   const { root, base } = fixture(t),
-    worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, base);
-  put(worker, "packages/kernel/src/own.ts", "export const own = 1;\n");
-  const firstCommit = commit(worker),
-    first = derive(
-      root,
-      "Initial delivery.",
-      undefined,
-      ["lint"],
-      undefined,
-      { kind: "commit", commitSha: base },
-      firstCommit,
-    );
-  assert.equal(first.productionDelta?.baseSha, base);
+    origin = mkdtempSync(path.join(tmpdir(), "ha-closeout-origin-")),
+    upstream = mkdtempSync(path.join(tmpdir(), "ha-closeout-upstream-"));
+  t.after(() => rmSync(origin, { recursive: true, force: true }));
+  t.after(() => rmSync(upstream, { recursive: true, force: true }));
+  git(origin, "init", "--bare", "-q", "--initial-branch=main");
+  git(root, "remote", "add", "origin", origin);
+  git(root, "push", "-q", "--set-upstream", "origin", "main");
+  git(root, "fetch", "--quiet", "origin", "refs/heads/main:refs/remotes/origin/main");
+  git(root, "remote", "set-head", "origin", "main");
+  const staleMain = git(root, "rev-parse", "origin/main");
 
-  put(root, "packages/kernel/src/foreign.ts", "export const foreign = 1;\n");
-  const advancedMain = commit(root);
-  git(root, "update-ref", "refs/remotes/origin/main", advancedMain);
-  git(worker, "rebase", "--quiet", "origin/main");
-  const rebasedCommit = git(worker, "rev-parse", "HEAD"),
-    refrozen = derive(
-      root,
-      "Re-froze after rebase.",
-      undefined,
-      ["lint"],
-      undefined,
-      { kind: "commit", commitSha: base },
-      rebasedCommit,
-      "repository-diff",
-      undefined,
-      first,
+  git(root, "checkout", "-q", "-b", "feature");
+  put(root, "packages/kernel/src/own.ts", "export const own = 1;\n");
+  commit(root);
+  git(upstream, "clone", "-q", origin, upstream);
+  git(upstream, "config", "user.name", "Harness Test");
+  git(upstream, "config", "user.email", "harness@example.test");
+  put(upstream, "packages/kernel/src/foreign.ts", "export const foreign = 1;\n");
+  const advancedMain = commit(upstream);
+  git(upstream, "push", "-q", "origin", "main");
+
+  // Rebase on a newly fetched object without refreshing this checkout's origin/main ref.
+  git(root, "remote", "add", "rebase-source", origin);
+  git(root, "fetch", "--quiet", "rebase-source", "refs/heads/main:refs/heads/rebase-target");
+  assert.equal(git(root, "rev-parse", "origin/main"), staleMain);
+  git(root, "rebase", "--quiet", "rebase-target");
+  const rebasedCommit = git(root, "rev-parse", "HEAD"),
+    result = await readCloseoutSubmission(
+      ...deriveInput(
+        root,
+        "Re-froze after rebase.",
+        undefined,
+        ["lint"],
+        undefined,
+        { kind: "commit", commitSha: base },
+        rebasedCommit,
+      ),
     );
 
-  assert.notEqual(rebasedCommit, firstCommit);
-  assert.deepEqual(refrozen.changedFiles, ["packages/kernel/src/own.ts"]);
-  assert.equal(refrozen.productionDelta?.baseSha, advancedMain);
-  assert.equal(refrozen.productionDelta?.added, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.notEqual(rebasedCommit, git(root, "rev-parse", "refs/remotes/origin/main"));
+  assert.deepEqual(result.submission.changedFiles, ["packages/kernel/src/own.ts"]);
+  assert.equal(result.submission.productionDelta?.baseSha, advancedMain);
+  assert.equal(result.submission.productionDelta?.added, 1);
 });
 
 test("an execution started before the baseline froze keeps the comparison cut in force when it started", (t) => {

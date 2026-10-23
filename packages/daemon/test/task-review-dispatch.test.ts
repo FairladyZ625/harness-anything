@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import type { ExecutionV1 } from "@harness-anything/kernel";
+import { historicalReadConclusions, type ExecutionV1 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
 import { decisionReviewDispatchPrompt, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
@@ -38,6 +38,7 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
   assert.match(prompt, /Read the G33 production-delta result/u);
   assert.match(prompt, /shared Kernel readSubmissionFacts result/u);
+  assert.ok(prompt.includes(historicalReadConclusions[0]!.conclusion));
   assert.doesNotMatch(prompt, /REVIEW-ARTIFACT|REVIEW-SMALL-ARTIFACT|bodyTruncatedFromChars/u);
   assert.doesNotMatch(prompt, /raw-evidence\.txt|"artifacts":/u);
   assert.match(prompt, /ha task show task_review_bounds --json/u);
