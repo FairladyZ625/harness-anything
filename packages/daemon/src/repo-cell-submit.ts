@@ -417,7 +417,8 @@ function taskWorktreeCandidateInventory(
         const current = projection.readDocument(row.path).document;
         return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
       }
-      return projection.readDocument(row.path).document === null;
+      const current = projection.readDocument(row.path).document;
+      return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
     }),
   };
 }
