@@ -2,6 +2,7 @@ import path from "node:path";
 import { completionRetirementExecutions } from "../domain/task-completion-generation-retirement.ts";
 import { applyTransition, normalizeTaskLifecycleCommand } from "../domain/task-lifecycle.contract.ts";
 import { compileTaskLifecycleWrite, lifecycleDocumentFetchPaths } from "../domain/task-lifecycle-publication.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import type { SqliteEventStore, SqliteWriterFence } from "./sqlite-event-store.ts";
 import type { CompletionGenerationPlan } from "./completion-generation-plan.ts";
@@ -16,7 +17,7 @@ export function retireCompletionExecutions(
 ): void {
   const projection = makeTaskProjection({
     rootDir: root,
-    projectionPath: path.join(root, ".harness", "cache", "completion-conversion-retirement.sqlite"),
+    projectionPath: path.join(resolveHarnessLayout(root).cacheRoot, "completion-conversion-retirement.sqlite"),
     eventStore: completionConversionStream(store),
   });
   try {

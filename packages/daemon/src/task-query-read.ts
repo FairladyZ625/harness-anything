@@ -35,7 +35,7 @@ import {
   decisionReviewState,
   readDecisionReviewDispatches,
 } from "./decision-review-read.ts";
-import type { DispatchStreamHeader } from "./dispatch-stream.ts";
+import { dispatchStreamRelativePath, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import { readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { taskDeliveryStage } from "./task-delivery-stage.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
@@ -120,7 +120,7 @@ export function makeTaskQueryReadModel(input: {
         ok: true,
         facet: "runtimeEdges",
         ...emptyRows,
-        edges: runtimeDispatchEdges(projectedRuntimeHeaders(projection)),
+        edges: runtimeDispatchEdges(projectedRuntimeHeaders(rootDir, projection)),
         warnings: [],
       };
     }
@@ -860,7 +860,7 @@ export function makeTaskQueryReadModel(input: {
   return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
 }
 
-function projectedRuntimeHeaders(projection: TaskProjection): DispatchStreamHeader[] {
+function projectedRuntimeHeaders(rootDir: string, projection: TaskProjection): DispatchStreamHeader[] {
   const headers: DispatchStreamHeader[] = [];
   let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
   for (;;) {
@@ -880,7 +880,7 @@ function projectedRuntimeHeaders(projection: TaskProjection): DispatchStreamHead
         runtimeSessionId: value.runtimeSessionId,
         instanceId: value.instanceId,
         startedAt: value.startedAt ?? event.occurredAt,
-        eventStreamRef: `file:.harness/runtime/dispatches/${value.dispatchId}.jsonl`,
+        eventStreamRef: `file:${dispatchStreamRelativePath(rootDir, value.dispatchId)}`,
         ...(value.agentId ? { agentId: value.agentId } : {}),
       });
     }
@@ -929,7 +929,7 @@ export function runtimeDispatchEdges(
       freshness: "suspect",
       rationale: "Agent dispatch record",
       ownerRef: sourceRef,
-      sourcePath: `.harness/runtime/dispatches/${header.dispatchId}.jsonl`,
+      sourcePath: header.eventStreamRef.replace(/^file:/u, ""),
       recordIndex: 0,
     });
   }

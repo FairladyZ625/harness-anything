@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { constants as bufferConstants } from "node:buffer";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -40,7 +40,9 @@ test(
           "2026-09-06T00:00:00.000Z",
         );
       assert.equal(localGitProcessCount() - beforePublicationProcesses, 1);
-      assert.deepEqual(readdirSync(path.join(rootDir, ".harness")), []);
+      // The git stdin spool is process scratch in the OS temporary directory: publishing must not
+      // create the default local root at all, because the repository may have renamed it.
+      assert.equal(existsSync(path.join(rootDir, ".harness")), false);
       assert.match(commit, /^[0-9a-f]{40}$/u);
       for (const file of files) {
         const readback = localGitObjectRefStore.readPath(rootDir, commit, file.target);
@@ -72,7 +74,7 @@ test("Git outbox removes its fast-import file when publication fails", () => {
         "2026-09-06T00:00:00.000Z",
       ),
     );
-    assert.deepEqual(readdirSync(path.join(rootDir, ".harness")), []);
+    assert.equal(existsSync(path.join(rootDir, ".harness")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

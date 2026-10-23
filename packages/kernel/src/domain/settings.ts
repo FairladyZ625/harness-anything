@@ -58,7 +58,6 @@ export {
 };
 
 export const SETTINGS_ID = "repository";
-export const SETTINGS_LOCAL_PATH = ".harness/settings.local.json";
 export const SETTINGS_FIELD_OWNERSHIP = Object.freeze(
   Object.fromEntries(SETTINGS_FIELD_DECLARATIONS.map(({ path, ownership }) => [path[0], ownership])),
 );

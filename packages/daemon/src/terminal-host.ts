@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import * as pty from "node-pty";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   writeTerminalAttach,
@@ -136,7 +137,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     resolveTerminalEnvironment = input.resolveTerminalEnvironment ?? terminalEnvironment;
   const tmuxProbe = tmux.probe();
   const registryFilePath =
-    input.registryFilePath ?? path.join(input.rootDir, ".harness", "generated", "terminal-sessions.json");
+    input.registryFilePath ?? path.join(resolveHarnessLayout(input.rootDir).generatedRoot, "terminal-sessions.json");
   const restored = loadTmuxSessionRegistry(registryFilePath);
   let registryTouched = restored.length > 0;
   let lastPersistedAt: number | undefined;

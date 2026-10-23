@@ -58,7 +58,7 @@ export function createLedgerBackup(input: {
   const generation = input.generation ?? resolveActiveGeneration({ rootInput: input.rootInput }),
     layout = resolveHarnessLayout(input.rootInput),
     payloadRoot = path.join(backupDir, "payload"),
-    sourcePaths = existingBackupSources(layout.rootDir, layout.authoredRoot),
+    sourcePaths = existingBackupSources(layout.rootDir, layout.authoredRoot, layout.localRoot),
     sqlitePath = sqliteLedgerPath(input.rootInput, generation),
     sqlitePresent = fileSystem.exists(sqlitePath);
   fileSystem.mkdir(payloadRoot, { recursive: true });
@@ -74,9 +74,15 @@ export function createLedgerBackup(input: {
         ? inspectSqlite(path.join(payloadRoot, path.relative(layout.rootDir, sqlitePath)))
         : null,
       legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: payloadRoot }),
+      vacuumedPaths = new Set(
+        [1, 2, 3]
+          .map((candidate) => sqliteLedgerPath(input.rootInput, candidate))
+          .filter((database) => fileSystem.exists(database))
+          .map((database) => portable(path.relative(layout.rootDir, database))),
+      ),
       files = inventory(payloadRoot).map((backupFile) => {
         const relative = portable(path.relative(payloadRoot, backupFile)),
-          vacuumed = /^\.harness\/store\/generations\/[123]\/ledger\.sqlite$/u.test(relative),
+          vacuumed = vacuumedPaths.has(relative),
           backup = entryDigest(backupFile);
         return {
           path: relative,
@@ -211,20 +217,20 @@ export function readOfflineLedgerEvents(input: {
   });
 }
 
-function existingBackupSources(rootDir: string, authoredRoot: string): readonly string[] {
+function existingBackupSources(rootDir: string, authoredRoot: string, localRoot: string): readonly string[] {
   const candidates = [
     fileSystem.exists(path.join(authoredRoot, ".git")) ? path.join(authoredRoot, ".git") : path.join(rootDir, ".git"),
-    path.join(rootDir, ".harness", "wal"),
-    path.join(rootDir, ".harness", "store", "imports"),
+    path.join(localRoot, "wal"),
+    path.join(localRoot, "store", "imports"),
   ];
   for (const generation of [1, 2, 3]) {
-    const generationRoot = path.join(rootDir, ".harness", "store", "generations", String(generation));
+    const generationRoot = path.join(localRoot, "store", "generations", String(generation));
     if (fileSystem.exists(generationRoot))
       for (const name of fileSystem.readDirectory(generationRoot))
         if (name !== "ledger.sqlite" && name !== "ledger.sqlite-wal" && name !== "ledger.sqlite-shm")
           candidates.push(path.join(generationRoot, name));
   }
-  const draftsRoot = path.join(rootDir, ".harness", "operations", "conversion-drafts");
+  const draftsRoot = path.join(localRoot, "operations", "conversion-drafts");
   if (fileSystem.exists(draftsRoot)) {
     candidates.push(draftsRoot);
     for (const parent of fileSystem.readDirectory(draftsRoot)) {

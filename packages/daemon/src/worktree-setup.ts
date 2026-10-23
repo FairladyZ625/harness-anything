@@ -371,7 +371,11 @@ function mirrorTaskPackage(source: string, destination: string): void {
 
 function worktreeLedgerMarkerPath(cwd: string): string | null {
   const gitFile = path.join(cwd, ".git");
-  return existsSync(gitFile) && lstatSync(gitFile).isFile() ? path.join(cwd, ".harness", "ledger-mirror") : null;
+  // The worktree's own local root owns its mirror marker, so a repository that renamed localRoot
+  // never gets a default `.harness` directory created in any of its worktrees.
+  return existsSync(gitFile) && lstatSync(gitFile).isFile()
+    ? path.join(resolveHarnessLayout(cwd).localRoot, "ledger-mirror")
+    : null;
 }
 
 /** Marker path used by the old layout; it is cleaned after a worktree is next prepared or reclaimed. */

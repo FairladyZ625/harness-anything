@@ -8,6 +8,7 @@ import * as tar from "tar";
 import { replicationContentClaims, type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import { syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupArchive, BaseBackupInput, BaseBackupMetadata } from "./basebackup.ts";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "./basebackup-layout.ts";
 
 const input = workerData as BaseBackupInput;
 const ledger = new DatabaseSync(input.ledgerPath, { readOnly: true });
@@ -33,8 +34,8 @@ try {
   };
   parentPort!.postMessage({ kind: "pinned", metadata });
   const payload = path.join(input.directory, "payload"),
-    store = path.join(payload, ".harness", "store", "generations", String(metadata.ledgerGeneration)),
-    cache = path.join(payload, ".harness", "cache");
+    store = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "store", "generations", String(metadata.ledgerGeneration)),
+    cache = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "cache");
   await mkdir(store, { recursive: true });
   await mkdir(cache, { recursive: true });
   await backup(ledger, path.join(store, "ledger.sqlite"));
@@ -55,7 +56,10 @@ try {
   }
   writeFileDurably(path.join(payload, "backup.json"), JSON.stringify(metadata));
   const file = path.join(input.directory, "base.tar.gz");
-  await tar.create({ file, cwd: payload, gzip: true, portable: true, strict: true }, ["backup.json", ".harness"]);
+  await tar.create({ file, cwd: payload, gzip: true, portable: true, strict: true }, [
+    "backup.json",
+    BASE_BACKUP_ARCHIVE_ROOT,
+  ]);
   syncFile(file);
   // The archive is what ships; the staged copy would double the backup's disk use while edges download.
   await rm(payload, { recursive: true, force: true });

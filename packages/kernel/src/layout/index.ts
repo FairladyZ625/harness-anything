@@ -30,7 +30,12 @@ export interface HarnessLayout {
   readonly localRoot: string;
   readonly generatedRoot: string;
   readonly cacheRoot: string;
+  /** Legacy `storage.sqlitePath` document artifact; the task projection cache is `taskProjectionPath`. */
   readonly projectionPath: string;
+  /** The task projection cache every attach, rebuild and read opens: `<localRoot>/cache/task.sqlite`. */
+  readonly taskProjectionPath: string;
+  /** This machine's local settings preference: `<localRoot>/settings.local.json`. */
+  readonly settingsLocalPath: string;
   readonly claimsRoot: string;
   readonly taskPackagePath: (taskId: TaskId) => string;
   readonly createTaskPackagePath: (taskId: TaskId, slug?: string) => string;
@@ -42,6 +47,9 @@ export interface HarnessLayout {
 
 const defaultAuthoredRoot = "harness";
 const defaultLocalRoot = ".harness";
+
+/** The local root a repository gets when its harness.yaml declares none: the documented default. */
+export const DEFAULT_HARNESS_LOCAL_ROOT = defaultLocalRoot;
 const layoutFileSystem = localLayoutFileSystem;
 
 export interface HarnessLayoutOverrides {
@@ -156,6 +164,8 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     generatedRoot,
     cacheRoot: path.join(localRoot, "cache"),
     projectionPath: path.join(localRoot, "cache", "projections.sqlite"),
+    taskProjectionPath: path.join(localRoot, "cache", "task.sqlite"),
+    settingsLocalPath: path.join(localRoot, "settings.local.json"),
     claimsRoot: path.join(localRoot, "adopt-claims"),
     taskPackagePath: (taskId) => {
       validateTaskIdSyntax(taskId);

@@ -614,12 +614,13 @@ export function openDispatchStreamAppender(target: string): DispatchStreamAppend
 }
 
 export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
+  return `file:${dispatchStreamRelativePath(rootDir, dispatchId)}`;
+}
+
+/** The stream's repository-relative path under this repository's own local root, in POSIX form. */
+export function dispatchStreamRelativePath(rootDir: string, dispatchId: string): string {
   const layout = resolveHarnessLayout(rootDir);
-  const relative = path
-    .relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId))
-    .split(path.sep)
-    .join("/");
-  return `file:${relative}`;
+  return path.relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId)).split(path.sep).join("/");
 }
 
 export function dispatchStreamPath(rootDir: string, dispatchId: string): string {

@@ -22,6 +22,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { open as openAsync } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -319,15 +320,18 @@ function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8A
 }
 // Synchronous git input always travels through a regular-file descriptor: a socketpair stdin
 // wedges intermittently on macOS worker threads (task_fc929174), whatever the payload size.
+// This spool is process scratch for one git invocation — never ledger content — so it belongs in
+// the OS temporary directory. Putting it under a repository root would make the git read path
+// resolve the layout (and read harness.yaml) on every batch, and would leave a default `.harness`
+// behind in a repository that renamed its local root. One uniquely named file keeps the lifetime to
+// a single governed remove.
 function withStdinFile<T>(
-  repoRoot: string,
+  _repoRoot: string,
   prefix: string,
   chunks: Iterable<string | Uint8Array>,
   run: (descriptor: number) => T,
 ): T {
-  const temporaryRoot = path.join(repoRoot, ".harness"),
-    temporaryPath = path.join(temporaryRoot, `${prefix}${process.pid}-${randomUUID()}`);
-  localRuntimeStateFileSystem.mkdirp(temporaryRoot);
+  const temporaryPath = path.join(tmpdir(), `${prefix}${process.pid}-${randomUUID()}`);
   try {
     localRuntimeStateFileSystem.writeExclusiveStream(temporaryPath, chunks);
     return localRuntimeStateFileSystem.withReadDescriptor(temporaryPath, run);

@@ -64,7 +64,7 @@ export function compileRepositoryScaffold(input: {
         templateRoot: layout.authoredRoot,
         schema: "repository-scaffold/v1",
         errorCode: "invalid_repository_scaffold",
-        pathAllowed: repositoryOverlayPath,
+        pathAllowed: (value) => repositoryOverlayPath(value, repositoryRelativePath(rootDir, layout.localRoot)),
         replaceAllowed: (slot) => !slot.startsWith("repository.walls.") && slot !== "repository.agent.entry",
       },
       selections,
@@ -206,8 +206,23 @@ export function assertRepositoryScaffoldPlanCurrent(plan: RepositoryScaffoldPlan
   }
 }
 
-export function repositoryOverlayPath(value: string): boolean {
-  return !/^\.harness(?:\/|$)/iu.test(value);
+/**
+ * A scaffold overlay may not target the repository's local ledger root. The default name stays
+ * reserved too: a repository that renamed its local root must not have a new `.harness` directory
+ * created by a preset.
+ */
+export function repositoryOverlayPath(value: string, localRootRelative?: string): boolean {
+  const reserved = [".harness", ...(localRootRelative === undefined ? [] : [localRootRelative])];
+  return !reserved.some((target) => {
+    if (target.length === 0) return false;
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    return new RegExp(`^${escaped}(?:/|$)`, "iu").test(value);
+  });
+}
+
+/** A path expressed the way scaffold slots are written: relative to the repository root, POSIX form. */
+function repositoryRelativePath(rootDir: string, target: string): string {
+  return path.relative(rootDir, target).split(path.sep).join("/");
 }
 
 export function repositoryPath(
@@ -217,7 +232,7 @@ export function repositoryPath(
   used: Set<string>,
   base: boolean,
 ): string {
-  const relative = (target: string) => path.relative(rootDir, target).split(path.sep).join("/"),
+  const relative = (target: string) => repositoryRelativePath(rootDir, target),
     authored = relative(layout.authoredRoot),
     context = relative(layout.contextRoot),
     substitutions = {
@@ -237,6 +252,7 @@ export function repositoryPath(
   const folded = normalized.toLocaleLowerCase("en-US"),
     forbidden = [
       relative(layout.localRoot),
+      // Reserved even when localRoot was renamed: writing here would recreate the default directory.
       ".harness",
       `${authored}/events`,
       `${authored}/objects`,

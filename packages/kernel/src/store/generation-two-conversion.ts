@@ -11,6 +11,7 @@ import type { CanonicalEventV1, PersistedCanonicalEventV1 } from "../domain/doc-
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
 import { drillLedgerBackup, readVerifiedLedgerBackup } from "./ledger-backup.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import {
@@ -56,15 +57,16 @@ export function runGenerationTwoConversion(input: {
 }) {
   const backupDir = path.resolve(input.backupDir),
     manifest = readVerifiedLedgerBackup(backupDir),
-    sourcePath = path.join(backupDir, "payload", ".harness", "store", "generations", "1", "ledger.sqlite");
-  if (
-    !manifest.files.some(
-      (file) => file.path === ".harness/store/generations/1/ledger.sqlite" && file.method === "vacuum-into",
-    )
-  )
+    // The backup payload keeps the source repository's own local root, so the manifest names the
+    // generation-1 ledger wherever that repository keeps its local state.
+    sourceEntry = manifest.files.find(
+      (file) => file.method === "vacuum-into" && /(?:^|\/)store\/generations\/1\/ledger\.sqlite$/u.test(file.path),
+    );
+  if (!sourceEntry)
     throw new Error(
       "generation 1 conversion requires a SQLite backup; legacy generation 0 uses the existing legacy converter",
     );
+  const sourcePath = path.join(backupDir, "payload", ...sourceEntry.path.split("/"));
   const source = openSqliteEventStore({ databasePath: sourcePath, generation: 1, readOnly: true });
   try {
     const { plan, events, rows } = planConversion(source);
@@ -486,7 +488,7 @@ function verify(
       projection = makeTaskProjection({
         rootDir: root,
         eventStore,
-        projectionPath: path.join(root, ".harness", "cache", "generation-2-verification.sqlite"),
+        projectionPath: path.join(resolveHarnessLayout(root).cacheRoot, "generation-2-verification.sqlite"),
       });
     let rebuild;
     try {

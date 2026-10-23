@@ -220,7 +220,7 @@ export function compileRepoRepositoryScaffold(rootDir: string, settings: Setting
   });
 }
 export function presetUserRoot(rootDir: string): string {
-  return path.join(path.resolve(rootDir), ".harness/presets");
+  return path.join(resolveHarnessLayout(rootDir).localRoot, "presets");
 }
 export function presetRuntimeDefaults(settings: SettingsV1): Defaults {
   return {

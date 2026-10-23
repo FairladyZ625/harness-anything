@@ -1,7 +1,7 @@
 import type { TaskProjection } from "@harness-anything/kernel";
 import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
-import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { dispatchStreamRelativePath, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";
 import {
   sessionOutcomeFields,
@@ -276,9 +276,9 @@ function windowDispatches(
     });
     for (const row of page.rows) {
       const payload = row.event.payload;
-      if (!payload.startedAt || !pick(projectedHeader(row))) continue;
+      if (!payload.startedAt || !pick(projectedHeader(rootDir, row))) continue;
       selected.set(payload.dispatchId, {
-        header: projectedHeader(row),
+        header: projectedHeader(rootDir, row),
         summary: readDispatchStreamSummary(rootDir, payload.dispatchId),
       });
     }
@@ -294,6 +294,7 @@ function windowDispatches(
 }
 
 function projectedHeader(
+  rootDir: string,
   row: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number],
 ): DispatchStreamHeader {
   const payload = row.event.payload;
@@ -304,7 +305,7 @@ function projectedHeader(
     runtimeSessionId: payload.runtimeSessionId,
     instanceId: payload.instanceId,
     startedAt: payload.startedAt ?? row.event.occurredAt,
-    eventStreamRef: `file:.harness/runtime/dispatches/${payload.dispatchId}.jsonl`,
+    eventStreamRef: `file:${dispatchStreamRelativePath(rootDir, payload.dispatchId)}`,
     taskId: payload.taskId ?? null,
     executionId: payload.executionId ?? null,
     ...(payload.agentId ? { agentId: payload.agentId } : {}),
