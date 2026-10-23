@@ -279,21 +279,16 @@ export function scanFleetMirrorWorktree(
       route = resolveDocRoute(documentPath(logical));
     // Membership first, then the unchanged check: an untouched file the channel does not carry is
     // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
-    // channel is still reported — but it is not a refusal. The center answers `inapplicable` for a
-    // path the shared classifier does not recognize and no route owns, and proceeds; blocking it here
-    // refused every task command in the package over an ordinary file (`evidence/shot.png`,
-    // `.DS_Store`, a NUL-bearing `.txt`) that the center never counted as doc-sync business. Route
-    // ownership is still reported with its route so the owning command answers for it.
+    // channel is still reported — but for a path no route owns it is not a refusal. The center answers
+    // `inapplicable` for a path the shared classifier does not recognize and proceeds; blocking it
+    // here refused every task command in the package over an ordinary file (`evidence/shot.png`,
+    // `.DS_Store`, a NUL-bearing `.txt`) that the center never counted as doc-sync business. A path a
+    // route owns keeps its block: the owning command is the one that must answer for it, and the
+    // center reports it as blocked too.
     if (!channelMember(byteVerdict, base !== undefined)) {
       if (unchanged || (hasMarkerWithoutBaseline && base)) cleanPaths.push(logical);
-      else if (!route.allowed)
-        blocked.push({
-          path: logical,
-          reason: `path is owned by ${route.requiredRoute}`,
-          code: "doc_route_owned",
-          requiredRoute: route.requiredRoute,
-        });
-      else inapplicablePaths.push(logical);
+      else if (route.allowed) inapplicablePaths.push(logical);
+      else blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
     }
     if (unchanged || (hasMarkerWithoutBaseline && base)) {

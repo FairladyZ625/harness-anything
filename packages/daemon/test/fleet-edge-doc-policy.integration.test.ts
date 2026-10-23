@@ -218,13 +218,14 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blockedCodes: [],
     inapplicable: ["tasks/task_policy/artifacts/evidence/run.txt"],
   });
-  // Route ownership still refuses, including when the path is not a channel member at all: the block
-  // names the owning route so the operator has a way to act, which `inapplicable` deliberately is not.
+  // Route ownership still refuses: `objects/` belongs to the content-blob route, so this channel is
+  // not the one to answer for it, and the block is the same plain refusal the center gives that path.
+  // `inapplicable` is only for paths no route owns — the case where the center lets the command proceed.
   assert.deepEqual(scanFixture(null, "objects/payload.png", png), {
     policyIds: [],
-    blocked: ["path is owned by content-blob"],
-    blockedRoutes: ["content-blob"],
-    blockedCodes: ["doc_route_owned"],
+    blocked: ["path is not an allowed canonical document"],
+    blockedRoutes: [undefined],
+    blockedCodes: [undefined],
     inapplicable: [],
   });
   // `.md`/`.txt` rows stay in channel everywhere, so a persisted opaque `.md` still submits. Its
