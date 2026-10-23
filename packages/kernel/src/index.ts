@@ -245,7 +245,10 @@ export { projectDecisionReadiness } from "./projection/decision-readiness-projec
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
 export { readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
-export { normalizeHistoricalVerticalDocument } from "./projection/historical-event-normalization.ts";
+export {
+  normalizeHistoricalPresetSnapshot,
+  normalizeHistoricalVerticalDocument,
+} from "./projection/historical-event-normalization.ts";
 export type {
   ColdDecisionProjectionRow,
   ColdRebuildIssue,
