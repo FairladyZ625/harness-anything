@@ -235,7 +235,9 @@ export async function runFleetEdgeTask(
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
       if (admission.actionAllowed !== true)
         throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
-      const blocked = scan.blocked.filter((row) => row.path.startsWith(`${packagePath}/`));
+      const blocked = scan.blocked.filter(
+        (row) => row.code !== "doc_route_owned" && row.path.startsWith(`${packagePath}/`),
+      );
       if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
       if (changes.length === 0)
         return { schema: "command-receipt/v2", command: action.kind, ok: true, outcome: "no_changes" };
@@ -504,8 +506,15 @@ export async function runFleetEdgeTask(
     if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
-    const blocked = preScan.blocked.filter((row) =>
-      action.kind === "task-review-execution" ? row.path === reportPath : row.path.startsWith(`${packagePath}/`),
+    // Only this channel's own blocks refuse a task command. A path another route owns (`INDEX.md`,
+    // `executions/*.md`, `progress.md`) is reported by the scan as `doc_route_owned` and is refused by
+    // that route — the same split the center draws between `inapplicable` and `blocked`. Gating on it
+    // here turned a route-owned file into a refused `task-start`/`task-submit`. An oversize document
+    // still gates: it carries `doc_candidate_too_large`, not this code.
+    const blocked = preScan.blocked.filter(
+      (row) =>
+        row.code !== "doc_route_owned" &&
+        (action.kind === "task-review-execution" ? row.path === reportPath : row.path.startsWith(`${packagePath}/`)),
     );
     if (blocked.length)
       throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => `${row.path}: ${row.reason}`).join("; "));

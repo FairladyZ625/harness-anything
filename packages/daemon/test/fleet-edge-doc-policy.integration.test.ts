@@ -29,7 +29,12 @@ function scanFixture(
   policyId: string | null,
   logical: string,
   bytes: Buffer,
-): { readonly policyIds: readonly string[]; readonly blocked: readonly string[] } {
+): {
+  readonly policyIds: readonly string[];
+  readonly blocked: readonly string[];
+  readonly blockedRoutes: readonly (string | undefined)[];
+  readonly blockedCodes: readonly (string | undefined)[];
+} {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-doc-policy-"));
   try {
     mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -70,6 +75,8 @@ function scanFixture(
     return {
       policyIds: scan.changes.map((change) => change.policyId),
       blocked: scan.blocked.map((row) => row.reason),
+      blockedRoutes: scan.blocked.map((row) => row.requiredRoute),
+      blockedCodes: scan.blocked.map((row) => row.code),
     };
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -97,6 +104,8 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
       assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, logical, bytes), {
         policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
         blocked: [],
+        blockedRoutes: [],
+        blockedCodes: [],
       });
   // A persisted row whose path shape names no document (`application/json` outside the artifacts
   // subtree) cannot be submitted by either channel; the edge reports it for the operator, exactly as
@@ -105,15 +114,21 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
   assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/architecture/notes.json", decodableEdit), {
     policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
     blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
   });
   assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/architecture/notes.json", persistedBody), {
     policyIds: [],
     blocked: ["path is not an allowed canonical document"],
+    blockedRoutes: [undefined],
+    blockedCodes: [undefined],
   });
   // A persisted raw row is not rescued by the path judgment: its bytes still decide.
   assert.deepEqual(scanFixture(RAW_ARTIFACT_POLICY_ID, binaryNamed, editedBody), {
     policyIds: [RAW_ARTIFACT_POLICY_ID],
     blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
   });
   // A name that claims a text format but holds undecodable bytes is still a broken document, not a
   // new artifact: the classifier answers null, so no persisted row means no membership. The center
@@ -122,11 +137,15 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
   assert.deepEqual(scanFixture(null, textNamed, editedBody), {
     policyIds: [],
     blocked: ["path is not an allowed canonical document"],
+    blockedRoutes: [undefined],
+    blockedCodes: [undefined],
   });
   // A brand-new binary artifact at a raw name is still accepted, byte-decided.
   assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/screenshots/shot.png", editedBody), {
     policyIds: [RAW_ARTIFACT_POLICY_ID],
     blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
   });
   // A path with no persisted row is a member exactly when the shared candidate classifier recognizes
   // it, so the edge answers what the center's scanner already answers for the same path and bytes.
@@ -136,10 +155,14 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
   assert.deepEqual(scanFixture(null, "context/architecture/notes.json", decodableEdit), {
     policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
     blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
   });
   assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/data/rows.json", decodableEdit), {
     policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
     blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
   });
   // The evidence files a task package gains while the work is running are first publications too:
   // `.log`, `.json` and `.csv` under `artifacts/` are candidates on both sides.
@@ -151,6 +174,8 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     assert.deepEqual(scanFixture(null, evidence, decodableEdit), {
       policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
       blocked: [],
+      blockedRoutes: [],
+      blockedCodes: [],
     });
   // A name that claims a text format but holds undecodable bytes is still a broken document, not a
   // new artifact. The center answers `inapplicable` for it; the edge reports it so the operator sees
@@ -158,6 +183,8 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
   assert.deepEqual(scanFixture(null, textNamed, editedBody), {
     policyIds: [],
     blocked: ["path is not an allowed canonical document"],
+    blockedRoutes: [undefined],
+    blockedCodes: [undefined],
   });
   // `.md`/`.txt` rows stay in channel everywhere, so a persisted opaque `.md` still submits. Its
   // policy is the path judgment's answer (canonical prose), exactly as the local scanner answers; the
@@ -165,6 +192,32 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
   assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/nul-notes.md", editedBody), {
     policyIds: ["markdown-body-replaceable/v1"],
     blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
+  });
+  // A path another route owns is reported with that route, not as a doc-channel refusal. The task
+  // lifecycle writes `INDEX.md` and `executions/*.md` itself; when they drift locally the scan must
+  // name `task-lifecycle` so callers can exclude them instead of failing every `task-start` and
+  // `task-submit` with `preview_blocked` (the shard-3 `fleet-review-rework` failure).
+  for (const [owned, requiredRoute] of [
+    ["tasks/task_policy/INDEX.md", "task-lifecycle"],
+    ["tasks/task_policy/executions/exe-1.md", "task-lifecycle"],
+    ["tasks/task_policy/progress.md", "task-progress-append"],
+  ] as const)
+    assert.deepEqual(scanFixture(null, owned, Buffer.from("edited locally\n")), {
+      policyIds: [],
+      blocked: [`path is owned by ${requiredRoute}`],
+      blockedRoutes: [requiredRoute],
+      blockedCodes: ["doc_route_owned"],
+    });
+  // `doc_route_owned` is not a blanket exemption from the block gate: a document this channel does
+  // own but cannot carry inline still reports `doc_candidate_too_large` and no route ownership, so
+  // callers keep refusing it.
+  assert.deepEqual(scanFixture(null, "context/huge.md", Buffer.alloc(256 * 1024 + 1, 0x61)), {
+    policyIds: [],
+    blocked: ["document exceeds inline limit"],
+    blockedRoutes: ["blob-content"],
+    blockedCodes: ["doc_candidate_too_large"],
   });
 });
 

@@ -285,10 +285,24 @@ export function scanFleetMirrorWorktree(
       cleanPaths.push(logical);
       continue;
     }
-    // A channel member always exits as a change or a block: a persisted row whose path judgment
-    // answers nothing, or whose route another surface owns, is reported instead of dropped.
-    if (!docClass || !resolveDocRoute(documentPath(logical)).allowed) {
+    // A channel member always exits as a change or a block. A path another route owns is not this
+    // channel's to refuse: it is reported with that route and `doc_route_owned`, so a caller gating on
+    // `blocked` can exclude it instead of turning a route-owned `INDEX.md` into a refused task
+    // command. That is the same distinction the center scanner draws between `inapplicable` and
+    // `blocked`, and the base edge drew by filtering on `resolveDocRoute(...).allowed` before it gated.
+    // Every other block — an unsupported dirty path, an oversize document — still gates.
+    const route = resolveDocRoute(documentPath(logical));
+    if (!docClass) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
+      continue;
+    }
+    if (!route.allowed) {
+      blocked.push({
+        path: logical,
+        reason: `path is owned by ${route.requiredRoute}`,
+        code: "doc_route_owned",
+        requiredRoute: route.requiredRoute,
+      });
       continue;
     }
     const maxBytes = artifactSubtreePath(logical) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES;
