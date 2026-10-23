@@ -684,13 +684,12 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
     };
     assert.equal(firstSync.outcome, "applied", JSON.stringify(firstSync));
     await waitForWorktree(cell, { opId: String(firstSync.opId) }, person);
-    write(
-      rootDir,
-      `${packagePath}/closeout.md`,
+    const closeoutBody =
       `# Closeout\n\n## Summary\n\nDelivered artifact:${deliveryNote}@${firstSync.revision}\n\n` +
-        "## Verification\n\nIntegration assertions exercise the post-submit order.\n\n" +
-        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
-    );
+      "## Verification\n\nIntegration assertions exercise the post-submit order.\n\n" +
+      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n";
+    write(rootDir, `${packagePath}/closeout.md`, closeoutBody);
+    write(path.join(rootDir, ".worktrees", taskId), `${packagePath}/closeout.md`, closeoutBody);
     assert.equal(
       (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, person)).outcome,
       "applied",

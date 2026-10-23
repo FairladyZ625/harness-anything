@@ -430,7 +430,9 @@ export function livingDeliverableProtocol(profileId: string | null | undefined, 
 
 /** The whole PR-body contract a task mission still carries (dec_BB2BCE9F CH2): the framework
  * owns the credentialed channel, the body convention is the delivered repository's own. */
-export const taskPrPublicationNote = "推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。";
+export const taskPrPublicationNote =
+  "最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实，再推送并用 `gh pr create --head <task-id>` 开 PR。" +
+  "正文遵循本仓库的 PR 规范；正文和 closeout 中的机器派生交付事实从 submission 读取，不要手填或重新计算。";
 
 /**
  * The managed rework record of the iteration a re-dispatched worker must answer: the rendered

@@ -259,7 +259,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
       assert.doesNotMatch(
         launchedPrompt,
-        /# Living Deliverable Protocol|推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u,
+        /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
         "reviewer dispatches carry no worker delivery protocols",
       );
       await eventuallyValue(
@@ -426,7 +426,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
       assert.doesNotMatch(
         launchedPrompt,
-        /# Living Deliverable Protocol|推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u,
+        /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
         "reviewer dispatches carry no worker delivery protocols",
       );
     });

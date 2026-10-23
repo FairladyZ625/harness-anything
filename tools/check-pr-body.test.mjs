@@ -84,10 +84,12 @@ test("a template body with one edited line is no longer verbatim-unfilled, but p
 });
 
 test("the PR template never asks for hand-copied SHA anchors", () => {
-  // Delivery and base anchors derive from the frozen submission record; a template field
-  // soliciting them re-creates the stale-anchor rejection cycle (PR #3546).
+  // Delivery facts come from one rendered submission block, not manually filled fields.
   assert.doesNotMatch(pullRequestTemplate, /Base `origin\/main` SHA|merge-base with `origin\/main`/u);
-  assert.match(pullRequestTemplate, /frozen submission record/u);
+  assert.match(pullRequestTemplate, /render-task-pr-body\.mjs --task <task-id>/u);
+  assert.equal((pullRequestTemplate.match(/harness:submission-facts:start/gu) ?? []).length, 1);
+  assert.equal((pullRequestTemplate.match(/harness:submission-facts:end/gu) ?? []).length, 1);
+  assert.doesNotMatch(pullRequestTemplate, /GitHub Actions `rewrite-ci` run URL/u);
 });
 
 test("without a template in context the unfilled check is not applicable", () => {

@@ -85,8 +85,11 @@ async function reachDeliverable(
   assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, workerBinding)).outcome, "applied");
   const packagePath = `tasks/${taskId}-settle-lifecycle`,
     artifactPath = `${packagePath}/artifacts/verification.md`;
-  mkdirSync(path.dirname(path.join(rootDir, "harness", artifactPath)), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness", artifactPath), "Verified fixture delivery.\n");
+  for (const root of [rootDir, path.join(rootDir, ".worktrees", taskId)]) {
+    const artifact = path.join(root, "harness", artifactPath);
+    mkdirSync(path.dirname(artifact), { recursive: true });
+    writeFileSync(artifact, "Verified fixture delivery.\n");
+  }
   const artifactSync = await cell.run({ kind: "doc-submit", paths: [artifactPath] }, workerBinding);
   assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
   await waitForFixturePublication(cell, artifactSync.opId, workerBinding);
@@ -99,11 +102,15 @@ async function reachDeliverable(
     git("commit", "-qm", "docs: fixture delivery");
     summary = "Delivered the bound worktree commit.";
   }
-  writeFileSync(
-    path.join(rootDir, "harness", `${packagePath}/closeout.md`),
-    `# Closeout\n\n## Summary\n\n${summary}\n\n` +
+  const closeoutBody =
+      `# Closeout\n\n## Summary\n\n${summary}\n\n` +
       "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo sibling mechanism in this fixture.\n",
-  );
+    closeoutRoots = [rootDir, path.join(rootDir, ".worktrees", taskId)];
+  for (const root of closeoutRoots) {
+    const closeoutPath = path.join(root, "harness", `${packagePath}/closeout.md`);
+    mkdirSync(path.dirname(closeoutPath), { recursive: true });
+    writeFileSync(closeoutPath, closeoutBody);
+  }
   if (options.syncCloseout === false) return;
   assert.equal(
     (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, workerBinding)).outcome,
@@ -141,8 +148,17 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
     const starts = reader.read().events.filter((entry) => entry.type === "execution_started");
     assert.equal(starts.at(-1)?.actor.executor, null, "rejoin caller is the lease holder");
     const closeout = path.join(rootDir, "harness", `tasks/${taskId}-settle-lifecycle/closeout.md`),
+      worktreeCloseout = path.join(
+        rootDir,
+        ".worktrees",
+        taskId,
+        "harness",
+        `tasks/${taskId}-settle-lifecycle/closeout.md`,
+      ),
       original = readFileSync(closeout, "utf8");
-    writeFileSync(closeout, original.replace("Verified.", "Changed verification."));
+    const changedCloseout = original.replace("Verified.", "Changed verification.");
+    writeFileSync(closeout, changedCloseout);
+    writeFileSync(worktreeCloseout, changedCloseout);
     const beforeForeign = reader.read().revision;
     for (const caller of [workerBinding, peerBinding, { ...ownerRejoinBinding, source: "remote_direct" as const }]) {
       const foreign = await cell.run({ kind: "task-settle", taskId }, caller);
@@ -369,16 +385,23 @@ test("settle submits against its frozen snapshot after an installed preset chang
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, workerBinding)).outcome, "applied");
     const packagePath = `tasks/${taskId}-settle-preset`,
       artifactPath = `${packagePath}/artifacts/verification.md`;
-    mkdirSync(path.dirname(path.join(rootDir, "harness", artifactPath)), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness", artifactPath), "Verified fixture delivery.\n");
+    for (const root of [rootDir, path.join(rootDir, ".worktrees", taskId)]) {
+      const artifact = path.join(root, "harness", artifactPath);
+      mkdirSync(path.dirname(artifact), { recursive: true });
+      writeFileSync(artifact, "Verified fixture delivery.\n");
+    }
     const artifactSync = await cell.run({ kind: "doc-submit", paths: [artifactPath] }, workerBinding);
     assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
     await waitForFixturePublication(cell, artifactSync.opId, workerBinding);
-    writeFileSync(
-      path.join(rootDir, "harness", `${packagePath}/closeout.md`),
-      `# Closeout\n\n## Summary\n\nDone: artifact:${artifactPath}@${artifactSync.revision}\n\n` +
+    const closeoutBody =
+        `# Closeout\n\n## Summary\n\nDone: artifact:${artifactPath}@${artifactSync.revision}\n\n` +
         "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo sibling mechanism in this fixture.\n",
-    );
+      closeoutRoots = [rootDir, path.join(rootDir, ".worktrees", taskId)];
+    for (const root of closeoutRoots) {
+      const closeoutPath = path.join(root, "harness", `${packagePath}/closeout.md`);
+      mkdirSync(path.dirname(closeoutPath), { recursive: true });
+      writeFileSync(closeoutPath, closeoutBody);
+    }
     assert.equal(
       (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, workerBinding)).outcome,
       "applied",
@@ -554,6 +577,7 @@ test("settle preserves the submitted file manifest after main merges the deliver
     worktreeGit("commit", "-qm", "test: finish multi-commit delivery");
     const delivery = worktreeGit("rev-parse", "HEAD");
     writeFileSync(closeout, original);
+    writeFileSync(path.join(deliveryRoot, "harness", `tasks/${taskId}-settle-lifecycle/closeout.md`), original);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-merged" });
     const first = await cell.run({ kind: "task-settle", taskId }, workerBinding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
@@ -571,7 +595,9 @@ test("settle preserves the submitted file manifest after main merges the deliver
     assert.equal(replay.outcome, "applied", JSON.stringify(replay));
     assert.equal(replay.opId, first.opId);
     assert.deepEqual(submissions(), before, "main advancement must not replace the frozen submission");
-    writeFileSync(closeout, readFileSync(closeout, "utf8").replace("Verified.", "Changed verification after merge."));
+    const changedCloseout = readFileSync(closeout, "utf8").replace("Verified.", "Changed verification after merge.");
+    writeFileSync(closeout, changedCloseout);
+    writeFileSync(path.join(deliveryRoot, "harness", `tasks/${taskId}-settle-lifecycle/closeout.md`), changedCloseout);
     const changed = await cell.run({ kind: "task-settle", taskId }, workerBinding);
     assert.equal(changed.code, "invalid_transition", JSON.stringify(changed));
     assert.deepEqual(submissions(), before, "real prose changes still require explicit amendment");
@@ -615,6 +641,7 @@ for (const explicit of [false, true])
         oldBody = readFileSync(closeoutFile, "utf8"),
         plainBody = oldBody.replace(/Done: artifact:[^\n]+/u, "Audited job=43.");
       writeFileSync(closeoutFile, plainBody);
+      writeFileSync(path.join(rootDir, ".worktrees", taskId, "harness", closeoutPath), plainBody);
       const first = await cell.run({ kind: "doc-submit", taskId }, workerBinding);
       await waitForFixturePublication(cell, first.opId, workerBinding);
       const ledger = resolveLedgerGitLayout(rootDir),
@@ -630,6 +657,7 @@ for (const explicit of [false, true])
       blocked = true;
       writeFileSync(path.join(rootDir, "harness", reportPath), correctedReport);
       writeFileSync(closeoutFile, correctedCloseout);
+      writeFileSync(path.join(rootDir, ".worktrees", taskId, "harness", closeoutPath), correctedCloseout);
       const settled = await cell.run({ kind: "task-settle", taskId }, workerBinding);
       await cell.settlePendingMaterialization("deterministically blocked publication");
       assert.ok(blockedPublications > 0);

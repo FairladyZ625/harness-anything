@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyAttachMigrations, attachMigrationRegistry } from "../../src/store/attach-migrations.ts";
+import { historicalReadConclusions as publicHistoricalReadConclusions } from "../../src/index.ts";
 import { retiredPersistedSchemaFields } from "../../src/domain/event-shape-migration-event.ts";
 import {
   normalizeHistoricalEvent,
@@ -71,7 +72,22 @@ const envelope = (schema: string, payload: unknown, opId: string): PersistedCano
 
 test("attach migration registry covers each retired historical field and is idempotent", () => {
   assert.deepEqual(
-    attachMigrationRegistry.map(({ name }) => name),
+    attachMigrationRegistry.map((entry) => entry.name),
+    [
+      "closeout-overrides.fact",
+      "closeout-overrides.codeDoc",
+      "schedule.ciObserve",
+      "squad-run.subject",
+      "settings.ci",
+      "settings.closeout.codeDoc",
+      "runtime.reviewDispatchKey",
+      "vertical.completion.sources",
+      "vertical.completion.closeoutCodeDoc",
+      "submission.delivery-facts",
+    ],
+  );
+  assert.deepEqual(
+    attachMigrationRegistry.filter((entry) => entry.kind === "event-migration").map(({ name }) => name),
     [
       "closeout-overrides.fact",
       "closeout-overrides.codeDoc",
@@ -85,7 +101,10 @@ test("attach migration registry covers each retired historical field and is idem
     ],
   );
   assert.deepEqual(
-    attachMigrationRegistry.flatMap(({ fields }) => fields).sort(),
+    attachMigrationRegistry
+      .filter((entry) => entry.kind === "event-migration")
+      .flatMap(({ fields }) => fields)
+      .sort(),
     [...retiredPersistedSchemaFields].sort(),
   );
   const { store, events, reads } = fakeStore([
@@ -216,6 +235,57 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
     "vertical.completion.closeoutCodeDoc",
   ]);
   assert.equal(events.length, 6);
+});
+
+test("legacy submission facts stay readable without an attach migration event", () => {
+  assert.deepEqual(publicHistoricalReadConclusions, [
+    {
+      kind: "read-conclusion",
+      name: "submission.delivery-facts",
+      fields: ["Execution.submission.changedFiles", "Execution.submission.productionDelta"],
+      attachRequired: false,
+      conclusion:
+        "Legacy rows remain byte-identical; the shared submission-facts reader exposes unambiguous stored paths and no production delta.",
+    },
+  ]);
+  const conclusion = attachMigrationRegistry.find((entry) => entry.kind === "read-conclusion");
+  assert.deepEqual(conclusion, {
+    kind: "read-conclusion",
+    name: "submission.delivery-facts",
+    fields: ["Execution.submission.changedFiles", "Execution.submission.productionDelta"],
+    attachRequired: false,
+    conclusion:
+      "Legacy rows remain byte-identical; the shared submission-facts reader exposes unambiguous stored paths and no production delta.",
+  });
+  const legacySubmission = {
+      commitSha: "a".repeat(40),
+      completionClaim: "Delivered before submission facts were added.",
+      deliverables: ["packages/kernel/old.ts"],
+      outputs: ["Deleted-Production-Paths: packages/kernel/retired.ts"],
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      completionContract: {},
+    },
+    historical = {
+      ...envelope(
+        "task-event/v1",
+        { execution: { executionId: "execution-old", submission: legacySubmission } },
+        "old-submission",
+      ),
+      type: "execution_submitted",
+    } as unknown as PersistedCanonicalEventV1,
+    { store, events } = fakeStore([historical]);
+  assert.equal(
+    attachMigrationRegistry.some((entry) => entry.kind === "event-migration" && entry.matches(historical)),
+    false,
+  );
+  assert.deepEqual(applyAttachMigrations({ store }).applied, []);
+  assert.equal(events.length, 1);
+  assert.deepEqual(
+    (events[0] as unknown as { payload: { execution: { submission: unknown } } }).payload.execution.submission,
+    legacySubmission,
+  );
 });
 
 test("historical reviewer dispatch key normalization preserves all dispatch identities and ignores other lanes", () => {

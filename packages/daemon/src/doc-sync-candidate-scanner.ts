@@ -120,10 +120,10 @@ export function scanDocCandidates(input: {
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
-          ...new Set(
-            input.inventory?.rows.map((row) => row.path) ??
-              dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? ""),
-          ),
+          ...new Set([
+            ...dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? ""),
+            ...(input.inventory?.rows.map((row) => row.path) ?? []),
+          ]),
         ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates.sort(),
     baseLedgerSha = input.inventory?.baseLedgerSha ?? input.store.currentCut(),
