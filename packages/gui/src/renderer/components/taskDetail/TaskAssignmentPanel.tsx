@@ -86,7 +86,15 @@ export function TaskAssignmentPanel({
             <span>
               {t(`taskAssignment.${assignee.kind === "team" ? "team" : assignee.nodeId ? "node" : "person"}`)}
             </span>
-            <IdText value={assignee.kind === "team" ? assignee.teamId : (assignee.nodeId ?? assignee.personId)} />
+            <IdText
+              value={
+                assignee.kind === "team"
+                  ? assignee.teamId
+                  : assignee.kind === "node"
+                    ? assignee.nodeId
+                    : (assignee.nodeId ?? assignee.personId)
+              }
+            />
             <span>{formatTime(assignment!.expiresAt, { style: "month-day-time" })}</span>
           </>
         ) : (

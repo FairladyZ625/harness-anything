@@ -28,6 +28,7 @@ import { projectedTaskNotFound } from "./projection-readiness.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import { readWorktreeSetupSucceeded } from "./worktree-setup.ts";
+import { assignmentFromRelations } from "./entity-assignment-runtime.ts";
 
 /**
  * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
@@ -178,7 +179,10 @@ export function taskShowFromProjection(
       );
     return failed(`read:${taskId}`, notFound);
   }
-  const task = projection.read(taskId, true).snapshot.task,
+  const taskRead = projection.read(taskId, true),
+    task = taskRead.snapshot.task
+      ? { ...taskRead.snapshot.task, assignment: assignmentFromRelations(projection, `task/${taskId}`) }
+      : null,
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),

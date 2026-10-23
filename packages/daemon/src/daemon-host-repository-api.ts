@@ -8,7 +8,7 @@ import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
-import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
+import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
@@ -71,6 +71,21 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
     method !== "repo.gui.catalog.preset.read" &&
     method !== "repo.terminal.sessions.list"
   );
+}
+
+async function bindAgendaTeams(binding: import("./repo-cell-types.ts").RepoCellBinding) {
+  if (binding.taskClaimant?.teamIds !== undefined) return binding;
+  const credential = binding.keycloakAuthorization;
+  if (!credential?.center) return binding;
+  const center = await credential.center(),
+    adapter = new KeycloakPolicyAdapter({
+      url: center.url,
+      realm: center.realm,
+      resourceServerClientId: center.clientId,
+    }),
+    teamIds = await adapter.readPersonTeams(center.accessToken, binding.actor.principal.personId),
+    nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+  return { ...binding, taskClaimant: { personId: binding.actor.principal.personId, nodeId, teamIds } };
 }
 
 export function createDaemonHostRepositoryApi(
@@ -812,7 +827,11 @@ export function createDaemonHostRepositoryApi(
             }),
           );
         }
-        const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true);
+        const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true),
+          readBinding =
+            method === "repo.agenda.read" || method === "repo.works.briefs.read"
+              ? await bindAgendaTeams(binding)
+              : binding;
         const cell = context.cells.get(repoId);
         if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
           // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
@@ -846,7 +865,7 @@ export function createDaemonHostRepositoryApi(
           );
         if (!cell || !isRepoCellReadMethod(method))
           throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
-        return parseDaemonGuiReadResult(method, await cell.read(method, payload, binding));
+        return parseDaemonGuiReadResult(method, await cell.read(method, payload, readBinding));
       }
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
@@ -862,7 +881,11 @@ export function createDaemonHostRepositoryApi(
             ? context.warmingMessage(repoId)
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
-      const binding = await context.binding(cell.status().rootDir, auth);
+      const binding = await context.binding(cell.status().rootDir, auth),
+        readBinding =
+          method === "repo.agenda.read" || method === "repo.works.briefs.read"
+            ? await bindAgendaTeams(binding)
+            : binding;
       if (repositoryRead)
         await requireAuthorizedHostAction({
           kind: "repository-read",
@@ -881,11 +904,19 @@ export function createDaemonHostRepositoryApi(
           page: (cursor) => cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
           readTask: async (taskId) =>
             (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+          readAssignments: async () =>
+            (
+              await cell.read(
+                "repo.triadic.relationGraph",
+                { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+                binding,
+              )
+            ).edges,
         });
       else if (method === "repo.tasks.assignmentDirectory")
-        result = await readTaskAssignmentDirectory(
+        result = await readEntityAssignmentDirectory(
           repoId,
-          String(payload.taskId),
+          `task/${String(payload.taskId)}`,
           binding,
           async (taskId) => (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
         );
@@ -923,7 +954,7 @@ export function createDaemonHostRepositoryApi(
       else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
-        result = await cell.read(method, payload, binding);
+        result = await cell.read(method, payload, readBinding);
       }
       return parseDaemonGuiReadResult(method, result);
     },

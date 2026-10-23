@@ -29,6 +29,7 @@ export const relationTypes = [
   "owns",
   "dispatches",
   "awaits",
+  "assigned-to",
 ] as const;
 
 export const relationStrengths = ["strong", "weak"] as const;
@@ -93,6 +94,21 @@ export type AwaitsAskKind = (typeof awaitsAskKinds)[number];
 export interface AwaitsRequest {
   readonly askKind: AwaitsAskKind;
   readonly question: string;
+}
+
+/**
+ * Assignment expiry rides on the relation rationale so the existing relation-event/v1
+ * aggregate remains the sole storage path.  Keep the encoding deliberately narrow: readers
+ * must never infer an expiry from free-form prose.
+ */
+export function assignmentRationale(expiresAt: string): string {
+  return `assigned-to: expiresAt=${expiresAt}`;
+}
+
+export function parseAssignmentExpiry(rationale: string): string | null {
+  const match = /^assigned-to:\s*expiresAt=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/u.exec(rationale.trim());
+  if (!match || !Number.isFinite(Date.parse(match[1]!))) return null;
+  return match[1]!;
 }
 
 export function parseAwaitsRequest(rationale: string): AwaitsRequest | null {

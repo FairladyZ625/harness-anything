@@ -11,7 +11,11 @@ import {
   type MigrationImportEventV1,
 } from "../../src/index.ts";
 import { validateCurrentMigrationImportEvent } from "../../src/domain/migration-import-event.ts";
-import { type EntityRelationRecord, type GovernedRelationRegistryWitness } from "../../src/domain/entity-relation.ts";
+import {
+  isAllowedRelationKindTriple,
+  type EntityRelationRecord,
+  type GovernedRelationRegistryWitness,
+} from "../../src/domain/entity-relation.ts";
 import {
   compileRelationCreatedEvent,
   compileRelationReconfirmedEvent,
@@ -72,6 +76,19 @@ test("Relation kind and actions expose the BaseEntity and G1 concurrency contrac
   assert.equal(getExecutableEntityAction("decision-relate"), undefined);
 });
 
+test("assigned-to directions follow the kind assignment capability", () => {
+  for (const kind of ["task", "decision", "fact", "agent", "squad", "schedule"] as const) {
+    assert.equal(getEntityKindContract(kind)?.assignmentCapability, "supported", kind);
+    assert.equal(isAllowedRelationKindTriple(kind, "assigned-to", "person"), true, kind);
+    assert.equal(isAllowedRelationKindTriple(kind, "assigned-to", "node"), true, kind);
+    assert.equal(isAllowedRelationKindTriple(kind, "assigned-to", "team"), true, kind);
+  }
+  for (const kind of ["execution", "review", "runtime-session", "runtime-instance", "relation"] as const) {
+    assert.equal(getEntityKindContract(kind)?.assignmentCapability, "none", kind);
+    assert.equal(isAllowedRelationKindTriple(kind, "assigned-to", "person"), false, kind);
+  }
+});
+
 test("Relation admission distinguishes reversed direction from an invalid target kind", () => {
   const compile = (sourceRef: string, targetRef: string, type: "implements" | "refines") => {
     const identity = { source: sourceRef, target: targetRef, type, direction: "directed" as const };
@@ -129,6 +146,9 @@ test("undeclared relation triples name the available triples for their source ki
       const rejected = error as { code: string; diagnostic: { allowedTriples: unknown } };
       assert.equal(rejected.code, "relation_triple_undeclared");
       assert.deepEqual(rejected.diagnostic.allowedTriples, [
+        { sourceKind: "fact", type: "assigned-to", targetKind: "person" },
+        { sourceKind: "fact", type: "assigned-to", targetKind: "node" },
+        { sourceKind: "fact", type: "assigned-to", targetKind: "team" },
         { sourceKind: "fact", type: "supersedes-fact", targetKind: "fact" },
         { sourceKind: "fact", type: "relates", targetKind: "relation" },
       ]);

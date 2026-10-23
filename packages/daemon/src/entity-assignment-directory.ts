@@ -5,29 +5,28 @@ import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { TaskV2 } from "@harness-anything/kernel";
 import type { TaskAssignmentDirectory } from "./protocol/daemon-protocol-gui-types.ts";
 
-/** Selection data for one task; no grants, team membership, credentials or repository contents. */
-export async function readTaskAssignmentDirectory(
+/** Directory selection is shared by every assignment Action; the task GUI still consumes the legacy DTO shape. */
+export async function readEntityAssignmentDirectory(
   repoId: string,
-  taskId: string,
+  entityRef: string,
   binding: RepoCellBinding,
-  readTask?: (taskId: string) => Promise<TaskV2 | null>,
+  readEntity?: (taskId: string) => Promise<TaskV2 | null>,
 ): Promise<TaskAssignmentDirectory> {
   const credential = binding.keycloakAuthorization;
-  if (!credential?.center) throw cellCodedError("authentication_required", "Task assignment requires Keycloak.");
+  if (!credential?.center) throw cellCodedError("authentication_required", "Assignment requires Keycloak.");
   const decision = await evaluateKeycloakPerson({
-    // Read hints use the device session; the eventual write also evaluates center authority.
     credential: { session: credential.session },
     personId: binding.actor.principal.personId,
-    action: "task-assign",
-    resource: { kind: "entity", repoId, entityRef: `task/${taskId}` },
-    resourceAncestors: await canonicalResourceAncestors(readTask, {
+    action: `${entityRef.split("/", 1)[0]}-assign`,
+    resource: { kind: "entity", repoId, entityRef },
+    resourceAncestors: await canonicalResourceAncestors(readEntity, {
       kind: "entity",
       repoId,
-      entityRef: `task/${taskId}`,
+      entityRef,
     }),
   });
   if (decision.outcome !== "allowed")
-    throw cellCodedError("authorization_denied", `Task assignment directory denied: ${decision.reasonCode}.`);
+    throw cellCodedError("authorization_denied", `Assignment directory denied: ${decision.reasonCode}.`);
   const center = await credential.center(),
     adapter = new KeycloakPolicyAdapter({
       url: center.url,

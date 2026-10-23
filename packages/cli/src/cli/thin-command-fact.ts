@@ -1,6 +1,7 @@
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseRematerialize } from "./thin-command-rematerialize.ts";
+import { parseProjected } from "./thin-command-projection.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseFact(
@@ -12,6 +13,12 @@ export function parseFact(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (id === "fact-record") return parseFactRecord(args, rootDir, repoId, json, inputs);
+  if (id === "fact-assign" || id === "fact-unassign") {
+    const factId = args[2]?.startsWith("--") ? undefined : args[2];
+    return factId
+      ? parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, { factId })
+      : rejected("missing_field", `Use ha fact ${id === "fact-assign" ? "assign" : "unassign"} <fact-id>.`, json);
+  }
   if (id === "fact-rematerialize") return parseRematerialize(id, "factId", args, rootDir, repoId, json, inputs);
   if (id === "fact-archive") {
     const factId = args[2]?.startsWith("--") ? undefined : args[2],

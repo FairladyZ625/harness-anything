@@ -68,6 +68,8 @@ export const taskEventTypes = [
   "task_relation_added",
 ] as const;
 export type TaskEventType = (typeof taskEventTypes)[number];
+/** Historical assignment envelopes remain readable for the offline Relation migration only. */
+export const retiredTaskAssignmentEventTypes = ["task_assigned", "task_unassigned"] as const;
 // Lifecycle claims are machine-rendered documents. The one exception mirrors the
 // bootstrap claim contract: `task_plan.md` is owned by doc-sync (`markdown-body-replaceable/v1`),
 // so a lifecycle retitle of an already-published plan must keep the prose policy — otherwise the
@@ -381,11 +383,12 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     !timestamp(value.occurredAt) ||
     !Number.isInteger(value.workspaceRevision) ||
     (value.workspaceRevision as number) < 1 ||
-    // Retired code/doc envelopes stay readable history; current admission rejects them because
-    // `taskEventTypes` no longer lists them.
+    // Retired envelopes stay readable history; current admission rejects assignment envelopes
+    // even though their names remain in the v1 compatibility type list.
     !(allowUnknownFields
       ? taskEventTypes.includes(value.type as TaskEventType) || isRetiredCodeDocEventType(String(value.type))
-      : taskEventTypes.includes(value.type as TaskEventType))
+      : taskEventTypes.includes(value.type as TaskEventType) &&
+        !(retiredTaskAssignmentEventTypes as readonly string[]).includes(String(value.type)))
   )
     issues.push(invalidEventPayloadIssue("event identity, revision, or type is invalid"));
   issues.push(...validateActorAxes(value.actor, allowUnknownFields));

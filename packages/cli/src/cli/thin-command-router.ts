@@ -214,6 +214,18 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
+  if (route.id === "assignment-migrate") {
+    const f = readFlags(route.id, args.slice(2), inputs);
+    return f.ok
+      ? accepted(
+          rootDir,
+          repoId,
+          json,
+          { kind: "assignment-migrate", ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}) },
+          route.method,
+        )
+      : rejected(f.code, f.nextAction, json);
+  }
   if (route.id === "vertical-declaration-migrate")
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "vertical-declaration-migrate" })
@@ -227,6 +239,11 @@ export function parseRouted(
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
   if (route.id === "agent-run") return parseAgentRun(route, args, rootDir, repoId, json, inputs);
+  if (
+    ["agent", "squad", "schedule", "task"].includes(rootCommand) &&
+    (route.id.endsWith("-assign") || route.id.endsWith("-unassign"))
+  )
+    return parseEntityAssignment(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "access" || rootCommand === "settings" || rootCommand === "ci")
     return parseProjected(
@@ -284,6 +301,26 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseEntityAssignment(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const kind = route.path[0],
+    id = args[2];
+  if (!nonEmpty(id) || id.startsWith("--"))
+    return rejected(
+      "missing_field",
+      `Use ha ${kind} ${route.id.endsWith("-assign") ? "assign" : "unassign"} <${kind}-id>.`,
+      json,
+    );
+  const idField = `${kind}Id`;
+  return parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, { [idField]: id }, {}, route.method);
 }
 
 function parseEntityPinRouted(

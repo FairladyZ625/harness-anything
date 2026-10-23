@@ -54,6 +54,7 @@ export const KIND_AXIS: Record<RelationKind, SemanticAxis> = {
   owns: "assoc",
   dispatches: "execution",
   awaits: "execution",
+  "assigned-to": "authority",
 };
 
 export function axisForKind(kind: RelationKind): SemanticAxis {
@@ -104,6 +105,7 @@ export const KIND_LABEL: Record<RelationKind, string> = {
   owns: "拥有",
   dispatches: "派发",
   awaits: "等待答复",
+  "assigned-to": "指派给",
 };
 
 export const KIND_LABEL_IN: Record<string, string> = {
@@ -123,4 +125,5 @@ export const KIND_LABEL_IN: Record<string, string> = {
   "invalidated-by": "令…失效",
   "supersedes-fact": "事实被取代",
   awaits: "被等待答复",
+  "assigned-to": "被指派",
 };
