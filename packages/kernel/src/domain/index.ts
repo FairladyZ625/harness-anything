@@ -284,7 +284,6 @@ export {
   SETTINGS_FIELD_GROUPS,
   SETTINGS_FIELD_PRESENTATION,
   SETTINGS_ID,
-  SETTINGS_LOCAL_PATH,
   localSettings,
   parseLocalSettings,
   readGateSettings,

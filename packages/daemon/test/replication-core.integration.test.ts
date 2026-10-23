@@ -120,7 +120,13 @@ test("real backup worker installs a generation readable by the common projection
     } finally {
       await receiving.close();
     }
-    const reader = makeTaskProjectionReader({ rootDir: installed.rootDir });
+    // A replica generation directory has no harness.yaml of its own, so its layout would resolve to
+    // whatever repository contains the view. Production fleet readers therefore always name the
+    // installed generation's projection explicitly; do the same here.
+    const reader = makeTaskProjectionReader({
+      rootDir: installed.rootDir,
+      projectionPath: installed.projectionPath,
+    });
     try {
       assert.equal(
         reader.withSession((queries) => queries.readCut().watermark),

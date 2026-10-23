@@ -8,7 +8,6 @@ import {
   currentExecutionCuts,
   INITIAL_SETTINGS_V1,
   SETTINGS_ID,
-  SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
   localSettings,
   parseLocalSettings,
@@ -48,7 +47,8 @@ export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "
 }
 
 export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCellSettingsState {
-  const localPath = path.join(cell.rootDir, ...SETTINGS_LOCAL_PATH.split("/"));
+  // Machine-local preferences live under this repository's own local root, never a literal `.harness`.
+  const localPath = resolveHarnessLayout(cell.rootDir).settingsLocalPath;
 
   const readRepository = (): RepositorySettingsV1 => readRepositorySettings(cell.projection);
 

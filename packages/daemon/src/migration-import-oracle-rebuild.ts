@@ -63,7 +63,9 @@ export function rebuildMigrationProjectionOracle(
 ): MigrationProjectionOracle {
   try {
     const rebuilt =
-        inspection.events.length === 0 ? emptyOracle(inspection) : rebuildEventOracle(sourceRoot, inspection),
+        inspection.events.length === 0
+          ? emptyOracle(sourceRoot, inspection)
+          : rebuildEventOracle(sourceRoot, inspection),
       oracle = {
         ...overlayAuthoredOracle(sourceRoot, rebuilt, inspection),
         normalizedRelationMigrationEntities: inspection.normalizedRelationMigrationEntities,
@@ -242,7 +244,7 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
       ...inspection.observations,
       {
         code: "source_projection_rebuilt",
-        sourcePath: ".harness/cache/task.sqlite",
+        sourcePath: sourceProjectionPath(sourceRoot),
         detail: `rebuilt a disposable oracle from ${inspection.events.length} committed canonical events`,
         treatment: "rebuilt_read_only",
       },
@@ -403,14 +405,22 @@ function overlayAuthoredOracle(
   };
 }
 
-function emptyOracle(inspection: MigrationEventInspection): MigrationProjectionOracle {
+/** The source's projection cache as the format observation reports it: relative to the source root. */
+function sourceProjectionPath(sourceRoot: string): string {
+  return path
+    .relative(resolveHarnessLayout(sourceRoot).rootDir, resolveHarnessLayout(sourceRoot).taskProjectionPath)
+    .split(path.sep)
+    .join("/");
+}
+
+function emptyOracle(sourceRoot: string, inspection: MigrationEventInspection): MigrationProjectionOracle {
   return {
     basis: "rebuilt-source",
     formatObservations: [
       ...inspection.observations,
       {
         code: "source_projection_rebuilt",
-        sourcePath: ".harness/cache/task.sqlite",
+        sourcePath: sourceProjectionPath(sourceRoot),
         detail: "rebuilt a disposable oracle from committed authored packages (the source predates canonical events)",
         treatment: "rebuilt_read_only",
       },

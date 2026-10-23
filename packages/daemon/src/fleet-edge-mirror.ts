@@ -13,6 +13,7 @@ import {
   sha256Bytes,
   sha256Text,
 } from "@harness-anything/kernel";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet/basebackup-layout.ts";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
 import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
 
@@ -90,7 +91,7 @@ export class FleetMirrorError extends Error {
 const objectPath = (generation: ReplicaGeneration, sha: string): string =>
   path.join(
     generation.rootDir,
-    ".harness",
+    BASE_BACKUP_ARCHIVE_ROOT,
     "store",
     "generations",
     String(generation.metadata.ledgerGeneration),
@@ -420,11 +421,16 @@ export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: str
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
 }
 function materializedPaths(root: string): string[] {
-  const found: string[] = [];
+  const found: string[] = [],
+    // The view's own state directory is not a materialized repository path; which name it has is the
+    // layout's answer, and a view without a layout has no local root of its own to skip.
+    skipped = new Set([".git", ".worktrees"]);
   if (!existsSync(root)) return found;
+  const localRootName = path.relative(root, resolveHarnessLayout(root).localRoot).split(path.sep)[0];
+  if (localRootName && localRootName !== "." && !localRootName.startsWith("..")) skipped.add(localRootName);
   const visit = (dir: string, depth: number): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (depth === 0 && [".git", ".harness", ".worktrees"].includes(entry.name)) continue;
+      if (depth === 0 && skipped.has(entry.name)) continue;
       const target = path.join(dir, entry.name);
       if (entry.isDirectory()) visit(target, depth + 1);
       else if (entry.isFile()) found.push(path.relative(root, target).split(path.sep).join("/"));

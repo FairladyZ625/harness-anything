@@ -31,7 +31,7 @@ function initRepo(rootDir: string): void {
   git("commit", "--quiet", "-m", "fixture base");
 }
 
-test("doctor health reports the six checks and degrades to indeterminate without origin/main", async (t) => {
+test("doctor health reports the seven checks and degrades to indeterminate without origin/main", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-health-")),
     repoId = workspaceId("doctor-health");
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -44,7 +44,15 @@ test("doctor health reports the six checks and degrades to indeterminate without
     const checks = receipt.checks as readonly { id: string; status: string; count: number }[];
     assert.deepEqual(
       checks.map((check) => check.id),
-      ["stale-delivered", "executor-undeclared", "orphan-lease", "wip-pressure", "doc-debt", "build-drift"],
+      [
+        "stale-delivered",
+        "executor-undeclared",
+        "orphan-lease",
+        "wip-pressure",
+        "local-root-residue",
+        "doc-debt",
+        "build-drift",
+      ],
     );
     const byId = new Map(checks.map((check) => [check.id, check]));
     // A fixture repository has no origin remote: freshness and the daemon-side build verdict
@@ -109,7 +117,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string }[];
-      assert.equal(checks.length, 7);
+      assert.equal(checks.length, 8);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
       // The fixture repository has no origin remote, so the hosted-credential check cannot
@@ -119,7 +127,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const edgeChecks = receipt.checks as { id: string; status: string }[];
-    assert.equal(edgeChecks.length, 7);
+    assert.equal(edgeChecks.length, 8);
     assert.equal(edgeChecks.find((check) => check.id === "edge-replica")?.status, "fail");
     assert.equal(receipt.failureCode, "fleet_edge_config_invalid");
     assert.ok(

@@ -3,6 +3,7 @@ import { retireCompletionExecutions } from "./completion-generation-retirement.t
 import path from "node:path";
 import { stableStringify, sha256Bytes } from "../integrity/stable-hash.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import {
@@ -126,7 +127,7 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
         throw new Error(`command outcome differs: ${outcome.opId}`);
     const projection = makeTaskProjection({
       rootDir: root,
-      projectionPath: path.join(root, ".harness", "cache", "completion-conversion-verification.sqlite"),
+      projectionPath: path.join(resolveHarnessLayout(root).cacheRoot, "completion-conversion-verification.sqlite"),
       eventStore: completionConversionStream(destination),
     });
     try {

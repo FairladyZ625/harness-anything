@@ -1,5 +1,5 @@
 // @write-boundary-exemption rebuildable-projection
-import path from "node:path";
+import { resolveHarnessLayout } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import {
   assertDocSyncWritePlan,
@@ -61,8 +61,10 @@ export type { TaskProjection } from "./task-projection-port.ts";
 export type { TaskProjectionCatchUpProgress } from "./rebuildable-task-projection-types.ts";
 
 // Public projection construction and local source-head handling.
+// The cache location is never a literal: it is whatever layout.localRoot says, so a repository that
+// renamed its local root keeps the default `.harness` directory free of projection state.
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
-  return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite");
+  return resolveHarnessLayout(rootDir).taskProjectionPath;
 }
 export function makeTaskProjection(options: {
   readonly rootDir: string;

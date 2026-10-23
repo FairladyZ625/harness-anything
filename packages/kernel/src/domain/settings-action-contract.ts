@@ -91,7 +91,7 @@ const settingsConcurrency: EntityActionContract["concurrency"] = Object.freeze({
     owner: `settings/${SETTINGS_ID}`,
     repositoryDocument: "harness.yaml",
     repositoryPolicy: "settings-facet/v1",
-    localPreference: ".harness/settings.local.json",
+    localPreference: "settings.local.json",
     localPolicy: "runtime-local-no-canonical-event",
   }),
 });

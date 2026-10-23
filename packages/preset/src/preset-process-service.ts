@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { SettingsV1 } from "@harness-anything/kernel";
+import { resolveHarnessLayout, type SettingsV1 } from "@harness-anything/kernel";
 import {
   canonicalPresetBytes,
   consumeKnownError,
@@ -114,7 +114,7 @@ export function recoverPresetRunStatus(
 
 export function createPresetProcessService(options: PresetProcessServiceOptions): PresetProcessService {
   const rootDir = path.resolve(options.rootDir),
-    runRoot = path.resolve(options.runRoot ?? path.join(rootDir, ".harness/preset-runs")),
+    runRoot = path.resolve(options.runRoot ?? path.join(resolveHarnessLayout(rootDir).localRoot, "preset-runs")),
     witnessRoot = path.join(runRoot, "witnesses"),
     stagingRoot = path.join(runRoot, "staging"),
     timeoutMs = options.timeoutMs ?? 5_000,

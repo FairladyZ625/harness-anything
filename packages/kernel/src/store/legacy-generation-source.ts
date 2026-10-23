@@ -45,9 +45,9 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
         return entry;
       })
       .sort((left, right) => left.event.workspaceRevision - right.event.workspaceRevision),
-    wal = readStoppedWal(layout.rootDir),
+    wal = readStoppedWal(layout.localRoot),
     merged = mergeStoppedEvents(gitEvents, wal.events),
-    objects = readStoppedObjects(ledger, commit, layout.rootDir),
+    objects = readStoppedObjects(ledger, commit, layout.localRoot),
     sourceEvidence: StoppedLegacySourceEvidenceV1 = {
       schema: "stopped-legacy-source-evidence/v1",
       gitCommit: commit,
@@ -68,7 +68,7 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
     throw new TaskEventStoreError("invalid_store", "legacy Git head does not match event bytes");
   if (localGitObjectRefStore.resolveCommit(ledger.rootDir, CANONICAL_EVENT_REF) !== commit)
     throw new TaskEventStoreError("invalid_store", "legacy canonical Git ref changed while snapshotting");
-  if (wal.headBody !== readOptionalText(path.join(layout.rootDir, ".harness", "wal", "head.json")))
+  if (wal.headBody !== readOptionalText(path.join(layout.localRoot, "wal", "head.json")))
     throw new TaskEventStoreError("invalid_store", "legacy WAL head changed while snapshotting");
   return { eventEntries: merged, objects, sourceEvidence };
 }
@@ -108,7 +108,7 @@ function parseLegacyHead(
   return { revision: Number(value.revision), opId: value.opId, eventDigest: value.eventDigest };
 }
 
-function readStoppedWal(rootDir: string): {
+function readStoppedWal(localRoot: string): {
   readonly events: readonly LegacyEventEntry[];
   readonly revision: number;
   readonly headDigest: string | null;
@@ -116,7 +116,7 @@ function readStoppedWal(rootDir: string): {
   readonly headBody: string | null;
   readonly firstPreviousDigest: string | null | undefined;
 } {
-  const walRoot = path.join(rootDir, ".harness", "wal"),
+  const walRoot = path.join(localRoot, "wal"),
     headPath = path.join(walRoot, "head.json"),
     headBody = readOptionalText(headPath);
   if (headBody === null)
@@ -232,7 +232,7 @@ function assertLegacySequence(events: readonly LegacyEventEntry[], gitRevision: 
 function readStoppedObjects(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
-  rootDir: string,
+  localRoot: string,
 ): readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[] {
   const objects = new Map<string, Buffer>(),
     prefix = ledgerGitPath(ledger, "objects/sha256"),
@@ -245,7 +245,7 @@ function readStoppedObjects(
       throw new TaskEventStoreError("invalid_store", `legacy Git content object ${target} is invalid`);
     objects.set(sha256, bytes);
   }
-  const walObjects = path.join(rootDir, ".harness", "wal", "objects");
+  const walObjects = path.join(localRoot, "wal", "objects");
   if (localEventFileSystem.exists(walObjects))
     for (const name of localEventFileSystem.readNames(walObjects)) {
       const bytes = Buffer.from(localEvidenceFileSystem.readBytes(path.join(walObjects, name)));

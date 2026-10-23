@@ -11,7 +11,7 @@ import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 // registered-harness changes, they ride the same command — uploaded as claims and
 // carried with the mirror base cut — so the center validates holder, document
 // base, and lifecycle transition as one serial command. A conflict rejects the
-// whole command and stages base/local/center into .harness/conflicts; an
+// whole command and stages base/local/center into the local root's conflicts; an
 // applied outcome auto-pulls and reports the dual-axis mirror outcome.
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { randomUUID } from "node:crypto";

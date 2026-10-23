@@ -12,6 +12,7 @@ import {
   REPO_UPDATE_CHANNEL,
   WORKSPACE_INSPECT_CHANNEL,
 } from "../api/connection-admin-contract.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeKnownError } from "../api/error-consumption.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
@@ -128,7 +129,8 @@ export function registerConnectionAdminIpc(
     const rootDir = requireRootDir(record.rootDir);
     let hasWorkspace: boolean;
     try {
-      hasWorkspace = statSync(path.join(rootDir, ".harness")).isDirectory();
+      // The folder already has a ledger when the local root its own harness.yaml declares exists.
+      hasWorkspace = statSync(resolveHarnessLayout(rootDir).localRoot).isDirectory();
     } catch (cause) {
       // 目录不存在/不可读都归到同一条「无台账」判定;能否注册由 daemon 决定。
       consumeKnownError(cause);

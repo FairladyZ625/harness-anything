@@ -12,19 +12,23 @@ import { validateDaemonRelationGraph } from "../src/protocol/daemon-protocol-val
  * 这里锁三件事:派生纯函数、切面经协议校验、payload 只收 `facet` 一个选择器。
  */
 
-const header = (overrides: Partial<DispatchStreamHeader>): DispatchStreamHeader =>
-  ({
+const header = (overrides: Partial<DispatchStreamHeader>): DispatchStreamHeader => {
+  const dispatchId = overrides.dispatchId ?? "dispatch_000000000000000000000001";
+  return {
     schema: "runtime-dispatch-stream/v1",
     kind: "dispatch",
-    dispatchId: "dispatch_000000000000000000000001",
+    dispatchId,
     taskId: "task_a",
     executionId: "exe_a",
     runtimeSessionId: "runtime_a",
     instanceId: "inst",
     startedAt: "2026-08-29T00:00:00.000Z",
-    eventStreamRef: "file:.harness/runtime/dispatches/x.jsonl",
+    // The producer derives this ref from layout.localRoot; a fixture header must agree with its own
+    // dispatch id, because the edge's sourcePath is that ref rather than a second path convention.
+    eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
     ...overrides,
-  }) as DispatchStreamHeader;
+  } as DispatchStreamHeader;
+};
 
 test("runtimeDispatchEdges:同一 (agent, task) 只出一条边,agent/task 缺一不可", () => {
   const edges = runtimeDispatchEdges([
@@ -49,6 +53,13 @@ test("runtimeDispatchEdges:同一 (agent, task) 只出一条边,agent/task 缺�
     assert.equal(edge.current, false, "an unversioned strong generated edge is not consumable at a canonical cut");
     assert.match(edge.sourcePath, /^\.harness\/runtime\/dispatches\/dispatch_[a-f0-9]{24}\.jsonl$/u);
   }
+  // The edge's sourcePath is the stream its header named, with the `file:` scheme stripped: one path
+  // convention for both halves, whichever local root the repository declared. The first header of a
+  // duplicated (agent, task) pair is the one the deduplicated edge keeps.
+  assert.equal(
+    edges.find(({ sourceRef, targetRef }) => sourceRef === "agent/luna" && targetRef === "task/task_a")?.sourcePath,
+    ".harness/runtime/dispatches/dispatch_000000000000000000000001.jsonl",
+  );
   // relationId 由端点派生:同一对端点稳定同一 id(幂等,不随 dispatch 条数膨胀)。
   assert.equal(new Set(edges.map(({ relationId }) => relationId)).size, edges.length);
 });

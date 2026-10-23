@@ -27,9 +27,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const REPO_ID = "canonical";
 // Derived dirs that attach and the cold rebuild never open; copying them is how earlier
 // hand-rolled runs walked into a 28G restore-drills copy.
 const HARNESS_COPY_DIRS = ["wal", "generated", "presets"];
@@ -213,36 +213,107 @@ function activeGeneration(sourceGenerations) {
   return generation;
 }
 
-/** Snapshot the source repository into the workspace. Cache cuts precede the ledger snapshot,
- *  and the immutable object tree is cloned afterward so every captured event blob is present. */
+/** Where the source repository's own `harness.yaml` says its local ledger lives. Deriving this
+ *  (instead of hardcoding `.harness`) is what lets the command serve a repository that renamed
+ *  `layout.localRoot`: the copy must receive the data under the same relative root the copy's own
+ *  config resolves to, or attach would open an empty ledger next to untouched data and print a
+ *  meaningless green receipt. `--source` may name the project root or anything inside it; the
+ *  config's project root is authoritative, and a source with no discoverable config is refused
+ *  rather than defaulted — defaulting is the exact bug this command exists to avoid. */
+export function copyLayout(sourceRoot) {
+  const requested = path.resolve(sourceRoot),
+    layout = resolveHarnessLayout(requested),
+    projectRoot = layout.rootDir;
+  if (layout.configPath === undefined)
+    throw new Error(
+      `no harness.yaml found for --source ${requested} (searched up to ${projectRoot}); ` +
+        `pass the repository root that owns its layout`,
+    );
+  const relative = (target) => path.relative(projectRoot, target).split(path.sep).join("/");
+  return {
+    requested,
+    projectRoot,
+    localRoot: layout.localRoot,
+    localRootRelative: relative(layout.localRoot),
+    configPath: layout.configPath,
+    configRelative: relative(layout.configPath),
+  };
+}
+
+/** The ledger's own identity, read from the generation-3 activation certificate the store wrote.
+ *  A copy registered under any other id is a different repository to the attach path: the
+ *  certificate's repoId is checked against the registered one and attach fails closed with
+ *  "generation 3 activation certificate differs". The copy therefore has to keep the identity it
+ *  was written with — the id a node happens to use is not part of the data being reviewed. */
+export function copyRepoId(sourceRoot) {
+  const layout = copyLayout(sourceRoot),
+    certificate = `${path.join(layout.localRoot, "store", "generations", "3", "ledger.sqlite")}.activation.json`;
+  if (!existsSync(certificate))
+    throw new Error(`no generation-3 activation certificate at ${certificate}; the ledger would not attach`);
+  let value;
+  try {
+    value = JSON.parse(readFileSync(certificate, "utf8"));
+  } catch (error) {
+    throw new Error(`${certificate} is not JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (typeof value?.repoId !== "string" || value.repoId.length === 0)
+    throw new Error(`${certificate} carries no repoId`);
+  return {
+    repoId: value.repoId,
+    certificate,
+    // The cut the certificate was published with; the live head is read from the store later.
+    activationRevision: value.acceptedCut?.revision ?? null,
+  };
+}
+
 async function snapshotRepository(sourceRoot, workspace) {
-  const storeGenerations = path.join(sourceRoot, ".harness", "store", "generations");
-  if (!existsSync(storeGenerations)) throw new Error(`no .harness/store/generations under ${sourceRoot}`);
+  const layout = copyLayout(sourceRoot),
+    sourceProjectRoot = layout.projectRoot,
+    sourceLocalRoot = layout.localRoot,
+    workspaceLocalRoot = path.join(workspace, ...layout.localRootRelative.split("/")),
+    storeGenerations = path.join(sourceLocalRoot, "store", "generations");
+  if (!existsSync(storeGenerations))
+    throw new Error(`no ${layout.localRootRelative}/store/generations under ${sourceProjectRoot}`);
   const generation = activeGeneration(storeGenerations);
   mkdirSync(workspace, { recursive: true });
   const steps = [];
-  const harnessSource = path.join(sourceRoot, "harness");
+  const harnessSource = path.join(sourceProjectRoot, "harness");
   if (existsSync(harnessSource)) {
     await runText("git", ["clone", "--quiet", harnessSource, path.join(workspace, "harness")]);
     steps.push({ item: "harness", method: "git local clone" });
   }
-  mkdirSync(path.join(workspace, ".harness", "store"), { recursive: true });
+  // The clone carries committed state only, but the live daemon resolves the config from the
+  // working tree. A repository whose localRoot rename is not committed yet (the motivating
+  // shape) would otherwise get data under the renamed root and a config naming the old one:
+  // attach would then create an empty ledger and the receipt would be green about nothing.
+  if (layout.configPath !== undefined && layout.configRelative !== undefined) {
+    const target = path.join(workspace, ...layout.configRelative.split("/"));
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(layout.configPath, target);
+    steps.push({ item: layout.configRelative, method: "live working-tree copy (may be uncommitted)" });
+  }
+  const placed = copyLayout(workspace);
+  if (placed.localRoot !== workspaceLocalRoot)
+    throw new Error(
+      `copied config resolves localRoot to ${placed.localRoot}, but the snapshot placed data at ${workspaceLocalRoot}`,
+    );
+  mkdirSync(path.join(workspaceLocalRoot, "store"), { recursive: true });
   // Cache cuts precede the ledger snapshot, and the object tree follows it. Content objects
   // are immutable once written, so every object referenced by the captured ledger exists
   // before the object clone starts. Reversing these two snapshots can capture a new event but
   // miss the blob it names when a writer commits during the multi-minute tree clone.
-  const sourceCache = path.join(sourceRoot, ".harness", "cache");
+  const sourceCache = path.join(sourceLocalRoot, "cache");
   if (existsSync(sourceCache)) {
-    mkdirSync(path.join(workspace, ".harness", "cache"), { recursive: true });
+    mkdirSync(path.join(workspaceLocalRoot, "cache"), { recursive: true });
     for (const name of ["task.sqlite", "projections.sqlite"]) {
       const file = path.join(sourceCache, name);
       if (!existsSync(file)) continue;
-      await snapshotCacheDatabase(file, path.join(workspace, ".harness", "cache", name), steps);
+      await snapshotCacheDatabase(file, path.join(workspaceLocalRoot, "cache", name), steps);
     }
   }
 
   const sourceLedger = path.join(storeGenerations, generation, "ledger.sqlite"),
-    copiedGenerations = path.join(workspace, ".harness", "store", "generations"),
+    copiedGenerations = path.join(workspaceLocalRoot, "store", "generations"),
     copiedLedger = path.join(copiedGenerations, generation, "ledger.sqlite"),
     ledgerSnapshot = path.join(workspace, ".ledger-snapshot.sqlite");
   await sqliteBackup(sourceLedger, ledgerSnapshot);
@@ -257,21 +328,23 @@ async function snapshotRepository(sourceRoot, workspace) {
   renameSync(ledgerSnapshot, copiedLedger);
   steps.push({ item: `store/generations/${generation} objects and retired generations`, method: copyTreeMethod() });
   for (const dir of HARNESS_COPY_DIRS) {
-    const from = path.join(sourceRoot, ".harness", dir);
+    const from = path.join(sourceLocalRoot, dir);
     if (existsSync(from)) {
-      await runText("cp", [...copyTreeArgs(), from, path.join(workspace, ".harness", dir)]);
+      await runText("cp", [...copyTreeArgs(), from, path.join(workspaceLocalRoot, dir)]);
       steps.push({ item: dir, method: copyTreeMethod() });
     }
   }
   for (const name of HARNESS_COPY_FILES) {
-    const from = path.join(sourceRoot, ".harness", name);
+    const from = path.join(sourceLocalRoot, name);
     if (existsSync(from)) {
-      copyFileSync(from, path.join(workspace, ".harness", name));
+      copyFileSync(from, path.join(workspaceLocalRoot, name));
       steps.push({ item: name, method: "copy" });
     }
   }
   return {
     generation,
+    localRootRelative: layout.localRootRelative,
+    configRelative: layout.configRelative,
     steps,
     excluded: [
       "restore-drills",
@@ -281,6 +354,7 @@ async function snapshotRepository(sourceRoot, workspace) {
       "replica",
       "recovery",
       "credentials",
+      ".harness (default root, never read when localRoot names another directory)",
       "store/imports",
       "store/retired",
       "cache/completion-conversion-verification.sqlite",
@@ -521,6 +595,15 @@ let projection = null;
 try {
   const kernel = await import(toUrl(path.join(BUILD_ROOT, "packages/kernel/src/index.ts")));
   const { readTaskDispatches } = await import(toUrl(path.join(BUILD_ROOT, "packages/daemon/src/dispatch-read.ts")));
+  // Record the root the build itself resolves, so the receipt shows the data it read is the data
+  // the copy actually holds — not an empty default directory next to it.
+  const layout = kernel.resolveHarnessLayout(WORKSPACE);
+  record("layout", {
+    localRoot: layout.localRoot,
+    localRootRelative: path.relative(WORKSPACE, layout.localRoot).split(path.sep).join("/"),
+    configPath: layout.configPath ?? null,
+    taskProjectionPath: layout.taskProjectionPath,
+  });
   const store = kernel.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
   record("store-head", store.readHead() ?? null);
   projection = kernel.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
@@ -558,12 +641,12 @@ try {
 }
 `;
 
-async function runDirectEvidence(buildRoot, workspace, tempRoot, env) {
+async function runDirectEvidence(buildRoot, workspace, tempRoot, env, repoId) {
   const outFile = path.join(tempRoot, "logs", "direct-evidence.jsonl");
   const runnerPath = path.join(tempRoot, "direct-evidence-runner.mjs");
   writeFileSync(
     runnerPath,
-    `const OUT_FILE = ${JSON.stringify(outFile)};\nconst BUILD_ROOT = ${JSON.stringify(buildRoot)};\nconst WORKSPACE = ${JSON.stringify(workspace)};\nconst REPO_ID = ${JSON.stringify(REPO_ID)};\n` +
+    `const OUT_FILE = ${JSON.stringify(outFile)};\nconst BUILD_ROOT = ${JSON.stringify(buildRoot)};\nconst WORKSPACE = ${JSON.stringify(workspace)};\nconst REPO_ID = ${JSON.stringify(repoId)};\n` +
       DIRECT_RUNNER,
     "utf8",
   );
@@ -604,7 +687,7 @@ export async function main(argv, session = {}) {
     schema: "old-data-copy-evidence/v1",
     at: new Date().toISOString(),
     ok: false,
-    source: { root: sourceRoot, repository: REPO_ID },
+    source: { root: sourceRoot, repository: null, identity: null },
     build: null,
     copy: null,
     attach: null,
@@ -641,21 +724,31 @@ export async function main(argv, session = {}) {
     createdWorktree = build.createdWorktree ? { root: build.root, sha: build.resolvedSha } : null;
     session.createdWorktree = createdWorktree;
     const { steps: buildSteps, head } = await ensureDaemonDist(build.root);
-    // 2. Snapshot (or reuse a kept workspace for negative-control arms on the same copy).
+    // 2. Snapshot (or reuse a kept workspace for negative-control arms on the same copy). The
+    //    copy keeps the ledger's own identity: registering it under a different id makes attach
+    //    reject the copy's activation certificate, which would be a fact about the harness's
+    //    registry, not about the data under review.
     let workspace;
     if (args.reuseWorkspace) {
       workspace = path.resolve(args.reuseWorkspace);
-      if (!existsSync(path.join(workspace, ".harness", "store")))
-        throw new Error(`--reuse-workspace has no .harness/store: ${workspace}`);
-      receipt.copy = { reused: args.reuseWorkspace, sourceRevision: null };
+      const reused = copyLayout(workspace);
+      if (!existsSync(path.join(reused.localRoot, "store")))
+        throw new Error(`--reuse-workspace has no ${reused.localRootRelative}/store: ${workspace}`);
+      receipt.copy = { reused: args.reuseWorkspace, sourceRevision: null, localRootRelative: reused.localRootRelative };
     } else {
       workspace = path.join(tempRoot, "ws");
       receipt.copy = { reused: null, ...(await snapshotRepository(sourceRoot, workspace)) };
     }
+    const identity = copyRepoId(workspace);
+    receipt.source.repository = identity.repoId;
+    receipt.source.identity = {
+      certificate: path.relative(workspace, identity.certificate).split(path.sep).join("/"),
+      activationRevision: identity.activationRevision,
+    };
     if (!path.resolve(workspace).startsWith(path.resolve(tmpdir())))
       throw new Error(`workspace must live under the system temp dir, got ${workspace}`);
     if (args.coldAttach) {
-      const projectionPath = path.join(workspace, ".harness", "cache", "task.sqlite");
+      const projectionPath = path.join(copyLayout(workspace).localRoot, "cache", "task.sqlite");
       for (const suffix of ["", "-wal", "-shm"])
         rmSync(`${projectionPath}${suffix}`, { force: true, maxRetries: 5, retryDelay: 20 });
       receipt.copy.coldAttach = true;
@@ -714,7 +807,7 @@ export async function main(argv, session = {}) {
     // 4. Register the copy; attach is the daemon's own opening path.
     const registered = await cli(
       build.root,
-      ["daemon", "repo", "register", "--repo-id", REPO_ID, "--root", workspace],
+      ["daemon", "repo", "register", "--repo-id", receipt.source.repository, "--root", workspace],
       env,
       workspace,
       { userRoot, daemonId },
@@ -758,9 +851,11 @@ export async function main(argv, session = {}) {
     daemonStopReceipt = stopped.receipt;
     if (await awaitDaemonDown(pid)) daemonHandle = null;
     // 6. Direct reads and full cold rebuild through the build's own production functions.
-    const direct = await runDirectEvidence(build.root, workspace, tempRoot, env);
+    const direct = await runDirectEvidence(build.root, workspace, tempRoot, env, receipt.source.repository);
     const byStep = new Map(direct.steps.map((step) => [step.step, step]));
+    const observedLayout = byStep.get("layout")?.value ?? null;
     receipt.reads = {
+      layout: observedLayout,
       storeHead: byStep.get("store-head")?.value ?? null,
       catchUp: byStep.get("attach-catch-up")?.value ?? null,
       taskIndex: byStep.get("task-index")?.value ?? null,
@@ -775,6 +870,20 @@ export async function main(argv, session = {}) {
       rebuildMethod: direct.peakRssBytes === null ? null : "/usr/bin/time maximum resident set size",
     };
     if (byStep.has("fatal")) receipt.failures.push({ phase: "direct-evidence", record: byStep.get("fatal").value });
+    // The receipt must not be green about data the build never opened: if the build resolves a
+    // different local root than the one the snapshot filled, the reads below came from an empty
+    // directory and the run proves nothing.
+    if (observedLayout !== null && observedLayout.localRootRelative !== receipt.copy.localRootRelative)
+      receipt.failures.push({
+        phase: "layout-mismatch",
+        message: `build resolved localRoot ${observedLayout.localRootRelative}, snapshot filled ${receipt.copy.localRootRelative}`,
+      });
+    // The task's own invariant, measured on real data: a renamed local root must never make the
+    // default `.harness` appear, not even as an empty directory created by the attach path. It is
+    // only an invariant under a rename — the default layout owns `.harness` by definition.
+    receipt.copy.defaultHarnessPresent = existsSync(path.join(workspace, ".harness"));
+    if (receipt.copy.localRootRelative !== ".harness" && receipt.copy.defaultHarnessPresent)
+      receipt.failures.push({ phase: "default-local-root", message: `${workspace}/.harness exists after attach` });
     const rebuild = receipt.coldRebuild;
     receipt.ok =
       receipt.failures.length === 0 &&

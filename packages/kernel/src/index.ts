@@ -226,6 +226,7 @@ export { isHumanAttestationWitness } from "./domain/completion-gate-witness.ts";
 export { sha256Bytes, sha256Text, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {
+  DEFAULT_HARNESS_LOCAL_ROOT,
   normalizeRelativeDocumentPath,
   readFrontmatter,
   readScalar,

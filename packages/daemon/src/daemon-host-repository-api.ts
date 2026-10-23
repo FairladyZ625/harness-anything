@@ -593,7 +593,7 @@ export function createDaemonHostRepositoryApi(
           registryChanged: result.changed,
           dataPreserved: !purgingAll,
           removed,
-          preserved: purgingAll ? ["project files", ".git", ".worktrees"] : cachePurgePreservedPaths,
+          preserved: purgingAll ? ["project files", ".git", ".worktrees"] : cachePurgePreservedPaths(rootDir!),
           ...(purgingAll
             ? {
                 backup: backupReceipt(backupDir!, backupManifest!),

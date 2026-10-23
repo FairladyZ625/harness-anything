@@ -7,6 +7,7 @@ import * as tar from "tar";
 import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "./basebackup-layout.ts";
 
 export interface ReplicaGeneration {
   readonly id: string;
@@ -24,13 +25,13 @@ function generation(root: string, id: string, metadata: BaseBackupMetadata): Rep
     metadata,
     ledgerPath: path.join(
       rootDir,
-      ".harness",
+      BASE_BACKUP_ARCHIVE_ROOT,
       "store",
       "generations",
       String(metadata.ledgerGeneration),
       "ledger.sqlite",
     ),
-    projectionPath: path.join(rootDir, ".harness", "cache", "task.sqlite"),
+    projectionPath: path.join(rootDir, BASE_BACKUP_ARCHIVE_ROOT, "cache", "task.sqlite"),
   };
 }
 
@@ -121,7 +122,11 @@ export async function installReplicaGeneration(input: {
           unpack.abort(new Error("invalid base backup archive member"));
           return false;
         }
-        if (name !== "backup.json" && name !== ".harness" && !name.startsWith(".harness/")) {
+        if (
+          name !== "backup.json" &&
+          name !== BASE_BACKUP_ARCHIVE_ROOT &&
+          !name.startsWith(`${BASE_BACKUP_ARCHIVE_ROOT}/`)
+        ) {
           unpack.abort(new Error("unexpected base backup archive member"));
           return false;
         }

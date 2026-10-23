@@ -34,7 +34,10 @@ export function validateBackupDestination(rootDir: string, backup: string): stri
     isWithin(canonicalBackupDir, canonicalProspectivePath(layout.localRoot)) ||
     isWithin(canonicalBackupDir, canonicalProspectivePath(layout.authoredRoot))
   )
-    throw new Error("backup destination must not be inside .harness or harness");
+    throw new Error(
+      `backup destination must not be inside ${path.relative(layout.rootDir, layout.localRoot)} or ` +
+        `${path.relative(layout.rootDir, layout.authoredRoot)}`,
+    );
   return backupDir;
 }
 

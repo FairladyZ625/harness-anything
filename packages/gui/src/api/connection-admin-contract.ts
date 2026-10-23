@@ -51,7 +51,7 @@ export interface AdminReceipt {
 export interface WorkspaceInspectResult {
   readonly ok: true;
   readonly rootDir: string;
-  /** 选中的文件夹已有台账(.harness 目录)时为 true:走注册;否则走 bootstrap。 */
+  /** 选中的文件夹已有台账(它自己 harness.yaml 声明的 localRoot 目录)时为 true:走注册;否则走 bootstrap。 */
   readonly hasWorkspace: boolean;
   readonly suggestedRepoId: string;
 }

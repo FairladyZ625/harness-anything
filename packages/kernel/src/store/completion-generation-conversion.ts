@@ -8,6 +8,7 @@ import { writeCompletionGeneration, verifyCompletionGeneration } from "./complet
 import { publishGenerationThreeActivation } from "./generation-three-activation.ts";
 import { readGenerationThreeActivation } from "./generation-three-selection.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
 
 export type CompletionActivationPoint = "verified" | "source-retired" | "derived-invalidated" | "published";
 
@@ -56,8 +57,9 @@ export function runCompletionGenerationConversion(input: {
       verifiedManifest: manifest,
     });
   const sourceGeneration = generation;
-  const originalSourcePath = sqliteLedgerPath(root, sourceGeneration),
-    retiredRoot = path.join(root, ".harness", "store", "retired"),
+  const localRoot = resolveHarnessLayout(root).localRoot,
+    originalSourcePath = sqliteLedgerPath(root, sourceGeneration),
+    retiredRoot = path.join(localRoot, "store", "retired"),
     retiredSourcePath = path.join(retiredRoot, String(sourceGeneration), "ledger.sqlite");
   // An interrupted offline retirement resumes from its retained source, never an online fallback.
   const source = openSqliteEventStore({
@@ -124,7 +126,7 @@ export function runCompletionGenerationConversion(input: {
     files.syncDirectory(retired);
   }
   input.checkpoint?.("source-retired");
-  for (const suffix of ["", "-wal", "-shm"]) files.remove(path.join(root, ".harness", "cache", `task.sqlite${suffix}`));
+  for (const suffix of ["", "-wal", "-shm"]) files.remove(path.join(localRoot, "cache", `task.sqlite${suffix}`));
   input.invalidateDerivedState(metadata.repoId, root);
   input.checkpoint?.("derived-invalidated");
   publishGenerationThreeActivation(root, certificate);

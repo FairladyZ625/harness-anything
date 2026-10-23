@@ -5,6 +5,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import {
   assertCurrentWriter,
   configureLedgerMaintenance,
+  DEFAULT_HARNESS_LOCAL_ROOT,
   DEFAULT_TASK_WIP_LIMIT,
   HARNESS_LEDGER_WRITER_ENV,
   INITIAL_SETTINGS_V1,
@@ -108,7 +109,9 @@ export function resolveRepoBootstrap(
       `name: ${request.name === undefined ? repoId : JSON.stringify(request.name)}`,
       "layout:",
       "  authoredRoot: harness",
-      "  localRoot: .harness",
+      // A new repository is seeded with the documented default, which is also what the layout parser
+      // falls back to when a harness.yaml declares no localRoot at all.
+      `  localRoot: ${DEFAULT_HARNESS_LOCAL_ROOT}`,
       "  contextRoot: harness/context",
       "  governanceRoot: harness/governance",
       "settings:",
