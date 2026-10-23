@@ -448,6 +448,29 @@ export async function spawnCutReviewDispatch(
         dispatchOpId: existing.opId,
       },
     };
+  if (input.dispatchKey === undefined || key === cutReviewKey) {
+    const inFlight = activeCutReviewDispatches(cell, input.taskId, input.execution).at(-1)?.event ?? null;
+    if (inFlight !== null) {
+      const holdingReviewer = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
+      if (holdingReviewer === input.reviewerId)
+        return {
+          outcome: "already_dispatched",
+          ids: {
+            dispatchId: inFlight.payload.dispatchId,
+            runtimeSessionId: inFlight.payload.runtimeSessionId,
+            dispatchOpId: inFlight.opId,
+          },
+        };
+      if (input.dispatchKey === undefined)
+        return {
+          outcome: "failed",
+          error:
+            `Task ${input.taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
+            `${holdingReviewer ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}); ` +
+            `reviewer ${input.reviewerId} was not dispatched. Retry after that review session ends.`,
+        };
+    }
+  }
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -691,8 +714,10 @@ export function activeCutReviewDispatches(
       suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
       isCutReviewKey =
         suffix === "" ||
-        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?$/u.test(suffix ?? "") ||
-        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?$/u.test(suffix ?? "");
+        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(
+          suffix ?? "",
+        ) ||
+        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(suffix ?? "");
     return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
   });
 }
@@ -736,7 +761,7 @@ export async function dispatchInReviewCutReview(
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
       reviewerId,
-      dispatchKey: reviewDispatchKey(taskId, execution, reviewerId),
+      ...(typeof action.reviewer === "string" ? { dispatchKey: reviewDispatchKey(taskId, execution, reviewerId) } : {}),
       ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
       // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
       // would otherwise land on an unpredictable default instance.
