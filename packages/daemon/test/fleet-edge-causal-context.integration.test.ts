@@ -495,6 +495,7 @@ test(
         schema: context.schema,
         taskId: context.taskId,
         riskTier: context.riskTier,
+        riskTierFlowVersion: context.riskTierFlowVersion,
         worktree: context.worktree,
         continuationContext: context.continuationContext,
       },

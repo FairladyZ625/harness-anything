@@ -251,7 +251,6 @@ const taskMetadataFields = [
   "parentTaskId",
   "workKind",
   "riskTier",
-  "riskTierFlowVersion",
   "urgency",
   "verticalId",
   "presetId",
@@ -261,6 +260,7 @@ const taskMetadataFields = [
   "surfaces",
   "fromLegacyId",
 ] as const;
+const taskMetadataKnownFields = [...taskMetadataFields, "riskTierFlowVersion"] as const;
 function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractValidationIssue | null {
   // longRunning predates taskClass=long_running (dec_01KYRHP8ND). The event log is immutable,
   // so historical payloads may still carry the retired boolean; current writers never emit it.
@@ -269,7 +269,7 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
   if (missing.length)
     return { code: "invalid_task", message: `task metadata is missing required fields: ${missing.join(", ")}` };
   const unknown = Object.keys(value)
-    .filter((field) => !(taskMetadataFields as readonly string[]).includes(field))
+    .filter((field) => !(taskMetadataKnownFields as readonly string[]).includes(field))
     .sort();
   if (!allowUnknownFields && unknown.length)
     return { code: "invalid_task", message: `task metadata contains unknown fields: ${unknown.join(", ")}` };
