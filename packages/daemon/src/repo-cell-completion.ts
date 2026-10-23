@@ -180,6 +180,12 @@ export function taskShowFromProjection(
     return failed(`read:${taskId}`, notFound);
   }
   const taskRead = projection.read(taskId, true),
+    assignmentRevision = Math.max(
+      taskRead.snapshot.revision,
+      ...projection
+        .readRelationQuery({ source: `task/${taskId}`, relationType: "assigned-to" })
+        .rows.map((row) => row.workspaceRevision ?? 0),
+    ),
     task = taskRead.snapshot.task
       ? { ...taskRead.snapshot.task, assignment: assignmentFromRelations(projection, `task/${taskId}`) }
       : null,
@@ -216,6 +222,7 @@ export function taskShowFromProjection(
     ),
     payload = {
       ...read.snapshot,
+      assignmentRevision,
       task: task
         ? {
             ...task,
@@ -251,6 +258,7 @@ export function taskShowFromProjection(
       // resend as --expected-version. The ledger cut above it is a different number; stating both
       // keeps the mutation input reachable without decoding the evidence snapshot.
       expectedVersion: read.snapshot.revision,
+      assignmentRevision,
       evidence: JSON.stringify(payload),
       summary: renderEvidencePayload(payload),
       visibility: "center" as const,

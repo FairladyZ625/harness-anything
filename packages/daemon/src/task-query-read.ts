@@ -257,16 +257,20 @@ export function makeTaskQueryReadModel(input: {
         ...new Set(derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? [])),
       ],
       decisionRead = projection.readDecisions(decisionIds),
-      assignmentReads = lifecycle.rows.map((row) =>
-        projection.readRelationQuery({
-          source: `task/${row.taskId}`,
-          relationType: "assigned-to",
-          state: "active",
-          limit: 1,
-        }),
+      assignmentRead = projection.readTaskRelationsBySources(
+        lifecycle.rows.map(({ taskId }) => `task/${taskId}`),
+        "assigned-to",
       ),
       assignmentByTaskId = new Map(
-        lifecycle.rows.map((row, index) => [row.taskId, assignmentReads[index]?.rows[0] ?? null] as const),
+        lifecycle.rows.map(
+          (row) =>
+            [
+              row.taskId,
+              assignmentRead.rows.find(
+                ({ sourceRef, state }) => sourceRef === `task/${row.taskId}` && state === "active",
+              ) ?? null,
+            ] as const,
+        ),
       ),
       cut = requireSameProjectionCut("task control surface", [
         lifecycle,
@@ -276,7 +280,7 @@ export function makeTaskQueryReadModel(input: {
         awaits,
         taskStatuses,
         decisionRead,
-        ...assignmentReads,
+        assignmentRead,
       ]),
       activeDerives = new Map<string, typeof derives.rows>();
     for (const edge of derives.rows)
@@ -289,6 +293,12 @@ export function makeTaskQueryReadModel(input: {
       rows: lifecycle.rows.map((row) => {
         const task = row.snapshot.task,
           assignment = assignmentByTaskId.get(row.taskId) ?? null,
+          assignmentRevision = Math.max(
+            row.workspaceRevision,
+            ...assignmentRead.rows
+              .filter(({ sourceRef }) => sourceRef === `task/${row.taskId}`)
+              .map(({ workspaceRevision }) => workspaceRevision ?? 0),
+          ),
           snapshot: typeof row.snapshot =
             task == null
               ? row.snapshot
@@ -358,6 +368,7 @@ export function makeTaskQueryReadModel(input: {
           };
         return {
           ...row,
+          assignmentRevision,
           coordinationStatus,
           snapshotAvailability,
           closeoutAssessment,
@@ -495,11 +506,19 @@ export function makeTaskQueryReadModel(input: {
               limit: sourceLimit,
               ...(cursor?.answeredForYou ? { cursor: cursor.answeredForYou } : {}),
             }),
-      assignments = projection.readRelationQuery({
-        relationType: "assigned-to",
-        state: "active",
-        limit: sourceLimit,
-      }),
+      assignmentSources = [
+        ...(active?.rows ?? []),
+        ...(blocked?.rows ?? []),
+        ...(planned?.rows ?? []),
+        ...(submitted?.rows ?? []),
+        ...(inReview?.rows ?? []),
+      ]
+        .map(({ taskId }) => `task/${taskId}`)
+        .concat((decisions?.decisions ?? []).map(({ decisionId }) => `decision/${decisionId}`)),
+      assignments =
+        query.principalId === undefined
+          ? null
+          : projection.readTaskRelationsBySources(assignmentSources, "assigned-to"),
       reads = [
         ...(active?.reads ?? []),
         ...(blocked?.reads ?? []),
@@ -509,11 +528,13 @@ export function makeTaskQueryReadModel(input: {
         ...(decisions === null ? [] : [decisions]),
         ...(awaits === null ? [] : [awaits]),
         ...(answered === null ? [] : [answered]),
-        assignments,
+        ...(assignments === null ? [] : [assignments]),
       ],
       assignmentFor = (sourceRef: string) => {
         if (query.principalId === undefined) return true;
-        const relation = assignments.rows.find(({ sourceRef: candidate }) => candidate === sourceRef);
+        const relation = assignments?.rows.find(
+          ({ sourceRef: candidate, state }) => candidate === sourceRef && state === "active",
+        );
         return assignmentMatchesViewer(
           (relation as AssignmentRelationLike | undefined) ?? null,
           {

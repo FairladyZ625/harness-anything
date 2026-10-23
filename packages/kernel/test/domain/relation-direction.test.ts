@@ -169,6 +169,9 @@ test("undeclared admission lists only writable rows from the supplied registry",
           rejected.diagnostic.allowedTriples,
           directions.length
             ? [
+                { sourceKind: "task", type: "assigned-to", targetKind: "person" },
+                { sourceKind: "task", type: "assigned-to", targetKind: "node" },
+                { sourceKind: "task", type: "assigned-to", targetKind: "team" },
                 { sourceKind: "task", type: "implements", targetKind: "decision" },
                 { sourceKind: "task", type: "depends-on", targetKind: "task" },
                 { sourceKind: "task", type: "relates", targetKind: "task" },

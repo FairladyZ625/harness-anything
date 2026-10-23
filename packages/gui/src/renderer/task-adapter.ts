@@ -38,6 +38,7 @@ function adaptProjectionRow(
   return {
     taskId: row.taskId,
     revision: row.snapshot.revision,
+    assignmentRevision: row.assignmentRevision,
     assignment: task.assignment,
     title: task.title,
     projectId,

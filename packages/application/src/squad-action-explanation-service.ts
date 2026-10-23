@@ -185,6 +185,11 @@ function evaluateCriterion(
       status: "invocation-required",
       nextActions: [`Use expectedVersion ${input.entity.revision} when replacing squad/${input.entity.id}.`],
     };
+  if (criterionRef === "assignment/entity-revision")
+    return {
+      status: "invocation-required",
+      nextActions: [`Use expectedVersion ${input.entity.revision} when assigning squad/${input.entity.id}.`],
+    };
   if (
     criterionRef === "squad/task-mission-ready" ||
     criterionRef === "squad/task-run-available" ||

@@ -29,8 +29,6 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "witness-settle",
         "witness-revoke",
         "witness-rerun",
-        "assign",
-        "unassign",
         "create",
         "start",
         "transition",
@@ -46,6 +44,8 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "delete",
         "reopen",
         "contract-migrate",
+        "assign",
+        "unassign",
       ],
     );
     assert.equal(plannedStart.available, true);
