@@ -10,7 +10,7 @@ import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { gateMappingRowIssues } from "../src/renderer/gate-mapping-form.ts";
-import { CODE_DOC_GATE_ID, gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
+import { gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
 import {
   mappedSourceIds,
   sourceFields,
@@ -26,7 +26,7 @@ const GATES = [
     adapter: "research/check",
     appliesTo: "code",
   },
-  { gateId: "code-doc-reconciliation", adapter: "none" },
+  { gateId: "contract", adapter: "none" },
 ];
 const SETTINGS = {
   schema: "settings/v1",
@@ -61,7 +61,6 @@ const SNAPSHOT = {
     adapterFields: sourceFields,
     governanceFields: [...gateGovernanceFields],
     governableAdapters: [...governableSourceIds],
-    internalGateId: CODE_DOC_GATE_ID,
   },
 };
 const mounted: { root: Root; container: HTMLElement }[] = [];
@@ -189,12 +188,12 @@ describe("Settings 门映射编辑面", () => {
     expect(adapters).not.toContain("gitlab-pipeline");
     for (const field of ["branch", "event", "coverage", "selection"])
       expect(gateRows[0].querySelector(`[data-testid="gate-mapping-0-${field}"]`)).toBeNull();
-    // 内部门只给 none。
+    // 退役的 code-doc 门不再是内建门:每一行都拿到完整 adapter 取值面(没有特化收窄)。
     expect(
       [...gateRows[1].querySelectorAll('[data-testid="gate-mapping-1-adapter"] option')].map(
         (option) => (option as HTMLOptionElement).value,
       ),
-    ).toEqual(["none"]);
+    ).toEqual([...SNAPSHOT.gateMappings.adapters]);
     // 命令/开关错配已修复:不存在持久 gatesFromDocument 行,只有导入动作按钮。
     expect(container.querySelector('[data-testid="settings-gatesFromDocument-toggle"]')).toBeNull();
     expect(container.querySelector('[data-testid="settings-gatesFromDocument"]')).toBeNull();
@@ -267,12 +266,6 @@ describe("Settings 门映射编辑面", () => {
     ]);
     expect(
       gateMappingRowIssues(
-        [{ gateId: "code-doc-reconciliation", adapter: "manual-attest", appliesTo: "code" }],
-        descriptor,
-      ),
-    ).toEqual([{ row: 0, issue: "internalGateAdapter" }]);
-    expect(
-      gateMappingRowIssues(
         [
           { gateId: "lint", adapter: "none" },
           { gateId: "lint", adapter: "none" },
@@ -282,7 +275,7 @@ describe("Settings 门映射编辑面", () => {
     ).toEqual([{ row: 1, issue: "gateIdDuplicate" }]);
   });
 
-  it("重复 gateId、非法形态与内部门非 none 都在提交前报错禁用", async () => {
+  it("重复 gateId 与非法形态都在提交前报错禁用", async () => {
     const container = await mountView();
     const addButton = container.querySelector<HTMLButtonElement>('[data-testid="gate-mapping-add"]')!;
     await act(async () => {
@@ -296,12 +289,7 @@ describe("Settings 门映射编辑面", () => {
     expect(saveButton(container).disabled).toBe(true);
     await type(idInput, "bad id!");
     expect(container.textContent).toContain("只含字母数字与");
-    await type(idInput, "code-doc-reconciliation");
-    // 内部门 adapter 选项只剩 none,不存在可选的非 none 项。
-    const adapter = rows(container)[2].querySelector('[data-testid="gate-mapping-2-adapter"]') as HTMLSelectElement;
-    expect([...adapter.querySelectorAll("option")].map((option) => (option as HTMLOptionElement).value)).toEqual([
-      "none",
-    ]);
+    expect(saveButton(container).disabled).toBe(true);
   });
 
   it("「导入 harness.yaml 的门声明」按钮单独发出 gatesFromDocument 动作", async () => {

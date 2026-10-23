@@ -253,21 +253,6 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     meaning: "factLiveness verdict: an active supersedes-fact edge targets this fact.",
     divergence: "entity-scoped",
   },
-  // ---- CodeDocWitness.disposition (append-only evidence backfill) ----
-  {
-    word: "repointed",
-    entity: "CodeDocWitness",
-    field: "disposition",
-    meaning: "The witness has an authoritative replacement path set appended after issuance.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "known-invalid",
-    entity: "CodeDocWitness",
-    field: "disposition",
-    meaning: "The witness is retained for audit but must not be consumed as valid evidence.",
-    divergence: "entity-scoped",
-  },
   // ---- Task.status (execution coordination; the WIP machine) ----
   {
     word: "planned",

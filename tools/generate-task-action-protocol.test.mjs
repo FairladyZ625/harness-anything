@@ -40,20 +40,7 @@ test("Task Action transport has one current build-time projection", async () => 
   assert.doesNotMatch(presetCommandContractSource, /task-action-projection:generated/u);
   assert.deepEqual(
     projectTaskActions().actions.map(({ id }) => id),
-    [
-      "assign",
-      "unassign",
-      "create",
-      "start",
-      "transition",
-      "submit",
-      "adjudicate",
-      "review",
-      "consent",
-      "reconcile",
-      "repoint",
-      "complete",
-    ],
+    ["assign", "unassign", "create", "start", "transition", "submit", "adjudicate", "review", "consent", "complete"],
   );
   assert.deepEqual(
     projectSettingsFields().actionInputs.map(({ field }) => field),
@@ -83,7 +70,6 @@ test("Task Action transport has one current build-time projection", async () => 
       "closeoutReview",
       "closeoutConsent",
       "closeoutFactDisposition",
-      "closeoutCodeDoc",
       "agendaPinLimit",
       "wipLimit",
       "rootThreshold",

@@ -326,7 +326,6 @@
   "components.taskPreviewDrawer.stuckReworkReason": "等待第 {iteration} 轮认领",
   "components.taskPreviewDrawer.gateFailed": "门禁未过",
   "components.gateReason.awaitSubmission": "台账里还没有可评估的已提交执行切面",
-  "components.gateReason.noCodeDocWitness": "本次提交还没有代码/文档对账见证",
   "components.gateReason.noGateWitness": "本次提交还没有这道门的见证",
   "components.gateReason.notPassed": "本次提交没有通过这道门",
   "components.gateReason.projectionUnknown": "见证投影尚未追平,门的结论未知",

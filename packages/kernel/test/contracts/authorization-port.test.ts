@@ -40,7 +40,10 @@ test("retired People mutations are absent from the durable authorization invento
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: runtime steering is a canonical authorized action.
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to worker skill scripts.
-  assert.equal(durablePolicyActions.length, 156);
+  // Owner 2026-10-21 B3 (task_8ebc730e board) deletes code-doc reconcile/repoint with the whole mechanism.
+  assert.equal(durablePolicyActions.length, 154);
+  assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
+  assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);
   assert.equal(durablePolicyActions.includes("ci-observe-pull"), false);
   assert.equal(durablePolicyActions.includes("task-ci"), false);
   assert.equal(durablePolicyActions.includes("task-push"), true);

@@ -9,8 +9,8 @@ whenToUse: Use for pure design, documentation, research, or chore tasks whose de
 A lightweight software-coding preset for work whose deliverable is a design,
 document, or chore rather than a code change.
 
-It keeps the canonical task scaffold but omits the `ci` and
-`code-doc-reconciliation` completion gates, which assume a code commit.
+It keeps the canonical task scaffold but omits the `ci` completion gate, which
+assumes a code commit.
 
 `--profile lightweight` is the short path for a low-risk small change such as a
 one-line declaration, error text, or document revision: the plan and closeout

@@ -144,22 +144,16 @@ test("closeout profiles default consistently and task gates can only tighten", (
     review: false,
     consent: false,
     factDisposition: false,
-    codeDoc: false,
   });
   assert.equal(effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }).review, true);
-  assert.equal(
-    effectiveCloseoutGates({ profile: "standard", overrides: { codeDoc: false } }, ["code-doc-reconciliation"]).codeDoc,
-    true,
-  );
   assert.equal(effectiveCloseoutGates({ profile: "strict", overrides: { consent: false } }).consent, false);
 });
 
 test("task-level closeout overrides take precedence over repository settings", () => {
-  assert.deepEqual(effectiveCloseoutGates({ profile: "strict" }, [], { review: false, consent: false }), {
+  assert.deepEqual(effectiveCloseoutGates({ profile: "strict" }, { review: false, consent: false }), {
     review: false,
     consent: false,
     factDisposition: true,
-    codeDoc: true,
   });
   // dec_BB2BCE9F995CD3A126E2918734 CH4 removed the fact gate: Fact production is on-demand
   // observation, no longer closeout ceremony any profile or setting switches.
@@ -169,19 +163,16 @@ test("task-level closeout overrides take precedence over repository settings", (
   );
   // A task override wins over a repository override on the same key.
   assert.equal(
-    effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, [], { review: false }).review,
+    effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, { review: false }).review,
     false,
   );
   // An absent task key falls through to the repository override, then the profile baseline.
   assert.equal(
-    effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, [], { consent: false }).review,
+    effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, { consent: false }).review,
     true,
   );
-  // The task completion gate contract still forces codeDoc on even when the task disables it.
-  assert.equal(
-    effectiveCloseoutGates({ profile: "standard" }, ["code-doc-reconciliation"], { codeDoc: false }).codeDoc,
-    true,
-  );
+  // The retired code/doc gate is gone from the effective set entirely.
+  assert.equal(Object.hasOwn(effectiveCloseoutGates({ profile: "strict" }), "codeDoc"), false);
 });
 
 test("Settings exposes executable singleton read and update contracts", () => {
@@ -308,16 +299,16 @@ test("Settings update hydrates the default when the projected event predates rev
 });
 
 test("Settings update persists closeout profile and individual overrides", () => {
-  const draft = compile({ closeoutProfile: "strict", closeoutReview: false, closeoutCodeDoc: true });
+  const draft = compile({ closeoutProfile: "strict", closeoutReview: false, closeoutFactDisposition: true });
   assert.equal(draft.kind, "settings");
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
   assert.deepEqual(draft.result.bundle.event.payload.settings.closeout, {
     profile: "strict",
-    overrides: { review: false, codeDoc: true },
+    overrides: { review: false, factDisposition: true },
   });
   assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).closeout, {
     profile: "strict",
-    overrides: { review: false, codeDoc: true },
+    overrides: { review: false, factDisposition: true },
   });
 });
 
@@ -328,7 +319,7 @@ test("Settings update mints gate mappings into the entity and rewrites the autho
         adapter: "research/check",
         appliesTo: "code",
       },
-      { gateId: "code-doc-reconciliation", adapter: "none" },
+      { gateId: "contract", adapter: "none" },
     ],
     draft = compile({ gatesFromDocument: true, gates });
   assert.equal(draft.kind, "settings");
@@ -336,7 +327,7 @@ test("Settings update mints gate mappings into the entity and rewrites the autho
   assert.deepEqual(draft.result.bundle.event.payload.settings.gates, gates);
   const body = draft.result.bundle.blobs[0].body;
   assert.match(body, /  gates:\n    lint:\n      adapter: research\/check\n/u);
-  assert.match(body, /    code-doc-reconciliation: none\n/u);
+  assert.match(body, /    contract: none\n/u);
   assert.deepEqual(readSettingsFacet(body).gates, gates);
   assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
 });

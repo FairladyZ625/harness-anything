@@ -6,13 +6,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
-import { getExecutableEntityAction, readSettingsFacet, reviewDigest, submissionDigest } from "@harness-anything/kernel";
+import { readSettingsFacet, reviewDigest, submissionDigest } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
-import { completeTask, prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
+import { completeTask } from "../src/repo-cell-task-progress.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";
-import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
@@ -33,11 +32,6 @@ function init(root: string): string {
 const publicRoot = mkdtempSync(path.join(tmpdir(), "ha-public-evidence-"));
 const publicSha = init(publicRoot);
 after(() => rmSync(publicRoot, { recursive: true, force: true }));
-const codeDocRequirement = {
-  gateId: "code-doc-reconciliation",
-  appliesTo: "code",
-  witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
-} as const;
 function execution(commitSha: string, deliverables: string[] = []): Snapshot["executions"][number] {
   const current = {
     schema: "execution/v1",
@@ -60,22 +54,17 @@ function execution(commitSha: string, deliverables: string[] = []): Snapshot["ex
       knownGaps: [],
       residualRisks: [],
       evidenceRefs: [],
-      completionContract: { ...emptyCompletionContract, gates: [codeDocRequirement] },
+      completionContract: emptyCompletionContract,
     },
   } as Snapshot["executions"][number];
   return current;
 }
 
-function fixture(
-  rootDir: string,
-  submitted: Snapshot["executions"][number],
-  codeDocWitnesses: Snapshot["codeDocWitnesses"] = [],
-) {
+function fixture(rootDir: string, submitted: Snapshot["executions"][number]) {
   const snapshot = {
       revision: 1,
-      task: { iteration: submitted.iteration, completionGateIds: ["code-doc-reconciliation"] },
+      task: { iteration: submitted.iteration, completionGateIds: [] },
       executions: [submitted],
-      codeDocWitnesses,
       gateWitnesses: [],
     } as unknown as Snapshot,
     read = { snapshot, packagePath: "harness/tasks/task", status: "ready", watermark: 1, sourceRevision: 1 },
@@ -93,39 +82,7 @@ function fixture(
   return { cell, snapshot, calls };
 }
 
-test("pure deletion reconciles empty paths and surviving deliverables reconcile without deletion output", async () => {
-  for (const paths of [[], ["packages/daemon/src/live.ts"]]) {
-    const current = execution(publicSha, paths),
-      prepared = fixture(publicRoot, current);
-    const steps = await prepareSubmissionEvidence(prepared.cell, "task", "execution", binding);
-    assert.deepEqual(prepared.calls[0], { kind: "task-code-doc-reconcile", taskId: "task", paths });
-    assert.deepEqual(
-      steps.map((step) => step.opId),
-      ["reconcile"],
-    );
-  }
-});
-test("retry after a lost response reuses canonical cut witnesses without another append", async () => {
-  const current = execution(publicSha),
-    prepared = fixture(publicRoot, current, [
-      {
-        schema: "code-doc-witness/v1",
-        witnessId: "reconciled",
-        taskId: "task",
-        executionId: "execution",
-        iteration: 0,
-        commitSha: current.submission!.commitSha!,
-        paths: [],
-        actor,
-        source: "local",
-        reconciledAt: "2026-09-12T00:02:00.000Z",
-      },
-    ]);
-  assert.deepEqual(await prepareSubmissionEvidence(prepared.cell, "task", "execution", binding), []);
-  assert.deepEqual(prepared.calls, []);
-});
-
-test("complete without a code-doc witness stops on code_doc_missing under its own criterion", async () => {
+test("complete needs no code/doc step: the retired gate is out of the completion path", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-complete-reconcile-"));
   try {
     init(root);
@@ -161,6 +118,8 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         taskId: "task",
         action: { kind: "task-create", title: "Complete Reconcile Criterion" },
       }).snapshot.digest,
+      // A historical task still naming the retired gate in completionGateIds must not change the
+      // outcome: the gate is dropped when the contract is resolved.
       snapshot = {
         revision: 1,
         task: {
@@ -190,7 +149,6 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
             consentedAt: "2026-09-12T00:03:00.000Z",
           },
         ],
-        codeDocWitnesses: [],
         gateWitnesses: [],
         lease: null,
         decisionRelations: [],
@@ -202,7 +160,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         closeoutPath: `${packagePath}/closeout.md`,
         eligibleDirtyPaths: [],
         projectionStatus: "ready",
-        closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+        closeoutGates: { review: false, consent: false, factDisposition: false },
       },
       cell = {
         rootDir: root,
@@ -216,6 +174,12 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         completionContext: () => readiness,
         completionStopped,
         completionSettlement,
+        lifecycleReceipt: () => ({ outcome: "applied", opId: "completed-op" }),
+        receiptProof: () => ({ durable: true, canonicalVisible: true, worktreeVisible: true }),
+        completionApplied: (value: unknown, _snapshot: unknown, _execution: unknown, steps: unknown[]) => ({
+          ...(value as Record<string, unknown>),
+          steps,
+        }),
         service: { read: async () => read },
         projection: {
           read: () => read,
@@ -254,18 +218,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
         lifecycleAction: async (action: unknown) => {
           calls.push(action);
-          return {
-            outcome: "op_rejected",
-            opId: "reconcile-op",
-            code: "invalid_command",
-            unmetCriteria: [
-              {
-                ref: "task-lifecycle-review-transitions/reconcile.validate",
-                failureCode: "invalid_proof",
-                explain: "The witness binds canonical document paths to the submitted commit.",
-              },
-            ],
-          };
+          return { outcome: "applied", opId: "completed-op" };
         },
       } as unknown as RepoCellOperationalContext,
       action = { kind: "task-complete", taskId: "task", executionId: "execution" };
@@ -273,25 +226,11 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
       ...binding,
       authorizationDecision: { outcome: "allowed" },
     } as RepoCellBinding)) as unknown as Record<string, unknown>;
-    // The facade receipt settles under the complete Action's own criteria; a leaked
-    // reconcile criterion used to abort settlement with invalid_store.
-    const settled = deriveActionResult(
-      getExecutableEntityAction("task-complete")!,
-      action as Parameters<typeof deriveActionResult>[1],
-      receipt as Parameters<typeof deriveActionResult>[2],
-    );
-    assert.deepEqual(calls, []);
-    assert.equal(receipt.outcome, "op_rejected");
-    assert.equal(receipt.code, "code_doc_missing");
-    assert.match(String(receipt.rejectionExplanation), /no canonical code\/doc witness/u);
-    assert.match(
-      String((receipt.next as { readonly action: string }[])[0]?.action),
-      /ha task code-doc reconcile task --path 'packages\/daemon\/src\/live\.ts'/u,
-    );
-    assert.deepEqual(
-      settled.unmetCriteria?.map(({ ref }) => ref),
-      ["closeout-readiness/closeoutReadiness"],
-    );
+    // No reconcile action is issued on the task's behalf, and completion is not stopped on a
+    // witness that no longer exists.
+    assert.deepEqual(calls, [{ kind: "task-complete", taskId: "task", executionId: "execution" }]);
+    assert.notEqual(receipt.code, "code_doc_missing");
+    assert.notEqual(receipt.outcome, "op_rejected");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

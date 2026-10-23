@@ -245,7 +245,6 @@ function projectCloseoutReadiness(status: ProjectionCanonicalStatus): CloseoutRe
     executions: [],
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
   }).readiness;
 }

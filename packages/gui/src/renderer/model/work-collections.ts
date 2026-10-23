@@ -15,7 +15,7 @@ export interface WorkGroup {
   live: number;
 }
 
-/** task-adapter emits exactly execution/review/consent/code-doc/gate lifecycle events. */
+/** task-adapter emits exactly execution/review/consent/gate lifecycle events. */
 function latestActivity(task: TaskRow): WorkGroup["activity"] {
   return (task.events ?? []).reduce<WorkGroup["activity"]>(
     (latest, event) => (!latest || event.at > latest.at ? event : latest),

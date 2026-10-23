@@ -535,7 +535,6 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
           adapterFields: "object",
           governanceFields: "array",
           governableAdapters: "array",
-          internalGateId: "string",
         },
         "catalog gate mappings",
       ),

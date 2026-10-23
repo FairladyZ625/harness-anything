@@ -15,11 +15,12 @@ import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import {
-  validateCodeDocRepointV1,
-  validateCodeDocWitnessV1,
-  type CodeDocRepointV1,
-  type CodeDocWitnessV1,
-} from "./code-doc-witness.ts";
+  isRetiredCodeDocEventType,
+  validateRetiredCodeDocPayload,
+  type RetiredCodeDocEventType,
+  type RetiredCodeDocRepointV1,
+  type RetiredCodeDocWitnessV1,
+} from "./code-doc-retirement.ts";
 import { validateCompletionGateWitnessV1, type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import {
   hasOnlyFields,
@@ -52,8 +53,6 @@ export const taskEventTypes = [
   "review_recorded",
   "review_consent_recorded",
   "review_consent_overridden",
-  "code_doc_reconciled",
-  "code_doc_repointed",
   "completion_gate_verified",
   "gate_run_changed",
   "task_completion_generation_retired",
@@ -81,7 +80,7 @@ export interface LifecycleDocumentClaim {
   readonly policyId: "typed-machine-writer/v1" | "markdown-body-replaceable/v1";
 }
 export type TaskCarriedDocumentChange = DocEventChange;
-type TaskEventEnvelope<T extends TaskEventType, P> = EventEnvelope<
+type TaskEventEnvelope<T extends TaskEventType | RetiredCodeDocEventType, P> = EventEnvelope<
   "task-event/v1",
   T,
   ActorAxes,
@@ -201,20 +200,20 @@ export type ReviewConsentOverrideRecordedEvent = TaskEventEnvelope<
     readonly disposition: ReviewDispositionV1;
   }
 >;
-export type CodeDocReconciledEvent = TaskEventEnvelope<
+type RetiredCodeDocReconciledEvent = TaskEventEnvelope<
   "code_doc_reconciled",
   {
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
-    readonly witness: CodeDocWitnessV1;
+    readonly witness: RetiredCodeDocWitnessV1;
   }
 >;
-export type CodeDocRepointedEvent = TaskEventEnvelope<
+type RetiredCodeDocRepointedEvent = TaskEventEnvelope<
   "code_doc_repointed",
   {
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
-    readonly record: CodeDocRepointV1;
+    readonly record: RetiredCodeDocRepointV1;
   }
 >;
 export type CompletionGateVerifiedEvent = TaskEventEnvelope<
@@ -291,8 +290,6 @@ export type TaskMutationEventType = Exclude<
   | "review_recorded"
   | "review_consent_recorded"
   | "review_consent_overridden"
-  | "code_doc_reconciled"
-  | "code_doc_repointed"
   | "completion_gate_verified"
   | "gate_run_changed"
   | "task_completion_generation_retired"
@@ -315,8 +312,8 @@ export type TaskEventV1 =
   | ReviewRecordedEvent
   | ReviewConsentRecordedEvent
   | ReviewConsentOverrideRecordedEvent
-  | CodeDocReconciledEvent
-  | CodeDocRepointedEvent
+  | RetiredCodeDocReconciledEvent
+  | RetiredCodeDocRepointedEvent
   | CompletionGateVerifiedEvent
   | GateRunChangedEvent
   | CompletionGenerationRetiredEvent
@@ -384,7 +381,11 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     !timestamp(value.occurredAt) ||
     !Number.isInteger(value.workspaceRevision) ||
     (value.workspaceRevision as number) < 1 ||
-    !taskEventTypes.includes(value.type as TaskEventType)
+    // Retired code/doc envelopes stay readable history; current admission rejects them because
+    // `taskEventTypes` no longer lists them.
+    !(allowUnknownFields
+      ? taskEventTypes.includes(value.type as TaskEventType) || isRetiredCodeDocEventType(String(value.type))
+      : taskEventTypes.includes(value.type as TaskEventType))
   )
     issues.push(invalidEventPayloadIssue("event identity, revision, or type is invalid"));
   issues.push(...validateActorAxes(value.actor, allowUnknownFields));
@@ -473,8 +474,6 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "review_recorded",
       "review_consent_recorded",
       "review_consent_overridden",
-      "code_doc_reconciled",
-      "code_doc_repointed",
       "completion_gate_verified",
       "gate_run_changed",
       "task_completion_generation_retired",
@@ -567,9 +566,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       payload.disposition.disposedAt !== value.occurredAt)
   )
     issues.push(invalidEventPayloadIssue("review disposition must be pinned to its event and execution cut"));
-  if (value.type === "code_doc_reconciled")
-    issues.push(...validateCodeDocWitnessV1(payload.witness, allowUnknownFields));
-  if (value.type === "code_doc_repointed") issues.push(...validateCodeDocRepointV1(payload.record, allowUnknownFields));
+  // Retired 2026-10-21: accepted history stays readable, current admission rejects the types.
+  if (isRetiredCodeDocEventType(String(value.type)))
+    issues.push(...validateRetiredCodeDocPayload(value.type as never, payload, allowUnknownFields));
   if (
     value.type === "task_completed" &&
     payload.factRetirementAttestations !== undefined &&
@@ -583,17 +582,6 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   if (value.type === "task_completed" && payload.closeoutGates !== undefined)
     if (!isValidCloseoutGateRecord(payload.closeoutGates))
       issues.push(invalidEventPayloadIssue("task completion closeout gates are invalid"));
-  if (
-    value.type === "code_doc_repointed" &&
-    isRecord(payload.record) &&
-    isRecord(payload.execution) &&
-    (payload.record.taskId !== value.taskId ||
-      payload.record.executionId !== (payload.execution as { readonly executionId?: unknown }).executionId ||
-      !sameActorIdentity(payload.record.actor, value.actor) ||
-      !sameWriteSource(payload.record.source, value.source) ||
-      payload.record.repointedAt !== value.occurredAt)
-  )
-    issues.push(invalidEventPayloadIssue("code-doc repoint record must be pinned to its canonical event envelope"));
   if (
     value.type === "gate_run_changed" &&
     (!isNonEmptyString(payload.runId) || !["claim", "settle", "revoke"].includes(String(payload.operation)))
@@ -667,7 +655,8 @@ function lifecyclePayloadFields(
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
   if (type === "review_consent_overridden") return [...common, "review", "consent", "disposition"];
-  if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];
+  if (type === "completion_gate_verified") return [...common, "witness"];
+  if (type === "code_doc_reconciled") return [...common, "witness"];
   if (type === "code_doc_repointed") return [...common, "record"];
   if (type === "task_completed")
     return [

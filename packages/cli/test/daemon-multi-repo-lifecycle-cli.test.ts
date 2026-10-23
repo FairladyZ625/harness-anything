@@ -192,10 +192,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         "next: ha work list",
         "preset: standard-task/baseline",
         "outputShape: repository-diff",
-        'completionGates: ["code-doc-reconciliation"]',
-        "contract: repository-diff requires a committable public-repository diff, " +
-          "real CI, and a code-doc reconciliation witness. For a task-package-only " +
-          "report or decision, use the task-package-artifact preset docs-task.",
+        "completionGates: []",
+        "contract: repository-diff requires a committable public-repository diff and real CI. " +
+          "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
         "next: remove --dry-run to publish this exact resolved scaffold",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
           "harness/tasks/task-alpha-alpha/task_plan.md; keep every section heading the preset template ships",

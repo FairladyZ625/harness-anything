@@ -1,16 +1,13 @@
-import { isNativeCommitSha, submissionDigest } from "./execution.ts";
+import { submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
-import { sameCodeDocPaths } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
-import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type {
-  CodeDocReconciledEvent,
   ReviewConsentRecordedEvent,
   ReviewConsentOverrideRecordedEvent,
   ReviewRecordedEvent,
@@ -21,10 +18,8 @@ import { closeoutReadiness } from "./closeout-readiness.ts";
 import { isValidCloseoutGateRecord } from "./settings-closeout.ts";
 import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
-  CodeDocProof,
   CompleteTaskCommand,
   CompleteTaskProof,
-  ReconcileCodeDocCommand,
   RecordReviewCommand,
   RecordReviewConsentCommand,
   ReviewConsentProof,
@@ -33,7 +28,6 @@ import type {
   Transition,
 } from "./task-lifecycle-contract-internal-types.ts";
 import {
-  canonicalDocumentPaths,
   canonicalGateReceipts,
   envelope,
   execution,
@@ -42,7 +36,7 @@ import {
   revisionIssues,
 } from "./task-lifecycle-contract-support.ts";
 
-// Review, consent, code-document, and completion transition definitions.
+// Review, consent, and completion transition definitions.
 function reviewIssues(
   snapshot: TaskLifecycleSnapshot,
   command: RecordReviewCommand,
@@ -308,72 +302,6 @@ export const consent: Transition = {
             review: recorded,
             consent: value,
           }),
-    };
-  },
-};
-export const reconcile: Transition = {
-  actionId: "reconcile",
-  matches: (command) => command.type === "ReconcileCodeDoc",
-  validate: (snapshot, raw, rawProof) => {
-    const command = raw as ReconcileCodeDocCommand,
-      proof = rawProof as Partial<CodeDocProof>,
-      issues = revisionIssues(snapshot, command),
-      current = execution(snapshot, command.executionId);
-    if (
-      !snapshot.task ||
-      !["submitted", "in_review"].includes(snapshot.task.status) ||
-      current?.state !== "submitted" ||
-      !current.submission
-    )
-      issues.push(
-        lifecycleContractIssue("invalid_transition", "code-doc reconcile requires the current submitted execution"),
-      );
-    if (
-      !current?.submission ||
-      command.commitSha !== current.submission.commitSha ||
-      command.iteration !== current.iteration ||
-      !isNativeCommitSha(command.commitSha) ||
-      !isNonEmptyString(command.witnessId) ||
-      !canonicalDocumentPaths(command.paths) ||
-      !proof.actorBinding ||
-      !isSameExecution(command.actor, proof.actorBinding) ||
-      proof.capability !== "code-doc-reconcile@v1" ||
-      !isNonEmptyString(proof.capabilityRef) ||
-      proof.commitPaths?.commitSha !== command.commitSha ||
-      !sameCodeDocPaths(proof.commitPaths?.paths, command.paths, true)
-    )
-      issues.push(
-        lifecycleContractIssue("invalid_proof", "code-doc witness must bind verified paths from the submitted commit"),
-      );
-    return issues;
-  },
-  reduce: (snapshot, raw) => {
-    const command = raw as ReconcileCodeDocCommand,
-      current = execution(snapshot, command.executionId) as ExecutionV1,
-      witness: CodeDocWitnessV1 = {
-        schema: "code-doc-witness/v1",
-        witnessId: command.witnessId,
-        taskId: command.taskId,
-        executionId: command.executionId,
-        commitSha: command.commitSha,
-        iteration: command.iteration,
-        paths: [...new Set(command.paths)].sort(),
-        actor: command.actor,
-        source: command.source,
-        reconciledAt: command.occurredAt,
-      },
-      witnesses = [...snapshot.codeDocWitnesses.filter((value) => value.executionId !== command.executionId), witness];
-    return {
-      snapshot: {
-        ...snapshot,
-        revision: command.workspaceRevision,
-        codeDocWitnesses: witnesses,
-      },
-      event: envelope<CodeDocReconciledEvent>(command, "code_doc_reconciled", {
-        task: snapshot.task as TaskV2,
-        execution: current,
-        witness,
-      }),
     };
   },
 };

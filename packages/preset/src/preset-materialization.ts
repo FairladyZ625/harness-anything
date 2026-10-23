@@ -5,7 +5,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const reservedMaterializedPath =
-  /^(?:(?:index|facts|progress)\.md|(?:task-contract|code-doc-anchors)\.json|(?:executions|reviews)(?:\/|$))$/iu;
+  /^(?:(?:index|facts|progress)\.md|task-contract\.json|(?:executions|reviews)(?:\/|$))$/iu;
 
 export function materializeSelections(entries: readonly ResolverScaffoldSelection[], locale: "zh-CN" | "en-US") {
   const groups = new Map<CatalogSource, ResolverScaffoldSelection[]>(),

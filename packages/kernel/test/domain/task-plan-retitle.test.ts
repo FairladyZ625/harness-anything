@@ -67,7 +67,6 @@ const snapshot = (title: string): TaskLifecycleSnapshot =>
     executions: [],
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,

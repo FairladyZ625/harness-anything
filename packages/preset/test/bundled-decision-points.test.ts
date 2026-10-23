@@ -9,6 +9,7 @@ import {
   decisionWhenMatches,
   type DecisionPointDeclaration,
 } from "@harness-anything/kernel";
+import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/projection/historical-event-normalization";
 import { validatePresetSnapshotV1, type PresetSnapshotV1 } from "../src/preset.contract.ts";
 import { loadCanonicalAssets } from "../src/preset-assets.ts";
 import { createCanonicalPresetResolver } from "../src/preset-resolver.ts";
@@ -73,7 +74,9 @@ test("a repository that enables the point gets the new filter through the real r
 test("the frozen snapshot an existing task carries still validates and still excludes ruling stops", () => {
   // The installed/frozen path: a task created before this change keeps its own snapshot document and
   // digest, so the completion contract it was reviewed under does not change behind its back.
-  assert.deepEqual(validatePresetSnapshotV1(frozenSnapshot), []);
+  // The document is a pre-retirement snapshot, so it names the retired `codeDoc` default; every ledger
+  // ingest normalizes that field away before a snapshot is stored, which is what this asserts.
+  assert.deepEqual(validatePresetSnapshotV1(normalizeHistoricalPresetSnapshot(frozenSnapshot)), []);
   assert.match(frozenSnapshot.digest, /^sha256:[0-9a-f]{64}$/u);
   assert.equal(
     decisionWhenMatches(previousPoint.when, { outcome: "stopped", classification: "awaiting_ruling" }),

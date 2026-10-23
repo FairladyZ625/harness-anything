@@ -216,7 +216,7 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 156 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 154 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
   // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
   // dec_2AAF1D0612D3295C80F87E49FE CH1 authorizes daemon-mediated task push.
@@ -224,9 +224,16 @@ test("G0-2 traces all 156 declared writes, including queued task catalog ingress
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: authorized runtime steering action.
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to the worker's gh.
-  assert.equal(result.rows.length, 156);
+  // Owner 2026-10-21 B3 deletes the code/doc reconcile and repoint writes with the mechanism.
+  assert.equal(result.rows.length, 154);
   assert.equal(
-    result.rows.some(({ action }) => action === "task-ci" || action === "ci-observe-pull"),
+    result.rows.some(
+      ({ action }) =>
+        action === "task-ci" ||
+        action === "ci-observe-pull" ||
+        action === "task-code-doc-reconcile" ||
+        action === "task-code-doc-repoint",
+    ),
     false,
   );
   assert.deepEqual(result.findings, []);

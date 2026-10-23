@@ -1,6 +1,8 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import type { PresetSnapshotClaim } from "../domain/task-bootstrap-event.ts";
 import type { VerticalCompletionDeclaration } from "../domain/completion-source.ts";
+import { isRetiredCodeDocRequirement } from "../domain/code-doc-retirement.ts";
+import { withoutRetiredCloseoutOverrides } from "../domain/event-shape-migration-event.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
 
 interface HistoricalSnapshot extends Record<string, unknown> {
@@ -18,24 +20,29 @@ export interface ConvertedCompletionSnapshot {
 export function convertCompletionSnapshot(claim: PresetSnapshotClaim, bytes: Uint8Array): ConvertedCompletionSnapshot {
   const original = JSON.parse(new TextDecoder().decode(bytes)) as HistoricalSnapshot,
     { digest: _oldDigest, ...body } = original,
-    { checkerProfile: _retired, ...profile } = original.profile;
+    { checkerProfile: _retired, closeoutOverrides: declaredOverrides, ...profile } = original.profile,
+    overrides = withoutRetiredCloseoutOverrides(declaredOverrides);
   if (original.digest !== claim.digest)
     throw new Error(`snapshot claim does not name its logical digest: ${claim.digest}`);
   const sources: Record<string, VerticalCompletionDeclaration["sources"][string]> = {},
     gates: Record<string, VerticalCompletionDeclaration["gates"][string]> = {};
   for (const gateId of original.profile.completionGateIds) {
-    if (gateId === "code-doc-reconciliation") continue;
     // Retired from live contracts. Keep the historical gate id in its profile snapshot, while
-    // leaving the converted declaration free of a hosted source and execution mapping.
-    if (gateId === "ci") continue;
+    // leaving the converted declaration free of a witness source and execution mapping.
+    if (gateId === "ci" || isRetiredCodeDocRequirement(gateId)) continue;
     throw new Error(`historical snapshot ${claim.digest} has no accepted declaration for gate ${gateId}`);
   }
   const completion: VerticalCompletionDeclaration = {
       sources,
       gates,
-      closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: false },
+      closeoutDefaults: { review: false, consent: false, factDisposition: false },
     },
-    current = { ...body, profile, completion, completionPackages: {} },
+    current = {
+      ...body,
+      profile: overrides === undefined ? profile : { ...profile, closeoutOverrides: overrides },
+      completion,
+      completionPackages: {},
+    },
     digest = `sha256:${sha256Text(stableStringify(current))}` as const,
     value = { ...current, digest } as ConvertedCompletionSnapshot["value"],
     serialized = `${stableStringify(value)}\n`,

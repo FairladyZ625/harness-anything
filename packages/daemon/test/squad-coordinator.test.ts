@@ -65,7 +65,6 @@ test("squad lease reacquisition reports conflict when another actor takes the re
       executions: [execution],
       reviews: [],
       consents: [],
-      codeDocWitnesses: [],
       gateWitnesses: [],
       edgesTaken: [],
       lease: foreignLease,

@@ -24,7 +24,6 @@ export type TaskStuckItem =
 /** kernel gate detail 机器码 → i18n 键(closeout-readiness/judgeGateWitnesses 的稳定原句)。 */
 const GATE_DETAIL_KEYS: Readonly<Record<string, MessageKey>> = {
   "no submitted execution cut": "components.gateReason.awaitSubmission",
-  "current execution cut has no code/doc witness": "components.gateReason.noCodeDocWitness",
   "current execution cut has no gate witness": "components.gateReason.noGateWitness",
   "current execution cut did not pass": "components.gateReason.notPassed",
   "witness projection unknown": "components.gateReason.projectionUnknown",

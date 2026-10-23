@@ -397,7 +397,6 @@ function snapshotArrays(extra = {}) {
     executions: [],
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
     ...extra,
   };

@@ -24,7 +24,6 @@ active Execution(持有 lease)
     ▼
 [ doc sync + 从 closeout.md 派生 Submission packet ] ─ 拒绝 ─▶ (状态不变)
     │ submitted → in_review
-    │  ha task code-doc reconcile <id> --path ...   (契约声明时)
     │  ha task declare-executor <id>
     │  ha task review-execution <id> ...
     │  ha task review-consent <id>
@@ -104,17 +103,11 @@ preset/profile 的 `completionGates`,执行 `completion-readiness.ts` 的确定�
 | `review_missing` | 缺 approved Review |
 | `consent_missing` | 缺 review-consent 记录 |
 | `delivery_missing` | 仓库设置要求代码交付已合入，但执行记录的合入 commit 不在配置的目标分支上；旧冻结 `ci` gate 也只读使用同一合入证据 |
-| `code_doc_missing` | 契约声明 `code-doc-reconciliation` 但缺已验证 witness(`ha task code-doc reconcile`) |
 | `gate_witness_missing` | 其他声明门的 canonical checker 见证缺失 |
 | `decision_lineage_missing` | 承重 decision 谱系未闭合 |
 | `lease_held` | 仍有未释放 lease |
 | `doc_sync_required` | 有待同步的撰写文档 |
 | `fact_retirement_undeclared` | fact 退役未声明 |
-
-对于适用的 Execution,`ha task code-doc reconcile <task-id>` 会从唯一 submitted
-execution 的 deliverables 自动取 execution、commit、iteration 与公开仓路径,对着拥有该
-commit 的 Git 仓库验证路径,再发布 typed witness。已复核的 report-only submission
-若声明的交付物全是任务包工件,可以直接完成,不必伪造公开仓路径。
 
 只要任一 blocker 存在,task 就原地不动;而且因为 `done` 是一次承重写入,这次写入本身要走
 [写路径](02-write-path.md)里描述的唯一写者,所以被接受的迁移会留下一条持久、可追溯的痕迹。

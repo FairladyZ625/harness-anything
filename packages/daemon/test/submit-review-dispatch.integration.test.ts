@@ -369,7 +369,11 @@ test("a baseline-profile sibling under strict settings dispatches at submit", { 
     await runChildSlice(f, "task-standard-child", "execution-standard-child", {});
     const child = createdTask(f.events(), "task-standard-child");
     assert.equal(child.closeoutOverrides, undefined, "the baseline child freezes no closeout override");
-    assert.equal(child.completionGateIds.includes("code-doc-reconciliation"), true);
+    assert.equal(
+      child.completionGateIds.includes("code-doc-reconciliation"),
+      false,
+      "the standard preset no longer freezes the retired gate",
+    );
     assert.equal(
       f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
       1,

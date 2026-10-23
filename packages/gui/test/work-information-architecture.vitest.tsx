@@ -57,8 +57,6 @@ describe("work information architecture", () => {
       ["executions", { executionId: "e", claimedAt: "2026-01-01", closedAt: "2026-02-01" }],
       ["reviews", { reviewId: "r", reviewedAt: "2026-02-01" }],
       ["consents", { consentId: "c", consentedAt: "2026-02-01" }],
-      ["codeDocWitnesses", { schema: "code-doc-witness/v1", witnessId: "w", reconciledAt: "2026-02-01" }],
-      ["codeDocWitnesses", { schema: "code-doc-repoint/v1", recordId: "w", repointedAt: "2026-02-01" }],
       ["gateWitnesses", { gateId: "g", verifiedAt: "2026-02-01" }],
     ] as const;
     for (const [field, witness] of fields) {
@@ -73,7 +71,6 @@ describe("work information architecture", () => {
         executions: [],
         reviews: [],
         consents: [],
-        codeDocWitnesses: [],
         gateWitnesses: [],
         [field]: [witness],
       };

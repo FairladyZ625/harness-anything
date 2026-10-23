@@ -34,5 +34,5 @@ export interface CompletionGateDeclaration {
 export interface VerticalCompletionDeclaration {
   readonly sources: Readonly<Record<string, WitnessSourceDefinition>>;
   readonly gates: Readonly<Record<string, CompletionGateDeclaration>>;
-  readonly closeoutDefaults: Readonly<Partial<Record<"review" | "consent" | "factDisposition" | "codeDoc", boolean>>>;
+  readonly closeoutDefaults: Readonly<Partial<Record<"review" | "consent" | "factDisposition", boolean>>>;
 }

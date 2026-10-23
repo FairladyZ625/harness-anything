@@ -74,11 +74,14 @@ test("attach migration registry covers each retired historical field and is idem
     attachMigrationRegistry.map(({ name }) => name),
     [
       "closeout-overrides.fact",
+      "closeout-overrides.codeDoc",
       "schedule.ciObserve",
       "squad-run.subject",
       "settings.ci",
+      "settings.closeout.codeDoc",
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
+      "vertical.completion.closeoutCodeDoc",
     ],
   );
   assert.deepEqual(
@@ -87,6 +90,7 @@ test("attach migration registry covers each retired historical field and is idem
   );
   const { store, events, reads } = fakeStore([
     envelope("task-event/v1", { task: { closeoutOverrides: { fact: false } } }, "old-task"),
+    envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true } } }, "old-task-code-doc"),
     envelope("schedule-event/v1", { schedule: { status: { ciObserve: { workflow: "retired" } } } }, "old-schedule"),
     envelope(
       "agent-runtime-event/v1",
@@ -95,8 +99,22 @@ test("attach migration registry covers each retired historical field and is idem
     ),
     envelope("settings-event/v1", { settings: { ci: { workflows: ["rewrite-ci"] } } }, "old-settings"),
     envelope(
+      "settings-event/v1",
+      { settings: { closeout: { overrides: { codeDoc: true, review: false } } } },
+      "old-closeout-settings",
+    ),
+    envelope(
       "vertical-declaration-event/v1",
-      { declaration: { definition: { completion: { sources: { ci: { kind: "github-actions" } } } } } },
+      {
+        declaration: {
+          definition: {
+            completion: {
+              sources: { ci: { kind: "github-actions" } },
+              closeoutDefaults: { codeDoc: true },
+            },
+          },
+        },
+      },
       "old-vertical",
     ),
     {
@@ -125,16 +143,19 @@ test("attach migration registry covers each retired historical field and is idem
   const first = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" });
   assert.deepEqual(first.applied, [
     "closeout-overrides.fact",
+    "closeout-overrides.codeDoc",
     "schedule.ciObserve",
     "squad-run.subject",
     "settings.ci",
+    "settings.closeout.codeDoc",
     "runtime.reviewDispatchKey",
     "vertical.completion.sources",
+    "vertical.completion.closeoutCodeDoc",
   ]);
-  assert.equal(events.length, 12);
+  assert.equal(events.length, 17);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 12);
+  assert.equal(events.length, 17);
   assert.equal(reads.queryEvents, 0, "attach migration scans use bounded event batches");
   assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
 });
@@ -158,6 +179,43 @@ test("attach migration scan reports monotonic progress while paging historical e
   ]);
   assert.equal(reads.queryEvents, 0);
   assert.equal(reads.readBatch, 3);
+});
+
+test("a retired codeDoc step still runs on a ledger that already applied its parent step", () => {
+  // Ledgers that installed the code/doc mechanism before 2026-10-21 already recorded
+  // `settings.ci` / `vertical.completion.sources`; folding the new field into either step would
+  // skip it wholesale and leave the retired value unrecorded. Each field owns its own step name.
+  const migrationEvent = (migration: string) =>
+    ({
+      schema: "event-shape-migration/v1",
+      eventId: `event-upgrade-${migration}`,
+      workspaceRevision: 1,
+      opId: `upgrade-${migration}`,
+      type: "event_shape_migration_applied",
+      actor,
+      source: "local",
+      occurredAt: "2026-10-20T00:00:00.000Z",
+      payload: { migration, version: 1, sourceRevision: 0, affectedEvents: 1 },
+    }) as unknown as PersistedCanonicalEventV1;
+  const { store, events } = fakeStore([
+    migrationEvent("settings.ci"),
+    migrationEvent("vertical.completion.sources"),
+    envelope(
+      "settings-event/v1",
+      { settings: { closeout: { overrides: { codeDoc: true } } } },
+      "old-closeout-settings",
+    ),
+    envelope(
+      "vertical-declaration-event/v1",
+      { declaration: { definition: { completion: { closeoutDefaults: { codeDoc: true } } } } },
+      "old-vertical",
+    ),
+  ]);
+  assert.deepEqual(applyAttachMigrations({ store }).applied, [
+    "settings.closeout.codeDoc",
+    "vertical.completion.closeoutCodeDoc",
+  ]);
+  assert.equal(events.length, 6);
 });
 
 test("historical reviewer dispatch key normalization preserves all dispatch identities and ignores other lanes", () => {
@@ -281,6 +339,69 @@ test("attach notices a retired source embedded in a task preset snapshot blob", 
   assert.deepEqual(applyAttachMigrations({ store }).applied, ["vertical.completion.sources"]);
 });
 
+test("attach records the retired codeDoc override on both of its carriers", () => {
+  // `codeDoc` is not only a task-bound override: a preset profile froze it into
+  // `preset-snapshot/v1`, and that snapshot is content the matcher must read. One step covers both
+  // carriers; the snapshot's declared `completion` default is a different field with its own step.
+  const events = [
+      envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true, review: false } } }, "old-task"),
+      envelope("task-bootstrap-event/v1", { presetSnapshotClaim: { sha256: "profile-blob" } }, "old-bootstrap"),
+    ] as PersistedCanonicalEventV1[],
+    store = {
+      readHead: () => ({ revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) }),
+      readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
+      queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+      readBatch: (cursor: string | null, maxItems: number) => {
+        const start = cursor === null ? 0 : Number(cursor),
+          page = events.slice(start, start + maxItems),
+          next = start + page.length;
+        return {
+          sourceRevision: events.length,
+          events: page,
+          cursor: page.length > 0 ? String(next) : cursor,
+          done: next >= events.length,
+          accessedItems: page.length,
+        };
+      },
+      readContentBlob: () =>
+        Buffer.from(
+          JSON.stringify({
+            schema: "preset-snapshot/v1",
+            profile: { id: "baseline", completionGateIds: [], closeoutOverrides: { codeDoc: true } },
+            completion: { sources: {}, gates: {}, closeoutDefaults: {} },
+          }),
+        ),
+      append: ({ event }: { readonly event: PersistedCanonicalEventV1 }) => {
+        events.push(event);
+        return {};
+      },
+    } as unknown as CanonicalEventStore;
+  assert.deepEqual(applyAttachMigrations({ store }).applied, ["closeout-overrides.codeDoc"]);
+});
+
+test("historical projection strips the retired codeDoc override from task and preset carriers", () => {
+  const task = normalizeHistoricalEvent(
+      envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true, review: false } } }, "task-code-doc"),
+    ) as unknown as { readonly payload: { readonly task: { readonly closeoutOverrides?: unknown } } },
+    onlyCodeDoc = normalizeHistoricalEvent(
+      envelope("task-event/v1", { task: { closeoutOverrides: { codeDoc: true } } }, "task-code-doc-only"),
+    ) as unknown as { readonly payload: { readonly task: Record<string, unknown> } };
+  assert.deepEqual(task.payload.task.closeoutOverrides, { review: false });
+  assert.equal(Object.hasOwn(onlyCodeDoc.payload.task, "closeoutOverrides"), false);
+  assert.deepEqual(
+    normalizeHistoricalPresetSnapshot({
+      schema: "preset-snapshot/v1",
+      profile: { id: "baseline", completionGateIds: [], closeoutOverrides: { codeDoc: true, consent: false } },
+      completion: { sources: {}, gates: {}, closeoutDefaults: {} },
+    }),
+    {
+      schema: "preset-snapshot/v1",
+      profile: { id: "baseline", completionGateIds: [], closeoutOverrides: { consent: false } },
+      completion: { sources: {}, gates: {}, closeoutDefaults: {} },
+    },
+  );
+});
+
 test("historical projection normalizes each registered retired field without changing claims", () => {
   const task = normalizeHistoricalEvent(
       envelope("task-event/v1", { task: { closeoutOverrides: { fact: false, review: true } } }, "task-normalize"),
@@ -358,4 +479,28 @@ test("historical projection normalizes each registered retired field without cha
       completion: { sources: { manual: { kind: "manual" } }, gates: { manual: { source: "manual" } } },
     },
   );
+});
+
+test("the retired code/doc closeout default never makes an accepted declaration unreadable", () => {
+  // Accepted `vertical.json`, every ledger preset snapshot and the bundled 1.4.0 vertical still
+  // name `closeoutDefaults.codeDoc`; removing the field from the schema must normalize it away.
+  const legacy = {
+    schema: "preset-snapshot/v1",
+    completion: { sources: {}, gates: {}, closeoutDefaults: { review: false, codeDoc: true } },
+  };
+  assert.deepEqual(normalizeHistoricalPresetSnapshot(legacy), {
+    schema: "preset-snapshot/v1",
+    completion: { sources: {}, gates: {}, closeoutDefaults: { review: false } },
+  });
+  const declaration = {
+    schema: "repository-vertical-declaration/v1",
+    definition: { completion: { sources: {}, gates: {}, closeoutDefaults: { codeDoc: true } } },
+  };
+  assert.deepEqual(normalizeHistoricalVerticalDocument(declaration), {
+    schema: "repository-vertical-declaration/v1",
+    definition: { completion: { sources: {}, gates: {}, closeoutDefaults: {} } },
+  });
+  // A record without the retired field is returned unchanged, so normalization stays a no-op.
+  const current = { schema: "preset-snapshot/v1", completion: { sources: {}, gates: {}, closeoutDefaults: {} } };
+  assert.equal(normalizeHistoricalPresetSnapshot(current), current);
 });

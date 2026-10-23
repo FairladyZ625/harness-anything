@@ -33,7 +33,6 @@ export type CompletionBlockerCode =
   | "review_missing"
   | "consent_missing"
   | "delivery_missing"
-  | "code_doc_missing"
   | "decision_lineage_missing"
   | "lease_held"
   | "doc_sync_required"
@@ -278,7 +277,6 @@ function evaluateCompletion(
       review: true,
       consent: true,
       factDisposition: true,
-      codeDoc: true,
     },
     assessment = closeoutReadiness(snapshot, undefined, closeoutGates, context.delivery);
   const submission = execution.submission;
@@ -294,35 +292,23 @@ function evaluateCompletion(
       reviewReturnCommand(task.taskId, changes.reviewId),
       `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
     );
-  // An empty manifest leaves the holder no path to reconcile: completion preparation writes that
-  // witness itself, so it is never the step to name.
-  const reconcilable = closeoutGates.codeDoc && submission.deliverables.length > 0;
   const gate = assessment.gates.find(({ gateId, status }) => {
     const requirement = submission.completionContract.gates.find((candidate) => candidate.gateId === gateId);
     return (
       !gateSatisfied(status) &&
       !(context.delivery?.required && isRetiredCiRequirement(gateId, requirement)) &&
-      (gateId !== "code-doc-reconciliation" || reconcilable) &&
       !context.preparedGateIds?.includes(gateId)
     );
   });
   if (gate)
-    return gate.gateId === "code-doc-reconciliation"
-      ? one(
-          "code_doc_missing",
-          gate.gateId,
-          `ha task code-doc reconcile ${task.taskId}` +
-            submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
-          "The submitted execution cut has no canonical code/doc witness.",
-        )
-      : one(
-          "gate_witness_missing",
-          gate.gateId,
-          witnessCommand(task.taskId, gate.gateId, gate.status, submission.completionContract, executionId),
-          gate.status === "signoff_missing"
-            ? `Gate ${gate.gateId} passed its automated witness and requires a human signoff for this execution cut.`
-            : (gate.detail ?? `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`),
-        );
+    return one(
+      "gate_witness_missing",
+      gate.gateId,
+      witnessCommand(task.taskId, gate.gateId, gate.status, submission.completionContract, executionId),
+      gate.status === "signoff_missing"
+        ? `Gate ${gate.gateId} passed its automated witness and requires a human signoff for this execution cut.`
+        : (gate.detail ?? `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`),
+    );
   if (lineageOrphan(task, snapshot.decisionRelations ?? []))
     return one(
       "decision_lineage_missing",

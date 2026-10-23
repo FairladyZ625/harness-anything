@@ -296,32 +296,6 @@ export function lifecycleHarness() {
         },
       );
     },
-    reconcile: async (executionId: string, reconciledCommitSha: string, opId = `op-code-doc-${revision() + 1}`) => {
-      const next = revision() + 1,
-        snapshot = (await service.read("task-1")).snapshot;
-      return service.execute(
-        command(
-          owner,
-          next,
-          {
-            type: "ReconcileCodeDoc",
-            taskId: "task-1",
-            executionId,
-            witnessId: `witness-${next}`,
-            commitSha: reconciledCommitSha,
-            iteration: snapshot.task?.iteration ?? 0,
-            paths: [],
-          },
-          opId,
-        ),
-        {
-          actorBinding: owner,
-          capability: "code-doc-reconcile@v1",
-          capabilityRef: `cap-${opId}`,
-          commitPaths: { commitSha: reconciledCommitSha, paths: [] },
-        },
-      );
-    },
     consent: async (
       executionId: string,
       opId = `op-consent-${revision() + 1}`,
@@ -368,7 +342,7 @@ export function lifecycleHarness() {
         capabilityRef: `cap-${opId}`,
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, factDisposition: true },
         gateReceipts: [],
       });
     },

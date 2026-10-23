@@ -77,7 +77,9 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    // Version 38 indexes historical reviewer-qualified dispatch keys.
+    // Version 38 indexes historical reviewer-qualified dispatch keys and drops the retired
+    // code/doc witness field; task_091649528317e9e2fb33849b87 added localeCompare-compatible
+    // indexed decision-list pagination.
     assert.equal(taskProjectionSchemaVersion, 38);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,

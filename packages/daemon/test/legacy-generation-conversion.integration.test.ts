@@ -1204,7 +1204,7 @@ for (const unpinned of [false, true]) {
           pin = submissionDigest(submission);
         assert.deepEqual(submission.completionContract, {
           ...emptyCompletionContract,
-          closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+          closeoutGates: { review: false, consent: false, factDisposition: false },
         });
         for (const event of events) {
           if (event.payload.execution?.submission) assert.deepEqual(event.payload.execution.submission, submission);

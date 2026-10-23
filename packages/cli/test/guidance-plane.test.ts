@@ -279,7 +279,7 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
         guidance,
       }),
       shared = [
-        "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+        "contract: repository-diff requires a committable public-repository diff and real CI. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
           "harness/tasks/task-a/task_plan.md; keep every section heading the preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +

@@ -129,7 +129,7 @@ export function makeBaselineReadModel({ rootDir, projection, kernel, relationGra
               ...derived.map((edge) => ({ kind: "decision-relation", ref: edge.relationId })),
             ],
           },
-          snapshotAvailability = { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" };
+          snapshotAvailability = { consents: "known", gateWitnesses: "known" };
         return {
           ...row,
           snapshotAvailability,

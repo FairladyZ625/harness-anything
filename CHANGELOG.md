@@ -19,9 +19,8 @@ July 9, 2026 documentation canon, and the local code evidence named below.
   Representative PRs: #1, #2, #3, #4, #17, #102-#110, #124, #144, #155, #157,
   #179.
 - Hardened completion so "done" is not just a status write: task completion
-  requires evidence, review verdicts, closeout checks, CI input, and code-doc
-  reconciliation anchors. Representative PRs: #17, #28, #119, #120, #157,
-  #171, #200, #478.
+  requires evidence, review verdicts, and closeout checks. Representative PRs:
+  #17, #28, #119, #120, #157, #171, #200, #478.
 - Standardized command receipts, error codes, help output, command events, and
   capabilities so agents receive machine-readable feedback instead of prose-only
   failure messages. Representative PRs: #73, #75, #76, #78, #82, #143, #229,

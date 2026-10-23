@@ -55,9 +55,7 @@ function taskActionProtocolCommand(action: GeneratedTaskActionProtocolDeclaratio
   const syntaxPath =
     action.id === "transition"
       ? ["task", "transition", "<task-id>", "<planned|active|blocked|in_review|done|cancelled>"]
-      : action.id === "reconcile" || action.id === "repoint"
-        ? ["task", "code-doc", action.id, "<task-id>"]
-        : ["task", execution.ingress.slice("task-".length), "<task-id>"];
+      : ["task", execution.ingress.slice("task-".length), "<task-id>"];
   const declaration = {
     id: execution.ingress,
     phase: "W3",

@@ -14,21 +14,28 @@ import {
 
 export const eventShapeMigrationNames = Object.freeze([
   "closeout-overrides.fact",
+  "closeout-overrides.codeDoc",
   "schedule.ciObserve",
   "squad-run.subject",
   "settings.ci",
+  "settings.closeout.codeDoc",
   "runtime.reviewDispatchKey",
   "vertical.completion.sources",
+  "vertical.completion.closeoutCodeDoc",
 ] as const);
 export type EventShapeMigrationName = (typeof eventShapeMigrationNames)[number];
 export const retiredPersistedSchemaFields = Object.freeze([
   "Task.closeoutOverrides.fact",
+  "Task.closeoutOverrides.codeDoc",
+  "PresetSnapshot.profile.closeoutOverrides.codeDoc",
   "Schedule.status.ciObserve",
   "SquadRun.taskId+executionId",
   "Settings.gates.ci",
   "Settings.ci.workflows",
+  "Settings.closeout.overrides.codeDoc",
   "RuntimeDispatchRequested.payload.dispatchKey",
   "Vertical.completion.sources.*.kind",
+  "Vertical.completion.closeoutDefaults.codeDoc",
 ] as const);
 
 export type EventShapeMigrationEventV1 = EventEnvelope<
@@ -116,10 +123,20 @@ export function assertEventShapeMigrationWritePlan(
     throw new Error("event-shape migration plan must exactly declare event, head, and migration projection targets");
 }
 
+/**
+ * Closeout override keys retired by the code/doc deletion (owner ruling 2026-10-21 14:35, B3).
+ * `fact` is the earlier precedent: a task-bound or preset-profile override that no profile or
+ * setting can still produce. The two read carriers (Task/v2 snapshots and preset-snapshot profiles)
+ * share this one stripper so a new carrier cannot grow its own copy.
+ */
+export const retiredCloseoutOverrideKeys = Object.freeze(["fact", "codeDoc"] as const);
+
 /** Pure transformations shared by attach replay, generation conversion, and document reads. */
-export function withoutRetiredFactCloseoutOverride(value: unknown): unknown {
-  if (!isRecord(value) || typeof value.fact !== "boolean") return value;
-  const remaining = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "fact"));
+export function withoutRetiredCloseoutOverrides(value: unknown): unknown {
+  if (!isRecord(value) || !retiredCloseoutOverrideKeys.some((key) => Object.hasOwn(value, key))) return value;
+  const remaining = Object.fromEntries(
+    Object.entries(value).filter(([key]) => !(retiredCloseoutOverrideKeys as readonly string[]).includes(key)),
+  );
   return Object.keys(remaining).length ? remaining : undefined;
 }
 
@@ -132,11 +149,25 @@ export function withoutRetiredSettings(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const next = structuredClone(value) as Record<string, unknown>;
   let changed = false;
-  for (const [parent, key] of RETIRED_SETTINGS_PATHS) {
-    const group = next[parent];
-    if (!isRecord(group) || !Object.hasOwn(group, key)) continue;
-    delete (group as Record<string, unknown>)[key];
-    if (Object.keys(group).length === 0) delete next[parent];
+  for (const path of RETIRED_SETTINGS_PATHS) {
+    const parents: Record<string, unknown>[] = [];
+    let parent: unknown = next as Record<string, unknown>,
+      present = true;
+    for (const segment of path.slice(0, -1)) {
+      if (!isRecord(parent) || !Object.hasOwn(parent, segment)) {
+        present = false;
+        break;
+      }
+      parents.push(parent);
+      parent = parent[segment];
+    }
+    const key = path.at(-1)!;
+    if (!present || !isRecord(parent) || !Object.hasOwn(parent, key)) continue;
+    const ownerAtKey = parent as Record<string, unknown>;
+    delete ownerAtKey[key];
+    for (const owner of parents.reverse())
+      for (const [candidate, value] of Object.entries(owner))
+        if (isRecord(value) && Object.keys(value).length === 0) delete owner[candidate];
     changed = true;
   }
   if (Array.isArray(next.gates)) {
@@ -219,4 +250,17 @@ export function withReviewerQualifiedDispatchKey(value: unknown): unknown {
       dispatchKey: `${prefix}${match[1]}:${match[2]}:reviewer:${payload.agentId}${match[3]}`,
     },
   };
+}
+
+/**
+ * Retired 2026-10-21 with the code/doc reconciliation mechanism: this default only ever forced the
+ * code/doc gate on. Accepted vertical declarations and preset snapshots still carry it, so reads
+ * normalize it away instead of rejecting the record that named it.
+ */
+export function withoutRetiredCloseoutCodeDoc(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.completion) || !isRecord(value.completion.closeoutDefaults)) return value;
+  const defaults = value.completion.closeoutDefaults;
+  if (!Object.hasOwn(defaults, "codeDoc")) return value;
+  const { codeDoc: _retired, ...rest } = defaults;
+  return { ...value, completion: { ...value.completion, closeoutDefaults: rest } };
 }

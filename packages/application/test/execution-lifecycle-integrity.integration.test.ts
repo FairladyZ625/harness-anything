@@ -126,7 +126,7 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
   }
 });
 
-test("a submission amendment supersedes the bad packet and makes code-doc reconciliation valid", async () => {
+test("a submission amendment supersedes the bad packet and pins the corrected cut", async () => {
   const harness = lifecycleHarness(),
     badCommitSha = "b".repeat(40);
   try {
@@ -134,7 +134,6 @@ test("a submission amendment supersedes the bad packet and makes code-doc reconc
     await harness.start("execution-1");
     await harness.submit("execution-1", "op-submit-bad", "wrong cut", badCommitSha);
 
-    await assert.rejects(harness.reconcile("execution-1", "a".repeat(40)), /submitted commit/u);
     const amended = await harness.amend("execution-1", "op-submit-amend", "corrected cut");
     assert.equal(amended.outcome, "applied");
     assert.equal(amended.snapshot.executions[0]?.submission?.commitSha, "a".repeat(40));
@@ -149,9 +148,9 @@ test("a submission amendment supersedes the bad packet and makes code-doc reconc
       `submission:${submissionDigest(submissions[0].payload.execution.submission)}`,
     );
 
-    const reconciled = await harness.reconcile("execution-1", "a".repeat(40), "op-code-doc-after-amend");
-    assert.equal(reconciled.outcome, "applied");
-    assert.equal(reconciled.snapshot.codeDocWitnesses[0]?.commitSha, "a".repeat(40));
+    // The lifecycle snapshot no longer carries a code/doc witness slot at all: there is nothing
+    // for a later reconcile to write, and no retired command survives in the service vocabulary.
+    assert.equal(Object.hasOwn(amended.snapshot, "codeDocWitnesses"), false);
   } finally {
     await harness.cleanup();
   }

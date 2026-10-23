@@ -79,6 +79,7 @@ export {
   currentSubmittedExecutions,
   isRetiredCiRequirement,
 } from "./closeout-readiness.ts";
+export { isRetiredCodeDocRequirement } from "./code-doc-retirement.ts";
 export {
   completionEvidenceBasis,
   judgeCompletionEvidence,

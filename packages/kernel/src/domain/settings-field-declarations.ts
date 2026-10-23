@@ -191,10 +191,6 @@ const CLOSEOUT_GATE_COPY = {
     description: "Whether every fact (a recorded observation) a task left open must be handled before it completes.",
     effect: "On: open facts block completion. Off: they are left as they are. Unset follows the profile.",
   },
-  codeDoc: {
-    description: "Whether a task's code changes must be checked against the documents describing them.",
-    effect: "On: a task cannot complete until they match. Off: the check is skipped. Unset follows the profile.",
-  },
 } as const;
 
 export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
@@ -501,7 +497,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     action: { field: "closeoutProfile", type: "string" },
     cli: { name: "--closeout-profile", kind: "single", enum: closeoutProfiles },
   }),
-  ...(["review", "consent", "factDisposition", "codeDoc"] as const).map((gate) => {
+  ...(["review", "consent", "factDisposition"] as const).map((gate) => {
     const suffix = `${gate[0]!.toUpperCase()}${gate.slice(1)}`;
     return defineSettingsField({
       path: ["closeout", "overrides", gate],

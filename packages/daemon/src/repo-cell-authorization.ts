@@ -445,10 +445,6 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "task-attest":
       return authorizeRepoCellAction(input);
-    case "task-code-doc-reconcile":
-      return authorizeRepoCellAction(input);
-    case "task-code-doc-repoint":
-      return authorizeRepoCellAction(input);
     case "task-complete":
       return authorizeRepoCellAction(input);
     case "task-contract-migrate":

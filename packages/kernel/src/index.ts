@@ -40,13 +40,10 @@ export type {
 export {
   allowsTaskStatusMove,
   applyTransition,
-  canonicalCodeDocPaths,
   canonicalGateReceipts,
   canStartExecution,
   compileExecutionAnnotation,
   compileExecutionExecutorDeclaration,
-  codeDocRecordId,
-  currentCodeDocWitness,
   executionExecutorDeclarationCandidates,
   heldLeaseForExecutionActor,
   normalizeTaskLifecycleCommand,
@@ -218,7 +215,6 @@ export type {
 } from "./domain/execution.ts";
 export { executionAnnotationKinds, isNativeExecution, submissionDigest } from "./domain/execution.ts";
 export {
-  CODE_DOC_GATE_ID,
   gateAppliesTo,
   gateAppliesToSubmission,
   gateGovernanceFields,

@@ -109,7 +109,6 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
         consentedAt: "2026-08-18T00:03:00.000Z",
       },
     ],
-    codeDocWitnesses: [],
     gateWitnesses: [
       {
         schema: "completion-gate-witness/v1",
@@ -165,7 +164,6 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
       review: false,
       consent: false,
       factDisposition: false,
-      codeDoc: false,
     }),
     forwarded = closeout("pass"),
     awaiting = {
@@ -207,7 +205,7 @@ test("a done projection without an execution cut is not passed", () => {
   );
 });
 
-test("code-doc reconciliation depends only on an explicit witness, never deliverable prose", () => {
+test("a frozen code/doc requirement reads not_applicable instead of demanding a witness", () => {
   const base = closeout("pass"),
     withDeliverables = (deliverables: readonly string[]) => {
       const executions = base.executions.map((execution) => ({
@@ -249,29 +247,15 @@ test("code-doc reconciliation depends only on an explicit witness, never deliver
         })),
       };
     };
-  assert.equal(closeoutReadiness(withDeliverables(["artifacts/reports/audit.md"])).blocker, "gate");
-  assert.equal(closeoutReadiness(withDeliverables(["packages/kernel/src/domain/task.ts"])).blocker, "gate");
-  const explicit = withDeliverables(["README.md (documented outcome)"]);
-  assert.equal(
-    closeoutReadiness({
-      ...explicit,
-      codeDocWitnesses: [
-        {
-          schema: "code-doc-witness/v1",
-          witnessId: "code-doc-explicit",
-          taskId: "task-1",
-          executionId: "exe-1",
-          commitSha,
-          iteration: 0,
-          paths: ["README.md"],
-          actor,
-          source: "local",
-          reconciledAt: "2026-08-18T00:04:00.000Z",
-        },
-      ],
-    }).readiness,
-    "ready",
-  );
+  // The retired gate is out of scope in every acceptance shape; the retains only its own status.
+  for (const deliverables of [["artifacts/reports/audit.md"], ["packages/kernel/src/domain/task.ts"], []]) {
+    const assessment = closeoutReadiness(withDeliverables(deliverables));
+    assert.deepEqual(
+      assessment.gates.map(({ gateId, status }) => [gateId, status]),
+      [["code-doc-reconciliation", "not_applicable"]],
+    );
+    assert.equal(assessment.readiness, "ready");
+  }
 });
 
 test("closeout consumes the latest content-pinned consent selection and ignores other Reviews", () => {
@@ -464,7 +448,7 @@ test("closeout readiness gates work and long_running completion on an active dec
       decisionRelations: edge("derives", "active"),
     },
     undefined,
-    { review: false, consent: false, factDisposition: false, codeDoc: false },
+    { review: false, consent: false, factDisposition: false },
     mergedDelivery,
   );
   assert.equal(gateFirst.readiness, "incomplete");

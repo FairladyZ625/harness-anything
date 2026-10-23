@@ -17,7 +17,7 @@ import { bridgeReady } from "./helpers.mjs";
  * 1120,所以记录实际 contentSize,并把记录行容器本身约束到 360px 实测(行宽、
  * 截断触发、正文不越列都以测得值为准)。
  * 数据面:经 daemon 聚合写口种真实 execution 行(start 建 execution,submit 产生
- * code-doc witness;executionId 由场景给出长值,其余全是真实投影)。submit 的
+ * 提交切片;executionId 由场景给出长值,其余全是真实投影)。submit 的
  * 收口占位门要求先有实质 closeout,在夹具仓预填 closeout.md 由 task-submit 自带
  * 的 doc-sync 步骤带过门;交付门要可解析的 40 位 commit,夹具仓 unborn HEAD,
  * 造一个带长路径文件的交付 commit(daemon 对该仓只做只读 rev-parse/cat-file)。
@@ -59,14 +59,12 @@ export default {
         "",
       ].join("\n"),
     );
-    // 种真实记录行:start 建 execution,submit 的证据准备产生 code-doc witness。
+    // 种真实记录行:start 建 execution,submit 落交付切片。
     // 交付 commit 必须是 start 之后的「新工作」:start 会冻结 deliveryBaseline,
-    // baseline 之后的 diff 才是交付清单——先 commit 再 start 会被判为无新工作
-    // (200f8dc3d 起 no-diff 提交不带 code cut,投影不出 code-doc witness)。
+    // baseline 之后的 diff 才是交付清单——先 commit 再 start 会被判为无新工作。
     // submit 的交付门要一个可在本地解析的 40 位 commit:夹具仓 unborn HEAD,
     // 造一个带长路径文件的交付 commit(daemon 对该仓只做只读 rev-parse/
-    // cat-file)。harness/ 在夹具仓被 .gitignore 忽略,文件放仓根;长 路径
-    // 成为 code-doc witness 的 paths——真实、不可断的机器串探针。
+    // cat-file)。harness/ 在夹具仓被 .gitignore 忽略,文件放根。
     const receipts = {};
     const run = async (payload) => {
       const receipt = await requestDaemonJsonRpcAt(
@@ -85,7 +83,7 @@ export default {
       "entity-ref-long-values-narrow-container-acceptance-probe-20261002-closeout-review-text-overlap.md";
     writeFileSync(
       path.join(fixture.rootDir, LONG_BASENAME),
-      "长值窄容器验收探针:该路径整体进入 code-doc witness 的 paths。\n",
+      "长值窄容器验收探针:该路径整体进入提交切片的 deliverables。\n",
     );
     for (const gitArgs of [
       ["add", LONG_BASENAME],
@@ -119,7 +117,6 @@ export default {
           snapshot: {
             reviews: row?.snapshot?.reviews ?? null,
             consents: row?.snapshot?.consents ?? null,
-            codeDocWitnesses: row?.snapshot?.codeDocWitnesses ?? null,
             gateWitnesses: row?.snapshot?.gateWitnesses ?? null,
             executions: row?.snapshot?.executions?.map((execution) => execution.executionId) ?? null,
           },
@@ -128,18 +125,13 @@ export default {
         2,
       )}\n`,
     );
-    // 验收对象一:Execution 输出行的长 executionId(实体 ID 同一形态,由场景
-    // 给出 70 字符长值,其余列来自真实投影)。验收对象二:code-doc witness 行
-    // 的复制动作。评审记录需要 reviewer runtime,夹具不装,长 review 正文的
-    // DOM 契约由 fast vitest(entity-ref-long-values)覆盖。
-    const codeDocWitness = row?.snapshot?.codeDocWitnesses?.find((witness) => witness.schema === "code-doc-witness/v1");
+    // 验收对象:Execution 输出行的长 executionId(实体 ID 同一形态,由场景给出
+    // 70 字符长值,其余列来自真实投影)。评审记录需要 reviewer runtime,夹具不装,
+    // 长 review 正文与记录行复制的 DOM 契约由 fast vitest(entity-ref-long-values)
+    // 覆盖。
     assert.ok(
       row?.snapshot?.executions?.some((execution) => execution.executionId === EXECUTION_ID),
       `projection must carry the long execution id: ${JSON.stringify(row?.snapshot?.executions?.map((execution) => execution.executionId) ?? null)}`,
-    );
-    assert.ok(
-      codeDocWitness,
-      `projection must carry a code-doc witness: ${JSON.stringify(row?.snapshot?.codeDocWitnesses ?? null)}`,
     );
 
     // 窄窗口(隐藏):minWidth=1120 会把 800 钳回,记录实际 contentSize 作数,
@@ -321,49 +313,12 @@ export default {
       executionOverflow.scroll <= executionOverflow.client + 1,
       `execution row must not spill horizontally (scroll=${executionOverflow.scroll}, client=${executionOverflow.client})`,
     );
-
-    // Code-doc witness 记录行:ID 同一展示叶(computed style),复制动作在行的
-    // 动作位(不在文字上叠按钮),点击后剪贴板拿到完整记录引用。
-    const witnessRow = page.locator(`[id="closeout-record-witness-${codeDocWitness.witnessId.replaceAll("/", "-")}"]`);
-    await witnessRow.waitFor();
-    const witnessIdLeaf = witnessRow.locator("span[title]").first();
-    assert.equal(
-      await witnessIdLeaf.getAttribute("title"),
-      codeDocWitness.witnessId,
-      "hover title keeps the witness id",
-    );
-    const witnessIdStyle = await witnessIdLeaf.evaluate((node) => {
-      const style = globalThis.window.getComputedStyle(node);
-      return { overflow: style.overflow, textOverflow: style.textOverflow, whiteSpace: style.whiteSpace };
-    });
-    assert.deepEqual(witnessIdStyle, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
-    // 见证行同样做窄容器实测(长路径正文留在自身列,行不越容器)。
-    const witnessNarrow = await witnessRow.evaluate((node) => {
-      node.style.width = "360px";
-      const rect = node.getBoundingClientRect();
-      const result = { containerWidth: rect.width, rowScroll: node.scrollWidth, rowClient: node.clientWidth };
-      node.style.width = "";
-      return result;
-    });
-    assert.equal(witnessNarrow.containerWidth, 360);
-    assert.ok(
-      witnessNarrow.rowScroll <= witnessNarrow.rowClient + 1,
-      `witness row must not spill at 360px (scroll=${witnessNarrow.rowScroll}, client=${witnessNarrow.rowClient})`,
-    );
-    // 实际量得的宽度落盘:窗口 contentSize(minWidth 钳制后的真相)与两处
-    // 360px 窄容器的实测行宽/截断触发,不以声称值作数。
+    // 实际量得的宽度落盘:窗口 contentSize(minWidth 钳制后的真相)与 360px 窄容器的
+    // 实测行宽/截断触发,不以声称值作数。
     writeFileSync(
       path.join(runRoot, "task-closeout-long-values-measurements.json"),
-      `${JSON.stringify({ windowContentSize, executionNarrow, witnessNarrow }, null, 2)}\n`,
+      `${JSON.stringify({ windowContentSize, executionNarrow }, null, 2)}\n`,
     );
-    // Wait for the asynchronous copy completion, then compare the captured
-    // renderer request with this row's full record reference (simulated clipboard).
-    await witnessRow.getByRole("button", { name: /^复制$|^Copy$/u }).click();
-    await witnessRow.getByRole("button", { name: /已复制|Copied/u }).waitFor();
-    const leafTitle = await witnessRow.locator("span[title]").first().getAttribute("title");
-    assert.ok(leafTitle !== null);
-    const copied = await page.evaluate(() => globalThis.__guiE2eCopiedText);
-    assert.equal(copied, `witness/${leafTitle}`);
 
     assert.equal(
       await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.window.innerWidth),

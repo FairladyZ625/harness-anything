@@ -56,7 +56,6 @@ const strictSubmitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0
   executions: [],
   reviews: [],
   consents: [],
-  codeDocWitnesses: [],
   gateWitnesses: [],
   edgesTaken: [],
   lease: null,
@@ -71,7 +70,7 @@ function frozenCut(closeout: CloseoutSettingsV1, overrides = {}) {
         ...execution.submission!,
         completionContract: {
           ...execution.submission!.completionContract,
-          closeoutGates: effectiveCloseoutGates(closeout, [], overrides),
+          closeoutGates: effectiveCloseoutGates(closeout, overrides),
         },
       },
     })),
@@ -139,7 +138,6 @@ test("standard profile read side reports no closed-gate completion blockers", ()
     review: false,
     consent: false,
     factDisposition: false,
-    codeDoc: false,
   });
   assert.equal(taskCompletionNext(submitted, context).blocker, null);
 });
@@ -150,7 +148,6 @@ test("strict profile read side keeps demanding review and consent", () => {
     review: true,
     consent: true,
     factDisposition: true,
-    codeDoc: true,
   });
   assert.equal(Object.hasOwn(context.closeoutGates, "fact"), false);
   assert.equal(strictSubmitted.task?.status, "in_review");
@@ -171,7 +168,7 @@ test("a factless cut completes under the standard profile: facts carry no comple
 });
 
 test("the task query closeout judgment follows the effective gate set", () => {
-  const availability = { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" } as const,
+  const availability = { consents: "known", gateWitnesses: "known" } as const,
     standard = repoCellTaskQueryJudgmentsFor(projection({ profile: "standard" })).closeout(submitted, availability),
     strict = repoCellTaskQueryJudgmentsFor(projection({ profile: "strict" })).closeout(strictSubmitted, availability);
   assert.equal(standard.readiness, "ready");
@@ -333,7 +330,6 @@ test("merge evidence retires only the CI gate and does not lift review or consen
         executions: [],
         reviews: [],
         consents: [],
-        codeDocWitnesses: [],
         gateWitnesses: [],
         edgesTaken: [],
         lease: null,
@@ -343,7 +339,7 @@ test("merge evidence retires only the CI gate and does not lift review or consen
     context = {
       closeout: "ready" as const,
       closeoutPath: "closeout.md",
-      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, factDisposition: true },
       eligibleDirtyPaths: [],
       projectionStatus: "ready" as const,
       delivery,
@@ -367,7 +363,6 @@ test("merge evidence retires only the CI gate and does not lift review or consen
     executions: [],
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,

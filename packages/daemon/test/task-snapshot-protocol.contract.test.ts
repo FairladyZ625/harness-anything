@@ -7,20 +7,37 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
-const repoint = {
-  schema: "code-doc-witness-repoint/v1",
-  recordId: "code-doc-repoint-0123456789abcdef",
-  supersedes: "code-doc-0123456789abcdef",
+const gateWitness = {
+  schema: "completion-gate-witness/v1",
+  subjects: [],
+  predicateType: "human/v1",
+  predicate: {},
+  diagnostic: "human attestation",
+  witnessId: "gate-run-0123456789abcdef",
+  receiptId: "receipt-0123456789abcdef",
+  checkerId: "signoff",
+  gateId: "signoff",
+  result: "pass",
   taskId: "task-repoint",
   executionId: "execution-repoint",
   commitSha: "a".repeat(40),
   iteration: 0,
-  paths: ["tasks/task-repoint/report.md"],
-  disposition: "repointed",
-  reason: "Correct the ledger-root path.",
   actor,
   source: "local",
-  repointedAt: "2026-08-25T00:00:00.000Z",
+  verifiedAt: "2026-08-25T00:00:00.000Z",
+  observed: true,
+  basis: {
+    executionId: "execution-repoint",
+    iteration: 0,
+    submissionDigest: `sha256:${"a".repeat(64)}`,
+    codeCommit: "a".repeat(40),
+  },
+  provenance: {
+    source: "human",
+    adapterId: "manual-attest",
+    runId: "attest-repoint",
+    rawResult: "approved",
+  },
 } as const;
 const row = {
   taskId: "task-repoint",
@@ -39,11 +56,10 @@ const row = {
     lease: null,
     decisionRelations: [],
     consents: [],
-    codeDocWitnesses: [repoint],
-    gateWitnesses: [],
+    gateWitnesses: [gateWitness],
   },
   coordinationStatus: "unknown",
-  snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+  snapshotAvailability: { consents: "known", gateWitnesses: "known" },
   closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] },
   blockingAssessment: { taskId: "task-repoint", state: "clear", label: "none", blockers: [], warnings: [] },
   placement: {
@@ -81,7 +97,7 @@ const list = {
   invalidRows: [],
 } as const;
 
-test("task snapshot protocol accepts audited code-doc repoints", () => {
+test("task snapshot protocol accepts audited gate witnesses", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
 });
 
@@ -94,7 +110,7 @@ test("task snapshot protocol isolates a malformed field with its source row iden
   const malformed = {
       ...row,
       taskId: "task-invalid",
-      snapshot: { ...row.snapshot, codeDocWitnesses: [{ ...repoint, reason: "" }] },
+      snapshot: { ...row.snapshot, gateWitnesses: [{ ...gateWitness, result: "" }] },
     },
     isolated = isolateDaemonTaskSnapshotRows([row, malformed]),
     result = { ...list, ...isolated };
@@ -102,7 +118,7 @@ test("task snapshot protocol isolates a malformed field with its source row iden
   assert.deepEqual(isolated.rows, [row]);
   assert.deepEqual(
     isolated.invalidRows.map(({ message: _message, ...diagnostic }) => diagnostic),
-    [{ rowIndex: 1, taskId: "task-invalid", field: "rows[1].snapshot.codeDocWitnesses[0]" }],
+    [{ rowIndex: 1, taskId: "task-invalid", field: "rows[1].snapshot.gateWitnesses[0]" }],
   );
   assert.match(isolated.invalidRows[0]!.message, /^actual=.*Task snapshot field is invalid\.$/u);
   assert.deepEqual(validateDaemonTaskSnapshotList(result), []);

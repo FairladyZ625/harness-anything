@@ -123,9 +123,13 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
             },
           },
           {
-            gateId: "code-doc-reconciliation",
+            gateId: "lint",
             appliesTo: "code" as const,
-            witness: { kind: "internal", adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+            witness: {
+              adapterId: "research/check" as const,
+              ...completionSnapshot.completion.sources["research/check"],
+              adapterOptions: {},
+            },
           },
           {
             gateId: "attest",
@@ -160,9 +164,8 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   assert.equal(basis.ledgerCut, 7);
   const snapshot = {
     executions: [artifactExecution],
-    task: { completionGateIds: ["ci", "code-doc-reconciliation", "attest"] },
+    task: { completionGateIds: ["ci", "lint", "attest"] },
     gateWitnesses: [],
-    codeDocWitnesses: [],
   } as unknown as Parameters<typeof gateResults>[0];
   // An artifact-only cut has no public commit: code-scoped gates report not_applicable — never
   // missing and never pass — while the artifact-scoped gate still demands its witness.
@@ -177,7 +180,7 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
     artifactResults.map((gate) => [gate.gateId, gate.status]),
     [
       ["ci", "not_applicable"],
-      ["code-doc-reconciliation", "not_applicable"],
+      ["lint", "not_applicable"],
       ["attest", "missing"],
     ],
   );

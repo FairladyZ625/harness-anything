@@ -5,6 +5,7 @@ import {
   isEventShapeMigrationEvent,
   retiredPersistedSchemaFields,
   withReviewerQualifiedDispatchKey,
+  withoutRetiredCloseoutCodeDoc,
   withoutRetiredVerticalHostedCi,
   type EventShapeMigrationEventV1,
   type EventShapeMigrationName,
@@ -23,14 +24,43 @@ export type AttachMigrationRegistryEntry = Readonly<{
   ) => boolean;
 }>;
 
-function taskHasRetiredFact(event: PersistedCanonicalEventV1): boolean {
+function taskOverrideAt(event: PersistedCanonicalEventV1, key: "fact" | "codeDoc"): boolean {
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload)) return false;
   const task =
     event.schema === "migration-import-event/v1" && isRecord(payload.entity) && payload.entity.kind === "task"
       ? payload.entity.task
       : payload.task;
-  return isRecord(task) && isRecord(task.closeoutOverrides) && typeof task.closeoutOverrides.fact === "boolean";
+  return isRecord(task) && isRecord(task.closeoutOverrides) && typeof task.closeoutOverrides[key] === "boolean";
+}
+
+function taskHasRetiredFact(event: PersistedCanonicalEventV1): boolean {
+  return taskOverrideAt(event, "fact");
+}
+
+/**
+ * The same retired key rides two carriers: the task-bound override set and the
+ * `preset-snapshot/v1` profile it was frozen from. The snapshot is content, so the matcher reads
+ * the claimed blob. `vertical.completion.closeoutCodeDoc` owns the declaration default and cannot
+ * absorb this field: a step name already applied on a ledger is skipped wholesale.
+ */
+function hasRetiredCodeDocCloseoutOverride(
+  event: PersistedCanonicalEventV1,
+  readContentBlob?: (sha256: string) => Uint8Array | null,
+): boolean {
+  if (taskOverrideAt(event, "codeDoc")) return true;
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload) || !isRecord(payload.presetSnapshotClaim)) return false;
+  if (typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
+  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
+  if (!bytes) return false;
+  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  return (
+    isRecord(snapshot) &&
+    isRecord(snapshot.profile) &&
+    isRecord(snapshot.profile.closeoutOverrides) &&
+    typeof snapshot.profile.closeoutOverrides.codeDoc === "boolean"
+  );
 }
 
 function hasRetiredScheduleCiObserve(event: PersistedCanonicalEventV1): boolean {
@@ -57,15 +87,38 @@ function hasFlatSquadRunIdentity(event: PersistedCanonicalEventV1): boolean {
   return isRecord(identity) && identity.subject === undefined && typeof identity.taskId === "string";
 }
 
+function settingsAt(
+  settings: Readonly<Record<string, unknown>>,
+  path: readonly string[],
+): Readonly<Record<string, unknown>> {
+  let current: unknown = settings;
+  for (const segment of path.slice(0, -1)) {
+    if (!isRecord(current)) return {};
+    current = current[segment];
+  }
+  return isRecord(current) ? current : {};
+}
+
+const retiredSettingsCodeDocPath = ["closeout", "overrides", "codeDoc"] as const;
+
+/** The settings paths retired by the `settings.ci` step; `closeout.overrides.codeDoc` has its own step. */
+const retiredSettingsCiPaths = RETIRED_SETTINGS_PATHS.filter(
+  (path) => path.join(".") !== retiredSettingsCodeDocPath.join("."),
+);
+
+function hasRetiredSettingsCloseoutCodeDoc(event: PersistedCanonicalEventV1): boolean {
+  if (event.schema !== "settings-event/v1") return false;
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload) || !isRecord(payload.settings)) return false;
+  return Object.hasOwn(settingsAt(payload.settings, retiredSettingsCodeDocPath), "codeDoc");
+}
+
 function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   if (event.schema !== "settings-event/v1") return false;
   const payload = (event as { readonly payload?: unknown }).payload;
   if (!isRecord(payload) || !isRecord(payload.settings)) return false;
   const settings = payload.settings;
-  if (
-    RETIRED_SETTINGS_PATHS.some(([parent, key]) => isRecord(settings[parent]) && Object.hasOwn(settings[parent], key))
-  )
-    return true;
+  if (retiredSettingsCiPaths.some((path) => Object.hasOwn(settingsAt(settings, path), path.at(-1)!))) return true;
   return (
     Array.isArray(settings.gates) &&
     settings.gates.some(
@@ -95,12 +148,44 @@ function hasRetiredVerticalHostedCi(
   return withoutRetiredVerticalHostedCi(snapshot) !== snapshot;
 }
 
+/**
+ * The retired code/doc closeout default is a field of its own step, never folded into
+ * `vertical.completion.sources`: a step name that was already applied on a ledger is skipped
+ * wholesale, so a field added to that entry afterwards would never run there. The same rule bans
+ * reusing `settings.ci` for the settings-side `closeout.overrides.codeDoc` path.
+ */
+function hasRetiredVerticalCloseoutCodeDoc(
+  event: PersistedCanonicalEventV1,
+  readContentBlob?: (sha256: string) => Uint8Array | null,
+): boolean {
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload)) return false;
+  if (event.schema === "vertical-declaration-event/v1" && isRecord(payload.declaration)) {
+    const declaration = payload.declaration;
+    return (
+      isRecord(declaration) &&
+      isRecord(declaration.definition) &&
+      withoutRetiredCloseoutCodeDoc(declaration.definition) !== declaration.definition
+    );
+  }
+  if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
+  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
+  if (!bytes) return false;
+  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  return withoutRetiredCloseoutCodeDoc(snapshot) !== snapshot;
+}
+
 function hasLegacyReviewerDispatchKey(event: PersistedCanonicalEventV1): boolean {
   return withReviewerQualifiedDispatchKey(event) !== event;
 }
 
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
   { name: "closeout-overrides.fact", fields: ["Task.closeoutOverrides.fact"], matches: taskHasRetiredFact },
+  {
+    name: "closeout-overrides.codeDoc",
+    fields: ["Task.closeoutOverrides.codeDoc", "PresetSnapshot.profile.closeoutOverrides.codeDoc"],
+    matches: hasRetiredCodeDocCloseoutOverride,
+  },
   { name: "schedule.ciObserve", fields: ["Schedule.status.ciObserve"], matches: hasRetiredScheduleCiObserve },
   {
     name: "squad-run.subject",
@@ -113,6 +198,11 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     matches: hasRetiredSettingsCi,
   },
   {
+    name: "settings.closeout.codeDoc",
+    fields: ["Settings.closeout.overrides.codeDoc"],
+    matches: hasRetiredSettingsCloseoutCodeDoc,
+  },
+  {
     name: "runtime.reviewDispatchKey",
     fields: ["RuntimeDispatchRequested.payload.dispatchKey"],
     matches: hasLegacyReviewerDispatchKey,
@@ -121,6 +211,11 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     name: "vertical.completion.sources",
     fields: ["Vertical.completion.sources.*.kind"],
     matches: hasRetiredVerticalHostedCi,
+  },
+  {
+    name: "vertical.completion.closeoutCodeDoc",
+    fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
+    matches: hasRetiredVerticalCloseoutCodeDoc,
   },
 ]);
 

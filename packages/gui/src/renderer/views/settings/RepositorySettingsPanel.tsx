@@ -32,7 +32,6 @@ const CLOSEOUT_OVERRIDE_FIELDS: ReadonlySet<string> = new Set([
   "closeoutReview",
   "closeoutConsent",
   "closeoutFactDisposition",
-  "closeoutCodeDoc",
 ]);
 
 /** 「恢复默认」是低注意力的次要动作:无边框弱色文字,悬停才提亮,只在已修改时出现

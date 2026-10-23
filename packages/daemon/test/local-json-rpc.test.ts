@@ -412,7 +412,12 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1: runtime steer is one owner-routed action.
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; task_72d27e77a6004768bddbb0f7fe adds six Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to the worker's gh.
-  assert.equal(actionDeclarations.length, 157);
+  // Owner 2026-10-21 B3 deletes task-code-doc-reconcile and task-code-doc-repoint with the code/doc mechanism.
+  assert.equal(actionDeclarations.length, 155);
+  assert.equal(
+    actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
+    false,
+  );
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "ci-observe-pull" || kind === "task-ci"),
     false,
@@ -510,8 +515,6 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "task-declare-executor": "repo-write",
     "task-review-execution": "arbiter",
     "task-review-consent": "repo-write",
-    "task-code-doc-reconcile": "repo-write",
-    "task-code-doc-repoint": "repo-write",
     "task-complete": "repo-write",
     "task-show": "repo-read",
     "receipt-show": "repo-read",

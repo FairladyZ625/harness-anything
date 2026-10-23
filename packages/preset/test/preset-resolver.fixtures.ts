@@ -28,7 +28,7 @@ export function makeFixture() {
         {
           id: "baseline",
           title: "Baseline",
-          completionGates: ["code-doc-reconciliation"],
+          completionGates: [],
           templateSelections: [],
         },
       ],

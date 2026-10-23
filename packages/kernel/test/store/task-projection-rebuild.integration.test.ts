@@ -24,6 +24,14 @@ import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts
 import { openReplicaStore } from "../../src/store/replica-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { freezeDeclaredWritePlan } from "../../src/domain/write-chain.contract.ts";
+import {
+  emptyTaskLifecycleSnapshot,
+  lifecycleDocumentPaths,
+  reduceTaskEvent,
+  slugifyTaskTitle,
+  validateTaskEvent,
+} from "../../src/index.ts";
+import { validateCurrentTaskEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import {
@@ -47,7 +55,7 @@ import {
 } from "../../src/domain/migration-import-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import { sqliteContentObjectPath, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
@@ -147,7 +155,9 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
     };
     rewrite(1, (event) => {
       const payload = event.payload as { task: Record<string, unknown> };
-      payload.task.closeoutOverrides = { fact: false };
+      // One accepted write can carry both retired keys: the fact quota gate and the code/doc gate
+      // were removed at different times, and neither may make a cold rebuild unreadable.
+      payload.task.closeoutOverrides = { fact: false, codeDoc: true };
     });
     rewrite(2, (event) => {
       const payload = event.payload as { schedule: { status: Record<string, unknown> } };
@@ -202,7 +212,9 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
       settingsDocument = projection.readDocument("harness.yaml").document,
       verticalDocument = projection.readDocument("vertical.json").document;
     assert.ok(taskSnapshot);
+    assert.deepEqual(taskSnapshot.closeoutOverrides, undefined);
     assert.equal(JSON.stringify(taskSnapshot).includes('"fact"'), false);
+    assert.equal(JSON.stringify(taskSnapshot).includes('"codeDoc"'), false);
     assert.ok(scheduleEntity);
     assert.equal(Object.hasOwn(scheduleEntity.value.status as object, "ciObserve"), false);
     assert.ok(settingsEntity);
@@ -276,6 +288,114 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
     );
     replicaProjection.close();
     await replicaReader.drain();
+  });
+});
+test("cold rebuild replays retired code/doc events that claimed their anchor file", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "retired-code-doc-rebuild", rootDir }),
+      events = lifecycleFixture({ complete: false }).events,
+      submitted = events
+        .slice(0, 3)
+        .reduce((state, event) => reduceTaskEvent(state, event), emptyTaskLifecycleSnapshot()),
+      task = submitted.task!,
+      execution = submitted.executions[0]!,
+      packagePath = `tasks/${task.taskId}-${slugifyTaskTitle(task.title)}`,
+      bodies = new Map([
+        [`${packagePath}/INDEX.md`, "# Fixture\n"],
+        [`${packagePath}/executions/${execution.executionId}.md`, "# Execution\n"],
+        [`${packagePath}/code-doc-anchors.json`, '{"schema":"code-doc-anchors/v1"}\n'],
+      ]),
+      claims = [...bodies].map(([claimPath, body]) => ({
+        path: claimPath,
+        sha256: sha256Text(body),
+        size: Buffer.byteLength(body),
+        mediaType: claimPath.endsWith(".json") ? ("application/json" as const) : ("text/markdown" as const),
+        policyId: "typed-machine-writer/v1" as const,
+      }));
+    for (const event of events.slice(0, 3))
+      eventStore.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    // Accepted history wrote the anchor claim and its witness; current admission rejects the type,
+    // so this event can only enter the ledger through the raw historical carrier below.
+    const retired = {
+      schema: "task-event/v1",
+      eventId: "event-retired-code-doc",
+      workspaceRevision: 4,
+      opId: "op-retired-code-doc",
+      taskId: task.taskId,
+      type: "code_doc_reconciled",
+      actor: task.createdBy,
+      source: "local",
+      occurredAt: "2026-08-11T00:03:00.000Z",
+      payload: {
+        task,
+        execution,
+        documentClaims: claims,
+        witness: {
+          schema: "code-doc-witness/v1",
+          witnessId: "code-doc-fixture",
+          taskId: task.taskId,
+          executionId: execution.executionId,
+          commitSha: "a".repeat(40),
+          iteration: 0,
+          paths: ["README.md"],
+          reconciledAt: "2026-08-11T00:03:00.000Z",
+          actor: task.createdBy,
+          source: "local",
+        },
+      },
+    } as unknown as TaskEventV1;
+    assert.deepEqual(validateTaskEvent(retired), [], "accepted history stays readable");
+    assert.notDeepEqual(validateCurrentTaskEvent(retired), [], "no new write may admit the retired type");
+    await eventStore.settlePendingMaterialization();
+    // The ledger is the only carrier of an accepted retired envelope; write the row and the claimed
+    // blobs exactly as the pre-retirement writer left them, without granting current admission.
+    const ledger = new DatabaseSync(sqliteLedgerPath(rootDir)),
+      retiredBytes = serializeCanonicalEventUnchecked(retired as unknown as PersistedCanonicalEventV1);
+    try {
+      ledger
+        .prepare("INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) VALUES(?,?,?,?,?,?)")
+        .run(
+          4,
+          retired.opId,
+          retiredBytes,
+          `sha256:${sha256Text(retiredBytes)}`,
+          retired.occurredAt,
+          retired.occurredAt,
+        );
+      ledger.prepare("UPDATE ledger_meta SET revision = 4 WHERE singleton = 1").run();
+    } finally {
+      ledger.close();
+    }
+    for (const [, body] of bodies) {
+      const objectPath = sqliteContentObjectPath(rootDir, sha256Text(body)),
+        objectDir = path.dirname(objectPath);
+      mkdirSync(objectDir, { recursive: true });
+      writeFileSync(objectPath, body);
+    }
+
+    const projection = makeTaskProjection({
+      rootDir,
+      eventStore,
+      projectionPath: path.join(rootDir, ".harness/cache/retired-code-doc.sqlite"),
+    });
+    const rebuilt = projection.rebuild();
+    assert.equal(rebuilt.watermark, 4);
+    // The retired envelope claimed three paths; a lost anchor path makes this cold rebuild throw
+    // `lifecycle document paths mismatch` before any projection row is readable.
+    assert.deepEqual(
+      lifecycleDocumentPaths(retired, packagePath),
+      claims.map((claim) => claim.path),
+    );
+    for (const [claimPath, body] of bodies)
+      assert.equal(projection.readDocument(claimPath).document?.body, body, claimPath);
+    assert.deepEqual(reduceTaskEvent(submitted, retired), {
+      ...submitted,
+      revision: 4,
+      task,
+      executions: [execution],
+    });
+    projection.close();
   });
 });
 test("task/doc reducers share one SQLite transaction and L2 rebuild restores exact document bytes", async () => {

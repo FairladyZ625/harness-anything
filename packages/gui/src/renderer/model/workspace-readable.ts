@@ -30,8 +30,6 @@ const EVENT_TYPE_KEYS: Readonly<Record<string, MessageKey>> = {
   execution_annotated: "views.workspace.event.execution_annotated",
   review_recorded: "views.workspace.event.review_recorded",
   review_consent_recorded: "views.workspace.event.review_consent_recorded",
-  code_doc_reconciled: "views.workspace.event.code_doc_reconciled",
-  code_doc_repointed: "views.workspace.event.code_doc_repointed",
   completion_gate_verified: "views.workspace.event.completion_gate_verified",
   task_completed: "views.workspace.event.task_completed",
   lease_released: "views.workspace.event.lease_released",

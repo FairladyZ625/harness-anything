@@ -945,8 +945,8 @@
             <span lang="zh">Submission 会封存六字段 packet：completion claim、deliverables、Evidence refs（<code>0..N</code>）、verification notes、known gaps 与 residual risks；纯文字交付合法。Reviewer 记录检查过的 Evidence 与 rationale；locator、归属、digest 与 receipt 检查绝不判断语义充分性（<code>dec_mrg3z1we/CH1-CH4</code>；ADR-0027 D3、D5-D6）。</span>
           </p>
           <p>
-            <span lang="en">Completion applies the deterministic gates declared by the resolved preset/profile. Bundled coding profiles declare CI and code-doc reconciliation, but <code>--ci</code> is not globally required. Execution-bearing tasks require an approved Review, while Facts remain explicit <code>0..N</code> promotions rather than a quantity gate (ADR-0027 D7; <code>dec_mrg3z1we/CH4</code>).</span>
-            <span lang="zh">Completion 只执行解析出的 preset/profile 所声明的确定性门。内置 coding profile 声明 CI 与 code-doc reconciliation，但 <code>--ci</code> 不是全局必填。带 Execution 的任务需要 approved Review；Fact 保持 <code>0..N</code> 显式晋升，不是数量门（ADR-0027 D7；<code>dec_mrg3z1we/CH4</code>）。</span>
+            <span lang="en">Completion applies the deterministic gates declared by the resolved preset/profile. Bundled coding profiles declare CI, but <code>--ci</code> is not globally required. Execution-bearing tasks require an approved Review, while Facts remain explicit <code>0..N</code> promotions rather than a quantity gate (ADR-0027 D7; <code>dec_mrg3z1we/CH4</code>).</span>
+            <span lang="zh">Completion 只执行解析出的 preset/profile 所声明的确定性门。内置 coding profile 声明 CI，但 <code>--ci</code> 不是全局必填。带 Execution 的任务需要 approved Review；Fact 保持 <code>0..N</code> 显式晋升，不是数量门（ADR-0027 D7；<code>dec_mrg3z1we/CH4</code>）。</span>
           </p>
           <button class="chip" type="button" data-target-tab="how" data-target-id="how-gates">
             <span lang="en">See the completion checks in the pipeline</span><span lang="zh">看流水线里的 completion 检查</span>

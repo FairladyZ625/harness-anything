@@ -3,10 +3,8 @@ import {
   canonicalGateReceipts,
   isRetiredCiRequirement,
   closeoutReadiness,
-  codeDocRecordId,
   consumeKnownError,
   consentedApprovedReviewForExecution,
-  currentCodeDocWitness,
   evaluateTaskActionCapability,
   gateResults,
   heldLeaseForExecutionActor,
@@ -35,7 +33,6 @@ import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readDispatchStreamHeader } from "./dispatch-stream.ts";
-import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readTaskLineageDispatches, unsettledCutReviewDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
@@ -441,89 +438,9 @@ export async function proofFor(
       authorizationDecision,
     };
   }
-  if (command.type === "ReconcileCodeDoc") {
-    const verified = verifyCodeDocCommitPaths({ rootDir, commitSha: command.commitSha, paths: command.paths });
-    if (!verified.ok)
-      throw cellCodedError(
-        "invalid_proof",
-        verified.code === "commit_not_found"
-          ? `Code-doc reconcile cannot verify commit ${command.commitSha} in the public or authored Git repository.`
-          : [
-              "Code-doc reconcile requires every --path to exist at commit ",
-              command.commitSha,
-              " relative to the Git repository that owns it; missing or wrong-root paths: ",
-              verified.missingPaths.join(", "),
-              ".",
-            ].join(""),
-        codeDocVerificationDiagnostic("code-doc reconciliation", command.commitSha, command.paths, verified),
-      );
-    return {
-      actorBinding: command.actor,
-      capability: "code-doc-reconcile@v1",
-      capabilityRef: requiredAuthorizationDecision(binding).policyRef,
-      commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
-    };
-  }
-  if (command.type === "RepointCodeDoc") {
-    if (command.paths.length === 0)
-      return {
-        actorBinding: command.actor,
-        capability: "code-doc-repoint@v1",
-        capabilityRef: requiredAuthorizationDecision(binding).policyRef,
-        commitPaths: { commitSha: command.commitSha, paths: command.paths },
-      };
-    const verified = verifyCodeDocCommitPaths({ rootDir, commitSha: command.commitSha, paths: command.paths });
-    if (!verified.ok)
-      throw cellCodedError(
-        "invalid_proof",
-        verified.code === "commit_not_found"
-          ? `Code-doc repoint cannot verify commit ${command.commitSha} in the public or authored Git repository.`
-          : [
-              "Code-doc repoint requires every --path to exist at commit ",
-              command.commitSha,
-              " relative to the Git repository that owns it; missing or wrong-root paths: ",
-              verified.missingPaths.join(", "),
-              ".",
-            ].join(""),
-        codeDocVerificationDiagnostic("code-doc repoint", command.commitSha, command.paths, verified),
-      );
-    return {
-      actorBinding: command.actor,
-      capability: "code-doc-repoint@v1",
-      capabilityRef: requiredAuthorizationDecision(binding).policyRef,
-      commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
-    };
-  }
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
   return completeProof(command, snapshot, binding, projection, rootDir) as TaskLifecycleServiceProof<typeof command>;
-}
-
-function codeDocVerificationDiagnostic(
-  entity: string,
-  commitSha: string,
-  paths: readonly string[],
-  verified: ReturnType<typeof verifyCodeDocCommitPaths>,
-) {
-  if (verified.ok)
-    throw cellCodedError("invalid_store", "Code-doc verification produced a rejection diagnostic for a valid cut.");
-  if (verified.code === "commit_not_found")
-    return {
-      kind: "validation" as const,
-      entity,
-      field: "commitSha",
-      actual: commitSha,
-      expectation: "Commit must exist in the public or authored Git repository",
-    };
-  const missing = verified.missingPaths[0]!,
-    index = Math.max(0, paths.indexOf(missing));
-  return {
-    kind: "validation" as const,
-    entity,
-    field: `paths[${String(index)}]`,
-    actual: missing,
-    expectation: "Path must be relative to the Git repository that owns the submitted commit",
-  };
 }
 
 function validNoIndependentReview(
@@ -630,7 +547,7 @@ export function completeProof(
       capabilityRef: authorizationDecision.policyRef,
       actorRole: "owner",
       noActiveLease: true,
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: false, consent: false, factDisposition: false },
       gateReceipts: [],
       siblingResolution: {
         sourceTaskId: command.resolution.resolvedByTaskId,
@@ -753,18 +670,8 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
         (snapshot.task?.status === "done" && isRetiredCiRequirement(gate, requirement)) ||
         gateStatus === "passed" ||
         gateStatus === "waived",
-      candidate =
-        gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
-      codeDoc =
-        passed &&
-        candidate &&
-        execution?.submission &&
-        candidate.iteration === execution.iteration &&
-        (candidate.schema === "code-doc-witness-repoint/v1" || candidate.commitSha === execution.submission.commitSha)
-          ? candidate
-          : undefined,
       witness =
-        passed && gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
+        passed && execution?.schema === "execution/v1"
           ? snapshot.gateWitnesses.find(
               (value) =>
                 value.gateId === gate &&
@@ -777,7 +684,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
     return {
       gate,
       status: passed ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
-      witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
+      witnessRef: witness ? `event:${witness.receiptId}` : null,
     };
   });
 }

@@ -28,7 +28,7 @@ function taskRow(taskId: string) {
     updatedAt: AT,
     packagePath: `tasks/${taskId}-probe`,
     coordinationStatus: "planned",
-    snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+    snapshotAvailability: { consents: "known", gateWitnesses: "known" },
     closeoutAssessment: { readiness: "not_required", gates: [] },
     blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
     placement: {
@@ -79,7 +79,6 @@ function taskRow(taskId: string) {
       executions: [],
       reviews: [],
       consents: [],
-      codeDocWitnesses: [],
       gateWitnesses: [],
       edgesTaken: [],
       lease: null,

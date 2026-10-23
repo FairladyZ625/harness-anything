@@ -1,3 +1,4 @@
+import { isRetiredCodeDocRequirement } from "@harness-anything/kernel";
 import {
   assertCanonicalVertical,
   loadCanonicalAssets,
@@ -216,7 +217,7 @@ export function createRuntime(options: PresetResolverOptions): {
         completionValidation.issues.map(({ path, message }) => `${path}: ${message}`).join("; "),
       );
     for (const gateId of profile.completionGates)
-      if (gateId !== "code-doc-reconciliation" && !completion.gates[gateId])
+      if (!isRetiredCodeDocRequirement(gateId) && !completion.gates[gateId])
         throw presetFailure("missing_gate", `Profile ${profile.id} selects undeclared completion gate ${gateId}.`);
     const completionPackages: Record<string, FrozenCompletionPackage> = {};
     for (const [sourceId, source] of Object.entries(completion.sources)) {
@@ -297,7 +298,9 @@ export function createRuntime(options: PresetResolverOptions): {
         profile: {
           id: profile.id,
           outputShape: leafManifest.outputShape,
-          completionGateIds: profile.completionGates,
+          // A preset installed before 2026-10-21 may still name the retired code/doc gate. Resolution
+          // drops it so no new snapshot or frozen contract can carry a requirement that no longer exists.
+          completionGateIds: profile.completionGates.filter((gateId) => !isRetiredCodeDocRequirement(gateId)),
           ...(profile.closeoutOverrides === undefined ? {} : { closeoutOverrides: profile.closeoutOverrides }),
           ...(profile.archiveOnComplete === undefined ? {} : { archiveOnComplete: profile.archiveOnComplete }),
         },

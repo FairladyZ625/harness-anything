@@ -177,36 +177,6 @@ function consent(revision, recorded, actor = owner) {
 function consentProof(actor = owner) {
   return { actorBinding: actor, capability: "execution-consent@v1", capabilityRef: "capability:owner-consent" };
 }
-function reconcile(
-  revision,
-  executionId = "execution-0",
-  commitSha = commit0,
-  iteration = 0,
-  paths = ["packages/kernel/src/domain/task.ts"],
-) {
-  return command(
-    executor,
-    revision,
-    {
-      type: "ReconcileCodeDoc",
-      taskId: "task-1",
-      executionId,
-      witnessId: `witness-${revision}`,
-      commitSha,
-      iteration,
-      paths,
-    },
-    `reconcile-${revision}`,
-  );
-}
-function reconcileProof() {
-  return {
-    actorBinding: executor,
-    capability: "code-doc-reconcile@v1",
-    capabilityRef: "capability:code-doc",
-    commitPaths: { commitSha: commit0, paths: ["packages/kernel/src/domain/task.ts"] },
-  };
-}
 function complete(revision, executionId = "execution-0") {
   return command(owner, revision, { type: "CompleteTask", taskId: "task-1", executionId }, `complete-${executionId}`);
 }
@@ -216,7 +186,7 @@ function completeProof() {
     capabilityRef: "capability:complete",
     actorRole: "owner",
     noActiveLease: true,
-    closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+    closeoutGates: { review: true, consent: true, factDisposition: true },
     gateReceipts: [],
   };
 }
@@ -452,38 +422,6 @@ test("G10 append-only Reviews and content-pinned consent selection preserve comp
   assert.equal(applyTransition(consented.snapshot, complete(9), completeProof()).snapshot.task.status, "done");
 });
 
-test("G10 code-doc witness binds canonical paths, execution, full commit, and iteration", () => {
-  const { submitted, forwarded } = firstRound();
-  const result = applyTransition(forwarded.snapshot, reconcile(5), reconcileProof());
-  assert.deepEqual(result.snapshot.codeDocWitnesses, [
-    {
-      schema: "code-doc-witness/v1",
-      witnessId: "witness-5",
-      taskId: "task-1",
-      executionId: "execution-0",
-      commitSha: commit0,
-      iteration: 0,
-      paths: ["packages/kernel/src/domain/task.ts"],
-      actor: executor,
-      source: "local",
-      reconciledAt: "2026-08-11T00:00:05.000Z",
-    },
-  ]);
-  // Evidence preparation rides with the worker: the witness binds while the cut awaits
-  // triage (submitted) as well as at the review gate (in_review).
-  assert.notEqual(
-    applyTransition(submitted.snapshot, reconcile(4), reconcileProof()).snapshot.codeDocWitnesses.length,
-    0,
-  );
-  for (const invalid of [
-    reconcile(5, "execution-0", commit1),
-    reconcile(5, "execution-0", commit0, 1),
-    reconcile(5, "execution-0", commit0, 0, ["../escape.md"]),
-    reconcile(5, "execution-0", commit0, 0, ["same.md", "same.md"]),
-  ])
-    assert.throws(() => applyTransition(forwarded.snapshot, invalid, reconcileProof()), TaskLifecycleContractError);
-});
-
 test("G10 exhaustive phase table rejects every command outside its canonical predecessor", () => {
   const round = firstRound();
   const changesRequested = applyTransition(
@@ -501,33 +439,22 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
     ["missing", emptyTaskLifecycleSnapshot(), new Set(["CreateReplayTask"])],
     ["planned", round.created.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["active", round.started.snapshot, new Set(["SubmitExecution", "TransitionTask"])],
-    ["submitted", round.submitted.snapshot, new Set(["AdjudicateSubmission", "ReconcileCodeDoc", "TransitionTask"])],
-    [
-      "forwarded",
-      round.forwarded.snapshot,
-      new Set(["AdjudicateSubmission", "RecordReview", "ReconcileCodeDoc", "TransitionTask"]),
-    ],
+    ["submitted", round.submitted.snapshot, new Set(["AdjudicateSubmission", "TransitionTask"])],
+    ["forwarded", round.forwarded.snapshot, new Set(["AdjudicateSubmission", "RecordReview", "TransitionTask"])],
     [
       "approved",
       round.approved.snapshot,
-      new Set(["AdjudicateSubmission", "RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "TransitionTask"]),
+      new Set(["AdjudicateSubmission", "RecordReview", "RecordReviewConsent", "TransitionTask"]),
     ],
     [
       "consented",
       round.consented.snapshot,
-      new Set([
-        "AdjudicateSubmission",
-        "RecordReview",
-        "RecordReviewConsent",
-        "ReconcileCodeDoc",
-        "CompleteTask",
-        "TransitionTask",
-      ]),
+      new Set(["AdjudicateSubmission", "RecordReview", "RecordReviewConsent", "CompleteTask", "TransitionTask"]),
     ],
     [
       "changes_requested at the gate",
       changesRequested.snapshot,
-      new Set(["AdjudicateSubmission", "RecordReview", "RecordReviewConsent", "ReconcileCodeDoc", "TransitionTask"]),
+      new Set(["AdjudicateSubmission", "RecordReview", "RecordReviewConsent", "TransitionTask"]),
     ],
     ["returned", returned.snapshot, new Set(["StartExecution", "TransitionTask"])],
     ["done", completed.snapshot, new Set()],
@@ -540,7 +467,6 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
     "AdjudicateSubmission",
     "RecordReview",
     "RecordReviewConsent",
-    "ReconcileCodeDoc",
     "CompleteTask",
   ];
   for (const [label, snapshot, allowed] of states)
@@ -556,7 +482,6 @@ test("G10 exhaustive phase table rejects every command outside its canonical pre
         AdjudicateSubmission: [adjudicate(revision), adjudicateProof()],
         RecordReview: [review(revision), reviewProof()],
         RecordReviewConsent: [consent(revision, recorded), consentProof()],
-        ReconcileCodeDoc: [reconcile(revision), reconcileProof()],
         CompleteTask: [complete(revision), completeProof()],
       };
       assert.throws(

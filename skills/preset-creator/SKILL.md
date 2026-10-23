@@ -50,8 +50,8 @@ Each profile requires `id`, `title`, `completionGates`, and
 `archiveOnComplete`. `completionGates` is an array of gate ids declared by the
 vertical or preset, including an explicit empty array when there are no gates.
 `defaultProfile` must name one declared profile. `closeoutOverrides` accepts
-boolean values for `review`, `consent`, `fact`, `factDisposition`, and
-`codeDoc`; `archiveOnComplete` is a boolean. These are task-creation choices,
+boolean values for `review`, `consent`, `fact`, and `factDisposition`;
+`archiveOnComplete` is a boolean. These are task-creation choices,
 not a way to change an existing task's frozen profile.
 
 The vertical owns domain-wide `completion.sources`, `completion.gates`, and
@@ -99,7 +99,7 @@ Use this manifest shape:
     {
       "id": "baseline",
       "title": "Baseline",
-      "completionGates": ["ci", "code-doc-reconciliation"],
+      "completionGates": ["ci"],
       "templateSelections": []
     }
   ],

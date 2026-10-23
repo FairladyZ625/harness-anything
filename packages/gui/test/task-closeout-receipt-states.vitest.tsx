@@ -90,7 +90,6 @@ function fixtureTask(executions: readonly unknown[], executionEvidence: readonly
     lastKnownAt: "2026-10-09T09:00:00.000Z",
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
     gateWitnesses: [],
     gates: [],
     capabilities: [],

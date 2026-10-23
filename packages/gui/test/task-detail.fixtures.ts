@@ -99,7 +99,7 @@ export const task: TaskRow = {
   createdAt: "2026-08-23T08:00:00.000Z",
   lastKnownAt: "2026-08-23T10:31:00.000Z",
   closeoutBlocker: undefined,
-  snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+  snapshotAvailability: { consents: "known", gateWitnesses: "known" },
   ...projectedTaskFields("in_review"),
   // W5:执行证据页并入「收口」——execution 输出/回执经 task-adapter 原样透传。
   executions: [
@@ -176,7 +176,6 @@ export const task: TaskRow = {
       consentedAt: "2026-08-23T10:22:00.000Z",
     },
   ],
-  codeDocWitnesses: [],
   gateWitnesses: [],
 };
 export const parent = { ...task, taskId: "task-parent", title: "PLT GUI UX", parentTaskId: undefined };

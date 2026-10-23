@@ -3,7 +3,6 @@ import { EXECUTION_V1_SCHEMA, LEASE_V1_SCHEMA } from "./execution.ts";
 import type { ExecutionDeliveryBaseline, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, ReviewVerdict } from "./review.ts";
-import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { TASK_V2_SCHEMA } from "./task.ts";
@@ -33,7 +32,6 @@ export interface TaskLifecycleSnapshot {
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
-  readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly edgesTaken: readonly TaskEdgeTaken[];
   readonly lease: LeaseV1 | null;
@@ -117,20 +115,6 @@ export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent">
   readonly disposedReviewIds?: readonly string[];
   readonly rationale?: string;
 }
-export interface ReconcileCodeDocIntent extends Intent<"ReconcileCodeDoc"> {
-  readonly executionId: string;
-  readonly witnessId: string;
-  readonly commitSha: string;
-  readonly iteration: number;
-  readonly paths: readonly string[];
-}
-export interface RepointCodeDocIntent extends Intent<"RepointCodeDoc"> {
-  readonly record: string;
-  readonly repointId: string;
-  readonly commitSha: string;
-  readonly paths: readonly string[];
-  readonly reason: string;
-}
 export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
   readonly executionId: string;
   readonly resolution?: { readonly resolvedByTaskId: string; readonly rationale: string; readonly factRef: string };
@@ -147,8 +131,6 @@ export type TaskLifecycleCommandIntent =
   | AdjudicateSubmissionIntent
   | RecordReviewIntent
   | RecordReviewConsentIntent
-  | ReconcileCodeDocIntent
-  | RepointCodeDocIntent
   | CompleteTaskIntent;
 export type NormalizedTaskLifecycleCommand<C extends TaskLifecycleCommandIntent = TaskLifecycleCommandIntent> = C &
   NormalizedCommandEnvelope<ActorAxes>;
@@ -167,8 +149,6 @@ export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecut
 export type AdjudicateSubmissionCommand = NormalizedTaskLifecycleCommand<AdjudicateSubmissionIntent> & Meta;
 export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & Meta;
 export type RecordReviewConsentCommand = NormalizedTaskLifecycleCommand<RecordReviewConsentIntent> & Meta;
-export type ReconcileCodeDocCommand = NormalizedTaskLifecycleCommand<ReconcileCodeDocIntent> & Meta;
-export type RepointCodeDocCommand = NormalizedTaskLifecycleCommand<RepointCodeDocIntent> & Meta;
 export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
 export type TaskLifecycleCommand =
   | RetireCompletionGenerationCommand
@@ -181,8 +161,6 @@ export type TaskLifecycleCommand =
   | AdjudicateSubmissionCommand
   | RecordReviewCommand
   | RecordReviewConsentCommand
-  | ReconcileCodeDocCommand
-  | RepointCodeDocCommand
   | CompleteTaskCommand;
 export interface CreateReplayTaskProof {
   readonly taskIdUnique: true;
@@ -223,18 +201,6 @@ export interface ReviewConsentProof {
   readonly capability: "execution-consent@v1";
   readonly capabilityRef: string;
 }
-export interface CodeDocProof {
-  readonly actorBinding: ActorAxes;
-  readonly capability: "code-doc-reconcile@v1";
-  readonly capabilityRef: string;
-  readonly commitPaths: { readonly commitSha: string; readonly paths: readonly string[] };
-}
-export interface RepointCodeDocProof {
-  readonly actorBinding: ActorAxes;
-  readonly capability: "code-doc-repoint@v1";
-  readonly capabilityRef: string;
-  readonly commitPaths: { readonly commitSha: string; readonly paths: readonly string[] };
-}
 export interface CompleteTaskProof {
   readonly capability: "task-complete@v1";
   readonly capabilityRef: string;
@@ -268,13 +234,9 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
               ? ReviewProof
               : C extends RecordReviewConsentCommand
                 ? ReviewConsentProof
-                : C extends ReconcileCodeDocCommand
-                  ? CodeDocProof
-                  : C extends RepointCodeDocCommand
-                    ? RepointCodeDocProof
-                    : C extends CompleteTaskCommand
-                      ? CompleteTaskProof
-                      : never;
+                : C extends CompleteTaskCommand
+                  ? CompleteTaskProof
+                  : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;

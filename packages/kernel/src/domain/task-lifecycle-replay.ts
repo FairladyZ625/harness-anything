@@ -10,7 +10,6 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, isRetiredCiRequirement, judgeGateWitnesses } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
 import { settleGateRun, replaceGateRun } from "./gate-run.ts";
@@ -21,6 +20,7 @@ import type {
   TransitionResult,
 } from "./task-lifecycle-contract-internal-types.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
+import { isRetiredCodeDocRequirement } from "./code-doc-retirement.ts";
 import { validateTaskLifecycleCommandEnvelope } from "./task-lifecycle-contract-commands.ts";
 import {
   errorCode,
@@ -417,20 +417,14 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
         ? { reviewDispositions: [...(snapshot.reviewDispositions ?? []), event.payload.disposition] }
         : {}),
     };
-  else if (event.type === "code_doc_reconciled")
+  // Retired 2026-10-21: accepted code/doc events stay replayable but change no state. Their witness
+  // is not read by any current gate, and the task/execution carriers they still pin are unchanged.
+  else if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed")
     next = {
       ...snapshot,
       revision: event.workspaceRevision,
-      codeDocWitnesses: [
-        ...snapshot.codeDocWitnesses.filter((value) => value.executionId !== event.payload.witness.executionId),
-        event.payload.witness,
-      ],
-    };
-  else if (event.type === "code_doc_repointed")
-    next = {
-      ...snapshot,
-      revision: event.workspaceRevision,
-      codeDocWitnesses: [...snapshot.codeDocWitnesses, event.payload.record],
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
     };
   else if (event.type === "completion_gate_verified")
     next = {
@@ -483,24 +477,11 @@ function sameReplayTask(current: TaskLifecycleSnapshot["task"], recorded: TaskLi
   return stableStringify(currentTaskForWrite(current)) === stableStringify(currentTaskForWrite(recorded));
 }
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
-  if (event.type === "code_doc_repointed") {
-    const target = snapshot.codeDocWitnesses.find(
-      (value) => codeDocRecordId(value) === event.payload.record.supersedes,
-    );
-    if (
-      !target ||
-      currentCodeDocRecord(snapshot.codeDocWitnesses, target.executionId) !== target ||
-      target.taskId !== event.taskId ||
-      target.executionId !== event.payload.record.executionId ||
-      target.iteration !== event.payload.record.iteration ||
-      snapshot.codeDocWitnesses.some((value) => codeDocRecordId(value) === event.payload.record.recordId) ||
-      currentCodeDocRecord(next.codeDocWitnesses, target.executionId) !== event.payload.record
-    )
+  if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed") {
+    // The retired envelope must still name its own task and execution; it owns no other state.
+    if (event.payload.execution.taskId !== event.taskId || event.payload.task.taskId !== event.taskId)
       throw new TaskLifecycleContractError("invalid_transition", [
-        lifecycleContractIssue(
-          "invalid_transition",
-          "replayed code-doc repoint must supersede exactly one active witness record",
-        ),
+        lifecycleContractIssue("invalid_transition", "replayed code-doc history names another task"),
       ]);
   }
   if (event.type === "execution_submitted") {
@@ -848,13 +829,9 @@ function acceptedCompletionWitnesses(
     // dec_4C06F7F902E91C4210020A9E75 retires ledger CI witnesses. A newly accepted
     // completion is replayable from merge evidence without a copied CI witness event.
     if (isRetiredCiRequirement(gateId, requirement)) return true;
-    if (gateId === "code-doc-reconciliation") {
-      const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
-      return (
-        witness?.iteration === current.iteration &&
-        (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission!.commitSha)
-      );
-    }
+    // Retired 2026-10-21: accepted cuts that froze the code/doc gate stay completable; its witness
+    // is gone from the projection and was never a content comparison.
+    if (isRetiredCodeDocRequirement(gateId)) return true;
     // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
     const { status } = judgeGateWitnesses(snapshot.gateWitnesses, current, gateId, requirement);
     return status === "passed" || status === "waived";

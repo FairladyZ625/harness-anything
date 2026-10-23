@@ -1,4 +1,9 @@
-import { decodeVerticalDefinition, parseVerticalDeclarationDocument } from "@harness-anything/kernel";
+import {
+  decodeVerticalDefinition,
+  isRetiredCodeDocRequirement,
+  normalizeHistoricalVerticalDocument,
+  parseVerticalDeclarationDocument,
+} from "@harness-anything/kernel";
 import { isPresetResolutionRecord as record } from "./preset-resolver-common.ts";
 
 // Frozen conversion of software-coding-standard, not the installed version's evolving defaults.
@@ -11,19 +16,24 @@ const standardCompletion = {
     },
   },
   gates: {},
-  closeoutDefaults: { review: false, consent: false, factDisposition: false, codeDoc: true },
+  closeoutDefaults: { review: false, consent: false, factDisposition: false },
 };
 
 /** Explicit conversion only. Readers continue rejecting retired fields. */
 export function convertCompletionDeclaration(value: unknown): unknown {
   if (!record(value)) throw new Error("Completion migration requires a JSON object.");
-  if (value.schema === "repository-vertical-declaration/v1") {
-    const converted = { ...value, definition: convertCompletionDeclaration(value.definition) };
+  const historical = normalizeHistoricalVerticalDocument(
+    value.schema === "vertical-definition/v1" ? { definition: value } : value,
+  ) as Record<string, unknown>;
+  const current = value.schema === "vertical-definition/v1" ? historical.definition : historical;
+  if (!record(current)) throw new Error("Completion migration requires a JSON object.");
+  if (current.schema === "repository-vertical-declaration/v1") {
+    const converted = { ...current, definition: convertCompletionDeclaration(current.definition) };
     parseVerticalDeclarationDocument(converted);
     return converted;
   }
-  if (value.schema !== "vertical-definition/v1") throw new Error("Unsupported completion declaration schema.");
-  const { checkerProfile, ...converted } = value;
+  if (current.schema !== "vertical-definition/v1") throw new Error("Unsupported completion declaration schema.");
+  const { checkerProfile, ...converted } = current;
   if (checkerProfile !== undefined && checkerProfile !== "software-coding-standard")
     throw new Error(`No completion migration mapping for checkerProfile ${String(checkerProfile)}.`);
   if (converted.completion === undefined) {
@@ -51,8 +61,19 @@ export function convertCompletionManifest(value: unknown) {
         checkerProfile !== "software-coding-standard"
       )
         throw new Error(`No completion migration mapping for checkerProfile ${String(checkerProfile)}.`);
+      // Both hosted CI and code/doc requirements are retired; conversion drops each so the result
+      // resolves without a gate that no longer exists.
       if (value.vertical === "software/coding" && Array.isArray(current.completionGates))
-        current.completionGates = current.completionGates.filter((gate) => gate !== "ci");
+        current.completionGates = current.completionGates.filter(
+          (gate) => gate !== "ci" && !isRetiredCodeDocRequirement(String(gate)),
+        );
+      // The same retirement removed `codeDoc` from the profile override vocabulary; an installed
+      // object still carries it, so conversion removes the key instead of handing it to the reader.
+      if (record(current.closeoutOverrides) && Object.hasOwn(current.closeoutOverrides, "codeDoc")) {
+        const { codeDoc: _retired, ...overrides } = current.closeoutOverrides;
+        if (Object.keys(overrides).length > 0) current.closeoutOverrides = overrides;
+        else delete current.closeoutOverrides;
+      }
       return current;
     }),
   };

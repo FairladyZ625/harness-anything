@@ -166,9 +166,7 @@ function readTaskReviewConsent(taskId, root) {
   if (
     typeof evidence?.task?.status !== "string" ||
     evidence.task === null ||
-    !["executions", "reviews", "consents", "codeDocWitnesses", "gateWitnesses"].every((field) =>
-      Array.isArray(evidence[field]),
-    )
+    !["executions", "reviews", "consents", "gateWitnesses"].every((field) => Array.isArray(evidence[field]))
   ) {
     throw new Error(
       `Harness task show for ${taskId} returned no completion judgment; refusing to merge (fail closed).`,
@@ -195,7 +193,6 @@ function reviewChainClosed(taskId, evidence) {
       reviews: evidence.reviews,
       consents: evidence.consents,
       reviewDispositions: dispositions,
-      codeDocWitnesses: evidence.codeDocWitnesses,
       gateWitnesses: evidence.gateWitnesses,
     });
     if (cuts.length !== 1 || cuts[0].state !== "submitted") return false;
@@ -260,7 +257,6 @@ function recordMergeCommitAnnotation(pr, merged, root) {
       reviews: evidence.reviews,
       consents: evidence.consents,
       reviewDispositions: evidence.reviewDispositions ?? [],
-      codeDocWitnesses: evidence.codeDocWitnesses,
       gateWitnesses: evidence.gateWitnesses,
     });
   if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);

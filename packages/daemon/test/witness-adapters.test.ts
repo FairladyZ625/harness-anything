@@ -28,7 +28,6 @@ import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
-import { prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
@@ -89,7 +88,6 @@ function cellStub(rootDir: string, execution: Snapshot["executions"][number]) {
       task: { taskId: "task", iteration: 0, status: "in_review", currentNode: "review", createdBy: actor },
       executions: [execution],
       gateWitnesses: [],
-      codeDocWitnesses: [],
       reviews: [],
       consents: [],
       lease: null,
@@ -559,50 +557,6 @@ function automatedEvidence(
     },
   };
 }
-
-test("submission preparation reconciles code-doc without publishing source results in the task queue", async () => {
-  const { snapshot, execution } = governedFixture(commandRequirement());
-  execution.submission = {
-    ...execution.submission!,
-    completionContract: {
-      ...emptyCompletionContract,
-      gates: [
-        commandRequirement(),
-        {
-          gateId: "code-doc-reconciliation",
-          appliesTo: "code",
-          witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
-        },
-      ],
-    },
-  };
-  snapshot.task = {
-    ...snapshot.task!,
-    status: "submitted",
-    currentNode: "implementation",
-    completionGateIds: ["lint", "code-doc-reconciliation"],
-  };
-  const read = { snapshot, packagePath: null },
-    reconciled: unknown[] = [],
-    cell = {
-      service: { read: async () => read },
-      lifecycleAction: async (action: unknown) => {
-        reconciled.push(action);
-        return { outcome: "applied", opId: "code-doc" };
-      },
-      publishGateWitness: () => assert.fail("sources publish only through their claimed run"),
-    } as unknown as RepoCellOperationalContext;
-  for (const status of ["submitted", "in_review"] as const) {
-    snapshot.task = { ...snapshot.task!, status };
-    assert.deepEqual(await prepareSubmissionEvidence(cell, "task", execution.executionId, binding), [
-      { outcome: "applied", opId: "code-doc" },
-    ]);
-  }
-  assert.deepEqual(
-    reconciled,
-    Array(2).fill({ kind: "task-code-doc-reconcile", taskId: "task", paths: execution.submission!.deliverables }),
-  );
-});
 
 function overrideEvidence(
   execution: SubmittedExecutionRef,

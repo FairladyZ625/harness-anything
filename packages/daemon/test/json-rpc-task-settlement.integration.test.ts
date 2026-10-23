@@ -175,12 +175,9 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       (completed.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type),
       ["task_completed"],
     );
-    const completedGateChecks = completed.gateChecks as { readonly gate: string; readonly status: string; readonly witnessRef?: string }[];
-    assert.deepEqual(
-      completedGateChecks.map(({ gate, status }) => ({ gate, status })),
-      [{ gate: "code-doc-reconciliation", status: "pass" }],
-    );
-    assert.ok(completedGateChecks[0]?.witnessRef, "the retained local completion gate keeps its witness");
+    // work-closeout declares no completion gates: the receipt reports the empty set honestly
+    // instead of inventing a retired code/doc witness.
+    assert.deepEqual(completed.gateChecks, [{ gate: "none", status: "pass", witnessRef: null }]);
     assert.deepEqual(completed.next, []);
     assert.equal(readFileSync(path.join(rootDir, "harness", closeoutPath), "utf8").includes("All checks passed"), true);
     assert.equal(readFileSync(path.join(rootDir, "harness", artifactPath), "utf8").includes("Canonical flow"), true);

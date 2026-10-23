@@ -231,7 +231,7 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 - Keep domain source and gate IDs in the declarative `completion` object; do not add a vertical-id branch to the CLI.
 - For command-backed completion, point a source at an installed preset entrypoint that produces `completion-witness`; the declaration alone does not grant runtime permissions.
 - Use `resultSchema.required` for required predicate fields and `gates.<id>.bindings` when a predicate value must equal a JSON Pointer value in a frozen submitted artifact.
-- `completion.closeoutDefaults` may set `review`, `consent`, `factDisposition`, and `codeDoc`; repository and task-profile choices take precedence over domain defaults.
+- `completion.closeoutDefaults` may set `review`, `consent`, and `factDisposition`; repository and task-profile choices take precedence over domain defaults.
 - Keep template `requiredAnchors` in the template catalog. They validate document structure and are separate from completion predicate schema requirements.
 - Keep project/user overrides additive and fail closed on invalid active overrides.
 - Do not promise unattended conversion when the system supports Legacy Intake plus explicit rebuild only.

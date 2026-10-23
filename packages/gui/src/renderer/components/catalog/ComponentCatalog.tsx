@@ -285,7 +285,7 @@ function ComponentCatalog() {
               time={<RowTime at="2026-10-02T01:30:00Z" />}
             />
             <RecordRow
-              id={<IdText value="witness/code-doc-7f3b9e" className="text-text-muted" />}
+              id={<IdText value="witness/gate-run-7f3b9e" className="text-text-muted" />}
               state={<span className="font-mono ui-micro text-text-faint">passed</span>}
               summary="短正文记录同样走同一布局；没有时间与动作时元数据行只保留标识。"
             />

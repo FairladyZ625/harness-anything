@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  completionBlockers,
   reduceTaskEvent,
   rematerializeTaskDocuments,
   submissionDigest,
@@ -163,6 +164,17 @@ const codeDocRequirement = {
     appliesTo: "code" as const,
     witness: { kind: "internal" as const, adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
   },
+  manualRequirement = {
+    gateId: "signoff",
+    appliesTo: "code" as const,
+    witness: {
+      kind: "manual" as const,
+      predicateType: "harness/attestation/v1",
+      resultSchema: { type: "object" },
+      adapterId: "manual-attest" as const,
+      adapterOptions: {},
+    },
+  },
   retiredCiRequirement = {
     gateId: "ci",
     appliesTo: "code" as const,
@@ -180,15 +192,37 @@ const codeDocRequirement = {
       },
     },
   };
-const gatedAt = (gates: readonly (typeof retiredCiRequirement | typeof codeDocRequirement)[], count: number) =>
+const gatedAt = (
+  gates: readonly (typeof retiredCiRequirement | typeof manualRequirement | typeof codeDocRequirement)[],
+  count: number,
+) =>
   lifecycleFixture({ gates, complete: false })
     .events.slice(0, count)
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 
-test("an empty delivery cut skips code/doc reconciliation", () => {
-  const result = taskCompletionNext(gatedAt([codeDocRequirement], 6), context);
-  assert.equal(result.blocker, null);
-  assert.equal(result.next, null);
+test("a retired code/doc requirement never demands a witness, empty cut or not", () => {
+  const snapshot = gatedAt([codeDocRequirement], 6),
+    withDeliverables = (deliverables: readonly string[]) => ({
+      ...snapshot,
+      executions: snapshot.executions.map((execution) => ({
+        ...execution,
+        submission: execution.submission ? { ...execution.submission, deliverables } : null,
+      })),
+    });
+  // Empty and non-empty cuts alike: the retired gate reads not_applicable, so it is never the
+  // next step and never blocks completion.
+  for (const deliverables of [[], ["src/delivery.ts"]]) {
+    const all = completionBlockers(withDeliverables(deliverables), "execution-1", context);
+    assert.equal(
+      all.some(({ gate }) => gate === "code-doc-reconciliation"),
+      false,
+      `no blocker names the retired gate for ${deliverables.length} deliverables`,
+    );
+    assert.notEqual(taskCompletionNext(withDeliverables(deliverables), context).blocker?.code, "code_doc_missing");
+  }
+  // A live requirement in the same contract still surfaces as a missing witness, so the
+  // assertion above is not passing because gates were ignored wholesale.
+  assert.equal(taskCompletionNext(gatedAt([manualRequirement], 6), context).blocker?.code, "gate_witness_missing");
 });
 
 test("a frozen CI gate reads configured merge evidence instead of an observation", () => {
@@ -221,22 +255,6 @@ test("delivery_missing prompts for fetch when merge annotation is present but re
   assert.match(unmerged.next!.action, /git fetch origin main/u);
   assert.match(unmerged.next!.reason, /fetch origin\/main and retry/u);
   assert.doesNotMatch(unmerged.next!.action, /node tools\/pr-merge\.mjs/u);
-});
-
-test("a nonempty delivery cut still requires a code/doc witness", () => {
-  const snapshot = gatedAt([codeDocRequirement], 6);
-  const result = taskCompletionNext(
-    {
-      ...snapshot,
-      executions: snapshot.executions.map((execution) => ({
-        ...execution,
-        submission: execution.submission ? { ...execution.submission, deliverables: ["src/delivery.ts"] } : null,
-      })),
-    },
-    context,
-  );
-  assert.equal(result.blocker?.code, "code_doc_missing");
-  assert.equal(result.next!.action, "ha task code-doc reconcile task-1 --path 'src/delivery.ts'");
 });
 
 test("completion has no fact quota: a task with zero recorded facts still clears every blocker", () => {
@@ -406,7 +424,7 @@ test("a missing executor blocks only while an independent review is still owed",
         actor: { ...execution.actor, executor: null },
       })),
     }),
-    reviewLifted = { review: false, consent: false, factDisposition: false, codeDoc: false };
+    reviewLifted = { review: false, consent: false, factDisposition: false };
   // A recorded review already judged independence, so the chain moves on to the remaining gates.
   assert.notEqual(taskCompletionNext(withoutExecutor(at(6)), context).blocker?.code, "executor_missing");
   // With the review gate lifted no reviewer independence is judged at all.
@@ -421,9 +439,7 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
     index = (
       snapshot: typeof submitted,
       completionContext: typeof context & {
-        readonly closeoutGates: Readonly<
-          Record<"review" | "consent" | "fact" | "factDisposition" | "codeDoc", boolean>
-        >;
+        readonly closeoutGates: Readonly<Record<"review" | "consent" | "fact" | "factDisposition", boolean>>;
       },
     ) =>
       rematerializeTaskDocuments({
@@ -435,11 +451,11 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
       })[0]!.body,
     strict = {
       ...context,
-      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, factDisposition: true },
     },
     lightweight = {
       ...context,
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: false, consent: false, factDisposition: false },
     };
   assert.match(index(submitted, strict), /ha task dispatch-review task-1/u);
   assert.match(index(submitted, lightweight), /ha task complete task-1/u);

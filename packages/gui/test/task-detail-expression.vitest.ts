@@ -318,7 +318,7 @@ describe("Task detail expression", () => {
         gates: [
           { name: "local-check", ok: true },
           { name: "ci", ok: false, status: "missing", detail: "current execution cut has no gate witness" },
-          { name: "code-doc-reconciliation", ok: false, status: "missing", detail: "no submitted execution cut" },
+          { name: "contract", ok: false, status: "missing", detail: "no submitted execution cut" },
         ],
       },
     });

@@ -38,8 +38,6 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "adjudicate",
         "review",
         "consent",
-        "reconcile",
-        "repoint",
         "complete",
         "release",
         "amend",
@@ -224,7 +222,7 @@ function explain(
     completionContext: {
       closeout: "ready",
       closeoutPath: "tasks/task-1/closeout.md",
-      closeoutGates: { review: true, consent: true, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: true, consent: true, factDisposition: false },
       eligibleDirtyPaths: [],
     } satisfies CompletionReadinessContext,
   });

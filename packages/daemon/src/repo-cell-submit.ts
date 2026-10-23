@@ -26,7 +26,6 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
-import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 
@@ -492,12 +491,11 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
-      review = await submittedCutReview(cell, taskId, action, binding, receipt);
+    const review = await submittedCutReview(cell, taskId, action, binding, receipt);
     return {
-      ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+      ...receipt,
       ...(review.warnings.length ? { warnings: review.warnings } : {}),
-      steps: [...steps, ...review.steps],
+      steps: review.steps,
     } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
@@ -570,25 +568,23 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
-      review = await submittedCutReview(cell, taskId, action, binding, receipt);
+    const review = await submittedCutReview(cell, taskId, action, binding, receipt);
     return {
-      ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+      ...receipt,
       ...(review.warnings.length ? { warnings: review.warnings } : {}),
-      steps: [...steps, ...review.steps],
+      steps: review.steps,
     } as WriteReceiptDraft;
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
-    review = await submittedCutReview(cell, taskId, action, binding, receipt),
+  const review = await submittedCutReview(cell, taskId, action, binding, receipt),
     warnings = [...anchorDriftWarnings, ...review.warnings];
   return {
-    ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+    ...receipt,
     ...(warnings.length ? { warnings } : {}),
-    steps: [...(synced ? [synced] : []), ...steps, ...review.steps],
+    steps: [...(synced ? [synced] : []), ...review.steps],
   } as WriteReceiptDraft;
 }
 

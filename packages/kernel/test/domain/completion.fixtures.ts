@@ -24,7 +24,7 @@ export const completionSnapshot = {
 };
 export const emptyCompletionContract = {
   presetSnapshotDigest: completionSnapshot.digest,
-  closeoutGates: effectiveCloseoutGates({}, []),
+  closeoutGates: effectiveCloseoutGates({}),
   gates: [],
 };
 

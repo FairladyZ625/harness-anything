@@ -396,13 +396,11 @@ export function resolveDocRoute(path: PortableDocumentPath): {
             ? "task-contract-upgrade"
             : taskFile === "facts.md"
               ? "ha fact record --help"
-              : taskFile === "code-doc-anchors.json"
-                ? "task-code-doc-reconcile"
-                : taskFile?.startsWith("executions/")
-                  ? "task-lifecycle"
-                  : taskFile?.startsWith("reviews/")
-                    ? "task-review-execution"
-                    : null;
+              : taskFile?.startsWith("executions/")
+                ? "task-lifecycle"
+                : taskFile?.startsWith("reviews/")
+                  ? "task-review-execution"
+                  : null;
   if (taskRoute) return { allowed: false, requiredRoute: taskRoute };
   const denied = docRouteRegistry.find((route) => path === route.prefix || path.startsWith(route.prefix));
   return denied

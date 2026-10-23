@@ -145,9 +145,11 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
       assert.equal(completed.code, "review_missing");
       assert.doesNotMatch(JSON.stringify(completed), /fact_missing|code_doc_missing/);
-      assert.deepEqual(completed.gateChecks, [
-        { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
-      ]);
+      // The standard preset no longer freezes any gate, so the receipt names the empty set instead of
+      // the retired code/doc requirement (owner 2026-10-21 B3). A task created before the retirement
+      // still reports a frozen code/doc requirement as not_applicable — covered by the kernel test
+      // "a frozen code/doc requirement reads not_applicable instead of demanding a witness".
+      assert.deepEqual(completed.gateChecks, [{ gate: "none", status: "pass", witnessRef: null }]);
     }
     const fact = await cell.run(
       {

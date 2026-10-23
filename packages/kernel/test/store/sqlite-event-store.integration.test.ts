@@ -348,7 +348,6 @@ function generatedTaskAmendment(
       executions: [],
       reviews: [],
       consents: [],
-      codeDocWitnesses: [],
       gateWitnesses: [],
       edgesTaken: [],
       lease: null,

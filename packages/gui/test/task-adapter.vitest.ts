@@ -66,14 +66,13 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
       executions: [],
       reviews: [],
       consents: [],
-      codeDocWitnesses: [],
       gateWitnesses: [],
       edgesTaken: [],
       lease: null,
     },
     packagePath: `tasks/${taskId}-x`,
     coordinationStatus: "planned",
-    snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
+    snapshotAvailability: { consents: "known", gateWitnesses: "known" },
     closeoutAssessment: { readiness: "not_required", gates: [] },
     blockingAssessment: { taskId, state: "clear", label: "none", blockers: [], warnings: [] },
     placement: {
@@ -130,16 +129,12 @@ describe("lifecycleEvents（任务详情进展时间线的事件源）", () => {
               { witnessId: "gw_1", gateId: "ci", result: "pass", verifiedAt: "2026-09-01T03:10:00.000Z" },
               { witnessId: "gw_2", gateId: "lint", result: "advisory", verifiedAt: "2026-09-01T03:20:00.000Z" },
             ],
-            codeDocWitnesses: [
-              { schema: "code-doc-witness/v1", witnessId: "w_1", reconciledAt: "2026-09-01T03:40:00.000Z" },
-            ],
           } as unknown as TaskSnapshotProjectionRow["snapshot"],
         }),
       ],
       "repo-test",
     );
     expect(task.events?.map(({ kind, ref }) => `${kind}:${ref}`)).toEqual([
-      "witness:w_1",
       "consent:consent-e0c8",
       "gateCheck:gw_2",
       "gatePass:gw_1",
@@ -185,10 +180,6 @@ describe("lifecycleEvents（任务详情进展时间线的事件源）", () => {
             gateWitnesses: [
               { witnessId: "gw_1", gateId: "ci", result: "pass", verifiedAt: "2026-09-01T03:10:00.000Z" },
             ],
-            codeDocWitnesses: [
-              { schema: "code-doc-witness/v1", witnessId: "w_1", reconciledAt: "2026-09-01T03:40:00.000Z" },
-              { schema: "legacy-repoint/v1", recordId: "rec_9", repointedAt: "2026-09-01T03:50:00.000Z" },
-            ],
           } as unknown as TaskSnapshotProjectionRow["snapshot"],
         }),
       ],
@@ -197,8 +188,6 @@ describe("lifecycleEvents（任务详情进展时间线的事件源）", () => {
     // 每个事件的引用对象按记录种类拼 canonical recordRef:execution/review/consent/witness
     // 四类,与收口页签的记录分组一一对应;同 execution 的 start/submit/close 共用同一引用。
     expect(task.events?.map(({ kind, recordRef }) => `${kind}:${recordRef}`)).toEqual([
-      "witness:witness/rec_9",
-      "witness:witness/w_1",
       "consent:consent/consent-e0c8",
       "gatePass:witness/gw_1",
       "completed:execution/exe_230d",

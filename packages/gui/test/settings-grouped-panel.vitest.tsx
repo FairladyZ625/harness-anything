@@ -16,7 +16,7 @@ import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { CODE_DOC_GATE_ID, gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
+import { gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
 import {
   mappedSourceIds,
   sourceFields,
@@ -109,7 +109,6 @@ const SNAPSHOT = {
     adapterFields: sourceFields,
     governanceFields: [...gateGovernanceFields],
     governableAdapters: [...governableSourceIds],
-    internalGateId: CODE_DOC_GATE_ID,
   },
 };
 const AGENT_ROWS = [

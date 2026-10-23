@@ -26,7 +26,7 @@ test("canonical resolver decodes one complete bundled package into a content-add
     if (!result.ok) return;
     assert.equal(result.snapshot.schema, "preset-snapshot/v1");
     assert.equal(result.snapshot.identity.layer, "bundled");
-    assert.deepEqual(result.snapshot.profile.completionGateIds, ["code-doc-reconciliation"]);
+    assert.deepEqual(result.snapshot.profile.completionGateIds, []);
     assert.deepEqual(
       result.snapshot.templates.map((entry) => entry.path),
       ["task_plan.md", "closeout.md", "artifacts/.gitkeep"],
@@ -55,6 +55,36 @@ test("new standard coding tasks do not inherit a hosted CI completion gate", asy
     });
     assert.equal(result.ok, true);
     if (result.ok) assert.equal(result.snapshot.profile.completionGateIds.includes("ci"), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a preset installed before the retirement still resolves by dropping the retired code/doc gate", async () => {
+  // The gate no longer has a declaration, so a manifest that still names it must resolve to a
+  // snapshot without it instead of failing `missing_gate` at task creation.
+  const fixture = makeFixture(),
+    sourceRoot = path.join(path.dirname(fixture.bundledRoot), "user-source");
+  try {
+    writePackage(sourceRoot, "legacy-task", {
+      profiles: [
+        { id: "baseline", title: "Baseline", completionGates: ["code-doc-reconciliation"], templateSelections: [] },
+      ],
+    });
+    installPresetPackage({ source: path.join(sourceRoot, "legacy-task"), userRoot: fixture.userRoot });
+    const result = await createCanonicalPresetResolver({
+      bundledRoot: fixture.bundledRoot,
+      userRoot: fixture.userRoot,
+      assetsRoot: fixture.assetsRoot,
+    }).resolve({
+      presetId: "legacy-task",
+      verticalId: "software/coding",
+      profileId: "baseline",
+      locale: "en-US",
+      purpose: "task-create",
+    });
+    assert.equal(result.ok, true, result.ok ? "" : JSON.stringify(result.error));
+    if (result.ok) assert.deepEqual(result.snapshot.profile.completionGateIds, []);
   } finally {
     fixture.cleanup();
   }

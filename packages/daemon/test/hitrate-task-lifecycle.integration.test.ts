@@ -11,7 +11,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-test("task start, closeout submit, and code-doc reconcile reuse daemon-known lifecycle state", async () => {
+test("task start, closeout submit, review, and completion reuse daemon-known lifecycle state", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-hitrate-lifecycle-")),
     rootDir = path.join(parent, "repo"),
     taskId = "task-hitrate-lifecycle",
@@ -68,7 +68,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       {
         kind: "fact-record",
         taskId,
-        statement: "The lifecycle fixture exercises one canonical code-doc witness cut.",
+        statement: "The lifecycle fixture exercises one canonical completion cut.",
         evidenceSource: "test:hitrate-lifecycle",
         confidence: "high",
         memoryClass: "semantic",
@@ -254,42 +254,6 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     const ownerAmendedPacket = ownerAmendedEvent.payload.execution.submission;
     assert.ok(ownerAmendedPacket);
 
-    const obsolete = (await cell.run(
-      {
-        kind: "task-code-doc-reconcile",
-        taskId,
-        executionId,
-        commitSha,
-        iteration: 0,
-        paths: ["README.md"],
-      },
-      holder,
-    )) as Record<string, unknown>;
-    assert.equal(obsolete.outcome, "op_rejected", JSON.stringify(obsolete));
-    assert.equal(obsolete.code, "invalid_command");
-
-    const reconciled = (await cell.run(
-      { kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] },
-      holder,
-    )) as Record<string, unknown>;
-    assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
-    assert.equal(reconciled.executionId, executionId);
-    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(reconciled.opId));
-    assert.equal(event?.type, "code_doc_reconciled");
-    if (event?.type !== "code_doc_reconciled") throw new Error("reconcile event missing");
-    assert.deepEqual(event.payload.witness, {
-      schema: "code-doc-witness/v1",
-      witnessId: event.payload.witness.witnessId,
-      taskId,
-      executionId,
-      commitSha: ownerAmendedPacket.commitSha,
-      iteration: 0,
-      paths: ["README.md"],
-      actor: holder.actor,
-      source: "local",
-      reconciledAt: event.occurredAt,
-    });
-
     const reviewer = withPolicyGroup(
         {
           actor: {
@@ -370,40 +334,6 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     assert.equal(amendCompleted.outcome, "op_rejected", JSON.stringify(amendCompleted));
     assert.equal(amendCompleted.code, "invalid_transition");
     assert.equal(events().length, beforeTerminalAmend, "terminal amend must not publish dirty closeout");
-
-    const beforeDrift = events().length,
-      drifted = await cell.run(
-        {
-          kind: "task-code-doc-repoint",
-          taskId,
-          record: event.payload.witness.witnessId,
-          commitSha: "b".repeat(40),
-          paths: ["README.md"],
-          reason: "Caller cut must not override the submission",
-        },
-        holder,
-      );
-    assert.equal(drifted.outcome, "op_rejected", JSON.stringify(drifted));
-    assert.equal(drifted.code, "invalid_command");
-    assert.equal(events().length, beforeDrift, "retired caller cut must not append an event");
-
-    const repointed = await cell.run(
-      {
-        kind: "task-code-doc-repoint",
-        taskId,
-        record: event.payload.witness.witnessId,
-        paths: ["README.md"],
-        reason: "Correct witness from the canonical submission cut",
-      },
-      holder,
-    );
-    assert.equal(repointed.outcome, "applied", JSON.stringify(repointed));
-    const repointEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(repointed.opId));
-    assert.equal(repointEvent?.type, "code_doc_repointed");
-    if (repointEvent?.type === "code_doc_repointed") {
-      assert.equal(repointEvent.payload.record.commitSha, ownerAmendedPacket.commitSha);
-      assert.deepEqual(repointEvent.payload.record.paths, event.payload.witness.paths);
-    }
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
