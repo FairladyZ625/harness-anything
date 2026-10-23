@@ -274,11 +274,17 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
 test("a fresh start refreshes only the default branch, and still starts from the main the remote published", async (t) => {
   const fixture = repositoryFixture(t);
   try {
-    // A sibling clone advances main and publishes an unrelated task branch at the same time.
+    // A sibling checkout advances main and publishes an unrelated task branch at the same time.
+    // It is built from an explicit `main`, never from the bare remote's HEAD: that HEAD follows the
+    // host's `init.defaultBranch`, so cloning would land on an unborn `master` where `main` is
+    // expected and the push below would be a non-fast-forward.
     const other = path.join(fixture.base, "other");
-    git(fixture.base, "clone", "--quiet", path.join(fixture.base, "remote.git"), other);
+    git(fixture.base, "init", "--quiet", "-b", "main", other);
     git(other, "config", "user.name", "Other Node");
     git(other, "config", "user.email", "other@example.invalid");
+    git(other, "remote", "add", "origin", path.join(fixture.base, "remote.git"));
+    git(other, "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main");
+    git(other, "reset", "--quiet", "--hard", "origin/main");
     writeFileSync(path.join(other, "advanced.txt"), "advanced\n");
     git(other, "add", "advanced.txt");
     git(other, "commit", "--quiet", "-m", "advance main");
