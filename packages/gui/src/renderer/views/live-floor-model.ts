@@ -378,8 +378,7 @@ export type LiveFloorAskKind =
   | "decision"
   | "decision_review"
   | "rework"
-  | "adjudicate"
-  | "pinned";
+  | "adjudicate";
 
 export interface LiveFloorAskRow {
   readonly key: string;
@@ -399,7 +398,11 @@ export interface LiveFloorAskLabels {
   readonly ci: string;
 }
 
-/** 只放业主才能做的事:待答提问、受保护面签发/同意、裁决、打回重开、派审、置顶挡路项。 */
+/**
+ * 只放业主才能做的事:待答提问、受保护面签发/同意、裁决、打回重开、派审。
+ * 置顶(`pinnedEntities`)不在这里:置顶是业主自己的书签,不是等业主做的动作;它已经在
+ * 总览的「置顶与议程」区与侧栏各有落点,在这里重复一遍只会把首屏挤满(2026-10-23 CEO 验收)。
+ */
 export function liveFloorAskLanes(input: {
   readonly agenda: {
     readonly awaitingYou: readonly AgendaAwaitsRow[];
@@ -411,7 +414,6 @@ export function liveFloorAskLanes(input: {
       readonly title: string;
       readonly executionId?: string;
     }[];
-    readonly pinnedEntities: readonly { readonly ref: string; readonly title: string; readonly pinnedAt?: string }[];
   } | null;
   readonly tasks: readonly TaskRow[];
   /** decision ask 的依据:提案原文问题,由视图经 decision 读面取回。 */
@@ -550,17 +552,6 @@ export function liveFloorAskLanes(input: {
       ask: null,
     });
   }
-  for (const pinned of agenda?.pinnedEntities ?? [])
-    rows.push({
-      key: `pinned:${pinned.ref}`,
-      kind: "pinned",
-      title: pinned.title,
-      detail: latestReviewReason(taskIdOf(pinned.ref)),
-      at: pinned.pinnedAt ?? null,
-      taskId: taskIdOf(pinned.ref),
-      decisionId: decisionIdOf(pinned.ref),
-      ask: null,
-    });
   return rows;
 }
 
