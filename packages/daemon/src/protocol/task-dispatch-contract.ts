@@ -66,6 +66,11 @@ export interface TaskDispatchRow {
   };
   readonly dispatchId: string;
   readonly taskId: string;
+  /** The bound task's title from the same projection row that yields `taskId`. A reader must not
+   *  need a second, independently filtered task listing to label this dispatch: the live floor
+   *  grouped rows by work while every row lost its title exactly because the two reads disagreed
+   *  about which task rows were readable. Absent only when the projected task carries no title. */
+  readonly taskTitle?: string;
   readonly executionId: string;
   /** Source role from runtime_dispatch_requested; absent only on older unclassified events. */
   readonly role?: string;
