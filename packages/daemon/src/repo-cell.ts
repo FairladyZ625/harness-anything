@@ -161,6 +161,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
   });
   const migrationProgressOffset = openProgressSequence;
+  let attachRecoveryProgress = migrationProgressOffset;
   try {
     // Historical shape upgrades are accepted through the same fenced writer as every other
     // canonical event. Projection opening is deliberately after this step so a cold rebuild
@@ -169,13 +170,15 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       applyAttachMigrations({
         store,
         now: context.now,
-        onProgress: (progress) =>
+        onProgress: (progress) => {
+          attachRecoveryProgress = migrationProgressOffset + progress.applied;
           context.input.onOpenProgress?.({
             phase: "recovering",
-            applied: migrationProgressOffset + progress.applied,
+            applied: attachRecoveryProgress,
             total: migrationProgressOffset + progress.total,
             watermark: null,
-          }),
+          });
+        },
       });
     let recovery: RepoCellCore["recovery"] = { status: "none", elapsedMs: 0 };
     projection = makeTaskProjection({
@@ -183,6 +186,13 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       eventStore: store,
       now: context.now,
       catchUpLimit: coldAttachCatchUpLimit,
+      onValidationProgress: (progress) =>
+        context.input.onOpenProgress?.({
+          phase: "recovering",
+          applied: attachRecoveryProgress + progress.applied,
+          total: attachRecoveryProgress + progress.total,
+          watermark: null,
+        }),
       onProgress: (progress) =>
         context.input.onOpenProgress?.({
           phase: "catching-up",

@@ -100,7 +100,6 @@ export function forensicEnv(base) {
   // Same heap ceiling the production daemon runs with; without it a full-ledger attach dies
   // with ERR_WORKER_OUT_OF_MEMORY (task_e37fdc67 first-run evidence, 2026-10-22).
   env.NODE_OPTIONS = "--max-old-space-size=8192";
-  env.HARNESS_WRITER_READY_WATCHDOG_MS = "600000";
   // Tie the forensic daemon to this script's lifetime: even a crash between start and stop
   // cannot leak a detached daemon holding a socket inside the temp root.
   env.HARNESS_DAEMON_OWNER_PID = String(process.pid);

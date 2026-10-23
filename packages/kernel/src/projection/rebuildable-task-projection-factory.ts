@@ -70,6 +70,7 @@ export function makeTaskProjection(options: {
   readonly projectionPath?: string;
   readonly catchUpLimit?: number;
   readonly now?: () => string;
+  readonly onValidationProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
   readonly onProgress?: (progress: TaskProjectionCatchUpProgress) => void;
 }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
@@ -85,7 +86,7 @@ export function makeTaskProjection(options: {
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
         consumeKnownError(error);
-        discardDatabase(projectionPath, options.eventStore, "schema_mismatch");
+        discardDatabase(projectionPath, options.eventStore, "schema_mismatch", options.onValidationProgress);
       } else if (error instanceof ProjectionIdentityMismatchError) consumeKnownError(error);
       else throw error;
     }

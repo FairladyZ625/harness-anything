@@ -7,6 +7,7 @@ import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publicat
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
+import type { PersistedCanonicalEventV1 } from "../../src/domain/doc-sync-types.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
 import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
@@ -84,5 +85,57 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
         cacheBytesRetained: retained.byteLength,
       }),
     );
+  });
+});
+
+test("schema mismatch continuity validation reports monotonic progress before deleting the old cache", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const emptyStore: EventStreamPort = {
+        readHead: () => null,
+        readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
+        readContentBlob: () => null,
+      },
+      oldProjection = makeTaskProjection({ rootDir, eventStore: emptyStore });
+    oldProjection.catchUp();
+    oldProjection.close();
+
+    const schema = new DatabaseSync(oldProjection.path);
+    schema
+      .prepare("UPDATE projection_meta SET schema_version = ?, watermark = ?, scanned_revision = ? WHERE singleton = 1")
+      .run(taskProjectionSchemaVersion - 1, 513, 513);
+    schema.close();
+
+    const rows = Array.from({ length: 513 }, (_, index) => ({ workspaceRevision: index + 1 })),
+      eventStore: EventStreamPort = {
+        readHead: () => ({ revision: rows.length }),
+        readBatch: (cursor, maxItems) => {
+          const start = cursor === null ? 0 : Number(cursor),
+            events = rows.slice(start, start + maxItems),
+            next = start + events.length;
+          return {
+            sourceRevision: rows.length,
+            events: events as unknown as readonly PersistedCanonicalEventV1[],
+            cursor: String(next),
+            done: next >= rows.length,
+            accessedItems: events.length,
+          };
+        },
+        readContentBlob: () => null,
+      },
+      progress: Array<{ readonly applied: number; readonly total: number }> = [];
+
+    const currentProjection = makeTaskProjection({
+      rootDir,
+      eventStore,
+      onValidationProgress: (value) => progress.push(value),
+    });
+    assert.deepEqual(progress, [
+      { applied: 256, total: 513 },
+      { applied: 512, total: 513 },
+      { applied: 513, total: 513 },
+    ]);
+    currentProjection.close();
   });
 });

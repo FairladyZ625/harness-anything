@@ -46,6 +46,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     HARNESS_DAEMON_ID: "default",
     HARNESS_EXECUTION_CREDENTIAL: "dispatched",
     HARNESS_ACTOR: "runtime",
+    HARNESS_WRITER_READY_WATCHDOG_MS: "600000",
     CODEX_HOME: "/codex",
     ANTHROPIC_API_KEY: "secret",
     PATH: "/bin",
@@ -55,6 +56,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     "HARNESS_DAEMON_ID",
     "HARNESS_EXECUTION_CREDENTIAL",
     "HARNESS_ACTOR",
+    "HARNESS_WRITER_READY_WATCHDOG_MS",
     "CODEX_HOME",
     "ANTHROPIC_API_KEY",
   ])
