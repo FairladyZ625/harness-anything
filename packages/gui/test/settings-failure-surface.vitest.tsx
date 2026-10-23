@@ -119,14 +119,17 @@ describe("settings page surfaces repository-state failures verbatim", () => {
     const container = await mountFailingRead(
       rejection(
         "settings_entity_missing",
-        "This repository has no Settings entity yet. A principal can create it with `ha settings update` " +
-          "(for example `ha settings update --locale en-US`).",
+        "This repository has no Settings entity yet. Run `ha settings update` as a person " +
+          "(for example `ha settings update --locale en-US`); repository settings are principal-owned.",
       ),
     );
     const text = container.textContent ?? "";
     expect(text).toContain("settings_entity_missing");
     expect(text).toContain("ha settings update");
     expect(text).not.toContain("bootstrap the repository");
+    // `ha daemon projection rebuild` re-derives existing events; it cannot create the entity, and an
+    // agent may run it — recommending it would be an escape hatch, not a repair.
+    expect(text).not.toContain("projection rebuild");
     // A missing entity is not a "wait a moment" state.
     expect(text).not.toContain("projection_pending");
   });

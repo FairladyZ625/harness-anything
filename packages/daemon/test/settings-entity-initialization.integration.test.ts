@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,9 +25,29 @@ const owner = withPolicyGroup(
   },
   "admin",
 );
+const agent = withPolicyGroup(
+  {
+    actor: {
+      principal: { personId: "settings-entity-owner" },
+      executor: { kind: "agent", id: "settings-entity-agent" },
+    },
+    source: "local" as const,
+  },
+  "admin",
+);
+
+/** A locale that is NOT the declared default, so "the default was written" cannot pass as success. */
+const MACHINE_LOCALE = "zh-CN";
+const MACHINE_LOCAL_DOCUMENT = {
+  schema: "settings-local/v1",
+  locale: MACHINE_LOCALE,
+  gui: { connectTimeoutMs: 9_000, requestTimeoutMs: 45_000 },
+};
 
 /** A current-generation ledger carrying history but no settings event — the brain-os shape. */
-async function openLedgerWithoutSettings(rootDir: string, repoId: string) {
+async function openLedgerWithoutSettings(rootDir: string, repoId: string, authoredSettings?: string) {
+  initRepo(rootDir);
+  if (authoredSettings !== undefined) authorSettings(rootDir, authoredSettings);
   const cell = await openFencedRepoCell({
     repoId: workspaceId(repoId),
     rootDir: canonicalRoot(rootDir),
@@ -50,8 +70,29 @@ async function settingsEventCount(rootDir: string, repoId: string): Promise<numb
   }
 }
 
+/** A machine that already holds its own preferences: this is what the mint must never overwrite. */
+function seedMachineLocalSettings(rootDir: string): string {
+  const localPath = path.join(rootDir, ".harness", "settings.local.json");
+  mkdirSync(path.dirname(localPath), { recursive: true });
+  writeFileSync(localPath, `${JSON.stringify(MACHINE_LOCAL_DOCUMENT, null, 2)}\n`);
+  return localPath;
+}
+
+function readLocalSettings(localPath: string): unknown {
+  return JSON.parse(readFileSync(localPath, "utf8"));
+}
+
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+}
+
+/** Point the authored harness.yaml at a value that differs from every declared default. */
+function authorSettings(rootDir: string, settings: string): void {
+  writeFileSync(
+    path.join(rootDir, "harness", "harness.yaml"),
+    `schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n${settings}`,
+  );
+  git(rootDir, "commit", "-qam", "authored settings");
 }
 
 const missingSettings = (caught: unknown): boolean => {
@@ -61,6 +102,9 @@ const missingSettings = (caught: unknown): boolean => {
   // no repository action by that name exists.
   assert.match(message, /ha settings update/u);
   assert.doesNotMatch(message, /bootstrap the repository/u);
+  // A projection rebuild re-derives existing events; it cannot create the entity, so recommending it
+  // would point an executor at a command the principal guard never sees.
+  assert.doesNotMatch(message, /projection rebuild/u);
   // A missing entity is not a wait-for-the-projection state.
   assert.doesNotMatch(message, /retry/u);
   return true;
@@ -70,7 +114,6 @@ test("a ledger that never minted Settings reports a missing entity with the comm
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-missing-"));
   let cell: OpenedCell | undefined;
   try {
-    initRepo(rootDir);
     cell = await openLedgerWithoutSettings(rootDir, "settings-entity-missing");
     await assert.rejects(cell.read("repo.settings.read"), missingSettings);
   } finally {
@@ -83,23 +126,24 @@ test("a locale-only update mints Settings from the authored harness.yaml instead
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-locale-"));
   let cell: OpenedCell | undefined;
   try {
-    initRepo(rootDir);
-    // The authored document is the only declaration surface; it deliberately carries a value that
-    // differs from the declared default so a fake "defaults" answer cannot pass this test.
-    writeFileSync(
-      path.join(rootDir, "harness", "harness.yaml"),
-      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  reviewReturnBudget: 7\n  defaultProfile: baseline\n",
+    cell = await openLedgerWithoutSettings(
+      rootDir,
+      "settings-entity-locale",
+      "  reviewReturnBudget: 7\n  defaultProfile: baseline\n",
     );
-    git(rootDir, "commit", "-qam", "authored settings");
-    cell = await openLedgerWithoutSettings(rootDir, "settings-entity-locale");
-    const receipt = await cell.run({ kind: "settings-update", locale: "en-US", idempotencyKey: "locale-mint" }, owner);
+    const receipt = await cell.run(
+      { kind: "settings-update", locale: MACHINE_LOCALE, idempotencyKey: "locale-mint" },
+      owner,
+    );
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const read = (await cell.read("repo.settings.read")) as {
       readonly settings: { readonly reviewReturnBudget: number; readonly locale: string };
       readonly revision: number;
     };
     assert.equal(read.settings.reviewReturnBudget, 7, "Settings must be minted from the authored document");
-    assert.equal(read.settings.locale, "en-US");
+    // Non-default on purpose: the defect this locks out was "the request is silently replaced by the
+    // declared default", which a `en-US` assertion cannot distinguish.
+    assert.equal(read.settings.locale, MACHINE_LOCALE, "the requested locale must be the one that lands");
     assert.ok(read.revision > 0, "the minted entity carries a write-path revision");
     assert.equal(
       await settingsEventCount(rootDir, "settings-entity-locale"),
@@ -107,7 +151,7 @@ test("a locale-only update mints Settings from the authored harness.yaml instead
       "exactly one settings_changed event is minted, not one per retry",
     );
     // Idempotence: the same locale update finds the entity and does not mint a second event.
-    await cell.run({ kind: "settings-update", locale: "zh-CN", idempotencyKey: "locale-again" }, owner);
+    await cell.run({ kind: "settings-update", locale: "en-US", idempotencyKey: "locale-again" }, owner);
     assert.equal(await settingsEventCount(rootDir, "settings-entity-locale"), 1);
   } finally {
     await cell?.close();
@@ -115,30 +159,76 @@ test("a locale-only update mints Settings from the authored harness.yaml instead
   }
 });
 
-test("projection rebuild initializes a missing Settings entity from the authored document", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-rebuild-"));
+test("minting Settings preserves an existing machine-local preferences file byte for byte", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-local-"));
   let cell: OpenedCell | undefined;
   try {
-    initRepo(rootDir);
-    writeFileSync(
-      path.join(rootDir, "harness", "harness.yaml"),
-      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  reviewReturnBudget: 5\n",
+    // The machine's file exists before the repository is opened, exactly as on a real workstation.
+    const localPath = seedMachineLocalSettings(rootDir),
+      before = readFileSync(localPath, "utf8");
+    cell = await openLedgerWithoutSettings(
+      rootDir,
+      "settings-entity-local",
+      "  reviewReturnBudget: 7\n  defaultProfile: baseline\n",
     );
-    git(rootDir, "commit", "-qam", "authored settings");
-    cell = await openLedgerWithoutSettings(rootDir, "settings-entity-rebuild");
-    const rebuilt = await cell.run({ kind: "projection-rebuild" }, owner);
-    assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
-    // The canonical write is what moved, not the async Git materialization: the CEO measured the
-    // canonical revision stuck at 793 while settings stayed pending.
+    const receipt = await cell.run(
+      { kind: "settings-update", reviewReturnBudget: 5, idempotencyKey: "mint-keeps-local" },
+      owner,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    // Two canonical writes, both intended: the mint from the authored document (7), then the change
+    // the caller asked for (5). The local file is the one thing that must see neither.
     assert.equal(
-      await settingsEventCount(rootDir, "settings-entity-rebuild"),
-      1,
-      "the rebuild must append the initialization event instead of returning a no-op",
+      await settingsEventCount(rootDir, "settings-entity-local"),
+      2,
+      "the mint and the requested repository change each append one settings_changed event",
     );
     const read = (await cell.read("repo.settings.read")) as {
       readonly settings: { readonly reviewReturnBudget: number };
     };
-    assert.equal(read.settings.reviewReturnBudget, 5);
+    assert.equal(read.settings.reviewReturnBudget, 5, "the requested value still lands on top of the mint");
+    // The earlier cut derived local preferences from the repository value, so every local field
+    // without a repository counterpart fell back to its declared default: zh-CN/9000/45000 became
+    // en-US/2000/30000. "Unchanged" is the only acceptable outcome for a mint.
+    assert.equal(
+      readFileSync(localPath, "utf8"),
+      before,
+      `the mint must not rewrite ${path.basename(localPath)}; got ${readFileSync(localPath, "utf8")}`,
+    );
+    assert.deepEqual(readLocalSettings(localPath), MACHINE_LOCAL_DOCUMENT);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a rejected settings update leaves no settings event and no local preference change", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-rejected-"));
+  let cell: OpenedCell | undefined;
+  try {
+    const localPath = seedMachineLocalSettings(rootDir),
+      before = readFileSync(localPath, "utf8");
+    cell = await openLedgerWithoutSettings(
+      rootDir,
+      "settings-entity-rejected",
+      "  reviewReturnBudget: 7\n  defaultProfile: baseline\n",
+    );
+    // `ja-JP` is not a declared locale: the request is rejected by the compiler. It is sent by the
+    // principal, so the refusal under test is the compile one, not the authority guard.
+    const receipt = await cell.run(
+      { kind: "settings-update", locale: "ja-JP", idempotencyKey: "rejected-no-side-effects" },
+      owner,
+    );
+    assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+    assert.equal(receipt.code, "invalid_command", JSON.stringify(receipt));
+    // Rejection semantics require zero side effects: the earlier cut minted before judging, so this
+    // "refused" command appended a settings_changed event and reset the machine's preferences.
+    assert.equal(
+      await settingsEventCount(rootDir, "settings-entity-rejected"),
+      0,
+      "a rejected settings update must not append a settings_changed event",
+    );
+    assert.equal(readFileSync(localPath, "utf8"), before, "a rejected settings update must not touch local settings");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -149,13 +239,7 @@ test("a malformed authored settings facet names itself instead of failing codele
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-invalid-"));
   let cell: OpenedCell | undefined;
   try {
-    initRepo(rootDir);
-    writeFileSync(
-      path.join(rootDir, "harness", "harness.yaml"),
-      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  reviewReturnBudget: not-a-number\n",
-    );
-    git(rootDir, "commit", "-qam", "malformed authored settings");
-    cell = await openLedgerWithoutSettings(rootDir, "settings-entity-invalid");
+    cell = await openLedgerWithoutSettings(rootDir, "settings-entity-invalid", "  reviewReturnBudget: not-a-number\n");
     // The authored facet is user input the daemon now reads on the write path; a parse failure there
     // must name the file and the field, not arrive as a codeless service_rejected.
     await assert.rejects(cell.read("repo.settings.read"), missingSettings);
@@ -165,6 +249,11 @@ test("a malformed authored settings facet names itself instead of failing codele
     assert.equal(receipt.code, "settings_document_invalid", JSON.stringify(receipt));
     assert.match(String(receipt.rejectionExplanation), /harness\.yaml/u);
     assert.match(String(receipt.rejectionExplanation), /reviewReturnBudget/u);
+    assert.equal(
+      await settingsEventCount(rootDir, "settings-entity-invalid"),
+      0,
+      "an unreadable authored document must not mint anything",
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -175,7 +264,6 @@ test("a ledger that already accepted Settings is never re-initialized from the w
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-existing-"));
   let cell: OpenedCell | undefined;
   try {
-    initRepo(rootDir);
     cell = await openLedgerWithoutSettings(rootDir, "settings-entity-existing");
     // Mint through the one entry, then diverge the authored file: an accepted entity outranks a
     // local edit, exactly as a stale vertical.json cannot un-declare accepted Kinds.
@@ -195,6 +283,40 @@ test("a ledger that already accepted Settings is never re-initialized from the w
       readonly settings: { readonly reviewReturnBudget: number };
     };
     assert.equal(read.settings.reviewReturnBudget, 4, "the accepted entity wins over an uncommitted authored edit");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("projection rebuild cannot mint Settings on behalf of an agent executor", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-entity-rebuild-agent-"));
+  let cell: OpenedCell | undefined;
+  try {
+    cell = await openLedgerWithoutSettings(rootDir, "settings-entity-rebuild-agent", "  reviewReturnBudget: 5\n");
+    // The same agent is refused by the command that owns Settings writes...
+    const refused = await cell.run(
+      { kind: "settings-update", reviewReturnBudget: 3, idempotencyKey: "agent-mint" },
+      agent,
+    );
+    assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+    assert.equal(refused.code, "settings_write_requires_principal", JSON.stringify(refused));
+    // ...so the rebuild it can run must not become the way around that refusal. `projection-rebuild`
+    // is a `repo-write`/`contributor` action; minting there let an agent write repository Settings
+    // without the principal guard ever being asked, and the receipt did not disclose the write.
+    const rebuilt = await cell.run({ kind: "projection-rebuild" }, agent);
+    assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
+    assert.equal(
+      await settingsEventCount(rootDir, "settings-entity-rebuild-agent"),
+      0,
+      "an agent-driven projection rebuild must not append a settings_changed event",
+    );
+    assert.doesNotMatch(
+      String(rebuilt.effects ?? []),
+      /settings-event/u,
+      "the rebuild receipt must not claim a settings write it did not make",
+    );
+    await assert.rejects(cell.read("repo.settings.read"), missingSettings);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
