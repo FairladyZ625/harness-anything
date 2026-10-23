@@ -22,10 +22,10 @@ import {
 } from "../src/dispatch-read.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
 import type { TaskProjectionQueries } from "../src/protocol/daemon-protocol.contract.ts";
 import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import {
   validTaskDispatchRow,
   validateDaemonRpcCall,
@@ -147,7 +147,9 @@ test("dispatch rows expose their source role, last observed activity, and daemon
   const row = fixture(session("live", null)).rows()[0]!;
   assert.equal(row.role, "implementation");
   assert.equal(row.lastObservedAt, "2026-08-23T00:00:00.000Z");
-  assert.equal(row.activityStatus, "stalled");
+  assert.equal(row.activityStatus, "silent");
+  assert.equal(row.activityObservedAt, "2026-08-23T00:00:00.000Z");
+  assert.ok((row.activityIdleMinutes ?? 0) > 0);
   assert.deepEqual(
     validateDaemonTaskDispatches({
       ok: true,
@@ -161,6 +163,43 @@ test("dispatch rows expose their source role, last observed activity, and daemon
     }),
     [],
   );
+  assert.equal(validTaskDispatchRow({ ...row, activityStatus: "not-an-activity" }), false);
+  assert.equal(validTaskDispatchRow({ ...row, activityObservedAt: "not-a-utc-timestamp" }), false);
+  assert.equal(validTaskDispatchRow({ ...row, activityIdleMinutes: 1.5 }), false);
+  assert.equal(validTaskDispatchRow({ ...row, activityIdleMinutes: -1 }), false);
+});
+
+test("dispatch rows project the latest provider activity from the local stream", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-activity-read-"));
+  try {
+    const observedAt = new Date().toISOString();
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      kindId: "codex",
+      startedAt: observedAt,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_started",
+      occurredAt: observedAt,
+      pid: process.pid,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      occurredAt: observedAt,
+      event: { type: "item.updated", item: { type: "command_execution" } },
+    });
+    const row = readTaskDispatches({ projection: fixture(session("live", null)).projection, taskId, rootDir })
+      .dispatches[0]!;
+    assert.equal(row.activityStatus, "tool");
+    assert.equal(row.activityObservedAt, observedAt);
+    assert.equal(row.activityIdleMinutes, 0);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("public dispatch, session group and attempt chain queries tolerate a filesystem trap", (t) => {

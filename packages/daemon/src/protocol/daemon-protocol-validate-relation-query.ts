@@ -198,7 +198,11 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     (value.lastObservedAt === undefined ||
       (dispatchText(value.lastObservedAt) && isUtcTimestamp(value.lastObservedAt))) &&
     (value.activityStatus === undefined ||
-      ["progressing", "waiting_ci", "stalled", "unknown"].includes(String(value.activityStatus))) &&
+      ["thinking", "tool", "waiting", "silent", "unknown"].includes(String(value.activityStatus))) &&
+    (value.activityObservedAt === undefined ||
+      (dispatchText(value.activityObservedAt) && isUtcTimestamp(value.activityObservedAt))) &&
+    (value.activityIdleMinutes === undefined ||
+      (Number.isSafeInteger(value.activityIdleMinutes) && Number(value.activityIdleMinutes) >= 0)) &&
     ["agentId", "agentName", "delegatedByAgentId", "delegatedByAgentName", "squadId", "parentRuntimeSessionId"].every(
       (field) => value[field] === undefined || dispatchText(value[field]),
     ) &&

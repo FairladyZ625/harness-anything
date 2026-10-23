@@ -72,7 +72,11 @@ export interface TaskDispatchRow {
   /** Latest canonical or local dispatch observation, projected beside the dispatch row. */
   readonly lastObservedAt?: string;
   /** Daemon-owned activity judgment for the live-floor page. */
-  readonly activityStatus?: "progressing" | "waiting_ci" | "stalled" | "unknown";
+  readonly activityStatus?: "thinking" | "tool" | "waiting" | "silent" | "unknown";
+  /** Observation used to calculate the activity age shown by the live-floor page. */
+  readonly activityObservedAt?: string;
+  /** Whole minutes since activityObservedAt; only meaningful for a live dispatch. */
+  readonly activityIdleMinutes?: number;
   readonly runtimeSessionId: string;
   readonly instanceId: string;
   readonly attemptGroupId: string;

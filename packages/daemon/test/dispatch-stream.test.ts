@@ -277,6 +277,7 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       executionId: "execution-3",
       runtimeSessionId: "runtime_444444444444444444444444",
       instanceId: "instance-1",
+      kindId: "codex",
       startedAt: "2026-08-24T00:00:00.000Z",
       prompt: "p".repeat(64 * 1024),
     });
@@ -285,8 +286,14 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       kind: "provider_event",
       event: { text: "x".repeat(512 * 1024) },
     });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      occurredAt: "2026-08-24T00:00:01.000Z",
+      event: { type: "item.updated", item: { type: "command_execution" } },
+    });
     const running = readDispatchStreamSummary(rootDir, dispatchId);
     assert.deepEqual(running?.process, { pid: 9876, exitCode: null, signal: null, exited: false });
+    assert.deepEqual(running?.lastProviderActivity, { kind: "tool", observedAt: "2026-08-24T00:00:01.000Z" });
     assert.deepEqual(
       running?.records.map((record) => record.kind),
       ["process_started"],
@@ -351,6 +358,7 @@ test("ZCode provider writes and its live worker host form current session activi
       executionId: "execution-zcode",
       runtimeSessionId,
       instanceId: "zcode-glm",
+      kindId: "zcode",
       startedAt: "2026-09-06T00:00:00.000Z",
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
@@ -375,6 +383,7 @@ test("ZCode provider writes and its live worker host form current session activi
     const summary = readDispatchStreamSummary(rootDir, dispatchId),
       evidence = readRuntimeSessionActivityEvidence(rootDir, dispatchId);
     assert.equal(summary?.lastObservedAt, "2026-09-06T00:00:05.000Z");
+    assert.deepEqual(summary?.lastProviderActivity, { kind: "waiting", observedAt: "2026-09-06T00:00:05.000Z" });
     assert.deepEqual(
       summary?.records.map((record) => record.kind),
       ["process_started"],

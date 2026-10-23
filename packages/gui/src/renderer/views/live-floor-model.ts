@@ -15,11 +15,10 @@ export interface LiveFloorRow {
   readonly channel: LiveFloorChannel;
   readonly model: string | null;
   readonly startedAt: string | null;
-  /**
-   * daemon 派工行的活动判定;null = 这一行没有该投影(旧 daemon 构建)——那是「缺信号」,
-   * 不是「状态未知」的第三种结论,视图按缺哪项说明。
-   */
-  readonly activityStatus: "progressing" | "waiting_ci" | "stalled" | "unknown" | null;
+  /** daemon 派工行的活动判定;null = 旧 daemon 没有该投影。 */
+  readonly activityStatus: "thinking" | "tool" | "waiting" | "silent" | "unknown" | null;
+  readonly activityObservedAt: string | null;
+  readonly activityIdleMinutes: number | null;
   readonly dispatch: TaskDispatchProjectionRow | null;
 }
 
@@ -55,6 +54,8 @@ export function liveFloorRows(input: {
         model: session.definitionSnapshot?.model ?? dispatch?.provider.model ?? null,
         startedAt: dispatch?.startedAt ?? null,
         activityStatus: dispatch?.activityStatus ?? null,
+        activityObservedAt: dispatch?.activityObservedAt ?? null,
+        activityIdleMinutes: dispatch?.activityIdleMinutes ?? null,
         dispatch,
       };
     });
