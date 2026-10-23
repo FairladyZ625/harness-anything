@@ -269,7 +269,7 @@ test("changes requested remains in review until the owner returns the cut with i
     })) as Receipt;
     assert.equal(mistaken.outcome, "op_rejected", JSON.stringify(mistaken));
     assert.equal(mistaken.code, "invalid_transition", JSON.stringify(mistaken));
-    assert.match(String(mistaken.rejectionExplanation), /--forward requires an explicit --reviewer/u);
+    assert.match(String(mistaken.rejectionExplanation), /already in review after submit/u);
     assert.deepEqual(mistaken.nextActions, [
       'ha task adjudicate task-completion-review --forward --reviewer <agent> --note "<why>"',
       'ha task adjudicate task-completion-review --return --review-id review-changes-requested --note "<the owner\'s rework instruction>"',
