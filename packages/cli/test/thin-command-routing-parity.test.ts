@@ -829,10 +829,7 @@ test("task-create help renders recommended presets only from effective catalog r
     help,
     /Recommended presets:.*standard-task — Standard Task — General work\..*module — Module — unavailable \(missing_provider\)/su,
   );
-  assert.match(
-    help,
-    /profile=baseline — outputShape=repository-diff.*completionGates=\["ci","manual-attest"\]/su,
-  );
+  assert.match(help, /profile=baseline — outputShape=repository-diff.*completionGates=\["ci","manual-attest"\]/su);
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
   const createHelp = renderThinHelp([], "task", "ha task create");
   assert.match(createHelp, /--profile — optional; value; format: <profile/u);

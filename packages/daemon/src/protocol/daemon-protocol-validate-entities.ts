@@ -237,8 +237,11 @@ export function validTaskMetadata(value: unknown): boolean {
     ];
   return (
     recordWith(value, fields) &&
-    Object.keys(value).every((field) => fields.includes(field) || field === "longRunning") &&
+    Object.keys(value).every(
+      (field) => fields.includes(field) || field === "longRunning" || field === "riskTierFlowVersion",
+    ) &&
     (value.longRunning === undefined || typeof value.longRunning === "boolean") &&
+    (value.riskTierFlowVersion === undefined || value.riskTierFlowVersion === 1) &&
     [value.idempotencyKey, value.parentTaskId, value.moduleKey, value.fromLegacyId].every(nullable) &&
     (value.workKind === null ||
       ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))) &&

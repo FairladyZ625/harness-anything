@@ -102,6 +102,56 @@ test("task snapshot protocol accepts audited gate witnesses", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
 });
 
+test("task snapshots accept the tier-flow marker while preserving legacy metadata", () => {
+  const metadata = {
+      idempotencyKey: null,
+      parentTaskId: null,
+      workKind: "feat",
+      riskTier: "medium",
+      urgency: null,
+      verticalId: "software/coding",
+      presetId: "standard-task",
+      profileId: "baseline",
+      moduleKey: null,
+      slug: "tier-policy",
+      surfaces: [],
+      riskTierFlowVersion: 1,
+      fromLegacyId: null,
+    },
+    task = {
+      schema: "task/v2",
+      taskId: row.taskId,
+      title: "Tier policy",
+      taskClass: "standard",
+      status: "planned",
+      graph: {},
+      currentNode: "implementation",
+      iteration: 0,
+      createdBy: actor,
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+      pinned: false,
+      metadata,
+    },
+    withMarker = { ...row, snapshot: { ...row.snapshot, task } },
+    { riskTierFlowVersion: _flowVersion, ...legacyMetadata } = metadata,
+    legacy = { ...row, snapshot: { ...row.snapshot, task: { ...task, metadata: legacyMetadata } } },
+    unsupported = {
+      ...row,
+      snapshot: {
+        ...row.snapshot,
+        task: { ...task, metadata: { ...metadata, riskTierFlowVersion: 2 } },
+      },
+    };
+
+  assert.deepEqual(isolateDaemonTaskSnapshotRows([withMarker, legacy]).invalidRows, []);
+  assert.deepEqual(isolateDaemonTaskSnapshotRows([withMarker, legacy]).rows, [withMarker, legacy]);
+  assert.deepEqual(
+    isolateDaemonTaskSnapshotRows([unsupported]).invalidRows.map(({ field }) => field),
+    ["rows[0].snapshot.task"],
+  );
+});
+
 test("task snapshot protocol requires the completedAt projection field", () => {
   const { completedAt: _completedAt, ...rowWithoutCompletedAt } = row;
   assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [rowWithoutCompletedAt] }), []);
