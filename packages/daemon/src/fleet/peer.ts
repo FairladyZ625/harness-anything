@@ -804,7 +804,11 @@ export async function probeFleetEdgeCenterAddress(options: {
     const candidate = connect({
       host: hostname,
       port: options.port,
-      ...(isIP(hostname) === 0 ? { servername: options.servername ?? hostname } : {}),
+      ...(options.servername
+        ? { servername: options.servername }
+        : isIP(hostname) === 0
+          ? { servername: hostname }
+          : {}),
       rejectUnauthorized: false,
     });
     const unreachable = (cause?: unknown) =>

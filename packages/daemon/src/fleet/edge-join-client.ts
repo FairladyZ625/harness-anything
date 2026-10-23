@@ -5,12 +5,13 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { writeFileDurably } from "../durable-file.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { OidcLoginAuthority } from "../oidc-session-service.ts";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
-import { fetchWithTlsCa } from "../tls-ca-certificate.ts";
+import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
 
 const defaultQuotaBytes = 1024 * 1024 * 1024;
 
@@ -52,7 +53,12 @@ export interface EdgeJoinClientPorts {
   readonly session: () => Promise<
     | {
         readonly accessToken: string;
-        readonly authority: { readonly url: string; readonly realm: string; readonly certificate?: string };
+        readonly authority: {
+          readonly url: string;
+          readonly realm: string;
+          readonly certificate?: string;
+          readonly servername?: string;
+        };
       }
     | undefined
   >;
@@ -83,14 +89,17 @@ export async function joinFleetEdge(
     url: link.loginUrl,
     realm: link.loginRealm,
     clientId: link.loginClientId,
+    ...(link.loginServername ? { servername: link.loginServername } : {}),
+    ...(link.loginBrowserUrl ? { browserUrl: link.loginBrowserUrl } : {}),
     ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
   };
   const center = new URL(link.centerOrigin),
+    centerServername = link.centerServername ?? center.hostname,
     centerProbe = Promise.resolve().then(() =>
       (ports.probeCenter ?? probeFleetEdgeCenterAddress)({
         hostname: center.hostname,
         port: Number(center.port || 443),
-        servername: center.hostname,
+        servername: centerServername,
         spkiSha256: link.spkiSha256,
       }),
     ),
@@ -125,14 +134,19 @@ export async function joinFleetEdge(
     !session ||
     session.authority.url !== authority.url ||
     session.authority.realm !== authority.realm ||
+    session.authority.servername !== authority.servername ||
     (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
   )
-    return { ...(await ports.beginLogin(authority)), command: "edge-join" };
+    return {
+      ...(await ports.beginLogin(authority)),
+      command: "edge-join",
+      ...(link.transport ? { transport: link.transport } : {}),
+    };
   const port = Number(center.port || 443),
     admitted = await (ports.join ?? requestFleetEdgeJoinPinned)({
       hostname: center.hostname,
       port,
-      servername: center.hostname,
+      servername: centerServername,
       joinId: link.joinId,
       inviteToken: link.token,
       accessToken: session.accessToken,
@@ -166,7 +180,7 @@ export async function joinFleetEdge(
       workspaceRoot: root,
       host: center.hostname,
       port,
-      servername: center.hostname,
+      servername: centerServername,
       caPath,
       nodeId: admitted.nodeId,
       credential: admitted.credential,
@@ -175,6 +189,17 @@ export async function joinFleetEdge(
       quotaBytes: defaultQuotaBytes,
       timeoutMs: 60_000,
     });
+    if (link.transport === "ssh-reverse") {
+      const existing = readFleetEdgeConfig(root);
+      if (!existing) throw new Error("Fleet edge sync did not persist its connection configuration.");
+      writeFleetEdgeConfig(root, {
+        ...existing,
+        loginUrl: authority.url,
+        loginServername: authority.servername,
+        loginBrowserUrl: authority.browserUrl,
+        ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),
+      });
+    }
     report(synced.ok !== false ? "synced" : "failed");
     repositories.push({
       repoId: repository.repoId,
@@ -201,9 +226,18 @@ async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
   const realmUrl = new URL(`realms/${encodeURIComponent(authority.realm)}`, `${authority.url.replace(/\/$/u, "")}/`),
     address = new URL(authority.url).origin;
   try {
-    const response = await (authority.certificate
-      ? fetchWithTlsCa(fetch, authority.certificate, realmUrl, { signal: AbortSignal.timeout(5_000) })
-      : fetch(realmUrl, { signal: AbortSignal.timeout(5_000) }));
+    const request = authority.servername
+      ? fetchWithTlsCa(
+          fetch,
+          authority.certificate ?? systemCaCertificates(),
+          realmUrl,
+          { signal: AbortSignal.timeout(5_000) },
+          authority.servername,
+        )
+      : authority.certificate
+        ? fetchWithTlsCa(fetch, authority.certificate, realmUrl, { signal: AbortSignal.timeout(5_000) })
+        : fetch(realmUrl, { signal: AbortSignal.timeout(5_000) });
+    const response = await request;
     await response.body?.cancel();
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
   } catch (error) {

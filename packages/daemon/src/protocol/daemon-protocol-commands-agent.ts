@@ -539,6 +539,8 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--join-repo", "repeated", false, { code: "invalid_field" }),
       cliInput("--join-group", "repeated", false, { code: "invalid_field" }),
       cliInput("--node-label", "single", false, { code: "invalid_field" }, { field: "nodeLabel" }),
+      cliInput("--transport", "single", false, { code: "invalid_field" }, { enum: ["direct", "ssh-reverse"] }),
+      cliInput("--ssh-target", "single", false, { code: "invalid_field" }, { field: "sshTarget" }),
       cliInput("--username", "single", false, { code: "invalid_field" }, { field: "username" }),
       cliInput("--email", "single", false, { code: "invalid_field" }, { field: "email" }),
       cliInput("--display-name", "single", false, { code: "invalid_field" }, { field: "displayName" }),

@@ -145,6 +145,41 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
   assert.ok(logoutDispatcher, "logout uses the session authority's request-scoped CA");
 });
 
+test("SSH device authorization uses the loopback login endpoint and hands the browser to the canonical center URL", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-ssh-browser-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const requests: string[] = [],
+    dispatchers: unknown[] = [],
+    service = new OidcSessionService(root, {
+      now: () => 0,
+      fetch: (async (input, init) => {
+        requests.push(String(input));
+        dispatchers.push((init as RequestInit & { dispatcher?: unknown }).dispatcher);
+        return Response.json({
+          device_code: "private-device",
+          user_code: "SSH-CODE",
+          verification_uri: "https://127.0.0.1:41232/realms/harness/device",
+          expires_in: 600,
+          interval: 5,
+        });
+      }) as typeof fetch,
+    });
+
+  const begun = await service.beginDevice(undefined, {
+    url: "https://127.0.0.1:41232",
+    servername: "login.center.example",
+    browserUrl: "https://login.center.example:18544",
+    realm: "harness",
+    clientId: "harness-node-edge",
+    certificate: "public test CA",
+  });
+
+  assert.deepEqual(requests, ["https://127.0.0.1:41232/realms/harness/protocol/openid-connect/auth/device"]);
+  assert.ok(dispatchers[0], "the loopback request still uses the invitation TLS authority");
+  assert.equal(begun.verificationUri, "https://login.center.example:18544/realms/harness/device?user_code=SSH-CODE");
+  assert.equal(JSON.stringify(begun).includes("private-device"), false);
+});
+
 test("device login survives transient transport loss and replaces a code invalidated by Keycloak restart", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-restart-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -223,6 +258,36 @@ test("device login survives transient transport loss and replaces a code invalid
   assert.equal(accepted.authenticated, true);
   assert.equal(accepted.personId, "person-one");
   assert.equal(tokenRequests, 3);
+});
+
+test("device authorization signs in as harness-gui even when the rbac config names the resource server", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-login-client-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // A managed install writes the resource server into config.clientId; the login client stays harness-gui.
+  mkdirSync(path.join(root, "rbac"));
+  writeFileSync(
+    path.join(root, "rbac/config.json"),
+    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" }),
+  );
+  let deviceRequest: URLSearchParams | undefined;
+  const service = new OidcSessionService(root, {
+    now: () => 0,
+    fetch: (async (input, init) => {
+      if (String(input).endsWith("/auth/device")) {
+        deviceRequest = new URLSearchParams(String(init?.body));
+        return Response.json({
+          device_code: "private-device",
+          user_code: "ABCD-EFGH",
+          verification_uri: "http://127.0.0.1:8080/realms/harness/device",
+          expires_in: 600,
+          interval: 5,
+        });
+      }
+      throw new Error(`unexpected request ${String(input)}`);
+    }) as typeof fetch,
+  });
+  await service.beginDevice();
+  assert.equal(deviceRequest?.get("client_id"), "harness-gui");
 });
 
 test("first device authorization reports an unreachable authority with the same code as polling", async (t) => {

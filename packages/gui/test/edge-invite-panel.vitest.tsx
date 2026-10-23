@@ -91,7 +91,11 @@ function issuedReply(joinId = "join-1") {
   };
 }
 
-function join(state: "pending" | "consumed" | "expired" | "revoked" = "pending") {
+function join(
+  state: "pending" | "consumed" | "expired" | "revoked" = "pending",
+  transport: "direct" | "ssh-reverse" = "direct",
+  tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped",
+) {
   return {
     joinId: "join-1",
     state,
@@ -100,6 +104,7 @@ function join(state: "pending" | "consumed" | "expired" | "revoked" = "pending")
     groupIds: ["contributor"],
     createdAt: "2026-10-18T00:00:00.000Z",
     expiresAt: "2030-01-01T00:00:00.000Z",
+    ...(transport === "ssh-reverse" ? { transport, ...(tunnelState ? { tunnelState } : {}) } : {}),
   };
 }
 
@@ -277,6 +282,30 @@ describe("EdgeInvitePanel", () => {
     expect(container.textContent).toContain("2030-01-01");
     expect(list).toHaveBeenCalled();
     expect(container.textContent).toContain("Pending");
+  });
+
+  it("requires an SSH target, submits it with the invitation, and shows tunnel status", async () => {
+    const { container, issue } = await mountPanel({
+      listResults: [{ ok: true, joins: [join("pending", "ssh-reverse", "connected")] }],
+    });
+    await pickExistingMember(container);
+    await check(container, "edge-invite-transport-ssh");
+    expect(container.querySelector('[data-testid="edge-invite-ssh-target"]')).not.toBeNull();
+    await click(container, "edge-invite-issue");
+    expect(issue).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Enter an SSH alias or user@host");
+
+    await fill(container, "edge-invite-ssh-target", "macbook-air-via-tencent-prod");
+    await click(container, "edge-invite-issue");
+    expect(issue).toHaveBeenCalledWith({
+      personId: "person-gui",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["contributor"],
+      transport: "ssh-reverse",
+      sshTarget: "macbook-air-via-tencent-prod",
+      nodeLabel: "edge-boston",
+    });
+    expect(container.textContent).toContain("Connected");
   });
 
   it("lists repositories by display name, keeping the repo id secondary only when they differ", async () => {

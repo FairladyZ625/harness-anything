@@ -24,6 +24,7 @@ import {
 import type { OidcSessionService } from "./oidc-session-service.ts";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 import { EdgeJoinAdminService } from "./access-admin-edge-join.ts";
+import { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 export { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
@@ -93,6 +94,7 @@ export class AccessAdminService {
   readonly #ports: AccessAdminPorts;
   readonly #permissionRequests: ReturnType<typeof managedPermissionRequestStore>;
   readonly #edgeJoinAdmin: EdgeJoinAdminService;
+  readonly #edgeJoinTunnels: EdgeJoinSshTunnelManager;
 
   constructor(oidc: OidcSessionService, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
     this.#oidc = oidc;
@@ -103,6 +105,7 @@ export class AccessAdminService {
       journal: managedRbacReceiptJournal(userRoot),
       ...ports,
     };
+    this.#edgeJoinTunnels = ports.sshTunnels ?? new EdgeJoinSshTunnelManager();
     this.#edgeJoinAdmin = new EdgeJoinAdminService({
       oidc,
       userRoot,
@@ -110,6 +113,8 @@ export class AccessAdminService {
       now: this.#ports.now,
       journal: this.#ports.journal,
       session: () => this.#session(),
+      sshTunnels: this.#edgeJoinTunnels,
+      ...(ports.edgeJoins ? { joins: ports.edgeJoins } : {}),
     });
   }
 
@@ -117,6 +122,18 @@ export class AccessAdminService {
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
   async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
     return this.#edgeJoinAdmin.admit(input);
+  }
+
+  resumeEdgeJoinTunnels(fleetServicePort: number): Promise<void> {
+    return this.#edgeJoinAdmin.resumeSshTunnels(fleetServicePort);
+  }
+
+  stopEdgeJoinTunnels(): Promise<void> {
+    return this.#edgeJoinAdmin.stopSshTunnels();
+  }
+
+  close(): Promise<void> {
+    return this.#edgeJoinAdmin.close();
   }
 
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
@@ -622,7 +639,10 @@ export class AccessAdminService {
       throw Object.assign(unsettled(String(record.operationId)), { cause: error });
     }
     const removed = outcome === "applied" ? removedNode(record.expect) : null;
-    if (removed) this.#ports.onNodeRemoved?.(removed);
+    if (removed) {
+      this.#edgeJoinAdmin.releaseNodeTunnel(removed);
+      this.#ports.onNodeRemoved?.(removed);
+    }
     return { ok: outcome === "applied", ...receipt };
   }
 

@@ -80,6 +80,7 @@ export async function beginEdgeJoin(link: string): Promise<EdgeJoinDeviceLogin |
       userCode: value.userCode,
       interval: value.interval,
       expiresAt: value.expiresAt,
+      ...(value.transport === "ssh-reverse" ? { transport: "ssh-reverse" as const } : {}),
     };
   }
   return readJoined(value);

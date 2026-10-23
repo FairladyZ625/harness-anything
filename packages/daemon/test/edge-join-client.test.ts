@@ -281,11 +281,11 @@ test("login address probing preserves an authority path prefix", async (t) => {
       "-out",
       certFile,
       "-subj",
-      "/CN=127.0.0.1",
+      "/CN=localhost",
       "-days",
       "1",
       "-addext",
-      "subjectAltName=IP:127.0.0.1",
+      "subjectAltName=DNS:localhost",
     ],
     { stdio: "ignore" },
   );
@@ -312,6 +312,7 @@ test("login address probing preserves an authority path prefix", async (t) => {
       permissionSnapshot: [],
       spkiSha256: "a".repeat(64),
       loginUrl: `https://127.0.0.1:${address.port}/auth`,
+      loginServername: "localhost",
       loginRealm: "harness",
       loginClientId: "edge-client",
       loginCertificate: readFileSync(certFile, "utf8"),
@@ -325,6 +326,7 @@ test("login address probing preserves an authority path prefix", async (t) => {
         session: async () => undefined,
         beginLogin: async (authority) => {
           assert.equal(authority.url, `https://127.0.0.1:${address.port}/auth`);
+          assert.equal(authority.servername, "localhost");
           return { ok: true, pending: true };
         },
         register: async () => undefined,

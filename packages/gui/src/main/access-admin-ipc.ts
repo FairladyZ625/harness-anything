@@ -61,6 +61,8 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
     groupIds: "names",
     nodeLabel: "optional-text",
     platform: "optional-text",
+    transport: "optional-text",
+    sshTarget: "optional-text",
   },
   "edge-join-status": { joinId: "text" },
   "edge-join-list": {},

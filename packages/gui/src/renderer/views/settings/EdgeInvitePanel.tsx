@@ -26,6 +26,7 @@ const INPUT_CLASS = [
   "font-mono ui-meta text-text",
 ].join(" ");
 const statusTone = { pending: "wait", consumed: "done", expired: "bad", revoked: "bad" } as const;
+const tunnelTone = { connecting: "wait", connected: "done", reconnecting: "bad", stopped: "bad" } as const;
 /** Sentinel select value for inviting someone who is not a member yet. */
 const NEW_MEMBER = "__new__";
 
@@ -42,6 +43,8 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
     [email, setEmail] = useState(""),
     [displayName, setDisplayName] = useState(""),
     [nodeLabel, setNodeLabel] = useState(""),
+    [transport, setTransport] = useState<"direct" | "ssh-reverse">("direct"),
+    [sshTarget, setSshTarget] = useState(""),
     [selectedRepoIds, setSelectedRepoIds] = useState<readonly string[]>([]),
     [selectedGroupIds, setSelectedGroupIds] = useState<readonly string[]>([]),
     [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set()),
@@ -53,7 +56,11 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
       queryKey: ["edge-join", "list"],
       queryFn: fetchEdgeJoinList,
       refetchInterval: (query) =>
-        query.state.data?.some((row) => row.state === "pending") ? QUERY_PACING_MS.edgeJoinStatus : false,
+        query.state.data?.some(
+          (row) => row.state === "pending" || (row.transport === "ssh-reverse" && row.state === "consumed"),
+        )
+          ? QUERY_PACING_MS.edgeJoinStatus
+          : false,
     });
   const issue = useMutation({
       mutationFn: issueEdgeJoin,
@@ -98,6 +105,11 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
       setFeedback(t("views.repositories.inviteFieldsRequired"));
       return;
     }
+    if (transport === "ssh-reverse" && sshTarget.trim() === "") {
+      setFeedback(t("views.repositories.inviteSshTargetRequired"));
+      return;
+    }
+    const transportInput = transport === "ssh-reverse" ? { transport, sshTarget: sshTarget.trim() } : {};
     if (selected === NEW_MEMBER) {
       const newUsername = username.trim(),
         newEmail = email.trim(),
@@ -117,6 +129,7 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
         displayName: newDisplayName,
         repoIds: selectedRepoIds,
         groupIds: selectedGroupIds,
+        ...transportInput,
         ...(nodeLabel.trim() ? { nodeLabel: nodeLabel.trim() } : {}),
       });
       return;
@@ -129,6 +142,7 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
       personId: selectedPerson.personId,
       repoIds: selectedRepoIds,
       groupIds: selectedGroupIds,
+      ...transportInput,
       ...(nodeLabel.trim() ? { nodeLabel: nodeLabel.trim() } : {}),
     });
   };
@@ -236,6 +250,45 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
             onChange={(event) => setNodeLabel(event.target.value)}
           />
         </Row>
+        <Row label={t("views.repositories.inviteTransportLabel")}>
+          <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="edge-invite-transport">
+            <label className="flex items-center gap-2 ui-meta text-text">
+              <input
+                data-testid="edge-invite-transport-direct"
+                type="radio"
+                name="edge-invite-transport"
+                checked={transport === "direct"}
+                onChange={() => setTransport("direct")}
+              />
+              {t("views.repositories.inviteTransportDirect")}
+            </label>
+            <label className="flex items-center gap-2 ui-meta text-text">
+              <input
+                data-testid="edge-invite-transport-ssh"
+                type="radio"
+                name="edge-invite-transport"
+                checked={transport === "ssh-reverse"}
+                onChange={() => setTransport("ssh-reverse")}
+              />
+              {t("views.repositories.inviteTransportSsh")}
+            </label>
+          </fieldset>
+        </Row>
+        {transport === "ssh-reverse" ? (
+          <Row label={t("views.repositories.inviteSshTargetLabel")}>
+            <div className="flex max-w-full flex-col gap-1">
+              <input
+                data-testid="edge-invite-ssh-target"
+                aria-label={t("views.repositories.inviteSshTargetLabel")}
+                placeholder={t("views.repositories.inviteSshTargetPlaceholder")}
+                className={INPUT_CLASS}
+                value={sshTarget}
+                onChange={(event) => setSshTarget(event.target.value)}
+              />
+              <p className="ui-micro text-text-faint">{t("views.repositories.inviteSshTargetHint")}</p>
+            </div>
+          </Row>
+        ) : null}
         <fieldset className="flex flex-col gap-1 rounded border border-border px-3 py-2">
           <legend className="px-1 font-mono ui-meta text-text-muted">{t("views.repositories.inviteReposLabel")}</legend>
           {repos.length === 0 ? (
@@ -379,6 +432,19 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
             <span className="font-mono ui-micro text-text">{join.personId}</span>
             <span className="font-mono ui-micro text-text-faint">{join.repoIds.join(", ")}</span>
             <span className="font-mono ui-micro text-text-faint">{join.groupIds.join(", ")}</span>
+            <span className="ui-micro text-text-muted">
+              {t(
+                join.transport === "ssh-reverse"
+                  ? "views.repositories.inviteTransportSsh"
+                  : "views.repositories.inviteTransportDirect",
+              )}
+            </span>
+            {join.transport === "ssh-reverse" && join.tunnelState ? (
+              <StatusTag
+                tone={tunnelTone[join.tunnelState]}
+                label={t(`views.repositories.inviteTunnel.${join.tunnelState}` as never)}
+              />
+            ) : null}
             {join.nodeId ? <span className="font-mono ui-micro text-text-faint">{join.nodeId}</span> : null}
             <span className="ui-micro text-text-faint">{formatTime(join.expiresAt, { style: "date-time" })}</span>
             {join.state === "pending" ? (
