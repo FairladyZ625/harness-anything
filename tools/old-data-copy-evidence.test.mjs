@@ -16,11 +16,10 @@ import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
 import {
-  copyLayout,
-  copyRepoId,
   copyTreeArgs,
   copyTreeMethod,
   forensicEnv,
+  parseArgs,
   parseLastJsonObject,
   parsePeakRssBytes,
   planDaemonDistSteps,
@@ -40,6 +39,8 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   assert.equal(parsePeakRssBytes("\t123456789  maximum resident set size\n", "darwin"), 123456789);
   assert.equal(parsePeakRssBytes("Maximum resident set size (kbytes): 4096\n", "linux"), 4096 * 1024);
   assert.equal(parsePeakRssBytes("unrelated", "darwin"), null);
+  assert.equal(parseArgs([]).mediumSubmit, false);
+  assert.equal(parseArgs(["--medium-submit"]).mediumSubmit, true);
   assert.deepEqual(copyTreeArgs("darwin"), ["-cR"]);
   assert.deepEqual(copyTreeArgs("linux"), ["-a", "--reflink=auto"]);
   assert.deepEqual(copyTreeArgs("freebsd"), ["-a"]);
@@ -69,56 +70,21 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   assert.equal(resolveSourceRoot("/some/explicit"), "/some/explicit");
 });
 
-test("copy layout: the source harness.yaml decides the local root, not a default literal", () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-layout-"));
-  try {
-    // Default layout: the relative root is the documented default, so behavior is unchanged.
-    const defaultRoot = createSourceFixture(path.join(parent, "default"));
-    assert.equal(copyLayout(defaultRoot).localRootRelative, ".harness");
-    // Renamed layout: the same command must follow the config instead of failing on `.harness`.
-    const renamedParent = path.join(parent, "renamed");
-    mkdirSync(renamedParent, { recursive: true });
-    const renamedRoot = createSourceFixture(renamedParent, ".harness.nosync");
-    const renamed = copyLayout(renamedRoot);
-    assert.equal(renamed.localRootRelative, ".harness.nosync");
-    assert.equal(renamed.localRoot, path.join(renamedRoot, ".harness.nosync"));
-    assert.equal(renamed.configRelative, "harness/harness.yaml");
-    // Pointing at the authored root still finds the project's real local root: the config's
-    // project root is authoritative, not the path the caller happened to type.
-    assert.equal(copyLayout(path.join(renamedRoot, "harness")).localRootRelative, ".harness.nosync");
-    // A source with no discoverable config is refused, never defaulted to `.harness`: defaulting
-    // is the exact bug this command exists to close.
-    assert.throws(() => copyLayout(path.join(parent, "elsewhere")), /no harness\.yaml found/u);
-    // The ledger's own identity comes from its activation certificate, never a literal: the
-    // fixture seeds repo "canonical", and a copied ledger registered under another id is rejected
-    // by attach with "generation 3 activation certificate differs".
-    assert.equal(copyRepoId(defaultRoot).repoId, "canonical");
-    assert.match(
-      copyRepoId(defaultRoot).certificate,
-      /\.harness\/store\/generations\/3\/ledger\.sqlite\.activation\.json$/u,
-      "identity is read from the ledger's own certificate under the resolved local root",
-    );
-  } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-  }
-});
-
 function git(root, ...args) {
   execFileSync("git", args, { cwd: root, encoding: "utf8" });
 }
 
 /** A miniature stand-in for the canonical workspace: an authored harness/ git repository of its
  *  own (that is the canonical shape) plus a real generation-3 ledger seeded through the
- *  production store, holding one settings event. `localRoot` is a parameter because the command
- *  must serve both the default layout and a repository that renamed its local root. */
-function createSourceFixture(parent, localRoot = ".harness") {
+ *  production store, holding one settings event. */
+function createSourceFixture(parent) {
   const root = path.join(parent, "source"),
     harness = path.join(root, "harness");
   mkdirSync(harness, { recursive: true });
   // Committed before the snapshot so the harness/ git local clone (committed state only) carries it.
   writeFileSync(
     path.join(harness, "harness.yaml"),
-    `schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: ${localRoot}\n`,
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     "utf8",
   );
   git(harness, "init", "--quiet");
@@ -128,8 +94,8 @@ function createSourceFixture(parent, localRoot = ".harness") {
   git(harness, "commit", "--quiet", "-m", "fixture");
   seedSettingsEvent({ repoId: "canonical", rootDir: root });
   // An (empty) cache database so the cache-clone snapshot step is exercised end to end.
-  mkdirSync(path.join(root, ...localRoot.split("/"), "cache"), { recursive: true });
-  writeFileSync(path.join(root, ...localRoot.split("/"), "cache", "task.sqlite"), "", "utf8");
+  mkdirSync(path.join(root, ".harness", "cache"), { recursive: true });
+  writeFileSync(path.join(root, ".harness", "cache", "task.sqlite"), "", "utf8");
   return root;
 }
 
@@ -157,10 +123,6 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
     assert.deepEqual(receipt.failures, []);
     assert.equal(receipt.copy.generation, "3");
-    assert.equal(receipt.copy.localRootRelative, ".harness");
-    assert.equal(receipt.source.repository, "canonical", "the copy keeps the ledger's own repo identity");
-    assert.equal(receipt.copy.defaultHarnessPresent, true, "the default layout legitimately owns .harness");
-    assert.equal(receipt.reads.layout.localRootRelative, ".harness");
     assert.equal(receipt.copy.sourceRevision, 1, "one seeded event");
     const cacheStep = receipt.copy.steps.find((step) => step.item === "cache/task.sqlite");
     assert.ok(cacheStep, "the cache database is part of the snapshot steps");
@@ -230,35 +192,23 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
   }
 });
 
-test("renamed localRoot: the same command snapshots, attaches, reads and cold-rebuilds", () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-evidence-test-"));
+test("one command: medium submission records missing local auth and still cold-rebuilds the copy", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-medium-submit-test-"));
   try {
-    const source = createSourceFixture(parent, ".harness.nosync");
-    const out = path.join(parent, "out");
-    const result = runCommand(["--source", source, "--out", out, "--attach-timeout-ms", "120000"]);
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    const receipt = JSON.parse(result.stdout);
-    assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
-    assert.equal(receipt.copy.localRootRelative, ".harness.nosync");
-    assert.equal(receipt.source.repository, "canonical");
-    // The exact shape the reviewer could not produce: real data under a renamed root, read by
-    // the build's own layout resolution, with the default `.harness` never created.
-    assert.equal(receipt.reads.layout.localRootRelative, ".harness.nosync");
-    assert.equal(receipt.copy.defaultHarnessPresent, false, "attach must not create the default root");
-    assert.equal(receipt.reads.storeHead.revision, 1);
-    assert.equal(receipt.coldRebuild.watermark, 1);
-    assert.equal(receipt.coldRebuild.sourceRevision, 1);
-    assert.match(receipt.coldRebuild.stateDigest, /^sha256:[0-9a-f]{64}$/u);
-    // An uncommitted localRoot rename is the motivating shape: the committed harness.yaml still
-    // says `.harness`, so a committed-state-only clone would carry the wrong config.
-    writeFileSync(
-      path.join(source, "harness", "harness.yaml"),
-      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness.nosync\n",
-      "utf8",
-    );
-    const second = JSON.parse(runCommand(["--source", source, "--attach-timeout-ms", "120000"]).stdout);
-    assert.equal(second.ok, true, JSON.stringify(second.failures));
-    assert.equal(second.copy.localRootRelative, ".harness.nosync");
+    const source = createSourceFixture(parent);
+    const result = runCommand(["--source", source, "--medium-submit", "--attach-timeout-ms", "120000"]);
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    const receipt = JSON.parse(result.stdout),
+      medium = receipt.mediumSubmission;
+    assert.equal(receipt.ok, false);
+    assert.equal(medium, null);
+    assert.match(JSON.stringify(receipt.failures), /authentication_required/u);
+    assert.equal(receipt.coldRebuild.sourceRevision, 1, "the denied create does not append copied-ledger events");
+    assert.equal(receipt.coldRebuild.watermark, receipt.coldRebuild.sourceRevision);
+    assert.equal(receipt.cleanup.kept, false);
+    assert.equal(existsSync(receipt.cleanup.tempRoot), false, "temporary submitted copy removed");
+    assert.equal(receipt.cleanup.daemonStopped, true);
+    assert.equal(processAlive(receipt.build.pid), false, "no daemon left behind");
   } finally {
     rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }

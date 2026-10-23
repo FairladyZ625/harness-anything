@@ -896,7 +896,7 @@ function taskRuntimeContext(
 } {
   const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
   if (
-    read.schema === "task-runtime-context-read/v1" &&
+    read.schema === "task-runtime-context-read/v2" &&
     read.ok === true &&
     read.taskId === taskId &&
     (read.causalContext === null || typeof read.causalContext === "string") &&

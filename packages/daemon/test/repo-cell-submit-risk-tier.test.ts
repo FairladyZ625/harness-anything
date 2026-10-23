@@ -81,16 +81,67 @@ test("a legacy cut keeps its bytes only when the caller explicitly resumes it", 
   assert.equal(changedCut.riskTierAssessment, assessment);
 });
 
-test("GUI acceptance resolves from the current vertical when the task froze an older preset", () => {
+test("risk-floor escalation changes the reviewer route without adding consent", () => {
+  const cell = {} as Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
+    snapshot = {} as Snapshot,
+    contract: SubmissionV1["completionContract"] = {
+      presetSnapshotDigest: digest,
+      gates: [],
+      closeoutGates: { review: false, consent: true, factDisposition: false, codeDoc: true },
+    },
+    assessment: NonNullable<SubmissionV1["riskTierAssessment"]> = {
+      schema: "task-risk-tier-assessment/v1",
+      declaredTier: "low",
+      effectiveTier: "high",
+      deliveryBaseSha: "b".repeat(40),
+      deliveryHeadSha: "c".repeat(40),
+      matchedPathReviewers: [],
+      reasons: ["repository risk floor"],
+      guiAcceptanceRequired: false,
+    },
+    escalated = riskTierCompletionContract(cell, snapshot, contract, assessment),
+    medium = riskTierCompletionContract(cell, snapshot, contract, {
+      ...assessment,
+      declaredTier: "medium",
+      effectiveTier: "medium",
+    }),
+    mediumEscalated = riskTierCompletionContract(cell, snapshot, contract, {
+      ...assessment,
+      declaredTier: "medium",
+      effectiveTier: "high",
+    }),
+    low = riskTierCompletionContract(cell, snapshot, contract, {
+      ...assessment,
+      declaredTier: "low",
+      effectiveTier: "low",
+    }),
+    high = riskTierCompletionContract(cell, snapshot, contract, {
+      ...assessment,
+      declaredTier: "high",
+      effectiveTier: "high",
+    });
+
+  assert.equal(escalated.closeoutGates.review, true);
+  assert.equal(escalated.closeoutGates.consent, false);
+  assert.equal(medium.closeoutGates.review, true);
+  assert.equal(medium.closeoutGates.consent, true, "medium keeps its repository-resolved consent gate");
+  assert.equal(mediumEscalated.closeoutGates.review, true);
+  assert.equal(mediumEscalated.closeoutGates.consent, true, "raising review tier leaves medium consent unchanged");
+  assert.equal(low.closeoutGates.review, false);
+  assert.equal(low.closeoutGates.consent, false);
+  assert.equal(high.closeoutGates.review, true);
+  assert.equal(high.closeoutGates.consent, true);
+});
+
+test("GUI acceptance resolves from the bundled vertical when an old accepted vertical and preset lack the gate", () => {
   const vertical = readDefaultVerticalDefinition(),
+    legacyVertical = { ...vertical, completion: { ...vertical.completion, sources: {}, gates: {} } },
     oldPreset: PresetSnapshotV1 = {
       schema: "preset-snapshot/v1",
       identity: { id: "standard-task", version: "1.0.0", verticalId: vertical.id, layer: "bundled" },
       completion: {
         sources: vertical.completion.sources,
-        gates: Object.fromEntries(
-          Object.entries(vertical.completion.gates).filter(([gateId]) => gateId !== "gui-acceptance"),
-        ),
+        gates: {},
         closeoutDefaults: vertical.completion.closeoutDefaults,
       },
       completionPackages: {},
@@ -121,7 +172,11 @@ test("GUI acceptance resolves from the current vertical when the task froze an o
       readPresetSnapshot: () => ({ status: "ready" as const, snapshot: oldPreset, watermark: 1, sourceRevision: 1 }),
       readDocument: () => ({
         document: {
-          body: JSON.stringify({ schema: "repository-vertical-declaration/v1", revision: 1, definition: vertical }),
+          body: JSON.stringify({
+            schema: "repository-vertical-declaration/v1",
+            revision: 1,
+            definition: legacyVertical,
+          }),
         },
       }),
     },
@@ -137,4 +192,57 @@ test("GUI acceptance resolves from the current vertical when the task froze an o
   assert.equal(gate?.appliesTo, "code");
   assert.equal(gate?.witness.adapterId, "manual-attest");
   assert.equal(resolved.presetSnapshotDigest, digest);
+});
+
+test("a frozen GUI gate wins over a stale accepted vertical", () => {
+  const vertical = readDefaultVerticalDefinition(),
+    oldAcceptedVertical = { ...vertical, completion: { ...vertical.completion, sources: {}, gates: {} } },
+    snapshot: PresetSnapshotV1 = {
+      schema: "preset-snapshot/v1",
+      identity: { id: "standard-task", version: "1.0.0", verticalId: vertical.id, layer: "bundled" },
+      completion: vertical.completion,
+      completionPackages: {},
+      profile: { id: "baseline", outputShape: "repository-diff", completionGateIds: [] },
+      guidance: { description: "", whenToUse: "", bodySha256: "" },
+      scaffold: { baseVersion: "software-coding/v1", overlayDigest: null, resolvedSelectionDigest: digest },
+      templates: [],
+    },
+    taskSnapshot = {
+      task: { metadata: { verticalId: vertical.id }, presetSnapshotDigest: digest },
+    } as unknown as Snapshot,
+    contract: SubmissionV1["completionContract"] = {
+      presetSnapshotDigest: digest,
+      gates: [],
+      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+    },
+    assessment: NonNullable<SubmissionV1["riskTierAssessment"]> = {
+      schema: "task-risk-tier-assessment/v1",
+      declaredTier: "low",
+      effectiveTier: "low",
+      deliveryBaseSha: "b".repeat(40),
+      deliveryHeadSha: "c".repeat(40),
+      matchedPathReviewers: [],
+      reasons: [],
+      guiAcceptanceRequired: true,
+    },
+    projection = {
+      readPresetSnapshot: () => ({ status: "ready" as const, snapshot, watermark: 1, sourceRevision: 1 }),
+      readDocument: () => ({
+        document: {
+          body: JSON.stringify({
+            schema: "repository-vertical-declaration/v1",
+            revision: 1,
+            definition: oldAcceptedVertical,
+          }),
+        },
+      }),
+    },
+    cell = {
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      settings: { readRepository: () => ({ gates: [] }) },
+      projection,
+    } as unknown as Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">;
+
+  const resolved = riskTierCompletionContract(cell, taskSnapshot, contract, assessment);
+  assert.ok(resolved.gates.some((gate) => gate.gateId === "gui-acceptance"));
 });

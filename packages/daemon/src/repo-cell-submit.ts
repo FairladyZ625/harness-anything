@@ -29,7 +29,7 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
-import { readCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
+import { readCanonicalVerticalDeclaration, readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -379,7 +379,9 @@ function riskTierCloseoutGates(
   return {
     ...gates,
     review: assessment.effectiveTier !== "low",
-    consent: assessment.effectiveTier === "low" ? false : assessment.effectiveTier === "high" ? true : gates.consent,
+    // A repository floor changes the reviewer route only; preserve the original contract's
+    // consent decision for medium, and keep the tier-specific low/high rules.
+    consent: assessment.declaredTier === "low" ? false : assessment.declaredTier === "high" ? true : gates.consent,
   };
 }
 
@@ -396,7 +398,21 @@ export function riskTierCompletionContract(
     canonicalVertical = readCanonicalVerticalDeclaration(cell.projection),
     currentVertical = canonicalVertical?.definition,
     taskVerticalId = snapshot.task?.metadata?.verticalId ?? "software/coding",
-    gateDeclaration = currentVertical?.id === taskVerticalId ? currentVertical.completion : frozenPreset.completion,
+    bundledVertical = readDefaultVerticalDefinition(),
+    candidateDeclaration =
+      frozenPreset.completion.gates[GUI_ACCEPTANCE_GATE_ID] !== undefined
+        ? frozenPreset.completion
+        : currentVertical?.id === taskVerticalId &&
+            currentVertical.completion.gates[GUI_ACCEPTANCE_GATE_ID] !== undefined
+          ? currentVertical.completion
+          : bundledVertical.id === taskVerticalId
+            ? bundledVertical.completion
+            : frozenPreset.completion,
+    gateDeclaration = {
+      ...frozenPreset.completion,
+      sources: { ...candidateDeclaration.sources, ...frozenPreset.completion.sources },
+      gates: { ...candidateDeclaration.gates, ...frozenPreset.completion.gates },
+    },
     resolved = resolveCompletionContract([GUI_ACCEPTANCE_GATE_ID], cell.settings.readRepository(), {
       ...frozenPreset,
       completion: gateDeclaration,

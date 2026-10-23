@@ -13,7 +13,7 @@ export function readTaskRuntimeContext(
     task = read.snapshot.task;
   const executionIds = read.snapshot.executions.map(({ executionId }) => executionId);
   return {
-    schema: "task-runtime-context-read/v1" as const,
+    schema: "task-runtime-context-read/v2" as const,
     ok: true as const,
     taskId,
     causalContext: assembleTaskCausalContext({ projection: projection, taskId }),

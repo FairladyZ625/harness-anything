@@ -163,7 +163,11 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
     assert.match(assessment.deliveryBaseSha ?? "", /^[0-9a-f]{40}$/u);
     assert.match(assessment.deliveryHeadSha ?? "", /^[0-9a-f]{40}$/u);
     assert.deepEqual(assessment.matchedPathReviewers, []);
-    assert.equal(submission.completionContract.closeoutGates.consent, true);
+    assert.equal(
+      submission.completionContract.closeoutGates.consent,
+      false,
+      "risk-floor escalation changes review only",
+    );
     assert.equal(assessment.guiAcceptanceRequired, true);
     assert.ok(submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
     assert.match(assessment.reasons.join("\n"), /fixture high floor/u);

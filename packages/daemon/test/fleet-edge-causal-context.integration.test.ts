@@ -499,7 +499,7 @@ test(
         continuationContext: context.continuationContext,
       },
       {
-        schema: "task-runtime-context-read/v1",
+        schema: "task-runtime-context-read/v2",
         taskId,
         riskTier: "medium",
         worktree: { branch: taskId, path: `.worktrees/${taskId}` },

@@ -10,6 +10,7 @@
 // the isolated daemon, delete the temp copy, and exit non-zero without printing a receipt.
 //   node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|sha>]
 //        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach] [--attach-timeout-ms <ms>]
+//        [--medium-submit]
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -51,6 +52,7 @@ export function parseArgs(argv) {
     build: option("--build"),
     out: option("--out"),
     keep: argv.includes("--keep"),
+    mediumSubmit: argv.includes("--medium-submit"),
     reuseWorkspace: option("--reuse-workspace"),
     coldAttach: argv.includes("--cold-attach"),
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
@@ -506,6 +508,126 @@ async function cli(buildRoot, args, env, workspaceRoot, identity) {
   return interpretCli(await run(invocation.command, invocation.args, invocation.options));
 }
 
+function requireAppliedCli(result, phase) {
+  if (result.status !== 0 || !["applied", "no_changes"].includes(result.receipt?.outcome))
+    throw new Error(`${phase} failed: ${result.stdout}${result.stderr}`);
+  return result.receipt;
+}
+
+function taskShowPayload(receipt, phase) {
+  if (typeof receipt.evidence !== "string") throw new Error(`${phase} returned no task-show evidence`);
+  try {
+    return JSON.parse(receipt.evidence);
+  } catch (error) {
+    throw new Error(`${phase} returned invalid task-show evidence: ${String(error)}`);
+  }
+}
+
+async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, identity) {
+  const title = `Medium risk-tier evidence task_${randomBytes(12).toString("hex")}`,
+    created = requireAppliedCli(
+      await cli(
+        buildRoot,
+        [
+          "task",
+          "create",
+          "--title",
+          title,
+          "--kind",
+          "test",
+          "--risk-tier",
+          "medium",
+          "--preset",
+          "docs-task",
+          "--locale",
+          "en-US",
+        ],
+        env,
+        workspace,
+        identity,
+      ),
+      "medium task create",
+    ),
+    createPayload = taskShowPayload(created, "medium task create"),
+    taskId = createPayload.taskId;
+  if (typeof taskId !== "string" || !/^task_[A-Za-z0-9_-]+$/u.test(taskId))
+    throw new Error(`medium task create returned an invalid task id: ${String(taskId)}`);
+  const createdPayload = taskShowPayload(
+      requireAppliedCli(await cli(buildRoot, ["task", "show", taskId], env, workspace, identity), "created task show"),
+      "created task show",
+    ),
+    packagePath = createdPayload.packagePath;
+  if (typeof packagePath !== "string" || !/^tasks\/[A-Za-z0-9_-]+$/u.test(packagePath))
+    throw new Error(`medium task has an invalid package path: ${String(packagePath)}`);
+  const packageRoot = path.join(workspace, "harness", packagePath),
+    artifactRelative = `${packagePath}/artifacts/medium-submit-evidence.md`,
+    artifactPath = path.join(workspace, "harness", artifactRelative),
+    closeoutPath = path.join(packageRoot, "closeout.md");
+  mkdirSync(path.dirname(artifactPath), { recursive: true });
+  writeFileSync(
+    artifactPath,
+    `# Medium submit evidence\n\nTemporary-copy probe for ${taskId}; no repository source files were changed.\n`,
+    "utf8",
+  );
+  writeFileSync(
+    closeoutPath,
+    `# Closeout\n\n## Summary\n\nSubmitted an isolated medium-tier evidence task in the copied ledger.\n\n## Verification\n\nThe task submit receipt must contain a task-risk-tier-assessment/v1 assessment with declared and effective tier medium.\n`,
+    "utf8",
+  );
+  const started = requireAppliedCli(
+      await cli(buildRoot, ["task", "start", taskId], env, workspace, identity),
+      "medium task start",
+    ),
+    synced = requireAppliedCli(
+      await cli(
+        buildRoot,
+        [
+          "doc",
+          "sync",
+          "--submit",
+          "--task",
+          taskId,
+          "--path",
+          `harness/${packagePath}/closeout.md`,
+          "--path",
+          `harness/${artifactRelative}`,
+        ],
+        env,
+        workspace,
+        identity,
+      ),
+      "medium task document sync",
+    ),
+    submitted = requireAppliedCli(
+      await cli(buildRoot, ["task", "submit", taskId], env, workspace, identity),
+      "medium task submit",
+    ),
+    shown = requireAppliedCli(
+      await cli(buildRoot, ["task", "show", taskId], env, workspace, identity),
+      "submitted task show",
+    ),
+    task = taskShowPayload(shown, "submitted task show"),
+    execution = Array.isArray(task.executions)
+      ? task.executions.find((candidate) => candidate && typeof candidate === "object" && candidate.submission)
+      : null,
+    assessment = execution?.submission?.riskTierAssessment;
+  if (assessment?.schema !== "task-risk-tier-assessment/v1" || assessment.declaredTier !== "medium")
+    throw new Error(
+      `medium task show did not contain the expected submission assessment: ${JSON.stringify(assessment)}`,
+    );
+  return {
+    taskId,
+    executionId: execution.executionId ?? null,
+    packagePath,
+    create: created,
+    start: started,
+    documentSync: synced,
+    submit: submitted,
+    taskShow: shown,
+    riskTierAssessment: assessment,
+  };
+}
+
 /** Sync twin for the interrupt path only: the signal handler must stop the daemon before the
  *  temp root goes away and cannot await. */
 function cliSync(buildRoot, args, env, workspaceRoot, identity) {
@@ -693,6 +815,7 @@ export async function main(argv, session = {}) {
     attach: null,
     reads: null,
     coldRebuild: null,
+    mediumSubmission: null,
     peakRss: null,
     failures: [],
   };
@@ -846,6 +969,21 @@ export async function main(argv, session = {}) {
         record: awaited.record ?? null,
         daemonStatusRepo: repoStatus,
       });
+    if (args.mediumSubmit) {
+      try {
+        receipt.mediumSubmission = await createAndSubmitMediumEvidenceTask(build.root, workspace, env, {
+          userRoot,
+          daemonId,
+        });
+      } catch (error) {
+        // A fresh forensic user root has no Keycloak session. Preserve the exact refusal while
+        // still collecting direct reads and cold-rebuild evidence from the same attached copy.
+        receipt.failures.push({
+          phase: "medium-submission",
+          message: String(error instanceof Error ? error.message : error),
+        });
+      }
+    }
     // 5. Stop the daemon before the direct phase so the cold rebuild owns its SQLite locks.
     const stopped = await cli(build.root, ["daemon", "stop"], env, workspace, { userRoot, daemonId });
     daemonStopReceipt = stopped.receipt;
