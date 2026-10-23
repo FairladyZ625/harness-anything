@@ -26,16 +26,19 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
       remove: async (reference) => void credentials.delete(reference),
     };
   let invocation: unknown = null,
-    probeKey: string | null = null;
+    probeKey: string | null = null,
+    probeServerUrl: string | undefined;
   const service = openDecisionProviderService({
     userRoot: parent,
     vault,
     now: () => "2026-10-19T00:00:00.000Z",
-    probeProvider: async ({ apiKey }) => {
-      probeKey = apiKey;
-    },
     invokeDecision: async (input) => {
-      invocation = input;
+      if (input.question.type === "noul") {
+        probeKey = input.apiKey;
+        probeServerUrl = input.serverURL;
+      } else {
+        invocation = input;
+      }
       return {
         model: "openrouter/model-resolved",
         provider: "route-a",
@@ -64,6 +67,8 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
 
     const probed = await service.command({ kind: "provider-probe", providerId: "review-choice" });
     assert.equal(probeKey, secret);
+    // No configured base URL means "let the SDK's Decisions operation default apply".
+    assert.equal(probeServerUrl, undefined);
     assert.deepEqual((probed.provider as { probe: unknown }).probe, {
       state: "ready",
       checkedAt: "2026-10-19T00:00:00.000Z",
@@ -88,7 +93,7 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
     const result = await service.port.decide(request);
     assert.deepEqual(invocation, {
       apiKey: secret,
-      serverURL: "https://openrouter.ai",
+      serverURL: undefined,
       model: "openrouter/model-requested",
       state: request.state,
       question: {
@@ -121,6 +126,102 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
     assert.equal(deleted.deletedProviderId, "review-choice");
     assert.equal(credentials.has(references[0]!), false);
     assert.deepEqual(service.list(), []);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("Decisions provider probe exercises the same decisions endpoint as a real decision", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-endpoint-")),
+    requests: { readonly method: string; readonly url: string }[] = [],
+    vault: CredentialPort = {
+      issue: () => "credential:v1:probe-key",
+      store: async () => undefined,
+      resolve: async () => "probe-key",
+      remove: async () => undefined,
+    },
+    decisionsBody = {
+      model: "openrouter/model-resolved",
+      usage: { input_tokens: 3, output_tokens: 1 },
+      answers: { decision: { type: "noul", noul: 0.75 } },
+    };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const request = input instanceof Request ? input : new Request(input),
+      url = request.url,
+      path = new URL(url).pathname;
+    requests.push({ method: request.method, url });
+    if (request.method === "POST" && path === "/api/alpha/decisions")
+      return new Response(JSON.stringify(decisionsBody), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    return new Response(JSON.stringify({ error: { code: 404, message: "Not Found" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  const service = openDecisionProviderService({
+    userRoot: parent,
+    vault,
+    now: () => "2026-10-23T00:00:00.000Z",
+  });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "default-endpoint",
+      name: "Default endpoint",
+      model: "openrouter/model-requested",
+      credentialRef: "credential:v1:probe-key",
+    });
+    const probed = await service.command({ kind: "provider-probe", providerId: "default-endpoint" });
+    assert.deepEqual((probed.provider as { probe: unknown }).probe, {
+      state: "ready",
+      checkedAt: "2026-10-23T00:00:00.000Z",
+    });
+
+    const result = await service.port.decide({
+      subjectRef: "task/endpoint",
+      providerId: "default-endpoint",
+      questionSetVersion: "review/v1",
+      state: ["A commit changes the GUI provider catalog."],
+      question: {
+        type: "noul",
+        prompt: "Should this change be accepted?",
+        criteria: { true: "It meets the contract.", false: "It breaks a boundary." },
+      },
+    });
+    assert.equal(result.result.type, "noul");
+    // The probe and the real decision must address the same SDK operation path.
+    assert.deepEqual(
+      requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
+      ["POST /api/alpha/decisions", "POST /api/alpha/decisions"],
+    );
+
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "v1-endpoint",
+      name: "V1 endpoint",
+      model: "openrouter/model-requested",
+      baseUrl: "https://openrouter.ai/api/v1",
+      credentialRef: "credential:v1:probe-key",
+    });
+    requests.length = 0;
+    await assert.rejects(
+      service.command({ kind: "provider-probe", providerId: "v1-endpoint" }),
+      (error: unknown) =>
+        typeof error === "object" && error !== null && "code" in error && error.code === "decision_transport",
+    );
+    assert.deepEqual(
+      requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
+      ["POST /api/v1/api/alpha/decisions"],
+    );
+    assert.deepEqual(service.list().find(({ providerId }) => providerId === "v1-endpoint")?.probe, {
+      state: "failed",
+      checkedAt: "2026-10-23T00:00:00.000Z",
+      code: "decision_transport",
+    });
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
