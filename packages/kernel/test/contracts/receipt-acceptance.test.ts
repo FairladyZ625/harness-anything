@@ -280,6 +280,46 @@ test("a draft that wrote nothing settles as settled_no_write instead of unknown,
   );
 });
 
+test("a writer that already settled its own no-write keeps that verdict instead of becoming unknown", () => {
+  // runtime-steer publishes to the dispatch stream, never to the ledger, and says so on its own
+  // receipt. Re-judging it against an absent command outcome used to rewrite applied to
+  // indeterminate while leaving ok:true, which the GUI receipt exit then rejected as "ok must be
+  // false" — after the prompt had already reached the dispatch stream.
+  const store = { readCommandOutcome: () => null } as never,
+    projection = { readCut: () => ({ watermark: 2 }) } as never,
+    settled = attachReceiptAcceptance(
+      { outcome: "applied", opId: "runtime-steer-abc", status: "settled_no_write", evidence: "dispatch-stream:abc" },
+      store,
+      projection,
+    );
+  assert.equal(settled.status, "settled_no_write");
+  assert.equal(settled.outcome, "applied");
+  assert.equal(settled.code, undefined, "a determinate no-write must not masquerade as acceptance_unknown");
+  assert.equal(settled.origin, undefined);
+  assert.deepEqual(validateReceiptAcceptance(settled), []);
+  assert.deepEqual(
+    validateReceiptAcceptance({
+      ...settled,
+      acceptance: null,
+      projection: { state: "pending", cut: null },
+      git: { state: "pending", cut: null, commitSha: null },
+      worktree: { state: "pending", cut: null },
+      replica: { state: "not_configured", cut: null },
+    }),
+    [],
+  );
+  // The claim only covers an applied draft: settled_no_write is not defined for pending work, so a
+  // pending receipt that asserts it keeps the ordinary "not finished yet" reading instead of the
+  // claim, and never borrows a status the vocabulary does not allow on its outcome.
+  const pendingClaim = attachReceiptAcceptance(
+    { outcome: "pending", opId: "runtime-steer-pending", status: "settled_no_write" },
+    store,
+    projection,
+  );
+  assert.equal(pendingClaim.status, "unknown");
+  assert.equal(pendingClaim.outcome, "pending");
+});
+
 test("expectedVersion states the projection revision an optimistic-concurrency command resends", () => {
   const receipt = { outcome: "no_changes", opId: "command", evidence: "same-result:command" } as const;
   assert.doesNotMatch(validateWriteReceipt({ ...receipt, expectedVersion: 161594 }).join("\n"), /expectedVersion/u);

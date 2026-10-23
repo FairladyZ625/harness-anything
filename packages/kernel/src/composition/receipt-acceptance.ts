@@ -47,13 +47,20 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   if (!outcome) {
     // A draft that wrote nothing (no_changes) has no command to verify: it settles as a determinate
     // no-write rather than unknown or rejected, and keeps the ledger revision it observed as the caller's anchor.
-    const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected";
+    const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected",
+      // A writer whose effect never reaches the ledger (a runtime steer that only appends to the
+      // dispatch stream) declares that on its own receipt. That effect is already done, so judging
+      // it against an absent command outcome would turn a successful write into an unknown one.
+      // Only an applied draft can claim it: settled_no_write is defined for applied/no_changes, and
+      // a pending draft has not finished the work that claim would report as settled.
+      declaredNoWrite = receipt.status === "settled_no_write" && receipt.outcome === "applied",
+      noWrite = rejected || receipt.outcome === "no_changes" || declaredNoWrite;
     const { revision: _revision, ...unaccepted } = unprovenReceipt;
     return {
-      ...(rejected || receipt.outcome === "no_changes" ? unprovenReceipt : unaccepted),
+      ...(noWrite ? unprovenReceipt : unaccepted),
       ...empty,
-      status: rejected ? "rejected" : receipt.outcome === "no_changes" ? "settled_no_write" : "unknown",
-      ...(receipt.outcome === "applied"
+      status: rejected ? "rejected" : noWrite ? "settled_no_write" : "unknown",
+      ...(receipt.outcome === "applied" && !declaredNoWrite
         ? { outcome: "indeterminate", code: "acceptance_unknown", origin: "daemon" }
         : {}),
     } as R & ReceiptAcceptanceFields;
