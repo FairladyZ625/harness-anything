@@ -1,5 +1,5 @@
 import { consumeKnownError } from "../../api/error-consumption.ts";
-import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import type { AgentRuntimeSessionDto, TaskDeliveryStage } from "@harness-anything/daemon/protocol";
 import type { AgendaAwaitsRow, TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import { sessionTranscriptTurns } from "../session-transcript-model.ts";
 import type { WorkIndex } from "../model/work-collections.ts";
@@ -12,18 +12,19 @@ export interface LiveFloorRow {
   readonly taskTitle: string;
   readonly workKey: string;
   readonly workTitle: string;
-  readonly role: "implementation" | "reviewer" | "rework" | "unknown";
+  readonly channel: LiveFloorChannel;
   readonly model: string | null;
   readonly startedAt: string | null;
-  readonly activityStatus: "progressing" | "waiting_ci" | "stalled" | "unknown";
+  /**
+   * daemon 派工行的活动判定;null = 这一行没有该投影(旧 daemon 构建)——那是「缺信号」,
+   * 不是「状态未知」的第三种结论,视图按缺哪项说明。
+   */
+  readonly activityStatus: "progressing" | "waiting_ci" | "stalled" | "unknown" | null;
   readonly dispatch: TaskDispatchProjectionRow | null;
 }
 
-export interface LiveFloorWorkGroup {
-  readonly key: string;
-  readonly title: string;
-  readonly rows: readonly LiveFloorRow[];
-}
+/** 派工通道:同任务的评审与决策评审两行靠它区分,不靠猜重复。 */
+export type LiveFloorChannel = "implementation" | "rework" | "review_task" | "review_decision" | "unknown";
 
 /** Keep the live-session count anchored to runtime liveness; dispatch rows only enrich each row. */
 export function liveFloorRows(input: {
@@ -50,20 +51,22 @@ export function liveFloorRows(input: {
         taskTitle: taskId === null ? "" : (input.taskTitles.get(`task/${taskId}`) ?? ""),
         workKey: work === null ? "loose" : `work:${work.taskId}`,
         workTitle: work?.title ?? "",
-        role: liveFloorDispatchRole(dispatch),
+        channel: liveFloorDispatchChannel(dispatch),
         model: session.definitionSnapshot?.model ?? dispatch?.provider.model ?? null,
         startedAt: dispatch?.startedAt ?? null,
-        activityStatus: dispatch?.activityStatus ?? "unknown",
+        activityStatus: dispatch?.activityStatus ?? null,
         dispatch,
       };
     });
 }
 
-/** 派工行角色判定:源 role 优先,再走 attemptIndex(第 2+ 轮即返工);只在 GUI 组装行标签。 */
-export function liveFloorDispatchRole(
-  dispatch: TaskDispatchProjectionRow | null,
-): "implementation" | "reviewer" | "rework" | "unknown" {
-  if (dispatch?.role === "reviewer") return "reviewer";
+/**
+ * 派工通道判定:源 role 优先(评审按 reviewTarget 分「评审交付」与「评审决策」两个通道,
+ * 同任务两行因此可分辨),再走 attemptIndex(第 2+ 轮即返工);只在 GUI 组装行标签。
+ */
+export function liveFloorDispatchChannel(dispatch: TaskDispatchProjectionRow | null): LiveFloorChannel {
+  if (dispatch?.role === "reviewer")
+    return dispatch.reviewTarget?.kind === "decision" ? "review_decision" : "review_task";
   if (dispatch !== null && dispatch.attemptIndex > 0) return "rework";
   return dispatch?.role === "implementation" ? "implementation" : "unknown";
 }
@@ -81,15 +84,105 @@ export function liveFloorWorkGroups(rows: readonly LiveFloorRow[]): readonly Liv
   );
 }
 
-/** The existing transcript parser supplies the same concise tool/text summaries as Sessions. */
-export function liveFloorActionSummary(records: readonly Readonly<Record<string, unknown>>[]): string | null {
+// ============ 此刻在做什么(人话) ============
+
+export type LiveFloorActionVerb =
+  | "run_command"
+  | "run_test"
+  | "edit_file"
+  | "read_file"
+  | "search_code"
+  | "browse"
+  | "plan"
+  | "git"
+  | "message"
+  | "tool";
+
+export interface LiveFloorAction {
+  readonly verb: LiveFloorActionVerb;
+  /** 人话主体:命令头、文件名、搜索词或一句话的开头;提取不到为 null(只剩动词与悬停原文)。 */
+  readonly subject: string | null;
+  /** 原始最近一条记录,收进悬停/详情,不上屏。 */
+  readonly raw: string;
+}
+
+/**
+ * 最近一条转录条目 →「正在做什么」的人话形状。动词与主体是展示词汇的封闭词集,
+ * 渲染层再翻标签;提取(命令、文件名、搜索词、JSON 噪音丢弃)在这里,可测。
+ */
+export function liveFloorAction(records: readonly Readonly<Record<string, unknown>>[]): LiveFloorAction | null {
   const item = sessionTranscriptTurns(records).at(-1)?.items.at(-1);
   if (!item) return null;
-  if (item.type === "tool_call")
-    return [item.label, item.summary.startsWith("{") || item.summary.startsWith("[") ? "" : item.summary]
-      .filter(Boolean)
-      .join(" · ");
-  return item.summary || null;
+  const raw = item.summary || item.detail;
+  if (item.type === "text" || item.type === "thinking" || item.type === "result")
+    return { verb: "message", subject: firstSentence(item.summary), raw };
+  return { verb: verbOf(item.label), subject: subjectOf(item.label, item.detail), raw };
+}
+
+function verbOf(label: string): LiveFloorActionVerb {
+  const name = label.toLowerCase();
+  if (/(^|[^a-z])git([^a-z]|$)/u.test(name) || name.startsWith("git")) return "git";
+  if (/bash|shell|command|exec|terminal|local_shell/u.test(name)) return "run_command";
+  if (/test|pytest|vitest|jest/u.test(name)) return "run_test";
+  if (/web|fetch|browse|http|url/u.test(name)) return "browse";
+  if (/edit|write|create|apply|patch|notebook|file[u _]?change/u.test(name)) return "edit_file";
+  if (/^read|^view|^open|^cat|^inspect/u.test(name)) return "read_file";
+  if (/grep|glob|search|find|\brg\b|list|\bls\b/u.test(name)) return "search_code";
+  if (/todo|plan/u.test(name)) return "plan";
+  return "tool";
+}
+
+function subjectOf(label: string, detail: string): string | null {
+  // 工具入参多为 JSON;取决策性字段(命令/文件/搜索词),其余 JSON 噪音不上屏。
+  const parsed = parseJsonObject(detail);
+  if (parsed !== null) {
+    const command = firstString(parsed, ["command", "cmd", "script"]),
+      file = firstString(parsed, ["file_path", "filePath", "path", "filename"]),
+      terms = firstString(parsed, ["pattern", "query", "question", "prompt", "url", "search"]);
+    const value = command ?? terms ?? null,
+      fileValue = file === null ? null : (file.split("/").at(-1) ?? null);
+    if (value !== null) return clip(value, 60);
+    if (fileValue !== null) return clip(fileValue, 60);
+    return null;
+  }
+  if (detail.startsWith("{") || detail.startsWith("[")) return null;
+  const fileLike =
+    /^\/.*\/([^/]+)$/u.exec(detail.trim()) ?? /^([-\w.]+\.(ts|tsx|md|json|mjs|js))$/iu.exec(detail.trim());
+  if (fileLike) return clip(fileLike[1] ?? "", 60) || null;
+  return clip(detail, 60);
+}
+
+function firstSentence(value: string): string | null {
+  const compact = value.replace(/\s+/gu, " ").trim();
+  if (!compact) return null;
+  const sentence = /^([^。!?!?…]{1,80}[。!?!?…]?)/u.exec(compact)?.[1] ?? compact.slice(0, 80);
+  return clip(sentence, 80);
+}
+
+function parseJsonObject(value: string): Readonly<Record<string, unknown>> | null {
+  if (!value.startsWith("{")) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Readonly<Record<string, unknown>>)
+      : null;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+function firstString(record: Readonly<Record<string, unknown>>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function clip(value: string, limit: number): string {
+  const trimmed = value.trim();
+  return trimmed.length > limit ? `${trimmed.slice(0, limit - 1)}…` : trimmed;
 }
 
 export function readableModelName(model: string | null): string | null {
@@ -119,6 +212,7 @@ export function readableModelName(model: string | null): string | null {
 export type LiveFloorEndedConclusion =
   | "delivered"
   | "review_done"
+  | "review_rejected"
   | "interrupted"
   | "empty_report"
   | "failed"
@@ -126,77 +220,82 @@ export type LiveFloorEndedConclusion =
   | "unknown";
 
 export interface LiveFloorEndedRow {
-  readonly session: AgentRuntimeSessionDto;
+  readonly dispatch: TaskDispatchProjectionRow;
   readonly taskId: string | null;
   readonly taskTitle: string;
-  readonly role: "implementation" | "reviewer" | "rework" | "unknown";
+  readonly channel: LiveFloorChannel;
   readonly endedAt: string | null;
   readonly conclusion: LiveFloorEndedConclusion;
   readonly reportPath: string | null;
 }
 
 const ENDED_ROW_LIMIT = 12;
+/** 「刚结束」只看 24h:与 daemon 完成窗口同一口径(业主 2026-10-23),旧尾巴不进首屏。 */
+export const LIVE_FLOOR_ENDED_WINDOW_MS = 24 * 60 * 60_000;
 
 /**
- * 最近退出的会话及其结局。会话侧 activity(outcome/missingEvidence)是终局事实;
- * 派工行补角色与报告路径。空报告(今天 DeepSeek 多次出现)优先于 outcome 措辞:
- * 缺结果证据的「成功」不是交付。
+ * 最近结束的派工及其结局。读的是派工读面(`repo.task.dispatches`),不是 unpaged 运行时
+ * 概览——后者按设计只回在跑会话,exited 永远读不到;派工行自带 outcome/reportPath/通道,
+ * 并按 executionId 连到任务快照的评审记录拿「评审打回/通过」结论(会话自身看不见 verdict)。
+ * 评审结论(第一手记录)优先于空报告检查,空报告优先于成功措辞:缺结果证据的「成功」不是交付。
  */
 export function liveFloorEndedRows(input: {
-  readonly sessions: readonly AgentRuntimeSessionDto[];
   readonly dispatches: readonly TaskDispatchProjectionRow[];
   readonly taskTitles: ReadonlyMap<string, string>;
+  readonly tasks: readonly TaskRow[];
+  readonly nowMs?: number;
 }): readonly LiveFloorEndedRow[] {
-  const dispatchBySession = new Map<string, TaskDispatchProjectionRow>();
-  for (const dispatch of input.dispatches)
-    if (dispatch.reportPath) dispatchBySession.set(dispatch.runtimeSessionId, dispatch);
-  return input.sessions
-    .filter((session) => session.liveness === "exited")
-    .map((session) => {
-      const dispatch = dispatchBySession.get(session.runtimeSessionId) ?? null,
-        taskId = dispatch?.taskId || session.associations[0]?.taskId || null,
-        role = liveFloorDispatchRole(dispatch),
-        { outcome, missingEvidence } = session.activity,
-        conclusion: LiveFloorEndedConclusion =
-          missingEvidence === "result" || missingEvidence === "exit-code-and-result"
-            ? "empty_report"
-            : outcome === "succeeded"
-              ? role === "reviewer"
-                ? "review_done"
-                : "delivered"
-              : outcome === "failed"
-                ? "failed"
-                : outcome === "cancelled"
-                  ? "cancelled"
-                  : outcome === "stopped"
-                    ? "interrupted"
-                    : "unknown";
-      return {
-        session,
-        taskId,
-        taskTitle: taskId === null ? "" : (input.taskTitles.get(`task/${taskId}`) ?? ""),
-        role,
-        endedAt: session.activity.lastObservedAt,
-        conclusion,
-        reportPath: dispatch?.reportPath ?? null,
-      };
+  const taskById = new Map(input.tasks.map((task) => [task.taskId, task] as const)),
+    nowMs = input.nowMs ?? Date.now();
+  return input.dispatches
+    .flatMap((dispatch) => {
+      if (dispatch.endedAt === null || dispatch.outcome === null) return [];
+      if (nowMs - Date.parse(dispatch.endedAt) > LIVE_FLOOR_ENDED_WINDOW_MS) return [];
+      const channel = liveFloorDispatchChannel(dispatch),
+        task = dispatch.taskId ? taskById.get(dispatch.taskId) : undefined,
+        review =
+          dispatch.executionId === ""
+            ? undefined
+            : task?.reviews?.find((entry) => entry.executionId === dispatch.executionId),
+        execution =
+          dispatch.executionId === ""
+            ? undefined
+            : task?.executions?.find((entry) => entry.executionId === dispatch.executionId);
+      let conclusion: LiveFloorEndedConclusion;
+      if (channel === "review_task" || channel === "review_decision") {
+        if (review?.verdict === "changes_requested" || execution?.state === "changes_requested")
+          conclusion = "review_rejected";
+        else if (review?.verdict === "approved") conclusion = "review_done";
+        else if (dispatch.outcome === "succeeded") conclusion = "review_done";
+        else conclusion = outcomeConclusion(dispatch.outcome);
+      } else if (dispatch.outcome === "succeeded" && !dispatch.reportPath) conclusion = "empty_report";
+      else conclusion = dispatch.outcome === "succeeded" ? "delivered" : outcomeConclusion(dispatch.outcome);
+      return [
+        {
+          dispatch,
+          taskId: dispatch.taskId || null,
+          taskTitle: dispatch.taskId ? (input.taskTitles.get(`task/${dispatch.taskId}`) ?? "") : "",
+          channel,
+          endedAt: dispatch.endedAt,
+          conclusion,
+          reportPath: dispatch.reportPath ?? null,
+        },
+      ];
     })
     .sort((left, right) => (right.endedAt ?? "").localeCompare(left.endedAt ?? ""))
     .slice(0, ENDED_ROW_LIMIT);
 }
 
+function outcomeConclusion(outcome: TaskDispatchProjectionRow["outcome"]): LiveFloorEndedConclusion {
+  if (outcome === "failed") return "failed";
+  if (outcome === "cancelled") return "cancelled";
+  if (outcome === "stopped") return "interrupted";
+  return "unknown";
+}
+
 // ============ 流水线 ============
 
-export type LiveFloorPipelineKey =
-  | "implementing"
-  | "rework"
-  | "delivered"
-  | "reviewing"
-  | "awaiting_owner"
-  | "merge_ready"
-  | "done"
-  | "queued"
-  | "waiting_upstream";
+export type LiveFloorPipelineKey = TaskDeliveryStage | "other";
 
 export interface LiveFloorPipelineGroup {
   readonly key: LiveFloorPipelineKey;
@@ -204,6 +303,7 @@ export interface LiveFloorPipelineGroup {
 }
 
 export const LIVE_FLOOR_PIPELINE_ORDER: readonly LiveFloorPipelineKey[] = [
+  "queued",
   "implementing",
   "rework",
   "delivered",
@@ -211,43 +311,52 @@ export const LIVE_FLOOR_PIPELINE_ORDER: readonly LiveFloorPipelineKey[] = [
   "awaiting_owner",
   "merge_ready",
   "done",
-  "queued",
   "waiting_upstream",
+  "other",
 ];
 
-const DONE_RECENCY_MS = 7 * 24 * 60 * 60_000;
-
 /**
- * 在做/最近完成的任务按交付阶段排开。阶段判定是 daemon 单点(`repo.tasks.list` 行上的
- * `deliveryStage`);这里只分桶。off-path 行按它自己的状态词归队:planned→排队、
- * blocked→等上游、done(7 天内)→完成。老 daemon 未投影 deliveryStage 时,active/
- * submitted/in_review 按状态词一一对应(daemon 对这三个状态从不给 null,这里的回退
- * 只覆盖 attach 到旧构建的场景,不是第二套判定)。
+ * 在做/最近完成的任务按交付阶段排开。阶段词与判定都在 daemon
+ * (`repo.tasks.list` 行上的 `deliveryStage`,词表单源 `taskDeliveryStageWords`);
+ * 这里只分桶与排序:已知词按展示序排,daemon 未来新增的词落进可见的「其他」桶,
+ * 不被顺序过滤静默吞掉;`other` 兜底因此只可能在 daemon 比 GUI 新时出现。
+ * 旧 daemon(未投影该字段,undefined)按行自身状态词一一对应;终态 24h 窗是 daemon
+ * 的判定,这里不重算,旧构建因此没有「完成」桶。工作根是容器不是在交付的任务,
+ * 不进流水线(在干活的分组里它们本来就在)。
  */
 export function liveFloorPipelineGroups(
   tasks: readonly TaskRow[],
-  nowMs = Date.now(),
+  works: Pick<WorkIndex, "isWorkRoot"> = { isWorkRoot: () => false },
 ): readonly LiveFloorPipelineGroup[] {
   const groups = new Map<LiveFloorPipelineKey, TaskRow[]>();
   const put = (key: LiveFloorPipelineKey, task: TaskRow) => groups.set(key, [...(groups.get(key) ?? []), task]);
   for (const task of tasks) {
     if (task.visibility.noise) continue;
-    if (task.deliveryStage) {
+    if (works.isWorkRoot(task.taskId)) continue;
+    if (task.deliveryStage !== undefined && task.deliveryStage !== null) {
       put(task.deliveryStage, task);
       continue;
     }
+    // null 是 daemon 已判不在流水线(取消、超窗终态),不是缺投影——不落状态词回退。
+    if (task.deliveryStage === null) continue;
     const status = task.canonicalStatus ?? task.coordinationStatus;
     if (status === "planned") put("queued", task);
     else if (status === "blocked") put("waiting_upstream", task);
-    else if (status === "done") {
-      if (nowMs - Date.parse(task.lastKnownAt) <= DONE_RECENCY_MS) put("done", task);
-    } else if (status === "active") put("implementing", task);
+    else if (status === "active") put("implementing", task);
     else if (status === "submitted") put("delivered", task);
     else if (status === "in_review") put("reviewing", task);
   }
-  return LIVE_FLOOR_PIPELINE_ORDER.filter((key) => groups.get(key)?.length).map((key) => ({
+  // daemon 比本 GUI 新时,词表外的词统一并入可见的「其他」桶;known 不含的词
+  // 不进 LIVE_FLOOR_PIPELINE_ORDER,也就不会被顺序过滤静默吞掉。
+  const known = new Set<LiveFloorPipelineKey>(LIVE_FLOOR_PIPELINE_ORDER),
+    merged = new Map<LiveFloorPipelineKey, TaskRow[]>();
+  for (const [key, list] of groups) {
+    const bucket = known.has(key) ? key : "other";
+    merged.set(bucket, [...(merged.get(bucket) ?? []), ...list]);
+  }
+  return LIVE_FLOOR_PIPELINE_ORDER.filter((key) => merged.get(key)?.length).map((key) => ({
     key,
-    tasks: groups.get(key)!,
+    tasks: merged.get(key)!,
   }));
 }
 
@@ -276,6 +385,12 @@ export interface LiveFloorAskRow {
   readonly ask: AgendaAwaitsRow | null;
 }
 
+/** 依据行里需要本地化的小标签(门/CI 计数前缀);由视图注入,模型保持可测。 */
+export interface LiveFloorAskLabels {
+  readonly gates: string;
+  readonly ci: string;
+}
+
 /** 只放业主才能做的事:待答提问、受保护面签发/同意、裁决、打回重开、派审、置顶挡路项。 */
 export function liveFloorAskLanes(input: {
   readonly agenda: {
@@ -283,15 +398,37 @@ export function liveFloorAskLanes(input: {
     readonly awaitingDecision: readonly { readonly decisionId: string; readonly title: string }[];
     readonly awaitingDecisionReview: readonly { readonly decisionId: string; readonly title: string }[];
     readonly awaitingRework: readonly { readonly taskId: string; readonly title: string }[];
-    readonly awaitingAdjudication: readonly { readonly taskId: string; readonly title: string }[];
-    readonly pinnedEntities: readonly { readonly ref: string; readonly title: string }[];
+    readonly awaitingAdjudication: readonly {
+      readonly taskId: string;
+      readonly title: string;
+      readonly executionId?: string;
+    }[];
+    readonly pinnedEntities: readonly { readonly ref: string; readonly title: string; readonly pinnedAt?: string }[];
   } | null;
   readonly tasks: readonly TaskRow[];
+  /** decision ask 的依据:提案原文问题,由视图经 decision 读面取回。 */
+  readonly decisionQuestions?: ReadonlyMap<string, string>;
+  readonly labels?: LiveFloorAskLabels;
 }): readonly LiveFloorAskRow[] {
   const agenda = input.agenda,
+    tasks = input.tasks,
+    taskById = new Map(tasks.map((task) => [task.taskId, task] as const)),
+    decisionQuestions = input.decisionQuestions ?? new Map<string, string>(),
+    labels = input.labels ?? { gates: "gates", ci: "CI" },
     rows: LiveFloorAskRow[] = [];
   const taskIdOf = (ref: string): string | null => /^task\/(.+)$/u.exec(ref)?.[1] ?? null,
     decisionIdOf = (ref: string): string | null => /^decision\/(.+)$/u.exec(ref)?.[1] ?? null;
+  // 评审依据:该任务最新一条评审记录的结论原文(verdict + reason 是评审亲手写的)。
+  const latestReviewReason = (taskId: string | null, executionId?: string): string | null => {
+    const task = taskId === null ? undefined : taskById.get(taskId),
+      reviews = task?.reviews ?? [];
+    const matching = (
+      executionId === undefined ? reviews : reviews.filter((review) => review.executionId === executionId)
+    )
+      .filter((review) => review.verdict !== "dismissed")
+      .sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt));
+    return matching[0]?.reason ?? null;
+  };
   for (const ask of agenda?.awaitingYou ?? [])
     rows.push({
       key: `ask:${ask.relationId}`,
@@ -305,7 +442,7 @@ export function liveFloorAskLanes(input: {
     });
   // 受保护面批准与完成确认:签发总池同一判据(gates signoff_missing/manual-attest、
   // closeoutBlocker=consent),复用 model/attestation-pool.ts,不建第二套判定。
-  const lanes = deriveAttestationLanes(input.tasks);
+  const lanes = deriveAttestationLanes(tasks);
   for (const gate of lanes.gates)
     rows.push({
       key: `gate:${gate.taskId}:${gate.gateId}`,
@@ -328,23 +465,33 @@ export function liveFloorAskLanes(input: {
       decisionId: null,
       ask: null,
     });
-  for (const consent of lanes.consents)
+  for (const consent of lanes.consents) {
+    const task = taskById.get(consent.taskId),
+      gates = task?.gates ?? [],
+      passed = gates.filter((gate) => gate.ok === true).length,
+      failing = gates.find((gate) => gate.ok !== true),
+      // 依据:签到哪一步(门 x/y)+ 最近一道没过的门的说明。
+      detail =
+        gates.length === 0
+          ? null
+          : [`${labels.gates} ${passed}/${gates.length}`, failing?.detail ?? null].filter(Boolean).join(" · ");
     rows.push({
       key: `consent:${consent.taskId}`,
       kind: "consent",
       title: consent.taskTitle,
-      detail: null,
+      detail,
       at: null,
       taskId: consent.taskId,
       decisionId: null,
       ask: null,
     });
+  }
   for (const decision of agenda?.awaitingDecision ?? [])
     rows.push({
       key: `decision:${decision.decisionId}`,
       kind: "decision",
       title: decision.title,
-      detail: null,
+      detail: decisionQuestions.get(decision.decisionId) ?? null,
       at: null,
       taskId: null,
       decisionId: decision.decisionId,
@@ -355,7 +502,7 @@ export function liveFloorAskLanes(input: {
       key: `decision-review:${decision.decisionId}`,
       kind: "decision_review",
       title: decision.title,
-      detail: null,
+      detail: decisionQuestions.get(decision.decisionId) ?? null,
       at: null,
       taskId: null,
       decisionId: decision.decisionId,
@@ -366,30 +513,42 @@ export function liveFloorAskLanes(input: {
       key: `rework:${task.taskId}`,
       kind: "rework",
       title: task.title,
-      detail: null,
+      detail: latestReviewReason(task.taskId),
       at: null,
       taskId: task.taskId,
       decisionId: null,
       ask: null,
     });
-  for (const execution of agenda?.awaitingAdjudication ?? [])
+  for (const execution of agenda?.awaitingAdjudication ?? []) {
+    const task = taskById.get(execution.taskId),
+      outputs = task?.executionEvidence?.find((entry) => entry.executionId === execution.executionId)?.outputs ?? [],
+      checked = outputs.filter((output) => output.checkerResult !== "unknown"),
+      passed = checked.filter((output) => output.checkerResult === "pass").length,
+      // 依据:评审结论原文 + CI 收据(过了几项/验了几项)。
+      detail = [
+        latestReviewReason(execution.taskId, execution.executionId),
+        checked.length > 0 ? `${labels.ci} ${passed}/${checked.length}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
     rows.push({
       key: `adjudicate:${execution.taskId}`,
       kind: "adjudicate",
       title: execution.title,
-      detail: null,
+      detail,
       at: null,
       taskId: execution.taskId,
       decisionId: null,
       ask: null,
     });
+  }
   for (const pinned of agenda?.pinnedEntities ?? [])
     rows.push({
       key: `pinned:${pinned.ref}`,
       kind: "pinned",
       title: pinned.title,
-      detail: null,
-      at: null,
+      detail: latestReviewReason(taskIdOf(pinned.ref)),
+      at: pinned.pinnedAt ?? null,
       taskId: taskIdOf(pinned.ref),
       decisionId: decisionIdOf(pinned.ref),
       ask: null,

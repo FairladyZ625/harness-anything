@@ -93,7 +93,9 @@ function adaptProjectionRow(
     lastKnownAt: row.updatedAt,
     gates,
     ...(row.closeoutAssessment.blocker ? { closeoutBlocker: row.closeoutAssessment.blocker } : {}),
-    deliveryStage: row.deliveryStage ?? null,
+    // undefined(旧 daemon 未投影)与 null(daemon 判不在流水线)是两个事实,原样透传:
+    // 折叠成同一个值会让消费方把「旧构建」当「daemon 已判」走错分支。
+    deliveryStage: row.deliveryStage,
     snapshotAvailability: row.snapshotAvailability,
     reviews: row.snapshot.reviews,
     consents: row.snapshot.consents,

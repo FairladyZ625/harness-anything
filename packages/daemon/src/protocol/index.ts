@@ -28,6 +28,7 @@ export {
   scheduleDurationUnitMs,
   scheduleDurationUnits,
   splitScheduleDuration,
+  taskDeliveryStageWords,
 } from "./daemon-protocol-vocabulary.ts";
 export type { ScheduleDurationUnit } from "./daemon-protocol-vocabulary.ts";
 export type {

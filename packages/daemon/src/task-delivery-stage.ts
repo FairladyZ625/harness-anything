@@ -3,6 +3,12 @@ import type { CloseoutAssessment } from "@harness-anything/kernel/internal/domai
 import type { TaskDeliveryStage } from "./protocol/daemon-protocol-gui-types.ts";
 
 /**
+ * 「完成」只收最近 24h 内终态的任务:业主 2026-10-23 裁定累计完成数对「今天做成了什么」
+ * 没有意义。窗口判在这里而不在渲染层,同一时刻所有读者看到同一个桶。
+ */
+export const TASK_DELIVERY_DONE_WINDOW_MS = 24 * 60 * 60_000;
+
+/**
  * The daemon owns this judgment so the live floor's pipeline view is one truth for every
  * renderer. Inputs are the assessments `repo.tasks.list` already derives per row (kernel
  * closeout and blocking judgments plus the lifecycle snapshot); nothing is re-derived here.
@@ -10,16 +16,27 @@ import type { TaskDeliveryStage } from "./protocol/daemon-protocol-gui-types.ts"
  * Priority answers "what is this task waiting for right now":
  * awaiting_owner (an unanswered owner ask, or the one consent only the owner can give)
  * beats rework (rejected, awaiting the owner's re-dispatch), which beats the lifecycle
- * positions. Off-path rows (queued, waiting upstream, terminal, unknown) return null —
- * their own status words already say that, and a second word would race them.
+ * positions. Off-path positions still get their pipeline word — planned queues, a
+ * depends-on block waits upstream, a fresh terminal is done for 24h — so the renderer never
+ * re-judges a window or a position from status words. `null` means genuinely off the
+ * pipeline: cancelled, terminal older than the window, or an unrecognized status.
  */
 export function taskDeliveryStage(input: {
   readonly status: string;
   readonly snapshot: TaskLifecycleSnapshot;
   readonly closeout: Pick<CloseoutAssessment, "readiness" | "blocker">;
   readonly blocking: { readonly blockers: ReadonlyArray<{ readonly kind: "awaits" | "depends-on" }> };
+  /** Row update instant; the terminal window is judged against it. */
+  readonly updatedAt: string;
+  readonly nowMs?: number;
 }): TaskDeliveryStage | null {
   const { status, snapshot, closeout, blocking } = input;
+  if (status === "planned") return "queued";
+  if (status === "done") {
+    const updatedAt = Date.parse(input.updatedAt),
+      nowMs = input.nowMs ?? Date.now();
+    return Number.isFinite(updatedAt) && nowMs - updatedAt <= TASK_DELIVERY_DONE_WINDOW_MS ? "done" : null;
+  }
   if (status !== "active" && status !== "submitted" && status !== "in_review" && status !== "blocked") return null;
   if (closeout.blocker === "consent" || blocking.blockers.some(({ kind }) => kind === "awaits"))
     return "awaiting_owner";
@@ -33,7 +50,7 @@ export function taskDeliveryStage(input: {
   )
     return "rework";
   // depends-on 阻塞是等上游,不在交付主路径上。
-  if (status === "blocked") return null;
+  if (status === "blocked") return "waiting_upstream";
   if (closeout.readiness === "ready") return "merge_ready";
   if (status === "in_review") return "reviewing";
   if (status === "submitted") return "delivered";

@@ -21,17 +21,19 @@ import { Empty } from "../components/primitives/Empty.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import {
-  liveFloorActionSummary,
+  liveFloorAction,
   liveFloorAskLanes,
-  liveFloorDispatchRole,
+  liveFloorDispatchChannel,
   liveFloorEndedRows,
   liveFloorPipelineGroups,
   liveFloorReportDocPath,
   liveFloorRows,
   liveFloorWorkGroups,
   readableModelName,
+  type LiveFloorAction,
   type LiveFloorAskKind,
   type LiveFloorAskRow,
+  type LiveFloorChannel,
   type LiveFloorEndedConclusion,
   type LiveFloorPipelineKey,
 } from "./live-floor-model.ts";
@@ -45,6 +47,8 @@ const EMPTY_SESSIONS: readonly AgentRuntimeSessionDto[] = [];
 /** The renderer's localStorage behind a seam so the model stays testable without a DOM. */
 const PREFERENCE_STORAGE: LiveFloorPreferenceStorage | null =
   typeof window === "undefined" ? null : window.localStorage;
+/** 「刚结束」的时间窗与 daemon 完成列同口径:派工查询按它选候选任务。 */
+const ENDED_CANDIDATE_WINDOW_MS = 24 * 60 * 60_000;
 
 export function LiveFloorView({
   repoId,
@@ -82,13 +86,25 @@ export function LiveFloorView({
       () => [...new Set(sessions.flatMap((session) => session.associations.map(({ taskId }) => taskId)))].sort(),
       [sessions],
     ),
+    // 「刚结束」的候选任务:24h 内有更新的任务(派工结算会把档案写进任务包,updatedAt 随之推进)。
+    recentTaskIds = useMemo(() => {
+      const cutoff = Date.now() - ENDED_CANDIDATE_WINDOW_MS;
+      return tasks
+        .filter((task) => Date.parse(task.lastKnownAt) >= cutoff)
+        .map(({ taskId }) => taskId)
+        .sort();
+    }, [tasks]),
+    dispatchTaskIds = useMemo(
+      () => [...new Set([...liveTaskIds, ...recentTaskIds])].sort(),
+      [liveTaskIds, recentTaskIds],
+    ),
     dispatches = useQuery({
-      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "live-floor", liveTaskIds.join("\0")],
+      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "live-floor", dispatchTaskIds.join("\0")],
       queryFn: async () => {
-        if (liveTaskIds.length === 0) return [] as readonly TaskDispatchProjectionRow[];
+        if (dispatchTaskIds.length === 0) return [] as readonly TaskDispatchProjectionRow[];
         const read = (await harnessClient.getTaskDispatches({
           repoId,
-          taskIds: liveTaskIds,
+          taskIds: dispatchTaskIds,
           limit: 500,
         })) as TaskDispatchesRead;
         return read.dispatches as readonly TaskDispatchProjectionRow[];
@@ -98,17 +114,54 @@ export function LiveFloorView({
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
     agenda = useAgendaQuery(repoId),
+    // decision ask 的依据(提案原文问题)要先于 asks 组装就绪:候选直接取 agenda 的两个
+    // decision 池,不经过 asks,否则声明顺序成环。
+    decisionAsks = useMemo(
+      () =>
+        [
+          ...new Set(
+            [...(agenda.data?.awaitingDecision ?? []), ...(agenda.data?.awaitingDecisionReview ?? [])].map(
+              ({ decisionId }) => decisionId,
+            ),
+          ),
+        ].sort(),
+      [agenda.data],
+    ),
+    decisionReads = useQueries({
+      queries: decisionAsks.map((decisionId) => ({
+        queryKey: ["live-floor-decision", repoId, decisionId],
+        queryFn: () => harnessClient.showDecision({ repoId, decisionId, includeBody: false }),
+        staleTime: 30_000,
+      })),
+    }),
+    decisionQuestions = useMemo(() => {
+      const questions = new Map<string, string>();
+      decisionAsks.forEach((decisionId, index) => {
+        const question = decisionReads[index]?.data?.decision.question;
+        if (question) questions.set(decisionId, question);
+      });
+      return questions;
+    }, [decisionAsks, decisionReads]),
     liveRows = useMemo(
       () => liveFloorRows({ sessions, dispatches: dispatches.data ?? [], taskTitles, works }),
       [dispatches.data, sessions, taskTitles, works],
     ),
     groups = useMemo(() => liveFloorWorkGroups(liveRows), [liveRows]),
     endedRows = useMemo(
-      () => liveFloorEndedRows({ sessions, dispatches: dispatches.data ?? [], taskTitles }),
-      [dispatches.data, sessions, taskTitles],
+      () => liveFloorEndedRows({ dispatches: dispatches.data ?? [], taskTitles, tasks }),
+      [dispatches.data, taskTitles, tasks],
     ),
-    pipeline = useMemo(() => liveFloorPipelineGroups(tasks), [tasks]),
-    asks = useMemo(() => liveFloorAskLanes({ agenda: agenda.data ?? null, tasks }), [agenda.data, tasks]),
+    pipeline = useMemo(() => liveFloorPipelineGroups(tasks, works), [tasks, works]),
+    asks = useMemo(
+      () =>
+        liveFloorAskLanes({
+          agenda: agenda.data ?? null,
+          tasks,
+          decisionQuestions,
+          labels: { gates: t("views.liveFloor.evidenceGates"), ci: t("views.liveFloor.evidenceCi") },
+        }),
+      [agenda.data, tasks, decisionQuestions],
+    ),
     actionReads = useQueries({
       queries: liveRows.flatMap((row) =>
         row.dispatch === null
@@ -129,14 +182,14 @@ export function LiveFloorView({
             ],
       ),
     });
-  const actionByDispatch = new Map<string, string>();
+  const actionByDispatch = new Map<string, LiveFloorAction>();
   let actionIndex = 0;
   for (const row of liveRows) {
     if (row.dispatch === null) continue;
     const read = actionReads[actionIndex++]?.data;
     if (read && read.status !== "gap" && read.status !== "unavailable") {
-      const summary = liveFloorActionSummary(read.items.filter(isRecord));
-      if (summary) actionByDispatch.set(row.dispatch.dispatchId, summary);
+      const action = liveFloorAction(read.items.filter(isRecord));
+      if (action) actionByDispatch.set(row.dispatch.dispatchId, action);
     }
   }
 
@@ -183,6 +236,33 @@ export function LiveFloorView({
           <p className="py-3 ui-meta text-text-muted">{t("views.liveFloor.loading")}</p>
         ) : (
           <>
+            {/* 「要我」放首屏第一屏:只有业主能拍板的事压过「在干活」。 */}
+            <section aria-label={t("views.liveFloor.asksTitle")} data-testid="live-floor-asks">
+              <SectionHead label={t("views.liveFloor.asksTitle")} count={asks.length} />
+              {asks.length === 0 ? (
+                <Empty>{t("views.liveFloor.asksEmpty")}</Empty>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {asks.map((ask) =>
+                    ask.kind === "ask" && ask.ask !== null ? (
+                      <AskApprovalCard
+                        key={ask.key}
+                        ask={ask}
+                        onAnswer={() => setPanel({ mode: "answer", row: ask.ask! })}
+                        onOpenSource={setDrawerTaskId}
+                      />
+                    ) : (
+                      <AskDenseRow
+                        key={ask.key}
+                        ask={ask}
+                        onOpenTask={setDrawerTaskId}
+                        onNavigateEntity={onNavigateEntity}
+                      />
+                    ),
+                  )}
+                </div>
+              )}
+            </section>
             <section aria-label={t("views.liveFloor.sectionTitle")} data-testid="live-floor-running">
               <SectionHead label={t("views.liveFloor.sectionTitle")} count={liveRows.length} />
               {liveRows.length === 0 ? (
@@ -218,16 +298,28 @@ export function LiveFloorView({
                 </div>
               )}
             </section>
-            {endedRows.length > 0 ? (
-              <section aria-label={t("views.liveFloor.endedTitle")} data-testid="live-floor-ended">
-                <SectionHead label={t("views.liveFloor.endedTitle")} count={endedRows.length} />
+            <section aria-label={t("views.liveFloor.endedTitle")} data-testid="live-floor-ended">
+              <SectionHead
+                label={t("views.liveFloor.endedTitle")}
+                count={endedRows.length}
+                note={t("views.liveFloor.endedWindowNote")}
+              />
+              {endedRows.length === 0 ? (
+                <Empty>{t("views.liveFloor.endedEmpty")}</Empty>
+              ) : (
                 <div className="divide-y divide-border/70">
                   {endedRows.map((row) => (
-                    <LiveFloorEndedRowView key={row.session.runtimeSessionId} row={row} onOpenTask={setDrawerTaskId} />
+                    <LiveFloorEndedRowView
+                      key={row.dispatch.dispatchId}
+                      repoId={repoId}
+                      row={row}
+                      tasks={tasks}
+                      onOpenTask={setDrawerTaskId}
+                    />
                   ))}
                 </div>
-              </section>
-            ) : null}
+              )}
+            </section>
             <section aria-label={t("views.liveFloor.pipelineTitle")} data-testid="live-floor-pipeline">
               <SectionHead
                 label={t("views.liveFloor.pipelineTitle")}
@@ -272,32 +364,6 @@ export function LiveFloorView({
                 </div>
               )}
             </section>
-            <section aria-label={t("views.liveFloor.asksTitle")} data-testid="live-floor-asks">
-              <SectionHead label={t("views.liveFloor.asksTitle")} count={asks.length} />
-              {asks.length === 0 ? (
-                <Empty>{t("views.liveFloor.asksEmpty")}</Empty>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {asks.map((ask) =>
-                    ask.kind === "ask" && ask.ask !== null ? (
-                      <AskApprovalCard
-                        key={ask.key}
-                        ask={ask}
-                        onAnswer={() => setPanel({ mode: "answer", row: ask.ask! })}
-                        onOpenSource={setDrawerTaskId}
-                      />
-                    ) : (
-                      <AskDenseRow
-                        key={ask.key}
-                        ask={ask}
-                        onOpenTask={setDrawerTaskId}
-                        onNavigateEntity={onNavigateEntity}
-                      />
-                    ),
-                  )}
-                </div>
-              )}
-            </section>
           </>
         )}
       </div>
@@ -321,16 +387,26 @@ export function LiveFloorView({
   );
 }
 
-function SectionHead({ label, count }: { readonly label: string; readonly count: number }) {
+function SectionHead({
+  label,
+  count,
+  note,
+}: {
+  readonly label: string;
+  readonly count: number;
+  readonly note?: string;
+}) {
   return (
     <div className="flex items-baseline gap-2 border-b border-border py-2">
       <h2 className="text-base font-semibold text-text">{label}</h2>
       <span className="font-mono ui-meta text-text-faint">{count}</span>
+      {note ? <span className="ml-auto ui-meta text-text-faint">{note}</span> : null}
     </div>
   );
 }
 
 const PIPELINE_STAGE_LABEL: Readonly<Record<LiveFloorPipelineKey, MessageKey>> = {
+  queued: "views.liveFloor.stageQueued",
   implementing: "views.liveFloor.stageImplementing",
   rework: "views.liveFloor.stageRework",
   delivered: "views.liveFloor.stageDelivered",
@@ -338,20 +414,35 @@ const PIPELINE_STAGE_LABEL: Readonly<Record<LiveFloorPipelineKey, MessageKey>> =
   awaiting_owner: "views.liveFloor.stageAwaitingOwner",
   merge_ready: "views.liveFloor.stageMergeReady",
   done: "views.liveFloor.stageDone",
-  queued: "views.liveFloor.stageQueued",
   waiting_upstream: "views.liveFloor.stageWaitingUpstream",
+  other: "views.liveFloor.stageOther",
 };
 
-const ROLE_LABEL: Readonly<Record<"implementation" | "reviewer" | "rework" | "unknown", MessageKey>> = {
-  implementation: "views.liveFloor.roleImplementation",
-  reviewer: "views.liveFloor.roleReviewer",
-  rework: "views.liveFloor.roleRework",
-  unknown: "views.liveFloor.roleUnknown",
+const CHANNEL_LABEL: Readonly<Record<LiveFloorChannel, MessageKey>> = {
+  implementation: "views.liveFloor.channelImplementation",
+  rework: "views.liveFloor.channelRework",
+  review_task: "views.liveFloor.channelReviewTask",
+  review_decision: "views.liveFloor.channelReviewDecision",
+  unknown: "views.liveFloor.channelUnknown",
+};
+
+const ACTION_VERB_LABEL: Readonly<Record<string, MessageKey>> = {
+  run_command: "views.liveFloor.actionRunCommand",
+  run_test: "views.liveFloor.actionRunTest",
+  edit_file: "views.liveFloor.actionEditFile",
+  read_file: "views.liveFloor.actionReadFile",
+  search_code: "views.liveFloor.actionSearchCode",
+  browse: "views.liveFloor.actionBrowse",
+  plan: "views.liveFloor.actionPlan",
+  git: "views.liveFloor.actionGit",
+  message: "views.liveFloor.actionMessage",
+  tool: "views.liveFloor.actionTool",
 };
 
 const ENDED_LABEL: Readonly<Record<LiveFloorEndedConclusion, MessageKey>> = {
   delivered: "views.liveFloor.endedDelivered",
   review_done: "views.liveFloor.endedReviewDone",
+  review_rejected: "views.liveFloor.endedReviewRejected",
   interrupted: "views.liveFloor.endedInterrupted",
   empty_report: "views.liveFloor.endedEmptyReport",
   failed: "views.liveFloor.endedFailed",
@@ -362,6 +453,7 @@ const ENDED_LABEL: Readonly<Record<LiveFloorEndedConclusion, MessageKey>> = {
 const ENDED_TONE: Readonly<Record<LiveFloorEndedConclusion, StatusTone>> = {
   delivered: "done",
   review_done: "done",
+  review_rejected: "bad",
   interrupted: "bad",
   empty_report: "bad",
   failed: "bad",
@@ -375,27 +467,26 @@ function LiveFloorSessionRow({
   onOpenTask,
 }: {
   readonly row: ReturnType<typeof liveFloorRows>[number];
-  readonly action: string | null;
+  readonly action: LiveFloorAction | null;
   readonly onOpenTask: (taskId: string) => void;
 }) {
-  const statusKey: MessageKey =
+  // 缺信号要说明缺哪项,不折叠成「状态未知」:无派工行与会话级活动投影缺失是两回事。
+  const [statusKey, tone]: [MessageKey, StatusTone] =
       row.activityStatus === "progressing"
-        ? "views.liveFloor.statusProgressing"
+        ? ["views.liveFloor.statusProgressing", "active"]
         : row.activityStatus === "waiting_ci"
-          ? "views.liveFloor.statusWaitingCi"
+          ? ["views.liveFloor.statusWaitingCi", "wait"]
           : row.activityStatus === "stalled"
-            ? "views.liveFloor.statusStalled"
-            : "views.liveFloor.statusUnknown",
-    tone: StatusTone =
-      row.activityStatus === "stalled"
-        ? "bad"
-        : row.activityStatus === "waiting_ci"
-          ? "wait"
-          : row.activityStatus === "unknown"
-            ? "neutral"
-            : "active",
+            ? ["views.liveFloor.statusStalled", "bad"]
+            : row.activityStatus === "unknown"
+              ? ["views.liveFloor.statusUnknown", "neutral"]
+              : row.dispatch === null
+                ? ["views.liveFloor.statusNoDispatch", "neutral"]
+                : ["views.liveFloor.statusNoProjection", "neutral"],
     model = readableModelName(row.model),
-    duration = row.startedAt ? formatDuration(Date.now() - Date.parse(row.startedAt)) : null;
+    duration = row.startedAt ? formatDuration(Date.now() - Date.parse(row.startedAt)) : null,
+    actionText =
+      action === null ? null : [t(ACTION_VERB_LABEL[action.verb]), action.subject].filter(Boolean).join(" · ") || null;
   return (
     <article
       className="grid min-w-0 grid-cols-[minmax(12rem,1.2fr)_minmax(10rem,1fr)_minmax(9rem,.8fr)_minmax(8rem,.65fr)] items-center gap-x-4 gap-y-1 border-t border-border/70 py-2.5 first:border-0 max-[980px]:grid-cols-[minmax(0,1fr)_auto]"
@@ -415,11 +506,15 @@ function LiveFloorSessionRow({
           {row.taskTitle || t("views.liveFloor.noTask")}
         </span>
       )}
-      <span className="min-w-0 truncate text-sm text-text-muted" title={action ?? undefined}>
-        {action ?? t("views.liveFloor.noRecentAction")}
+      <span
+        className="min-w-0 truncate text-sm text-text-muted"
+        title={action?.raw ?? undefined}
+        data-testid="live-floor-session-action"
+      >
+        {actionText ?? t(CHANNEL_FALLBACK_ACTION[row.channel])}
       </span>
       <span className="flex min-w-0 items-center gap-2 text-xs text-text-muted">
-        <span className="truncate">{t(ROLE_LABEL[row.role])}</span>
+        <span className="truncate">{t(CHANNEL_LABEL[row.channel])}</span>
         <span aria-hidden="true">·</span>
         <span className="truncate" title={row.model ?? undefined}>
           {model ?? t("views.liveFloor.modelUnknown")}
@@ -438,36 +533,78 @@ function LiveFloorSessionRow({
   );
 }
 
+/** 没有转录记录时的兜底:通道本身就是「正在做什么」的粗粒度答案。 */
+const CHANNEL_FALLBACK_ACTION: Readonly<Record<LiveFloorChannel, MessageKey>> = {
+  implementation: "views.liveFloor.doingImplementation",
+  rework: "views.liveFloor.doingRework",
+  review_task: "views.liveFloor.doingReviewTask",
+  review_decision: "views.liveFloor.doingReviewDecision",
+  unknown: "views.liveFloor.noRecentAction",
+};
+
 function LiveFloorEndedRowView({
+  repoId,
   row,
+  tasks,
   onOpenTask,
 }: {
+  readonly repoId: string;
   readonly row: ReturnType<typeof liveFloorEndedRows>[number];
+  readonly tasks: readonly TaskRow[];
   readonly onOpenTask: (taskId: string) => void;
 }) {
+  const [open, setOpen] = useState(false),
+    task = row.taskId === null ? null : (tasks.find((entry) => entry.taskId === row.taskId) ?? null);
   return (
-    <article
-      className="grid min-w-0 grid-cols-[minmax(12rem,1.3fr)_minmax(9rem,.9fr)_auto_auto] items-center gap-x-4 py-2 max-[980px]:grid-cols-[minmax(0,1fr)_auto]"
+    <details
+      className="group/live-ended"
       data-testid="live-floor-ended-row"
+      onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}
     >
-      {row.taskId ? (
-        <button
-          type="button"
-          className="min-w-0 truncate text-left text-sm font-medium text-text hover:text-accent"
-          title={row.taskTitle}
-          onClick={() => onOpenTask(row.taskId!)}
-        >
-          {row.taskTitle || row.taskId}
-        </button>
-      ) : (
-        <span className="min-w-0 truncate text-sm text-text">{t("views.liveFloor.noTask")}</span>
-      )}
-      <span className="truncate text-xs text-text-muted">{t(ROLE_LABEL[row.role])}</span>
-      <StatusTag tone={ENDED_TONE[row.conclusion]} label={t(ENDED_LABEL[row.conclusion])} />
-      <span className="flex items-center justify-end text-xs text-text-faint">
-        <RowTime at={row.endedAt ?? row.session.activity.lastObservedAt} />
-      </span>
-    </article>
+      <summary className="grid min-w-0 cursor-pointer list-none grid-cols-[minmax(12rem,1.3fr)_minmax(9rem,.9fr)_auto_auto_auto] items-center gap-x-4 py-2 max-[980px]:grid-cols-[minmax(0,1fr)_auto]">
+        {row.taskId ? (
+          <span
+            className="min-w-0 truncate text-left text-sm font-medium text-text"
+            role="button"
+            tabIndex={0}
+            title={row.taskTitle || row.taskId}
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenTask(row.taskId!);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              onOpenTask(row.taskId!);
+            }}
+          >
+            {row.taskTitle || row.taskId}
+          </span>
+        ) : (
+          <span className="min-w-0 truncate text-sm text-text">{t("views.liveFloor.noTask")}</span>
+        )}
+        <span className="truncate text-xs text-text-muted">{t(CHANNEL_LABEL[row.channel])}</span>
+        <StatusTag tone={ENDED_TONE[row.conclusion]} label={t(ENDED_LABEL[row.conclusion])} />
+        <span className="flex items-center justify-end text-xs text-text-faint">
+          <RowTime at={row.endedAt ?? row.dispatch.startedAt} />
+        </span>
+        {row.reportPath ? (
+          <span className="ui-meta text-text-faint group-open/live-ended:hidden">
+            {t("views.liveFloor.endedReportToggle")}
+          </span>
+        ) : (
+          <span />
+        )}
+      </summary>
+      {open && row.reportPath ? (
+        <LiveFloorReport
+          repoId={repoId}
+          taskId={row.taskId ?? ""}
+          reportPath={row.reportPath}
+          packagePath={task?.packagePath}
+        />
+      ) : null}
+    </details>
   );
 }
 
@@ -640,7 +777,7 @@ function LiveFloorDispatchCard({
   readonly packagePath: string | null;
 }) {
   const [open, setOpen] = useState(false),
-    role = liveFloorDispatchRole(dispatch),
+    channel = liveFloorDispatchChannel(dispatch),
     model = readableModelName(dispatch.provider.model),
     running = dispatch.status === "running",
     duration =
@@ -664,7 +801,7 @@ function LiveFloorDispatchCard({
                   ? "bad"
                   : "neutral"
           }
-          label={t(ROLE_LABEL[role])}
+          label={t(CHANNEL_LABEL[channel])}
         />
         <span className="min-w-0 truncate text-text-muted" title={dispatch.provider.model ?? undefined}>
           {model ?? t("views.liveFloor.modelUnknown")}

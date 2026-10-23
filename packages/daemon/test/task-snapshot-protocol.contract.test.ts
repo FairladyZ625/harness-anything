@@ -119,6 +119,13 @@ test("task snapshot protocol tolerates rows from daemon builds before deliverySt
   );
 });
 
+test("task snapshot protocol admits the pipeline-surrounding stage words on the wire", () => {
+  // 排队/等上游/完成(24h 窗)与主路径词走同一词表;这里锁住「新词在入站校验里合法」,
+  // 防止词表与校验器各改一半导致 GUI 把合法行隔离成 invalidRows。
+  for (const stage of ["queued", "waiting_upstream", "done"] as const)
+    assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [{ ...row, deliveryStage: stage }] }), [], stage);
+});
+
 test("task snapshot protocol isolates a malformed field with its source row identity", () => {
   const malformed = {
       ...row,

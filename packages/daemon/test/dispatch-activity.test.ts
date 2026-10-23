@@ -13,6 +13,7 @@ test("a submitted implementation waits on external checks before it can be calle
         taskStatus: "submitted",
         role: "implementation",
         lastObservedAt: new Date(now - DISPATCH_STALLED_AFTER_MS * 2).toISOString(),
+        processAlive: true,
       },
       now,
     ),
@@ -28,6 +29,7 @@ test("review work keeps progressing even when its task has been submitted", () =
         taskStatus: "submitted",
         role: "reviewer",
         lastObservedAt: new Date(now - 1_000).toISOString(),
+        processAlive: true,
       },
       now,
     ),
@@ -43,6 +45,66 @@ test("a running dispatch with no recent activity becomes suspect at the threshol
         taskStatus: "active",
         role: "implementation",
         lastObservedAt: new Date(now - DISPATCH_STALLED_AFTER_MS).toISOString(),
+        processAlive: true,
+      },
+      now,
+    ),
+    "stalled",
+  );
+});
+
+test("a dead worker process is a stuck signal on its own, without waiting out the silence window", () => {
+  assert.equal(
+    dispatchActivityStatus(
+      {
+        status: "running",
+        taskStatus: "active",
+        role: "implementation",
+        lastObservedAt: new Date(now - 1_000).toISOString(),
+        processAlive: false,
+      },
+      now,
+    ),
+    "stalled",
+  );
+  // 一个还活着、刚刚有观测的进程不受影响。
+  assert.equal(
+    dispatchActivityStatus(
+      {
+        status: "running",
+        taskStatus: "active",
+        role: "implementation",
+        lastObservedAt: new Date(now - 1_000).toISOString(),
+        processAlive: true,
+      },
+      now,
+    ),
+    "progressing",
+  );
+});
+
+test("an absent process signal is not a dead process: only the time window judges then", () => {
+  assert.equal(
+    dispatchActivityStatus(
+      {
+        status: "running",
+        taskStatus: "active",
+        role: "implementation",
+        lastObservedAt: new Date(now - 1_000).toISOString(),
+        processAlive: null,
+      },
+      now,
+    ),
+    "progressing",
+  );
+  assert.equal(
+    dispatchActivityStatus(
+      {
+        status: "running",
+        taskStatus: "active",
+        role: "implementation",
+        lastObservedAt: new Date(now - DISPATCH_STALLED_AFTER_MS).toISOString(),
+        processAlive: null,
       },
       now,
     ),
@@ -59,6 +121,7 @@ test("terminal and unknown dispatches are never labeled as progressing or stuck"
           taskStatus: "active",
           role: "implementation",
           lastObservedAt: new Date(now - DISPATCH_STALLED_AFTER_MS * 2).toISOString(),
+          processAlive: false,
         },
         now,
       ),

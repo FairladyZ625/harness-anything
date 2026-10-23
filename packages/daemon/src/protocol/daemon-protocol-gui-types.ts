@@ -822,9 +822,11 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
 
 /**
  * The daemon-owned delivery-stage judgment for the live floor (task-delivery-stage.ts):
- * where a task sits on the 实现 → 交付/PR·CI → 评审 → 等业主 → 可合并 main path.
- * `null` = off the path (queued, waiting upstream, terminal); the renderer then reads
- * the row's own status words instead of a second word for the same fact.
+ * where a task sits on the 实现 → 交付/PR·CI → 评审 → 等业主 → 可合并 main path, plus the
+ * pipeline surroundings — `queued` (planned), `waiting_upstream` (depends-on block) and
+ * `done` (terminal within TASK_DELIVERY_DONE_WINDOW_MS, 24h). `null` = genuinely off the
+ * pipeline (cancelled, terminal older than the window, unrecognized status); `undefined`
+ * on the wire means an older daemon build that does not project the field yet.
  */
 export type TaskDeliveryStage =
   | "implementing"
@@ -832,7 +834,10 @@ export type TaskDeliveryStage =
   | "delivered"
   | "reviewing"
   | "awaiting_owner"
-  | "merge_ready";
+  | "merge_ready"
+  | "queued"
+  | "waiting_upstream"
+  | "done";
 
 export type DaemonTaskSnapshotListResult = {
   readonly ok: true;

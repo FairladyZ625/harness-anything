@@ -318,6 +318,7 @@ export function makeTaskQueryReadModel(input: {
             snapshot: row.snapshot,
             closeout: closeoutAssessment,
             blocking: blockingAssessment,
+            updatedAt: row.updatedAt,
           }),
           // dec_5B135F46 CH4: the board / visibility / capability judgments are the kernel's. This
           // read passes the row and the assessments it already has and returns what comes back.

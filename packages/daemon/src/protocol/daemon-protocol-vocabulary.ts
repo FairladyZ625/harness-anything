@@ -153,6 +153,9 @@ export const taskDeliveryStageWords = Object.freeze([
   "reviewing",
   "awaiting_owner",
   "merge_ready",
+  "queued",
+  "waiting_upstream",
+  "done",
 ] as const satisfies readonly TaskDeliveryStage[]);
 
 export const taskDeliveryStageWordsAreExact: [TaskDeliveryStage] extends [(typeof taskDeliveryStageWords)[number]]

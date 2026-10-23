@@ -470,11 +470,19 @@ function canonicalDispatchRow(
         : outcome === "stopped" && taskHasStructuredBlock(projection, event)
           ? "blocked"
           : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
+    // 进程存活信号:派工流里有进程记录才有;无记录是信号缺失(null),不是进程已死。
+    processAlive =
+      dispatchStream?.process === null || dispatchStream?.process === undefined
+        ? null
+        : dispatchStream.process.exited === true
+          ? false
+          : runtimePidIsAlive(dispatchStream.process.pid),
     activityStatus = dispatchActivityStatus({
       status,
       taskStatus: taskRead?.snapshot.task?.status,
       role: payload.role,
       lastObservedAt: activityObservedAt,
+      processAlive,
     }),
     fallbackReason = dispatchStream?.records.findLast(
       (record) => record.kind === "fallback_state" && typeof record.reason === "string",
