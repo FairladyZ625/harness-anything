@@ -9,7 +9,7 @@
 // can never attribute evidence to a build that did not run). SIGINT/SIGTERM at any stage stop
 // the isolated daemon, delete the temp copy, and exit non-zero without printing a receipt.
 //   node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|sha>]
-//        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--attach-timeout-ms <ms>]
+//        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach] [--attach-timeout-ms <ms>]
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -52,6 +52,7 @@ export function parseArgs(argv) {
     out: option("--out"),
     keep: argv.includes("--keep"),
     reuseWorkspace: option("--reuse-workspace"),
+    coldAttach: argv.includes("--cold-attach"),
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
   };
   if (!Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < 1000)
@@ -653,6 +654,18 @@ export async function main(argv, session = {}) {
     }
     if (!path.resolve(workspace).startsWith(path.resolve(tmpdir())))
       throw new Error(`workspace must live under the system temp dir, got ${workspace}`);
+    if (args.coldAttach) {
+      const projectionPath = path.join(workspace, ".harness", "cache", "task.sqlite");
+      for (const suffix of ["", "-wal", "-shm"])
+        rmSync(`${projectionPath}${suffix}`, { force: true, maxRetries: 5, retryDelay: 20 });
+      receipt.copy.coldAttach = true;
+      receipt.copy.steps ??= [];
+      receipt.copy.steps.push({
+        item: "cache/task.sqlite",
+        method: "removed before attach for cold projection",
+        discarded: true,
+      });
+    }
     receipt.build = {
       requested: build.requested,
       root: build.root,
