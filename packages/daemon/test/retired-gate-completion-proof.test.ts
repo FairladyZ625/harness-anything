@@ -52,6 +52,40 @@ function retiredCodeDocCut(): Snapshot {
   return fixture.snapshot as unknown as Snapshot;
 }
 
+/** The same cut with one live gate that never landed a witness: the negative control. */
+function liveGateCut(): Snapshot {
+  const base = retiredCodeDocCut(),
+    execution = base.executions[0]!;
+  return {
+    ...base,
+    task: { ...base.task!, completionGateIds: ["lint"] },
+    executions: [
+      {
+        ...execution,
+        submission: {
+          ...execution.submission!,
+          completionContract: {
+            ...execution.submission!.completionContract,
+            gates: [
+              {
+                gateId: "lint",
+                appliesTo: "code",
+                witness: {
+                  adapterId: "research/check",
+                  kind: "command",
+                  predicateType: "research/v1",
+                  resultSchema: { type: "object" },
+                  adapterOptions: {},
+                },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  } as unknown as Snapshot;
+}
+
 function completeCommand(snapshot: Snapshot) {
   return {
     ...normalizeTaskLifecycleCommand(
@@ -92,4 +126,14 @@ test("a retired code/doc requirement stays visible as an out-of-scope gate, not 
     "an out-of-scope gate must never be reported as a passed receipt",
   );
   assert.equal(emptyCompletionContract.gates.length, 0);
+});
+
+test("a live gate without a witness still blocks, so retirement did not widen into a blanket skip", () => {
+  const snapshot = liveGateCut();
+  // The fix must only excuse gates that are actually retired: the same proof path, one live gate,
+  // still refuses.
+  assert.throws(
+    () => completeProof(completeCommand(snapshot), snapshot, binding, projection, undefined),
+    (error: unknown) => (error as { readonly code?: string }).code === "gate_witness_missing",
+  );
 });
