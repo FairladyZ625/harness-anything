@@ -903,7 +903,7 @@ test(
       assert.equal(
         secondReceipt.dispatchId,
         second.payload.dispatchId,
-        "receipt must name the fresh fallback dispatch",
+        `receipt must name the fresh fallback dispatch: ${JSON.stringify(secondReceipt)}`,
       );
       assert.equal(secondReceipt.runtimeSessionId, second.payload.runtimeSessionId);
       assert.equal(second.payload.resumedFromDispatchId, undefined, "fallback must own a fresh dispatch");
