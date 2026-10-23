@@ -72,6 +72,21 @@ const envelope = (schema: string, payload: unknown, opId: string): PersistedCano
 
 test("attach migration registry covers each retired historical field and is idempotent", () => {
   assert.deepEqual(
+    attachMigrationRegistry.map((entry) => entry.name),
+    [
+      "closeout-overrides.fact",
+      "closeout-overrides.codeDoc",
+      "schedule.ciObserve",
+      "squad-run.subject",
+      "settings.ci",
+      "settings.closeout.codeDoc",
+      "runtime.reviewDispatchKey",
+      "vertical.completion.sources",
+      "vertical.completion.closeoutCodeDoc",
+      "submission.delivery-facts",
+    ],
+  );
+  assert.deepEqual(
     attachMigrationRegistry.filter((entry) => entry.kind === "event-migration").map(({ name }) => name),
     [
       "closeout-overrides.fact",

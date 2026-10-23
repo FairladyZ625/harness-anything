@@ -210,18 +210,6 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
   },
   {
     kind: "event-migration",
-    name: "closeout-overrides.fact",
-    fields: ["Task.closeoutOverrides.fact"],
-    matches: taskHasRetiredFact,
-  },
-  {
-    kind: "event-migration",
-    name: "schedule.ciObserve",
-    fields: ["Schedule.status.ciObserve"],
-    matches: hasRetiredScheduleCiObserve,
-  },
-  {
-    kind: "event-migration",
     name: "squad-run.subject",
     fields: ["SquadRun.taskId+executionId"],
     matches: hasFlatSquadRunIdentity,
@@ -234,6 +222,12 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
   },
   {
     kind: "event-migration",
+    name: "settings.closeout.codeDoc",
+    fields: ["Settings.closeout.overrides.codeDoc"],
+    matches: hasRetiredSettingsCloseoutCodeDoc,
+  },
+  {
+    kind: "event-migration",
     name: "runtime.reviewDispatchKey",
     fields: ["RuntimeDispatchRequested.payload.dispatchKey"],
     matches: hasLegacyReviewerDispatchKey,
@@ -243,12 +237,6 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     name: "vertical.completion.sources",
     fields: ["Vertical.completion.sources.*.kind"],
     matches: hasRetiredVerticalHostedCi,
-  },
-  {
-    kind: "event-migration",
-    name: "settings.closeout.codeDoc",
-    fields: ["Settings.closeout.overrides.codeDoc"],
-    matches: hasRetiredSettingsCloseoutCodeDoc,
   },
   {
     kind: "event-migration",
