@@ -169,6 +169,13 @@ export async function steerRuntime(
     opId,
     runtimeSessionId,
     dispatchId: header.dispatchId,
+    // A steer's only durable effect is the dispatch-stream record written above; it appends no
+    // ledger event, so it has no command outcome to accept. Declaring the determinate no-write
+    // here keeps the receipt applied instead of being re-judged as acceptance_unknown, which
+    // shipped `ok:true` with `outcome:indeterminate` and failed the GUI receipt exit.
+    status: "settled_no_write",
+    visibility: "center",
+    evidence: `dispatch-stream:${header.dispatchId}:steer_requested:${opId}`,
   };
 }
 
