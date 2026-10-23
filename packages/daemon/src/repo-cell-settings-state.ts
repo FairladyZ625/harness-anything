@@ -41,6 +41,25 @@ import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-t
 export const SETTINGS_ENTITY_MISSING = "settings_entity_missing" as const;
 
 /**
+ * Which command a mint is being written for. Each one brings its own authority: `settings-update` is
+ * principal-only, while `repo-bootstrap` is what `ha init` runs to bring a repository into existence
+ * and is legitimately performed by the owner's agent executor. Naming the command (rather than
+ * passing a "skip the guard" boolean) is what keeps the two authorities from being confused.
+ */
+type MintAuthority = { readonly kind: "repo-bootstrap" } | { readonly kind: "settings-update" };
+
+/**
+ * Refuse a mint whose command does not actually authorize a repository-Settings write. `repo-bootstrap`
+ * carries its own authorization decision, evaluated by the caller against `repo-bootstrap` before the
+ * mint is reached, so it needs nothing further here; every other mint answers to the principal rule.
+ */
+function assertMintAuthority(authority: MintAuthority, binding: RepoCellBinding): void {
+  if (authority.kind === "repo-bootstrap") return;
+  const refusal = settingsPrincipalRefusal(binding.actor);
+  if (refusal !== null) throw cellCodedError(refusal.code, refusal.message);
+}
+
+/**
  * The one authority rule for repository Settings: only a principal (no runtime executor) may write
  * them, because they are repository-wide constraints that govern the executor too. Both the
  * `settings-update` guard and the mint itself ask this, so a new caller of the mint cannot acquire
@@ -169,15 +188,14 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
   const initialize = (
     initialization: AuthoredSettingsInitialization,
     binding: RepoCellBinding,
-    seedLocalDefaults: boolean,
+    authority: MintAuthority,
   ) => {
     // Same predicate as the reader: an existing row with no usable value is not initialized state.
     if (projectedRepositorySettings(cell.projection) !== null) return null;
-    // The mint is a Settings write, so it answers to the same authority rule as the command that
-    // triggers it. Asking here (not at each caller) is what keeps a future entry point from
-    // inheriting a write the principal guard would have refused.
-    const refusal = settingsPrincipalRefusal(binding.actor);
-    if (refusal !== null) throw cellCodedError(refusal.code, refusal.message);
+    // A mint is a Settings write, so it needs an authority that actually covers repository Settings.
+    // The check lives here — at the write, not at the callers — so a new entry point cannot inherit a
+    // write that its own command would have refused.
+    assertMintAuthority(authority, binding);
     const revision = cell.store.readHead()?.revision ?? 0,
       digest = createHash("sha256")
         .update(`${cell.input.repoId}\0${initialization.candidateDocumentBody}`)
@@ -191,17 +209,23 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
         revision,
         binding,
       );
-    if (seedLocalDefaults && !existsSync(localPath)) writeLocal(localSettings(initialization.settings));
+    // The defaults file belongs to the machine that just ran `ha init`, and never to a later mint.
+    if (authority.kind === "repo-bootstrap" && !existsSync(localPath))
+      writeLocal(localSettings(initialization.settings));
     return appended;
   };
 
-  /** `ha init`'s mint: the one caller allowed to seed a defaults file, and only when none exists. */
+  /**
+   * `ha init`'s mint. Its authority is the `repo-bootstrap` decision the caller already evaluated —
+   * not the principal rule, because init legitimately runs as the owner's agent executor and is the
+   * only action that brings a repository into existence.
+   */
   const initializeBootstrap = (settings: SettingsV1, documentBody: string, binding: RepoCellBinding) =>
-    initialize(authoredInitializationOf(settings, documentBody), binding, true);
+    initialize(authoredInitializationOf(settings, documentBody), binding, { kind: "repo-bootstrap" });
 
-  /** The write-path mint: canonical state only, never this machine's preferences file. */
+  /** The write path's mint: canonical state only, never this machine's preferences file. */
   const initializeAuthored = (initialization: AuthoredSettingsInitialization, binding: RepoCellBinding) =>
-    initialize(initialization, binding, false);
+    initialize(initialization, binding, { kind: "settings-update" });
   /**
    * What the mint *would* append, without writing anything: the request is judged against this
    * value first, so a rejected request leaves no event behind. `null` when the entity exists (the

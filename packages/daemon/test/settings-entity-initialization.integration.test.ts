@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,9 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
+import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 // Typed through the sanctioned fixture, never through packages/daemon/src/repo-cell directly:
 // the import-boundary gate requires tests to obtain repositories from this fixture.
@@ -317,6 +320,77 @@ test("projection rebuild cannot mint Settings on behalf of an agent executor", a
       "the rebuild receipt must not claim a settings write it did not make",
     );
     await assert.rejects(cell.read("repo.settings.read"), missingSettings);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("ha init still mints Settings as the owner's agent, because repo-bootstrap authorizes it", async () => {
+  // The distinction the negative test above must not erase: `projection-rebuild` has no authority to
+  // create Settings, but `ha init` does, and init legitimately runs as the owner's agent executor.
+  // Treating "mint" as "always principal-only" turned every fresh `ha init` into a
+  // settings_write_requires_principal failure (caught by repo-bootstrap-owner-person in CI).
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-settings-entity-init-agent-"))),
+    repoId = workspaceId("settings-entity-init-agent"),
+    stateRoot = path.join(rootDir, "writer-epochs"),
+    authority = openPersistentWriterEpoch({ stateRoot, holderId: "settings-entity-init-agent" }),
+    lease = authority.acquire(repoId);
+  let cell: OpenedCell | undefined;
+  try {
+    const bootstrapping = withPolicyGroup(
+      {
+        actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "owner-agent" } },
+        source: "local" as const,
+        authorizationBindingMode: "declared" as const,
+      },
+      "admin",
+    );
+    cell = await openFencedRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "settings-entity-init-agent",
+      bootstrap: {
+        ...resolveRepoBootstrap(
+          { rootDir, repoId: "settings-entity-init-agent", personId: "person-owner", displayName: "Owner" },
+          {
+            transportKind: "unix-socket",
+            unixSocketOwnerBoundary: {
+              ownerUid: process.getuid?.() ?? 0,
+              source: "unix-socket-filesystem-owner-boundary",
+            },
+          } as unknown as DaemonAuthenticationContext,
+        ),
+        actor: bootstrapping.actor,
+        keycloakAuthorization: bootstrapping.keycloakAuthorization,
+      },
+      defaultWriterEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId,
+        epoch: lease.epoch,
+        holderId: lease.holderId,
+      },
+    });
+    // Init published Settings as part of opening the repository, under repo-bootstrap's authority.
+    assert.equal(
+      await settingsEventCount(rootDir, "settings-entity-init-agent"),
+      1,
+      "ha init mints Settings once, as the owner's agent, under repo-bootstrap authorization",
+    );
+    const read = (await cell.read("repo.settings.read")) as { readonly settings: { readonly settingsId: string } };
+    assert.equal(
+      read.settings.settingsId,
+      "repository",
+      "the entity init minted is readable, not a missing-entity error",
+    );
+    // The same agent still cannot change those settings afterwards: creating a repository and changing
+    // its constraints are different authorities.
+    const refused = await cell.run(
+      { kind: "settings-update", reviewReturnBudget: 3, idempotencyKey: "init-agent-cannot-update" },
+      bootstrapping,
+    );
+    assert.equal(refused.code, "settings_write_requires_principal", JSON.stringify(refused));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
