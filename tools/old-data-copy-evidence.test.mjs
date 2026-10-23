@@ -46,6 +46,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     HARNESS_DAEMON_ID: "default",
     HARNESS_EXECUTION_CREDENTIAL: "dispatched",
     HARNESS_ACTOR: "runtime",
+    HARNESS_WRITER_READY_WATCHDOG_MS: "600000",
     CODEX_HOME: "/codex",
     ANTHROPIC_API_KEY: "secret",
     PATH: "/bin",
@@ -55,6 +56,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     "HARNESS_DAEMON_ID",
     "HARNESS_EXECUTION_CREDENTIAL",
     "HARNESS_ACTOR",
+    "HARNESS_WRITER_READY_WATCHDOG_MS",
     "CODEX_HOME",
     "ANTHROPIC_API_KEY",
   ])
@@ -112,7 +114,7 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
   try {
     const source = createSourceFixture(parent);
     const out = path.join(parent, "out");
-    const result = runCommand(["--source", source, "--out", out, "--attach-timeout-ms", "120000"]);
+    const result = runCommand(["--source", source, "--out", out, "--cold-attach", "--attach-timeout-ms", "120000"]);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     const receipt = JSON.parse(result.stdout);
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
@@ -121,6 +123,25 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.copy.sourceRevision, 1, "one seeded event");
     const cacheStep = receipt.copy.steps.find((step) => step.item === "cache/task.sqlite");
     assert.ok(cacheStep, "the cache database is part of the snapshot steps");
+    assert.equal(receipt.copy.coldAttach, true);
+    assert.equal(
+      receipt.copy.steps.find((step) => step.item === "cache/task.sqlite" && step.discarded)?.discarded,
+      true,
+      "cold attach discards only the copied task projection before writer startup",
+    );
+    const ledgerStep = receipt.copy.steps.find((step) => step.item === "store/generations/3/ledger.sqlite"),
+      objectsStep = receipt.copy.steps.find(
+        (step) => step.item === "store/generations/3 objects and retired generations",
+      );
+    assert.ok(ledgerStep && objectsStep, "the active ledger and its immutable objects are captured");
+    assert.ok(
+      receipt.copy.steps.indexOf(cacheStep) < receipt.copy.steps.indexOf(ledgerStep),
+      "projection caches are captured before the ledger cut",
+    );
+    assert.ok(
+      receipt.copy.steps.indexOf(ledgerStep) < receipt.copy.steps.indexOf(objectsStep),
+      "the ledger cut is captured before object cloning so concurrent appends cannot lose their blobs",
+    );
     assert.match(cacheStep.method, /-cR|reflink/u, "cache databases take the block-clone path");
     assert.equal(cacheStep.discarded, undefined, "a checkpointed empty cache is not torn");
     assert.equal(receipt.attach.outcome, "terminal-record");

@@ -9,7 +9,7 @@
 // can never attribute evidence to a build that did not run). SIGINT/SIGTERM at any stage stop
 // the isolated daemon, delete the temp copy, and exit non-zero without printing a receipt.
 //   node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|sha>]
-//        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--attach-timeout-ms <ms>]
+//        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach] [--attach-timeout-ms <ms>]
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -20,6 +20,7 @@ import {
   writeFileSync,
   readFileSync,
   copyFileSync,
+  renameSync,
   realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,6 +52,7 @@ export function parseArgs(argv) {
     out: option("--out"),
     keep: argv.includes("--keep"),
     reuseWorkspace: option("--reuse-workspace"),
+    coldAttach: argv.includes("--cold-attach"),
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
   };
   if (!Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < 1000)
@@ -100,7 +102,6 @@ export function forensicEnv(base) {
   // Same heap ceiling the production daemon runs with; without it a full-ledger attach dies
   // with ERR_WORKER_OUT_OF_MEMORY (task_e37fdc67 first-run evidence, 2026-10-22).
   env.NODE_OPTIONS = "--max-old-space-size=8192";
-  env.HARNESS_WRITER_READY_WATCHDOG_MS = "600000";
   // Tie the forensic daemon to this script's lifetime: even a crash between start and stop
   // cannot leak a detached daemon holding a socket inside the temp root.
   env.HARNESS_DAEMON_OWNER_PID = String(process.pid);
@@ -212,9 +213,8 @@ function activeGeneration(sourceGenerations) {
   return generation;
 }
 
-/** Snapshot the source repository into the workspace. Consistency order: projection caches
- *  first, ledger last, so the copied projection watermark can never be ahead of the copied
- *  ledger (the attach guard rejects exactly that state). */
+/** Snapshot the source repository into the workspace. Cache cuts precede the ledger snapshot,
+ *  and the immutable object tree is cloned afterward so every captured event blob is present. */
 async function snapshotRepository(sourceRoot, workspace) {
   const storeGenerations = path.join(sourceRoot, ".harness", "store", "generations");
   if (!existsSync(storeGenerations)) throw new Error(`no .harness/store/generations under ${sourceRoot}`);
@@ -227,16 +227,10 @@ async function snapshotRepository(sourceRoot, workspace) {
     steps.push({ item: "harness", method: "git local clone" });
   }
   mkdirSync(path.join(workspace, ".harness", "store"), { recursive: true });
-  await runText("cp", [...copyTreeArgs(), storeGenerations, path.join(workspace, ".harness", "store", "generations")]);
-  // The clone carries the live ledger's main file plus stale -wal/-shm; replace that trio
-  // with one self-contained sqlite3 .backup taken from the live source.
-  const sourceLedger = path.join(storeGenerations, generation, "ledger.sqlite"),
-    copiedLedger = path.join(workspace, ".harness", "store", "generations", generation, "ledger.sqlite");
-  rmSync(copiedLedger, { force: true, maxRetries: 5, retryDelay: 20 });
-  rmSync(`${copiedLedger}-wal`, { force: true });
-  rmSync(`${copiedLedger}-shm`, { force: true });
-  steps.push({ item: `store/generations/${generation} objects and retired generations`, method: copyTreeMethod() });
-
+  // Cache cuts precede the ledger snapshot, and the object tree follows it. Content objects
+  // are immutable once written, so every object referenced by the captured ledger exists
+  // before the object clone starts. Reversing these two snapshots can capture a new event but
+  // miss the blob it names when a writer commits during the multi-minute tree clone.
   const sourceCache = path.join(sourceRoot, ".harness", "cache");
   if (existsSync(sourceCache)) {
     mkdirSync(path.join(workspace, ".harness", "cache"), { recursive: true });
@@ -246,8 +240,22 @@ async function snapshotRepository(sourceRoot, workspace) {
       await snapshotCacheDatabase(file, path.join(workspace, ".harness", "cache", name), steps);
     }
   }
-  await sqliteBackup(sourceLedger, copiedLedger);
-  steps.push({ item: `store/generations/${generation}/ledger.sqlite`, method: "VACUUM INTO (after caches)" });
+
+  const sourceLedger = path.join(storeGenerations, generation, "ledger.sqlite"),
+    copiedGenerations = path.join(workspace, ".harness", "store", "generations"),
+    copiedLedger = path.join(copiedGenerations, generation, "ledger.sqlite"),
+    ledgerSnapshot = path.join(workspace, ".ledger-snapshot.sqlite");
+  await sqliteBackup(sourceLedger, ledgerSnapshot);
+  steps.push({ item: `store/generations/${generation}/ledger.sqlite`, method: "VACUUM INTO before object clone" });
+
+  await runText("cp", [...copyTreeArgs(), storeGenerations, copiedGenerations]);
+  // The clone carries the live ledger's main file plus stale -wal/-shm; replace that trio
+  // with the earlier self-contained snapshot so the event cut and object tree are coherent.
+  rmSync(copiedLedger, { force: true, maxRetries: 5, retryDelay: 20 });
+  rmSync(`${copiedLedger}-wal`, { force: true });
+  rmSync(`${copiedLedger}-shm`, { force: true });
+  renameSync(ledgerSnapshot, copiedLedger);
+  steps.push({ item: `store/generations/${generation} objects and retired generations`, method: copyTreeMethod() });
   for (const dir of HARNESS_COPY_DIRS) {
     const from = path.join(sourceRoot, ".harness", dir);
     if (existsSync(from)) {
@@ -646,6 +654,18 @@ export async function main(argv, session = {}) {
     }
     if (!path.resolve(workspace).startsWith(path.resolve(tmpdir())))
       throw new Error(`workspace must live under the system temp dir, got ${workspace}`);
+    if (args.coldAttach) {
+      const projectionPath = path.join(workspace, ".harness", "cache", "task.sqlite");
+      for (const suffix of ["", "-wal", "-shm"])
+        rmSync(`${projectionPath}${suffix}`, { force: true, maxRetries: 5, retryDelay: 20 });
+      receipt.copy.coldAttach = true;
+      receipt.copy.steps ??= [];
+      receipt.copy.steps.push({
+        item: "cache/task.sqlite",
+        method: "removed before attach for cold projection",
+        discarded: true,
+      });
+    }
     receipt.build = {
       requested: build.requested,
       root: build.root,

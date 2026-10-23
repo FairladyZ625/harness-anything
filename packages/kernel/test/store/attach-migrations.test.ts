@@ -13,19 +13,37 @@ import type { PersistedCanonicalEventV1 } from "../../src/domain/doc-sync-types.
 
 function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
   const events = [...initial];
+  const reads = { queryEvents: 0, readBatch: 0 };
   const store = {
     read: () => ({ schema: "canonical-event-stream/v1" as const, revision: events.length, events }),
     readHead: () =>
       events.length === 0
         ? null
         : { revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) },
+    readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
     append: ({ event }: { event: PersistedCanonicalEventV1 }) => {
       events.push(event);
       return {};
     },
-    queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+    queryEvents: ({ limit }: { readonly limit: number }) => {
+      reads.queryEvents += 1;
+      return events.slice(0, limit);
+    },
+    readBatch: (cursor: string | null, maxItems: number) => {
+      reads.readBatch += 1;
+      const start = cursor === null ? 0 : Number(cursor),
+        page = events.slice(start, start + maxItems),
+        next = start + page.length;
+      return {
+        sourceRevision: events.length,
+        events: page,
+        cursor: page.length > 0 ? String(next) : cursor,
+        done: next >= events.length,
+        accessedItems: page.length,
+      };
+    },
   } as unknown as CanonicalEventStore;
-  return { store, events };
+  return { store, events, reads };
 }
 
 const actor = { principal: { personId: "fixture" }, executor: null } as const;
@@ -67,7 +85,7 @@ test("attach migration registry covers each retired historical field and is idem
     attachMigrationRegistry.flatMap(({ fields }) => fields).sort(),
     [...retiredPersistedSchemaFields].sort(),
   );
-  const { store, events } = fakeStore([
+  const { store, events, reads } = fakeStore([
     envelope("task-event/v1", { task: { closeoutOverrides: { fact: false } } }, "old-task"),
     envelope("schedule-event/v1", { schedule: { status: { ciObserve: { workflow: "retired" } } } }, "old-schedule"),
     envelope(
@@ -117,6 +135,29 @@ test("attach migration registry covers each retired historical field and is idem
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
   assert.equal(events.length, 12);
+  assert.equal(reads.queryEvents, 0, "attach migration scans use bounded event batches");
+  assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
+});
+
+test("attach migration scan reports monotonic progress while paging historical events", () => {
+  const { store, reads } = fakeStore(
+      Array.from({ length: 513 }, (_, index) =>
+        envelope("task-event/v1", { task: { title: `Historical ${index}` } }, `historical-${index}`),
+      ),
+    ),
+    progress: { readonly applied: number; readonly total: number }[] = [];
+  applyAttachMigrations({
+    store,
+    onProgress: (value: { readonly applied: number; readonly total: number }) => progress.push(value),
+  });
+
+  assert.deepEqual(progress, [
+    { applied: 256, total: 513 },
+    { applied: 512, total: 513 },
+    { applied: 513, total: 513 },
+  ]);
+  assert.equal(reads.queryEvents, 0);
+  assert.equal(reads.readBatch, 3);
 });
 
 test("historical reviewer dispatch key normalization preserves all dispatch identities and ignores other lanes", () => {
@@ -212,7 +253,20 @@ test("attach notices a retired source embedded in a task preset snapshot blob", 
     ] as PersistedCanonicalEventV1[],
     store = {
       readHead: () => ({ revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) }),
+      readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
       queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+      readBatch: (cursor: string | null, maxItems: number) => {
+        const start = cursor === null ? 0 : Number(cursor),
+          page = events.slice(start, start + maxItems),
+          next = start + page.length;
+        return {
+          sourceRevision: events.length,
+          events: page,
+          cursor: page.length > 0 ? String(next) : cursor,
+          done: next >= events.length,
+          accessedItems: page.length,
+        };
+      },
       readContentBlob: () =>
         Buffer.from(
           JSON.stringify({

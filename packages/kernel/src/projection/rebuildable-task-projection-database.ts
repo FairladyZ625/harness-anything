@@ -230,10 +230,11 @@ export function discardDatabase(
   projectionPath: string,
   eventStore: EventStreamPort,
   reason: "schema_mismatch" | "explicit_rebuild",
+  onContinuityProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
 ): void {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return;
   const coverage = readProjectionCoverage(projectionPath, eventStore.readHead);
-  assertEventStreamContinuity(eventStore, coverage);
+  assertEventStreamContinuity(eventStore, coverage, onContinuityProgress);
   closeProjectionHandlesAt(canonicalProjectionPath(projectionPath));
   console.error(
     JSON.stringify({
@@ -397,9 +398,12 @@ export function readProjectionCoverage(
   });
 }
 
+const projectionContinuityBatchSize = 256;
+
 function assertEventStreamContinuity(
   eventStore: EventStreamPort,
   coverage: { readonly watermark: number; readonly scannedRevision: number },
+  onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
 ): void {
   const head = eventStore.readHead(),
     headRevision = head?.revision ?? 0,
@@ -416,14 +420,21 @@ function assertEventStreamContinuity(
   let expectedRevision = 1,
     cursor: string | null = null;
   while (expectedRevision <= coverageRevision) {
-    const batch = eventStore.readBatch(cursor, 4096);
+    const batch = eventStore.readBatch(cursor, projectionContinuityBatchSize);
+    let reachedCoverage = false;
     for (const event of batch.events) {
       if (event.workspaceRevision < expectedRevision) continue;
       if (event.workspaceRevision > expectedRevision)
         fail(expectedRevision, Math.min(coverageRevision, event.workspaceRevision - 1));
       expectedRevision += 1;
-      if (expectedRevision > coverageRevision) return;
+      if (expectedRevision > coverageRevision) {
+        reachedCoverage = true;
+        break;
+      }
     }
+    if (expectedRevision > 1)
+      onProgress?.({ applied: Math.min(coverageRevision, expectedRevision - 1), total: coverageRevision });
+    if (reachedCoverage) return;
     if (batch.done || batch.cursor === cursor) fail(expectedRevision, coverageRevision);
     cursor = batch.cursor;
   }

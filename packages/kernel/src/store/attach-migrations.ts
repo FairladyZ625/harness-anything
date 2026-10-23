@@ -138,27 +138,50 @@ export interface AttachMigrationReport {
   readonly skipped: readonly EventShapeMigrationName[];
 }
 
-function readAttachEvents(store: CanonicalEventStore): readonly PersistedCanonicalEventV1[] {
-  const queryEvents = store.queryEvents;
-  if (queryEvents === undefined)
-    throw new Error("canonical event store must expose bounded queryEvents for attach migrations");
-  const revision = store.readHead()?.revision ?? 0;
-  return queryEvents({ limit: Math.max(1, revision) }) as readonly PersistedCanonicalEventV1[];
-}
+const attachMigrationBatchSize = 256;
 
 /** Apply all pending historical shape upgrades before a projection is opened. */
 export function applyAttachMigrations(input: {
   readonly store: CanonicalEventStore;
   readonly now?: () => string;
   readonly actor?: ActorIdentity;
+  readonly onProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): AttachMigrationReport {
-  const events = readAttachEvents(input.store),
-    applied = new Set(events.filter(isEventShapeMigrationEvent).map((event) => event.payload.migration));
+  const applied = new Set(
+      attachMigrationRegistry.flatMap(({ name }) => {
+        const event = input.store.readEvent(`upgrade-${name.replaceAll(".", "-")}`);
+        return event !== null && isEventShapeMigrationEvent(event) && event.payload.migration === name ? [name] : [];
+      }),
+    ),
+    pending = attachMigrationRegistry.filter(({ name }) => !applied.has(name)),
+    affectedEvents = new Map(pending.map(({ name }) => [name, 0])),
+    total = input.store.readHead()?.revision ?? 0;
+
+  if (pending.length > 0) {
+    let cursor: string | null = null,
+      scanned = 0;
+    for (;;) {
+      const batch = input.store.readBatch(cursor, attachMigrationBatchSize);
+      for (const event of batch.events) {
+        if (isEventShapeMigrationEvent(event)) applied.add(event.payload.migration);
+        for (const migration of pending) {
+          if (migration.matches(event, input.store.readContentBlob))
+            affectedEvents.set(migration.name, affectedEvents.get(migration.name)! + 1);
+        }
+      }
+      scanned += batch.events.length;
+      if (batch.events.length > 0) input.onProgress?.({ applied: scanned, total });
+      if (batch.done) break;
+      if (batch.cursor === cursor) throw new Error("attach migration scan did not advance its event cursor");
+      cursor = batch.cursor;
+    }
+  }
+
   const appliedNow: EventShapeMigrationName[] = [];
   for (const migration of attachMigrationRegistry) {
     if (applied.has(migration.name)) continue;
-    const affectedEvents = events.filter((event) => migration.matches(event, input.store.readContentBlob)).length;
-    if (affectedEvents === 0) continue;
+    const affectedCount = affectedEvents.get(migration.name) ?? 0;
+    if (affectedCount === 0) continue;
     const revision = (input.store.readHead()?.revision ?? 0) + 1,
       opId = `upgrade-${migration.name.replaceAll(".", "-")}`,
       event: EventShapeMigrationEventV1 = {
@@ -174,7 +197,7 @@ export function applyAttachMigrations(input: {
           migration: migration.name,
           version: 1,
           sourceRevision: revision - 1,
-          affectedEvents,
+          affectedEvents: affectedCount,
         },
       };
     input.store.append({ event, plan: eventShapeMigrationWritePlan(event), blobs: [] });
