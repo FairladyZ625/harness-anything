@@ -885,8 +885,9 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
       ).outcome,
       "applied",
     );
-    const hot = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task_status_replay")?.snapshot;
-    assert.ok(hot);
+    const taskList = await cell.read("repo.tasks.list"),
+      hot = taskList.rows.find((row) => row.taskId === "task_status_replay")?.snapshot;
+    assert.ok(hot, JSON.stringify(taskList));
     await cell.close();
     cell = undefined;
     const store = makeTaskEventReader({ repoId: "task-status-replay", rootDir }),

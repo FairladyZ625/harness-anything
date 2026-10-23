@@ -503,7 +503,7 @@ test(
         schema: "task-runtime-context-read/v3",
         taskId,
         riskTier: "medium",
-        riskTierFlowVersion: null,
+        riskTierFlowVersion: 1,
         worktree: { branch: taskId, path: `.worktrees/${taskId}` },
         continuationContext: null,
       },
