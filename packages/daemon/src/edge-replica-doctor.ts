@@ -97,14 +97,20 @@ function unavailableCenterDoctor(repoId: string) {
     outcome: "applied" as const,
     opId: "doctor-center-unavailable",
     scope: { repoId, productBaseRef: null, productBaseTip: null, ledgerBaseRef: null, ledgerBaseTip: null, note },
-    checks: ["stale-delivered", "executor-undeclared", "orphan-lease", "wip-pressure", "doc-debt", "build-drift"].map(
-      (id) => ({
-        id,
-        status: "indeterminate" as const,
-        summary: note,
-        count: 0,
-        next: "Run ha doctor on the center.",
-      }),
-    ),
+    checks: [
+      "stale-delivered",
+      "executor-undeclared",
+      "orphan-lease",
+      "wip-pressure",
+      "local-root-residue",
+      "doc-debt",
+      "build-drift",
+    ].map((id) => ({
+      id,
+      status: "indeterminate" as const,
+      summary: note,
+      count: 0,
+      next: "Run ha doctor on the center.",
+    })),
   };
 }

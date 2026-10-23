@@ -10,6 +10,7 @@ import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
+import { doctorLocalRootResidue } from "./repo-local-root-residue.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -23,9 +24,9 @@ export interface DoctorCheck {
 }
 
 /**
- * `ha doctor` health: six read-only checks over the canonical projection and local Git
- * state. Nothing here appends, scans for writes, or mutates; every check degrades to
- * `indeterminate` rather than guessing when its data source cannot answer (a missing
+ * `ha doctor` health: seven read-only checks over the canonical projection, local Git state and
+ * the local ledger roots. Nothing here appends, scans for writes, or mutates; every check degrades
+ * to `indeterminate` rather than guessing when its data source cannot answer (a missing
  * default-branch ref on an unfetched clone, a Git-less edge node, an unreachable object).
  */
 export async function doctorHealth(
@@ -44,6 +45,7 @@ export async function doctorHealth(
       executorUndeclaredCheck(submitted),
       orphanLeaseCheck(cell),
       wipPressureCheck(cell),
+      doctorLocalRootResidue(cell.rootDir),
       await docDebtCheck(cell, binding),
       doctorBuildDrift(null),
     ],
