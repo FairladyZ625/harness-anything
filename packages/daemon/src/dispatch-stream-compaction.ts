@@ -100,6 +100,7 @@ function findCompactionPlan(file: string): CompactionPlan {
       if (response && candidate?.itemType === "text" && candidate.delta === response) {
         const id = String(nextResultId++);
         candidate.result = { id, start: 0, end: response.length };
+        candidate.delta = "";
         resultIds.set(lineNumber, id);
       }
       state.active = null;
@@ -149,6 +150,7 @@ function findCompactionPlan(file: string): CompactionPlan {
           const start = offset;
           offset += group.delta.length;
           group.result = { id, start, end: offset };
+          group.delta = "";
         }
         resultIds.set(lineNumber, id);
       }
