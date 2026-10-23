@@ -18,6 +18,7 @@ import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture
 import {
   copyTreeArgs,
   copyTreeMethod,
+  cliInvocation,
   forensicEnv,
   parseArgs,
   parseLastJsonObject,
@@ -66,6 +67,17 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     assert.equal(env[stripped], undefined, `${stripped} must not reach the forensic daemon`);
   assert.equal(env.NODE_OPTIONS, "--max-old-space-size=8192");
   assert.equal(env.HARNESS_DAEMON_OWNER_PID, String(process.pid));
+  const invocation = cliInvocation("/build", ["task", "show", "task_example"], env, "/workspace", {
+    userRoot: "/isolated/user-root",
+    daemonId: "isolated-daemon",
+  });
+  assert.ok(!invocation.args.includes("--user-root"), "task commands do not accept daemon-control flags");
+  assert.ok(!invocation.args.includes("--daemon-id"), "task commands do not accept daemon-control flags");
+  assert.deepEqual(invocation.options.env, {
+    ...env,
+    HARNESS_DAEMON_USER_ROOT: "/isolated/user-root",
+    HARNESS_DAEMON_ID: "isolated-daemon",
+  });
   // Explicit wins verbatim; the default derivation walks git-common-dir of the given cwd.
   assert.equal(resolveSourceRoot("/some/explicit"), "/some/explicit");
 });

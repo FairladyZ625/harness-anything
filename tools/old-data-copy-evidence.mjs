@@ -473,24 +473,23 @@ async function ensureDaemonDist(buildRoot) {
   return { steps: plan.map((step) => [step.command, ...step.args].join(" ")), head };
 }
 
-/** The forensic env strips HARNESS_DAEMON_USER_ROOT (a worker injection), so EVERY CLI call
- *  must name the isolated daemon explicitly — without the flags the CLI resolves the default
- *  ~/.harness endpoint and talks to a socket that does not exist. */
-function cliInvocation(buildRoot, args, env, workspaceRoot, identity) {
+/** The forensic env strips worker injections, so every CLI call restores the isolated daemon
+ *  target explicitly instead of resolving the default ~/.harness endpoint. */
+export function cliInvocation(buildRoot, args, env, workspaceRoot, identity) {
   return {
     command: process.execPath,
-    args: [
-      path.join(buildRoot, "packages", "cli", "src", "index.ts"),
-      "--root",
-      workspaceRoot,
-      "--json",
-      ...args,
-      "--user-root",
-      identity.userRoot,
-      "--daemon-id",
-      identity.daemonId,
-    ],
-    options: { env, cwd: workspaceRoot },
+    args: [path.join(buildRoot, "packages", "cli", "src", "index.ts"), "--root", workspaceRoot, "--json", ...args],
+    // User-root is a daemon-control flag, not a global task-command option. Keep the isolated
+    // endpoint explicit through the supported environment contract while selecting the daemon
+    // ID on each invocation.
+    options: {
+      env: {
+        ...env,
+        HARNESS_DAEMON_USER_ROOT: identity.userRoot,
+        HARNESS_DAEMON_ID: identity.daemonId,
+      },
+      cwd: workspaceRoot,
+    },
   };
 }
 
