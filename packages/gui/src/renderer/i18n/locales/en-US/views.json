@@ -2019,7 +2019,6 @@
   "views.liveFloor.askDecisionReview": "Dispatch review",
   "views.liveFloor.askRework": "Reopen after return",
   "views.liveFloor.askAdjudicate": "Delivered, dispatch review",
-  "views.liveFloor.askPinned": "Pinned",
   "views.liveFloor.askOpenSource": "Open",
   "views.liveFloor.drawerSessions": "Session timeline",
   "views.liveFloor.drawerReport": "Report",

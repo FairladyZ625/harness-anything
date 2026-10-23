@@ -622,7 +622,6 @@ const ASK_LABEL: Readonly<Record<Exclude<LiveFloorAskKind, "ask">, MessageKey>> 
   decision_review: "views.liveFloor.askDecisionReview",
   rework: "views.liveFloor.askRework",
   adjudicate: "views.liveFloor.askAdjudicate",
-  pinned: "views.liveFloor.askPinned",
 };
 
 const ASK_TONE: Readonly<Record<LiveFloorAskKind, StatusTone>> = {
@@ -634,7 +633,6 @@ const ASK_TONE: Readonly<Record<LiveFloorAskKind, StatusTone>> = {
   decision_review: "wait",
   rework: "bad",
   adjudicate: "wait",
-  pinned: "neutral",
 };
 
 const ASK_VERB: Readonly<Record<string, MessageKey>> = {

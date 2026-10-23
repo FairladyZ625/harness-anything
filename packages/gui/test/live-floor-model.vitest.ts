@@ -389,7 +389,6 @@ describe("live floor model", () => {
         awaitingDecisionReview: [{ decisionId: "dec-2", title: "决策二" }],
         awaitingRework: [{ taskId: "task-2", title: "打回的任务" }],
         awaitingAdjudication: [{ taskId: "task-3", title: "待派审任务", executionId: "exe-3" }],
-        pinnedEntities: [{ ref: "task/task-2", title: "置顶任务", pinnedAt: "2026-10-22T00:00:00.000Z" }],
       },
       tasks: [
         task({
@@ -452,11 +451,28 @@ describe("live floor model", () => {
     expect(byKind.get("decision-review:dec-2")?.detail).toBe("评审策略是否要求双人?");
     // 待同意:签到了哪一步(门 x/y)+ 最近一道没过的门的说明。
     expect(byKind.get("consent:task-consent")?.detail).toBe("门 2/3 · 缺人签");
-    // 置顶行带 pin 时刻,依据回落到该任务最新评审结论。
-    expect(byKind.get("pinned:task/task-2")).toMatchObject({
-      at: "2026-10-22T00:00:00.000Z",
-      detail: "评审打回的依据原文",
-    });
+    // 置顶不是等业主动作的通道:没有任何一行来自 pinnedEntities。
+    expect(rows.some((row) => row.kind === "pinned" || row.key.startsWith("pinned:"))).toBe(false);
+  });
+
+  it("keeps pinned entities out of needs-you: a pinned work root alone yields no ask row", () => {
+    // 2026-10-23 CEO 验收:等你处理 17 行里 11 行是置顶工作根,首屏被占满、在干活看不见。
+    // 置顶是书签不是待办,agenda 里只有置顶时「等你处理」必须是空列表。
+    // agenda 原样带着 daemon 的 pinnedEntities(宽类型变量,不靠字面量多余属性检查);
+    // 模型必须忽略它,而不是把它铺成待办。
+    const agenda = {
+      awaitingYou: [],
+      awaitingDecision: [],
+      awaitingDecisionReview: [],
+      awaitingRework: [],
+      awaitingAdjudication: [],
+      pinnedEntities: [
+        { ref: "task/task-work-root", title: "陈旧置顶工作根", pinnedAt: "2026-09-28T04:38:10.352Z" },
+        { ref: "task/task-plain", title: "普通置顶任务", pinnedAt: "2026-10-21T02:58:13.348Z" },
+      ],
+    };
+    const rows = liveFloorAskLanes({ agenda, tasks: [] });
+    expect(rows).toEqual([]);
   });
 
   it("strips the package prefix so dispatch report paths reach the task document read", () => {
