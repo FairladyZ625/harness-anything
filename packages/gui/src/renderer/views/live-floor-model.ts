@@ -71,6 +71,12 @@ export function liveFloorDispatchChannel(dispatch: TaskDispatchProjectionRow | n
   return dispatch?.role === "implementation" ? "implementation" : "unknown";
 }
 
+export interface LiveFloorWorkGroup {
+  readonly key: string;
+  readonly title: string;
+  readonly rows: readonly LiveFloorRow[];
+}
+
 export function liveFloorWorkGroups(rows: readonly LiveFloorRow[]): readonly LiveFloorWorkGroup[] {
   const groups = new Map<string, LiveFloorWorkGroup>();
   for (const row of rows) {
@@ -114,7 +120,8 @@ export function liveFloorAction(records: readonly Readonly<Record<string, unknow
   const item = sessionTranscriptTurns(records).at(-1)?.items.at(-1);
   if (!item) return null;
   const raw = item.summary || item.detail;
-  if (item.type === "text" || item.type === "thinking" || item.type === "result")
+  // 终局结果文本也以 type "text" 入列(label 是 "result"),不单列一种动词。
+  if (item.type === "text" || item.type === "thinking")
     return { verb: "message", subject: firstSentence(item.summary), raw };
   return { verb: verbOf(item.label), subject: subjectOf(item.label, item.detail), raw };
 }

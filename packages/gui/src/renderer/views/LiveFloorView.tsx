@@ -601,7 +601,7 @@ function LiveFloorEndedRowView({
           repoId={repoId}
           taskId={row.taskId ?? ""}
           reportPath={row.reportPath}
-          packagePath={task?.packagePath}
+          packagePath={task?.packagePath ?? null}
         />
       ) : null}
     </details>
