@@ -30,7 +30,7 @@ import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
-import { dispatchActivityStatus } from "./dispatch-activity.ts";
+import { dispatchActivityIdleMinutes, dispatchActivityStatus } from "./dispatch-activity.ts";
 
 type DispatchEvent = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
 type DispatchQueries = Pick<
@@ -465,6 +465,7 @@ function canonicalDispatchRow(
     ]),
     activityObservedAt =
       lastObservedAt === "1970-01-01T00:00:00.000Z" ? (payload.startedAt ?? event.occurredAt) : lastObservedAt,
+    activityProjectionObservedAt = dispatchStream?.lastProviderActivity?.observedAt ?? activityObservedAt,
     status =
       outcome === "stopped" && taskExecutionDelivered(projection, event)
         ? "succeeded"
@@ -482,9 +483,11 @@ function canonicalDispatchRow(
       status,
       taskStatus: taskRead?.snapshot.task?.status,
       role: payload.role,
-      lastObservedAt: activityObservedAt,
+      lastObservedAt: activityProjectionObservedAt,
       processAlive,
+      providerActivity: dispatchStream?.lastProviderActivity?.kind ?? null,
     }),
+    activityIdleMinutes = dispatchActivityIdleMinutes(activityProjectionObservedAt),
     fallbackReason = dispatchStream?.records.findLast(
       (record) => record.kind === "fallback_state" && typeof record.reason === "string",
     )?.reason,
@@ -532,6 +535,8 @@ function canonicalDispatchRow(
     ...(payload.role ? { role: payload.role } : {}),
     lastObservedAt: activityObservedAt,
     activityStatus,
+    activityObservedAt: activityProjectionObservedAt,
+    activityIdleMinutes,
     instanceId: payload.instanceId,
     attemptGroupId: groupId,
     attemptIndex: payload.attemptIndex ?? 0,

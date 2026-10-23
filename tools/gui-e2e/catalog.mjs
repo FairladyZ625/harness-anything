@@ -43,6 +43,7 @@ import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
 import sessionsGrouping from "./scenarios/sessions-grouping.mjs";
 import sessionsDeliveryStatus from "./scenarios/sessions-delivery-status.mjs";
+import liveFloorActivity from "./scenarios/live-floor-activity.mjs";
 import collaborationView from "./scenarios/collaboration-view.mjs";
 import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
 import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
@@ -111,6 +112,7 @@ export const catalog = [
   systemDaemonLogs,
   sessionsGrouping,
   sessionsDeliveryStatus,
+  liveFloorActivity,
   collaborationView,
   scheduleRunHistory,
   daemonStartupWait,

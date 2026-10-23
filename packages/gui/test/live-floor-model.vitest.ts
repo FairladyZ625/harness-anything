@@ -72,7 +72,9 @@ const dispatch = (patch: Partial<TaskDispatchProjectionRow> = {}): TaskDispatchP
     outcome: null,
     status: "running",
     role: "implementation",
-    activityStatus: "progressing",
+    activityStatus: "thinking",
+    activityObservedAt: "2026-10-21T00:00:00.000Z",
+    activityIdleMinutes: 3,
     ...patch,
   }) as TaskDispatchProjectionRow;
 
@@ -116,7 +118,9 @@ describe("live floor model", () => {
       taskTitle: "修复现场页面",
       workTitle: "现场工作",
       channel: "implementation",
-      activityStatus: "progressing",
+      activityStatus: "thinking",
+      activityObservedAt: "2026-10-21T00:00:00.000Z",
+      activityIdleMinutes: 3,
     });
   });
 
@@ -148,11 +152,15 @@ describe("live floor model", () => {
     // 旧 daemon 派工行没有 activityStatus:那是缺投影(null),不是「状态未知」。
     const legacy = liveFloorRows({
       sessions: [session()],
-      dispatches: [dispatch({ activityStatus: undefined })],
+      dispatches: [
+        dispatch({ activityStatus: undefined, activityObservedAt: undefined, activityIdleMinutes: undefined }),
+      ],
       taskTitles: new Map(),
       works,
     });
     expect(legacy[0]?.activityStatus).toBeNull();
+    expect(legacy[0]?.activityObservedAt).toBeNull();
+    expect(legacy[0]?.activityIdleMinutes).toBeNull();
   });
 
   it("humanizes the latest action: verb plus the salient argument, JSON noise dropped", () => {

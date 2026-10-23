@@ -470,21 +470,27 @@ function LiveFloorSessionRow({
   readonly action: LiveFloorAction | null;
   readonly onOpenTask: (taskId: string) => void;
 }) {
-  // 缺信号要说明缺哪项,不折叠成「状态未知」:无派工行与会话级活动投影缺失是两回事。
+  // 缺信号要说明缺哪项,不折叠成「状态未知」:无派工行与旧 daemon 缺投影是两回事。
   const [statusKey, tone]: [MessageKey, StatusTone] =
-      row.activityStatus === "progressing"
-        ? ["views.liveFloor.statusProgressing", "active"]
-        : row.activityStatus === "waiting_ci"
-          ? ["views.liveFloor.statusWaitingCi", "wait"]
-          : row.activityStatus === "stalled"
-            ? ["views.liveFloor.statusStalled", "bad"]
-            : row.activityStatus === "unknown"
-              ? ["views.liveFloor.statusUnknown", "neutral"]
-              : row.dispatch === null
-                ? ["views.liveFloor.statusNoDispatch", "neutral"]
-                : ["views.liveFloor.statusNoProjection", "neutral"],
+      row.activityStatus === "thinking"
+        ? ["views.liveFloor.statusThinking", "active"]
+        : row.activityStatus === "tool"
+          ? ["views.liveFloor.statusTool", "active"]
+          : row.activityStatus === "waiting"
+            ? ["views.liveFloor.statusWaiting", "wait"]
+            : row.activityStatus === "silent"
+              ? ["views.liveFloor.statusSilent", "bad"]
+              : row.activityStatus === "unknown"
+                ? ["views.liveFloor.statusUnknown", "neutral"]
+                : row.dispatch === null
+                  ? ["views.liveFloor.statusNoDispatch", "neutral"]
+                  : ["views.liveFloor.statusNoProjection", "neutral"],
     model = readableModelName(row.model),
     duration = row.startedAt ? formatDuration(Date.now() - Date.parse(row.startedAt)) : null,
+    statusLabel =
+      row.activityStatus === "silent"
+        ? t(statusKey, { minutes: String(Math.max(1, row.activityIdleMinutes ?? 0)) })
+        : t(statusKey),
     actionText =
       action === null ? null : [t(ACTION_VERB_LABEL[action.verb]), action.subject].filter(Boolean).join(" · ") || null;
   return (
@@ -521,7 +527,7 @@ function LiveFloorSessionRow({
         </span>
       </span>
       <span className="flex items-center justify-end gap-2">
-        <StatusTag tone={tone} label={t(statusKey)} />
+        <StatusTag tone={tone} label={statusLabel} />
         <span
           className="font-mono ui-meta tabular-nums text-text-faint"
           title={row.startedAt ? (formatTime(row.startedAt, { style: "date-time-seconds" }) ?? undefined) : undefined}

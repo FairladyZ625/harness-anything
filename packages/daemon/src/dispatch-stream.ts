@@ -28,6 +28,7 @@ import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 import { writeFileDurably } from "./durable-file.ts";
 import { scrubProviderValue } from "./secret-scrub.ts";
 import { isFallbackProvider } from "./dispatch-stream-value.ts";
+import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
 
 export { archiveDispatchStream } from "./dispatch-stream-archive.ts";
 
@@ -110,6 +111,10 @@ export type DispatchProcessState = {
   readonly signal: string | null;
   readonly exited: boolean;
 };
+export type DispatchStreamActivity = {
+  readonly kind: DispatchProviderActivity;
+  readonly observedAt: string;
+};
 
 export interface DispatchStreamWriter {
   readonly ref: string;
@@ -157,6 +162,7 @@ export interface DispatchLiveIndex {
 /** Metadata needed by daemon hot paths without retaining provider event bodies. */
 export type DispatchStreamSummary = Omit<NonNullable<ReturnType<typeof readDispatchStream>>, "records"> & {
   readonly lastObservedAt: string;
+  readonly lastProviderActivity: DispatchStreamActivity | null;
   readonly records: readonly DispatchStreamRecord[];
 };
 
@@ -372,18 +378,25 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   const headerEnd = firstLineEndOffset(target, stat.size);
   const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
     records: DispatchStreamRecord[] = [];
+  let lastProviderActivity: DispatchStreamActivity | null = null;
   const seenOffsets = new Set<number>();
   for (const chunk of chunks) {
     for (const line of completeLines(chunk.text, chunk.offset)) {
       if (line.offset === 0 || seenOffsets.has(line.offset)) continue;
       seenOffsets.add(line.offset);
       const kind = lineKind(line.value);
+      if (kind === "provider_event") {
+        const record = parseRecord(line.value),
+          activity = record && providerActivityRecord(header.kindId, record);
+        if (activity !== null) lastProviderActivity = activity;
+        continue;
+      }
       if (!kind || !summaryKinds.has(kind)) continue;
       const record = parseRecord(line.value);
       if (record) records.push(record);
     }
   }
-  const value = summarizeDispatch(header, records, stat.mtimeMs);
+  const value = summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity);
   if (value.providerSessionId === null) {
     // provider_binding lands after the provider's startup preamble, which has no size bound;
     // when it falls between the head windows and the tail window, probe the gap directly
@@ -410,7 +423,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     );
     if (runtimeMetrics) records.push(runtimeMetrics);
   }
-  return summarizeDispatch(header, records, stat.mtimeMs);
+  return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity);
 }
 
 export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
@@ -461,6 +474,7 @@ export function readDispatchStream(
    * record vocabulary (option ids, statuses) belongs to the decision module, not the stream
    * schema. `null` when the daemon never fenced or executed an incident action for the dispatch. */
   readonly decisionActionRecord: DispatchStreamRecord | null;
+  readonly lastProviderActivity: DispatchStreamActivity | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
@@ -489,7 +503,7 @@ export function readDispatchStream(
     .slice(1)
     .map(parseRecord)
     .filter((record): record is DispatchStreamRecord => record !== null);
-  const summary = summarizeDispatch(first, records, stat.mtimeMs);
+  const summary = summarizeDispatch(first, records, stat.mtimeMs, latestProviderActivity(first.kindId, records));
   return {
     ...summary,
     records,
@@ -718,6 +732,7 @@ function summarizeDispatch(
   header: DispatchStreamHeader,
   records: readonly DispatchStreamRecord[],
   modifiedAtMs: number,
+  lastProviderActivity: DispatchStreamActivity | null = latestProviderActivity(header.kindId, records),
 ): DispatchStreamSummary {
   let providerSessionId: string | null = null,
     processState: DispatchProcessState | null = null,
@@ -772,8 +787,31 @@ function summarizeDispatch(
     nextDispatchId,
     runtimeMetrics,
     decisionActionRecord,
+    lastProviderActivity,
     records,
   };
+}
+
+function latestProviderActivity(
+  kindId: string | undefined,
+  records: readonly DispatchStreamRecord[],
+): DispatchStreamActivity | null {
+  let latest: DispatchStreamActivity | null = null;
+  for (const record of records) {
+    const activity = providerActivityRecord(kindId, record);
+    if (activity !== null && (latest === null || activity.observedAt > latest.observedAt)) latest = activity;
+  }
+  return latest;
+}
+
+function providerActivityRecord(
+  kindId: string | undefined,
+  record: DispatchStreamRecord,
+): DispatchStreamActivity | null {
+  if (record.kind !== "provider_event" || typeof record.occurredAt !== "string" || typeof kindId !== "string")
+    return null;
+  const kind = dispatchProviderActivity(kindId, record.event);
+  return kind === null ? null : { kind, observedAt: record.occurredAt };
 }
 
 function isRuntimeMetrics(value: Record<string, unknown>): value is RuntimeMetrics {
