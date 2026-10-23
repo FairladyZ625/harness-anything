@@ -320,6 +320,35 @@ describe("agenda read cadence", () => {
 });
 
 describe("agenda bridge validation", () => {
+  it("accepts daemon incident ruling rows without a worker artifact path", async () => {
+    vi.restoreAllMocks();
+    const wire = page({
+      awaitingRuling: [
+        {
+          taskId: "task_incident",
+          title: "Incident task",
+          work: null,
+          pinned: false,
+          dispatchId: "dispatch_incident",
+          executionId: "execution_incident",
+          question: "question: Decisions provider failed with decision_transport.",
+          options: [],
+          askedAt: AT,
+          blockingAssessment: { taskId: "task_incident", ...blocking, label: "none" },
+        },
+      ],
+    });
+    const request = vi.fn(async () => wire);
+    vi.stubGlobal("window", { harness: { request } });
+    try {
+      const read = await harnessClient.getAgenda({ repoId: "repo-a" });
+      expect(read.awaitingRuling?.[0]?.dispatchId).toBe("dispatch_incident");
+      expect(read.awaitingRuling?.[0]?.rulingPath).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("passes the Decision review groups through and rejects a result that omits them", async () => {
     vi.restoreAllMocks();
     const wire = page({

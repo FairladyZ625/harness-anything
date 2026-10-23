@@ -961,7 +961,7 @@ export interface AgendaDecisionReviewRow extends AgendaDecisionRow {
 }
 /**
  * 「等业主裁决」行:无人值守派工停下等答复,球完全在业主手里。问题与选项来自任务包里的
- * `artifacts/rulings/<dispatch-id>.md`(结算时随归档发布),读面只透传,不重推判据。
+ * 问句与选项来自 worker 的 ruling artifact 或 daemon 的 incident decision receipt。
  */
 export interface AgendaRulingRow {
   readonly taskId: string;
@@ -972,8 +972,8 @@ export interface AgendaRulingRow {
   readonly executionId: string;
   readonly question: string;
   readonly options: readonly string[];
-  /** 任务包相对路径:`<packagePath>/artifacts/rulings/<dispatchId>.md`。 */
-  readonly rulingPath: string;
+  /** Worker-authored rulings have an artifact; daemon incident escalation is carried by the dispatch receipt. */
+  readonly rulingPath?: string;
   readonly askedAt: string;
   readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
 }

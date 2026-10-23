@@ -83,7 +83,7 @@ export interface TaskDispatchRow {
   readonly attemptIndex: number;
   readonly provider: { readonly instance: string; readonly model: string | null };
   readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "awaiting_ruling" | "gate_red" | null;
-  /** Present when the worker stopped to await an owner ruling (classification `awaiting_ruling`). */
+  /** Worker-authored ruling from its artifact; daemon incident escalations are in `decisionAction`. */
   readonly ruling?: {
     readonly question: string;
     readonly options: readonly string[];

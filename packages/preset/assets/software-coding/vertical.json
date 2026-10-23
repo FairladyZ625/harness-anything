@@ -68,7 +68,7 @@
         "revision": "1",
         "on": "dispatch.settled",
         "when": {
-          "outcome": ["stopped", "succeeded"],
+          "outcome": ["stopped", "failed"],
           "classification": ["worker_stop"]
         },
         "input": [

@@ -980,3 +980,38 @@ test("the canonical dispatch row carries the executed incident disposition", asy
     undefined,
   );
 });
+
+test("an incident escalation settles into the existing awaiting-ruling dispatch classification", async (t) => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-incident-escalation-"));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId,
+    executionId: "execution-1",
+    runtimeSessionId,
+    instanceId: "instance-1",
+    startedAt: "2026-08-23T00:00:00.000Z",
+    binding: { actor: { principal: { personId: "person_owner_1" } }, source: "local" },
+  });
+  appendIncidentActionReceipt(rootDir, dispatchId, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    status: "applied",
+    selected: "needs_attention",
+    action: "needs_attention",
+    reason: "question: Decisions provider failed with decision_transport.",
+    successorDispatchId: null,
+    budget: { used: 0, limit: 3, source: "repository" },
+    decidedAt: "2026-10-19T00:00:01.000Z",
+  });
+
+  const result = readTaskDispatches({
+      projection: fixture(session("exited", "stopped")).projection,
+      taskId,
+      rootDir,
+    }),
+    row = result.dispatches[0]!;
+  assert.equal(row.classification, "awaiting_ruling");
+  assert.equal(row.reason, "question: Decisions provider failed with decision_transport.");
+  assert.deepEqual(validateDaemonTaskDispatches(result), []);
+});

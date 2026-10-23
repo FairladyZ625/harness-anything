@@ -150,7 +150,7 @@ export function renderAgendaSummary(
     ),
     section(
       "等你裁决",
-      "无人值守派工停下等业主答复（任务包 artifacts/rulings/<dispatch-id>.md）；答复后续派同一会话",
+      "无人值守派工的 worker ruling 或事故升级；答复后续派同一会话",
       (groups.awaitingRuling ?? []).map(rulingLine),
     ),
     section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),

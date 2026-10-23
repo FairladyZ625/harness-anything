@@ -392,7 +392,7 @@ const incidentQuestion: DecisionQuestionDeclaration = {
   incidentPoint: DecisionPointDeclaration = {
     revision: "1",
     on: "dispatch.settled",
-    when: { outcome: ["stopped", "succeeded"], classification: ["worker_stop"] },
+    when: { outcome: ["stopped", "failed"], classification: ["worker_stop"] },
     input: [
       "dispatch.classification",
       "dispatch.reason",
@@ -417,12 +417,14 @@ const choiceAnswer = (selected: string): AdvisoryDecision =>
     distribution: { [selected]: 1 },
   }) as AdvisoryDecision;
 
-function incidentOutcomeEvent(): Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> {
+function incidentOutcomeEvent(
+  outcome: "stopped" | "succeeded" = "stopped",
+): Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> {
   return {
     ...outcomeEvent(),
     payload: {
       ...outcomeEvent().payload,
-      outcome: "stopped",
+      outcome,
       runtimeMetrics: {
         inputTokens: 10,
         cacheReadTokens: 0,
@@ -607,6 +609,11 @@ test("an admissible resume choice launches one successor through the existing sp
     (spawns[0]?.binding as { actor: { executor: { id: string } } }).actor.executor.id,
     "runtime-session:runtime-1",
   );
+  assert.equal(
+    "authorizationDecision" in (spawns[0]?.binding as object),
+    false,
+    "recovery uses the persisted binding without Keycloak credentials",
+  );
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored.length, 1);
   assert.equal(stored[0]?.status, "succeeded");
@@ -677,13 +684,7 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
     });
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(spawns.length, 0);
-  assert.equal(relates.length, 1);
-  assert.equal(relates[0]?.action.kind, "relation-relate");
-  assert.equal(relates[0]?.action.sourceRef, "task/task-1");
-  assert.equal(relates[0]?.action.targetRef, "person/person_owner_1");
-  assert.equal(relates[0]?.action.relationType, "awaits");
-  assert.match(String(relates[0]?.action.rationale), /^question: /u);
-  assert.match(String(relates[0]?.action.rationale), /budget is exhausted/u);
+  assert.equal(relates.length, 0);
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored.length, 1);
   assert.equal(stored[0]?.action?.action, "needs_attention");
@@ -704,17 +705,20 @@ test("an unavailable provider escalates without asking or launching", async (t) 
       },
       now: () => "2026-10-19T00:00:01.000Z",
     }),
-    { cell, spawns, relates } = fakeIncidentCell({});
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir });
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(calls, 0);
   assert.equal(spawns.length, 0);
-  assert.equal(relates.length, 1);
-  assert.match(String(relates[0]?.action.rationale), /provider is disabled/u);
+  assert.equal(relates.length, 0);
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.status, "failed");
   assert.equal(stored[0]?.failureCode, "provider_disabled");
   assert.equal(stored[0]?.action?.action, "needs_attention");
   assert.equal(stored[0]?.action?.status, "applied");
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  assert.equal(receipt?.status, "applied");
+  assert.equal(receipt?.action, "needs_attention");
+  assert.match(String(receipt?.reason), /provider is disabled/u);
 });
 
 test("a submitted cut turns no_action into the receipt and launches nothing", async (t) => {
@@ -738,6 +742,24 @@ test("a submitted cut turns no_action into the receipt and launches nothing", as
   assert.equal(stored[0]?.action?.status, "applied");
 });
 
+test("a succeeded worker-stop settlement stays out of the incident decision point", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  let calls = 0;
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: { list: () => [provider], port: { decide: async () => (calls++, choiceAnswer("needs_attention")) } },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({});
+  await executor.settle(cell, incidentOutcomeEvent("succeeded"));
+  assert.equal(calls, 0);
+  assert.equal(spawns.length, 0);
+  assert.equal(relates.length, 0);
+  assert.equal(readIncidentActionReceipt(rootDir, dispatchId), null);
+});
+
 test("a switch choice on a worker-stop incident is inadmissible and escalates", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -750,8 +772,7 @@ test("a switch choice on a worker-stop incident is inadmissible and escalates", 
     { cell, spawns, relates } = fakeIncidentCell({});
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(spawns.length, 0);
-  assert.equal(relates.length, 1);
-  assert.match(String(relates[0]?.action.rationale), /fallback ladder stays closed/u);
+  assert.equal(relates.length, 0);
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.action?.action, "needs_attention");
   assert.equal(stored[0]?.action?.selected, "switch_declared_next");
@@ -769,8 +790,7 @@ test("a failed launch escalates to the owner and records the launch failure", as
     { cell, spawns, relates } = fakeIncidentCell({ resume: { dispatchId, agentId: "terra" }, spawnFails: true });
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(spawns.length, 0);
-  assert.equal(relates.length, 1);
-  assert.match(String(relates[0]?.action.rationale), /could not launch/u);
+  assert.equal(relates.length, 0);
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.action?.action, "needs_attention");
   assert.equal(stored[0]?.action?.status, "applied");
@@ -852,9 +872,7 @@ test("an unknown worktree HEAD makes an automatic restart inadmissible and escal
     });
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(spawns.length, 0, "unknown HEAD must never launch a successor");
-  assert.equal(relates.length, 1, "unknown HEAD belongs to the owner");
-  assert.equal(relates[0]?.action.relationType, "awaits");
-  assert.match(String(relates[0]?.action.rationale), /HEAD is unknown/u);
+  assert.equal(relates.length, 0, "owner escalation rides the durable dispatch receipt");
   const receipt = readIncidentActionReceipt(rootDir, dispatchId);
   assert.equal(receipt?.status, "applied");
   assert.equal(receipt?.action, "needs_attention");
@@ -935,6 +953,5 @@ test("the automatic budget counts durable dispatch receipts after the annotation
     });
   await executor.settle(cell, incidentOutcomeEvent());
   assert.equal(spawns.length, 0, "an evicted receipt must still enforce the cap");
-  assert.equal(relates.length, 1);
-  assert.match(String(relates[0]?.action.rationale), /budget is exhausted/u);
+  assert.equal(relates.length, 0);
 });

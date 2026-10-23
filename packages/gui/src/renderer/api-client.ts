@@ -812,7 +812,7 @@ function isAgendaRulingRow(value: unknown): value is AgendaRulingRow {
     typeof value.question === "string" &&
     Array.isArray(value.options) &&
     value.options.every((option) => typeof option === "string") &&
-    typeof value.rulingPath === "string" &&
+    (value.rulingPath === undefined || typeof value.rulingPath === "string") &&
     typeof value.askedAt === "string" &&
     isRendererRecord(value.blockingAssessment)
   );

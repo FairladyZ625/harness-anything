@@ -42,6 +42,15 @@ test("the bundled stop-reason point classifies a ruling stop instead of silently
   assert.equal(decisionWhenMatches(point.when, { outcome: "cancelled", classification: "awaiting_ruling" }), true);
 });
 
+test("the bundled incident disposition excludes successful worker stops", () => {
+  const definition = loadCanonicalAssets(defaultAssets).compiledVertical.definition,
+    point = definition.decisions?.points["runtime-incident-worker-stop"];
+  assert.ok(point, "the bundled vertical still declares the runtime incident disposition point");
+  assert.equal(decisionWhenMatches(point.when, { outcome: "failed", classification: "worker_stop" }), true);
+  assert.equal(decisionWhenMatches(point.when, { outcome: "stopped", classification: "worker_stop" }), true);
+  assert.equal(decisionWhenMatches(point.when, { outcome: "succeeded", classification: "worker_stop" }), false);
+});
+
 test("a repository that enables the point gets the new filter through the real resolution path", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-bundled-decision-points-"));
   try {
