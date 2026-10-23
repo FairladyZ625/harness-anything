@@ -221,22 +221,9 @@ export function gateResults(
       );
     if (!applies)
       return gateResult(gateId, "not_applicable", "the gate's declared scope has no delivery part in this cut");
-    // dec_4C06F7F902E91C4210020A9E75 retires ledger CI witnesses. Historical frozen CI
-    // requirements are interpreted only through repository delivery policy and merge evidence.
-    if (isRetiredCiRequirement(gateId, requirement))
-      return delivery === undefined
-        ? gateResult(gateId, "unknown", "repository delivery configuration is unavailable")
-        : delivery.required
-          ? delivery.merged === null
-            ? gateResult(gateId, "unknown", `unable to verify delivery merge on origin/${delivery.targetBranch}`)
-            : delivery.merged
-              ? gateResult(gateId, "passed", `delivery merge is on origin/${delivery.targetBranch}`)
-              : gateResult(gateId, "missing", `delivery merge is not on origin/${delivery.targetBranch}`)
-          : gateResult(gateId, "not_applicable", "the repository does not require code delivery to be merged");
-    // Retired 2026-10-21: a frozen contract may still list the code/doc gate. It has no current
-    // witness source and never constrains completion again; the requirement reads as out of scope.
-    if (isRetiredCodeDocRequirement(gateId))
-      return gateResult(gateId, "not_applicable", "code/doc reconciliation is retired");
+    // A retired requirement has no live witness source; the one retirement judgment decides that,
+    // and this file alone decides what the retirement reads as.
+    if (isRetiredGateRequirement(gateId, requirement)) return retiredGateResult(gateId, requirement, delivery);
     if (!executionId || !cut || iteration === undefined)
       return gateResult(gateId, "missing", "no submitted execution cut");
     if (availability && availability.gateWitnesses !== "known")
@@ -257,6 +244,36 @@ export function isRetiredCiRequirement(gateId: string, requirement: FrozenGateRe
   return (
     gateId === "ci" || requirement?.witness.kind === "github-actions" || requirement?.witness.kind === "gitlab-pipeline"
   );
+}
+
+/**
+ * The one judgment for a frozen requirement whose witness source no longer exists. Retired hosted CI
+ * is answered by merge evidence, retired code/doc reconciliation by its own retirement; every
+ * completion-path consumer uses this predicate so receipts, witness counts, and replay agree on what
+ * a retired gate owes. It deliberately does not decide the gate's resulting status: CI reads through
+ * delivery policy, code/doc reads `not_applicable`.
+ */
+export function isRetiredGateRequirement(gateId: string, requirement: FrozenGateRequirement | undefined): boolean {
+  return isRetiredCiRequirement(gateId, requirement) || isRetiredCodeDocRequirement(gateId);
+}
+
+/** What a retired requirement reads as. CI has merge evidence; code/doc reconciliation never had content. */
+function retiredGateResult(
+  gateId: string,
+  requirement: FrozenGateRequirement | undefined,
+  delivery: CompletionDeliveryStatus | undefined,
+): CloseoutGateResult {
+  if (!isRetiredCiRequirement(gateId, requirement))
+    return gateResult(gateId, "not_applicable", "code/doc reconciliation is retired");
+  return delivery === undefined
+    ? gateResult(gateId, "unknown", "repository delivery configuration is unavailable")
+    : delivery.required
+      ? delivery.merged === null
+        ? gateResult(gateId, "unknown", `unable to verify delivery merge on origin/${delivery.targetBranch}`)
+        : delivery.merged
+          ? gateResult(gateId, "passed", `delivery merge is on origin/${delivery.targetBranch}`)
+          : gateResult(gateId, "missing", `delivery merge is not on origin/${delivery.targetBranch}`)
+      : gateResult(gateId, "not_applicable", "the repository does not require code delivery to be merged");
 }
 
 /** The cut's latest automated witness when it is a fail bound to the current submission — what an override may name. */

@@ -11,7 +11,7 @@ import {
   completionGateIds,
   currentSubmittedExecutions,
   gateResults,
-  isRetiredCiRequirement,
+  isRetiredGateRequirement,
 } from "./closeout-readiness.ts";
 import type { CompletionDeliveryStatus } from "./closeout-readiness.ts";
 import type {
@@ -147,8 +147,8 @@ export function canonicalGateReceipts(
   );
   return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).flatMap((gateId) => {
     const requirement = current.submission?.completionContract.gates.find((candidate) => candidate.gateId === gateId);
-    // Retired CI is explained by merge evidence at read time; it has no ledger receipt to reference.
-    if (isRetiredCiRequirement(gateId, requirement)) return [];
+    // A retired requirement is explained at read time, never by a ledger receipt.
+    if (isRetiredGateRequirement(gateId, requirement)) return [];
     if (!passed.has(gateId)) return [];
     const gate = snapshot.gateWitnesses.find(
       (value) =>
@@ -180,20 +180,17 @@ export function canonicalGateReceipts(
   });
 }
 
-export function requiredGateWitnessCount(
-  snapshot: TaskLifecycleSnapshot,
-  current: ExecutionV1,
-  delivery?: CompletionDeliveryStatus,
-): number {
-  const gates = completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission);
-  return delivery
-    ? gates.filter((gateId) => {
-        const requirement = current.submission?.completionContract.gates.find(
-          (candidate) => candidate.gateId === gateId,
-        );
-        return !isRetiredCiRequirement(gateId, requirement);
-      }).length
-    : gates.length;
+/**
+ * How many gate receipts this cut must present. It counts exactly the gates
+ * `canonicalGateReceipts` can mint one for: a retired requirement is answered outside the ledger, so
+ * it is never owed a witness. Both sides read `isRetiredGateRequirement`, and neither takes delivery
+ * as a switch — delivery only decides what a retired gate *reads as*, not whether it owes a receipt.
+ */
+export function requiredGateWitnessCount(snapshot: TaskLifecycleSnapshot, current: ExecutionV1): number {
+  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).filter((gateId) => {
+    const requirement = current.submission?.completionContract.gates.find((candidate) => candidate.gateId === gateId);
+    return !isRetiredGateRequirement(gateId, requirement);
+  }).length;
 }
 export { reviewDigest } from "./review.ts";
 export function canonicalDocumentPaths(value: unknown): value is readonly string[] {

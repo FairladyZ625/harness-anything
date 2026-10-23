@@ -106,5 +106,6 @@ test("artifact-only cuts skip code gates while committed cuts require merge evid
   // A frozen contract that still names the retired code/doc gate demands no witness: the
   // committed cut's next stop is its merge evidence, not a reconciliation.
   assert.equal(completionBlockers(committed, "execution-1", context)[0]?.code, "delivery_missing");
-  assert.equal(requiredGateWitnessCount(committed, committed.executions[0]!, context.delivery), 1);
+  assert.equal(requiredGateWitnessCount(committed, committed.executions[0]!), 0);
+  assert.deepEqual(canonicalGateReceipts(committed, committed.executions[0]!, context.delivery), []);
 });

@@ -10,7 +10,7 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { completionGateIds, isRetiredCiRequirement, judgeGateWitnesses } from "./closeout-readiness.ts";
+import { completionGateIds, isRetiredGateRequirement, judgeGateWitnesses } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
 import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type {
@@ -20,7 +20,6 @@ import type {
   TransitionResult,
 } from "./task-lifecycle-contract-internal-types.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
-import { isRetiredCodeDocRequirement } from "./code-doc-retirement.ts";
 import { validateTaskLifecycleCommandEnvelope } from "./task-lifecycle-contract-commands.ts";
 import {
   errorCode,
@@ -826,12 +825,9 @@ function acceptedCompletionWitnesses(
     return false;
   return completionGateIds(snapshot.task.completionGateIds, current.submission).every((gateId) => {
     const requirement = current.submission!.completionContract?.gates.find((gate) => gate.gateId === gateId);
-    // dec_4C06F7F902E91C4210020A9E75 retires ledger CI witnesses. A newly accepted
-    // completion is replayable from merge evidence without a copied CI witness event.
-    if (isRetiredCiRequirement(gateId, requirement)) return true;
-    // Retired 2026-10-21: accepted cuts that froze the code/doc gate stay completable; its witness
-    // is gone from the projection and was never a content comparison.
-    if (isRetiredCodeDocRequirement(gateId)) return true;
+    // A retired requirement has no ledger witness to replay: hosted CI is re-derived from merge
+    // evidence (dec_4C06F7F902E91C4210020A9E75) and code/doc reconciliation never compared content.
+    if (isRetiredGateRequirement(gateId, requirement)) return true;
     // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
     const { status } = judgeGateWitnesses(snapshot.gateWitnesses, current, gateId, requirement);
     return status === "passed" || status === "waived";
