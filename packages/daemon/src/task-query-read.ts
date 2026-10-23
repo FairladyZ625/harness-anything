@@ -46,6 +46,7 @@ import {
   type AgendaDecisionRow,
   type AgendaExecutionRow,
   type AgendaPinnedEntityRow,
+  type AgendaRulingRow,
   type AgendaTaskRow,
   type AgendaWorkRef,
   type CanonicalRoot,
@@ -62,6 +63,7 @@ import { workRootOf, workspaceStructureFromProjection } from "./workspace-scope-
 import { attentionRegionWeights } from "./agenda-attention.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
+import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { readReckoningAgenda } from "./reckoning-agenda-read.ts";
 import {
   decodeAgendaCursor,
@@ -514,34 +516,36 @@ export function makeTaskQueryReadModel(input: {
         .sort(compareAgendaTasks),
       // 三种「等你动手」按下一步动作分组(2026-09-20 业主裁定拆开):submitted 行 → 派审;
       // in_review 行 → 等评审/consent;decision 行 → 裁决。同一 execution 只落所属组,不再合并。
-      // 无人值守派工写下的裁决请求:只有「停下、没有 lease、没有在飞 execution」的 active 行才
-      // 可能是这种停法,先从这一小撮行里找,避免为 agenda 引入一次全量派工读取。产物键是
-      // dispatch id,派工发生行(runtime_dispatch_requested)补上 executionId 与提问时刻。
-      awaitingRuling = leaseReturnedRows(active?.rows ?? []).flatMap((row) => {
-        const packagePath = row.packagePath;
-        if (typeof packagePath !== "string") return [];
-        return projection
-          .readDocuments(`${packagePath}/artifacts/rulings/`)
-          .documents.filter(({ path }) => path.endsWith(".md"))
-          .flatMap(({ path }) => {
-            const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
-              ruling = readDispatchRuling(
-                (relative) => (relative === path ? (projection.readDocument(relative).document?.body ?? null) : null),
-                packagePath,
-                dispatchId,
-              ),
-              dispatch = ruling === null ? null : (projection.readRuntimeDispatchById(dispatchId)?.event ?? null);
-            if (ruling === null || dispatch === null || !dispatch.payload.executionId) return [];
-            // A ruling the owner already answered by continuing the session is no longer waiting: the
-            // successor dispatch is the evidence that the ask left the queue.
-            const resumed =
-              projection.readRuntimeDispatchByResumeSource(dispatchId) !== null ||
-              projection
-                .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatchId)
-                .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
-            if (resumed) return [];
-            return [
-              {
+      // 无人值守派工裁决:从 lease 已交回的 active 行按 dispatch id 读 worker artifact 与
+      // daemon decision receipt;不会为 agenda 引入一次全量派工读取。
+      awaitingRuling = (() => {
+        const rows = new Map<string, AgendaRulingRow>(),
+          isResumed = (dispatch: {
+            readonly payload: {
+              readonly dispatchId: string;
+              readonly attemptGroupId?: string | null;
+              readonly attemptIndex?: number;
+            };
+          }) =>
+            projection.readRuntimeDispatchByResumeSource(dispatch.payload.dispatchId) !== null ||
+            projection
+              .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId)
+              .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
+        for (const row of leaseReturnedRows(active?.rows ?? [])) {
+          const packagePath = row.packagePath;
+          if (typeof packagePath === "string")
+            for (const { path } of projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents) {
+              if (!path.endsWith(".md")) continue;
+              const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
+                ruling = readDispatchRuling(
+                  (relative) => (relative === path ? (projection.readDocument(relative).document?.body ?? null) : null),
+                  packagePath,
+                  dispatchId,
+                ),
+                dispatch = ruling === null ? null : (projection.readRuntimeDispatchById(dispatchId)?.event ?? null);
+              if (ruling === null || dispatch === null || !dispatch.payload.executionId || isResumed(dispatch))
+                continue;
+              rows.set(dispatchId, {
                 taskId: row.taskId,
                 title: row.snapshot.task?.title ?? row.taskId,
                 work: row.work,
@@ -553,10 +557,43 @@ export function makeTaskQueryReadModel(input: {
                 rulingPath: ruling.path,
                 askedAt: dispatch.payload.startedAt ?? dispatch.occurredAt,
                 blockingAssessment: row.blockingAssessment,
-              },
-            ];
-          });
-      }),
+              });
+            }
+          const seenDispatches = new Set<string>();
+          for (const execution of row.snapshot.executions)
+            for (const { event: dispatch } of projection.readRuntimeDispatchesByTaskExecution(
+              row.taskId,
+              execution.executionId,
+            )) {
+              const dispatchId = dispatch.payload.dispatchId;
+              if (seenDispatches.has(dispatchId)) continue;
+              seenDispatches.add(dispatchId);
+              const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+              if (
+                receipt === null ||
+                receipt.status === "claimed" ||
+                receipt.action !== "needs_attention" ||
+                receipt.reason === null ||
+                !dispatch.payload.executionId ||
+                isResumed(dispatch)
+              )
+                continue;
+              rows.set(dispatchId, {
+                taskId: row.taskId,
+                title: row.snapshot.task?.title ?? row.taskId,
+                work: row.work,
+                pinned: row.snapshot.task?.pinned ?? false,
+                dispatchId,
+                executionId: dispatch.payload.executionId,
+                question: receipt.reason,
+                options: [],
+                askedAt: receipt.decidedAt,
+                blockingAssessment: row.blockingAssessment,
+              });
+            }
+        }
+        return [...rows.values()].sort((left, right) => left.askedAt.localeCompare(right.askedAt));
+      })(),
       awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? []).sort(
         compareAwaitingExecutions,
       ),

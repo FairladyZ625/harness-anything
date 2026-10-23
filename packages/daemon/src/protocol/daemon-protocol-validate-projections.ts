@@ -75,23 +75,15 @@ export function agendaRulingRow(value: unknown): boolean {
       "executionId",
       "question",
       "options",
-      "rulingPath",
       "askedAt",
       "blockingAssessment",
     ]) &&
-    [
-      value.taskId,
-      value.title,
-      value.dispatchId,
-      value.executionId,
-      value.question,
-      value.rulingPath,
-      value.askedAt,
-    ].every(nonEmpty) &&
+    [value.taskId, value.title, value.dispatchId, value.executionId, value.question, value.askedAt].every(nonEmpty) &&
     agendaWorkRef(value.work) &&
     typeof value.pinned === "boolean" &&
     Array.isArray(value.options) &&
     value.options.every((option) => nonEmpty(option)) &&
+    (value.rulingPath === undefined || nonEmpty(value.rulingPath)) &&
     blockingAssessment(value.blockingAssessment)
   );
 }

@@ -169,87 +169,42 @@ export interface IncidentActionOutcome {
   readonly successorDispatchId: string | null;
 }
 
-/** Execute one disposition through the existing single entry points: spawn admission for
- * resume/rerun, the relation write for the owner escalation. A failed launch escalates to the
- * owner instead of retrying; an escalation that also fails leaves an honest failed receipt. */
+/** Execute one disposition through the existing single entry point: spawn admission for
+ * resume/rerun. Owner escalation is carried by the source dispatch's durable decision receipt and
+ * projected into the existing awaiting-ruling agenda group. */
 export async function executeIncidentAction(input: {
   readonly cell: RepoCell;
   readonly plan: IncidentActionPlan;
   readonly binding: RepoCellBinding | null;
-  readonly taskId: string;
   readonly dispatchId: string;
-  readonly ownerId: string | null;
 }): Promise<IncidentActionOutcome> {
   if (input.plan.action === "no_action")
     return { action: "no_action", status: "applied", reason: null, successorDispatchId: null };
-  if (!input.binding || !input.ownerId)
+  if (input.plan.action === "needs_attention")
     return {
-      action: input.plan.action,
-      status: "failed",
-      reason: !input.binding
-        ? "the source dispatch has no persisted action binding."
-        : "the task has no owner principal to await.",
+      action: "needs_attention",
+      status: "applied",
+      reason: input.plan.rationale,
       successorDispatchId: null,
     };
-  if (input.plan.action === "needs_attention")
-    return relateOwnerAwait(input.cell, input.taskId, input.ownerId, input.binding, input.plan.rationale);
+  if (!input.binding)
+    return {
+      action: "needs_attention",
+      status: "applied",
+      reason: `question: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}.`,
+      successorDispatchId: null,
+    };
   try {
     const receipt = await input.cell.spawnRuntime(input.plan.payload, input.binding),
       successorDispatchId = typeof receipt.dispatchId === "string" ? receipt.dispatchId : null;
     if (!successorDispatchId) throw new Error("the spawn receipt names no successor dispatch.");
     return { action: input.plan.action, status: "applied", reason: null, successorDispatchId };
   } catch (error) {
-    const launchFailure = (error instanceof Error ? error.message : String(error)).slice(0, 512),
-      escalation = await relateOwnerAwait(
-        input.cell,
-        input.taskId,
-        input.ownerId,
-        input.binding,
-        `question: the incident action for dispatch ${input.dispatchId} could not launch: ${launchFailure}`,
-      );
-    return {
-      ...escalation,
-      reason: `launch failed: ${launchFailure}`,
-      successorDispatchId: null,
-    };
-  }
-}
-
-async function relateOwnerAwait(
-  cell: RepoCell,
-  taskId: string,
-  ownerId: string,
-  binding: RepoCellBinding,
-  rationale: string,
-): Promise<IncidentActionOutcome> {
-  try {
-    const receipt = (await cell.run(
-      {
-        kind: "relation-relate",
-        sourceRef: `task/${taskId}`,
-        targetRef: `person/${ownerId}`,
-        relationType: "awaits",
-        direction: "directed",
-        rationale,
-        expectedVersion: 0,
-      },
-      binding,
-    )) as { readonly outcome?: string };
-    // `pending` stays durable-but-invisible and can still be replayed by the owner; only an
-    // accepted write counts as the escalation the incident decision owes the task.
-    if (receipt.outcome !== "applied" && receipt.outcome !== "pending")
-      return {
-        action: "needs_attention",
-        status: "failed",
-        reason: `owner await write settled as ${receipt.outcome ?? "unknown"}.`,
-        successorDispatchId: null,
-      };
-    return { action: "needs_attention", status: "applied", reason: null, successorDispatchId: null };
-  } catch (error) {
+    const launchFailure = (error instanceof Error ? error.message : String(error)).slice(0, 512);
     return {
       action: "needs_attention",
-      status: "failed",
-      reason: `owner await write failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 512)}`,
+      status: "applied",
+      reason: `launch failed: ${launchFailure}`,
       successorDispatchId: null,
     };
   }

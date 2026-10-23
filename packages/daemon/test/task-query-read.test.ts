@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -25,6 +26,8 @@ import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.
 import { blockingOf, reduceTaskEvent, submissionDigest, taskCompletionNext } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
+import { openDispatchStream } from "../src/dispatch-stream.ts";
 
 type ProjectionCut = {
   readonly status: "ready" | "pending";
@@ -401,6 +404,7 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
         },
       };
     },
+    dispatchIdFor = (name: string) => `dispatch_${createHash("sha256").update(name).digest("hex").slice(0, 24)}`,
     dispatch = (
       taskId: string,
       executionId: string,
@@ -411,7 +415,7 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
       outcome: "stopped" as const,
       event: {
         occurredAt: "2026-10-22T01:00:00.000Z",
-        payload: { taskId, executionId, dispatchId, runtimeSessionId, ...options },
+        payload: { taskId, executionId, dispatchId: dispatchIdFor(dispatchId), runtimeSessionId, ...options },
       },
     }),
     dispatches = [
@@ -458,7 +462,9 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
         dispatches.filter(({ event }) => event.payload.taskId === taskId && event.payload.executionId === executionId),
       readRuntimeSessionEvents: (runtimeSessionId: string) => sessionEvents.get(runtimeSessionId) ?? [],
       readRuntimeDispatchByResumeSource: (dispatchId: string) =>
-        dispatchId === "dispatch_resumed" ? { event: { payload: { dispatchId: "dispatch_next" } } } : null,
+        dispatchId === dispatchIdFor("dispatch_resumed")
+          ? { event: { payload: { dispatchId: dispatchIdFor("dispatch_next") } } }
+          : null,
     } as unknown as TaskProjection,
     result = makeTaskQueryReadModel({
       rootDir: canonicalRoot(process.cwd()),
@@ -479,6 +485,150 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
     result.inFlight.some(({ taskId }) => taskId === "task_unsubmitted"),
     true,
   );
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda projects incident escalation receipts, including a rejected owner write", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incident-agenda-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const taskId = "task_incident_agenda",
+    executionId = "execution_incident_agenda",
+    dispatchId = "dispatch_0123456789abcdef01234567",
+    currentDispatchId = "dispatch_1123456789abcdef01234567",
+    event = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_dispatch_requested",
+      occurredAt: "2026-10-23T12:00:00.000Z",
+      payload: {
+        taskId,
+        executionId,
+        dispatchId,
+        runtimeSessionId: "runtime_incident_agenda",
+        attemptGroupId: dispatchId,
+        attemptIndex: 0,
+        startedAt: "2026-10-23T12:00:00.000Z",
+      },
+    } as never,
+    currentEvent = {
+      ...event,
+      occurredAt: "2026-10-23T12:02:00.000Z",
+      payload: {
+        ...event.payload,
+        dispatchId: currentDispatchId,
+        runtimeSessionId: "runtime_incident_agenda_current",
+        attemptGroupId: currentDispatchId,
+        startedAt: "2026-10-23T12:02:00.000Z",
+      },
+    } as never,
+    task = protocolTaskRow(taskId, [], { status: "active" }),
+    taskWithExecution = {
+      ...task,
+      packagePath: `tasks/${taskId}`,
+      snapshot: { ...task.snapshot, executions: [executionRow(executionId, 1, "active", taskId)] },
+    };
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId,
+    executionId,
+    runtimeSessionId: "runtime_incident_agenda",
+    instanceId: "instance-codex",
+    startedAt: "2026-10-23T12:00:00.000Z",
+    binding: { actor: { principal: { personId: "person-owner" } }, source: "local" },
+  });
+  appendIncidentActionReceipt(rootDir, dispatchId, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    // The pre-fix executor persisted this failed result after relation-relate was rejected. Keeping
+    // failed needs_attention receipts actionable also recovers incidents already on dispatch streams.
+    status: "failed",
+    selected: "needs_attention",
+    action: "needs_attention",
+    reason: "question: Decisions provider failed with decision_transport; owner await write settled as op_rejected.",
+    successorDispatchId: null,
+    budget: { used: 0, limit: 3, source: "repository" },
+    decidedAt: "2026-10-23T12:01:00.000Z",
+  });
+  openDispatchStream(rootDir, {
+    dispatchId: currentDispatchId,
+    taskId,
+    executionId,
+    runtimeSessionId: "runtime_incident_agenda_current",
+    instanceId: "instance-codex",
+    startedAt: "2026-10-23T12:02:00.000Z",
+    binding: { actor: { principal: { personId: "person-owner" } }, source: "local" },
+  });
+  appendIncidentActionReceipt(rootDir, currentDispatchId, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    status: "applied",
+    selected: "needs_attention",
+    action: "needs_attention",
+    reason: "question: Decisions provider failed with decision_transport.",
+    successorDispatchId: null,
+    budget: { used: 0, limit: 3, source: "repository" },
+    decidedAt: "2026-10-23T12:03:00.000Z",
+  });
+  const base = projectionStub({ taskRows: [taskWithExecution] }),
+    projection = {
+      ...base,
+      readDocuments: () => ({ documents: [] }),
+      readRuntimeDispatchesByTaskExecution: () => [{ event }, { event: currentEvent }],
+      readRuntimeDispatchByResumeSource: () => null,
+      readRuntimeDispatchesByAttemptGroup: () => [],
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(rootDir),
+      projection,
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(result.awaitingRuling, [
+    {
+      taskId,
+      title: taskId,
+      work: null,
+      pinned: false,
+      dispatchId,
+      executionId,
+      question:
+        "question: Decisions provider failed with decision_transport; owner await write settled as op_rejected.",
+      options: [],
+      askedAt: "2026-10-23T12:01:00.000Z",
+      blockingAssessment: {
+        taskId,
+        state: "unknown",
+        label: "unresolved",
+        blockers: [],
+        warnings: ["task snapshot missing from blocking judgment"],
+      },
+    },
+    {
+      taskId,
+      title: taskId,
+      work: null,
+      pinned: false,
+      dispatchId: currentDispatchId,
+      executionId,
+      question: "question: Decisions provider failed with decision_transport.",
+      options: [],
+      askedAt: "2026-10-23T12:03:00.000Z",
+      blockingAssessment: {
+        taskId,
+        state: "unknown",
+        label: "unresolved",
+        blockers: [],
+        warnings: ["task snapshot missing from blocking judgment"],
+      },
+    },
+  ]);
+  assert.match(result.summary, /等你裁决 \(2\)/u);
+  assert.match(result.summary, /Decisions provider failed with decision_transport/u);
+  assert.match(result.summary, /owner await write settled as op_rejected/u);
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 

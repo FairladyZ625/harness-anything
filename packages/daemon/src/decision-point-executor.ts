@@ -47,8 +47,8 @@ export function openDecisionPointExecutor(input: {
   readonly now: () => string;
 }) {
   const annotations = openDecisionAnnotationStore(input.rootDir);
-  // The single escalation path every executable failure funnels into: provider unavailable,
-  // input unreadable, or an inadmissible selection all end as one owner awaits relation.
+  // The single escalation path every executable failure funnels into: its durable dispatch receipt
+  // is projected as the existing awaiting-ruling agenda item.
   const settleEscalation = async (args: {
     readonly cell: RepoCell;
     readonly key: string;
@@ -57,7 +57,6 @@ export function openDecisionPointExecutor(input: {
     readonly pointId: string;
     readonly questionVersion: string;
     readonly reason: string;
-    readonly ownerId: string | null;
     readonly budget: IncidentDecisionFields["reworkBudget"] | null;
   }): Promise<void> => {
     const outcome = await executeIncidentAction({
@@ -67,12 +66,10 @@ export function openDecisionPointExecutor(input: {
         rationale: `question: Decisions API could not safely select an incident action for dispatch ${args.dispatchId}: ${args.reason}`,
       },
       binding: incidentActionBinding(input.rootDir, args.dispatchId),
-      taskId: args.taskId,
       dispatchId: args.dispatchId,
-      ownerId: args.ownerId,
     });
     const decidedAt = input.now(),
-      reason = [args.reason, outcome.reason].filter(Boolean).join("; ") || null;
+      reason = outcome.reason;
     await annotations.settleAction(
       args.key,
       {
@@ -141,6 +138,14 @@ export function openDecisionPointExecutor(input: {
       for (const [pointId, point] of points) {
         const question = vertical.decisions.questions[point.question];
         if (!question) continue;
+        // A successful terminal outcome is delivered work (including registered review work), so
+        // the incident action must not reopen it even when an older frozen filter still matches.
+        if (
+          question.version === incidentDispositionQuestionVersion &&
+          event.payload.outcome !== "failed" &&
+          event.payload.outcome !== "stopped"
+        )
+          continue;
         const descriptor = decisionEventDescriptor(point.on);
         if (!descriptor?.finalOnly) continue;
         const bindingDigest = decisionPointBindingDigest(pointId, point, question);
@@ -233,7 +238,6 @@ export function openDecisionPointExecutor(input: {
             pointId,
             questionVersion: question.version,
             reason,
-            ownerId: incident?.ownerId ?? null,
             budget: recordBudget,
           });
         if (executable) {
@@ -328,9 +332,7 @@ export function openDecisionPointExecutor(input: {
               cell,
               plan,
               binding: incidentActionBinding(input.rootDir, dispatchId),
-              taskId: task.taskId,
               dispatchId,
-              ownerId: incident.ownerId,
             }),
             decidedAt = input.now();
           await annotations.settleAction(
@@ -368,7 +370,6 @@ interface IncidentRead {
   readonly runtimeContext: DaemonTaskRuntimeContextResult | null;
   readonly fields: IncidentDecisionFields | undefined;
   readonly failure: string | null;
-  readonly ownerId: string | null;
 }
 
 /** One incident-context read at the projection cut: continuation seed and worktree HEAD reuse
@@ -413,7 +414,6 @@ async function readIncidentFields(
       runtimeContext,
       fields,
       failure: null,
-      ownerId: runtimeContext.snapshot.task?.createdBy.principal.personId ?? null,
     };
   } catch (error) {
     consumeKnownError(error);
@@ -421,7 +421,6 @@ async function readIncidentFields(
       runtimeContext: null,
       fields: undefined,
       failure: error instanceof Error ? error.message : String(error),
-      ownerId: null,
     };
   }
 }

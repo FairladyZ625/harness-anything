@@ -459,6 +459,13 @@ function canonicalDispatchRow(
       ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
     }),
     dispatchStream = rootDir ? readDispatchStreamSummary(rootDir, payload.dispatchId) : null,
+    decisionAction = dispatchStream?.decisionActionRecord
+      ? incidentActionFromRecord(dispatchStream.decisionActionRecord)
+      : null,
+    ownerRuling =
+      decisionAction !== null && decisionAction.status !== "claimed" && decisionAction.action === "needs_attention"
+        ? decisionAction
+        : null,
     lastObservedAt = latestRuntimeActivityAt([
       ...(session ? [session.lastObservedAt] : []),
       ...(dispatchStream ? [dispatchStream.lastObservedAt] : []),
@@ -492,8 +499,10 @@ function canonicalDispatchRow(
       (record) => record.kind === "fallback_state" && typeof record.reason === "string",
     )?.reason,
     classification =
-      outcomeEvent?.payload.attempt?.classification ??
-      (isClassification(archive?.classification) ? archive.classification : null),
+      ownerRuling !== null
+        ? "awaiting_ruling"
+        : (outcomeEvent?.payload.attempt?.classification ??
+          (isClassification(archive?.classification) ? archive.classification : null)),
     providerSessionId =
       session?.providerSessionId ?? (typeof archive?.providerSessionId === "string" ? archive.providerSessionId : null),
     reportPath = packagePath ? `${packagePath}/artifacts/reports/${payload.dispatchId}.md` : null;
@@ -543,6 +552,7 @@ function canonicalDispatchRow(
     provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
     classification,
     reason:
+      ownerRuling?.reason ??
       (typeof fallbackReason === "string" ? fallbackReason : null) ??
       outcomeEvent?.payload.attempt?.reason ??
       (typeof archive?.reason === "string" ? archive.reason : null),
@@ -583,12 +593,7 @@ function canonicalDispatchRow(
       : {}),
     // The executed incident disposition rides the dispatch's own durable stream, so it is visible
     // on this canonical row even when the decision annotation store has since evicted the advisory.
-    ...(dispatchStream?.decisionActionRecord
-      ? (() => {
-          const decisionAction = incidentActionFromRecord(dispatchStream.decisionActionRecord);
-          return decisionAction === null ? {} : { decisionAction };
-        })()
-      : {}),
+    ...(decisionAction === null ? {} : { decisionAction }),
   };
 }
 
