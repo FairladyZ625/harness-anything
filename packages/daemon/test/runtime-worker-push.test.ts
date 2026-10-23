@@ -360,6 +360,93 @@ test("worker push refuses when no default branch can bound the worker commits", 
   assert.match(result.detail, /worker commits cannot be bounded: the repository has no default branch/u);
 });
 
+test(
+  "publication spends no round trip reading the remote: the lease comes from the cut this node published",
+  { skip: process.platform === "win32" ? "requires a POSIX upload-pack switch" : false },
+  async (context) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-read-")),
+      bare = path.join(root, "remote.git"),
+      worker = path.join(root, "worker");
+    context.after(() => rmSync(root, { recursive: true, force: true }));
+    git(root, "init", "--bare", "-b", "main", bare);
+    git(root, "init", "-q", "-b", "main", "project");
+    const canonical = path.join(root, "project");
+    git(canonical, "config", "user.email", "push-test@example.invalid");
+    git(canonical, "config", "user.name", "Push Test");
+    writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+    git(canonical, "add", "README.md");
+    git(canonical, "commit", "--quiet", "-m", "fixture");
+    git(canonical, "remote", "add", "origin", bare);
+    git(canonical, "push", "--quiet", "origin", "HEAD:main");
+    git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_push_no_read");
+    writeFileSync(path.join(worker, "change.txt"), "worker\n");
+    git(worker, "add", "change.txt");
+    git(worker, "commit", "--quiet", "-m", "feat: worker change");
+
+    // Every read of the remote (ls-remote and fetch both ride upload-pack) fails while receive-pack
+    // still accepts the push. A publication that survives this proves it did not consult the remote
+    // before pushing; a lease expectation read from the remote would fail here instead.
+    git(canonical, "config", "remote.origin.uploadpack", "/bin/false");
+    const result = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_push_no_read" });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(
+      git(bare, "rev-parse", "refs/heads/task_push_no_read"),
+      git(worker, "rev-parse", "HEAD"),
+      "the branch still lands exactly at the worker head",
+    );
+  },
+);
+
+test("a lease read from this node's own published cut still refuses to replace a newer remote tip", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-own-cut-")),
+    bare = path.join(root, "remote.git"),
+    worker = path.join(root, "worker"),
+    other = path.join(root, "other");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", "-b", "main", bare);
+  git(root, "init", "-q", "-b", "main", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_own_cut");
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  git(worker, "add", "change.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  const published = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_own_cut" });
+  assert.equal(published.ok, true, JSON.stringify(published));
+  const ownCut = git(worker, "rev-parse", "HEAD");
+
+  // Another node advances the same branch after this node published. This node's tracking ref still
+  // names its own cut, so the lease is the published cut and the newer remote tip is refused — the
+  // compare-and-swap is preserved, it is just no longer sampled a moment before the push.
+  git(root, "clone", "--quiet", bare, other);
+  git(other, "config", "user.email", "other@example.invalid");
+  git(other, "config", "user.name", "Other Node");
+  git(other, "checkout", "--quiet", "-b", "task_own_cut", "origin/task_own_cut");
+  writeFileSync(path.join(other, "other.txt"), "other\n");
+  git(other, "add", "other.txt");
+  git(other, "commit", "--quiet", "-m", "feat: other node change");
+  git(other, "push", "--quiet", "origin", "HEAD:refs/heads/task_own_cut");
+  const newerTip = git(other, "rev-parse", "HEAD");
+
+  writeFileSync(path.join(worker, "second.txt"), "worker\n");
+  git(worker, "add", "second.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change again");
+  const stale = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_own_cut" });
+  assert.equal(stale.attempted, true);
+  assert.equal(stale.ok, false, "a newer remote tip is never replaced silently");
+  assert.match(stale.detail, /stale info|rejected/u);
+  assert.equal(git(bare, "rev-parse", "refs/heads/task_own_cut"), newerTip, "the newer tip survives");
+  assert.notEqual(newerTip, ownCut);
+});
+
 test("worker push leaves a checkout on any branch but the dispatched task's own", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-other-branch-")),
     worker = path.join(root, "worker");

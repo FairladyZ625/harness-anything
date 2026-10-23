@@ -19,6 +19,7 @@ import {
   publishedBranchRef,
   reclaimDetail,
   reclaimManagedWorktree,
+  remoteDefaultBranch,
   repositoryBaseRef,
   type ManagedWorktree,
   type WorktreeReclaim,
@@ -204,12 +205,27 @@ export async function checkoutTaskWorktree(
   });
 }
 
-/** A remote-edge checkout must judge its baseline against the current published main, not an old local ref. */
+/**
+ * A remote-edge checkout must judge its baseline against the current published main, not an old local ref.
+ *
+ * Only the default branch is fetched: its name already resolves locally (origin/HEAD, else the main
+ * checkout's branch, through remoteDefaultBranch), so the refspec carries it and no other branch's
+ * objects transfer. An unfiltered `fetch origin` also pulls every task branch, of which this
+ * repository has dozens. When nothing local names a default branch, the unfiltered fetch is the only
+ * way to ask the remote which branch that is, so that case keeps it.
+ */
 async function refreshDefaultBranch(rootDir: string): Promise<void> {
-  await runProcessExitAsync("git", ["-C", rootDir, "fetch", "--quiet", "origin"], undefined, {
-    ...process.env,
-    GIT_TERMINAL_PROMPT: "0",
-  }).then(
+  // remoteDefaultBranch names the published copy (`origin/main`) or, unfetched, the local branch.
+  const published = remoteDefaultBranch(rootDir),
+    branch =
+      published === null ? null : published.startsWith("origin/") ? published.slice("origin/".length) : published,
+    refspec = branch ? `+refs/heads/${branch}:refs/remotes/origin/${branch}` : null;
+  await runProcessExitAsync(
+    "git",
+    ["-C", rootDir, "fetch", "--quiet", "origin", ...(refspec ? [refspec] : [])],
+    undefined,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  ).then(
     () => undefined,
     () => undefined,
   );

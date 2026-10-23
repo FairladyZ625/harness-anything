@@ -4,7 +4,7 @@ import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts"
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
 import {
   pushWorkerBranch,
-  readWorkerRemoteCommit,
+  readPublishedTaskCut,
   workerGitIdentityForPerson,
   workerPushFailureCode,
 } from "./runtime-worker-push.ts";
@@ -33,7 +33,7 @@ export function assertFleetDeliveryHolder(
   return lease.executionId;
 }
 
-/** Publish before submit, with an exact remote CAS observed before the final holder read. */
+/** Publish before submit, with a compare-and-swap on the cut this workspace last published. */
 export async function prepareEdgeTaskDelivery(input: {
   readonly workspaceRoot: string;
   readonly nodeId: string;
@@ -56,7 +56,7 @@ export async function prepareEdgeTaskDelivery(input: {
       commitSha: input.action.commitSha ?? accepted.submission.commitSha,
     };
   const taskId = String(input.action.taskId),
-    expectedRemoteCommit = await readWorkerRemoteCommit(input.workspaceRoot, taskId),
+    expectedRemoteCommit = await readPublishedTaskCut(input.workspaceRoot, taskId),
     current = await input.readTask(),
     personId = await input.authorize(),
     executionId = assertFleetDeliveryHolder(current, {
