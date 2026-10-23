@@ -349,7 +349,20 @@ test("attach records the retired codeDoc override on both of its carriers", () =
     ] as PersistedCanonicalEventV1[],
     store = {
       readHead: () => ({ revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) }),
+      readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
       queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+      readBatch: (cursor: string | null, maxItems: number) => {
+        const start = cursor === null ? 0 : Number(cursor),
+          page = events.slice(start, start + maxItems),
+          next = start + page.length;
+        return {
+          sourceRevision: events.length,
+          events: page,
+          cursor: page.length > 0 ? String(next) : cursor,
+          done: next >= events.length,
+          accessedItems: page.length,
+        };
+      },
       readContentBlob: () =>
         Buffer.from(
           JSON.stringify({
