@@ -508,13 +508,16 @@ test("owner retries a settle interrupted after the durable cut without a second 
     armed = false;
     const cut = reader.read().events.find((event) => event.type === "execution_submitted");
     assert.ok(cut);
+    const revisionBeforeResume = reader.read().revision,
+      eventCountBeforeResume = reader.read().events.length;
     const resumed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
     assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
     assert.deepEqual(
       reader.read().events.filter((event) => event.type === "execution_submitted"),
       [cut],
     );
-    assert.equal(resumed.steps?.length ?? 0, 0, "the retry resumes the existing cut without another write");
+    assert.equal(reader.read().revision, revisionBeforeResume, "settling a durable cut does not append another event");
+    assert.equal(reader.read().events.length, eventCountBeforeResume);
   } finally {
     await cell.close();
     await reader.drain();

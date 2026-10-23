@@ -221,7 +221,8 @@ export function prepareTaskCreateAt(
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,
-    occurredAt = cell.now();
+    occurredAt = cell.now(),
+    riskTierFlowVersion = ["migration", "import"].includes(String(canonicalAction.createMode ?? "")) ? null : 1;
   let baseCompiled: ReturnType<typeof compileRepoTaskBootstrap>;
   try {
     baseCompiled = compileRepoTaskBootstrap({
@@ -235,6 +236,7 @@ export function prepareTaskCreateAt(
       eventId,
       opId,
       occurredAt,
+      riskTierFlowVersion,
     });
     if (
       canonicalAction.riskTier === "low" &&
@@ -253,6 +255,7 @@ export function prepareTaskCreateAt(
         eventId,
         opId,
         occurredAt,
+        riskTierFlowVersion,
       });
     else if (
       canonicalAction.riskTier !== "low" &&
@@ -276,6 +279,7 @@ export function prepareTaskCreateAt(
         eventId,
         opId,
         occurredAt,
+        riskTierFlowVersion,
       });
     }
   } catch (error) {

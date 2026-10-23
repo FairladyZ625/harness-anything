@@ -149,6 +149,44 @@ test("contract migrate upgrades a current verdict to a repair that backfills mis
   }
 });
 
+test("contract restatement preserves the risk-tier explainer materialization decision", () => {
+  const rootDir = slotFixture();
+  try {
+    const compiled = compileRepoTaskPackage({
+        rootDir,
+        settings: readSettingsFacet(readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8")),
+        action: { kind: "task-create", title: "Low tier", riskTier: "low" },
+        riskTierFlowVersion: 1,
+        taskId: "task_legacy_slots",
+      }),
+      contract = compiled.documents.find(({ slot }) => slot === "task.contract")!,
+      task = {
+        ...legacyTask(compiled.snapshot.digest),
+        metadata: {
+          presetId: "standard-task",
+          profileId: "baseline",
+          verticalId: "software/coding",
+          slug: "legacy-slots",
+          riskTier: "low",
+          riskTierFlowVersion: 1,
+        },
+      } as unknown as TaskV2,
+      row = withBackfilledContractDocuments(
+        cellHolding(rootDir, task, legacyContractBody(contract.body)),
+        task.taskId,
+        { taskId: task.taskId, status: "current" },
+        new Map(),
+      );
+    assert.equal(
+      compiled.documents.some(({ slot }) => slot === "task.explainer"),
+      false,
+    );
+    assert.equal(row.status, "current", "same digest must restate the same tier-governed document set");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("contract migrate mutation accepts a repair body on a current contract and audits the backfill", () => {
   const rootDir = slotFixture();
   try {

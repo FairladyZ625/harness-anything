@@ -812,7 +812,8 @@ export async function settleTask(
     current = await cell.service.read(taskId);
   if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
   const held = heldLeaseForExecutionActor(current.snapshot, undefined, binding.actor),
-    alreadySubmitted = currentExecutionCuts(current.snapshot).some((execution) => execution.state === "submitted"),
+    submittedCut = currentExecutionCuts(current.snapshot).find((execution) => execution.state === "submitted"),
+    alreadySubmitted = submittedCut !== undefined,
     steps: WriteReceiptDraft[] = [];
   // A submitted current round needs no lease — the holder checks inside submitTask decide
   // whether this caller may resume or amend that cut. Everything else needs a held lease;
