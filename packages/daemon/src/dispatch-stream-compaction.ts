@@ -41,7 +41,7 @@ export function compactDispatchStreamArchive(file: string, dispatchId: string): 
 
   const plan = findCompactionPlan(file),
     mode = statSync(file).mode & 0o777;
-  writeFileDurablyFrom(file, (descriptor) => writeCompactedArchive(file, descriptor, header, plan), mode);
+  writeFileDurablyFrom(file, { write: (descriptor) => writeCompactedArchive(file, descriptor, header, plan) }, mode);
   return true;
 }
 

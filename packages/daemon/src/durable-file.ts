@@ -33,11 +33,15 @@ export function syncFile(file: string): void {
 }
 
 export function writeFileDurably(file: string, body: string | Uint8Array, mode?: number): void {
-  writeFileDurablyFrom(file, (descriptor) => writeFileSync(descriptor, body), mode);
+  writeFileDurablyFrom(file, { write: (descriptor) => writeFileSync(descriptor, body) }, mode);
 }
 
 /** Publish incrementally-produced bytes with the same atomic replacement as a complete body. */
-export function writeFileDurablyFrom(file: string, write: (descriptor: number) => void, mode?: number): void {
+export function writeFileDurablyFrom(
+  file: string,
+  writer: { readonly write: (descriptor: number) => void },
+  mode?: number,
+): void {
   const directory = path.dirname(file);
   mkdirSync(directory, { recursive: true });
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
@@ -48,7 +52,7 @@ export function writeFileDurablyFrom(file: string, write: (descriptor: number) =
   // surviving 7h46m under a fleet edge .staging/ after its writer was killed).
   try {
     try {
-      write(descriptor);
+      writer.write(descriptor);
       fsyncSync(descriptor);
     } finally {
       closeSync(descriptor);

@@ -36,9 +36,11 @@ test("an interrupted incremental durable write leaves the original target intact
   writeFileSync(target, "original archive\n");
   assert.throws(
     () =>
-      writeFileDurablyFrom(target, (descriptor) => {
-        writeSync(descriptor, "partial replacement\n");
-        throw new Error("simulated interruption before publish");
+      writeFileDurablyFrom(target, {
+        write: (descriptor) => {
+          writeSync(descriptor, "partial replacement\n");
+          throw new Error("simulated interruption before publish");
+        },
       }),
     /simulated interruption/u,
   );
