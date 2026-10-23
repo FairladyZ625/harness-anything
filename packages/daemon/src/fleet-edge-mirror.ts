@@ -52,6 +52,8 @@ export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
   readonly cleanCount: number;
   readonly cleanPaths: readonly string[];
+  /** Dirty paths this channel does not carry and no route owns: the center's `inapplicable` answer. */
+  readonly inapplicablePaths: readonly string[];
   readonly deletedPaths: readonly string[];
   readonly blocked: readonly {
     readonly path: string;
@@ -244,6 +246,7 @@ export function scanFleetMirrorWorktree(
     wanted = selection ? new Set(selection) : null,
     changes: FleetMirrorDirtyFile[] = [],
     cleanPaths: string[] = [],
+    inapplicablePaths: string[] = [],
     blocked: {
       path: string;
       reason: string;
@@ -272,13 +275,25 @@ export function scanFleetMirrorWorktree(
     const byteVerdict = classifyDocCandidate(logical, bytes),
       persistedPolicyId = base?.policyId ?? null,
       docClass = effectiveDocCandidateClassification(logical, byteVerdict, persistedPolicyId),
-      unchanged = base !== undefined && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes);
+      unchanged = base !== undefined && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes),
+      route = resolveDocRoute(documentPath(logical));
     // Membership first, then the unchanged check: an untouched file the channel does not carry is
     // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
-    // channel is still reported so callers cannot turn an unsupported edit into `no_changes`.
+    // channel is still reported — but it is not a refusal. The center answers `inapplicable` for a
+    // path the shared classifier does not recognize and no route owns, and proceeds; blocking it here
+    // refused every task command in the package over an ordinary file (`evidence/shot.png`,
+    // `.DS_Store`, a NUL-bearing `.txt`) that the center never counted as doc-sync business. Route
+    // ownership is still reported with its route so the owning command answers for it.
     if (!channelMember(byteVerdict, base !== undefined)) {
       if (unchanged || (hasMarkerWithoutBaseline && base)) cleanPaths.push(logical);
-      else blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
+      else if (!route.allowed)
+        blocked.push({
+          path: logical,
+          reason: `path is owned by ${route.requiredRoute}`,
+          code: "doc_route_owned",
+          requiredRoute: route.requiredRoute,
+        });
+      else inapplicablePaths.push(logical);
       continue;
     }
     if (unchanged || (hasMarkerWithoutBaseline && base)) {
@@ -290,8 +305,8 @@ export function scanFleetMirrorWorktree(
     // `blocked` can exclude it instead of turning a route-owned `INDEX.md` into a refused task
     // command. That is the same distinction the center scanner draws between `inapplicable` and
     // `blocked`, and the base edge drew by filtering on `resolveDocRoute(...).allowed` before it gated.
-    // Every other block — an unsupported dirty path, an oversize document — still gates.
-    const route = resolveDocRoute(documentPath(logical));
+    // Every other block — a persisted document whose path shape names no document, an oversize
+    // document — still gates. The center answers `blocked` for both of those too.
     if (!docClass) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
@@ -334,7 +349,7 @@ export function scanFleetMirrorWorktree(
   );
   for (const logical of deletedPaths)
     blocked.push({ path: logical, reason: "canonical document is missing from the registered harness" });
-  return { changes, cleanCount: cleanPaths.length, cleanPaths, deletedPaths, blocked };
+  return { changes, cleanCount: cleanPaths.length, cleanPaths, inapplicablePaths, deletedPaths, blocked };
 }
 export function cacheFleetMirrorDirtyBases(
   viewRoot: string,
@@ -465,11 +480,11 @@ export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: str
 /**
  * Whether this edge channel carries a path at all. Any persisted row is a member on its own terms —
  * its bytes today are an edit of that row, not evidence about which channel owns it. A path with no
- * persisted row is a member exactly when the shared candidate classifier recognizes it, which is the
- * same question the center's scanner asks: a `.log`/`.json`/`.csv` dropped into a task package's
- * `artifacts/` subtree is a candidate on both sides. The classifier lives once in
- * `classifyDocCandidate`; this adds only the membership question.
- */
+ * persisted row is a member exactly when the shared candidate classifier recognizes it: a
+ * `.log`/`.json`/`.csv` dropped into a task package's `artifacts/` subtree is a candidate on both
+ * sides. The classifier lives once in `classifyDocCandidate`; this adds only the membership question.
+ * A non-member is not thereby a refusal — `scanFleetMirrorWorktree` answers `inapplicable`, the same
+ * answer the center gives, unless a route owns the path. */
 function channelMember(byteVerdict: DocCandidateClassification | null, hasPersistedRow: boolean): boolean {
   return hasPersistedRow || byteVerdict !== null;
 }

@@ -15,6 +15,7 @@ import {
   RAW_ARTIFACT_POLICY_ID,
   sha256Bytes,
 } from "@harness-anything/kernel";
+import { readEdgeDocWorkspace } from "../src/fleet-edge-doc-read.ts";
 import { locateFleetMirrorView, scanFleetMirrorWorktree, type FleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";
 
@@ -77,6 +78,7 @@ function scanFixture(
       blocked: scan.blocked.map((row) => row.reason),
       blockedRoutes: scan.blocked.map((row) => row.requiredRoute),
       blockedCodes: scan.blocked.map((row) => row.code),
+      inapplicable: scan.inapplicablePaths,
     };
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -106,6 +108,7 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
         blocked: [],
         blockedRoutes: [],
         blockedCodes: [],
+        inapplicable: [],
       });
   // A persisted row whose path shape names no document (`application/json` outside the artifacts
   // subtree) cannot be submitted by either channel; the edge reports it for the operator, exactly as
@@ -116,12 +119,14 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blocked: [],
     blockedRoutes: [],
     blockedCodes: [],
+    inapplicable: [],
   });
   assert.deepEqual(scanFixture(OPAQUE_TEXTUAL_POLICY_ID, "context/architecture/notes.json", persistedBody), {
     policyIds: [],
     blocked: ["path is not an allowed canonical document"],
     blockedRoutes: [undefined],
     blockedCodes: [undefined],
+    inapplicable: [],
   });
   // A persisted raw row is not rescued by the path judgment: its bytes still decide.
   assert.deepEqual(scanFixture(RAW_ARTIFACT_POLICY_ID, binaryNamed, editedBody), {
@@ -129,16 +134,18 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blocked: [],
     blockedRoutes: [],
     blockedCodes: [],
+    inapplicable: [],
   });
-  // A name that claims a text format but holds undecodable bytes is still a broken document, not a
-  // new artifact: the classifier answers null, so no persisted row means no membership. The center
-  // answers `inapplicable` for it; the edge reports it so the operator sees the file instead of a
-  // silent no-op.
+  // A name that claims a text format but holds undecodable bytes with no persisted row is a broken
+  // document, not a new artifact — and, exactly like every other path the shared classifier does not
+  // recognize while no route owns it, the center answers `inapplicable` and proceeds. The edge used
+  // to refuse it, which turned one stray `.txt` into `preview_blocked` for the whole package.
   assert.deepEqual(scanFixture(null, textNamed, editedBody), {
     policyIds: [],
-    blocked: ["path is not an allowed canonical document"],
-    blockedRoutes: [undefined],
-    blockedCodes: [undefined],
+    blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
+    inapplicable: [textNamed],
   });
   // A brand-new binary artifact at a raw name is still accepted, byte-decided.
   assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/screenshots/shot.png", editedBody), {
@@ -146,6 +153,7 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blocked: [],
     blockedRoutes: [],
     blockedCodes: [],
+    inapplicable: [],
   });
   // A path with no persisted row is a member exactly when the shared candidate classifier recognizes
   // it, so the edge answers what the center's scanner already answers for the same path and bytes.
@@ -157,12 +165,14 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blocked: [],
     blockedRoutes: [],
     blockedCodes: [],
+    inapplicable: [],
   });
   assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/data/rows.json", decodableEdit), {
     policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
     blocked: [],
     blockedRoutes: [],
     blockedCodes: [],
+    inapplicable: [],
   });
   // The evidence files a task package gains while the work is running are first publications too:
   // `.log`, `.json` and `.csv` under `artifacts/` are candidates on both sides.
@@ -176,15 +186,46 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
       blocked: [],
       blockedRoutes: [],
       blockedCodes: [],
+      inapplicable: [],
     });
-  // A name that claims a text format but holds undecodable bytes is still a broken document, not a
-  // new artifact. The center answers `inapplicable` for it; the edge reports it so the operator sees
-  // the file instead of a silent no-op.
-  assert.deepEqual(scanFixture(null, textNamed, editedBody), {
+  // The class F7 is about, and the reason it is a regression rather than a preference: a file inside
+  // a task package but *outside* `artifacts/` whose bytes the shared classifier does not recognize,
+  // with no persisted row. The center answers `inapplicable` and proceeds (`doc-sync-candidate-scanner`:
+  // "not doc-sync business at all"); the edge used to answer `blocked`, and both edge task-command
+  // gates refuse on any non-route-owned block, so one stray screenshot refused `task-start`,
+  // `task-progress-append`, `doc-submit` and `task-submit` for the whole package. Live tree evidence:
+  // `tasks/task_cbf1e9c598ec9d571e63c8db6c-packaged-desktop-startup/evidence/shell-graph.png`.
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 0xab)]),
+    dsStore = Buffer.from([0x00, 0x00, 0x00, 0x01, 0x42, 0x75, 0x64, 0x31, 0x00, 0x00, 0x10, 0x00]);
+  for (const stray of [
+    "tasks/task_policy/evidence/shot.png",
+    "tasks/task_policy/evidence/shell-graph.png",
+    "tasks/task_policy/.DS_Store",
+    "tasks/task_policy/notes/raw.bin",
+  ])
+    assert.deepEqual(
+      scanFixture(null, stray, stray.endsWith(".DS_Store") ? dsStore : stray.endsWith(".bin") ? dsStore : png),
+      { policyIds: [], blocked: [], blockedRoutes: [], blockedCodes: [], inapplicable: [stray] },
+      stray,
+    );
+  // A NUL-bearing `.txt` with no persisted row inside `artifacts/` is the same class: the name claims
+  // text, the bytes are undecodable, the classifier answers null, and the center says `inapplicable`.
+  // (`textNamed` above is that case; its review probe was `artifacts/evidence/run.txt`.)
+  assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/evidence/run.txt", persistedBody), {
     policyIds: [],
-    blocked: ["path is not an allowed canonical document"],
-    blockedRoutes: [undefined],
-    blockedCodes: [undefined],
+    blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
+    inapplicable: ["tasks/task_policy/artifacts/evidence/run.txt"],
+  });
+  // Route ownership still refuses, including when the path is not a channel member at all: the block
+  // names the owning route so the operator has a way to act, which `inapplicable` deliberately is not.
+  assert.deepEqual(scanFixture(null, "objects/payload.png", png), {
+    policyIds: [],
+    blocked: ["path is owned by content-blob"],
+    blockedRoutes: ["content-blob"],
+    blockedCodes: ["doc_route_owned"],
+    inapplicable: [],
   });
   // `.md`/`.txt` rows stay in channel everywhere, so a persisted opaque `.md` still submits. Its
   // policy is the path judgment's answer (canonical prose), exactly as the local scanner answers; the
@@ -194,6 +235,7 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blocked: [],
     blockedRoutes: [],
     blockedCodes: [],
+    inapplicable: [],
   });
   // A path another route owns is reported with that route, not as a doc-channel refusal. The task
   // lifecycle writes `INDEX.md` and `executions/*.md` itself; when they drift locally the scan must
@@ -209,6 +251,7 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
       blocked: [`path is owned by ${requiredRoute}`],
       blockedRoutes: [requiredRoute],
       blockedCodes: ["doc_route_owned"],
+      inapplicable: [],
     });
   // `doc_route_owned` is not a blanket exemption from the block gate: a document this channel does
   // own but cannot carry inline still reports `doc_candidate_too_large` and no route ownership, so
@@ -218,6 +261,7 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blocked: ["document exceeds inline limit"],
     blockedRoutes: ["blob-content"],
     blockedCodes: ["doc_candidate_too_large"],
+    inapplicable: [],
   });
 });
 
@@ -432,5 +476,116 @@ test("an edge task-start carries a persisted raw .log row edited to decodable te
       [OPAQUE_TEXTUAL_POLICY_ID, sha256Bytes(Buffer.from('{"probe":true}\n'))],
       `${logical}: ${JSON.stringify(carriedFresh).slice(0, 800)}`,
     );
+  }
+});
+
+test(
+  "a stray binary outside artifacts/ does not refuse the package's task commands",
+  { timeout: 90_000 },
+  async (t) => {
+    // F7 review finding, end to end on the real dual-node fixture. A file inside the task package but
+    // outside `artifacts/` — the shape of a screenshot saved next to the plan, a `.DS_Store`, a
+    // NUL-bearing note — has no persisted row and bytes the shared classifier does not recognize. The
+    // center answers `inapplicable` and proceeds; the edge used to answer `blocked`, and both task
+    // command gates refuse on any non-route-owned block, so one such file wedged `task-start`,
+    // `task-progress-append` and `doc-submit` for the whole package. This test proves the two nodes
+    // now agree by running the commands with the stray file present and comparing the center's answer
+    // for the same path.
+    const fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    const created = await fixture.createTask("node-one", "task-edge-stray", "Edge stray binary"),
+      stray = `${created.packagePath}/evidence/shot.png`,
+      strayBytes = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(32, 0xab),
+      ]),
+      dsStore = `${created.packagePath}/.DS_Store`;
+    // Write the bytes, not a string: the point is undecodable content at a name the classifier does
+    // not resolve inside the package's non-artifacts subtree.
+    for (const [logical, bytes] of [
+      [stray, strayBytes],
+      [dsStore, Buffer.from([0x00, 0x00, 0x00, 0x01, 0x42, 0x75, 0x64, 0x31, 0x00, 0x00, 0x10, 0x00])],
+    ] as const) {
+      const target = fixture.worktree("node-one", logical),
+        parent = path.dirname(target);
+      mkdirSync(parent, { recursive: true });
+      writeFileSync(target, bytes);
+    }
+    // The center's own answer for the same path and bytes: `inapplicable`, not blocked. This is the
+    // comparison that makes the edge's old `blocked` a divergence rather than a preference.
+    const centerStatus = await fixture.centerRun({ kind: "doc-status", paths: [stray] }),
+      centerRows = JSON.parse(String(centerStatus.evidence).slice("doc-scan:".length)) as {
+        readonly rows: readonly { readonly path: string; readonly state: string }[];
+      },
+      centerRow = centerRows.rows.find((row) => row.path === stray);
+    assert.deepEqual(
+      [centerRow?.state, centerRow?.reason ?? null],
+      ["inapplicable", "path is not a supported textual document"],
+      JSON.stringify(centerStatus).slice(0, 800),
+    );
+
+    // With the stray files present, the package's commands must still work. `task-start` carries the
+    // ordinary document set; before the fix it threw `preview_blocked` naming the stray png.
+    const started = await fixture.edgeTask("node-one", {
+      kind: "task-start",
+      taskId: created.taskId,
+      executionId: "exe-edge-stray",
+    });
+    assert.equal(started.ok, true, JSON.stringify(started).slice(0, 800));
+    await fixture.waitPublished(String(started.opId));
+    const progressed = await fixture.edgeTask("node-one", {
+      kind: "task-progress-append",
+      taskId: created.taskId,
+      text: "stray binary present",
+    });
+    assert.equal(progressed.ok, true, JSON.stringify(progressed).slice(0, 800));
+    await fixture.waitPublished(String(progressed.opId));
+    // The stray bytes were never published: they are not this channel's business, which is exactly the
+    // center's `inapplicable` answer. The worktree keeps the local file untouched.
+    assert.deepEqual(readFileSync(fixture.worktree("node-one", stray)), strayBytes);
+    const view = fixture.view("node-one");
+    assert.equal(view?.entries.has(stray) ?? true, false, "an inapplicable path is never carried to the center");
+    assert.equal(view?.entries.has(dsStore) ?? true, false, "an inapplicable .DS_Store is never carried");
+  },
+);
+
+test("an edge doc-status reports a stray non-member as inapplicable, like the center, instead of hiding it", () => {
+  // The scan now separates `inapplicable` from `blocked`; the edge's read surface must carry that
+  // distinction too, or a file that no longer wedges commands would silently disappear from
+  // `doc-status`. The center lists it as `inapplicable` with that reason, so the edge does the same.
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-doc-status-"));
+  try {
+    mkdirSync(path.join(root, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(root, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: policy\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    const logical = "tasks/task_policy/evidence/shot.png",
+      target = path.join(root, "harness", ...logical.split("/")),
+      png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 0xab)]);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, png);
+    const view: FleetMirrorView = {
+      repoId: "policy-repo",
+      viewId: "policy-node",
+      viewDir: path.join(root, "view"),
+      revision: 1,
+      schemaGeneration: 1,
+      headDigest: `sha256:${"0".repeat(64)}`,
+      manifestDigest: `sha256:${"1".repeat(64)}:0`,
+      ledgerGeneration: 1,
+      readerProfile: null,
+      authorizationShapeDigest: "",
+      entries: new Map(),
+    };
+    const receipt = readEdgeDocWorkspace(root, view, {} as never, { kind: "doc-status", paths: [logical] } as never);
+    assert.deepEqual(
+      receipt.rows.map(({ path: rowPath, state, reason }) => [rowPath, state, reason]),
+      [[logical, "inapplicable", "path is not a supported textual document"]],
+      JSON.stringify(receipt.summary),
+    );
+    assert.match(receipt.summary, /inapplicable/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
