@@ -70,7 +70,7 @@
     "dockview": "8.2.0",
     "dockview-react": "8.2.0",
     "docx-preview": "^0.4.1",
-    "electron": "42.11.9",
+    "electron": "42.11.16",
     "electron-updater": "^6.8.9",
     "katex": "^0.18.10",
     "mermaid": "^11.17.2",
