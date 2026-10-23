@@ -123,6 +123,19 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.copy.sourceRevision, 1, "one seeded event");
     const cacheStep = receipt.copy.steps.find((step) => step.item === "cache/task.sqlite");
     assert.ok(cacheStep, "the cache database is part of the snapshot steps");
+    const ledgerStep = receipt.copy.steps.find((step) => step.item === "store/generations/3/ledger.sqlite"),
+      objectsStep = receipt.copy.steps.find(
+        (step) => step.item === "store/generations/3 objects and retired generations",
+      );
+    assert.ok(ledgerStep && objectsStep, "the active ledger and its immutable objects are captured");
+    assert.ok(
+      receipt.copy.steps.indexOf(cacheStep) < receipt.copy.steps.indexOf(ledgerStep),
+      "projection caches are captured before the ledger cut",
+    );
+    assert.ok(
+      receipt.copy.steps.indexOf(ledgerStep) < receipt.copy.steps.indexOf(objectsStep),
+      "the ledger cut is captured before object cloning so concurrent appends cannot lose their blobs",
+    );
     assert.match(cacheStep.method, /-cR|reflink/u, "cache databases take the block-clone path");
     assert.equal(cacheStep.discarded, undefined, "a checkpointed empty cache is not torn");
     assert.equal(receipt.attach.outcome, "terminal-record");

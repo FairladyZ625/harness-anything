@@ -20,6 +20,7 @@ import {
   writeFileSync,
   readFileSync,
   copyFileSync,
+  renameSync,
   realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -211,9 +212,8 @@ function activeGeneration(sourceGenerations) {
   return generation;
 }
 
-/** Snapshot the source repository into the workspace. Consistency order: projection caches
- *  first, ledger last, so the copied projection watermark can never be ahead of the copied
- *  ledger (the attach guard rejects exactly that state). */
+/** Snapshot the source repository into the workspace. Cache cuts precede the ledger snapshot,
+ *  and the immutable object tree is cloned afterward so every captured event blob is present. */
 async function snapshotRepository(sourceRoot, workspace) {
   const storeGenerations = path.join(sourceRoot, ".harness", "store", "generations");
   if (!existsSync(storeGenerations)) throw new Error(`no .harness/store/generations under ${sourceRoot}`);
@@ -226,16 +226,10 @@ async function snapshotRepository(sourceRoot, workspace) {
     steps.push({ item: "harness", method: "git local clone" });
   }
   mkdirSync(path.join(workspace, ".harness", "store"), { recursive: true });
-  await runText("cp", [...copyTreeArgs(), storeGenerations, path.join(workspace, ".harness", "store", "generations")]);
-  // The clone carries the live ledger's main file plus stale -wal/-shm; replace that trio
-  // with one self-contained sqlite3 .backup taken from the live source.
-  const sourceLedger = path.join(storeGenerations, generation, "ledger.sqlite"),
-    copiedLedger = path.join(workspace, ".harness", "store", "generations", generation, "ledger.sqlite");
-  rmSync(copiedLedger, { force: true, maxRetries: 5, retryDelay: 20 });
-  rmSync(`${copiedLedger}-wal`, { force: true });
-  rmSync(`${copiedLedger}-shm`, { force: true });
-  steps.push({ item: `store/generations/${generation} objects and retired generations`, method: copyTreeMethod() });
-
+  // Cache cuts precede the ledger snapshot, and the object tree follows it. Content objects
+  // are immutable once written, so every object referenced by the captured ledger exists
+  // before the object clone starts. Reversing these two snapshots can capture a new event but
+  // miss the blob it names when a writer commits during the multi-minute tree clone.
   const sourceCache = path.join(sourceRoot, ".harness", "cache");
   if (existsSync(sourceCache)) {
     mkdirSync(path.join(workspace, ".harness", "cache"), { recursive: true });
@@ -245,8 +239,22 @@ async function snapshotRepository(sourceRoot, workspace) {
       await snapshotCacheDatabase(file, path.join(workspace, ".harness", "cache", name), steps);
     }
   }
-  await sqliteBackup(sourceLedger, copiedLedger);
-  steps.push({ item: `store/generations/${generation}/ledger.sqlite`, method: "VACUUM INTO (after caches)" });
+
+  const sourceLedger = path.join(storeGenerations, generation, "ledger.sqlite"),
+    copiedGenerations = path.join(workspace, ".harness", "store", "generations"),
+    copiedLedger = path.join(copiedGenerations, generation, "ledger.sqlite"),
+    ledgerSnapshot = path.join(workspace, ".ledger-snapshot.sqlite");
+  await sqliteBackup(sourceLedger, ledgerSnapshot);
+  steps.push({ item: `store/generations/${generation}/ledger.sqlite`, method: "VACUUM INTO before object clone" });
+
+  await runText("cp", [...copyTreeArgs(), storeGenerations, copiedGenerations]);
+  // The clone carries the live ledger's main file plus stale -wal/-shm; replace that trio
+  // with the earlier self-contained snapshot so the event cut and object tree are coherent.
+  rmSync(copiedLedger, { force: true, maxRetries: 5, retryDelay: 20 });
+  rmSync(`${copiedLedger}-wal`, { force: true });
+  rmSync(`${copiedLedger}-shm`, { force: true });
+  renameSync(ledgerSnapshot, copiedLedger);
+  steps.push({ item: `store/generations/${generation} objects and retired generations`, method: copyTreeMethod() });
   for (const dir of HARNESS_COPY_DIRS) {
     const from = path.join(sourceRoot, ".harness", dir);
     if (existsSync(from)) {
