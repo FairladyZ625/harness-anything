@@ -185,6 +185,7 @@ const summaryKinds = new Set([
   "squad_run_publication_ack",
   "runtime_metrics",
   "execution_principal",
+  "decision_action",
 ]);
 
 export function openDispatchStream(
@@ -456,6 +457,10 @@ export function readDispatchStream(
   } | null;
   readonly nextDispatchId: string | null;
   readonly runtimeMetrics: RuntimeMetrics | null;
+  /** The latest runtime-incident disposition record this stream carries, still unvalidated: the
+   * record vocabulary (option ids, statuses) belongs to the decision module, not the stream
+   * schema. `null` when the daemon never fenced or executed an incident action for the dispatch. */
+  readonly decisionActionRecord: DispatchStreamRecord | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
@@ -721,7 +726,8 @@ function summarizeDispatch(
     fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
     fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
     nextDispatchId: string | null = null,
-    runtimeMetrics: RuntimeMetrics | null = null;
+    runtimeMetrics: RuntimeMetrics | null = null,
+    decisionActionRecord: DispatchStreamRecord | null = null;
   for (const record of records) {
     if (record.kind === "provider_binding" && typeof record.providerSessionId === "string")
       providerSessionId = record.providerSessionId;
@@ -751,6 +757,7 @@ function summarizeDispatch(
           : null;
       nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
     }
+    if (record.kind === "decision_action") decisionActionRecord = record;
     if (record.kind === "runtime_metrics" && isRuntimeMetrics(record)) runtimeMetrics = record;
   }
   return {
@@ -764,6 +771,7 @@ function summarizeDispatch(
     fallbackSchedule,
     nextDispatchId,
     runtimeMetrics,
+    decisionActionRecord,
     records,
   };
 }

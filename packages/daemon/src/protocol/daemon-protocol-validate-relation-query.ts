@@ -216,6 +216,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     ) &&
     (value.advisories === undefined ||
       (Array.isArray(value.advisories) && value.advisories.every(validTaskDispatchAdvisory))) &&
+    (value.decisionAction === undefined || validTaskDispatchDecisionAction(value.decisionAction)) &&
     (value.exitCode === undefined || value.exitCode === null || dispatchInteger(value.exitCode))
   );
 }
@@ -369,4 +370,31 @@ function validateRelationFacetPayload(value: JsonObject): string[] {
   if (value.direction !== undefined && !["directed", "undirected"].includes(String(value.direction)))
     errors.push("repo.triadic.relationGraph.payload.direction is invalid");
   return errors;
+}
+
+/** The incident disposition row: the `claimed` fence carries only identity, a settled receipt adds
+ * the executed option, its canonical outcome and the budget it was judged against. */
+function validTaskDispatchDecisionAction(value: unknown): boolean {
+  if (
+    !isJsonObject(value) ||
+    !dispatchText(value.pointId) ||
+    !dispatchText(value.questionVersion) ||
+    !dispatchText(value.decidedAt) ||
+    !["claimed", "applied", "failed"].includes(String(value.status))
+  )
+    return false;
+  if (value.status === "claimed")
+    return Object.keys(value).every((field) => ["pointId", "questionVersion", "status", "decidedAt"].includes(field));
+  return (
+    dispatchText(value.selected) &&
+    ["resume", "rerun", "needs_attention", "no_action"].includes(String(value.action)) &&
+    [value.reason, value.successorDispatchId].every((field) => field === null || typeof field === "string") &&
+    (value.budget === null ||
+      (isJsonObject(value.budget) &&
+        integer(value.budget.used) &&
+        integer(value.budget.limit) &&
+        Number(value.budget.used) >= 0 &&
+        Number(value.budget.limit) >= 0 &&
+        ["task", "repository"].includes(String(value.budget.source))))
+  );
 }

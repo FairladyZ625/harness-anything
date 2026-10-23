@@ -15,7 +15,12 @@ test("settings serves each declared point with the executor digest and redacted 
     assert.equal(row.bindingDigest, decisionPointBindingDigest(row.pointId, point, question));
     assert.equal(row.bindingKey, `${row.pointId}@${row.bindingDigest.slice(0, 12)}`);
     assert.equal(row.question, question);
-    assert.match(row.projectionSample, /reason: .*\nclassification: worker_stop\nreport: .*\[LOCAL_PATH\]/u);
+    // The advisory fields the synthetic event carries project in the point's declared order with
+    // the redacted report last; the incident point's structured fields need a live incident
+    // context and stay out of this static preview.
+    assert.match(row.projectionSample, /reason: .*/u);
+    assert.match(row.projectionSample, /classification: worker_stop/u);
+    assert.match(row.projectionSample, /report: .*\[LOCAL_PATH\]/u);
     assert.ok(!row.projectionSample.includes("/Users/example"));
     assert.deepEqual(
       row.input.map(({ field }) => field),

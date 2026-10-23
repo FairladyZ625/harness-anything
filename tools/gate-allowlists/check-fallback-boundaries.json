@@ -99,6 +99,7 @@
    "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts##launch",
    "packages/daemon/src/daemon-singleton.ts#readPidFile",
    "packages/daemon/src/daemon-singleton.ts#releaseIfHeld",
+      "packages/daemon/src/decision-point-executor.ts#readIncidentFields",
       "packages/daemon/src/decision-point-executor.ts#settle",
    "packages/daemon/src/decision-surface-actions.ts#jsonEqual",
    "packages/daemon/src/decision-surface-actions.ts#jsonObject",
