@@ -6,15 +6,13 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "n
 import path from "node:path";
 import {
   artifactSubtreePath,
-  classifyDocCandidate,
-  effectiveDocCandidateClassification,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
-  resolveDocRoute,
+  inspectDocCandidate,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
   resolveTaskBoundRuntimeBinding,
@@ -170,32 +168,28 @@ export function scanDocCandidates(input: {
       // to reach already-committed ghost documents for retirement.
       taskDirectory = /^tasks\/([^/]+)\//u.exec(document)?.[1] ?? null,
       claimingTaskId = taskDirectory === null ? null : input.projection.taskIdForDocumentPath(document),
-      route = resolveDocRoute(document),
       target = path.join(layout.authoredRoot, ...logical.split("/")),
       projected = input.projection.readDocument(document),
       conflicts = inventoried?.conflicts ?? conflictsByPath.get(logical) ?? [],
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
-      // Artifacts-subtree content rides the <=50,000,000 byte blob content contract
-      // (dec_776B4D61DF711D9F31126D375D CH4), not the inline prose channel: the scanner reads it
-      // whole so a system-published dispatch report or binary image past the inline cap still scans,
-      // compares, and submits like any other candidate instead of wedging completion. Prose keeps the
-      // descriptor-frame cap the doc-sync channel is sized for.
-      readCap = artifactSubtreePath(logical) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES,
-      rawBytes = inventoried
-        ? inventoried.bytes
-        : fileSize !== null && fileSize <= readCap && safe && existsSync(target)
-          ? readCandidate(target)
-          : null,
+      inspection = inspectDocCandidate(
+        document,
+        fileSize,
+        projected.document?.policyId ?? null,
+        projected.document !== null,
+        () => (inventoried ? inventoried.bytes : safe && existsSync(target) ? readCandidate(target) : null),
+      ),
+      route = inspection.route,
+      rawBytes = inspection.bytes,
       // A path that already holds a text document keeps that policy: undecodable bytes there are a
       // rejected edit (decideDocWrite answers with the typed-binary route), not a new artifact at the
-      // same name. `effectiveDocCandidateClassification` is the one place that rule lives.
-      classified = classifyDocCandidate(logical, rawBytes),
-      effective = effectiveDocCandidateClassification(logical, classified, projected.document?.policyId ?? null),
+      // same name. The shared inspector applies this rule and the edge's identical byte cap.
+      effective = inspection.classification,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
-    if (!route.allowed) {
+    if (inspection.disposition === "route-owned") {
       if (safe && candidate !== null && candidate === base)
         return scannedCandidateRow("clean", null, bytes, base, candidate, effective?.mediaType ?? null);
       // A route-owned document is a pure projection of its owning event route: local bytes are
@@ -294,7 +288,7 @@ export function scanDocCandidates(input: {
         projected.document?.blobSha256 ?? null,
         null,
       );
-    if (fileSize !== null && fileSize > readCap)
+    if (inspection.disposition === "too-large")
       return scannedCandidateRow(
         "blocked",
         artifactSubtreePath(logical)

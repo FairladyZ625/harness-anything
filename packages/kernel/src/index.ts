@@ -152,6 +152,7 @@ export {
   decideDocWrite,
   decideDocWriteCriteria,
   docSyncWritePlan,
+  inspectDocCandidate,
   documentPath,
   isDocEvent,
   isTaskEvent,
@@ -184,6 +185,7 @@ export {
 } from "./domain/doc-sync.contract.ts";
 export type {
   CanonicalEventV1,
+  DocCandidateInspection,
   DocClaimRef,
   DocEventChange,
   DocEventV1,

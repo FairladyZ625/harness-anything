@@ -27,9 +27,11 @@ export {
   decideDocWrite,
   decideDocWriteCriteria,
   docSyncWritePlan,
+  inspectDocCandidate,
   isValidDocEventChange,
   resolveDocRoute,
 } from "./doc-sync-writer.ts";
+export type { DocCandidateInspection } from "./doc-sync-writer.ts";
 export { validateCurrentDocEvent, validateDocEvent } from "./doc-sync-validation.ts";
 export { isEntityEvent } from "./entity-event.ts";
 export { isEntityPinEvent } from "./entity-pin-event.ts";

@@ -3,7 +3,12 @@ import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
 import {
+  artifactSubtreePath,
+  classifyDocCandidate,
   classifyTextualArtifactPath,
+  effectiveDocCandidateClassification,
+  DOC_SYNC_INLINE_MAX_BYTES,
+  type DocCandidateClassification,
   OPAQUE_TEXTUAL_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
@@ -406,6 +411,56 @@ export function resolveDocRoute(path: PortableDocumentPath): {
   return denied
     ? { allowed: false, requiredRoute: denied.requiredRoute }
     : { allowed: true, requiredRoute: "doc-sync" };
+}
+
+interface DocCandidateInspectionBase {
+  readonly maxBytes: number;
+  readonly route: ReturnType<typeof resolveDocRoute>;
+}
+export type DocCandidateInspection =
+  | (DocCandidateInspectionBase & {
+      readonly disposition: "candidate";
+      readonly bytes: Uint8Array | null;
+      readonly classification: DocCandidateClassification;
+    })
+  | (DocCandidateInspectionBase & {
+      readonly disposition: "route-owned" | "inapplicable" | "unsupported" | "too-large";
+      readonly bytes: Uint8Array | null;
+      readonly classification: DocCandidateClassification | null;
+    });
+
+/**
+ * Shared center/edge decision for a path before doc-sync consumes its bytes. The callback is invoked
+ * only when the file size fits the path's one canonical channel limit; this preserves the center's
+ * bounded read and makes edge membership, route ownership, and oversize outcomes identical.
+ */
+export function inspectDocCandidate(
+  path: PortableDocumentPath,
+  fileSize: number | null,
+  persistedPolicyId: string | null,
+  hasPersistedRow: boolean,
+  readBytes: () => Uint8Array | null,
+): DocCandidateInspection {
+  const maxBytes = artifactSubtreePath(path) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES,
+    bytes = fileSize !== null && fileSize <= maxBytes ? readBytes() : null,
+    byteVerdict = classifyDocCandidate(path, bytes),
+    classification = effectiveDocCandidateClassification(path, byteVerdict, persistedPolicyId),
+    route = resolveDocRoute(path),
+    channelMember = hasPersistedRow || byteVerdict !== null,
+    disposition = !route.allowed
+      ? "route-owned"
+      : !channelMember
+        ? "inapplicable"
+        : classification === null
+          ? "unsupported"
+          : fileSize !== null && fileSize > maxBytes
+            ? "too-large"
+            : "candidate";
+  if (disposition === "candidate") {
+    if (classification === null) throw new Error("candidate inspection requires a classification");
+    return { disposition, maxBytes, bytes, classification, route };
+  }
+  return { disposition, maxBytes, bytes, classification, route };
 }
 
 export function isValidDocEventChange(value: unknown, allowUnknownFields = false): value is DocEventChange {

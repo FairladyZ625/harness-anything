@@ -1,20 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
-  artifactSubtreePath,
-  classifyDocCandidate,
-  effectiveDocCandidateClassification,
-  DOC_SYNC_INLINE_MAX_BYTES,
-  RAW_ARTIFACT_MAX_BYTES,
   documentPath,
+  inspectDocCandidate,
   makeTaskProjectionReader,
   openSqliteEventStore,
-  resolveDocRoute,
   resolveHarnessLayout,
   serializeEventHead,
   sha256Bytes,
   sha256Text,
-  type DocCandidateClassification,
 } from "@harness-anything/kernel";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet/basebackup-layout.ts";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -258,25 +252,28 @@ export function scanFleetMirrorWorktree(
   for (const logical of materializedPaths(root)) {
     if (wanted && !wanted.has(logical)) continue;
     const file = path.join(root, ...logical.split("/")),
-      bytes = readFileSync(file),
-      base = view.entries.get(logical);
+      base = view.entries.get(logical),
+      fileSize = lstatSync(file).size,
+      inspection = inspectDocCandidate(
+        documentPath(logical),
+        fileSize,
+        base?.policyId ?? null,
+        base !== undefined,
+        () => readFileSync(file),
+      );
     // Raw artifacts — a PNG, a PDF, a log with stray bytes, a JSON evidence file — are doc-sync
     // candidates inside a task package's artifacts subtree. Outside that subtree the edge keeps the
     // canonical-prose scope: only `.md`/`.txt` documents, or bytes the classifier accepts, travel this
     // channel.
     //
-    // Membership and classification both follow the persisted row, exactly as the local scanner
-    // judges any dirty path: a row the center wrote under a document policy is an edit of that
-    // document, whatever its name or how its bytes read today. `channelMember` and
-    // `effectiveDocCandidateClassification` are that one pair of rules. A path with no persisted
-    // document row is judged by the same byte/name verdict the center's scanner uses, so both sides
-    // answer `eligible` or `inapplicable` for identical bytes instead of one side blocking a file the
-    // other accepts.
-    const byteVerdict = classifyDocCandidate(logical, bytes),
-      persistedPolicyId = base?.policyId ?? null,
-      docClass = effectiveDocCandidateClassification(logical, byteVerdict, persistedPolicyId),
-      unchanged = base !== undefined && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes),
-      route = resolveDocRoute(documentPath(logical));
+    // The shared inspector owns route attribution, candidate membership, persisted-policy handling,
+    // and the path-specific read cap for both the center and this edge.
+    const unchanged =
+        inspection.bytes !== null &&
+        base !== undefined &&
+        base.size === inspection.bytes.byteLength &&
+        base.sha256 === sha256Bytes(inspection.bytes),
+      route = inspection.route;
     // Membership first, then the unchanged check: an untouched file the channel does not carry is
     // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
     // channel is still reported — but for a path no route owns it is not a refusal. The center answers
@@ -285,28 +282,11 @@ export function scanFleetMirrorWorktree(
     // `.DS_Store`, a NUL-bearing `.txt`) that the center never counted as doc-sync business. A path a
     // route owns keeps its block: the owning command is the one that must answer for it, and the
     // center reports it as blocked too.
-    if (!channelMember(byteVerdict, base !== undefined)) {
-      if (unchanged || (hasMarkerWithoutBaseline && base)) cleanPaths.push(logical);
-      else if (route.allowed) inapplicablePaths.push(logical);
-      else blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
-      continue;
-    }
     if (unchanged || (hasMarkerWithoutBaseline && base)) {
       cleanPaths.push(logical);
       continue;
     }
-    // A channel member always exits as a change or a block. A path another route owns is not this
-    // channel's to refuse: it is reported with that route and `doc_route_owned`, so a caller gating on
-    // `blocked` can exclude it instead of turning a route-owned `INDEX.md` into a refused task
-    // command. That is the same distinction the center scanner draws between `inapplicable` and
-    // `blocked`, and the base edge drew by filtering on `resolveDocRoute(...).allowed` before it gated.
-    // Every other block — a persisted document whose path shape names no document, an oversize
-    // document — still gates. The center answers `blocked` for both of those too.
-    if (!docClass) {
-      blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
-      continue;
-    }
-    if (!route.allowed) {
+    if (inspection.disposition === "route-owned") {
       blocked.push({
         path: logical,
         reason: `path is owned by ${route.requiredRoute}`,
@@ -315,18 +295,28 @@ export function scanFleetMirrorWorktree(
       });
       continue;
     }
-    const maxBytes = artifactSubtreePath(logical) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES;
-    if (bytes.byteLength > maxBytes) {
+    if (inspection.disposition === "inapplicable") {
+      inapplicablePaths.push(logical);
+      continue;
+    }
+    if (inspection.disposition === "unsupported") {
+      blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
+      continue;
+    }
+    if (inspection.disposition === "too-large") {
       blocked.push({
         path: logical,
-        size: bytes.byteLength,
-        maxInlineBytes: maxBytes,
+        size: fileSize,
+        maxInlineBytes: inspection.maxBytes,
         reason: "document exceeds inline limit",
         code: "doc_candidate_too_large",
         requiredRoute: "blob-content",
       });
       continue;
     }
+    if (inspection.disposition !== "candidate") continue;
+    const { bytes, classification: docClass } = inspection;
+    if (bytes === null || docClass === null) continue;
     changes.push({
       path: logical,
       bytes,
@@ -472,18 +462,6 @@ export function fleetConflictSideFile(
 export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: string, _row: FleetMirrorBlob): void {
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
 }
-/**
- * Whether this edge channel carries a path at all. Any persisted row is a member on its own terms —
- * its bytes today are an edit of that row, not evidence about which channel owns it. A path with no
- * persisted row is a member exactly when the shared candidate classifier recognizes it: a
- * `.log`/`.json`/`.csv` dropped into a task package's `artifacts/` subtree is a candidate on both
- * sides. The classifier lives once in `classifyDocCandidate`; this adds only the membership question.
- * A non-member is not thereby a refusal — `scanFleetMirrorWorktree` answers `inapplicable`, the same
- * answer the center gives, unless a route owns the path. */
-function channelMember(byteVerdict: DocCandidateClassification | null, hasPersistedRow: boolean): boolean {
-  return hasPersistedRow || byteVerdict !== null;
-}
-
 function materializedPaths(root: string): string[] {
   const found: string[] = [],
     // The view's own state directory is not a materialized repository path; which name it has is the

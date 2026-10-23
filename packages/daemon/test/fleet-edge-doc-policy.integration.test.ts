@@ -218,14 +218,14 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blockedCodes: [],
     inapplicable: ["tasks/task_policy/artifacts/evidence/run.txt"],
   });
-  // Route ownership still refuses: `objects/` belongs to the content-blob route, so this channel is
-  // not the one to answer for it, and the block is the same plain refusal the center gives that path.
-  // `inapplicable` is only for paths no route owns — the case where the center lets the command proceed.
+  // Route ownership remains attributed: `objects/` belongs to the content-blob route, so this channel
+  // is not the one to answer for it. The edge preserves the center's route owner rather than losing
+  // it in the non-member exit.
   assert.deepEqual(scanFixture(null, "objects/payload.png", png), {
     policyIds: [],
-    blocked: ["path is not an allowed canonical document"],
-    blockedRoutes: [undefined],
-    blockedCodes: [undefined],
+    blocked: ["path is owned by content-blob"],
+    blockedRoutes: ["content-blob"],
+    blockedCodes: ["doc_route_owned"],
     inapplicable: [],
   });
   // `.md`/`.txt` rows stay in channel everywhere, so a persisted opaque `.md` still submits. Its
@@ -254,6 +254,15 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
       blockedCodes: ["doc_route_owned"],
       inapplicable: [],
     });
+  // A route-owned path the doc channel does not recognize is still attributed to its owner; losing
+  // that identity turns the package-wide task gate into a false refusal.
+  assert.deepEqual(scanFixture(null, "tasks/task_policy/reviews/.DS_Store", dsStore), {
+    policyIds: [],
+    blocked: ["path is owned by task-review-execution"],
+    blockedRoutes: ["task-review-execution"],
+    blockedCodes: ["doc_route_owned"],
+    inapplicable: [],
+  });
   // `doc_route_owned` is not a blanket exemption from the block gate: a document this channel does
   // own but cannot carry inline still reports `doc_candidate_too_large` and no route ownership, so
   // callers keep refusing it.
@@ -263,6 +272,14 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     blockedRoutes: ["blob-content"],
     blockedCodes: ["doc_candidate_too_large"],
     inapplicable: [],
+  });
+  const oversizeEvidence = "tasks/task_policy/evidence/dump.json";
+  assert.deepEqual(scanFixture(null, oversizeEvidence, Buffer.alloc(256 * 1024 + 1, 0x61)), {
+    policyIds: [],
+    blocked: [],
+    blockedRoutes: [],
+    blockedCodes: [],
+    inapplicable: [oversizeEvidence],
   });
 });
 
@@ -500,12 +517,17 @@ test(
         Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
         Buffer.alloc(32, 0xab),
       ]),
-      dsStore = `${created.packagePath}/.DS_Store`;
+      dsStore = `${created.packagePath}/.DS_Store`,
+      routeOwnedStray = `${created.packagePath}/reviews/.DS_Store`,
+      oversizeEvidence = `${created.packagePath}/evidence/dump.json`,
+      oversizeBytes = Buffer.alloc(256 * 1024 + 1, 0x61);
     // Write the bytes, not a string: the point is undecodable content at a name the classifier does
     // not resolve inside the package's non-artifacts subtree.
     for (const [logical, bytes] of [
       [stray, strayBytes],
       [dsStore, Buffer.from([0x00, 0x00, 0x00, 0x01, 0x42, 0x75, 0x64, 0x31, 0x00, 0x00, 0x10, 0x00])],
+      [routeOwnedStray, Buffer.from([0x00, 0x00, 0x00, 0x01, 0x42, 0x75, 0x64, 0x31, 0x00, 0x00, 0x10, 0x00])],
+      [oversizeEvidence, oversizeBytes],
     ] as const) {
       const target = fixture.worktree("node-one", logical),
         parent = path.dirname(target);
@@ -523,6 +545,26 @@ test(
       [centerRow?.state, centerRow?.reason ?? null],
       ["inapplicable", "path is not a supported textual document"],
       JSON.stringify(centerStatus).slice(0, 800),
+    );
+    const oversizeStatus = await fixture.centerRun({ kind: "doc-status", paths: [oversizeEvidence] }),
+      oversizeRows = JSON.parse(String(oversizeStatus.evidence).slice("doc-scan:".length)) as {
+        readonly rows: readonly { readonly path: string; readonly state: string; readonly reason: string | null }[];
+      },
+      oversizeRow = oversizeRows.rows.find((row) => row.path === oversizeEvidence);
+    assert.deepEqual(
+      [oversizeRow?.state, oversizeRow?.reason ?? null],
+      ["inapplicable", "path is not a supported textual document"],
+      JSON.stringify(oversizeStatus).slice(0, 800),
+    );
+    const routeOwnedStatus = await fixture.centerRun({ kind: "doc-status", paths: [routeOwnedStray] }),
+      routeOwnedRows = JSON.parse(String(routeOwnedStatus.evidence).slice("doc-scan:".length)) as {
+        readonly rows: readonly { readonly path: string; readonly state: string; readonly reason: string | null }[];
+      },
+      routeOwnedRow = routeOwnedRows.rows.find((row) => row.path === routeOwnedStray);
+    assert.deepEqual(
+      [routeOwnedRow?.state, routeOwnedRow?.reason ?? null],
+      ["blocked", "path is owned by task-review-execution"],
+      JSON.stringify(routeOwnedStatus).slice(0, 800),
     );
 
     // With the stray files present, the package's commands must still work. `task-start` carries the
@@ -547,6 +589,8 @@ test(
     const view = fixture.view("node-one");
     assert.equal(view?.entries.has(stray) ?? true, false, "an inapplicable path is never carried to the center");
     assert.equal(view?.entries.has(dsStore) ?? true, false, "an inapplicable .DS_Store is never carried");
+    assert.equal(view?.entries.has(routeOwnedStray) ?? true, false, "a route-owned path stays outside this channel");
+    assert.equal(view?.entries.has(oversizeEvidence) ?? true, false, "an oversize path is not read into this channel");
   },
 );
 
