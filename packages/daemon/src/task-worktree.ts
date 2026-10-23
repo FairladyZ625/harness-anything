@@ -218,11 +218,7 @@ async function refreshDefaultBranch(rootDir: string): Promise<void> {
   // remoteDefaultBranch names the published copy (`origin/main`) or, unfetched, the local branch.
   const published = remoteDefaultBranch(rootDir),
     branch =
-      published === null
-        ? null
-        : published.startsWith("origin/")
-          ? published.slice("origin/".length)
-          : published,
+      published === null ? null : published.startsWith("origin/") ? published.slice("origin/".length) : published,
     refspec = branch ? `+refs/heads/${branch}:refs/remotes/origin/${branch}` : null;
   await runProcessExitAsync(
     "git",

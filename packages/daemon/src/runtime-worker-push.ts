@@ -405,11 +405,7 @@ function errorDetail(error: unknown): string {
  * the branch, so it carries the cut this working copy actually knows, and a newer remote tip is
  * refused instead of overwritten.
  */
-export async function readPublishedTaskCut(
-  cwd: string,
-  branch: string,
-  extraEnv?: NodeJS.ProcessEnv,
-): Promise<string> {
+export async function readPublishedTaskCut(cwd: string, branch: string, extraEnv?: NodeJS.ProcessEnv): Promise<string> {
   // for-each-ref answers an absent ref with empty output and a successful status, so absence is a
   // value here; a git that cannot run at all still throws, as everywhere else in this module.
   return (

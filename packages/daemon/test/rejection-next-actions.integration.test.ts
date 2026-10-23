@@ -919,13 +919,11 @@ test(
       assert.equal(pushed.ok, false);
       assert.equal(pushed.attempted && pushed.code, undefined);
       const message = pushed.attempted ? pushed.detail : "";
-      assert.match(
-        message,
-        /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u,
-        message,
-      );
+      assert.match(message, /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u, message);
       assert.doesNotMatch(message, /ghp_realtokenvalue123/u, message);
-      const explanation = String(failed("op-relay", Object.assign(new Error(message), { code: "delivery_publish_failed" })).rejectionExplanation);
+      const explanation = String(
+        failed("op-relay", Object.assign(new Error(message), { code: "delivery_publish_failed" })).rejectionExplanation,
+      );
       assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
     } finally {
       rmSync(root, { recursive: true, force: true });
