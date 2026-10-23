@@ -60,6 +60,7 @@ import {
 import { workRootOf, workspaceStructureFromProjection } from "./workspace-scope-read.ts";
 import { attentionRegionWeights } from "./agenda-attention.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
+import { readDispatchRuling } from "./runtime-ruling.ts";
 import { readReckoningAgenda } from "./reckoning-agenda-read.ts";
 import {
   decodeAgendaCursor,
@@ -505,6 +506,49 @@ export function makeTaskQueryReadModel(input: {
         .sort(compareAgendaTasks),
       // 三种「等你动手」按下一步动作分组(2026-09-20 业主裁定拆开):submitted 行 → 派审;
       // in_review 行 → 等评审/consent;decision 行 → 裁决。同一 execution 只落所属组,不再合并。
+      // 无人值守派工写下的裁决请求:只有「停下、没有 lease、没有在飞 execution」的 active 行才
+      // 可能是这种停法,先从这一小撮行里找,避免为 agenda 引入一次全量派工读取。产物键是
+      // dispatch id,派工发生行(runtime_dispatch_requested)补上 executionId 与提问时刻。
+      awaitingRuling = leaseReturnedRows(active?.rows ?? []).flatMap((row) => {
+        const packagePath = row.packagePath;
+        if (typeof packagePath !== "string") return [];
+        return projection
+          .readDocuments(`${packagePath}/artifacts/rulings/`)
+          .documents.filter(({ path }) => path.endsWith(".md"))
+          .flatMap(({ path }) => {
+            const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
+              ruling = readDispatchRuling(
+                (relative) => (relative === path ? (projection.readDocument(relative).document?.body ?? null) : null),
+                packagePath,
+                dispatchId,
+              ),
+              dispatch = ruling === null ? null : (projection.readRuntimeDispatchById(dispatchId)?.event ?? null);
+            if (ruling === null || dispatch === null || !dispatch.payload.executionId) return [];
+            // A ruling the owner already answered by continuing the session is no longer waiting: the
+            // successor dispatch is the evidence that the ask left the queue.
+            const resumed =
+              projection.readRuntimeDispatchByResumeSource(dispatchId) !== null ||
+              projection
+                .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatchId)
+                .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
+            if (resumed) return [];
+            return [
+              {
+                taskId: row.taskId,
+                title: row.snapshot.task?.title ?? row.taskId,
+                work: row.work,
+                pinned: row.snapshot.task?.pinned ?? false,
+                dispatchId,
+                executionId: dispatch.payload.executionId,
+                question: ruling.question,
+                options: ruling.options,
+                rulingPath: ruling.path,
+                askedAt: dispatch.payload.startedAt ?? dispatch.occurredAt,
+                blockingAssessment: row.blockingAssessment,
+              },
+            ];
+          });
+      }),
       awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? []).sort(
         compareAwaitingExecutions,
       ),
@@ -636,6 +680,7 @@ export function makeTaskQueryReadModel(input: {
         now: now().toISOString(),
         awaitingYou,
         answeredForYou,
+        awaitingRuling,
         awaitingRework,
         awaitingAdjudication,
         awaitingDecision,
@@ -677,6 +722,7 @@ export function makeTaskQueryReadModel(input: {
       decisionReviewInProgress,
       awaitingDecisionReview,
       awaitingDecision,
+      awaitingRuling,
       waitingOnOthers,
       dispatchable,
       page: { sourceLimit, cursor: query.cursor ?? null, nextCursor },
@@ -694,6 +740,7 @@ export function makeTaskQueryReadModel(input: {
         decisionReviewInProgress,
         awaitingDecisionReview,
         awaitingDecision,
+        awaitingRuling,
         waitingOnOthers,
         dispatchable,
       }),
@@ -1011,6 +1058,15 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
     blockingAssessment: row.blockingAssessment,
     workspace: row.workspace,
   };
+}
+
+/**
+ * 「租约已交回」的 active 行:结算在发布终态前释放执行租约,所以没有 lease 就是「那个 runtime
+ * 已经说话并退场」。评审打回、长时停滞、等裁决都是这一形状,各自再按自己的证据收窄;还在跑的
+ * 行(lease 仍被持有)一律不在此列。
+ */
+function leaseReturnedRows(rows: readonly AgendaSourceRow[]): readonly AgendaSourceRow[] {
+  return rows.filter((row) => row.snapshot.lease === null);
 }
 
 /** 最新一轮 execution:按 iteration 取最大者的 state,不回看更早历史(同一轮内后到者胜出)。 */

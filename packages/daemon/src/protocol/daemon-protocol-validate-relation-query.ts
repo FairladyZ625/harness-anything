@@ -197,6 +197,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     ["agentId", "agentName", "delegatedByAgentId", "delegatedByAgentName", "squadId", "parentRuntimeSessionId"].every(
       (field) => value[field] === undefined || dispatchText(value[field]),
     ) &&
+    (value.ruling === undefined || validDispatchRuling(value.ruling)) &&
     dispatchNullableText(value.providerSessionId) &&
     dispatchNullableText(value.eventStreamRef) &&
     dispatchText(value.startedAt) &&
@@ -253,7 +254,9 @@ function validTaskDispatchAttemptValues(value: Record<string, unknown>): boolean
     dispatchText(value.provider.instance) &&
     (value.provider.model === null || dispatchText(value.provider.model)) &&
     (value.classification === null ||
-      ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(value.classification))) &&
+      ["provider_fault", "provider_quota", "worker_stop", "awaiting_ruling", "gate_red"].includes(
+        String(value.classification),
+      )) &&
     (value.reason === null || dispatchText(value.reason)) &&
     (value.resume === undefined || validTaskDispatchResume(value.resume)) &&
     (value.faultClass === undefined || ["quota_exhausted", "rate_limited"].includes(String(value.faultClass))) &&
@@ -272,6 +275,17 @@ function validTaskDispatchResume(value: unknown): value is TaskDispatchResume {
     (value.agentId === null || dispatchText(value.agentId))
   );
 }
+/** The read-side projection of a worker's ruling artifact: question text, options, and the path. */
+function validDispatchRuling(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    dispatchText(value.question) &&
+    dispatchText(value.path) &&
+    Array.isArray(value.options) &&
+    value.options.every((option) => typeof option === "string")
+  );
+}
+
 function dispatchFields(value: Record<string, unknown>, required: readonly string[], optional: readonly string[]) {
   return (
     required.every((field) => Object.hasOwn(value, field)) &&

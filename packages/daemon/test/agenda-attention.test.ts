@@ -66,3 +66,27 @@ test("attention ordering is stable and region weights use the same scores", () =
   const weights = attentionRegionWeights(rows, { running: 2, review: 1, queue: 3, worksNeedingAttention: 4 });
   assert.deepEqual(weights, { mine: 16, stuck: 4, run: 8, review: 5, queue: 3.5, recent: 4, works: 11.2 });
 });
+
+test("an awaiting-ruling ask outranks every other waiting kind and never reads as a provider fault", () => {
+  // The measured gap: a worker that stopped for a ruling was indistinguishable from a broken run in
+  // the attention order. It is the owner's decision to make, so it sits just under "awaiting you".
+  const ruling = attentionScore({
+      kind: "ruling",
+      since: "2026-09-29T11:00:00.000Z",
+      now: "2026-09-29T12:00:00.000Z",
+      risk: "low",
+      downstreamBlocked: 0,
+      pinned: false,
+    }),
+    blocked = attentionScore({
+      kind: "blocked",
+      since: "2026-09-29T11:00:00.000Z",
+      now: "2026-09-29T12:00:00.000Z",
+      risk: "low",
+      downstreamBlocked: 0,
+      pinned: false,
+    });
+  assert.equal(ruling.reasons[0]?.label, "等待业主裁决");
+  assert.equal(ruling.reasons[0]?.contribution, 96);
+  assert.ok(ruling.score > blocked.score, `${ruling.score} must outrank ${blocked.score}`);
+});

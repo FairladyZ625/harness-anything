@@ -34,11 +34,11 @@
     },
     "points": {
       "dispatch-stop-reason": {
-        "revision": "1",
+        "revision": "2",
         "on": "dispatch.settled",
         "when": {
-          "outcome": ["failed", "cancelled", "succeeded"],
-          "classification": ["worker_stop", "gate_red"]
+          "outcome": ["failed", "cancelled", "succeeded", "stopped"],
+          "classification": ["worker_stop", "gate_red", "awaiting_ruling"]
         },
         "input": ["report.body", "dispatch.reason", "dispatch.classification"],
         "question": "stop-reason",

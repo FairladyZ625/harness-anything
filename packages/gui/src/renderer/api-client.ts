@@ -11,6 +11,7 @@ import type {
   AgendaDecisionReviewRow,
   AgendaAnsweredRow,
   AgendaAwaitsRow,
+  AgendaRulingRow,
   AgendaAttentionItem,
   AgendaRegionWeights,
   ContractVersion,
@@ -116,6 +117,7 @@ export interface AgendaSuccess
     | "decisionReviewInProgress"
     | "awaitingDecisionReview"
     | "awaitingDecision"
+    | "awaitingRuling"
     | "waitingOnOthers"
     | "dispatchable"
     | "summary"
@@ -719,6 +721,8 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !result.awaitingDecisionReview.every(isAgendaDecisionRow) ||
     !Array.isArray(result.awaitingDecision) ||
     !result.awaitingDecision.every(isAgendaDecisionRow) ||
+    (result.awaitingRuling !== undefined &&
+      (!Array.isArray(result.awaitingRuling) || !result.awaitingRuling.every(isAgendaRulingRow))) ||
     !Array.isArray(result.waitingOnOthers) ||
     !result.waitingOnOthers.every(isAgendaTaskRow) ||
     !Array.isArray(result.stalled) ||
@@ -791,6 +795,25 @@ function isAgendaExecutionRow(value: unknown): value is AgendaExecutionRow {
     typeof value.pinned === "boolean" &&
     typeof value.executionId === "string" &&
     typeof value.submittedAt === "string" &&
+    isRendererRecord(value.blockingAssessment)
+  );
+}
+
+/** 等业主裁决行:问题与选项原文是它的全部信息量,缺任一项即不是一行可答复的裁决。 */
+function isAgendaRulingRow(value: unknown): value is AgendaRulingRow {
+  return (
+    isRendererRecord(value) &&
+    typeof value.taskId === "string" &&
+    typeof value.title === "string" &&
+    (value.work === null || isRendererRecord(value.work)) &&
+    typeof value.pinned === "boolean" &&
+    typeof value.dispatchId === "string" &&
+    typeof value.executionId === "string" &&
+    typeof value.question === "string" &&
+    Array.isArray(value.options) &&
+    value.options.every((option) => typeof option === "string") &&
+    typeof value.rulingPath === "string" &&
+    typeof value.askedAt === "string" &&
     isRendererRecord(value.blockingAssessment)
   );
 }

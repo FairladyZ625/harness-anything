@@ -47,7 +47,13 @@ export interface TaskDispatchRow {
   readonly attemptGroupId: string;
   readonly attemptIndex: number;
   readonly provider: { readonly instance: string; readonly model: string | null };
-  readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red" | null;
+  readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "awaiting_ruling" | "gate_red" | null;
+  /** Present when the worker stopped to await an owner ruling (classification `awaiting_ruling`). */
+  readonly ruling?: {
+    readonly question: string;
+    readonly options: readonly string[];
+    readonly path: string;
+  };
   readonly reason: string | null;
   readonly faultClass?: "quota_exhausted" | "rate_limited";
   readonly resetAt?: string;

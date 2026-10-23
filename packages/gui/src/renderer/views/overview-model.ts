@@ -3,6 +3,7 @@ import type {
   AgendaAwaitsRow,
   AgendaDecisionRow,
   AgendaExecutionRow,
+  AgendaRulingRow,
   AgendaTaskRow,
   AgendaAttentionItem,
   TaskDispatchProjectionRow,
@@ -43,6 +44,8 @@ export const ATTENTION_META: Readonly<
   archive: { tone: "neutral", rank: 8 },
   "audit-finding": { tone: "wait", rank: 9 },
   "unsubmitted-delivery": { tone: "bad", rank: 2 },
+  // 无人值守派工停下等裁决:和 awaiting-you 同为「球在你手里」,用同一档橙(不是待评审的琥珀)。
+  ruling: { tone: "bad", rank: 1 },
 };
 
 /** 注意力行接回源行:行上的动作(答复/裁决/跳转)需要源读面的完整行。 */
@@ -52,6 +55,7 @@ export type AttentionSource =
   | { readonly kind: "rework"; readonly row: AgendaTaskRow }
   | { readonly kind: "adjudication"; readonly row: AgendaExecutionRow }
   | { readonly kind: "decision"; readonly row: AgendaDecisionRow }
+  | { readonly kind: "ruling"; readonly row: AgendaRulingRow }
   | { readonly kind: "task"; readonly row: AgendaTaskRow };
 
 export interface AttentionEntry {
@@ -70,6 +74,7 @@ export function attentionSources(agenda: AgendaSuccess): Map<string, AttentionSo
   for (const row of agenda.awaitingAdjudication)
     sources.set(`execution/${row.executionId}`, { kind: "adjudication", row });
   for (const row of agenda.awaitingDecision) sources.set(`decision/${row.decisionId}`, { kind: "decision", row });
+  for (const row of agenda.awaitingRuling ?? []) sources.set(`dispatch/${row.dispatchId}`, { kind: "ruling", row });
   for (const row of agenda.waitingOnOthers) sources.set(`task/${row.taskId}`, { kind: "task", row });
   for (const row of agenda.stalled) sources.set(`task/${row.taskId}`, { kind: "task", row });
   return sources;
@@ -86,6 +91,8 @@ function sinceOf(source: AttentionSource): string | null {
       return source.row.submittedAt;
     case "decision":
       return source.row.proposedAt;
+    case "ruling":
+      return source.row.askedAt;
     case "rework":
     case "task":
       return source.row.updatedAt;
@@ -112,7 +119,7 @@ export function attentionEntries(
  * 用户动作,住「跟进与返工」。已答复跟进(answered)、评审打回(rework)与阻塞/停滞
  * (blocked/stalled)同样不冒充需要用户。
  */
-export type DecisionKind = "awaiting-you" | "decision";
+export type DecisionKind = "awaiting-you" | "decision" | "ruling";
 
 export interface DecisionRow {
   /** attentionItem 的 ref(relation/<id> · execution/<id> · decision/<id>)。 */
@@ -120,8 +127,10 @@ export interface DecisionRow {
   readonly kind: DecisionKind;
   readonly title: string;
   readonly workTaskId: string | null;
-  /** awaiting-you 源行的问句;其余为 null(问题由类别的固定说明承担)。 */
+  /** awaiting-you / ruling 源行的问句;其余为 null(问题由类别的固定说明承担)。 */
   readonly question: string | null;
+  /** ruling 源行的可选项;答复即从其中选一条(或自拟)。 */
+  readonly options: readonly string[];
   /** awaiting-you 源行的请求类别(question/acceptance/consent/reopen)。 */
   readonly askKind: AgendaAwaitsRow["askKind"] | null;
   /** decision 源行的风险档。 */
@@ -133,7 +142,7 @@ export interface DecisionRow {
 }
 
 export const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind =>
-  kind === "awaiting-you" || kind === "decision";
+  kind === "awaiting-you" || kind === "decision" || kind === "ruling";
 
 export function decisionRows(agenda: AgendaSuccess | undefined): readonly DecisionRow[] {
   if (agenda === undefined) return [];
@@ -146,7 +155,9 @@ export function decisionRows(agenda: AgendaSuccess | undefined): readonly Decisi
           kind: item.kind,
           title: item.title,
           workTaskId: item.workTaskId,
-          question: source?.kind === "awaits" ? source.row.question : null,
+          question:
+            source?.kind === "awaits" ? source.row.question : source?.kind === "ruling" ? source.row.question : null,
+          options: source?.kind === "ruling" ? source.row.options : [],
           askKind: source?.kind === "awaits" ? source.row.askKind : null,
           riskTier: source?.kind === "decision" ? source.row.riskTier : null,
           since,
@@ -158,7 +169,8 @@ export function decisionRows(agenda: AgendaSuccess | undefined): readonly Decisi
     .sort(
       (left, right) =>
         // Orca 五级序数(dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):Needs you(class 1)绝对顶置——
-        // awaiting-you(提问阻塞,橙 tone)排在 decision(待点头)之前;同级内才轮到注意力分。
+        // awaiting-you(提问阻塞,橙 tone)与 ruling(派工停下等裁决)排在 decision(待点头)
+        // 之前;同级内才轮到注意力分。
         Number(left.kind === "decision") - Number(right.kind === "decision") ||
         right.score - left.score ||
         left.id.localeCompare(right.id),

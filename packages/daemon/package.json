@@ -48,6 +48,7 @@
     "./internal/runtime-callback-relay": "./src/runtime-callback-relay.ts",
     "./internal/runtime-orchestration": "./src/runtime-orchestration.ts",
     "./internal/runtime-spawn-mission": "./src/runtime-spawn-mission.ts",
+    "./internal/runtime-spawn-prompt": "./src/runtime-spawn-prompt.ts",
     "./internal/workspace-text-port": "./src/workspace-text-port.ts",
     "./internal/writer-epoch": "./src/writer-epoch.ts",
     "./package.json": "./package.json"
@@ -119,6 +120,7 @@
       "./internal/runtime-callback-relay": "./dist/daemon/src/runtime-callback-relay.js",
       "./internal/runtime-orchestration": "./dist/daemon/src/runtime-orchestration.js",
       "./internal/runtime-spawn-mission": "./dist/daemon/src/runtime-spawn-mission.js",
+      "./internal/runtime-spawn-prompt": "./dist/daemon/src/runtime-spawn-prompt.js",
       "./internal/workspace-text-port": "./dist/daemon/src/workspace-text-port.js",
       "./internal/writer-epoch": "./dist/daemon/src/writer-epoch.js",
       "./package.json": "./package.json"

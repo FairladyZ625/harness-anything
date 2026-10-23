@@ -320,3 +320,22 @@ test("a re-dispatched explicit mission carries the owner return verbatim before 
     "unbound prompts carry no rework record",
   );
 });
+
+test("every task-bound mission tells the worker this session cannot ask, with one ruling channel", () => {
+  // Measured 2026-10-21 (task_936005e1): a dispatched Codex worker called the provider's question
+  // tool; the turn failed and the dispatch settled failed, with the question visible only in the
+  // raw stream. The mission must name the constraint and where a ruling request actually lands.
+  for (const profileId of ["baseline", "lightweight", undefined] as const) {
+    const mission = explicitPromptMission("task_x", null, "Go.", profileId);
+    assert.match(mission, /# 无人值守会话：不能提问/u, `profile=${String(profileId)} carries the constraint`);
+    assert.match(mission, /不要调用任何提问\/等待用户输入的 provider 工具/u);
+    assert.match(mission, /artifacts\/rulings\/__HARNESS_DISPATCH_ID__\.md/u, "the artifact path is per dispatch");
+  }
+  // Reviewers are unattended too: same constraint, same single channel.
+  assert.match(
+    explicitPromptMission("task_x", null, "Review.", "baseline", undefined, null, true),
+    /# 无人值守会话：不能提问/u,
+  );
+  // Unbound prompts have no task package, so there is nowhere to write the ruling artifact.
+  assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "baseline"), /无人值守会话/u);
+});

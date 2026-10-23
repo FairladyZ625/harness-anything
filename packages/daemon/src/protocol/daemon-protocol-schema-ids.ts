@@ -124,7 +124,9 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "warnings",
     "summary",
   ]),
-  optional: Object.freeze([]),
+  // Optional so older agenda readers (and their fixtures) stay valid: a reader that does not know
+  // the awaiting-ruling group simply ignores it, and the group never becomes load-bearing for them.
+  optional: Object.freeze(["awaitingRuling"]),
 });
 
 export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({

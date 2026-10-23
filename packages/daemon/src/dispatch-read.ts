@@ -7,6 +7,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
+import { readDispatchRuling } from "./runtime-ruling.ts";
 import {
   agentRuntimeSessionGroupTotals,
   buildAgentRuntimeSessionGroups,
@@ -504,6 +505,10 @@ function canonicalDispatchRow(
         : outcome === "stopped" && taskHasStructuredBlock(projection, event)
           ? "blocked"
           : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
+    // The artifact is keyed by dispatch id, so its presence means this dispatch wrote the ask. Read
+    // it here rather than gating on the settled classification: the question must stay visible even
+    // when the stream cut predates the classification.
+    ...awaitingRulingFields(projection, payload),
     resultRef,
     exitCode,
     ...(documentPath && document ? { dispatchPath: documentPath } : {}),
@@ -516,6 +521,27 @@ function canonicalDispatchRow(
         }
       : {}),
   };
+}
+
+/**
+ * An awaiting-ruling row carries the worker's question and options so `ha task dispatches` and the
+ * agenda surface them without opening the raw provider stream. The artifact stays the single
+ * storage; this is the read-side projection of it.
+ */
+function awaitingRulingFields(
+  projection: DispatchQueries,
+  dispatch: { readonly taskId?: string; readonly dispatchId: string },
+): Pick<TaskDispatchRow, "ruling"> {
+  const taskId = dispatch.taskId;
+  if (!taskId) return {};
+  const packagePath = projection.read(taskId).packagePath;
+  if (typeof packagePath !== "string") return {};
+  const ruling = readDispatchRuling(
+    (relative) => projection.readDocument(relative).document?.body ?? null,
+    packagePath,
+    dispatch.dispatchId,
+  );
+  return ruling === null ? {} : { ruling: { question: ruling.question, options: ruling.options, path: ruling.path } };
 }
 
 function resumeDispatch(
@@ -565,7 +591,13 @@ function isOutcome(value: unknown): value is NonNullable<TaskDispatchRow["outcom
   );
 }
 function isClassification(value: unknown): value is NonNullable<TaskDispatchRow["classification"]> {
-  return value === "provider_fault" || value === "provider_quota" || value === "worker_stop" || value === "gate_red";
+  return (
+    value === "provider_fault" ||
+    value === "provider_quota" ||
+    value === "worker_stop" ||
+    value === "awaiting_ruling" ||
+    value === "gate_red"
+  );
 }
 
 /** A stopped round whose own execution has an accepted submission is delivered. The submit

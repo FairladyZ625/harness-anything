@@ -54,6 +54,7 @@ export type AgendaExecutionRow = AgendaRead["awaitingAdjudication"][number];
 export type AgendaDecisionRow = AgendaRead["awaitingDecision"][number];
 export type AgendaDecisionReviewRow = AgendaRead["decisionReviewInProgress"][number];
 export type AgendaAwaitsRow = AgendaRead["awaitingYou"][number];
+export type AgendaRulingRow = NonNullable<AgendaRead["awaitingRuling"]>[number];
 export type AgendaAnsweredRow = AgendaRead["answeredForYou"][number];
 export type SettingsRead = DaemonGuiReadResultMap["repo.settings.read"];
 export type WorkspaceSummaryRead = DaemonGuiReadResultMap["repo.workspace.summary.read"];

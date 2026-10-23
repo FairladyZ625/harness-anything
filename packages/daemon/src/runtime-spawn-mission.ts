@@ -372,6 +372,22 @@ export function taskQueryGuidance(taskId: string): string {
 }
 
 /**
+ * The unattended-session constraint every dispatch carries: a dispatched session has no one
+ * reading its turn, so a provider question tool either blocks the run or (measured on Codex
+ * 2026-10-21, task_936005e1) fails the turn outright. The ruling request has one channel — an
+ * artifact plus a stop — because a free-form final message is not a machine-readable ask.
+ * The `__HARNESS_DISPATCH_ID__` token is rendered per dispatch, so the artifact path is concrete.
+ */
+export const unattendedRulingContract = [
+  "# 无人值守会话：不能提问",
+  "- 本会话没有应答方。不要调用任何提问/等待用户输入的 provider 工具：没人会回答，turn 会空转或直接失败。",
+  "- 需要业主裁决时：把问题、可选项与你的建议写进任务包的 " +
+    "`artifacts/rulings/__HARNESS_DISPATCH_ID__.md`，然后在交付报告里引用它并停下。" +
+    "写不清楚的裁决请求等于没有提出问题。",
+  "- 不需要裁决的取舍自己做完并在报告里说明理由；只有收不回或越权的动作才留给业主。",
+].join("\n");
+
+/**
  * The plan-first opening every task-bound mission carries: the task's own task_plan.md injected
  * verbatim, so the worker starts from the contract instead of spending its first calls reading
  * the package (the measured waste this replaces: ~1,685 package-flipping calls across 206 worker
@@ -445,6 +461,7 @@ export function taskMissionSections(
   const living = reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass);
   return [
     taskQueryGuidance(taskId),
+    unattendedRulingContract,
     ...(living === null ? [] : [living]),
     ...(reviewerBinding ? [] : [taskPrPublicationNote]),
     ...(causalContext === null ? [] : [causalContext]),

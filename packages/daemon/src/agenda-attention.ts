@@ -8,7 +8,8 @@ export type AgendaAttentionKind =
   | "answered"
   | "archive"
   | "audit-finding"
-  | "unsubmitted-delivery";
+  | "unsubmitted-delivery"
+  | "ruling";
 
 export type AgendaAttentionRegion = "mine" | "stuck";
 
@@ -31,6 +32,8 @@ const BASE = {
   blocked: ["阻塞", 45],
   stalled: ["进行中停滞", 40],
   answered: ["已答复待跟进", 30],
+  // 无人值守派工停下等业主裁决:球完全在业主手里,分数紧随「等你答复」。
+  ruling: ["等待业主裁决", 96],
   archive: ["已结束可归档", 5],
   "audit-finding": ["审计发现", 85],
   "unsubmitted-delivery": ["未提交交付", 80],

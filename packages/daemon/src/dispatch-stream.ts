@@ -1014,7 +1014,9 @@ function isRuntimeAttemptOutcome(
 ): value is Record<string, unknown> & RuntimeAttemptOutcome {
   const provider = value.provider;
   return (
-    ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(value.classification)) &&
+    ["provider_fault", "provider_quota", "worker_stop", "awaiting_ruling", "gate_red"].includes(
+      String(value.classification),
+    ) &&
     typeof value.reason === "string" &&
     typeof value.attemptGroupId === "string" &&
     Number.isSafeInteger(value.attemptIndex) &&

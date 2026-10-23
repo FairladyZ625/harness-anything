@@ -941,6 +941,24 @@ export interface AgendaDecisionReviewRow extends AgendaDecisionRow {
   readonly reviewers: readonly Pick<DaemonDecisionReviewDispatchRow, "dispatchId" | "reviewer" | "findingCount">[];
 }
 /**
+ * 「等业主裁决」行:无人值守派工停下等答复,球完全在业主手里。问题与选项来自任务包里的
+ * `artifacts/rulings/<dispatch-id>.md`(结算时随归档发布),读面只透传,不重推判据。
+ */
+export interface AgendaRulingRow {
+  readonly taskId: string;
+  readonly title: string;
+  readonly work: AgendaWorkRef | null;
+  readonly pinned: boolean;
+  readonly dispatchId: string;
+  readonly executionId: string;
+  readonly question: string;
+  readonly options: readonly string[];
+  /** 任务包相对路径:`<packagePath>/artifacts/rulings/<dispatchId>.md`。 */
+  readonly rulingPath: string;
+  readonly askedAt: string;
+  readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
+}
+/**
  * 「等你处理」行:一条指向读者本人的 active awaits 边(dec_DF67F23066BAFE444190A191B5/CH2)。
  * 答复 = `ha relation unrelate <relationId> --reason <答复> --expected-version <relationRevision>`。
  */
@@ -1016,6 +1034,12 @@ export type DaemonAgendaResult = {
   readonly awaitingDecisionReview: readonly AgendaDecisionRow[];
   /** 待裁 decision 行;下一步 `ha decision accept|reject|defer`。 */
   readonly awaitingDecision: readonly AgendaDecisionRow[];
+  /**
+   * 无人值守派工停下等业主裁决;下一步按选项答复后用 `ha agent run --resume-dispatch` 续派。
+   * 可选:daemon 现在总是发出它,而更早的 agenda 读者不认识这个键——声明为可选让两侧都不必
+   * 为一个新增分组升级读契约(读方按 `?? []` 处理缺席)。
+   */
+  readonly awaitingRuling?: readonly AgendaRulingRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];
   readonly dispatchable: readonly AgendaTaskRow[];
   readonly page: {

@@ -1254,6 +1254,150 @@ test("runtime exit notification records a bounded timeout", async () => {
   }
 });
 
+test("a real dispatch that stops for an owner ruling settles awaiting_ruling and shows the ask in the agenda", async () => {
+  // The production shape measured on task_936005e1: the worker writes its ruling artifact into the
+  // task package, no doc sync publishes it, and the provider exits non-zero. These assertions drive
+  // the real settlement, the single archive publication, and the real dispatch/agenda reads.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-ruling-dispatch-")),
+    root = path.join(parent, "repo"),
+    uid = process.getuid?.() ?? 0,
+    question = "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+    options = ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
+    rulingBody =
+      `---\nruling: awaiting\nquestion: ${question}\noptions:\n` +
+      `${options.map((option) => `  - ${option}`).join("\n")}\n---\n\n${question}\n`,
+    executablePath = writeProviderExecutable(
+      path.join(parent, "ruling-provider.mjs"),
+      [
+        'import fs from "node:fs";',
+        'import path from "node:path";',
+        'let prompt = "";',
+        "for await (const chunk of process.stdin) prompt += chunk;",
+        // The dispatch id is rendered into every mission; the prompt names the package the worker
+        // must write into, exactly as the mission's ruling channel does.
+        "const dispatchId = prompt.match(/(dispatch_[a-f0-9]{24})/u)?.[1];",
+        "const packagePath = prompt.match(/^package: (\\S+)$/mu)?.[1];",
+        `if (dispatchId && packagePath) { const target = path.join(process.cwd(), "harness", packagePath, "artifacts", "rulings", dispatchId + ".md"); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, ${JSON.stringify(rulingBody)}); }`,
+        'process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "provider-ruling" }) + "\\n");',
+        `process.stdout.write(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: ${JSON.stringify(question)} } }) + "\\n");`,
+        'process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");',
+        "process.exitCode = 2;",
+      ].join("\n"),
+    ),
+    installation = installationFixture("codex", executablePath);
+  try {
+    mkdirSync(root);
+    initIngressRepo(root, uid);
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-ruling-dispatch"),
+      rootDir: canonicalRoot(root),
+      ownerId: "ruling-dispatch-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "ruling-dispatch-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex Ruling",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (_instanceId, request) => ({
+        definition,
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: process.env,
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+    });
+    try {
+      const taskId = "task-runtime-ruling-dispatch",
+        binding = withPolicyGroup(
+          { actor: { principal: { personId: "person-attached-tail" }, executor: null }, source: "local" as const },
+          "admin",
+        );
+      const created = await cell.run({ kind: "task-create", taskId, title: "Ruling dispatch" }, binding);
+      assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
+      const packagePath = String((created as Record<string, unknown>).packagePath);
+      await realizeTaskPlanFixture(
+        root,
+        packagePath,
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Ruling dispatch",
+      );
+      assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: `Ask for a ruling and stop.\npackage: ${packagePath}\nruling artifact: artifacts/rulings/__HARNESS_DISPATCH_ID__.md`,
+          taskId,
+          dispatchKey: "ruling-dispatch",
+        },
+        binding,
+      );
+      const settled = await eventuallyValue(async () => {
+        const read = await cell.read("repo.agentRuntime.sessions.read", {
+          runtimeSessionId: String(receipt.runtimeSessionId),
+        });
+        return read.session.activity.outcome === null ? null : read;
+      });
+      assert.equal(settled.session.activity.outcome, "stopped", JSON.stringify(settled));
+      const dispatches = await cell.read("repo.task.dispatches", { taskId }, binding),
+        row = dispatches.dispatches.find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
+      assert.equal(row?.classification, "awaiting_ruling", JSON.stringify(dispatches));
+      assert.deepEqual(row?.ruling, {
+        question,
+        options,
+        path: `${packagePath}/artifacts/rulings/${String(receipt.dispatchId)}.md`,
+      });
+      assert.match(settled.result?.text ?? "", new RegExp(`Awaiting owner ruling: ${question}`, "u"));
+      for (const option of options) assert.match(settled.result?.text ?? "", new RegExp(option, "u"));
+      const agenda = await cell.read("repo.agenda.read", { limit: 50 }),
+        rulingRow = (agenda.awaitingRuling ?? []).find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
+      assert.equal(rulingRow?.question, question, JSON.stringify(agenda.awaitingRuling));
+      assert.deepEqual(rulingRow?.options, options);
+      assert.equal(rulingRow?.executionId, row?.executionId);
+      assert.equal(rulingRow?.rulingPath, `${packagePath}/artifacts/rulings/${String(receipt.dispatchId)}.md`);
+      assert.equal(
+        agenda.attentionItems.some(
+          ({ kind, ref }) => kind === "ruling" && ref === `dispatch/${String(receipt.dispatchId)}`,
+        ),
+        true,
+        JSON.stringify(agenda.attentionItems),
+      );
+      assert.match(agenda.summary, /等你裁决 \(1\)/u);
+      assert.match(agenda.summary, new RegExp(question, "u"));
+      const published = readFileSync(
+        path.join(root, "harness", packagePath, "artifacts", "rulings", `${String(receipt.dispatchId)}.md`),
+        "utf8",
+      );
+      assert.equal(published, rulingBody, "the published artifact is the exact ask the worker wrote");
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 function initIngressRepo(root: string, uid: number): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   git(root, "init", "-q");

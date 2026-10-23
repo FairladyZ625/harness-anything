@@ -3,6 +3,7 @@ import type {
   AgendaAwaitsRow,
   AgendaDecisionRow,
   AgendaExecutionRow,
+  AgendaRulingRow,
   AgendaTaskRow,
   DaemonAgendaResult,
 } from "./protocol/daemon-protocol.contract.ts";
@@ -64,6 +65,7 @@ export function renderAgendaSummary(
     | "decisionReviewInProgress"
     | "awaitingDecisionReview"
     | "awaitingDecision"
+    | "awaitingRuling"
     | "waitingOnOthers"
     | "dispatchable"
   >,
@@ -95,6 +97,12 @@ export function renderAgendaSummary(
     executionLine = (row: AgendaExecutionRow) =>
       `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
+    rulingLine = (row: AgendaRulingRow) =>
+      `- dispatch ${row.dispatchId} / ${row.taskId} ${row.title} — ${row.question}` +
+      (row.options.length
+        ? `\n  选项: ${row.options.map((option, index) => `${String(index + 1)}. ${option}`).join("；")}`
+        : "") +
+      `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"`,
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
       `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
@@ -139,6 +147,11 @@ export function renderAgendaSummary(
       "待裁 Decision",
       "当前切面可裁决（有效批准或策略免审）；提案人仍需独立判断，下一步 ha decision accept|reject|defer",
       groups.awaitingDecision.map(decisionLine),
+    ),
+    section(
+      "等你裁决",
+      "无人值守派工停下等业主答复（任务包 artifacts/rulings/<dispatch-id>.md）；答复后续派同一会话",
+      (groups.awaitingRuling ?? []).map(rulingLine),
     ),
     section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),
     section(

@@ -27,6 +27,7 @@ import {
   published,
   readDispatchRecords,
   readPublishedDispatch,
+  renderedRulingContract,
   run,
   runAsync,
   runMaybe,
@@ -202,7 +203,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
-    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nhold`,
+    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(detachedDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nhold`,
   });
   // A cancelled run authored no dispatch report; archiving its interrupted text as one left a
   // daemon-managed fragment the worker could not retire. The dispatch record and mission still
@@ -290,7 +291,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nfollow up`,
+    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(resumedDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nfollow up`,
     continuationContext: true,
   });
   const resumedRow = (
@@ -466,9 +467,10 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     wildcardText,
   );
   assert.match(wildcardText, /# Worker Role/u);
+  const wildcardDispatchId = String((wildcard.receipt.spawn as Record<string, unknown>).dispatchId);
   assert.ok(
     wildcardText.endsWith(
-      `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
+      `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(wildcardDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
         `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
         `Reopen the execution to re-dispatch with: ha task start ${taskId}`,
     ),

@@ -23,6 +23,7 @@ import {
   published,
   readDispatchRecords,
   readPublishedDispatch,
+  renderedRulingContract,
   run,
   runMaybe,
   runtimeInvariantEvidence,
@@ -76,7 +77,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
+    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
     continuationContext: true,
   });
   assert.ok(
@@ -625,14 +626,15 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     "--no-stream",
   ]);
   assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
+  const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
       `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
+        `${renderedRulingContract(promptFileDispatchId)}\n\n` +
         `${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
         stopGuidance,
     ),
   );
-  const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
   const reused = runMaybe(root, env, [
       "agent",
       "run",
@@ -677,22 +679,24 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     runtimeSessionId: String(reused.receipt.runtimeSessionId),
     mission:
       `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
-      `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
+      `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
       `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
     continuationContext: true,
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const taskPackage = path.join(realpathSync(root), "harness", packagePath),
+  const taskPackage = path.join(realpathSync(root), "harness", packagePath);
+  // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
+  const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
+    derivedText = String((derived.receipt.result as Record<string, unknown>).text),
     derivedMission =
       `${taskPlanSection(realizedPlan("mission"), taskPackage)}\n\n` +
       taskQueryGuidance(taskId) +
       "\n\n" +
+      renderedRulingContract(String((derived.receipt.spawn as Record<string, unknown>).dispatchId)) +
+      "\n\n" +
       livingDeliverableProtocol("baseline")! +
       "\n\n" +
       taskPrPublicationNote;
-  // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
-  const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
-    derivedText = String((derived.receipt.result as Record<string, unknown>).text);
   assert.match(
     derivedText,
     /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,

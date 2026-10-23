@@ -46,6 +46,29 @@ test("task dispatch and runtime status renders expose provider attempt chains", 
   );
 });
 
+test("an awaiting-ruling dispatch row shows the question and every option without --json", () => {
+  const rendered = renderDispatchRow({
+    dispatchId: "dispatch_25716c64031a31cc45f5e1d1",
+    status: "stopped",
+    runtimeSessionId: "runtime_0a434a41a367cfcf3e9c736f",
+    classification: "awaiting_ruling",
+    ruling: {
+      question: "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+      options: ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
+      path: "tasks/task_936005e17712d168d126f3273a-risk-tier-drives-flow/artifacts/rulings/dispatch_25716c64031a31cc45f5e1d1.md",
+    },
+  });
+  assert.match(rendered, /classification:awaiting_ruling/u);
+  assert.match(rendered, /ruling:low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？/u);
+  assert.match(rendered, /options: 1\) 保留 GUI 验收（推荐） 2\) low 档不要求 GUI 验收/u);
+  assert.match(
+    rendered,
+    /artifact: tasks\/task_936005e17712d168d126f3273a-risk-tier-drives-flow\/artifacts\/rulings\//u,
+  );
+  // A row with no ruling renders the field as absent rather than an empty claim.
+  assert.match(renderDispatchRow({ dispatchId: "dispatch-two", status: "succeeded" }), /\truling:-$/u);
+});
+
 test("task dispatch rows render typed decision advisories with options and distribution", () => {
   const rendered = renderDispatchRow({
     dispatchId: "dispatch-one",
