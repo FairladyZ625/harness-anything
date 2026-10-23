@@ -257,16 +257,18 @@ export function scanFleetMirrorWorktree(
     const file = path.join(root, ...logical.split("/")),
       bytes = readFileSync(file),
       base = view.entries.get(logical);
-    // Raw artifacts — a PNG, a PDF, a log with stray bytes — are doc-sync candidates inside a task
-    // package's artifacts subtree. Outside that subtree the edge keeps the canonical-prose scope:
-    // only `.md`/`.txt` documents travel this channel.
+    // Raw artifacts — a PNG, a PDF, a log with stray bytes, a JSON evidence file — are doc-sync
+    // candidates inside a task package's artifacts subtree. Outside that subtree the edge keeps the
+    // canonical-prose scope: only `.md`/`.txt` documents, or bytes the classifier accepts, travel this
+    // channel.
     //
     // Membership and classification both follow the persisted row, exactly as the local scanner
     // judges any dirty path: a row the center wrote under a document policy is an edit of that
     // document, whatever its name or how its bytes read today. `channelMember` and
-    // `effectiveDocCandidateClassification` are that one pair of rules. Only a path with no
-    // persisted document row is judged by today's bytes/name rule, so a stray source file or a
-    // brand-new text-named artifact outside the delivered scope still stays out.
+    // `effectiveDocCandidateClassification` are that one pair of rules. A path with no persisted
+    // document row is judged by the same byte/name verdict the center's scanner uses, so both sides
+    // answer `eligible` or `inapplicable` for identical bytes instead of one side blocking a file the
+    // other accepts.
     const byteVerdict = classifyDocCandidate(logical, bytes),
       persistedPolicyId = base?.policyId ?? null,
       docClass = effectiveDocCandidateClassification(logical, byteVerdict, persistedPolicyId),
@@ -274,7 +276,7 @@ export function scanFleetMirrorWorktree(
     // Membership first, then the unchanged check: an untouched file the channel does not carry is
     // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
     // channel is still reported so callers cannot turn an unsupported edit into `no_changes`.
-    if (!channelMember(logical, byteVerdict, base !== undefined)) {
+    if (!channelMember(byteVerdict, base !== undefined)) {
       if (unchanged || (hasMarkerWithoutBaseline && base)) cleanPaths.push(logical);
       else blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
@@ -448,16 +450,14 @@ export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: str
 }
 /**
  * Whether this edge channel carries a path at all. Any persisted row is a member on its own terms —
- * its bytes today are an edit of that row, not evidence about which channel owns it. Only a path with
- * no persisted row falls back to the delivered bytes/name rule. The policy half lives once in
- * `effectiveDocCandidateClassification`; this adds only the membership question.
+ * its bytes today are an edit of that row, not evidence about which channel owns it. A path with no
+ * persisted row is a member exactly when the shared candidate classifier recognizes it, which is the
+ * same question the center's scanner asks: a `.log`/`.json`/`.csv` dropped into a task package's
+ * `artifacts/` subtree is a candidate on both sides. The classifier lives once in
+ * `classifyDocCandidate`; this adds only the membership question.
  */
-function channelMember(
-  logical: string,
-  byteVerdict: DocCandidateClassification | null,
-  hasPersistedRow: boolean,
-): boolean {
-  return hasPersistedRow || byteVerdict?.kind === "raw-artifact" || logical.endsWith(".md") || logical.endsWith(".txt");
+function channelMember(byteVerdict: DocCandidateClassification | null, hasPersistedRow: boolean): boolean {
+  return hasPersistedRow || byteVerdict !== null;
 }
 
 function materializedPaths(root: string): string[] {
