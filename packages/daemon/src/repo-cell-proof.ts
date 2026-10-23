@@ -18,6 +18,7 @@ import {
   normalizeCommandEnvelope,
   requiredGateWitnessCount,
   runtimeSessionIdFromActor,
+  submissionDigest,
   TASK_LIFECYCLE_TRANSITIONS,
   type ActorIdentity,
   type AuthorizationDecision,
@@ -35,7 +36,7 @@ import { makeGitReadinessSource } from "./process-port.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import { readTaskLineageDispatches, unsettledCutReviewDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -397,6 +398,40 @@ export async function proofFor(
         "human_confirmation_required",
         `Consent on task ${command.taskId} is a person's own confirmation, and node ${command.source.nodeId} ` +
           "holds a device session, which does not prove human confirmation. Confirm through the center's interactive interface.",
+      );
+    // Consent confirms that this cut's reviews concluded: an approved review beside a lane that is
+    // still queued or running is not that confirmation, and the owner would merge on it (task_cffec8b1,
+    // PR #3922). Settlement is the dispatch's own terminal verdict — the same signal `--wait` uses.
+    const consented = snapshot.executions.find((execution) => execution.executionId === command.executionId),
+      pending = consented?.submission
+        ? unsettledCutReviewDispatches({
+            projection,
+            taskId: command.taskId,
+            executionId: command.executionId,
+            submissionDigest: submissionDigest(consented.submission),
+          })
+        : [];
+    if (pending.length > 0)
+      throw cellCriterionError(
+        "review_dispatch_unsettled",
+        `Consent on task ${command.taskId} waits for every review of this cut to conclude; ` +
+          `${String(pending.length)} review dispatch(es) have not settled: ` +
+          `${pending.map((row) => `${row.dispatchId} (${row.status})`).join(", ")}. Wait for them with ` +
+          `ha runtime status --task ${command.taskId} --wait, or cancel each with ` +
+          `ha runtime cancel <runtime-session-id>; then retry ha task review-consent ${command.taskId}.`,
+        "consent",
+        "task-lifecycle-review-transitions/consent.validate",
+        [
+          `ha runtime status --task ${command.taskId} --wait`,
+          ...pending.map((row) => `ha runtime cancel ${row.runtimeSessionId}`),
+        ],
+        {
+          kind: "validation",
+          entity: `task ${command.taskId} execution ${command.executionId}`,
+          field: "reviewDispatches",
+          actual: pending.map((row) => `${row.dispatchId}=${row.status}`).join(", "),
+          expectation: "Every review dispatch bound to this cut reached its terminal verdict",
+        },
       );
     const authorizationDecision = requiredAuthorizationDecision(binding);
     return {

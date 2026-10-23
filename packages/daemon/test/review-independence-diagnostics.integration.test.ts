@@ -1064,22 +1064,24 @@ test("review binding permits independent runtimes but still rejects the executio
       submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, resumedImplementer)),
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward runtime-bound cut.",
-          },
-          operator,
-        )
-      ).outcome,
-      "applied",
+    const forwarded = await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId,
+        forward: true,
+        reviewer: "closeout-reviewer",
+        reason: "Forward runtime-bound cut.",
+      },
+      operator,
     );
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+    // The forward order's own reviewer lane must conclude before the owner can consent to the cut.
+    const forwardDispatch = (forwarded as unknown as { steps?: { runtimeSessionId?: string }[] }).steps?.at(-1);
+    if (forwardDispatch?.runtimeSessionId) {
+      await cell.cancelRuntime({ runtimeSessionId: forwardDispatch.runtimeSessionId }, operator);
+      await cell.awaitRuntimeOutcome(forwardDispatch.runtimeSessionId);
+    }
     const submittedCut = makeTaskEventReader({ repoId: "review-runtime-bound", rootDir })
       .read()
       .events.findLast(
@@ -1155,6 +1157,13 @@ test("review binding permits independent runtimes but still rejects the executio
       arbiter(`runtime-session:${reviewer.runtimeSessionId}`),
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    // The reviewer registers its verdict and then its own process ends. Consent confirms a cut whose
+    // review lanes concluded, so the dispatched lane must settle before the owner is asked for it.
+    assert.equal(
+      String((await cell.cancelRuntime({ runtimeSessionId: reviewer.runtimeSessionId }, operator)).detail),
+      "cancelled",
+    );
+    await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
     const consented = await cell.run({ kind: "task-review-consent", taskId, executionId }, operator);
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, operator);

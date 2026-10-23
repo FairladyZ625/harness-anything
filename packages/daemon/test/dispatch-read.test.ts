@@ -18,9 +18,11 @@ import {
   readTaskDispatchSession,
   taskDispatchesOutcome,
   taskDispatchRowsSettled,
+  unsettledCutReviewDispatches,
 } from "../src/dispatch-read.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import type { TaskProjectionQueries } from "../src/protocol/daemon-protocol.contract.ts";
 import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
 import {
   validTaskDispatchRow,
@@ -789,4 +791,79 @@ test("member dispatch payloads accept one selector and a bounded limit at both b
     { agentId: "", limit: 50 },
   ])
     assert.throws(() => parse(payload), /must be non-empty text|Task dispatch member reads/);
+});
+
+// Consent asks whether this cut's review lanes concluded (task_cffec8b1 / PR #3922), so the read
+// has to pick exactly the reviewer dispatches of one submission digest and call only the live ones
+// unsettled. Cancelled or failed lanes already reached their verdict, and another cut's lane is not
+// this cut's review at all.
+test("cut review settlement selects reviewer dispatches of one submission digest", () => {
+  const digest = `sha256:${"b".repeat(64)}`,
+    otherDigest = `sha256:${"c".repeat(64)}`,
+    dispatch = (id: string, targetDigest: string, role = "reviewer") =>
+      ({
+        schema: "agent-runtime-event/v1",
+        type: "runtime_dispatch_requested",
+        occurredAt: "2026-10-24T00:00:00.000Z",
+        payload: {
+          dispatchId: id,
+          runtimeSessionId: `runtime-${id}`,
+          taskId,
+          executionId: "execution-1",
+          instanceId: "instance-1",
+          agentId: "terra",
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          attemptGroupId: id,
+          attemptIndex: 0,
+          role,
+          reviewTarget: { kind: "task", taskId, executionId: "execution-1", digest: targetDigest },
+        },
+      }) as unknown as Dispatch,
+    events = [
+      dispatch("dispatch-live", digest),
+      dispatch("dispatch-cancelled", digest),
+      dispatch("dispatch-earlier-cut", otherDigest),
+      dispatch("dispatch-implementation", digest, "implementer"),
+    ],
+    sessions = new Map(
+      [
+        ["dispatch-live", session("live", null)],
+        ["dispatch-cancelled", session("exited", "cancelled")],
+        ["dispatch-earlier-cut", session("live", null)],
+        ["dispatch-implementation", session("live", null)],
+      ].map(([id, value]) => [
+        `runtime-${String(id)}`,
+        { ...(value as RuntimeSession), runtimeSessionId: `runtime-${String(id)}` },
+      ]),
+    ),
+    projection = {
+      readRuntimeDispatchesByTaskExecution: () =>
+        events.map((event) => ({ event, metrics: null, endedAt: null, outcome: null })),
+      readRuntimeSession: (id: string) => sessions.get(id) ?? null,
+      readRuntimeDispatch: (id: string) => {
+        const event = events.find((candidate) => candidate.payload.dispatchId === id);
+        return event ? { event } : null;
+      },
+      read: () => ({ snapshot: { task: { taskId } } }),
+      readRuntimeDispatchesBySession: () => [],
+      readRuntimeDispatchesByAttemptGroup: () => [],
+      readRuntimeDispatchByResumeSource: () => null,
+      readRuntimeSessionEvents: () => [],
+      readDocument: () => ({ document: null }),
+      readEventWitness: () => null,
+      readCanonicalEvents: () => ({ events: [] }),
+      readTaskRelationsBySources: () => ({ rows: [] }),
+      readLeaseIntervals: () => [],
+    } as unknown as TaskProjectionQueries;
+  const unsettled = unsettledCutReviewDispatches({
+    projection,
+    taskId,
+    executionId: "execution-1",
+    submissionDigest: digest,
+  });
+  assert.deepEqual(
+    unsettled.map((row) => [row.dispatchId, row.status]),
+    [["dispatch-live", "running"]],
+    "only the live reviewer of this digest is unsettled",
+  );
 });

@@ -93,6 +93,16 @@ the `settings.review-*` configuration and `task-completion-review.ts`;
 `ha task review-consent` then pins consent to the same review and submission
 digests via `review-consent/v1`.
 
+Consent confirms that every review of this cut concluded, not that an approved
+verdict exists. While any review dispatch on the current cut is still unsettled
+(running or queued), consent rejects as `review_dispatch_unsettled`, names each
+dispatch and its status, and offers two next steps:
+`ha runtime status --task <task-id> --wait` to let it conclude, or
+`ha runtime cancel <runtime-session-id>` to cancel it. Both are settlement;
+retrying consent afterwards applies. A cancelled, failed, or stopped lane has
+already reached its terminal verdict, so cancelling never turns this into a
+deadlock.
+
 For a legacy task without Executions, the review surface is the package's
 `review.md`. The lint parses its findings table into structured entries — each
 with a severity (`P0`–`P3`), an `open` flag, and a `blocksRelease` flag; any
