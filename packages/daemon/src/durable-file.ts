@@ -33,6 +33,11 @@ export function syncFile(file: string): void {
 }
 
 export function writeFileDurably(file: string, body: string | Uint8Array, mode?: number): void {
+  writeFileDurablyFrom(file, (descriptor) => writeFileSync(descriptor, body), mode);
+}
+
+/** Publish incrementally-produced bytes with the same atomic replacement as a complete body. */
+export function writeFileDurablyFrom(file: string, write: (descriptor: number) => void, mode?: number): void {
   const directory = path.dirname(file);
   mkdirSync(directory, { recursive: true });
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
@@ -43,7 +48,7 @@ export function writeFileDurably(file: string, body: string | Uint8Array, mode?:
   // surviving 7h46m under a fleet edge .staging/ after its writer was killed).
   try {
     try {
-      writeFileSync(descriptor, body);
+      write(descriptor);
       fsyncSync(descriptor);
     } finally {
       closeSync(descriptor);
@@ -67,6 +72,16 @@ export function readFileWindow(file: string, offset: number, length: number): Bu
     const window = Buffer.alloc(length);
     const read = readSync(descriptor, window, 0, length, offset);
     return read === length ? window : window.subarray(0, read);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/** Run a bounded synchronous reader while the shared file port owns the read-only handle. */
+export function withReadOnlyFile<Value>(file: string, read: (descriptor: number) => Value): Value {
+  const descriptor = openSync(file, "r");
+  try {
+    return read(descriptor);
   } finally {
     closeSync(descriptor);
   }

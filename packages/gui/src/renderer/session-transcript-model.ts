@@ -29,6 +29,15 @@ type MutableTurn = {
   items: SessionTranscriptItem[];
 };
 
+type PendingCompactedSegment = {
+  readonly turn: MutableTurn;
+  readonly key: string;
+  readonly start: number;
+  readonly end: number;
+  readonly append: boolean;
+  readonly at: string | null;
+};
+
 const DETAIL_LIMIT = 8_000;
 
 /** Persisted provider events from all three runtime adapters become one chronological turn timeline. */
@@ -38,7 +47,8 @@ export function sessionTranscriptTurns(
   const turns: MutableTurn[] = [],
     byKey = new Map<string, MutableTurn>(),
     toolTurns = new Map<string, { readonly turn: MutableTurn; readonly label: string }>(),
-    codexTools = new Map<string, { readonly turn: MutableTurn; readonly label: string }>();
+    codexTools = new Map<string, { readonly turn: MutableTurn; readonly label: string }>(),
+    compactedSegments = new Map<string, PendingCompactedSegment[]>();
   let current: MutableTurn | null = null,
     codexIndex = 0,
     itemIndex = 0;
@@ -84,8 +94,53 @@ export function sessionTranscriptTurns(
       });
     };
 
+  const addCompactedSegment = (
+      target: MutableTurn,
+      type: "text" | "thinking",
+      metadata: Readonly<Record<string, unknown>>,
+      at: string | null,
+    ) => {
+      const id = stringOf(metadata.id),
+        start = numberOf(metadata.start),
+        end = numberOf(metadata.end);
+      if (!id || start === null || end === null || end < start) return;
+      const prior = target.items.at(-1),
+        append = prior !== undefined && prior.type === type;
+      let key: string;
+      if (append && prior) key = prior.key;
+      else {
+        key = target.key + ":" + itemIndex++;
+        target.items.push({ key, type, label: type, summary: "", detail: "", occurredAt: at });
+      }
+      const pending = compactedSegments.get(id) ?? [];
+      pending.push({ turn: target, key, start, end, append, at });
+      compactedSegments.set(id, pending);
+    },
+    fillCompactedSegments = (id: string | null, completeText: string) => {
+      if (!id) return;
+      const pending = compactedSegments.get(id);
+      if (!pending) return;
+      compactedSegments.delete(id);
+      for (const segment of pending) {
+        const index = segment.turn.items.findIndex((item) => item.key === segment.key),
+          prior = index === -1 ? null : segment.turn.items[index];
+        if (!prior) continue;
+        const content = completeText.slice(segment.start, segment.end),
+          combined = clip(segment.append ? prior.detail + content : content, DETAIL_LIMIT);
+        segment.turn.items[index] = {
+          ...prior,
+          summary: summaryOf(combined),
+          detail: combined,
+          occurredAt: segment.at ?? prior.occurredAt,
+        };
+      }
+    };
+
   for (const record of records) {
-    const at = stringOf(record.occurredAt) ?? stringOf(record.at);
+    const at = stringOf(record.occurredAt) ?? stringOf(record.at),
+      replayAt = stringOf(record.transcriptReplayAt) ?? at,
+      segmentMetadata = recordOf(record.transcriptCompactionSegment),
+      segmentType = stringOf(segmentMetadata?.type);
     if (record.kind === "provider_event") {
       const event = recordOf(record.event);
       if (!event) continue;
@@ -168,9 +223,15 @@ export function sessionTranscriptTurns(
         const payload = recordOf(event.payload),
           kind = stringOf(payload?.kind),
           delta = stringOf(payload?.delta) ?? "";
-        if (kind === "reasoning_delta") add(current, "thinking", "thinking", delta, at, true);
-        else if (kind === "text_delta") add(current, "text", "text", delta, at, true);
-        else if (kind === "tool_call" && payload) {
+        if (kind === "reasoning_delta") {
+          if (segmentMetadata && segmentType === "thinking")
+            addCompactedSegment(current, "thinking", segmentMetadata, replayAt);
+          else add(current, "thinking", "thinking", delta, replayAt, true);
+        } else if (kind === "text_delta") {
+          if (segmentMetadata && segmentType === "text")
+            addCompactedSegment(current, "text", segmentMetadata, replayAt);
+          else add(current, "text", "text", delta, replayAt, true);
+        } else if (kind === "tool_call" && payload) {
           const toolId = stringOf(payload.toolCallId),
             label = stringOf(payload.toolName) ?? "tool";
           add(current, "tool_call", label, contentOf(payload.input ?? payload), at, false, toolId ?? undefined);
@@ -201,14 +262,10 @@ export function sessionTranscriptTurns(
         const kind = stringOf(update.sessionUpdate);
         if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
           const content = recordOf(update.content);
-          add(
-            current,
-            kind === "agent_thought_chunk" ? "thinking" : "text",
-            kind === "agent_thought_chunk" ? "thinking" : "text",
-            stringOf(content?.text) ?? "",
-            at,
-            true,
-          );
+          const itemType = kind === "agent_thought_chunk" ? "thinking" : "text";
+          if (segmentMetadata && segmentType === itemType)
+            addCompactedSegment(current, itemType, segmentMetadata, replayAt);
+          else add(current, itemType, itemType, stringOf(content?.text) ?? "", replayAt, true);
         } else if (kind === "tool_call") {
           const toolId = stringOf(update.toolCallId),
             label = stringOf(update.title) ?? "tool";
@@ -236,6 +293,7 @@ export function sessionTranscriptTurns(
       if (type === "acp.result") {
         const sessionId = stringOf(event.sessionId) ?? "1",
           finalText = stringOf(event.finalText) ?? "";
+        fillCompactedSegments(stringOf(recordOf(record.transcriptCompactionResult)?.id), finalText);
         current ??= turn(`acp:${sessionId}`, at);
         const lastTextIndex = current.items.map((item) => item.type).lastIndexOf("text"),
           lastText = lastTextIndex === -1 ? null : current.items[lastTextIndex];
@@ -265,6 +323,7 @@ export function sessionTranscriptTurns(
         const response = stringOf(event.response),
           result = stringOf(event.result) ?? response,
           prior = current.items.at(-1);
+        fillCompactedSegments(stringOf(recordOf(record.transcriptCompactionResult)?.id), response ?? result ?? "");
         if (response && prior?.type === "text" && prior.label === "text")
           current.items[current.items.length - 1] = {
             ...prior,

@@ -8,7 +8,6 @@ import {
   readSync,
   readdirSync,
   readFileSync,
-  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -29,6 +28,8 @@ import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 import { writeFileDurably } from "./durable-file.ts";
 import { scrubProviderValue } from "./secret-scrub.ts";
 import { isFallbackProvider } from "./dispatch-stream-value.ts";
+
+export { archiveDispatchStream } from "./dispatch-stream-archive.ts";
 
 export { scrubProviderValue } from "./secret-scrub.ts";
 
@@ -93,6 +94,7 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly fast?: boolean;
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;
+  readonly transcriptCompactionVersion?: 1;
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
@@ -277,15 +279,6 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
     removeDispatchLiveIndexEntries(rootDir, [
       { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
     ]);
-}
-
-/** Move a terminal stream out of the directory enumerated by live-runtime reads. */
-export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
-  const live = liveDispatchStreamPath(rootDir, dispatchId);
-  if (!statSync(live, { throwIfNoEntry: false })?.isFile()) return;
-  const archived = archivedDispatchStreamPath(rootDir, dispatchId);
-  mkdirSync(path.dirname(archived), { recursive: true, mode: 0o700 });
-  renameSync(live, archived);
 }
 
 export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {

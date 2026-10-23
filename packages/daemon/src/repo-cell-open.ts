@@ -33,6 +33,7 @@ import {
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import { scheduleArchivedDispatchStreamCompaction } from "./dispatch-stream-archive.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -822,6 +823,7 @@ export async function openRepoWriterCell(
   await runtimeSpawner.adopt((completed) =>
     input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
   );
+  scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
   schedule(() =>

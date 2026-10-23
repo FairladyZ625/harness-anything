@@ -1,11 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { syncFile, writeFileDurably } from "../src/durable-file.ts";
+import { syncFile, writeFileDurably, writeFileDurablyFrom } from "../src/durable-file.ts";
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 
@@ -27,6 +27,23 @@ test("a durable write lands the whole body and leaves no temporary behind", (t) 
   assert.equal(readFileSync(target, "utf8"), '{"revision":2}\n');
   assert.deepEqual(readdirSync(path.dirname(target)), ["state.json"]);
   if (process.platform !== "win32") assert.equal(statSync(target).mode & 0o777, 0o600);
+});
+
+test("an interrupted incremental durable write leaves the original target intact", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, "archive.jsonl");
+  writeFileSync(target, "original archive\n");
+  assert.throws(
+    () =>
+      writeFileDurablyFrom(target, (descriptor) => {
+        writeSync(descriptor, "partial replacement\n");
+        throw new Error("simulated interruption before publish");
+      }),
+    /simulated interruption/u,
+  );
+  assert.equal(readFileSync(target, "utf8"), "original archive\n");
+  assert.deepEqual(readdirSync(root), ["archive.jsonl"]);
 });
 
 // The temporary is named after this process, so nothing else will ever reclaim it: a write
