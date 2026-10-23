@@ -16,6 +16,8 @@ import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
 import {
+  copyLayout,
+  copyRepoId,
   copyTreeArgs,
   copyTreeMethod,
   cliInvocation,
@@ -89,14 +91,14 @@ function git(root, ...args) {
 /** A miniature stand-in for the canonical workspace: an authored harness/ git repository of its
  *  own (that is the canonical shape) plus a real generation-3 ledger seeded through the
  *  production store, holding one settings event. */
-function createSourceFixture(parent) {
+function createSourceFixture(parent, localRoot = ".harness") {
   const root = path.join(parent, "source"),
     harness = path.join(root, "harness");
   mkdirSync(harness, { recursive: true });
   // Committed before the snapshot so the harness/ git local clone (committed state only) carries it.
   writeFileSync(
     path.join(harness, "harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    `schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: ${localRoot}\n`,
     "utf8",
   );
   git(harness, "init", "--quiet");
@@ -106,10 +108,32 @@ function createSourceFixture(parent) {
   git(harness, "commit", "--quiet", "-m", "fixture");
   seedSettingsEvent({ repoId: "canonical", rootDir: root });
   // An (empty) cache database so the cache-clone snapshot step is exercised end to end.
-  mkdirSync(path.join(root, ".harness", "cache"), { recursive: true });
-  writeFileSync(path.join(root, ".harness", "cache", "task.sqlite"), "", "utf8");
+  mkdirSync(path.join(root, ...localRoot.split("/"), "cache"), { recursive: true });
+  writeFileSync(path.join(root, ...localRoot.split("/"), "cache", "task.sqlite"), "", "utf8");
   return root;
 }
+
+test("copy layout: the source harness.yaml decides the local root, not a default literal", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-layout-"));
+  try {
+    const defaultRoot = createSourceFixture(path.join(parent, "default"));
+    assert.equal(copyLayout(defaultRoot).localRootRelative, ".harness");
+    const renamedParent = path.join(parent, "renamed");
+    mkdirSync(renamedParent, { recursive: true });
+    const renamedRoot = createSourceFixture(renamedParent, ".harness.nosync");
+    const renamed = copyLayout(renamedRoot);
+    assert.equal(renamed.localRootRelative, ".harness.nosync");
+    assert.equal(renamed.localRoot, path.join(renamedRoot, ".harness.nosync"));
+    assert.equal(renamed.configRelative, "harness/harness.yaml");
+    assert.equal(copyLayout(path.join(renamedRoot, "harness")).localRootRelative, ".harness.nosync");
+    assert.throws(() => copyLayout(path.join(parent, "elsewhere")), /no harness\.yaml found/u);
+    assert.equal(copyRepoId(defaultRoot).repoId, "canonical");
+    assert.ok(copyRepoId(defaultRoot).certificate.includes(".harness/store/generations/3/"));
+    assert.match(copyRepoId(defaultRoot).certificate, /ledger\.sqlite\.activation\.json$/u);
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
 
 function runCommand(args) {
   return spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: repoRoot, timeout: 300_000 });
