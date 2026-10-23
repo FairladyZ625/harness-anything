@@ -294,6 +294,7 @@ export {
   applyAttachMigrations,
   makeTaskEventStore,
   makeTaskProjection,
+  ProjectionIdentityMismatchError,
   openSqliteEventStore,
   openReplicaStore,
   replicationContentClaims,

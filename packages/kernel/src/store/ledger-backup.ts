@@ -195,7 +195,7 @@ export function readOfflineLedgerEvents(input: {
   const generation = input.generation ?? resolveActiveGeneration({ rootInput: input.rootInput }),
     databasePath = sqliteLedgerPath(input.rootInput, generation),
     events = fileSystem.exists(databasePath)
-      ? readSqliteEvents(databasePath)
+      ? readSqliteEvents({ rootInput: input.rootInput, databasePath })
       : readStoppedLegacyGeneration({ rootInput: input.rootInput }).eventEntries.map(({ bytes }) =>
           parseCanonicalEvent(bytes),
         );
@@ -391,10 +391,14 @@ function inspectSqlite(databasePath: string): {
   }
 }
 
-function readSqliteEvents(databasePath: string): readonly unknown[] {
+function readSqliteEvents(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly databasePath: string;
+}): readonly unknown[] {
   const store = openSqliteEventStore({
-    databasePath,
-    generation: Number(path.basename(path.dirname(databasePath))),
+    rootInput: input.rootInput,
+    databasePath: input.databasePath,
+    generation: Number(path.basename(path.dirname(input.databasePath))),
     readOnly: true,
   });
   try {

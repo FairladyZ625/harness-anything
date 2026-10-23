@@ -63,7 +63,11 @@ export type {
   MaterializationState,
   PublicationFile,
 } from "../store/task-event-store.ts";
-export { makeTaskProjection, makeTaskProjectionReader } from "../projection/rebuildable-task-projection.ts";
+export {
+  makeTaskProjection,
+  makeTaskProjectionReader,
+  ProjectionIdentityMismatchError,
+} from "../projection/rebuildable-task-projection.ts";
 export type {
   ProjectionPage,
   ReplicaProjectionBasis,

@@ -26,6 +26,7 @@ import {
   makeTaskProjection,
   readDaemonRegistry,
   restoreLedgerBackup,
+  sqliteLedgerPath,
   taskLifecycleWritePlan,
 } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
@@ -1010,12 +1011,64 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
     assert.equal(unavailable.causeClass, "data-shape", JSON.stringify(unavailable));
     assert.match(
       String(unavailable.lastError),
-      /generation 3 ledger revision precedes its persisted projection: revisions 2-5 are missing/u,
+      /projection cache through revision 5 cannot be discarded: event stream head is 1 and revisions 2-5 are not continuously readable/u,
     );
     const rebuild = await host.run("ahead-projection", { kind: "projection-rebuild" }, auth);
     assert.equal(rebuild.code, "repo_unavailable");
     assert.deepEqual(rebuild.diagnostic, { kind: "failure", code: "repo_unavailable" });
     assert.deepEqual(readFileSync(projection.path), retained);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon attach heals a same-revision cache that pins another ledger's digest", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-identity-rebuild-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user");
+  rosterRepo(rootDir, "identity-rebuild");
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId: "identity-rebuild", userRoot, createConvenienceLinks: false });
+  const cache = path.join(rootDir, ".harness/cache/task.sqlite"),
+    cacheStore = makeTaskEventStore({ repoId: "identity-rebuild", rootDir, mutable: false }),
+    scan = makeTaskProjection({ rootDir, eventStore: cacheStore });
+  try {
+    scan.catchUp?.();
+  } finally {
+    scan.close();
+    await cacheStore.drain();
+  }
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    ledger = new DatabaseSync(databasePath, { readOnly: true }),
+    head = ledger.prepare("SELECT digest FROM event WHERE revision=1").get() as { readonly digest: string };
+  ledger.close();
+  const pinned = new DatabaseSync(cache, { readOnly: true }),
+    scanned = pinned.prepare("SELECT scanned_revision, head_digest FROM projection_meta WHERE singleton=1").get() as {
+      readonly scanned_revision: number;
+      readonly head_digest: string;
+    };
+  pinned.close();
+  assert.equal(scanned.scanned_revision, 1);
+  assert.equal(scanned.head_digest, head.digest);
+  // A restored snapshot produces a cache that pins another history's digest at the ledger's own
+  // revision. The attach must not refuse this discardable shape: it rebuilds the cache and the
+  // repair command named by the mismatch message stays reachable.
+  const foreign = new DatabaseSync(cache);
+  foreign.prepare("UPDATE projection_meta SET head_digest=? WHERE singleton=1").run(`sha256:${"aa".repeat(32)}`);
+  foreign.close();
+  const host = await openSignedInHost({ daemonId: "identity-rebuild", userRoot });
+  await host.attachmentsSettled();
+  try {
+    const attached = host.status().repos.find((repo) => repo.repoId === "identity-rebuild")!;
+    assert.equal(attached.state, "attached", JSON.stringify(attached));
+    const healed = new DatabaseSync(cache, { readOnly: true }),
+      rePinned = healed.prepare("SELECT head_digest FROM projection_meta WHERE singleton=1").get() as {
+        readonly head_digest: string;
+      };
+    healed.close();
+    assert.equal(rePinned.head_digest, head.digest);
+    const rebuild = await host.run("identity-rebuild", { kind: "projection-rebuild" }, auth);
+    assert.equal(rebuild.outcome, "applied", JSON.stringify(rebuild));
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

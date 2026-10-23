@@ -17,4 +17,4 @@ export {
   makeTaskProjection,
   makeTaskProjectionReader,
 } from "./rebuildable-task-projection-factory.ts";
-export { closeTaskProjectionsUnder } from "./rebuildable-task-projection-database.ts";
+export { ProjectionIdentityMismatchError, closeTaskProjectionsUnder } from "./rebuildable-task-projection-database.ts";
