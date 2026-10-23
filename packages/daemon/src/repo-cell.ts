@@ -132,6 +132,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     installLedgerCommitGuard(ledgerRoot);
   }
   let openProgressSequence = 0;
+  context.input.onOpenProgress?.({
+    phase: "recovering",
+    applied: null,
+    total: null,
+    watermark: null,
+  });
   const store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,
@@ -154,17 +160,23 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     withAppendFence: (operation) =>
       context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
   });
+  const migrationProgressOffset = openProgressSequence;
   try {
     // Historical shape upgrades are accepted through the same fenced writer as every other
     // canonical event. Projection opening is deliberately after this step so a cold rebuild
     // never observes an unregistered retired field.
-    if (context.mode !== "remote-edge") applyAttachMigrations({ store, now: context.now });
-    context.input.onOpenProgress?.({
-      phase: "recovering",
-      applied: null,
-      total: null,
-      watermark: null,
-    });
+    if (context.mode !== "remote-edge")
+      applyAttachMigrations({
+        store,
+        now: context.now,
+        onProgress: (progress) =>
+          context.input.onOpenProgress?.({
+            phase: "recovering",
+            applied: migrationProgressOffset + progress.applied,
+            total: migrationProgressOffset + progress.total,
+            watermark: null,
+          }),
+      });
     let recovery: RepoCellCore["recovery"] = { status: "none", elapsedMs: 0 };
     projection = makeTaskProjection({
       rootDir: context.rootDir,
