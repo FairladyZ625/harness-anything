@@ -36,7 +36,8 @@
       "./internal/domain/workspace-summary": "./dist/domain/workspace-summary.js",
       "./internal/error-consumption": "./dist/error-consumption.js",
       "./internal/integrity/stable-hash": "./dist/integrity/stable-hash.js",
-      "./internal/projection/cold-rebuild-source": "./dist/projection/cold-rebuild-source.js"
+      "./internal/projection/cold-rebuild-source": "./dist/projection/cold-rebuild-source.js",
+      "./internal/projection/historical-event-normalization": "./dist/projection/historical-event-normalization.js"
     }
   },
   "engines": { "node": ">=24" },
@@ -77,7 +78,8 @@
     "./internal/domain/workspace-summary": "./src/domain/workspace-summary.ts",
     "./internal/error-consumption": "./src/error-consumption.ts",
     "./internal/integrity/stable-hash": "./src/integrity/stable-hash.ts",
-    "./internal/projection/cold-rebuild-source": "./src/projection/cold-rebuild-source.ts"
+    "./internal/projection/cold-rebuild-source": "./src/projection/cold-rebuild-source.ts",
+    "./internal/projection/historical-event-normalization": "./src/projection/historical-event-normalization.ts"
   },
   "dependencies": {
     "ajv": "6.15.0",

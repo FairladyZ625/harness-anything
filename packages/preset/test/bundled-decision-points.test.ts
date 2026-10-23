@@ -7,9 +7,9 @@ import test from "node:test";
 import {
   decisionPointBindingDigest,
   decisionWhenMatches,
-  normalizeHistoricalPresetSnapshot,
   type DecisionPointDeclaration,
 } from "@harness-anything/kernel";
+import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/projection/historical-event-normalization";
 import { validatePresetSnapshotV1, type PresetSnapshotV1 } from "../src/preset.contract.ts";
 import { loadCanonicalAssets } from "../src/preset-assets.ts";
 import { createCanonicalPresetResolver } from "../src/preset-resolver.ts";
