@@ -202,6 +202,7 @@ test("task create publishes complete metadata and first-class relations survive 
       parentTaskId: "task_dependency",
       workKind: "feat",
       riskTier: "high",
+      riskTierFlowVersion: 1,
       urgency: "medium",
       verticalId: "software/coding",
       presetId: "standard-task",
@@ -211,6 +212,9 @@ test("task create publishes complete metadata and first-class relations survive 
       surfaces: ["ha task create", "packages/kernel"],
       fromLegacyId: null,
     });
+    const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", { taskId: "task_surface" }, binding);
+    assert.equal(runtimeContext.schema, "task-runtime-context-read/v3");
+    assert.equal(runtimeContext.riskTierFlowVersion, 1);
     assert.equal("relations" in event.payload.task, false);
     const related = await cell.run(
       {

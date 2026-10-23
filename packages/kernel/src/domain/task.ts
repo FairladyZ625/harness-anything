@@ -68,6 +68,8 @@ export interface TaskMetadataV1 {
   readonly parentTaskId: string | null;
   readonly workKind: "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | null;
   readonly riskTier: "low" | "medium" | "high" | null;
+  /** Present on tasks created under tier-governed mission rules; absent on frozen legacy tasks. */
+  readonly riskTierFlowVersion?: 1;
   readonly urgency: "low" | "medium" | "high" | null;
   readonly verticalId: string;
   readonly presetId: string;
@@ -249,6 +251,7 @@ const taskMetadataFields = [
   "parentTaskId",
   "workKind",
   "riskTier",
+  "riskTierFlowVersion",
   "urgency",
   "verticalId",
   "presetId",
@@ -280,6 +283,7 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
       value.workKind === null || ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))
     ) && "workKind",
     !(value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) && "riskTier",
+    value.riskTierFlowVersion !== undefined && value.riskTierFlowVersion !== 1 && "riskTierFlowVersion",
     !(value.urgency === null || ["low", "medium", "high"].includes(String(value.urgency))) && "urgency",
     !isNonEmptyString(value.verticalId) && "verticalId",
     !isNonEmptyString(value.presetId) && "presetId",

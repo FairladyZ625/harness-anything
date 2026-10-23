@@ -4,11 +4,12 @@ import type { TaskWorkspaceView } from "./daemon-protocol-gui-types.ts";
 import type { RuntimeContinuationSeed } from "../runtime-continuation-context.ts";
 
 export type DaemonTaskRuntimeContextResult = {
-  readonly schema: "task-runtime-context-read/v2";
+  readonly schema: "task-runtime-context-read/v3";
   readonly ok: true;
   readonly taskId: string;
   readonly causalContext: string | null;
   readonly riskTier: "low" | "medium" | "high" | null;
+  readonly riskTierFlowVersion: 1 | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: RuntimeContinuationSeed | null;

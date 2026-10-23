@@ -13,11 +13,12 @@ export function readTaskRuntimeContext(
     task = read.snapshot.task;
   const executionIds = read.snapshot.executions.map(({ executionId }) => executionId);
   return {
-    schema: "task-runtime-context-read/v2" as const,
+    schema: "task-runtime-context-read/v3" as const,
     ok: true as const,
     taskId,
     causalContext: assembleTaskCausalContext({ projection: projection, taskId }),
     riskTier: task?.metadata?.riskTier ?? null,
+    riskTierFlowVersion: task?.metadata?.riskTierFlowVersion ?? null,
     profileId: task?.metadata?.profileId ?? null,
     worktree: openTaskWorktreeBinding(task, presetSnapshotReader(projection)),
     continuationContext: latestRuntimeContinuationSeed(projection, taskId, executionIds),

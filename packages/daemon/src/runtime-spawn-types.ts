@@ -286,6 +286,8 @@ export interface RemoteRuntimePersistence {
     readonly planBody: string | null;
     /** The task's frozen risk tier selects its worker mission flow. */
     readonly riskTier: TaskMetadataV1["riskTier"];
+    /** Null for historical tasks using their creation-time profile mission rule. */
+    readonly riskTierFlowVersion: TaskMetadataV1["riskTierFlowVersion"] | null;
     /** The task's frozen profile id from the center's serving cut; it identifies preset materialization. */
     readonly profileId: string | null;
     readonly taskClass: string;

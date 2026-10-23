@@ -499,9 +499,10 @@ test(
         continuationContext: context.continuationContext,
       },
       {
-        schema: "task-runtime-context-read/v2",
+        schema: "task-runtime-context-read/v3",
         taskId,
         riskTier: "medium",
+        riskTierFlowVersion: null,
         worktree: { branch: taskId, path: `.worktrees/${taskId}` },
         continuationContext: null,
       },

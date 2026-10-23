@@ -3,6 +3,7 @@ import {
   sessionProvenance,
   taskBootstrapWritePlan,
   type WriteReceiptDraft as WriteReceipt,
+  type TaskMetadataV1,
 } from "@harness-anything/kernel";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "@harness-anything/preset";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
@@ -298,6 +299,12 @@ export function prepareTaskCreateAt(
         ...baseCompiled.event.payload,
         task: {
           ...baseCompiled.event.payload.task,
+          metadata: {
+            ...(baseCompiled.event.payload.task.metadata as TaskMetadataV1),
+            ...(!["migration", "import"].includes(String(canonicalAction.createMode ?? ""))
+              ? { riskTierFlowVersion: 1 as const }
+              : {}),
+          },
           provenance: [sessionProvenance(resolveWriteSessionIdentity(binding, cell.projection), occurredAt)],
         },
       },

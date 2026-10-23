@@ -157,17 +157,50 @@ test("an injected causal block sits between the protocol and the caller text", (
 });
 
 test("low-risk tasks carry the guidance but never the Living Deliverable Protocol", () => {
-  const mission = explicitPromptMission("task_x", null, "Finish the small change.", "low");
+  const mission = explicitPromptMission(
+    "task_x",
+    null,
+    "Finish the small change.",
+    "low",
+    "standard",
+    null,
+    false,
+    null,
+    "baseline",
+    1,
+  );
   assert.match(mission, /# 台账查询引导/u, "the lookup guidance still rides a lightweight mission");
   assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
   assert.doesNotMatch(mission, /explainer\.html/u);
   assert.ok(mission.endsWith("Finish the small change."), "explicit caller text stays intact");
-  assert.equal(livingDeliverableProtocol("low"), null, "low risk owes no explainer page");
+  assert.equal(livingDeliverableProtocol("low", undefined, "baseline", 1), null, "low risk owes no explainer page");
 });
 
 test("the mission protocol follows risk tier when a low task keeps a full preset profile", () => {
-  const low = explicitPromptMission("task_x", null, "Do the docs change.", "low"),
-    medium = explicitPromptMission("task_y", null, "Implement the feature.", "medium");
+  const low = explicitPromptMission(
+      "task_x",
+      null,
+      "Do the docs change.",
+      "low",
+      "standard",
+      null,
+      false,
+      null,
+      "baseline",
+      1,
+    ),
+    medium = explicitPromptMission(
+      "task_y",
+      null,
+      "Implement the feature.",
+      "medium",
+      "standard",
+      null,
+      false,
+      null,
+      "baseline",
+      1,
+    );
   assert.doesNotMatch(low, /# Living Deliverable Protocol/u);
   assert.match(medium, /# Living Deliverable Protocol/u);
 });
@@ -177,6 +210,45 @@ test("a task with no profile metadata still gets the protocol", () => {
   assert.notEqual(livingDeliverableProtocol(null), null);
   assert.notEqual(livingDeliverableProtocol(undefined), null);
   assert.match(explicitPromptMission("task_x", null, "Go."), /# Living Deliverable Protocol/u);
+});
+
+test("a real pre-tier lightweight task keeps its frozen mission behavior", () => {
+  // task_f1f0d5e6fd1ea3009373964a69 was bootstrapped at revision 103330 with profileId=lightweight,
+  // riskTier absent, and no explainer.html claim. Reconstruct those persisted fields through the
+  // worker mission path so a later daemon build cannot add a document obligation to that task.
+  const mission = explicitPromptMission(
+    "task_f1f0d5e6fd1ea3009373964a69",
+    null,
+    "Continue the task.",
+    null,
+    "standard",
+    null,
+    false,
+    null,
+    "lightweight",
+    null,
+  );
+  assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
+  assert.doesNotMatch(mission, /explainer\.html/u);
+});
+
+test("a real historical low-tier baseline task keeps its profile-based mission behavior", () => {
+  // The live task projection for task_628011248271aabd80eff26b06 records profileId=baseline and
+  // riskTier=low. It predates the risk-tier mission switch, so its frozen profile contract still
+  // requires the living deliverable protocol.
+  const mission = explicitPromptMission(
+    "task_628011248271aabd80eff26b06",
+    null,
+    "Continue the task.",
+    "low",
+    "standard",
+    null,
+    false,
+    null,
+    "baseline",
+    null,
+  );
+  assert.match(mission, /# Living Deliverable Protocol/u);
 });
 
 test("unbound prompts pass through without guidance or Living Deliverable Protocol", () => {
