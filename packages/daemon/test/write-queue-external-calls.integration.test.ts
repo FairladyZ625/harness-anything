@@ -84,7 +84,15 @@ test(
           "## Verification\n\nThe isolated integration test verifies submit latency and event identity.\n\n" +
           "## Residual Risk\n\nNone.\n\n" +
           "## Same Mechanism Elsewhere\n\nGitHub observations remain an independent write path.\n";
-      writeFileSync(path.join(rootDir, "harness", closeoutPath), closeout("Initial delivery."));
+      const writeCloseout = (claim: string) => {
+        const body = closeout(claim);
+        for (const root of [rootDir, deliveryRoot]) {
+          const file = path.join(root, "harness", closeoutPath);
+          mkdirSync(path.dirname(file), { recursive: true });
+          writeFileSync(file, body);
+        }
+      };
+      writeCloseout("Initial delivery.");
       assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
 
       const startedAt = performance.now(),
@@ -108,7 +116,7 @@ test(
       assert.equal(events()[0]?.payload.execution.submission?.commitSha, commitSha);
       assert.equal(existsSync(invoked), false, "a submit retry must not invoke gh");
 
-      writeFileSync(path.join(rootDir, "harness", closeoutPath), closeout("Changed delivery."));
+      writeCloseout("Changed delivery.");
       const changed = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
       assert.equal(changed.outcome, "op_rejected", JSON.stringify(changed));
       assert.equal(changed.code, "invalid_transition", JSON.stringify(changed));

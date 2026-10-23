@@ -140,13 +140,12 @@ test("task submit lands without owner recovery after a worker hand-edits progres
     };
     assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
     await waitForWorktree(cell, { opId: String(artifactSync.opId) }, person);
-    write(
-      rootDir,
-      `${packagePath}/closeout.md`,
+    const closeoutBody =
       `# Closeout\n\n## Summary\n\nDelivered artifact:${deliveryNote}@${artifactSync.revision}\n\n` +
-        "## Verification\n\nIntegration assertions exercise the submit path.\n\n" +
-        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
-    );
+      "## Verification\n\nIntegration assertions exercise the submit path.\n\n" +
+      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n";
+    for (const root of [rootDir, path.join(rootDir, ".worktrees", taskId)])
+      write(root, `${packagePath}/closeout.md`, closeoutBody);
     assert.equal(
       (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, person)).outcome,
       "applied",

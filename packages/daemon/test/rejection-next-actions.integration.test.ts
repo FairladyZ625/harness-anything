@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -20,13 +20,19 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { commitDelivery } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-function writeCloseout(rootDir: string, packagePath: unknown): void {
-  writeFileSync(
-    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
-    `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
+function writeCloseout(rootDir: string, taskId: string, packagePath: unknown): void {
+  const body =
+      `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
       "## Verification\n\nIntegration assertions exercise the lifecycle refusals.\n\n" +
       "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared lifecycle authorization.\n",
-  );
+    packageRoot = String(packagePath),
+    worktree = path.join(rootDir, ".worktrees", taskId),
+    roots = [rootDir, ...(existsSync(path.join(worktree, "harness", packageRoot)) ? [worktree] : [])];
+  for (const root of roots) {
+    const closeout = path.join(root, "harness", packageRoot, "closeout.md");
+    mkdirSync(path.dirname(closeout), { recursive: true });
+    writeFileSync(closeout, body);
+  }
 }
 
 function writeReviewReport(rootDir: string, packagePath: unknown, reviewId: string, body?: string): string {
@@ -61,7 +67,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.deepEqual(rejectedTransition.nextActions, [
       `ha task start ${taskId} [--stack-on <stack-on>] [--execution-id <execution-id>] [--ttl-ms <ttl-ms>] [--dry-run]`,
     ]);
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     const withoutLease = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     assert.equal(withoutLease.code, "lease_required", JSON.stringify(withoutLease));
     assert.deepEqual(
@@ -69,6 +75,19 @@ test("submit lease refusals name the state-specific command that advances the ex
       ["repo-cell-proof/proofFor.SubmitExecution"],
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "doc-submit",
+            paths: [`${String((created as Record<string, unknown>).packagePath)}/closeout.md`],
+          },
+          holder,
+        )
+      ).outcome,
+      "applied",
+    );
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
@@ -238,7 +257,7 @@ test("executor declaration rejection names its eligibility rule and review comma
       cell!.run({ kind: "doc-submit", paths: [planPath] }, worker),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, worker)).outcome, "applied");
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, worker)).outcome, "applied");
     const rejected = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, agent: "assigned-worker", reason: "Already assigned" },
@@ -299,7 +318,7 @@ test("executor declaration and completion context refusals name projection rebui
     const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
     await commitDelivery(cell, deliveryRoot);
     assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, owner);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const submittedEvent = makeTaskEventReader({ repoId: cell.repoId, rootDir }).readEvent(submitted.opId);
@@ -471,7 +490,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
     );
-    writeCloseout(rootDir, packagePath);
+    writeCloseout(rootDir, taskId, packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
@@ -535,7 +554,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner)).outcome,
       "applied",
     );
-    writeCloseout(rootDir, packagePath);
+    writeCloseout(rootDir, taskId, packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
       "applied",
@@ -618,6 +637,59 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (submit packet): a submission pack
   }
 });
 
+test("symptom task_6edcc0d990dae7e42f4bc93ff9 (complete --path): code-doc reconcile against a ledger-internal path names the Git-root requirement instead of a bare invalid_proof", async () => {
+  const rootDir = workspace("reconcile-wrong-root"),
+    taskId = "task-reconcile-wrong-root",
+    executionId = "exec-reconcile-wrong-root",
+    holder = binding("holder");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("reconcile-wrong-root"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "reconcile-wrong-root",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Reconcile wrong root" }, holder);
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, holder);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+    await commitDelivery(cell, deliveryRoot);
+    assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const submittedEvent = makeTaskEventReader({ repoId: cell.repoId, rootDir }).readEvent(submitted.opId);
+    assert.equal(submittedEvent?.type, "execution_submitted");
+    if (submittedEvent?.type !== "execution_submitted") throw new Error("submitted execution event missing");
+    assert.equal(
+      submittedEvent.payload.execution.submission?.commitSha,
+      git(deliveryRoot, "rev-parse", "HEAD"),
+      "refusal diagnostics require a real submitted code cut",
+    );
+    const rejected = await cell.run(
+      { kind: "task-code-doc-reconcile", taskId, paths: ["harness/agents/x.json"] },
+      withPolicyGroup(holder, "contributor"),
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /harness\/agents\/x\.json/u);
+    assert.match(String(rejected.rejectionExplanation), /relative to the Git repository/u);
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: "code-doc reconciliation",
+      field: "paths[0]",
+      actual: "harness/agents/x.json",
+      expectation: "Path must be relative to the Git repository that owns the submitted commit",
+    });
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 test("symptom task_356fe6c7a05cb987d93a807b46: relation relate against a nonexistent entity names the missing ref instead of a bare entity_not_found", async () => {
   const rootDir = workspace("relation-entity-not-found"),
     repoId = workspaceId("relation-entity-not-found");
@@ -1048,7 +1120,7 @@ test("a task push to an unusable origin explains the cause without exporting thi
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     // An origin that is a local path makes git echo this host's filesystem into the refusal, which
     // cross-node surfaces and agent prompts must not receive; the remote-side cause still explains
