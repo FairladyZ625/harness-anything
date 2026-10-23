@@ -321,14 +321,25 @@ function OverviewHistoryHarness(props: Partial<Parameters<typeof OverviewView>[0
 
 export const textOf = (element: Element | null | undefined): string => element?.textContent ?? "";
 
-/** 自持读面(queryFn 走微任务链)落定的确定性等待:谓词成立即停,上限轮数内不成立即原样返回,
- * 由调用方的断言报红。不用假定时器(react-query 调度依赖真定时器)。 */
-export async function flushUntil(predicate: () => boolean, rounds = 200): Promise<void> {
-  for (let round = 0; round < rounds && !predicate(); round += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+/** 自持读面(queryFn 走微任务链)落定的等待:谓词成立即停。每轮仍在 act 内清微任务
+ * (不开假定时器:react-query 调度依赖真定时器);轮询与超时交给 vitest 的 vi.waitFor
+ * 按真实时间计,慢机器上渲染晚于 200 轮微任务也能等到。超时即抛带条件描述的错误,
+ * 不再静默返回把「行还没渲染」推迟成后续断言的误导性报红。默认超时取 2s:必须留在
+ * vitest 每用例 5s 默认超时之内,超时时报的才是这里的条件描述而不是 runner 超时。 */
+export async function flushUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      for (let round = 0; round < 200 && !predicate(); round += 1) {
+        await act(async () => {
+          await Promise.resolve();
+        });
+      }
+      if (!predicate()) {
+        throw new Error(`flushUntil:条件未在 ${timeoutMs}ms 内成立: ${predicate.toString()}`);
+      }
+    },
+    { timeout: timeoutMs, interval: 10 },
+  );
 }
 
 export const unmountOverview = (): void => {
