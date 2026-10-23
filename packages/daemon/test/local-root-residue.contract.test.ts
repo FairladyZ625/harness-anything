@@ -42,6 +42,9 @@ test("a renamed local root reports stranded durable state and names the exact en
   mkdirSync(path.join(root, ".harness", "wal"), { recursive: true });
   mkdirSync(path.join(root, ".harness", "cache"), { recursive: true });
   mkdirSync(path.join(root, ".harness", "preset-runs", "witnesses"), { recursive: true });
+  writeFileSync(path.join(root, ".harness", "presets", "active", "standard-task.json"), "{}");
+  writeFileSync(path.join(root, ".harness", "wal", "head.json"), "{}");
+  writeFileSync(path.join(root, ".harness", "preset-runs", "witnesses", "run.json"), "{}");
   writeFileSync(
     path.join(root, ".harness", "settings.local.json"),
     '{"schema":"settings-local/v1","locale":"zh-CN"}\n',
@@ -73,6 +76,24 @@ test("a stale root holding only derived state is a warning, not a failure", asyn
   assert.equal(check.count, 1);
   assert.match(check.summary, /only derived state/u);
   assert.match(check.next, /rebuilt on demand/u);
+});
+
+test("an emptied durable tree strands nothing: only real files count", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-local-root-residue-"));
+  t.after(() => removeTemporaryDirectory(parent));
+  const root = repository(parent, ".harness.nosync");
+  // The exact shape Brain had after its rename: the directory tree exists, every leaf is empty.
+  mkdirSync(path.join(root, ".harness", "preset-runs", "witnesses"), { recursive: true });
+  mkdirSync(path.join(root, ".harness", "preset-runs", "staging"), { recursive: true });
+  const check = doctorLocalRootResidue(root);
+  assert.equal(check.status, "warn", "empty directories are leftovers, not stranded preferences or pins");
+  assert.equal(check.count, 1, "preset-runs is the only top-level entry under this root");
+  assert.match(check.summary, /only derived state/u);
+  // A single real witness file flips the same shape to a failure naming preset-runs.
+  writeFileSync(path.join(root, ".harness", "preset-runs", "witnesses", "run.json"), "{}");
+  const withFile = doctorLocalRootResidue(root);
+  assert.equal(withFile.status, "fail");
+  assert.deepEqual(oldLocalRootResidue(root)?.durable, ["preset-runs"]);
 });
 
 test("an absent or empty default root reports nothing at all", async (t) => {

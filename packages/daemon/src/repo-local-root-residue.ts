@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_HARNESS_LOCAL_ROOT, resolveHarnessLayout } from "@harness-anything/kernel";
 
@@ -19,7 +19,9 @@ import { DEFAULT_HARNESS_LOCAL_ROOT, resolveHarnessLayout } from "@harness-anyth
  *
  * Everything else under the default root (`cache`, `generated`, `restore-drills`, `runtime`,
  * `conflicts`, `adopt-claims`, ...) is derived state a purge or rebuild recreates, so its
- * presence is reported as ignorable residue rather than a finding.
+ * presence is reported as ignorable residue rather than a finding. An entry that exists but holds
+ * nothing is not stranded data either: a directory with no files strands no state, so it is
+ * counted as residue and never as a finding.
  */
 const durableOldRootEntries: readonly string[] = ["settings.local.json", "presets", "store", "wal", "preset-runs"];
 
@@ -40,12 +42,24 @@ export function oldLocalRootResidue(rootDir: string): OldLocalRootResidue | null
   if (!existsSync(legacy)) return null;
   const entries = readdirSync(legacy).sort();
   if (entries.length === 0) return null;
+  const holdsState = (entry: string): boolean => holdsAnyFile(path.join(legacy, entry));
   return {
     rootDir: layout.rootDir,
     path: legacy,
-    durable: entries.filter((entry) => durableOldRootEntries.includes(entry)),
-    derived: entries.filter((entry) => !durableOldRootEntries.includes(entry)),
+    durable: entries.filter((entry) => durableOldRootEntries.includes(entry) && holdsState(entry)),
+    derived: entries.filter((entry) => !durableOldRootEntries.includes(entry) || !holdsState(entry)),
   };
+}
+
+/** Walk until a file is found. A directory tree of empty directories holds no state, and the walk
+ *  stops at the first byte it sees, so a large `preset-runs` stays cheap in the common case where
+ *  the answer is "yes, there are witnesses". */
+function holdsAnyFile(target: string): boolean {
+  const stat = statSync(target, { throwIfNoEntry: false });
+  if (stat === undefined) return false;
+  if (!stat.isDirectory()) return stat.size > 0;
+  for (const entry of readdirSync(target)) if (holdsAnyFile(path.join(target, entry))) return true;
+  return false;
 }
 
 /** `ha doctor health`: a renamed local root must not leave durable state behind silently.
