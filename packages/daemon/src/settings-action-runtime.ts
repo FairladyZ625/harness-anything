@@ -45,7 +45,15 @@ export function makeSettingsActionRuntime(
           "outside agent sessions (a `!` shell inside a session still runs as the session's executor) " +
           "— so a person actor can apply the change.",
       );
-    const row = cell.projection.getEntity("settings", SETTINGS_ID),
+    // A write is the one entry that can mint a missing Settings entity, and it must do so before it
+    // judges the request: the authored harness.yaml is the only declaration surface, so a repository
+    // whose ledger never minted Settings can otherwise never be repaired through the command that is
+    // supposed to repair it. Without this, a locale-only update resolves to "no changes", reads the
+    // entity it never created, and reports the contradiction as pending (2026-10-23,
+    // brain-os-frontend: 793 canonical events, zero settings_changed). Reads never mint; they answer
+    // `settings_entity_missing` with this same command instead.
+    const initialized = settingsState.initializeFromAuthoredDocument(binding),
+      row = cell.projection.getEntity("settings", SETTINGS_ID),
       revision = settingsSingletonRevision(cell.projection),
       opId = settingsOperationId(cell, action, binding, revision, catalogOpId),
       targetRef = contract.target.refTemplate.replace("{id}", SETTINGS_ID),
@@ -91,6 +99,11 @@ export function makeSettingsActionRuntime(
       } satisfies EntityActionCompileInput);
     if (compiled.kind !== "settings")
       throw cell.cellCodedError("invalid_store", `${action.kind} compiled a non-Settings action draft.`);
+    // The mint above is a canonical write. A request that turns out to change nothing on top of it is
+    // still "applied" — answering `no_changes` while an event was just appended would deny a write
+    // that happened, and hide the very repair the caller was asking for.
+    if (initialized !== null && compiled.result.kind === "no-changes")
+      return cell.receiptForOperation(initialized.event.opId, binding);
     return publishSettingsDraft(cell, settingsState, opId, compiled.result, local, targetRef);
   };
 }

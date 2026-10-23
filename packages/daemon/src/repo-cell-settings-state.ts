@@ -33,17 +33,42 @@ import type { PresetSnapshotV1 } from "@harness-anything/preset";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-types.ts";
 
+/** The code a reader sees when the ledger never minted Settings, as distinct from a cut still catching up. */
+export const SETTINGS_ENTITY_MISSING = "settings_entity_missing" as const;
+
+/**
+ * The one predicate for "does this projection hold a usable Settings entity?", keyed on the row's
+ * VALUE rather than its presence. `getEntity` answers `null` for an absent row — never `undefined` —
+ * so a presence test against `undefined` silently reports every never-minted repository as
+ * already-initialized; that mismatch is what made `ha daemon projection rebuild` a no-op on
+ * brain-os-frontend while its settings read stayed pending forever.
+ */
+export function projectedRepositorySettings(
+  projection: Pick<TaskProjectionQueries, "getEntity">,
+): RepositorySettingsV1 | null {
+  const row = projection.getEntity("settings", SETTINGS_ID);
+  if (row === null || row === undefined) return null;
+  const value = row.value as unknown;
+  if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) return null;
+  if (Object.keys(value).length === 0) return null;
+  return repositorySettings(value as RepositorySettingsV1);
+}
+
 export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "getEntity">): RepositorySettingsV1 {
-  const projected = projection.getEntity("settings", "repository")?.value;
-  if (projected === undefined)
+  const projected = projectedRepositorySettings(projection);
+  if (projected === null)
     throw cellCodedError(
-      "projection_pending",
-      "Settings projection is unavailable; bootstrap the repository before retrying.",
+      SETTINGS_ENTITY_MISSING,
+      // Actionable, and true: no repository action named `bootstrap` exists (`ha bootstrap` is a
+      // Keycloak operation), and waiting cannot mint an entity that no event ever wrote.
+      "This repository has no Settings entity yet; its ledger never recorded a settings_changed event. " +
+        "A principal can create it from the authored harness/harness.yaml with `ha settings update` " +
+        "(for example `ha settings update --locale en-US`), or run `ha daemon projection rebuild`. " +
+        "Run it as a person, not inside an agent session: repository settings are principal-owned.",
     );
-  const current = repositorySettings(projected as unknown as RepositorySettingsV1),
-    errors = validateRepositorySettings(current);
+  const errors = validateRepositorySettings(projected);
   if (errors.length) throw cellCodedError("projection_invalid", errors.join("; "));
-  return current;
+  return projected;
 }
 
 export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCellSettingsState {
@@ -105,7 +130,8 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
   };
 
   const initialize = (settings: SettingsV1, documentBody: string, binding: RepoCellBinding) => {
-    if (cell.projection.getEntity("settings", "repository")?.value !== undefined) return null;
+    // Same predicate as the reader: an existing row with no usable value is not initialized state.
+    if (projectedRepositorySettings(cell.projection) !== null) return null;
     const repository = repositorySettings(settings),
       candidateDocumentBody = writeRepositorySettingsFacet(documentBody, repository),
       revision = cell.store.readHead()?.revision ?? 0,
@@ -119,9 +145,21 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
   // A repository that carries no authored settings document has nothing to mint into the ledger.
   const initializeFromAuthoredDocument = (binding: RepoCellBinding) => {
     const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
-    if (!existsSync(configPath) || cell.projection.getEntity("settings", "repository") !== undefined) return null;
+    if (!existsSync(configPath) || projectedRepositorySettings(cell.projection) !== null) return null;
     const documentBody = readFileSync(configPath, "utf8");
-    return initialize(readSettingsFacet(documentBody), documentBody, binding);
+    // The authored facet is user input. A malformed one must name itself and the file it is in, not
+    // surface as a codeless `service_rejected` from the declaration parser.
+    let settings: SettingsV1;
+    try {
+      settings = readSettingsFacet(documentBody);
+    } catch (error) {
+      throw cellCodedError(
+        "settings_document_invalid",
+        `harness/harness.yaml has no usable settings block, so Settings cannot be initialized from it: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return initialize(settings, documentBody, binding);
   };
 
   return { initialize, initializeFromAuthoredDocument, read, readLocal, readRepository, writeLocal };
