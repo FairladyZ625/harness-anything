@@ -1,40 +1,40 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_HARNESS_LOCAL_ROOT, resolveHarnessLayout } from "@harness-anything/kernel";
+import { cachePurgeDerivedDirectories, cachePurgePreservedPaths } from "./repo-cache-purge.ts";
 
 /**
- * Durable local state a renamed `layout.localRoot` leaves behind in the default `.harness`
- * directory: the entries a person would have to move by hand or deliberately drop, because no
- * code path reads them from the old root any more.
+ * Read-only classification of what a renamed `layout.localRoot` left in the default `.harness`
+ * directory. The classification is **derived from the cache-purge policy**, never restated here:
+ * `repo-cache-purge.ts` already decides which local paths a purge deletes and which it preserves,
+ * and the diagnostic must not hold a second opinion about that.
  *
- *  - `settings.local.json` — this machine's preferences; losing it silently reverts locale and
- *    GUI request deadlines to their defaults.
- *  - `presets/` — installed preset objects and their active pins; resolution then reports
- *    "not installed" even though the person installed it.
- *  - `store/` — the ledger itself. Its presence at the old root means history was never moved,
- *    and attach cannot repair that by rebuilding a projection cache.
- *  - `wal/` — unflushed legacy generation-1/2 events, which attach consumes only from the active
- *    local root.
- *  - `preset-runs/` — in-flight or historical preset run witnesses.
+ * Every real file under an entry decides that entry's class:
  *
- * Everything else under the default root (`cache`, `generated`, `restore-drills`, `runtime`,
- * `conflicts`, `adopt-claims`, ...) is derived state a purge or rebuild recreates, so its
- * presence is reported as ignorable residue rather than a finding. An entry that exists but holds
- * nothing is not stranded data either: a directory with no files strands no state, so it is
- * counted as residue and never as a finding.
+ *  - `derived` — every file sits on `cachePurgeDerivedDirectories` (including nested entries such
+ *    as `runtime/dispatches`). A cache purge deletes all of it, so removal is safe once nothing
+ *    has it open.
+ *  - `authoritative` — at least one file sits on a `cachePurgePreservedPaths` entry (`store/`,
+ *    `wal/`), and none is unknown. These are the ledger and its unflushed events.
+ *  - `unrecognized` — any file on neither list. This includes `settings.local.json`,
+ *    `preset-runs/`, `operations/`, `credentials/`, `conflicts/` and `wal.bricked-*`: this file
+ *    has no evidence about them, so it never calls them disposable.
+ *
+ * A tree of empty directories holds no state, so it is never a finding. A zero-byte file is still
+ * state: an empty `settings.local.json` is a truncated preference file, not an absent one. The
+ * walk never follows a symbolic link (a self-referential link would otherwise make
+ * `ha doctor health` throw instead of report).
  */
-const durableOldRootEntries: readonly string[] = ["settings.local.json", "presets", "store", "wal", "preset-runs"];
-
 export interface OldLocalRootResidue {
   readonly rootDir: string;
   readonly path: string;
-  readonly durable: readonly string[];
   readonly derived: readonly string[];
+  readonly authoritative: readonly string[];
+  readonly unrecognized: readonly string[];
 }
 
-/** Read-only inspection of the default `.harness` directory when this repository renamed its
- *  local root. A default-layout, absent or empty directory reports `null`, so the check is silent
- *  everywhere the rename question does not apply. */
+type EntryClass = "derived" | "authoritative" | "unrecognized";
+
 export function oldLocalRootResidue(rootDir: string): OldLocalRootResidue | null {
   const layout = resolveHarnessLayout(rootDir);
   if (layout.localRoot === path.join(layout.rootDir, DEFAULT_HARNESS_LOCAL_ROOT)) return null;
@@ -42,29 +42,67 @@ export function oldLocalRootResidue(rootDir: string): OldLocalRootResidue | null
   if (!existsSync(legacy)) return null;
   const entries = readdirSync(legacy).sort();
   if (entries.length === 0) return null;
-  const holdsState = (entry: string): boolean => holdsAnyFile(path.join(legacy, entry));
+  const legacyPrefix = `${toPosix(path.relative(layout.rootDir, legacy))}/`,
+    localPrefix = `${toPosix(path.relative(layout.rootDir, layout.localRoot))}/`,
+    derived = cachePurgeDerivedDirectories.map((relative) => `${legacyPrefix}${relative}`),
+    // `cachePurgePreservedPaths` names what a purge keeps *under the active local root*; the same
+    // relative names are what the renamed root would have held, so re-anchor them to the old
+    // prefix. Entries outside the local root (authored root, .worktrees) cannot sit under it.
+    preserved = cachePurgePreservedPaths(rootDir).flatMap((pathFromRoot) => {
+      const normalized = toPosix(pathFromRoot);
+      return normalized.startsWith(localPrefix) ? [`${legacyPrefix}${normalized.slice(localPrefix.length)}`] : [];
+    }),
+    classOf = (entry: string): EntryClass | null => {
+      const leaves = leafFiles(path.join(legacy, entry), `${legacyPrefix}${entry}`);
+      if (leaves.length === 0) return null;
+      const classes = leaves.map((leaf) => classifyLeaf(leaf, derived, preserved));
+      if (classes.includes("unrecognized")) return "unrecognized";
+      return classes.includes("authoritative") ? "authoritative" : "derived";
+    },
+    classified = entries.flatMap((entry) => {
+      const kind = classOf(entry);
+      return kind === null ? [] : [{ entry, kind }];
+    });
+  if (classified.length === 0) return null;
   return {
     rootDir: layout.rootDir,
     path: legacy,
-    durable: entries.filter((entry) => durableOldRootEntries.includes(entry) && holdsState(entry)),
-    derived: entries.filter((entry) => !durableOldRootEntries.includes(entry) || !holdsState(entry)),
+    derived: classified.filter((item) => item.kind === "derived").map((item) => item.entry),
+    authoritative: classified.filter((item) => item.kind === "authoritative").map((item) => item.entry),
+    unrecognized: classified.filter((item) => item.kind === "unrecognized").map((item) => item.entry),
   };
 }
 
-/** Walk until a file is found. A directory tree of empty directories holds no state, and the walk
- *  stops at the first byte it sees, so a large `preset-runs` stays cheap in the common case where
- *  the answer is "yes, there are witnesses". */
-function holdsAnyFile(target: string): boolean {
-  const stat = statSync(target, { throwIfNoEntry: false });
-  if (stat === undefined) return false;
-  if (!stat.isDirectory()) return stat.size > 0;
-  for (const entry of readdirSync(target)) if (holdsAnyFile(path.join(target, entry))) return true;
-  return false;
+function toPosix(relative: string): string {
+  return relative.split(path.sep).join("/");
 }
 
-/** `ha doctor health`: a renamed local root must not leave durable state behind silently.
- *  Records only what exists — the disposition stays with the person, because the repository is
- *  the only authority on whether an old preset pin or local preference is still wanted. */
+/** `relative` is a file path (or a bare list entry) from the legacy root. A list entry matches its
+ *  own directory and everything under it, which is what a purge deletes. */
+function classifyLeaf(relative: string, derived: readonly string[], preserved: readonly string[]): EntryClass {
+  const coveredBy = (prefixes: readonly string[]): boolean =>
+    prefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
+  if (coveredBy(derived)) return "derived";
+  return coveredBy(preserved) ? "authoritative" : "unrecognized";
+}
+
+/** Every non-directory path under `target`, as a path relative to the repository root. Symbolic
+ *  links are leaves (authored content), never traversed; directories with no files yield none. */
+function leafFiles(target: string, relative: string, found: string[] = []): string[] {
+  const stat = lstatSync(target, { throwIfNoEntry: false });
+  if (stat === undefined) return found;
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    found.push(relative);
+    return found;
+  }
+  for (const entry of readdirSync(target)) leafFiles(path.join(target, entry), `${relative}/${entry}`, found);
+  return found;
+}
+
+/** `ha doctor health`: a renamed local root must not leave state behind silently. Records only
+ *  what exists and what the production purge lists say about it — the disposition stays with the
+ *  person, because the repository is the only authority on whether an old preset pin or local
+ *  preference is still wanted. */
 export function doctorLocalRootResidue(rootDir: string): {
   readonly id: "local-root-residue";
   readonly status: "ok" | "warn" | "fail";
@@ -82,28 +120,42 @@ export function doctorLocalRootResidue(rootDir: string): {
       count: 0,
       next: "Nothing to do.",
     };
-  const stale = path.relative(residue.rootDir, residue.path).split(path.sep).join("/"),
-    derivedNote =
-      residue.derived.length === 0 ? "" : ` Derived residue there is safe to ignore: ${residue.derived.join(", ")}.`;
-  if (residue.durable.length === 0)
-    return {
-      id,
-      status: "warn",
-      summary:
-        `${stale}/ still exists but holds only derived state: ${residue.derived.join(", ")}. ` +
-        "Nothing durable is stranded; it is a leftover from before the rename.",
-      count: residue.derived.length,
-      next: `Delete ${stale}/ once no daemon has it open; its contents are rebuilt on demand.`,
-    };
+  const stale = toPosix(path.relative(residue.rootDir, residue.path)),
+    count = residue.derived.length + residue.authoritative.length + residue.unrecognized.length,
+    reported = [
+      residue.authoritative.length === 0 ? "" : `authoritative (ledger family): ${residue.authoritative.join(", ")}.`,
+      residue.derived.length === 0 ? "" : `derived (a cache purge deletes these too): ${residue.derived.join(", ")}.`,
+      residue.unrecognized.length === 0
+        ? ""
+        : `unrecognized (no production list classifies these): ${residue.unrecognized.join(", ")}.`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    // Anything not proven regenerable is a finding: this repository no longer reads it, and only
+    // the person knows whether it can go. Reporting an unclassified entry as a mere warning would
+    // be a verdict this file cannot support.
+    finding = residue.authoritative.length + residue.unrecognized.length > 0,
+    // Advice is per class and never widens: the ledger family has a conversion command, the
+    // derived class has the purge as precedent, and an unrecognized entry gets no instruction at
+    // all because this file holds no evidence about what it is.
+    advice = [
+      residue.authoritative.length === 0
+        ? ""
+        : `Convert ${residue.authoritative.join(", ")} with ha migrate ledger --help instead of a manual copy.`,
+      residue.derived.length === 0 ? "" : `A cache purge removes ${residue.derived.join(", ")}.`,
+      residue.unrecognized.length === 0
+        ? ""
+        : `Confirm what ${residue.unrecognized.join(", ")} hold before touching them; this check does not judge them.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
   return {
     id,
-    status: "fail",
-    summary:
-      `Durable local state is still under ${stale}/, which this repository no longer reads because ` +
-      `layout.localRoot moved: ${residue.durable.join(", ")}.${derivedNote}`,
-    count: residue.durable.length,
-    next:
-      `settings.local.json and presets/ can be moved into the active local root; store/ and wal/ are the ledger and ` +
-      `must go through ha migrate ledger --help instead of a manual copy. Confirm the destination, then remove ${stale}/.`,
+    status: finding ? "fail" : "warn",
+    summary: finding
+      ? `${stale}/ still holds state this repository no longer reads because layout.localRoot moved. ${reported}`
+      : `${stale}/ still exists but holds only paths a cache purge deletes. ${reported}`,
+    count,
+    next: `${advice} Remove ${stale}/ only after every item above is accounted for.`,
   };
 }

@@ -4,7 +4,12 @@ import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 
-const derivedDirectories = [
+/**
+ * The one list of local paths a cache purge may delete. Everything else in the local root is
+ * authoritative and preserved, so membership here is the only evidence that an entry can be
+ * regenerated. `repo-local-root-residue.ts` reads this list instead of keeping its own opinion.
+ */
+export const cachePurgeDerivedDirectories = [
   "cache",
   "adopt-claims",
   "generated",
@@ -36,7 +41,7 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
     dispatchIds = readDispatchStreamHeaders(canonicalRoot, true).map((header) => header.dispatchId),
     removed: string[] = [];
   for (const dispatchId of dispatchIds) removeRuntimeCallbackRelay(dispatchId);
-  for (const relative of derivedDirectories) {
+  for (const relative of cachePurgeDerivedDirectories) {
     const target = path.join(localRoot, ...relative.split("/"));
     if (!existsSync(target)) continue;
     rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
