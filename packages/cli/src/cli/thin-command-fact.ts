@@ -13,13 +13,34 @@ export function parseFact(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (id === "fact-record") return parseFactRecord(args, rootDir, repoId, json, inputs);
-  if (id === "fact-assign" || id === "fact-unassign") {
-    const factId = args[2]?.startsWith("--") ? undefined : args[2];
-    return factId
-      ? parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, { factId })
-      : rejected("missing_field", `Use ha fact ${id === "fact-assign" ? "assign" : "unassign"} <fact-id>.`, json);
-  }
+  if (id === "fact-assign" || id === "fact-unassign" || id === "fact-rematerialize")
+    return parseFactEntityAction(id, args, rootDir, repoId, json, inputs);
+  return parseFactManagement(id, args, rootDir, repoId, json, inputs);
+}
+
+function parseFactEntityAction(
+  id: string,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
   if (id === "fact-rematerialize") return parseRematerialize(id, "factId", args, rootDir, repoId, json, inputs);
+  const factId = args[2]?.startsWith("--") ? undefined : args[2];
+  return factId
+    ? parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, { factId })
+    : rejected("missing_field", `Use ha fact ${id === "fact-assign" ? "assign" : "unassign"} <fact-id>.`, json);
+}
+
+function parseFactManagement(
+  id: string,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
   if (id === "fact-archive") {
     const factId = args[2]?.startsWith("--") ? undefined : args[2],
       f = readFlags(id, args.slice(factId ? 3 : 2), inputs);

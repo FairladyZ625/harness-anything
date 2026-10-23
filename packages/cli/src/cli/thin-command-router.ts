@@ -4,8 +4,6 @@ import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
-import { parseExplain } from "./thin-command-explain.ts";
-import { parseGraph } from "./thin-command-graph.ts";
 import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
@@ -13,6 +11,7 @@ import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
 import { parseProvider } from "./thin-command-provider.ts";
 import { parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
+import { parseEntityAssignment, parseRoutedSpecial } from "./thin-command-router-special.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 type RoutedParser = (
@@ -195,46 +194,11 @@ export function parseRouted(
   const rootCommand = route.path[0];
   const dedicated = dedicatedRouteParsers.get(route.id);
   if (dedicated) return dedicated(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "agenda") {
-    const f = readFlags(route.id, args.slice(1), inputs);
-    return f.ok
-      ? accepted(rootDir, repoId, json, { kind: "agenda", ...projectFlags(route.id, f) }, route.method)
-      : rejected(f.code, f.nextAction, json);
-  }
+  const special = parseRoutedSpecial(route, args, rootDir, repoId, json, inputs);
+  if (special) return special;
   const entityPin = parseEntityPinRouted(route, args, rootDir, repoId, json);
   if (entityPin) return entityPin;
-  if (route.id === "migrate-import") {
-    const f = readFlags(route.id, args.slice(2), inputs);
-    return f.ok
-      ? accepted(rootDir, repoId, json, {
-          kind: "migrate-import",
-          sourceRoots: f.many.get("--source") ?? [],
-          ...(f.many.get("--resolve")?.length ? { resolutions: f.many.get("--resolve") } : {}),
-          ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
-        })
-      : rejected(f.code, f.nextAction, json);
-  }
-  if (route.id === "assignment-migrate") {
-    const f = readFlags(route.id, args.slice(2), inputs);
-    return f.ok
-      ? accepted(
-          rootDir,
-          repoId,
-          json,
-          { kind: "assignment-migrate", ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}) },
-          route.method,
-        )
-      : rejected(f.code, f.nextAction, json);
-  }
-  if (route.id === "vertical-declaration-migrate")
-    return args.length === 2
-      ? accepted(rootDir, repoId, json, { kind: "vertical-declaration-migrate" })
-      : rejected("unknown_field", "ha migrate vertical-declaration takes no options.", json);
   if (route.id === "ledger-reconcile") return parseLedgerReconcileRouted(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "explain" || route.id === "graph")
-    return route.id === "explain"
-      ? parseExplain(args, rootDir, repoId, json, route.method)
-      : parseGraph(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
@@ -301,26 +265,6 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
-}
-
-function parseEntityAssignment(
-  route: ProtocolCommand,
-  args: readonly string[],
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const kind = route.path[0],
-    id = args[2];
-  if (!nonEmpty(id) || id.startsWith("--"))
-    return rejected(
-      "missing_field",
-      `Use ha ${kind} ${route.id.endsWith("-assign") ? "assign" : "unassign"} <${kind}-id>.`,
-      json,
-    );
-  const idField = `${kind}Id`;
-  return parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, { [idField]: id }, {}, route.method);
 }
 
 function parseEntityPinRouted(
