@@ -178,6 +178,12 @@ test("stacked integration submits and dispatches review for CEO merge-main and o
     const upstreamDispatch = stepsOf(await run({ kind: "task-dispatch-review", taskIds: [upstreamTaskId] }))[0]!;
     const reviewId = `review-${upstreamDispatch.dispatchId}`;
     assert.equal((await f.review(upstreamDispatch.runtimeSessionId, reviewId)).outcome, "applied");
+    // The owner's consent confirms the upstream cut's reviews concluded; the reviewer's own
+    // process settles after registering its verdict.
+    assert.equal(
+      await f.settleReview(upstreamDispatch.dispatchId, upstreamDispatch.runtimeSessionId, "Reviewed and recorded."),
+      "succeeded",
+    );
     assert.equal((await f.consent(reviewId)).outcome, "applied");
     const upstreamSubmission = f.events().find((event) => event.type === "execution_submitted");
     assert.ok(upstreamSubmission?.type === "execution_submitted");

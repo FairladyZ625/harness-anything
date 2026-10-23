@@ -271,6 +271,34 @@ export function taskDispatchRowsSettled(rows: readonly TaskDispatchRow[]): boole
   return rows.every((row) => taskDispatchRowSettled(row, dispatchIds));
 }
 
+/**
+ * Reviewer dispatches bound to exactly one submission cut that have not reached their own terminal
+ * verdict: still queued, still running, or still projecting their exit. Consent is the owner's
+ * confirmation that this cut's reviews concluded, so any one of these makes that confirmation
+ * premature. A dispatch of an earlier cut is not this cut's review, and a cancelled, failed, or
+ * stopped one already reached its verdict.
+ */
+export function unsettledCutReviewDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly submissionDigest: `sha256:${string}`;
+}): readonly TaskDispatchRow[] {
+  const events = input.projection
+      .readRuntimeDispatchesByTaskExecution(input.taskId, input.executionId)
+      .map(({ event }) => event)
+      .filter(
+        (event) =>
+          event.payload.role === "reviewer" &&
+          event.payload.reviewTarget?.kind === "task" &&
+          event.payload.reviewTarget.digest === input.submissionDigest,
+      ),
+    sessions = events.flatMap((event) => input.projection.readRuntimeSession(event.payload.runtimeSessionId) ?? []),
+    rows = readSessionGroupDispatches({ events, sessions, projection: input.projection }),
+    dispatchIds = rows.map((row) => row.dispatchId);
+  return rows.filter((row) => !taskDispatchRowSettled(row, dispatchIds));
+}
+
 export function readTaskDispatchSession(
   projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById">,
   taskId: string,

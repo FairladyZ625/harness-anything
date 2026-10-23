@@ -29,6 +29,21 @@ function runtimeSessionId(receipt: unknown): string {
   return session;
 }
 
+/** The reviewer's own process settles after registering; consent only stands on settled lanes. */
+async function settleReviewerDispatch(f: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+  const dispatch = f
+    .events()
+    .filter((event) => event.type === "runtime_dispatch_requested")
+    .at(-1);
+  assert.ok(dispatch?.type === "runtime_dispatch_requested");
+  const outcome = await f.settleReview(
+    dispatch.payload.dispatchId,
+    dispatch.payload.runtimeSessionId,
+    "Reviewed and recorded.",
+  );
+  assert.ok(["succeeded", "stopped", "failed"].includes(outcome), `dispatch settled as ${String(outcome)}`);
+}
+
 async function taskStatus(f: Awaited<ReturnType<typeof fixture>>): Promise<{ status: string; iteration: number }> {
   const shown = (await f.run({ kind: "task-show", taskId })) as Receipt;
   const evidence = JSON.parse(String(shown.evidence)) as { task: { status: string; iteration: number } };
@@ -94,6 +109,7 @@ test("submit enters independent review automatically and completion still requir
     const noConsent = await f.complete();
     assert.equal(noConsent.code, "consent_missing", JSON.stringify(noConsent));
     assert.equal(f.events().filter((event) => event.type === "review_consent_recorded").length, 0);
+    await settleReviewerDispatch(f);
     assert.equal((await f.consent("review-approved")).outcome, "applied");
     const completed = await f.complete();
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
@@ -261,6 +277,7 @@ test("concurrent owner rulings and completions have one state-transition winner"
     const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
     assert.ok(dispatch?.type === "runtime_dispatch_requested");
     assert.equal((await f.review(dispatch.payload.runtimeSessionId, "review-concurrent")).outcome, "applied");
+    await settleReviewerDispatch(f);
     assert.equal((await f.consent("review-concurrent")).outcome, "applied");
     const completions = await Promise.all([f.complete(), f.complete()]);
     assert.equal(
@@ -298,6 +315,7 @@ test.skip("sibling complete refuses unfinished sources and missing facts, then c
     const forwarded = await f.forward();
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     assert.equal((await f.review(runtimeSessionId(forwarded), "review-sibling")).outcome, "applied");
+    await settleReviewerDispatch(f);
     assert.equal((await f.consent("review-sibling")).outcome, "applied");
     assert.equal((await f.complete()).outcome, "applied");
     const completed = await f.run(action);
@@ -343,6 +361,73 @@ test("a done lightweight source without independent review cannot resolve a sibl
     });
     assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
     assert.match(JSON.stringify(result), /approved review, consent/u);
+  } finally {
+    await f.close();
+  }
+});
+
+// 2026-10-23 (task_cffec8b1 / PR #3922): consent applied over an approved data-migration review
+// while the functional re-review was still running, and the owner merged on that receipt. Consent
+// is the owner's confirmation that every review lane on this cut concluded, not that one approved
+// verdict happens to exist.
+test("consent refuses an approved review while another review dispatch on the cut is still running", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    closeoutProfile: "standard",
+    autoForward: false,
+  });
+  try {
+    await f.install();
+    assert.equal((await f.forward()).outcome, "applied");
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    // The independent lane's approved verdict lands while the dispatched functional re-review runs.
+    const approved = await recordReview(f, "migration-reviewer", "review-migration-approved", "approved");
+    assert.equal(approved.outcome, "applied", JSON.stringify(approved));
+    const consentOf = () =>
+      f.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-migration-approved" });
+
+    const refused = (await consentOf()) as Receipt;
+    assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+    assert.equal(refused.code, "review_dispatch_unsettled", JSON.stringify(refused));
+    assert.match(String(refused.rejectionExplanation), new RegExp(dispatch.payload.dispatchId, "u"));
+    assert.match(String(refused.rejectionExplanation), /ha runtime status --task .* --wait/u);
+    assert.equal(
+      f.events().filter((event) => event.type === "review_consent_recorded").length,
+      0,
+      "a refused consent records nothing",
+    );
+
+    // Cancelling the outstanding dispatch reaches its own verdict, so the refusal lifts.
+    f.cancel(dispatch.payload.runtimeSessionId);
+    await f.awaitOutcome(dispatch.payload.runtimeSessionId);
+    const consented = await consentOf();
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+  } finally {
+    await f.close();
+  }
+});
+
+test("consent applies once every review dispatch on the cut reached its terminal verdict", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    closeoutProfile: "standard",
+    autoForward: false,
+  });
+  try {
+    await f.install();
+    assert.equal((await f.forward()).outcome, "applied");
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const reviewId = `review-${dispatch.payload.dispatchId}`,
+      consentOf = () => f.run({ kind: "task-review-consent", taskId, executionId, reviewId });
+    assert.equal((await f.review(dispatch.payload.runtimeSessionId, reviewId)).outcome, "applied");
+    // The approved verdict alone is not the confirmation: the reviewer is still running.
+    assert.equal(((await consentOf()) as Receipt).code, "review_dispatch_unsettled");
+    assert.equal(
+      await f.settleReview(dispatch.payload.dispatchId, dispatch.payload.runtimeSessionId, "Reviewed."),
+      "succeeded",
+    );
+    const consented = await consentOf();
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
   } finally {
     await f.close();
   }

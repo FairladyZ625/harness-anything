@@ -71,6 +71,13 @@ submit 必须持有并原子释放该 Execution 的 active lease——lease 与�
 `task-completion-review.ts` 把关;随后 `ha task review-consent` 以
 `review-consent/v1` 把同意钉在同一份 review 与 submission digest 上。
 
+consent 是「这一刀的所有评审都已收尾」的确认,不是「存在一条 approved」的确认。
+当前 cut 上只要还有未结算的评审 dispatch(running/queued),consent 就以
+`review_dispatch_unsettled` 拒绝,回执点名每个 dispatch 与它的状态,并给出两条
+下一步:`ha runtime status --task <task-id> --wait` 等它收尾,或
+`ha runtime cancel <runtime-session-id>` 主动取消;两者都是结算,结算后重试即成立。
+cancelled/failed/stopped 已经到达终态,因此取消不会把这条路径变成死锁。
+
 对于没有 Execution 的 legacy task,评审面是任务包的 `review.md`。lint 把发现表解析成
 结构化条目——每条带严重度(`P0`–`P3`)、`open` 与 `blocksRelease` 标记;只要有任何
 既 open 又 release-blocking 的发现,就以 `release_blocking_finding` 拒绝
