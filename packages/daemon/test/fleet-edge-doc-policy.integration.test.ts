@@ -115,7 +115,10 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     policyIds: [RAW_ARTIFACT_POLICY_ID],
     blocked: [],
   });
-  // With no persisted row, NUL bytes at a text name remain a rejected edit, not a new artifact.
+  // A name that claims a text format but holds undecodable bytes is still a broken document, not a
+  // new artifact: the classifier answers null, so no persisted row means no membership. The center
+  // answers `inapplicable` for it; the edge reports it so the operator sees the file instead of a
+  // silent no-op.
   assert.deepEqual(scanFixture(null, textNamed, editedBody), {
     policyIds: [],
     blocked: ["path is not an allowed canonical document"],
@@ -125,13 +128,34 @@ test("an edge scan keeps a persisted textual row's policy instead of re-judging 
     policyIds: [RAW_ARTIFACT_POLICY_ID],
     blocked: [],
   });
-  // No persisted row means today's bytes/name rule alone: unsupported dirty paths are surfaced as
-  // blocked instead of disappearing into a successful no-op.
+  // A path with no persisted row is a member exactly when the shared candidate classifier recognizes
+  // it, so the edge answers what the center's scanner already answers for the same path and bytes.
+  // `context/architecture/notes.json` and `artifacts/data/rows.json` are both `eligible` +
+  // `doc-submit: applied` at the center; blocking them here made every task command fail until the
+  // center created the row first — the extra round-trip this task exists to remove.
   assert.deepEqual(scanFixture(null, "context/architecture/notes.json", decodableEdit), {
-    policyIds: [],
-    blocked: ["path is not an allowed canonical document"],
+    policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
+    blocked: [],
   });
   assert.deepEqual(scanFixture(null, "tasks/task_policy/artifacts/data/rows.json", decodableEdit), {
+    policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
+    blocked: [],
+  });
+  // The evidence files a task package gains while the work is running are first publications too:
+  // `.log`, `.json` and `.csv` under `artifacts/` are candidates on both sides.
+  for (const evidence of [
+    "tasks/task_policy/artifacts/evidence/probe-run.log",
+    "tasks/task_policy/artifacts/reports/dispatch_probe.json",
+    "tasks/task_policy/artifacts/evidence/rows.csv",
+  ])
+    assert.deepEqual(scanFixture(null, evidence, decodableEdit), {
+      policyIds: [OPAQUE_TEXTUAL_POLICY_ID],
+      blocked: [],
+    });
+  // A name that claims a text format but holds undecodable bytes is still a broken document, not a
+  // new artifact. The center answers `inapplicable` for it; the edge reports it so the operator sees
+  // the file instead of a silent no-op.
+  assert.deepEqual(scanFixture(null, textNamed, editedBody), {
     policyIds: [],
     blocked: ["path is not an allowed canonical document"],
   });
@@ -322,25 +346,38 @@ test("an edge task-start carries a persisted raw .log row edited to decodable te
     [OPAQUE_TEXTUAL_POLICY_ID, "text/x-harness-opaque", sha256Bytes(decodableEdit)],
     JSON.stringify(started).slice(0, 800),
   );
-  const unsupported = `${created.packagePath}/artifacts/data/rows.json`;
-  fixture.writeWorktree("node-one", unsupported, '{"draft":true}\n');
-  await assert.rejects(
-    () =>
-      fixture.edgeTask("node-one", {
-        kind: "task-start",
-        taskId: created.taskId,
-        executionId: "exe-edge-raw-policy",
-      }),
-    (error: unknown) =>
-      error instanceof Error &&
-      (error as Error & { readonly code?: string }).code === "preview_blocked" &&
-      error.message.includes(unsupported),
-  );
-  await assert.rejects(
-    () => fixture.edgeTask("node-one", { kind: "doc-submit", taskId: created.taskId }),
-    (error: unknown) =>
-      error instanceof Error &&
-      (error as Error & { readonly code?: string }).code === "preview_blocked" &&
-      error.message.includes("path is not an allowed canonical document"),
-  );
+  // The reviewer's probe, as a regression: a task package gains new evidence during the work —
+  // `.log`, `.json`, `.csv` under `artifacts/`, none with a persisted row yet. The center classifies
+  // all three as candidates; before the shared membership rule the edge blocked them and every task
+  // command failed until the center had created a row first, which is the extra round-trip this task
+  // deletes. The same command must now carry them and their bytes must land.
+  const fresh = [
+    `${created.packagePath}/artifacts/evidence/probe-run.log`,
+    `${created.packagePath}/artifacts/reports/dispatch_probe.json`,
+    `${created.packagePath}/artifacts/evidence/rows.csv`,
+  ];
+  for (const logical of fresh) fixture.writeWorktree("node-one", logical, '{"probe":true}\n');
+  const carriedFresh = await fixture.edgeTask("node-one", {
+    kind: "task-progress-append",
+    taskId: created.taskId,
+    text: "fresh evidence",
+  });
+  assert.equal(carriedFresh.ok, true, JSON.stringify(carriedFresh).slice(0, 800));
+  await fixture.waitPublished(String(carriedFresh.opId));
+  const progressEvent = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo }).readEvent(
+      String(carriedFresh.opId),
+    ),
+    carriedChanges = (
+      progressEvent?.payload as { readonly carriedDocumentClaims?: readonly Record<string, unknown>[] } | undefined
+    )?.carriedDocumentClaims;
+  for (const logical of fresh) {
+    const change = carriedChanges?.find((claim) => claim.path === logical) as
+      | { readonly policyId?: string; readonly candidate?: { readonly sha256?: string } }
+      | undefined;
+    assert.deepEqual(
+      [change?.policyId, change?.candidate?.sha256],
+      [OPAQUE_TEXTUAL_POLICY_ID, sha256Bytes(Buffer.from('{"probe":true}\n'))],
+      `${logical}: ${JSON.stringify(carriedFresh).slice(0, 800)}`,
+    );
+  }
 });
