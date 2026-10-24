@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { cmdShellInvocation } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 
@@ -391,16 +392,7 @@ function gitInvocation(
   environment: NodeJS.ProcessEnv,
 ): { readonly command: string; readonly args: readonly string[]; readonly windowsVerbatimArguments?: boolean } {
   if (process.platform !== "win32") return { command: "git", args: ["-C", cwd, ...args] };
-  const command = ["git", "-C", cwd, ...args].map(quoteWindowsGitArgument).join(" ");
-  return {
-    command: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
-    args: ["/d", "/s", "/c", command],
-    windowsVerbatimArguments: true,
-  };
-}
-
-function quoteWindowsGitArgument(value: string): string {
-  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+  return cmdShellInvocation("git", ["-C", cwd, ...args], environment);
 }
 
 function samePath(left: string, right: string): boolean {

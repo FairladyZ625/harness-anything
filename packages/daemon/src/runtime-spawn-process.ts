@@ -7,7 +7,7 @@ import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { cmdShellInvocation, consumeKnownError } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import {
@@ -491,8 +491,7 @@ export function launchNative(
             },
           }
         : {}),
-      windowsVerbatimArguments:
-        process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
+      windowsVerbatimArguments: command.windowsVerbatimArguments,
     })}\n`,
   );
   child.unref();
@@ -646,18 +645,25 @@ function parseDispatchProcessRecord(line: string): Record<string, unknown> | nul
 export function nativeCommand(input: PreparedRuntimeLaunch): {
   readonly executablePath: string;
   readonly args: readonly string[];
+  readonly windowsVerbatimArguments: boolean;
 } {
   if (process.platform !== "win32" || !/\.(?:cmd|bat)$/iu.test(input.executablePath))
-    return { executablePath: input.executablePath, args: input.args };
-  const command = `""${input.executablePath}" ${input.args.map(quoteWindowsArgument).join(" ")}"`;
-  return {
-    executablePath: input.env.ComSpec ?? input.env.COMSPEC ?? "cmd.exe",
-    args: ["/d", "/s", "/c", command],
-  };
-}
-
-export function quoteWindowsArgument(value: string): string {
-  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+    return { executablePath: input.executablePath, args: input.args, windowsVerbatimArguments: false };
+  try {
+    const invocation = cmdShellInvocation(input.executablePath, input.args, input.env);
+    return {
+      executablePath: invocation.command,
+      args: invocation.args,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    };
+  } catch (error) {
+    // cmd.exe cannot carry NUL/CR/LF in a /c payload at all; the launch that would have
+    // concatenated them was an injection surface, so it fails closed with the constraint named.
+    throw runtimeSpawnError(
+      "runtime_windows_cmd_argument_rejected",
+      `${input.executablePath} launches through a Windows .cmd shim, which cannot carry NUL, CR or LF in an argument: ${runtimeErrorMessage(error)}`,
+    );
+  }
 }
 
 /** Admission of an externally prepared launch belongs to the process boundary. */

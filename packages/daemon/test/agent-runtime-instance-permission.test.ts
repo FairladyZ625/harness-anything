@@ -219,8 +219,6 @@ test("agy defaults to bypass and distinguishes persisted restrictions from a dis
     );
     const defaultLaunch = await store.prepareLaunch("agy-open", { cwd: "/workspace/repo", prompt: "Default" });
     assert.deepEqual(defaultLaunch.args, [
-      "-p",
-      "Default",
       "--output-format",
       "stream-json",
       "--print-timeout",

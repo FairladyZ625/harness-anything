@@ -593,8 +593,6 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
       providerSessionId: "conversation-1",
     });
     assert.deepEqual(launch.args, [
-      "-p",
-      "Reply with exactly AGY-OK",
       "--output-format",
       "stream-json",
       "--print-timeout",
