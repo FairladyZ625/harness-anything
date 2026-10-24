@@ -17,8 +17,8 @@ export function runtimeTaskExecutionFrozenError(taskId: string, status: string):
       field: "taskId",
       actual: status,
       expectation:
-        `Expected a task in implementation; the owner returns the cut with ha task adjudicate ${taskId} --return, ` +
-        `then retry the dispatch, review it with ha task dispatch-review ${taskId} --agent <reviewer-agent-id>, ` +
+        `Expected a task in implementation; wait for the cut's review verdict (a changes_requested verdict ` +
+        `returns it for rework), review it with ha task dispatch-review ${taskId} --agent <reviewer-agent-id>, ` +
         `or attach a read-only Agent (permissionMode read-only in its declaration) with ` +
         `ha agent run <read-only-agent-id> --task ${taskId}`,
     },

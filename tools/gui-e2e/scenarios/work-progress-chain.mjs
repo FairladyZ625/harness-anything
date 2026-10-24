@@ -13,18 +13,19 @@ import { bridgeReady } from "./helpers.mjs";
  * 断言面是工作页「最近进展」时间线:总览 2026-10-04 注意力返工只给每工作一行「最近」
  * 摘要,详细密度(原总览 DayDigest 区域)住在工作页;夹具让根任务带一个子任务成为
  * 工作根,工作页才存在。
- * 数据面:真实返工循环——start → submit → adjudicate return 每轮产生
- * start/submit/returned 三个交错步骤(workDayGroups 连续同类收成一步,交错才增长),
- * 全部经 daemon 聚合写口(repo.task.run 的 task-start/task-submit/task-adjudicate),
+ * 数据面:真实返工循环——start → submit → changes_requested 评审每轮产生
+ * start/submit/review_recorded 交错步骤(workDayGroups 连续同类收成一步,交错才增长),
+ * 全部经 daemon 聚合写口(repo.task.run 的 task-start/task-submit/task-review-execution),
  * 不造前端夹具。提交所需的 delivery commit 与 closeout.md 也是真实 daemon 校验路径
- * (doc-submit 接受的 closeout、main 上带 first parent 的交付 commit)。
+ * (doc-submit 接受的 closeout、main 上带 first parent 的交付 commit);返工轮由评审
+ * verdict 自动重开(仓库 reviewReturnBudget 提高到覆盖全部轮次)。
  */
 const ROUNDS = 14;
 const LONG_TASK = "task-gui-smoke";
 const SHORT_TASK = "task-chain-short";
 
-function repoRpc(endpoint, repoId, method, payload) {
-  return requestDaemonJsonRpcAt(endpoint, method, { repo: { repoId }, payload }, 2_000, 30_000);
+function repoRpc(endpoint, repoId, method, payload, sessionEnvironment) {
+  return requestDaemonJsonRpcAt(endpoint, method, { repo: { repoId }, payload }, 2_000, 30_000, sessionEnvironment);
 }
 
 /** 每轮回执必须 applied:任何一轮被拒都直接失败,链长不足会让几何断言失去分辨力。 */
@@ -102,6 +103,16 @@ export default {
       ].join("\n"),
     );
     await mustApply(fixture.endpoint, fixture.repoId, { kind: "doc-submit", taskId: LONG_TASK }, "doc-submit");
+    // 每轮返工都由 changes_requested 评审自动重开;仓库返工上限必须覆盖全部轮次。
+    const settings = await repoRpc(fixture.endpoint, fixture.repoId, "repo.settings.read", {});
+    const budget = await repoRpc(fixture.endpoint, fixture.repoId, "repo.task.run", {
+      action: {
+        kind: "settings-update",
+        reviewReturnBudget: ROUNDS + 2,
+        expectedVersion: settings.revision,
+      },
+    });
+    assert.equal(budget.outcome, "applied", `budget raise: ${JSON.stringify(budget).slice(0, 300)}`);
 
     const created = await repoRpc(fixture.endpoint, fixture.repoId, "repo.task.create", {
       taskId: SHORT_TASK,
@@ -153,20 +164,40 @@ export default {
         { kind: "task-submit", taskId: LONG_TASK, executionId, commitSha },
         `round ${round} submit`,
       );
-      // worker-mode none(9ceab8bb1 起 return 必须显式选续派模式):夹具只要返工状态
-      // 转移落账增长链,不派发真实 worker。
-      await mustApply(
+      // changes_requested 评审自动重开返工轮(dec_E369B861 CH3);评审员用独立 agent
+      // actor,报告落在包内 reports 目录,续跑派工在夹具仓自然失败但不影响落账。
+      const reportPath = path.join(
+        fixture.rootDir,
+        "harness",
+        fixture.packagePath,
+        "artifacts",
+        "reports",
+        `chain-${round}.md`,
+      );
+      writeFileSync(
+        reportPath,
+        [`# Chain rework round ${round}`, "", "Fixture review requested changes to grow the chain.", ""].join("\n"),
+      );
+      const reviewed = await repoRpc(
         fixture.endpoint,
         fixture.repoId,
+        "repo.task.run",
         {
-          kind: "task-adjudicate",
-          taskId: LONG_TASK,
-          return: true,
-          reason: `chain rework round ${round}`,
-          workerMode: "none",
+          action: {
+            kind: "task-review-execution",
+            taskId: LONG_TASK,
+            executionId,
+            reviewId: `review-chain-${round}`,
+            jsonInput: JSON.stringify({
+              verdict: "changes_requested",
+              reason: `chain rework round ${round}`,
+              evidenceChecked: [`tasks/${fixture.packagePath}/closeout.md`],
+            }),
+          },
         },
-        `round ${round} return`,
+        { HARNESS_ACTOR: "agent:chain-reviewer" },
       );
+      assert.equal(reviewed.outcome, "applied", `round ${round} review: ${JSON.stringify(reviewed).slice(0, 400)}`);
     }
 
     // 种子发生在 GUI 挂载之后:重载让读面全部重新拉取,不吃 30s stale 缓存。

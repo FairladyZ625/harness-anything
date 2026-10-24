@@ -464,7 +464,7 @@ export function AttestationPoolView({
                         const task = tasks.find((candidate) => candidate.taskId === item.taskId),
                           feedback = taskFeedback?.(item.taskId),
                           approved = (task?.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
-                          consentFeedback = feedback?.kind === "adjudicate" ? feedback : undefined;
+                          consentFeedback = feedback?.kind === "consent" ? feedback : undefined;
                         return (
                           <ConsentLaneRow
                             key={item.taskId}

@@ -46,7 +46,8 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly urgency?: TaskMetadataV1["urgency"];
   readonly slug?: string;
   readonly surfaces?: readonly string[];
-  readonly reviewReturnBudget?: number;
+  /** This task's own reviewer agent id; unset falls back to the repository defaultReviewer. */
+  readonly reviewer?: string;
   /** Authored task_plan.md body written in the same create transaction, replacing the scaffold body. */
   readonly plan?: string;
   /** Work-create CLI requires authored plan content before materializing the work root. */
@@ -128,11 +129,6 @@ export interface CompiledPresetSnapshotUpgrade extends PresetSnapshotUpgradeBund
 export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTaskPackage {
   validateTaskIdSyntax(input.taskId);
   if (!input.title.trim()) throw bootstrapFailure("invalid_title", "Task title is required.");
-  if (
-    input.reviewReturnBudget !== undefined &&
-    (!Number.isSafeInteger(input.reviewReturnBudget) || input.reviewReturnBudget < 1)
-  )
-    throw bootstrapFailure("invalid_field", "reviewReturnBudget must be a positive integer.");
   const resolved = createRuntime(input).resolveInternal({
     presetId: input.presetId,
     verticalId: input.verticalId,
@@ -265,7 +261,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           profileId: metadata.profileId,
           locale: input.locale,
           metadata,
-          ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
+          ...(input.reviewer === undefined ? {} : { reviewer: input.reviewer }),
           ...(snapshot.profile.closeoutOverrides === undefined
             ? {}
             : { closeoutOverrides: snapshot.profile.closeoutOverrides }),
@@ -385,7 +381,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         packageDisposition: "active",
         supersededBy: null,
         contractVersion: 1,
-        ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
+        ...(input.reviewer === undefined ? {} : { reviewer: input.reviewer }),
         ...(compiled.snapshot.profile.closeoutOverrides === undefined
           ? {}
           : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
@@ -454,7 +450,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       workKind: input.task.metadata?.workKind ?? undefined,
       riskTier: input.task.metadata?.riskTier ?? undefined,
       riskTierFlowVersion: input.task.metadata?.riskTierFlowVersion ?? undefined,
-      reviewReturnBudget: input.task.reviewReturnBudget,
+      reviewer: input.task.reviewer,
       verticalId,
       profileId: input.toPresetId && input.toPresetId !== presetId ? undefined : profileId,
       locale,

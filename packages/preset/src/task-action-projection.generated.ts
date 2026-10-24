@@ -185,98 +185,6 @@ export const taskActionDescriptorProjection = {
       },
     },
     {
-      id: "adjudicate",
-      input: {
-        schema: "entity-action-input/v1",
-        fields: [
-          { field: "taskId", type: "string", required: true },
-          { field: "expectedVersion", type: "number", required: false },
-          {
-            field: "executionId",
-            type: "string",
-            required: false,
-            cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "forward",
-            type: "boolean",
-            required: false,
-            cli: { name: "--forward", kind: "boolean", error: "invalid_field" },
-          },
-          {
-            field: "return",
-            type: "boolean",
-            required: false,
-            cli: { name: "--return", kind: "boolean", error: "invalid_field" },
-          },
-          {
-            field: "reviewer",
-            type: "string",
-            required: false,
-            cli: { name: "--reviewer", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "runtimeInstanceId",
-            type: "string",
-            required: false,
-            cli: { name: "--instance", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "model",
-            type: "string",
-            required: false,
-            cli: { name: "--model", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "reviewId",
-            type: "string",
-            required: false,
-            cli: { name: "--review-id", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "reason",
-            type: "string",
-            required: false,
-            cli: { name: "--note", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "noteFile",
-            type: "string",
-            required: false,
-            cli: { conflictsWith: ["--note"], name: "--note-file", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "workerMode",
-            type: "string",
-            required: false,
-            enum: ["resume", "fresh", "none"],
-            cli: { name: "--worker-mode", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "followUp",
-            type: "string",
-            required: false,
-            cli: { name: "--message", kind: "single", error: "invalid_field" },
-          },
-          { field: "commandType", type: "string", required: false, enum: ["AdjudicateSubmission"] },
-        ],
-        exactlyOneOf: [["forward", "return"]],
-      },
-      explain:
-        "Select a reviewer explicitly with --forward --reviewer, or return the submitted cut with a rework note.",
-      execution: {
-        ingress: "task-adjudicate",
-        topology: "ledger-write",
-        remoteEdgeAdmission: "via-center-forward",
-        lifecycle: {
-          transitionId: "adjudicate_submission",
-          commandType: "AdjudicateSubmission",
-          targetIdField: "executionId",
-          coordination: "execute",
-        },
-      },
-    },
-    {
       id: "review",
       input: {
         schema: "entity-action-input/v1",
@@ -336,7 +244,8 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [["fromFile", "jsonInput"]],
       },
-      explain: "Record an independent, content-pinned review for the submitted execution.",
+      explain:
+        "Record an independent, content-pinned review; a changes_requested verdict below the repository rework budget reopens the implementation round automatically.",
       execution: {
         ingress: "task-review-execution",
         topology: "local-arbiter",

@@ -48,10 +48,10 @@ export function taskMutation(
     amendPatches = action.kind === "task-amend" && Array.isArray(action.patches) ? action.patches : [],
     metadataFreeAmend =
       amendPatches.length > 0 &&
-      amendPatches.every(
-        (raw) =>
-          raw !== null && typeof raw === "object" && (raw as Record<string, unknown>).field === "reviewReturnBudget",
-      );
+      amendPatches.every((raw) => {
+        const field = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>).field : null;
+        return field === "reviewer" || field === "pinned";
+      });
   if (action.kind === "task-release") {
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
@@ -178,14 +178,13 @@ export function taskMutation(
         };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
         changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
-      else if (field === "reviewReturnBudget" && /^[1-9][0-9]*$/u.test(value))
-        changed = { ...changed, reviewReturnBudget: Number(value) };
+      else if (field === "reviewer" && /^[A-Za-z0-9_-]{1,96}$/u.test(value)) changed = { ...changed, reviewer: value };
       else
         throw cell.cellCodedError(
           "invalid_amend",
           [
             "Amend title, parentTaskId, workKind, urgency, ",
-            "taskClass, reviewReturnBudget (positive integer), or pinned (true/false); use task contract ",
+            "taskClass, reviewer (agent id), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),
         );

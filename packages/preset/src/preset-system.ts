@@ -278,18 +278,8 @@ function taskPackageFields(
   action: Action,
 ): Pick<
   Parameters<typeof compileTaskPackage>[0],
-  | "idempotencyKey"
-  | "parentTaskId"
-  | "workKind"
-  | "riskTier"
-  | "urgency"
-  | "slug"
-  | "surfaces"
-  | "reviewReturnBudget"
-  | "requirePlan"
-  | "plan"
+  "idempotencyKey" | "parentTaskId" | "workKind" | "riskTier" | "urgency" | "slug" | "surfaces" | "requirePlan" | "plan"
 > {
-  const reviewReturnBudget = optionalReviewReturnBudget(action.reviewReturnBudget);
   return {
     ...(optionalActionText(action.idempotencyKey)
       ? { idempotencyKey: optionalActionText(action.idempotencyKey)! }
@@ -300,17 +290,9 @@ function taskPackageFields(
     ...(oneOf(action.urgency, priorityTiers) ? { urgency: oneOf(action.urgency, priorityTiers)! } : {}),
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
-    ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
     ...(action.requirePlan === true ? { requirePlan: true } : {}),
     ...(optionalActionText(action.plan) ? { plan: optionalActionText(action.plan)! } : {}),
   };
-}
-function optionalReviewReturnBudget(value: unknown): number | undefined {
-  if (value === undefined) return undefined;
-  const parsed = typeof value === "string" && /^[1-9][0-9]*$/u.test(value) ? Number(value) : value;
-  if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed < 1)
-    throw presetActionError("invalid_field", "reviewReturnBudget must be a positive integer.");
-  return parsed;
 }
 function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): T[number] | undefined {
   return typeof value === "string" && allowed.includes(value) ? (value as T[number]) : undefined;

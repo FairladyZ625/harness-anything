@@ -311,7 +311,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "start",
       "transition",
       "submit",
-      "adjudicate",
       "review",
       "consent",
       "complete",

@@ -31,9 +31,7 @@ import {
 } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
-import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
-import { prepareReturnedWorker, dispatchReturnedWorker } from "./task-return-dispatch.ts";
 
 export function appendProgress(
   cell: RepoCellOperationalContext,
@@ -476,93 +474,4 @@ export function completionContext(
     eligibleDirtyPaths: eligible.map((row) => row.path),
     ...(invalid ? { invalidDocument: { path: invalid.path, reason: invalid.reason ?? invalid.state } } : {}),
   };
-}
-
-/**
- * A forward order on a cut whose frozen task profile lifted review is an upgrade into the review
- * corridor: it re-arms the verdict requirement, so it may only land where the corridor can serve
- * it — the reviewer dispatch spawn's own deterministic preconditions must hold. Refused before
- * any durable write, the lifted default stands and `ha task complete` remains the one path.
- * Only a task-bound lift upgrades: under a repository-standard baseline the forward is ordinary
- * triage and keeps its write-then-dispatch retry lane.
- */
-function assertForwardUpgradeServable(cell: RepoCellOperationalContext, action: RepoTaskAction, taskId: string): void {
-  const read = cell.projection.read(taskId),
-    task = read.snapshot.task;
-  if (!task || task.closeoutOverrides?.review !== false) return;
-  const candidates = currentSubmittedExecutions(read.snapshot),
-    execution =
-      typeof action.executionId === "string"
-        ? candidates.find((value) => value.executionId === action.executionId)
-        : candidates[0];
-  if (!execution?.submission) return; // the transition itself rejects malformed orders
-  const { reviewerId } = selectReviewAgent(
-      execution.submission.completionContract?.reviewer?.agentId,
-      typeof action.reviewer === "string" ? action.reviewer : undefined,
-      cell.settings.readRepository().roles?.defaultReviewer,
-    ),
-    obstruction = cutReviewDispatchObstruction(cell, {
-      reviewerId,
-      ...(typeof action.model === "string" ? { model: action.model } : {}),
-    });
-  if (obstruction)
-    throw cell.cellCodedError(
-      "invalid_transition",
-      `Task ${taskId} lifted review in its profile and the upgrade order cannot dispatch its reviewer: ` +
-        `${obstruction}. Run ha task complete ${taskId} instead of forwarding.`,
-    );
-}
-
-/**
- * The owner's adjudication (owner ruling 2026-09-19): one command, two orders. `--forward`
- * applies the kernel transition and then dispatches the independent reviewer for the forwarded
- * cut through `dispatchInReviewCutReview`, shared with submit and amend; `--return` applies the owner's rework
- * order. A dispatch failure never undoes the durable forward: it lands as the receipt's step
- * with the manual `ha task dispatch-review` retry lane, which is idempotent on the same key.
- */
-export async function adjudicateTask(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-): Promise<WriteReceipt> {
-  const taskId = cell.requiredCellText(action.taskId, "taskId");
-  if (action.forward === true) assertForwardUpgradeServable(cell, action, taskId);
-  const continuation = action.return === true ? prepareReturnedWorker(cell, action, taskId) : null,
-    receipt = await cell.lifecycleAction(action, binding);
-  if (receipt.outcome !== "applied") return receipt;
-  if (continuation) return dispatchReturnedWorker(cell, continuation, binding, receipt);
-  if (action.return === true)
-    // --worker-mode none: the durable return stands and no worker is dispatched; the receipt
-    // names the manual continuation lanes instead of a dispatch.
-    return {
-      ...receipt,
-      continuation: { mode: "none" },
-      next: [
-        {
-          command: `ha task start ${taskId}`,
-          reason: "no worker was dispatched; start the next execution to resume the rework",
-        },
-        { command: `ha task submit ${taskId}`, reason: "publish the reworked cut once the lease is held" },
-      ],
-    } as WriteReceipt;
-  const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
-  if (!dispatched)
-    throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);
-  const dispatchIdentity = dispatched.step as {
-    readonly dispatchId?: string;
-    readonly runtimeSessionId?: string;
-  };
-  const result = {
-    ...receipt,
-    ...dispatched.selection,
-    ...(dispatchIdentity.dispatchId === undefined ? {} : { dispatchId: dispatchIdentity.dispatchId }),
-    ...(dispatchIdentity.runtimeSessionId === undefined ? {} : { runtimeSessionId: dispatchIdentity.runtimeSessionId }),
-    ...(dispatched.laneWarnings.length ? { warnings: dispatched.laneWarnings } : {}),
-    steps: [
-      ...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []),
-      dispatched.step,
-      ...dispatched.laneSteps,
-    ],
-  };
-  return result;
 }
