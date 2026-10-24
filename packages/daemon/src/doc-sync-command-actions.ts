@@ -51,8 +51,11 @@ import {
   scannerSettlement,
   scopeRequiredRejection,
 } from "./doc-sync-settlement.ts";
+import { scrubProviderValue, scrubSecretText } from "./secret-scrub.ts";
 
 export const DOC_COMMAND_FRAME_MAX_BYTES = DOC_SYNC_INLINE_MAX_BYTES;
+
+const notJsonArtifact = Symbol("not-json-artifact");
 
 export type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
 
@@ -520,6 +523,10 @@ function publishTaskArtifactBytes(
   target: ReturnType<typeof taskArtifactTarget>,
   bytes: Uint8Array,
 ): ArtifactAddReceipt {
+  // A task artifact is evidence, and a command transcript is exactly where a provider's raw output
+  // lands. Every task artifact write funnels through here (inline content, a text source file and
+  // an internally published report), so this is the one place the byte form meets the scrubber.
+  const content = scrubTaskArtifactBytes(bytes);
   const {
     taskId,
     destination,
@@ -542,7 +549,7 @@ function publishTaskArtifactBytes(
       `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
     );
   if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
-    const sha = sha256Bytes(bytes),
+    const sha = sha256Bytes(content),
       document = projected.document,
       // The projection names the revision that last wrote this path, so a same-bytes republish reads that one event.
       replay =
@@ -573,13 +580,13 @@ function publishTaskArtifactBytes(
   // The bytes decide the policy, not the file name. Text keeps its opaque textual classification and
   // its real media type; anything that is not UTF-8 is published as raw bytes under the same claim
   // schema, so a PDF or a log with one stray byte keeps its filename and its exact content.
-  const policy = utf8Decodable(bytes) ? classification : rawClassification;
+  const policy = utf8Decodable(content) ? classification : rawClassification;
   if (policy === null)
     throw docSyncError(
       "artifact_invalid_utf8",
       `${destination} names a textual format, so its source must be valid UTF-8`,
     );
-  const sha = sha256Bytes(bytes),
+  const sha = sha256Bytes(content),
     base = input.store.currentCut(),
     execution = resolveDocExecutionBinding(
       [destination],
@@ -604,7 +611,7 @@ function publishTaskArtifactBytes(
             candidate: {
               ref: `doc-sync-claims/${sha}`,
               sha256: sha,
-              size: bytes.byteLength,
+              size: content.byteLength,
               mediaType: policy.mediaType,
             },
           },
@@ -612,7 +619,7 @@ function publishTaskArtifactBytes(
       },
       input.workspaceId,
     ),
-    receipt = publishDocIntent(input, intent, [bytes], lease);
+    receipt = publishDocIntent(input, intent, [content], lease);
   return receipt.outcome === "applied" || receipt.outcome === "pending" ? { ...receipt, destination } : receipt;
 }
 
@@ -622,5 +629,36 @@ function utf8Decodable(bytes: Uint8Array): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function scrubTaskArtifactBytes(bytes: Uint8Array): Uint8Array {
+  if (!utf8Decodable(bytes)) return bytes;
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    scrubbed = scrubTaskArtifactText(text);
+  // Only allocate when a rule fired, so an artifact without credentials keeps its exact bytes.
+  return scrubbed === text ? bytes : Buffer.from(scrubbed);
+}
+
+/**
+ * A JSON artifact is scrubbed as data: a credential value then ends at its own JSON string, and a
+ * credential-named key is dropped as a unit. Scrubbing the serialized text instead would read the
+ * `\n` escape as ordinary characters and swallow the word that follows the secret.
+ */
+function scrubTaskArtifactText(text: string): string {
+  const parsed = parseJsonArtifact(text);
+  if (parsed === notJsonArtifact || parsed === null || typeof parsed !== "object") return scrubSecretText(text);
+  const scrubbed = scrubProviderValue(parsed);
+  return JSON.stringify(scrubbed) === JSON.stringify(parsed)
+    ? text
+    : `${JSON.stringify(scrubbed, null, 2)}${text.endsWith("\n") ? "\n" : ""}`;
+}
+
+/** JSON.parse is the classifier here; its syntax error means "not a JSON artifact", not a failure. */
+function parseJsonArtifact(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return notJsonArtifact;
   }
 }

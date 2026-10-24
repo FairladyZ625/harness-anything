@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,6 +47,83 @@ test("artifact add publishes inline content through the canonical artifact write
       readFileSync(path.join(root, "harness/tasks/task-inline-inline/artifacts/evidence/command.json"), "utf8"),
       "same-run evidence\n",
     );
+  } finally {
+    await cell.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("command evidence and text artifacts reach the ledger without their raw credentials", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-artifact-scrub-")),
+    repoId = workspaceId("artifact-scrub");
+  initRepo(root);
+  const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "artifact-scrub" });
+  try {
+    const created = await cell.run({ kind: "task-create", taskId: "task-scrub", title: "Scrub" }, ownerBinding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, ownerBinding);
+    const awsAccessKeyId = "AKIAIOSFODNN7EXAMPLE",
+      googleApiKey = "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+      jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+      privateKeyBody = "MIIEowIBAAKCAQEA7examplekeybody",
+      command = [
+        process.execPath,
+        "-e",
+        `process.stdout.write(${JSON.stringify(
+          [
+            `aws ${awsAccessKeyId}`,
+            `google ${googleApiKey}`,
+            `jwt ${jwt}`,
+            `-----BEGIN RSA PRIVATE KEY-----\n${privateKeyBody}\n-----END RSA PRIVATE KEY-----`,
+            "OPENAI_API_KEY=plainvalue123",
+            "benign line",
+          ].join("\n"),
+        )})`,
+      ],
+      result = spawnSync(command[0]!, command.slice(1), { encoding: "utf8" });
+    assert.equal(result.status, 0, String(result.stderr));
+    const transcript = `${JSON.stringify(
+      {
+        schema: "task-command-evidence/v1",
+        taskId: "task-scrub",
+        command,
+        cwd: root,
+        startedAt: "2026-10-24T00:00:00.000Z",
+        finishedAt: "2026-10-24T00:00:01.000Z",
+        exitCode: 0,
+        signal: null,
+        error: null,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      },
+      null,
+      2,
+    )}\n`;
+    assert.equal(transcript.includes(awsAccessKeyId), true, "the fixture command really prints the key");
+    const receipt = await cell.run(
+      { kind: "task-artifact-add", taskId: "task-scrub", content: transcript, destination: "evidence/command.json" },
+      ownerBinding,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    await waitForFixturePublication(cell, receipt.opId, ownerBinding);
+    const stored = readFileSync(path.join(root, "harness", String(receipt.destination)), "utf8"),
+      parsed = JSON.parse(stored) as Record<string, unknown>;
+    for (const secret of [awsAccessKeyId, googleApiKey, jwt, privateKeyBody, "plainvalue123"])
+      assert.equal(stored.includes(secret), false, `${secret} must not reach the ledger artifact`);
+    assert.equal(parsed.schema, "task-command-evidence/v1", "scrubbing keeps the transcript parseable");
+    assert.match(String(parsed.stdout), /\[REDACTED\]/u);
+    assert.match(String(parsed.stdout), /benign line/u, "ordinary output survives");
+
+    const sourceSecret = "OPENAI_API_KEY=sourcevalue456";
+    writeFileSync(path.join(root, "env.txt"), `${sourceSecret}\n`);
+    const fromSource = await cell.run(
+      { kind: "task-artifact-add", taskId: "task-scrub", source: "env.txt", destination: "evidence/env.txt" },
+      ownerBinding,
+    );
+    assert.equal(fromSource.outcome, "applied", JSON.stringify(fromSource));
+    await waitForFixturePublication(cell, fromSource.opId, ownerBinding);
+    const storedSource = readFileSync(path.join(root, "harness", String(fromSource.destination)), "utf8");
+    assert.equal(storedSource.includes("sourcevalue456"), false, "a text source reaches the same write boundary");
+    assert.match(storedSource, /\[REDACTED\]/u);
   } finally {
     await cell.close();
     rmSync(root, { recursive: true, force: true });

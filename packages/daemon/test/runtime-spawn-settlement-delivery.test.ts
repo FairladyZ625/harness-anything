@@ -217,7 +217,9 @@ test("task settlement archives a bounded, scrubbed conclusion and the worktree e
     } as RuntimeSpawnerContext;
   await publishExit(settleContext, runtime, 0);
   assert.equal(archived.length, 1);
-  assert.ok(String(archived[0]?.lastConclusion).startsWith("Last conclusion [REDACTED]"));
+  // The assignment rewrite keeps the credential name and separator, so the sentence still names
+  // what was scrubbed while the value is gone.
+  assert.ok(String(archived[0]?.lastConclusion).startsWith("Last conclusion secret=[REDACTED]"));
   assert.equal(String(archived[0]?.lastConclusion).length, 8_192);
   assert.doesNotMatch(String(archived[0]?.lastConclusion), /do-not-persist/u);
   assert.equal(archived[0]?.exitHead, git(fixture.worker, "rev-parse", "HEAD").trim());
