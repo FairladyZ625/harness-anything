@@ -70,6 +70,7 @@ export type { DomainStatus } from "./lifecycle-status.ts";
 export {
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
+  deliveryTargetRef,
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,

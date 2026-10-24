@@ -449,6 +449,23 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     },
   }),
   defineSettingsField({
+    path: ["delivery", "targetRef"],
+    ownership: repository,
+    valueKind: "string",
+    defaultValue: undefined,
+    optional: true,
+    pattern: "^refs/(heads|remotes)/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+    description: "Optional complete Git ref used to verify delivery instead of the default origin target branch.",
+    effect: "When set, the merge annotation is accepted only when its commit is an ancestor of this ref.",
+    group: "delivery",
+    action: { field: "deliveryTargetRef", type: "string" },
+    cli: {
+      name: "--delivery-target-ref",
+      kind: "single",
+      regex: "^refs/(heads|remotes)/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+    },
+  }),
+  defineSettingsField({
     path: ["hosting", "provider"],
     ownership: repository,
     valueKind: "enum",

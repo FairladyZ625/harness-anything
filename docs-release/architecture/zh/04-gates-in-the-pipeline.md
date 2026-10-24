@@ -14,6 +14,10 @@ daemon 侧的 RepoCell 编排提交流程、评审与完成(`packages/daemon/src
 应用服务在 `packages/application/src/task-lifecycle-service.ts`。CLI 只是把这些命令转发给
 daemon 协议(`packages/cli/src/cli/thin-command-task.ts`)。
 
+代码交付完成门默认校验配置的 `origin/<branch>` 远端跟踪 ref。仅本地仓库可以显式设置
+`ha settings update --delivery-target-ref refs/heads/main`，完成门随后针对这个本地 ref
+校验记录的合入提交。设置需要显式声明，因此有远端仓库仍保留 origin 交付要求。
+
 关键性质是**从构造上就 fail-closed**。完成判定收集一组 **blocker**;只要列表非空,
 迁移就不会发生,task 的状态从不被写入。没有任何东西被"默认认为没问题"——一次迁移必须靠
 交出一个空的 blocker 列表,才能挣得通行。
@@ -102,7 +106,7 @@ preset/profile 的 `completionGates`,执行 `completion-readiness.ts` 的确定�
 | `executor_missing` | 未声明 executor(`ha task declare-executor`) |
 | `review_missing` | 缺 approved Review |
 | `consent_missing` | 缺 review-consent 记录 |
-| `delivery_missing` | 仓库设置要求代码交付已合入，但执行记录的合入 commit 不在配置的目标分支上；旧冻结 `ci` gate 也只读使用同一合入证据 |
+| `delivery_missing` | 仓库设置要求代码交付已合入，但执行记录的合入 commit 不在配置的目标 ref（默认 `origin/<目标分支>`）上；旧冻结 `ci` gate 也只读使用同一合入证据 |
 | `gate_witness_missing` | 其他声明门的 canonical checker 见证缺失 |
 | `decision_lineage_missing` | 承重 decision 谱系未闭合 |
 | `lease_held` | 仍有未释放 lease |
