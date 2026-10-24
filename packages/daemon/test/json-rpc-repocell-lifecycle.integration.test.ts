@@ -238,7 +238,9 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((started.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const beforeInvalidSubmit = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision;
-    writeFileSync(path.join(rootDir, "harness", packagePath, "closeout.md"), "# Closeout\n\n## Summary\n\nIncomplete.\n");
+    // dec_E369B8616F50A6208B293997E7 CH2: missing sections are a prose choice, so the rejection
+    // fixture is a body with no authored prose at all — it derives no completion claim.
+    writeFileSync(path.join(rootDir, "harness", packagePath, "closeout.md"), "# Closeout\n\n## Summary\n\n## Verification\n");
     const invalidSubmit = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
     assert.equal(invalidSubmit.outcome, "op_rejected");
     assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, Number(beforeInvalidSubmit) + 1);
