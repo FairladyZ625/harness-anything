@@ -85,7 +85,6 @@ async function recordReview(
 test("submit enters independent review automatically and completion still requires owner consent", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
-    autoForward: false,
     create: { riskTier: "high" },
   });
   try {
@@ -200,7 +199,6 @@ test("medium tier preserves the repository's resolved consent gate", async () =>
 test("a lightweight task's forward order upgrades the cut into the review corridor instead of deadlocking", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
-    autoForward: false,
     create: { riskTier: "low" },
   });
   try {
@@ -336,7 +334,6 @@ test("manual review return succeeds even after reaching the review return budget
 test("concurrent owner rulings and completions have one state-transition winner", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
-    autoForward: false,
   });
   try {
     await f.install();
@@ -421,7 +418,6 @@ test.skip("sibling complete refuses unfinished sources and missing facts, then c
 
 test("a done lightweight source without independent review cannot resolve a sibling", async () => {
   const f = await fixture(false, true, true, false, false, undefined, {
-    autoForward: false,
     create: { riskTier: "low" },
   });
   try {
@@ -450,7 +446,6 @@ test("a done lightweight source without independent review cannot resolve a sibl
 test("consent refuses an approved review while another review dispatch on the cut is still running", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     closeoutProfile: "standard",
-    autoForward: false,
   });
   try {
     await f.install();
@@ -519,7 +514,6 @@ function terminalEventsFor(
 test("a cancel receipt is returned only after the canonical outcome is readable", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     closeoutProfile: "standard",
-    autoForward: false,
   });
   try {
     await f.install();
@@ -554,7 +548,6 @@ test("a cancel receipt is returned only after the canonical outcome is readable"
 test("consent applies once every review dispatch on the cut reached its terminal verdict", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     closeoutProfile: "standard",
-    autoForward: false,
   });
   try {
     await f.install();
