@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "decisions": {
     "questions": {
       "stop-reason": {
@@ -217,7 +217,7 @@
       "templateSelections": [
         {
           "slot": "task.plan",
-          "templateRef": "template://planning/task-plan@1",
+          "templateRef": "template://planning/task-plan@2",
           "materializeAs": "task_plan.md",
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         },

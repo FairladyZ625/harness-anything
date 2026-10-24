@@ -10,12 +10,8 @@ const planHeadings = [
   "Goal",
   "Context",
   "Required Reading",
-  "Entry Conditions",
-  "Dependencies",
   "Execution Surface",
   "Constraints",
-  "Checkpoint",
-  "Implementation Plan",
   "Deliverable Contract",
   "Evidence Protocol",
   "Verification",
@@ -23,7 +19,7 @@ const planHeadings = [
 
 test("transition-document readiness reports scaffold and empty sections as structured entries", () => {
   const template = readFileSync(
-      new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
+      new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
       "utf8",
     ),
     partial = realizedPlan().replace(
@@ -40,7 +36,7 @@ test("transition-document readiness reports scaffold and empty sections as struc
           reason: "scaffold",
           retainedScaffold: "One-line statement of the task objective and scope.",
         },
-        expectedEntries: 13,
+        expectedEntries: 9,
       },
       {
         name: "partially realized plan",
@@ -76,10 +72,10 @@ test("transition-document readiness reports scaffold and empty sections as struc
 
 test("readiness contract resolves from the descriptor-embedded map, then the bundled catalog", () => {
   const template = readFileSync(
-      new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
+      new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
       "utf8",
     ),
-    templateRef = "template://planning/task-plan@1",
+    templateRef = "template://planning/task-plan@2",
     embedded = { Brief: ["One-line statement of the task objective and scope."], Verification: [] },
     // A descriptor whose readiness map was frozen at materialization never consults the catalog:
     // the embedded contract wins even when the templateRef cannot resolve.
@@ -109,6 +105,22 @@ test("readiness contract resolves from the descriptor-embedded map, then the bun
       descriptor: { slot: "task.plan", path: "task_plan.md", templateRef: "template://missing/none@0" },
     }),
     null,
+  );
+});
+
+test("a descriptor frozen on the 13-section template still reads that catalog version", () => {
+  const legacyTemplate = readFileSync(
+      new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
+      "utf8",
+    ),
+    contract = transitionDocumentReadinessContract({
+      contract: { locale: "en-US" },
+      descriptor: { slot: "task.plan", path: "task_plan.md", templateRef: "template://planning/task-plan@1" },
+    });
+  assert.deepEqual(contract, transitionDocumentContract(legacyTemplate));
+  assert.deepEqual(
+    assessTransitionDocument("task.plan", realizedPlan(), contract!).missingSections.map(({ section }) => section),
+    ["Entry Conditions", "Dependencies", "Checkpoint", "Implementation Plan"],
   );
 });
 
