@@ -54,7 +54,7 @@ function oversizedReportBody(dispatchId: string): string {
 
 test("an oversized dispatch report no longer wedges task completion", { timeout: 60_000 }, async () => {
   let delaySettlement = false;
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     closeoutProfile: "standard",
     keycloakSession: async () => {
       if (delaySettlement) {

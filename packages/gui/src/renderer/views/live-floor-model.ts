@@ -398,8 +398,9 @@ export interface LiveFloorAskLabels {
 }
 
 /**
- * 只放业主才能做的事:待答提问、受保护面签发/同意、裁决、打回重开、派审。
- * 置顶(`pinnedEntities`)不在这里:置顶是业主自己的书签,不是等业主做的动作;它已经在
+ * 只放业主才能做的事:待答提问、受保护面签发/同意、决策评审、历史 submitted 切面的处置。
+ * 派审与返工重开由评审循环自动完成(dec_E369B861 CH3),不再是等业主的动作;置顶
+ * (`pinnedEntities`)不在这里:置顶是业主自己的书签,不是等业主做的动作;它已经在
  * 总览的「置顶与议程」区与侧栏各有落点,在这里重复一遍只会把首屏挤满(2026-10-23 CEO 验收)。
  */
 export function liveFloorAskLanes(input: {

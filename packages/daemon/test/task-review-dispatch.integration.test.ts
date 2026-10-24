@@ -1,6 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+
+/** The principal that records rework-driving verdicts: a person of its own, so denying its
+ * runtime-spawn (which kills the automatic worker continuation at admission) never touches the
+ * owner's permissions this file's other tests rely on. A reviewer never needs to spawn. */
+const REWORK_REVIEWER_PERSON = "completion-rework-reviewer";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -38,8 +43,44 @@ const reviewerActor = (runtimeSessionId: string) =>
     "admin",
   );
 
+/** A dispatched reviewer's changes_requested verdict: the verdict itself reopens the round and
+ * registers the dispatch's report, which is what qualifies the lane's next cut for a re-review.
+ * runtime-spawn is revoked around the write so the automatic worker continuation is denied at
+ * admission (the receipt records that failure): like delivery-baseline-rework's unavailable
+ * spawner, the failed continuation leaves the reopened round without a spawned execution, so the
+ * next round starts like any other. The owner's group grants are restored right after. */
+async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSessionId: string, reviewId: string) {
+  grantTestPolicyGroups([REWORK_REVIEWER_PERSON], "admin");
+  revokeTestPolicyActions(REWORK_REVIEWER_PERSON, "completion-review", ["runtime-spawn"]);
+  const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`,
+    report = `${f.packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`;
+  mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+  writeFileSync(path.join(f.root, "harness", report), `# Review ${reviewId}\n\nRework requested.\n`);
+  writeFileSync(
+    path.join(f.root, "harness", packet),
+    JSON.stringify({
+      verdict: "changes_requested",
+      reason: "The submitted cut needs another pass.",
+      evidenceChecked: ["closeout.md"],
+    }),
+  );
+  return f.cell().run(
+    { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: `harness/${packet}` },
+    withPolicyGroup(
+      {
+        actor: {
+          principal: { personId: REWORK_REVIEWER_PERSON },
+          executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+        },
+        source: "local" as const,
+      },
+      "admin",
+    ),
+  );
+}
+
 test("review dispatch starts over provider-sized evidence and reads every frozen anchor", async (t) => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     closeoutProfile: "standard",
     providerInputLimit: 1_048_576,
@@ -54,7 +95,7 @@ test("review dispatch starts over provider-sized evidence and reads every frozen
     for (const artifact of artifacts) writeFileSync(path.join(f.root, "harness", artifact.path), artifact.body);
     assert.equal((await f.run({ kind: "doc-submit", taskId })).outcome, "applied");
     await f.submit();
-    assert.equal((await f.forward()).outcome, "applied");
+    // The submit dispatched the reviewer itself; the retry lane is idempotent on the same cut key.
     const dispatched = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] }),
       step = dispatchesOf(dispatched)[0]!;
     assert.equal(step.outcome, "already_dispatched", JSON.stringify(step));
@@ -86,7 +127,7 @@ test("review dispatch starts over provider-sized evidence and reads every frozen
 });
 
 test("expanded reviewer runtime publishes only its bound report atomically", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+  const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
   try {
     await f.install();
     const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -143,7 +184,7 @@ test("expanded reviewer runtime publishes only its bound report atomically", asy
 });
 
 test("decision dispatch-review passes spawn admission and launches once for the current digest", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
   try {
     await f.install();
@@ -275,7 +316,7 @@ test(
   "decision dispatch-review --agent refuses instead of returning another agent's in-flight dispatch",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
     try {
       await f.install();
@@ -343,7 +384,7 @@ test(
   "a settled decision review dispatch publishes its report, packet, and dispatch record through the writer",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
     try {
       await f.install();
@@ -522,7 +563,7 @@ test(
   { timeout: 20_000 },
   async () => {
     // A low-tier code delivery still needs an accepted artifact before submission.
-    const f = await fixture(false, true, true, false, false, undefined, {
+    const f = await fixture(false, true, true, false, false, {
       autoSubmit: false,
       closeoutProfile: "standard",
       create: { riskTier: "low" },
@@ -560,7 +601,7 @@ test(
   "task dispatch-review launches one reviewer bound to the submitted cut without touching the implementation iteration",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const before = await showTask(f, taskId);
@@ -601,7 +642,7 @@ test(
   "reviewer runtime submission fences accept every current-cut key shape and reject both stale-cut shapes",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const initialDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
@@ -648,7 +689,7 @@ test(
   "task dispatch-review expands a batch into one independent review dispatch per task",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const task2 = "task-completion-review-batch",
@@ -691,7 +732,7 @@ test(
   "dispatch-review --agent refuses instead of returning another agent's in-flight review dispatch",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
     });
     try {
@@ -709,8 +750,7 @@ test(
         },
       });
       assert.equal(second.outcome, "applied", JSON.stringify(second));
-      // The forward dispatches the default reviewer first; its session stays in flight.
-      assert.equal((await f.forward()).outcome, "applied");
+      // The fixture's submit dispatched the default reviewer automatically; its session stays in flight.
       assert.equal(f.launches.length, 1);
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "second-reviewer" });
       assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
@@ -781,12 +821,13 @@ test(
   "a fresh dispatch-review step names the dispatched agent and its runtime instance",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
     });
     try {
       await f.install();
-      assert.equal((await f.forward()).outcome, "applied");
+      // The fixture's submit already dispatched the bundled default reviewer; ending that
+      // session lets the retry lane dispatch the installed declaration.
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
       f.failPending();
@@ -809,7 +850,7 @@ test(
   "a re-review resumes the prior reviewer provider session for the same task lane",
   { timeout: 30_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
       autoSubmit: false,
       autoProviderSession: true,
@@ -817,26 +858,22 @@ test(
     try {
       await f.install();
       assert.equal((await f.submit()).outcome, "applied");
-      const firstReceipt = await f.forward();
-      assert.equal(firstReceipt.outcome, "applied", JSON.stringify(firstReceipt));
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
       const reviewId = `review-${first.payload.dispatchId}`;
+      await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
       f.failPending();
       await f.awaitOutcome(first.payload.runtimeSessionId);
-      const reviewed = await f.review(first.payload.runtimeSessionId, reviewId);
+      // The changes_requested verdict reopens the round itself; no owner return command exists.
+      const reviewed = await requestChanges(f, first.payload.runtimeSessionId, reviewId);
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-      assert.equal((await f.returnCut("Revise the submitted cut.", reviewId)).outcome, "applied");
       const nextExecution = "execution-review-resume-next";
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: nextExecution })).outcome, "applied");
       assert.equal((await f.submit(nextExecution)).outcome, "applied");
-      const secondReceipt = await f.forward("Forward the revised cut.", nextExecution);
-      assert.equal(secondReceipt.outcome, "applied", JSON.stringify(secondReceipt));
       const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
       const second = dispatches.at(-1)!;
       assert.equal(second.type, "runtime_dispatch_requested");
       assert.equal(second.payload.resumedFromDispatchId, first.payload.dispatchId);
-      await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
       await f.waitForProviderBinding(second.payload.dispatchId, "review-provider-session");
       const firstProvider = readDispatchStream(f.root, first.payload.dispatchId),
         secondProvider = readDispatchStream(f.root, second.payload.dispatchId);
@@ -856,7 +893,7 @@ test(
   "a rejected reviewer resume starts a fresh session with the previous registered report in its scope",
   { timeout: 30_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
       autoSubmit: false,
       autoProviderSession: true,
@@ -865,29 +902,34 @@ test(
     try {
       await f.install();
       assert.equal((await f.submit()).outcome, "applied");
-      assert.equal((await f.forward()).outcome, "applied");
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
       const reviewId = `review-${first.payload.dispatchId}`;
       await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
       f.failPending();
       await f.awaitOutcome(first.payload.runtimeSessionId);
-      assert.equal((await f.review(first.payload.runtimeSessionId, reviewId)).outcome, "applied");
-      assert.equal((await f.returnCut("Revise the submitted cut.", reviewId)).outcome, "applied");
+      // The verdict itself returns the cut; the rework submit's automatic dispatch then tries
+      // the rejected resume and falls back to a fresh reviewer session.
+      assert.equal((await requestChanges(f, first.payload.runtimeSessionId, reviewId)).outcome, "applied");
       const nextExecution = "execution-review-fallback-next";
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: nextExecution })).outcome, "applied");
-      assert.equal((await f.submit(nextExecution)).outcome, "applied");
-      const secondReceipt = await f.forward("Forward the revised cut.", nextExecution);
+      const secondReceipt = await f.submit(nextExecution);
       assert.equal(secondReceipt.outcome, "applied", JSON.stringify(secondReceipt));
       const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested"),
         second = dispatches.at(-1)!;
       assert.equal(second.type, "runtime_dispatch_requested");
+      // The submit receipt carries its review dispatch as a step; the step must name the fresh
+      // fallback identity, not the rejected resume.
+      const dispatchStep = ((secondReceipt.steps as readonly Record<string, unknown>[] | undefined) ?? []).find(
+        (step) => typeof step.dispatchId === "string",
+      );
+      assert.ok(dispatchStep, `submit carries no dispatch step: ${JSON.stringify(secondReceipt)}`);
       assert.equal(
-        secondReceipt.dispatchId,
+        dispatchStep.dispatchId,
         second.payload.dispatchId,
         `receipt must name the fresh fallback dispatch: ${JSON.stringify(secondReceipt)}`,
       );
-      assert.equal(secondReceipt.runtimeSessionId, second.payload.runtimeSessionId);
+      assert.equal(dispatchStep.runtimeSessionId, second.payload.runtimeSessionId);
       assert.equal(second.payload.resumedFromDispatchId, undefined, "fallback must own a fresh dispatch");
       assert.match(second.payload.dispatchKey, /execution-review-fallback-next/u);
       await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
@@ -936,7 +978,7 @@ test(
   "a reviewer runtime may only record a review; lifecycle writes that would mutate the implementation iteration are denied",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -994,7 +1036,7 @@ test(
   "a registered review keeps the runtime settlement honest even when the archive collides",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -1019,7 +1061,7 @@ test(
   "an archive collision without a registered review still settles the reviewer dispatch as failed",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -1040,7 +1082,7 @@ test(
   "the reviewer report lands under the reviewed task's own package reports directory",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -1062,7 +1104,7 @@ test(
   "a configured path-review lane dispatches its reviewer beside the cut review and stays off by default",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
       create: { presetId: "standard-task", riskTier: "high" },
     });
@@ -1170,7 +1212,7 @@ test(
   "a medium-risk cut touching a configured path still dispatches its migration reviewer",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
       create: { presetId: "standard-task", riskTier: "medium" },
     });
@@ -1255,7 +1297,7 @@ test(
   "dispatch-review refuses a task with no submitted cut instead of binding the implementation execution",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
       const planned = "task-completion-review-planned";

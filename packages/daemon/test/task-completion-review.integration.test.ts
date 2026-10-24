@@ -5,7 +5,12 @@ import path from "node:path";
 import test from "node:test";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+
+/** The principal that records rework-driving verdicts: a person of its own, so denying its
+ * runtime-spawn (which kills the automatic worker continuation at admission) never touches the
+ * owner's permissions this file's other tests rely on. A reviewer never needs to spawn. */
+const REWORK_REVIEWER_PERSON = "completion-rework-reviewer";
 
 type Receipt = Record<string, unknown>;
 
@@ -83,7 +88,7 @@ async function recordReview(
 }
 
 test("submit enters independent review automatically and completion still requires owner consent", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     create: { riskTier: "high" },
   });
@@ -121,7 +126,7 @@ test("submit enters independent review automatically and completion still requir
 });
 
 test("a low declaration raised to high freezes the assessed tier, consent, and configured GUI acceptance", async () => {
-  const f = await fixture(false, true, true, false, false, undefined, {
+  const f = await fixture(false, true, true, false, false, {
     autoSubmit: false,
     guiDelivery: true,
     submitCommit: true,
@@ -177,7 +182,7 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
 });
 
 test("medium tier preserves the repository's resolved consent gate", async () => {
-  const f = await fixture(false, true, true, false, false, undefined, {
+  const f = await fixture(false, true, true, false, false, {
     autoSubmit: false,
     create: { riskTier: "medium" },
   });
@@ -197,7 +202,7 @@ test("medium tier preserves the repository's resolved consent gate", async () =>
 });
 
 test("a lightweight task's forward order upgrades the cut into the review corridor instead of deadlocking", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     create: { riskTier: "low" },
   });
@@ -258,7 +263,7 @@ test("a changes_requested verdict below the budget reopens rework in the same wr
 });
 
 test("the rework budget stops the loop and leaves the cut to the owner", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     const dispatchReview = async (roundExecutionId: string, reviewId: string) => {
@@ -267,15 +272,31 @@ test("the rework budget stops the loop and leaves the cut to the owner", async (
         .filter((event) => event.type === "runtime_dispatch_requested")
         .at(-1);
       assert.ok(dispatch?.type === "runtime_dispatch_requested");
-      const reviewed = await recordReview(
+      // runtime-spawn is revoked around the verdict so the automatic worker continuation is
+      // denied at admission: like delivery-baseline-rework's unavailable spawner, the failed
+      // continuation leaves the reopened round without a spawned execution, and each rework
+      // round starts like any other. The owner's group grants are restored right after.
+      grantTestPolicyGroups([REWORK_REVIEWER_PERSON], "admin");
+      revokeTestPolicyActions(REWORK_REVIEWER_PERSON, "completion-review", ["runtime-spawn"]);
+      const reviewed = (await recordReview(
         f,
         dispatch.payload.runtimeSessionId,
         reviewId,
         "changes_requested",
         roundExecutionId,
-      );
+        withPolicyGroup(
+          {
+            actor: {
+              principal: { personId: REWORK_REVIEWER_PERSON },
+              executor: { kind: "agent" as const, id: `runtime-session:${dispatch.payload.runtimeSessionId}` },
+            },
+            source: "local" as const,
+          },
+          "admin",
+        ),
+      )) as Receipt;
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-      return reviewed as Receipt;
+      return reviewed;
     };
     // Round 1 and 2 reopen below the default budget of 2; the third verdict only records.
     assert.equal((await f.submit()).outcome, "applied");
@@ -283,8 +304,14 @@ test("the rework budget stops the loop and leaves the cut to the owner", async (
     assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
     let capped: Receipt | undefined;
     for (const [index, roundExecutionId] of ["execution-review-budget-2", "execution-review-budget-3"].entries()) {
-      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })).outcome, "applied");
-      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundExecutionId })).outcome, "applied");
+      const started = (await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })) as Receipt;
+      assert.equal(started.outcome, "applied", `round ${String(index + 2)} start: ${JSON.stringify(started)}`);
+      const submitted = (await f.run({
+        kind: "task-submit",
+        taskId,
+        executionId: roundExecutionId,
+      })) as Receipt;
+      assert.equal(submitted.outcome, "applied", `round ${String(index + 2)} submit: ${JSON.stringify(submitted)}`);
       capped = await dispatchReview(roundExecutionId, `review-budget-${index + 2}`);
     }
     assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 2 });
@@ -298,28 +325,36 @@ test("the rework budget stops the loop and leaves the cut to the owner", async (
   }
 });
 
-test("concurrent owner rulings and completions have one state-transition winner", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
-    autoSubmit: false,
-  });
+test("concurrent review verdicts have one state-transition winner", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    // The manual forward/return race retired with the commands; the surviving race is two
+    // verdicts on one cut: whichever records first drives the state, the other is refused.
     const rulings = await Promise.all([
-      f.forward("Forward after owner inspection."),
-      f.returnCut("Return after owner inspection."),
+      recordReview(f, dispatch.payload.runtimeSessionId, "review-race-changes", "changes_requested"),
+      recordReview(f, dispatch.payload.runtimeSessionId, "review-race-approved", "approved"),
     ]);
     const appliedRulings = rulings.filter((receipt) => receipt.outcome === "applied").length,
       rejectedRulings = rulings.filter((receipt) => receipt.outcome === "op_rejected").length;
-    assert.ok(appliedRulings === 1 || appliedRulings === 2, JSON.stringify(rulings));
+    assert.ok(appliedRulings >= 1, JSON.stringify(rulings));
     assert.equal(appliedRulings + rejectedRulings, 2, JSON.stringify(rulings));
-
-    if ((await taskStatus(f)).status === "active") return;
-    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
-    assert.ok(dispatch?.type === "runtime_dispatch_requested");
-    assert.equal((await f.review(dispatch.payload.runtimeSessionId, "review-concurrent")).outcome, "applied");
+    const status = await taskStatus(f);
+    assert.ok(
+      (status.status === "active" && status.iteration === 1) ||
+        (status.status === "in_review" && status.iteration === 0),
+      JSON.stringify(status),
+    );
+    if (status.status === "active") return;
+    const approved = f
+      .events()
+      .find((event) => event.type === "review_recorded" && event.payload.review.verdict === "approved");
+    assert.ok(approved?.type === "review_recorded");
     await settleReviewerDispatch(f);
-    assert.equal((await f.consent("review-concurrent")).outcome, "applied");
+    assert.equal((await f.consent("review-race-approved")).outcome, "applied");
     const completions = await Promise.all([f.complete(), f.complete()]);
     assert.equal(
       completions.every((receipt) => receipt.outcome === "applied"),
@@ -334,7 +369,7 @@ test("concurrent owner rulings and completions have one state-transition winner"
 });
 
 test.skip("sibling complete refuses unfinished sources and missing facts, then closes B without execution or duplicate review", async () => {
-  const f = await fixture(false, true, true, false, false, undefined, { autoForward: false });
+  const f = await fixture(false, true, true, false, false, { autoSubmit: false });
   try {
     const target = "task-resolved-target";
     await f.createPlannedTask(target, "docs-task");
@@ -353,7 +388,7 @@ test.skip("sibling complete refuses unfinished sources and missing facts, then c
     assert.equal(unfinished.outcome, "op_rejected", JSON.stringify(unfinished));
     assert.match(JSON.stringify(unfinished), /Complete|Wait|complete/u);
     await f.install();
-    const forwarded = await f.forward();
+    const forwarded = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     assert.equal((await f.review(runtimeSessionId(forwarded), "review-sibling")).outcome, "applied");
     await settleReviewerDispatch(f);
@@ -384,7 +419,7 @@ test.skip("sibling complete refuses unfinished sources and missing facts, then c
 });
 
 test("a done lightweight source without independent review cannot resolve a sibling", async () => {
-  const f = await fixture(false, true, true, false, false, undefined, {
+  const f = await fixture(false, true, true, false, false, {
     create: { riskTier: "low" },
   });
   try {
@@ -411,12 +446,12 @@ test("a done lightweight source without independent review cannot resolve a sibl
 // is the owner's confirmation that every review lane on this cut concluded, not that one approved
 // verdict happens to exist.
 test("consent refuses an approved review while another review dispatch on the cut is still running", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     closeoutProfile: "standard",
   });
   try {
     await f.install();
-    assert.equal((await f.forward()).outcome, "applied");
+    assert.equal((await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })).outcome, "applied");
     const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
     assert.ok(dispatch?.type === "runtime_dispatch_requested");
     // The independent lane's approved verdict lands while the dispatched functional re-review runs.
@@ -479,12 +514,12 @@ function terminalEventsFor(
 // `awaitOutcome`, no grace. The flake was this test dropping that receipt and then reading the ledger
 // at whatever point `awaitOutcome` happened to return, which is a different, earlier signal.
 test("a cancel receipt is returned only after the canonical outcome is readable", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     closeoutProfile: "standard",
   });
   try {
     await f.install();
-    assert.equal((await f.forward()).outcome, "applied");
+    assert.equal((await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })).outcome, "applied");
     const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
     assert.ok(dispatch?.type === "runtime_dispatch_requested");
     const runtimeSessionId = dispatch.payload.runtimeSessionId;
@@ -513,12 +548,12 @@ test("a cancel receipt is returned only after the canonical outcome is readable"
 });
 
 test("consent applies once every review dispatch on the cut reached its terminal verdict", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     closeoutProfile: "standard",
   });
   try {
     await f.install();
-    assert.equal((await f.forward()).outcome, "applied");
+    assert.equal((await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })).outcome, "applied");
     const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
     assert.ok(dispatch?.type === "runtime_dispatch_requested");
     const reviewId = `review-${dispatch.payload.dispatchId}`,

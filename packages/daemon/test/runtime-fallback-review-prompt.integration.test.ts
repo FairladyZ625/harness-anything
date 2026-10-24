@@ -8,7 +8,7 @@ test(
   "provider fallback rebinds the task review prompt and registers under the successor dispatch",
   { timeout: 30_000 },
   async () => {
-    const f = await fixture(1, true, false, false, false, undefined, {
+    const f = await fixture(1, true, false, false, false, {
       autoSubmit: false,
       closeoutProfile: "standard",
       keycloakSession: async () => owner.keycloakAuthorization.session,
@@ -17,7 +17,6 @@ test(
     try {
       await f.install(null);
       assert.equal((await f.submit()).outcome, "applied");
-      assert.equal((await f.forward()).outcome, "applied");
       await f.waitForLaunches(1);
       const firstDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(firstDispatch?.type === "runtime_dispatch_requested");
