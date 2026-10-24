@@ -16,6 +16,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
+import { runtimeExecutionActor, type RuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import {
   localUserDaemonEndpoint,
@@ -28,10 +30,147 @@ import {
   runtimeCallbackRelaySpec,
   validateRuntimeCallbackRelayPath,
 } from "../src/runtime-callback-relay.ts";
+import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
 
 /** Real relay sockets share one per-user namespace across concurrently running test files,
  * so every live-socket test mints its own dispatch id instead of reusing a fixed one. */
 const uniqueDispatchId = (): string => `dispatch_${randomBytes(12).toString("hex")}`;
+
+test(
+  "callback relay attributes a credential-omitting runtime write to its execution",
+  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-identity-")),
+      userRoot = path.join(parent, "daemon-user"),
+      dispatchId = uniqueDispatchId(),
+      daemonId = "callback-relay-identity",
+      executionCredential = "execution-credential-from-spawn",
+      repoId = "repo-callback-relay-identity",
+      runtimeSessionId = "runtime_callback_relay_identity",
+      taskId = "task-callback-relay-identity",
+      principal: RuntimeExecutionPrincipal = {
+        personId: "owner",
+        repoId,
+        runtimeSessionId,
+        dispatchId,
+        taskId,
+        executionId: "exec-callback-relay-identity",
+        role: "implementation",
+        source: "local",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+    mkdirSync(userRoot, { recursive: true });
+    mkdirSync(path.join(parent, "repo", ".harness", "runtime", "dispatches"), { recursive: true });
+    writeFileSync(path.join(parent, "repo", ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`), "");
+    const root = path.join(parent, "repo"),
+      expectedEndpoint = localUserDaemonEndpoint(userRoot, daemonId),
+      route = { userRoot, daemonId, endpoint: `\0${path.basename(expectedEndpoint)}` },
+      spec = runtimeCallbackRelaySpec(dispatchId, route),
+      hello = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "protocol.hello",
+        params: { protocolVersion: currentDaemonProtocolVersion },
+      },
+      write = {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "repo.task.run",
+        params: {
+          repo: { repoId },
+          payload: { action: { kind: "task-progress-append", taskId, text: "relay write" } },
+        },
+      },
+      executablePath = writeProviderExecutable(
+        path.join(parent, "provider.mjs"),
+        `import net from "node:net"; let buffered = ""; let sentWrite = false; const socket = net.createConnection(process.env.HARNESS_DAEMON_ENDPOINT); socket.on("connect", () => socket.write(${JSON.stringify(`${JSON.stringify(hello)}\n`)})); socket.on("data", (chunk) => { buffered += chunk.toString("utf8"); const lines = buffered.split("\\n"); buffered = lines.pop() ?? ""; for (const line of lines) { const frame = JSON.parse(line); if (frame.id === 1 && !sentWrite) { sentWrite = true; socket.write(${JSON.stringify(`${JSON.stringify(write)}\n`)}); } else if (frame.id === 2) { socket.destroy(); process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "callback-relay-identity" }) + "\\n"); process.exit(0); } } });`,
+      );
+    let recordedActor: unknown;
+    const privateServer = net.createServer((socket) => {
+      serveJsonRpcStream({
+        input: socket,
+        output: socket,
+        transportKind: "unix-socket",
+        authContext: { transportKind: "unix-socket" },
+        createProtocolServer: (authContext, emit, connectionId, signal) =>
+          createJsonRpcProtocolServer({
+            host: {
+              run: async (_repo: string, _action: unknown, auth: typeof authContext) => {
+                recordedActor = auth.executionPrincipal
+                  ? runtimeExecutionActor(auth.executionPrincipal)
+                  : { principal: { personId: auth.oidcPrincipal?.personId }, executor: null };
+                return { outcome: "applied" };
+              },
+            } as never,
+            build: { commit: null },
+            authContext: { ...authContext, connectionSignal: signal },
+            executionPrincipal: async (credential) => {
+              assert.equal(credential, executionCredential);
+              return principal;
+            },
+            sessionPrincipal: async () => ({
+              personId: "owner",
+              subject: "owner-subject",
+              accessToken: "session-token",
+              expiresAt: Date.now() + 60_000,
+              authority: { url: "https://authority.invalid", realm: "test", clientId: "harness-center" },
+            }),
+            emit,
+            connectionId,
+          }),
+      });
+    });
+    await listen(privateServer, route.endpoint);
+    let runtime: ReturnType<typeof launchNative> | null = null;
+    try {
+      runtime = launchNative(
+        {
+          executablePath,
+          args: [],
+          env: {
+            HARNESS_DAEMON_USER_ROOT: userRoot,
+            HARNESS_DAEMON_ID: daemonId,
+            HARNESS_DAEMON_ENDPOINT: spec.path,
+            HARNESS_EXECUTION_CREDENTIAL: executionCredential,
+          },
+          cwd: root,
+          prompt: "",
+          installation: { kindId: "codex" },
+          protocolFamily: "codex",
+          permissionMode: "workspace-write",
+        } as never,
+        { rootDir: root, dispatchId, callbackRelay: spec },
+      );
+      await eventuallyRelay(() => recordedActor !== undefined);
+      assert.deepEqual(recordedActor, {
+        principal: { personId: "owner" },
+        executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+      });
+      await runtime.terminateTree?.();
+      recordedActor = undefined;
+      const socket = await new Promise<net.Socket>((resolve, reject) => {
+          const clientSocket = net.createConnection(route.endpoint);
+          clientSocket.once("connect", () => resolve(clientSocket));
+          clientSocket.once("error", reject);
+        }),
+        client = new JsonRpcLineClient(socket, socket);
+      try {
+        await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+        await client.request("repo.task.run", write.params);
+      } finally {
+        client.close();
+        socket.destroy();
+      }
+      assert.deepEqual(recordedActor, { principal: { personId: "owner" }, executor: null });
+    } finally {
+      await runtime?.terminateTree?.();
+      await new Promise<void>((resolve) => privateServer.close(() => resolve()));
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 test(
   "callback relay forwards the sealed route and cleans up after settlement",
