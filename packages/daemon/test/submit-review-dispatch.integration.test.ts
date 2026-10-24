@@ -103,7 +103,6 @@ function createdTask(events: ReturnType<ChildFixture["events"]>, childTaskId: st
 
 test("a low-risk submit freezes no dispatch and never launches a reviewer", { timeout: 20_000 }, async () => {
   const f = await fixture(false, true, true, false, false, undefined, {
-    autoForward: false,
     autoSubmit: false,
     create: { riskTier: "low" },
   });

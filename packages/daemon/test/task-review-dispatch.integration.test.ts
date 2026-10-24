@@ -525,7 +525,6 @@ test(
     const f = await fixture(false, true, true, false, false, undefined, {
       autoSubmit: false,
       closeoutProfile: "standard",
-      autoForward: false,
       create: { riskTier: "low" },
     });
     try {
@@ -707,7 +706,6 @@ test(
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
-      autoForward: false,
     });
     try {
       await f.install();
@@ -798,7 +796,6 @@ test(
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
-      autoForward: false,
     });
     try {
       await f.install();
@@ -828,7 +825,6 @@ test(
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
       autoSubmit: false,
-      autoForward: false,
       autoProviderSession: true,
     });
     try {
@@ -876,7 +872,6 @@ test(
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
       autoSubmit: false,
-      autoForward: false,
       autoProviderSession: true,
       failProviderResume: true,
     });
