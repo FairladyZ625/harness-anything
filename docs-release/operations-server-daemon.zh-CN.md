@@ -145,7 +145,8 @@ ha gui
 ## 任务分支发布与 direct-push 保护
 
 产出为仓库变更的任务在 Harness 管理的工作树中运行，分支以任务标识命名。被派工的
-worker 在其中提交，并经 daemon 代办的命令发布，绝不使用本人 GitHub 登录：
+worker 在其中提交，并直接继承操作者的 GitHub 凭据来 push、开 PR、读 CI；
+`ha task push` 仍是经 daemon 发布的路径：
 
 ```bash
 ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
@@ -154,8 +155,8 @@ gh pr checks <task-id> --watch  # 阻塞到 PR head 的检查出结论
 ```
 
 等待中的检查绝不读作绿。评审用 `gh pr view <task-id> --json headRefOid` 确认 checks
-属于冻结的交付提交。失败时在自己 runtime 有平台登录的情况下用
-`gh run view <run-id> --log-failed` 查看日志，否则打开结论给出的 check URL。
+属于冻结的交付提交。失败时用 `gh run view <run-id> --log-failed` 查看日志；runtime
+继承操作者的 GitHub 登录，因此在派工内部就能读到失败原文。
 
 每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
 派工仓库 root 与 daemon 路由。中心与边缘 daemon 使用同一路径，不使用固定 canonical
@@ -172,12 +173,12 @@ checkout 的 worktree config；结算和 edge delivery 均按 execution lease �
 这些命令使用的凭据由操作者绑定，而不是由 worker 配置：
 [托管 Git 凭据](hosted-credentials.zh-CN.md)。
 
-direct-push 保护不只在 daemon 一侧，还落在 worker 自己的环境里：任务绑定 worker
-的 git 凭据只能经一个只应答 `github.com` 提示的 askpass 助手取得，`PATH` 上排在
-真实 git 前面的包装器会拒绝任何会更新 `task_*` 以外目标的 `git push`（包括
-`--all`、`--mirror`、`--delete`）。同一包装器还拒绝 worker 在 canonical 仓库根内
-commit 或检出新分支。因此即使 worker 手动推送，也发布不了自己任务分支以外的
-任何东西。
+direct-push 保护不只在 daemon 一侧，还落在 worker 自己的环境里：git 认证用启动时
+已经带上的操作者凭据，而 `PATH` 上排在真实 git 前面的包装器会拒绝任何会更新
+`task_*` 以外目标的 `git push`（包括 `--all`、`--mirror`、`--delete`）。
+`ha task push` 自身仍经一个只应答 `github.com` 提示的 askpass 助手认证。同一包装器
+还拒绝 worker 在 canonical 仓库根内 commit 或检出新分支。因此即使 worker 手动推送，
+也发布不了自己任务分支以外的任何东西。
 
 ## 常驻服务（macOS 与 Linux）
 

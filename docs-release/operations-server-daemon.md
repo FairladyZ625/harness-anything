@@ -161,8 +161,8 @@ ha gui
 
 A task whose output is a repository change runs in a Harness-managed worktree
 on the branch named after the task. The dispatched worker commits there and
-publishes through daemon-mediated commands, never with a personal GitHub
-login:
+inherits the operator's GitHub credential for its own push, pull request, and
+CI reads; `ha task push` remains the daemon-mediated path:
 
 ```bash
 ha task push <task-id>        # publish the task branch through the daemon-held credential
@@ -173,8 +173,8 @@ gh pr checks <task-id> --watch  # block until the PR head's checks settle
 Pending checks are never read as green. A reviewer confirms with
 `gh pr view <task-id> --json headRefOid` that the checks belong to
 the frozen delivery commit. On a failure, inspect it with
-`gh run view <run-id> --log-failed` when the runtime holds its own platform
-login, or open the check URL the verdict names.
+`gh run view <run-id> --log-failed`; the runtime inherits the operator's GitHub
+login, so the failure log is readable from inside the dispatch.
 
 Every bound worker gets `ha` from the CLI bin directory belonging to the
 running daemon's installation, with its dispatched repository root and daemon
@@ -197,10 +197,11 @@ The credential these commands use is bound by the operator, not by the worker:
 [Hosted Git credentials](hosted-credentials.md).
 
 Direct-push protection is enforced in the worker's own environment, not only
-at the daemon. A task-bound worker receives its git credential through an
-askpass helper that answers `github.com` prompts only, and a git wrapper ahead
-of the real git on `PATH` refuses any `git push` that would update anything
-other than the `task_*` branch (including `--all`, `--mirror`, and `--delete`).
+at the daemon. Git authenticates with the operator credential the launch
+already carries, and a git wrapper ahead of the real git on `PATH` refuses any
+`git push` that would update anything other than the `task_*` branch (including
+`--all`, `--mirror`, and `--delete`). `ha task push` itself still authenticates
+through an askpass helper that answers `github.com` prompts only.
 The same wrapper refuses worker commits and new branch checkouts in the
 canonical repository root. A worker that pushes by hand therefore cannot
 publish anything other than its own task branch.

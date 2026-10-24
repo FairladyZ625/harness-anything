@@ -41,6 +41,18 @@ const definition: AgentDefinitionSnapshot = {
   baseUrl: "https://api.example.test/",
   authMode: "api-key",
 };
+const definitionForNotice: AgentDefinitionSnapshot = {
+  ...definition,
+  instanceId: "codex-github-notice",
+  installationId: "installation-codex-notice",
+  kindId: "codex",
+  providerId: "openai",
+  model: "gpt-5.6-sol",
+  reasoningEffort: null,
+  baseUrl: null,
+  authMode: "subscription",
+};
+
 test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible installation", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-claude-"));
   try {
@@ -1181,6 +1193,98 @@ async function rpc(
     server.close();
   }
 }
+
+test("a dispatch whose launch carries no GitHub login reports it on the receipt and still starts", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-github-notice-"));
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Spawn Test");
+    git(root, "config", "user.email", "spawn@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const definition = {
+        ...definitionForNotice,
+      },
+      installation: RuntimeInstallationWitness = {
+        installationId: definition.installationId,
+        kindId: "codex",
+        executablePath: "/opt/witnessed/codex-notice",
+        version: "1.0.0",
+        observedAt: "2026-09-12T00:00:00.000Z",
+      },
+      notice =
+        "The operator's GitHub credential is unavailable (gh is not signed in on this machine), so this worker cannot push, open a pull request, or read CI logs; the dispatch itself continues.";
+    let launches = 0;
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-spawn-github-notice"),
+      rootDir: canonicalRoot(root),
+      ownerId: "spawn-test",
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex Notice",
+          kindId: "codex",
+          installationId: installation.installationId,
+          providerId: "openai",
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "bypass",
+          authMode: "subscription",
+          authState: "authenticated",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+          configuration: {},
+        },
+      ],
+      prepareRuntimeLaunch: (_instanceId, request) => ({
+        definition,
+        installation,
+        protocolFamily: "codex",
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+        githubCredentialNotice: notice,
+      }),
+      runtimeLaunch: () => {
+        launches += 1;
+        return {
+          pid: 126,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    try {
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Run without a GitHub login",
+          taskId: null,
+          dispatchKey: "spawn-github-notice",
+        },
+        withPolicyGroup(
+          { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" as const },
+          "admin",
+        ),
+      );
+      assert.equal(receipt.outcome, "applied");
+      assert.equal(launches, 1, "a missing GitHub login must not block the launch");
+      assert.deepEqual(receipt.warnings, [notice]);
+      // The receipt still satisfies the closed runtime-spawn schema the CLI and GUI validate.
+      assert.deepEqual(validateRuntimeSpawnReceipt(receipt), []);
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", ["-C", root, ...args]);

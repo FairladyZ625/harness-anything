@@ -33,7 +33,23 @@ const tokenKey = /token/iu,
   urlUserInfo = /(https?:\/\/)[^\s/@]+@/giu,
   executionCredential = /harness-execution-[A-Za-z0-9._-]+:[A-Za-z0-9_-]{43}/gu,
   sensitiveAssignment =
-    /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
+    /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu,
+  // A secret the process itself minted or read at runtime, whose text carries no pinned prefix
+  // (a legacy 40-hex GitHub token). Prefix rules cannot see it, so the exact value is registered
+  // here once and redacted wherever it appears. The set is bounded: a long-lived daemon rotates
+  // tokens, and retaining every historical value would be a leak of its own.
+  registeredSecrets = new Set<string>(),
+  registeredSecretLimit = 64,
+  registeredSecretMinimumLength = 8;
+
+/** Registers one exact secret value (a token) so every scrubber surface redacts it verbatim. */
+export function registerSecretValue(value: string): void {
+  if (value.length < registeredSecretMinimumLength) return;
+  registeredSecrets.delete(value);
+  registeredSecrets.add(value);
+  if (registeredSecrets.size > registeredSecretLimit)
+    registeredSecrets.delete(registeredSecrets.values().next().value!);
+}
 
 export function scrubProviderValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(scrubProviderValue);
@@ -44,7 +60,10 @@ export function scrubProviderValue(value: unknown): unknown {
         .map(([key, entry]) => [key, scrubProviderValue(entry)]),
     );
   if (typeof value !== "string") return value;
-  return value
+  let scrubbed = value;
+  for (const secret of registeredSecrets)
+    if (scrubbed.includes(secret)) scrubbed = scrubbed.split(secret).join("[REDACTED]");
+  return scrubbed
     .replace(urlUserInfo, "$1[REDACTED]@")
     .replace(bearer, "Bearer [REDACTED]")
     .replace(knownToken, "[REDACTED]")

@@ -91,12 +91,15 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       },
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
+      // This test owns the bound hosting credential; the operator login is not part of it.
+      runtimeGithubToken: async () => null,
       prepareDaemonGitEnvironment: instances.prepareDaemonGitEnvironment,
       runtimeLaunch: (prepared) => {
         const taskBound = prepared.env.HARNESS_TASK_BOUND === "1";
         if (taskBound) {
           taskBoundLaunches += 1;
-          assert.equal(prepared.env.GH_TOKEN, undefined);
+          // The launch inherits the operator's GitHub credential; a task-bound worker keeps it
+          // only through `GH_TOKEN` and adds no askpass or commit-identity variable of its own.
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
           assert.equal(prepared.env.GIT_ASKPASS, undefined);
           assert.equal(prepared.env.GIT_AUTHOR_NAME, undefined);
@@ -117,7 +120,8 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
             env: prepared.env,
           });
         } else {
-          assert.equal(prepared.env.GH_TOKEN, undefined);
+          // The launch inherits the operator's GitHub credential; a task-bound worker keeps it
+          // only through `GH_TOKEN` and adds no askpass or commit-identity variable of its own.
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
           assert.equal(prepared.env.GIT_ASKPASS, undefined);
           assert.equal(prepared.env.GIT_AUTHOR_NAME, undefined);

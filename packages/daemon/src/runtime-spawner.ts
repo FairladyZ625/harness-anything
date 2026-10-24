@@ -64,6 +64,7 @@ import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
+import { withGithubCredentialWarnings } from "./runtime-github-credentials.ts";
 import type {
   ActiveRuntime,
   ResumeProcessObservation,
@@ -967,19 +968,27 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     attachActiveRuntime(extracted, active, resumeObservation);
     if (!requested.event || (!requested.receipt && !requested.publication))
       throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
+    // A launch without the operator's GitHub login still runs; this is the one place the operator
+    // learns the worker cannot publish before the credential error would arrive at `ha task push`.
     return requested.receipt
-      ? {
-          ...requested.receipt,
-          runtimeSessionId,
-          dispatchId: newDispatchId,
-          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        }
-      : {
-          ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
-          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        };
+      ? withGithubCredentialWarnings(
+          {
+            ...requested.receipt,
+            runtimeSessionId,
+            dispatchId: newDispatchId,
+            ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
+            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+          },
+          prepared.githubCredentialNotice,
+        )
+      : withGithubCredentialWarnings(
+          {
+            ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+            ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
+            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+          },
+          prepared.githubCredentialNotice,
+        );
   };
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
