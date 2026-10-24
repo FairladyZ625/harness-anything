@@ -18,6 +18,9 @@ ha bootstrap --operation session
 ha bootstrap --operation node-register --operation-id <unique-id> --node-id <node-id> --person-id <person-id> --credential-file <新凭据文件>
 ```
 
+`ha bootstrap` 只把 managed 登录服务留在 loopback HTTP，不会创建网络 listener；
+上面的 `listener-set` 才是把它开放给其他机器的显式选择。
+
 密码文件只允许所有者读取（例如 `0600`），argv 只放路径；CLI 去掉文件末尾一个换行，仅通过中心原始本地 socket 发送密码。使用后删除密码文件。
 
 尚无 `access-admin` 成员时，socket 所有者可配置既有 HTTPS listener；先读取版本，使用浏览器设备信任的证书。listener 设置与首管理员创建共用队列，只有一个首管理员能成功，之后排队的未登录设置也会被拒。管理员存在后，即使无人登录也不能重新开放窗口，必须以 `access-admin` 身份登录才能修改。边缘与远程 GUI 不能执行首次引导。
@@ -252,6 +255,8 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 ## Fleet 中心局域网可达与边缘自助接入
 
 这里有两个独立的 HTTPS 入口。`listener-set` 配置 managed Keycloak 登录服务，负责浏览器登录和 token issuer；Fleet TLS listener 是 edge 同步服务，通过 `daemon fleet center start` 配置。不要把一个命令的地址当成另一个命令的配置。
+
+bootstrap 不会发布登录服务：没有执行 `listener-set` 时，Keycloak 只在 loopback 提供 HTTP。升级会保留已有 listener，但不会新建。托管 PostgreSQL 用 daemon 生成的密码认证 Keycloak，密码保存在 user root 的 `0600` 文件中，无需手工配置数据库凭据。
 
 登录服务的绑定地址必须是中心主机上的 IP，`--hostname` 必须出现在证书 SAN 中。私钥保持 owner-only（权限 `0600`）：
 

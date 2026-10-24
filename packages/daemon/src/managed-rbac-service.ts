@@ -376,13 +376,9 @@ export class ManagedRbacService {
       existing?.mode === "managed"
         ? (existing.certificateMode ?? (existing.listener ? "domain" : "self-signed"))
         : "self-signed";
-    let generatedListener: ManagedRbacListener | undefined =
-      existing?.mode === "managed" ? existing.listener : undefined;
-    if (certificateMode === "self-signed" && !generatedListener) {
-      const address = firstReachableAddress(),
-        generated = await ensureSelfSignedCertificate(this.#root, address, address);
-      generatedListener = { address, hostname: address, port: 8443, ...generated };
-    }
+    // A listener publishes the login service to the network. Bootstrap leaves Keycloak on loopback;
+    // exposing it is an explicit listener-set, and an existing operator choice is preserved.
+    const listener = existing?.mode === "managed" ? existing.listener : undefined;
     this.#writeConfig({
       schema: "harness-managed-rbac/v1",
       mode: "managed",
@@ -394,7 +390,7 @@ export class ManagedRbacService {
       installedAt: this.#ports.now(),
       postgresPort,
       managementPort,
-      ...(generatedListener ? { listener: generatedListener } : {}),
+      ...(listener ? { listener } : {}),
       ...(certificateMode ? { certificateMode } : {}),
     });
   }
@@ -434,12 +430,30 @@ export class ManagedRbacService {
     writeFileSync(marker, `${artifact.url}\n${actual}\n`, { mode: 0o600 });
   }
 
+  #postgresPasswordFile(): string {
+    return path.join(this.#root, "postgres-password");
+  }
+
+  #postgresPassword(): string {
+    return readOrCreateSecret(this.#postgresPasswordFile());
+  }
+
   #initializeDatabase(): void {
     const data = path.join(this.#root, "data", "postgres"),
+      passwordFile = this.#postgresPasswordFile(),
       initdb = path.join(this.#root, "runtime", "postgres", "bin", "initdb");
     if (existsSync(path.join(data, "PG_VERSION"))) return;
     mkdirSync(data, { recursive: true, mode: 0o700 });
-    run(initdb, ["-D", data, "--username=postgres", "--auth=trust", "--encoding=UTF8", "--no-locale"]);
+    this.#postgresPassword();
+    run(initdb, [
+      "-D",
+      data,
+      "--username=postgres",
+      "--auth=scram-sha-256",
+      `--pwfile=${passwordFile}`,
+      "--encoding=UTF8",
+      "--no-locale",
+    ]);
   }
 
   #writeRealmImport(): void {
@@ -496,13 +510,14 @@ export class ManagedRbacService {
     writeFileSync(path.join(importDir, "harness-realm.json"), `${JSON.stringify(realm, null, 2)}\n`, { mode: 0o600 });
   }
 
-  #startPostgres(): Promise<void> {
+  async #startPostgres(): Promise<void> {
     const active = this.#readiness.get("postgres");
     if (active) return active;
     const config = this.#readManagedConfig(),
       binary = path.join(this.#root, "runtime", "postgres", "bin", "postgres"),
       data = path.join(this.#root, "data", "postgres"),
       logs = path.join(this.#root, "logs");
+    await this.#hardenPostgresAuthentication(binary, data, config.postgresPort);
     mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
       "postgres",
@@ -512,6 +527,58 @@ export class ManagedRbacService {
       /database system is ready to accept connections/u,
       30_000,
     );
+  }
+
+  /**
+   * A data directory initialized before password authentication allowed every local process in with
+   * `trust`. Set the postgres role's password over that trusted loopback connection once, then
+   * rewrite the trust lines to scram-sha-256. No trust branch survives, so a failed migration fails
+   * the start instead of leaving an open database.
+   */
+  async #hardenPostgresAuthentication(binary: string, data: string, port: number): Promise<void> {
+    const hba = path.join(data, "pg_hba.conf");
+    if (!existsSync(hba) || !postgresHbaUsesTrust(readFileSync(hba, "utf8"))) return;
+    const password = this.#postgresPassword(),
+      sqlFile = path.join(this.#root, "postgres-auth.sql");
+    await this.#spawnUntilReady(
+      "postgres",
+      binary,
+      ["-D", data, "-h", "127.0.0.1", "-p", String(port)],
+      {},
+      /database system is ready to accept connections/u,
+      30_000,
+    );
+    try {
+      writeFileSync(sqlFile, `ALTER ROLE postgres WITH PASSWORD '${password.replaceAll("'", "''")}';\n`, {
+        mode: 0o600,
+      });
+      chmodSync(sqlFile, 0o600);
+      run(path.join(this.#root, "runtime", "postgres", "bin", "psql"), [
+        "-h",
+        "127.0.0.1",
+        "-p",
+        String(port),
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-f",
+        sqlFile,
+      ]);
+    } finally {
+      rmSync(sqlFile, { force: true });
+      await this.#stopChild("postgres");
+    }
+    const hardened = hardenPostgresHba(readFileSync(hba, "utf8"));
+    if (postgresHbaUsesTrust(hardened))
+      throw managedRbacError(
+        "rbac_postgres_auth_insecure",
+        "Could not remove trust authentication from the PostgreSQL data directory.",
+      );
+    writeFileSync(hba, hardened, { mode: 0o600 });
+    chmodSync(hba, 0o600);
   }
 
   /**
@@ -552,7 +619,7 @@ export class ManagedRbacService {
         KC_DB: "postgres",
         KC_DB_URL: `jdbc:postgresql://127.0.0.1:${config.postgresPort}/postgres`,
         KC_DB_USERNAME: "postgres",
-        KC_DB_PASSWORD: "",
+        KC_DB_PASSWORD: this.#postgresPassword(),
         KC_BOOTSTRAP_ADMIN_USERNAME: "harness-bootstrap",
         KC_BOOTSTRAP_ADMIN_PASSWORD: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
         ...(listener
@@ -1086,8 +1153,37 @@ function javaHomePath(root: string, platform: NodeJS.Platform): string {
     : base;
 }
 
+/** Whether any non-comment pg_hba.conf line accepts a connection without a password. */
+function postgresHbaUsesTrust(hba: string): boolean {
+  return hba.split(/\r?\n/u).some((line) => {
+    const body = line.trim();
+    if (body === "" || body.startsWith("#")) return false;
+    const fields = body.split(/\s+/u),
+      methodIndex = fields[0] === "local" ? 3 : 4;
+    return (fields[0] === "local" || fields[0]?.startsWith("host") === true) && fields[methodIndex] === "trust";
+  });
+}
+
+/** Rewrites only trust methods; reject, peer, certificate, and other operator choices stay as they are. */
+function hardenPostgresHba(hba: string): string {
+  return hba
+    .split(/\r?\n/u)
+    .map((line) => {
+      const body = line.trim();
+      if (body === "" || body.startsWith("#")) return line;
+      const fields = body.split(/\s+/u),
+        methodIndex = fields[0] === "local" ? 3 : 4;
+      if (fields[0] !== "local" && fields[0]?.startsWith("host") !== true) return line;
+      if (fields[methodIndex] !== "trust") return line;
+      fields[methodIndex] = "scram-sha-256";
+      return `${line.slice(0, line.length - line.trimStart().length)}${fields.join(" ")}`;
+    })
+    .join("\n");
+}
+
 function readOrCreateSecret(file: string): string {
   if (!existsSync(file)) writeFileSync(file, randomBytes(24).toString("base64url"), { mode: 0o600 });
+  chmodSync(file, 0o600);
   return readFileSync(file, "utf8").trim();
 }
 

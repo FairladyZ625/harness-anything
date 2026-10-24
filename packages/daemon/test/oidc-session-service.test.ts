@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1018,6 +1018,65 @@ test("a second center 401 surfaces without a third policy request or token acqui
   assert.equal(tokenCalls, 2);
   assert.equal(policyCalls, 2);
   assert.equal((await active.service.center()).accessToken, "center-2");
+});
+
+test("the first administrator deletes the bootstrap user before retiring its password file", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-bootstrap-delete-")),
+    rbac = path.join(root, "rbac"),
+    calls: string[] = [],
+    passwordFile = path.join(rbac, "bootstrap-admin-password");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(rbac, { recursive: true });
+  writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
+  writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
+  writeFileSync(passwordFile, "bootstrap-secret", { mode: 0o600 });
+  let created = false;
+  const store = managedRbacSessionStore(root),
+    retire = store.retireBootstrap,
+    service = new OidcSessionService(root, {
+      fetch: (async (input, init) => {
+        const url = String(input),
+          method = init?.method ?? "GET";
+        if (url.endsWith("/protocol/openid-connect/token")) return Response.json({ access_token: "center-token" });
+        if (url.endsWith("/roles/access-admin/users")) return Response.json([]);
+        if (url.endsWith("/roles/access-admin") && method === "GET")
+          return created
+            ? Response.json({ id: "role-access-admin", name: "access-admin" })
+            : new Response(null, { status: 404 });
+        if (url.endsWith("/roles") && method === "POST") return new Response(null, { status: 201 });
+        if (url.endsWith("/users") && method === "POST") {
+          created = true;
+          return new Response(null, { status: 201, headers: { location: `${url}/owner` } });
+        }
+        if (url.includes("/role-mappings/realm")) return new Response(null, { status: 204 });
+        if (url.includes("username=harness-bootstrap")) return Response.json([{ id: "bootstrap-user" }]);
+        if (url.endsWith("/users/bootstrap-user") && method === "DELETE") {
+          calls.push("delete");
+          return new Response(null, { status: 204 });
+        }
+        return new Response(null, { status: 204 });
+      }) as typeof fetch,
+      sessionStore: {
+        ...store,
+        retireBootstrap: () => {
+          calls.push("retire");
+          retire();
+        },
+      },
+    });
+  assert.deepEqual(
+    await service.bootstrapAdmin({
+      username: "owner",
+      email: "owner@example.invalid",
+      displayName: "Owner",
+      password: "fixture-password",
+      personId: "person-owner",
+    }),
+    { ok: true, created: true, personId: "person-owner" },
+  );
+  // The remote account goes first; its local one-time password only disappears once that succeeded.
+  assert.deepEqual(calls, ["delete", "retire"]);
+  assert.equal(existsSync(passwordFile), false);
 });
 
 test("center token expiry starts before acquisition and leaves a clock margin", async (t) => {
