@@ -19,6 +19,10 @@ ha bootstrap --operation session
 ha bootstrap --operation node-register --operation-id <unique-id> --node-id <node-id> --person-id <person-id> --credential-file <new-credential-file>
 ```
 
+`ha bootstrap` leaves the managed login service on loopback HTTP only; it does not
+create a network listener. The `listener-set` line above is the explicit opt-in
+that exposes Keycloak to other machines.
+
 Prepare the password in a file readable only by its owner (for example, mode
 `0600`); pass its path, never the password, on the command line. The CLI reads
 one trailing newline as a file terminator and sends the password only through
@@ -293,6 +297,8 @@ There is no compatibility path for a v1 registry.
 ## Fleet center LAN reachability and edge self-service
 
 There are two separate HTTPS entrances. `listener-set` configures the managed Keycloak login service; it is the browser/token issuer. The Fleet TLS listener is the edge synchronization service and is configured with `daemon fleet center start`. Do not use one command's address as the other's configuration.
+
+Bootstrap never publishes the login service: without a `listener-set`, Keycloak serves loopback HTTP only. An upgrade preserves an existing listener but never creates one. The managed PostgreSQL instance authenticates Keycloak with a daemon-generated password stored in the user root with mode `0600`; no manual database credential is required.
 
 For the login service, the bind address must be an IP assigned to the center host and `--hostname` must be present in the certificate SAN. Keep the private key owner-readable (mode `0600`):
 
