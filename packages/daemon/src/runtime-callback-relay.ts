@@ -1,8 +1,11 @@
 import { chmodSync, lstatSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
+import { Transform } from "node:stream";
 import { localUserDaemonEndpoint, perUserSocketRoot } from "./client/local-daemon-target.ts";
 import type { RuntimeCallbackRelay, RuntimeDaemonRoute } from "./runtime-spawn-types.ts";
+import { JSON_LINE_FRAME_MAX_BYTES } from "./transport/frame-codec.ts";
 
 export function runtimeCallbackRelaySpec(
   dispatchId: string,
@@ -47,6 +50,7 @@ export function createRuntimeCallbackRelay(input: {
   readonly dispatchId: string;
   readonly route: RuntimeDaemonRoute;
   readonly relayPath: string;
+  readonly executionCredential?: string;
 }): RuntimeCallbackRelayServer {
   validateRuntimeCallbackRelayPath(input.dispatchId, input.relayPath);
   assertEndpointIdentity(input.route);
@@ -56,18 +60,25 @@ export function createRuntimeCallbackRelay(input: {
   const server = net.createServer((client) => {
     sockets.add(client);
     const upstream = createDaemonSocket(input.route.endpoint);
+    const credentialInjector = input.executionCredential
+      ? executionCredentialInjector(input.executionCredential)
+      : undefined;
     sockets.add(upstream);
     const closeBoth = (): void => {
       client.destroy();
+      credentialInjector?.destroy();
       upstream.destroy();
       sockets.delete(client);
       sockets.delete(upstream);
     };
     client.once("error", closeBoth);
+    credentialInjector?.once("error", closeBoth);
     upstream.once("error", closeBoth);
     client.once("close", () => sockets.delete(client));
     upstream.once("close", () => sockets.delete(upstream));
-    client.pipe(upstream).pipe(client);
+    if (credentialInjector) client.pipe(credentialInjector).pipe(upstream);
+    else client.pipe(upstream);
+    upstream.pipe(client);
   });
   let started = false;
   return {
@@ -155,6 +166,64 @@ function createDaemonSocket(endpoint: string): net.Socket {
   if (!endpoint.startsWith("tcp://")) return net.createConnection(endpoint);
   const url = new URL(endpoint);
   return net.createConnection({ host: url.hostname.replace(/^\[|\]$/gu, ""), port: Number(url.port) });
+}
+
+function executionCredentialInjector(credential: string): Transform {
+  const decoder = new StringDecoder("utf8");
+  let remainder = "";
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      remainder += decoder.write(chunk);
+      const frames = remainder.split("\n");
+      remainder = frames.pop() ?? "";
+      for (const frame of frames) this.push(`${runtimeHelloWithCredential(frame, credential)}\n`);
+      if (Buffer.byteLength(remainder) > JSON_LINE_FRAME_MAX_BYTES) {
+        callback(new Error(`JSON-RPC frame exceeds ${JSON_LINE_FRAME_MAX_BYTES} bytes`));
+        return;
+      }
+      callback();
+    },
+    flush(callback) {
+      remainder += decoder.end();
+      if (remainder) this.push(runtimeHelloWithCredential(remainder, credential));
+      callback();
+    },
+  });
+}
+
+function runtimeHelloWithCredential(frame: string, credential: string): string {
+  if (!frame.trim()) return frame;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(frame) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) return frame;
+    throw error;
+  }
+  if (Array.isArray(parsed)) {
+    const rewritten = parsed.map((request) => requestWithExecutionCredential(request, credential));
+    return rewritten.some((request, index) => request !== parsed[index]) ? serializeFrame(rewritten) : frame;
+  }
+  const rewritten = requestWithExecutionCredential(parsed, credential);
+  return rewritten === parsed ? frame : serializeFrame(rewritten);
+}
+
+function requestWithExecutionCredential(request: unknown, credential: string): unknown {
+  if (!isRelayRecord(request) || request.method !== "protocol.hello" || !isRelayRecord(request.params)) return request;
+  return {
+    ...request,
+    params: { ...request.params, executionCredential: credential },
+  };
+}
+
+function isRelayRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function serializeFrame(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new TypeError("runtime callback relay could not encode a JSON-RPC frame");
+  return encoded;
 }
 
 function relayName(dispatchId: string): string {
