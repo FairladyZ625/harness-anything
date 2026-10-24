@@ -33,7 +33,11 @@ import {
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
-import { pruneDispatchStreamArchive, scheduleArchivedDispatchStreamCompaction } from "./dispatch-stream-archive.ts";
+import {
+  pruneDispatchStreamArchive,
+  readFactEvidenceSources,
+  scheduleArchivedDispatchStreamCompaction,
+} from "./dispatch-stream-archive.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -831,7 +835,13 @@ export async function openRepoWriterCell(
   );
   // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
   // files the same queue is about to delete.
-  schedule(() => pruneDispatchStreamArchive(rootDir, readEffectiveDispatchArchiveRetention(projection)));
+  schedule(() =>
+    pruneDispatchStreamArchive(
+      rootDir,
+      readEffectiveDispatchArchiveRetention(projection),
+      readFactEvidenceSources(projection),
+    ),
+  );
   scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.

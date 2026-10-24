@@ -1,6 +1,6 @@
-import { mkdirSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { mkdirSync, readdirSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { withReadOnlyFile } from "./durable-file.ts";
 
@@ -74,12 +74,13 @@ export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedu
 export function pruneDispatchStreamArchive(
   rootDir: string,
   retention: DispatchArchiveRetention,
+  evidenceSources: readonly string[],
   nowMs: number = Date.now(),
 ): void {
   if (retention.retentionDays <= 0 && retention.retentionBytes <= 0) return;
   const msPerDay = 86_400_000,
     streams = archivedDispatchStreams(rootDir),
-    protectedPrefixes = factEvidenceDispatchPrefixes(rootDir),
+    protectedPrefixes = factEvidenceDispatchPrefixes(evidenceSources),
     doomed = new Set<string>();
   if (retention.retentionDays > 0)
     for (const stream of streams)
@@ -145,36 +146,45 @@ function archivedStartedAtMs(file: string): number {
 }
 
 /**
- * Dispatch-id prefixes that immutable fact evidence names under the archive path. Facts live
- * under the ledger authored root and their Evidence source is never rewritten, so a retention
- * pass that deletes these files would turn that evidence into a dangling path with no way to
- * recover it. Evidence may name one id or a `{prefix,…}*` / `prefix*` glob, so entries shorter
- * than a full id are kept as prefixes.
+ * Dispatch-id prefixes that immutable fact evidence names under the archive path. Evidence may
+ * name one id or a `{prefix,…}*` / `prefix*` glob, so entries shorter than a full id are kept as
+ * prefixes. A wildcard marks where the id stops being spelled out; it is not part of the id. In
+ * `{670215fc,…,c6f6af02}*` it follows the closing brace, so reading the entry as-is would turn
+ * the last id into a non-hex string and silently drop it. Cut each entry at its first wildcard
+ * instead — a glob naming an id prefix protects every id that starts with it.
  */
-function factEvidenceDispatchPrefixes(rootDir: string): readonly string[] {
-  const facts = path.join(resolveHarnessLayout(rootDir).authoredRoot, "facts");
-  if (!statSync(facts, { throwIfNoEntry: false })?.isDirectory()) return [];
+function factEvidenceDispatchPrefixes(evidenceSources: readonly string[]): readonly string[] {
   const prefixes = new Set<string>();
-  for (const name of readdirSync(facts).sort()) {
-    if (!name.endsWith(".md")) continue;
-    for (const match of readFileSync(path.join(facts, name), "utf8").matchAll(
-      /dispatches\/archive\/dispatch_([a-f0-9*,{}]+)/gu,
-    )) {
-      // A wildcard marks where an id stops being spelled out; it is not part of the id. In
-      // `{670215fc,…,c6f6af02}*` it follows the closing brace, so reading the entry as-is would
-      // turn the last id into a non-hex string and silently drop it. Cut each entry at its first
-      // wildcard instead — a glob naming an id prefix protects every id that starts with it.
+  for (const source of evidenceSources)
+    for (const match of source.matchAll(/dispatches\/archive\/dispatch_([a-f0-9*,{}]+)/gu)) {
       for (const entry of match[1]!.replace(/[{}]/gu, "").split(",")) {
         const prefix = entry.split("*")[0]!;
         if (/^[a-f0-9]{8,24}$/u.test(prefix)) prefixes.add(prefix);
       }
     }
-  }
   return [...prefixes];
 }
 
 function factEvidenceNames(prefixes: readonly string[], dispatchId: string): boolean {
   return prefixes.some((prefix) => dispatchId.startsWith(`dispatch_${prefix}`));
+}
+
+/**
+ * The evidence sources of every canonical Fact row, archived rows included. `ha fact archive`
+ * retires the managed document while the row keeps its immutable evidenceSource, so the
+ * protection input is the projection, not a scan of facts/*.md — a scan would stop seeing the
+ * reference an archived Fact still holds and let retention delete the stream it names. Refuses
+ * to answer on a projection that is not at the canonical cut: pruning against a short list of
+ * evidence sources would delete streams live facts still name, so the caller skips the pass.
+ */
+export function readFactEvidenceSources(projection: Pick<TaskProjectionQueries, "searchFacts">): readonly string[] {
+  const read = projection.searchFacts({});
+  if (read.status !== "ready")
+    throw new Error(
+      `fact projection is not at the canonical cut (watermark ${read.watermark}, source revision ` +
+        `${read.sourceRevision}); refusing to prune the dispatch archive against a partial evidence list`,
+    );
+  return read.facts.map((fact) => fact.evidenceSource);
 }
 
 function streamPaths(rootDir: string, dispatchId: string): { readonly live: string; readonly archived: string } {

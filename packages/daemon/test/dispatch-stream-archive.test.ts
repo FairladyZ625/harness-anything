@@ -1,9 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { TaskProjectionQueries } from "@harness-anything/kernel";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
@@ -14,6 +15,7 @@ import {
 } from "../src/dispatch-stream.ts";
 import {
   pruneDispatchStreamArchive,
+  readFactEvidenceSources,
   scheduleArchivedDispatchStreamCompaction,
 } from "../src/dispatch-stream-archive.ts";
 
@@ -221,7 +223,7 @@ test("retention ages a compacted stream by its header, not by the rewrite mtime"
     // age-based prune would read as "fresh".
     assert.equal(statSync(archived).mtimeMs > now - 86_400_000, true);
 
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, [], now);
     assert.equal(existsSync(archived), false, "the header still says the stream is 120 days old");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -245,9 +247,9 @@ test("retention deletes archived streams past the day limit, keeps the boundary,
       startedAt: "2026-10-23T00:00:00.000Z",
     });
 
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, [], now);
     // Re-running the same pass stays idempotent once the expired file is already gone.
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, [], now);
 
     assert.equal(existsSync(expired.file), false);
     assert.equal(existsSync(boundary.file), true);
@@ -265,7 +267,7 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
     const oldest = archiveStreamFixture(capRoot, "dispatch_888888888888888888888888", 10, "Ten-day-old bytes."),
       newest = archiveStreamFixture(capRoot, "dispatch_999999999999999999999999", 1, "One-day-old bytes.");
 
-    pruneDispatchStreamArchive(capRoot, { retentionDays: 0, retentionBytes: newest.sizeBytes }, now);
+    pruneDispatchStreamArchive(capRoot, { retentionDays: 0, retentionBytes: newest.sizeBytes }, [], now);
     assert.equal(existsSync(oldest.file), false, "the oldest stream is evicted to reach the cap");
     assert.equal(existsSync(newest.file), true, "the newest stream fits under the cap and stays");
   } finally {
@@ -280,6 +282,7 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
     pruneDispatchStreamArchive(
       emptyRoot,
       { retentionDays: 0, retentionBytes: Math.min(lone.sizeBytes, newer.sizeBytes) - 1 },
+      [],
       now,
     );
     assert.equal(existsSync(lone.file), false, "a cap no single stream satisfies empties the archive");
@@ -289,13 +292,15 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
   }
 });
 
-function factEvidence(rootDir: string, reference: string, factId = "F-TEST0001"): void {
-  const facts = path.join(rootDir, "harness", "facts");
-  mkdirSync(facts, { recursive: true });
-  writeFileSync(
-    path.join(facts, `${factId}.md`),
-    `# ${factId}\n\n- Evidence source: .harness/runtime/dispatches/archive/${reference}\n`,
-  );
+const evidenceSource = (reference: string): string => `.harness/runtime/dispatches/archive/${reference}`;
+
+/** The prune reads every Fact row's source at the caller's projection cut; only that field matters. */
+function factsAt(
+  ...facts: readonly { readonly evidenceSource: string; readonly archived?: boolean }[]
+): Pick<TaskProjectionQueries, "searchFacts"> {
+  return {
+    searchFacts: () => ({ status: "ready", facts, watermark: 0, sourceRevision: 0 }),
+  } as unknown as Pick<TaskProjectionQueries, "searchFacts">;
 }
 
 test("retention never deletes an archived stream that immutable fact evidence names", () => {
@@ -306,15 +311,57 @@ test("retention never deletes an archived stream that immutable fact evidence na
   try {
     const protectedStream = archiveStreamFixture(rootDir, protectedId, 120, "Immutable evidence."),
       globbed = archiveStreamFixture(rootDir, globbedId, 100, "Globbed evidence."),
-      expired = archiveStreamFixture(rootDir, "dispatch_dddddddddddddddddddddddd", 90, "Plain old stream.");
-    factEvidence(rootDir, `${protectedId}.jsonl`);
-    factEvidence(rootDir, "dispatch_{abababab,cdcdcdcd}*.jsonl", "F-TEST0002");
+      expired = archiveStreamFixture(rootDir, "dispatch_dddddddddddddddddddddddd", 90, "Plain old stream."),
+      sources = [evidenceSource(`${protectedId}.jsonl`), evidenceSource("dispatch_{abababab,cdcdcdcd}*.jsonl")];
 
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, sources, now);
 
     assert.equal(existsSync(protectedStream.file), true, "a fact still points at this file");
     assert.equal(existsSync(globbed.file), true, "a glob evidence reference keeps the matching id");
     assert.equal(existsSync(expired.file), false, "unreferenced streams still follow the limit");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("an archived Fact still protects the stream its evidence names after its document is retired", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-archived-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z"),
+    dispatchId = "dispatch_13579bdf2468ace013579bdf";
+  try {
+    // `ha fact archive` deletes the managed document and keeps only the canonical row, so a
+    // disk scan of facts/*.md no longer sees this reference: no file is written here on purpose.
+    const archivedFactsStream = archiveStreamFixture(rootDir, dispatchId, 120, "Archived fact evidence."),
+      unnamed = archiveStreamFixture(rootDir, "dispatch_2468ace013579bdf2468ace0", 90, "Unreferenced stream."),
+      projection = factsAt(
+        { evidenceSource: evidenceSource(`${dispatchId}.jsonl`), archived: true },
+        { evidenceSource: "README.md" },
+      );
+
+    pruneDispatchStreamArchive(
+      rootDir,
+      { retentionDays: 60, retentionBytes: 0 },
+      readFactEvidenceSources(projection),
+      now,
+    );
+
+    assert.equal(existsSync(archivedFactsStream.file), true, "an archived Fact's evidence is still immutable");
+    assert.equal(existsSync(unnamed.file), false, "other streams keep following the limit");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a pending Fact projection refuses to authorise a prune instead of reading a short list", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-pending-")),
+    dispatchId = "dispatch_97531bdf2468ace097531bdf";
+  try {
+    const stream = archiveStreamFixture(rootDir, dispatchId, 120, "Expired but evidence may name it."),
+      pending = {
+        searchFacts: () => ({ status: "pending", facts: [], watermark: 1, sourceRevision: 2 }),
+      } as unknown as Pick<TaskProjectionQueries, "searchFacts">;
+    assert.throws(() => readFactEvidenceSources(pending), /not at the canonical cut/u);
+    assert.equal(existsSync(stream.file), true, "the prune never ran, so nothing was deleted");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -330,9 +377,9 @@ test("a fact evidence glob keeps the last id it names, where the wildcard sits",
       last = archiveStreamFixture(rootDir, lastId, 365, "Id the trailing wildcard is attached to.");
     // The evidence source of fact F-19D8B951, character for character: the glob's closing brace is
     // followed by `*`, which belongs to the reference and not to the id before it.
-    factEvidence(rootDir, "dispatch_{670215fc,f9e35de8,4298b3f7,8546206f,c6f6af02}*.jsonl", "F-19D8B951");
+    const sources = [evidenceSource("dispatch_{670215fc,f9e35de8,4298b3f7,8546206f,c6f6af02}*.jsonl")];
 
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, sources, now);
 
     assert.equal(existsSync(first.file), true, "every id inside the braces is named");
     assert.equal(existsSync(last.file), true, "the id the trailing wildcard touches is still a named id");
@@ -345,10 +392,10 @@ test("a bare prefix glob without braces also protects the streams it names", () 
   const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-prefix-")),
     now = Date.parse("2026-10-24T00:00:00.000Z");
   try {
-    const named = archiveStreamFixture(rootDir, "dispatch_aaaa1111bbbb2222cccc3333", 365, "Prefix-named.");
-    factEvidence(rootDir, "dispatch_aaaa1111*.jsonl", "F-TEST0003");
+    const named = archiveStreamFixture(rootDir, "dispatch_aaaa1111bbbb2222cccc3333", 365, "Prefix-named."),
+      sources = [evidenceSource("dispatch_aaaa1111*.jsonl")];
 
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, sources, now);
 
     assert.equal(existsSync(named.file), true);
   } finally {
@@ -362,10 +409,10 @@ test("the byte cap skips a fact-protected stream and evicts the unprotected rema
     protectedId = "dispatch_eeeeeeeeeeeeeeeeeeeeeeee";
   try {
     const protectedStream = archiveStreamFixture(rootDir, protectedId, 40, "Immutable evidence bytes."),
-      victim = archiveStreamFixture(rootDir, "dispatch_ffffffffffffffffffffffff", 1, "One-day-old bytes.");
-    factEvidence(rootDir, `${protectedId}.jsonl`);
+      victim = archiveStreamFixture(rootDir, "dispatch_ffffffffffffffffffffffff", 1, "One-day-old bytes."),
+      sources = [evidenceSource(`${protectedId}.jsonl`)];
 
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: protectedStream.sizeBytes }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: protectedStream.sizeBytes }, sources, now);
 
     assert.equal(existsSync(protectedStream.file), true, "protected bytes stay even though they are oldest");
     assert.equal(existsSync(victim.file), false, "unprotected streams are evicted to approach the cap");
@@ -380,7 +427,7 @@ test("summary readers treat a pruned archive as expired instead of failing", () 
     dispatchId = "dispatch_121212121212121212121212";
   try {
     const pruned = archiveStreamFixture(rootDir, dispatchId, 61, "Expired transcript.");
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, [], now);
     assert.equal(existsSync(pruned.file), false);
     assert.equal(
       readAllDispatchStreamSummaries(rootDir).some((summary) => summary.header.dispatchId === dispatchId),
@@ -397,7 +444,7 @@ test("retention with both limits disabled keeps every archived stream", () => {
     now = Date.parse("2026-10-24T00:00:00.000Z");
   try {
     const ancient = archiveStreamFixture(rootDir, "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", 400, "Older than any default.");
-    pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: 0 }, now);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: 0 }, [], now);
     assert.equal(existsSync(ancient.file), true);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
