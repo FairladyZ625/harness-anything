@@ -268,7 +268,7 @@ test(
     assert.match(explicitPrompt, /# Fleet\n/u, "the mirrored plan body rides the edge mission verbatim");
     assert.match(explicitPrompt, /Exercise the fixture's task lifecycle through canonical repository commands\./u);
     assert.match(explicitPrompt, /# Living Deliverable Protocol/u);
-    assert.match(explicitPrompt, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
+    assert.match(explicitPrompt, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
     assert.match(explicitPrompt, /资料不足[\s\S]*owner/u);
     assert.ok(explicitPrompt.endsWith("Explicit edge mission."));
     const explicitBlock = causalBlock(explicitPrompt);
@@ -328,7 +328,7 @@ test(
     );
     assert.equal(taskBound.outcome, "applied", JSON.stringify(taskBound));
     const taskBoundPrompt = launchedPrompts.at(-1) ?? "";
-    assert.match(taskBoundPrompt, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
+    assert.match(taskBoundPrompt, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
     assert.doesNotMatch(taskBoundPrompt, /ha (?:graph|work show|task create)/u);
     assert.ok(taskBoundPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
     assert.match(taskBoundPrompt, /# Fleet\n/u, "the task-bound edge mission inlines the mirrored plan too");

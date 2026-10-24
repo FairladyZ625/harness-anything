@@ -6,7 +6,16 @@ import assert from "node:assert/strict";
 
 import { execFileSync, spawnSync } from "node:child_process";
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 
 import { tmpdir } from "node:os";
 
@@ -150,11 +159,21 @@ function settle(root: string, userRoot: string, opId: string, actor?: string): R
 }
 
 function writeCloseout(root: string, packagePath: string, summary: string, risk = "None for the fixture."): void {
-  writeFileSync(
-    path.join(root, "harness", packagePath, "closeout.md"),
-    `# Closeout\n\n## Summary\n\n${summary}\n\n## Verification\n\nVerified through the real CLI.\n\n` +
+  const body =
+      `# Closeout\n\n## Summary\n\n${summary}\n\n## Verification\n\nVerified through the real CLI.\n\n` +
       `## Residual Risk\n\n${risk}\n\n## Same Mechanism Elsewhere\n\nNot applicable to the release acceptance fixture.\n`,
-  );
+    worktreesRoot = path.join(root, ".worktrees"),
+    worktree = existsSync(worktreesRoot)
+      ? readdirSync(worktreesRoot)
+          .map((name) => path.join(worktreesRoot, name))
+          .find((candidate) => existsSync(path.join(candidate, "harness", packagePath)))
+      : undefined,
+    closeoutRoots = [root, ...(worktree ? [worktree] : [])];
+  for (const closeoutRoot of closeoutRoots) {
+    const closeout = path.join(closeoutRoot, "harness", packagePath, "closeout.md");
+    mkdirSync(path.dirname(closeout), { recursive: true });
+    writeFileSync(closeout, body);
+  }
 }
 
 function docStatusRows(receipt: Record<string, unknown>): ReadonlyArray<Record<string, unknown>> {

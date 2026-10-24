@@ -4,7 +4,7 @@ Replace this file's placeholder content before closeout; `ha task complete` reje
 
 ## Summary
 
-Summarize the completed behavior change. The submitted execution freezes the delivery commit and other machine-derived delivery values, so do not hand-copy them here.
+Summarize the completed behavior change. The submission freezes machine-derived delivery facts in `commitSha`, `changedFiles`, and, for code cuts, `productionDelta`; refer to those fields instead of hand-copying their values here.
 
 ## Verification
 

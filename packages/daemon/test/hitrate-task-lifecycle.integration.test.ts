@@ -105,13 +105,17 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
     git(workerRoot, "add", "README.md");
     git(workerRoot, "commit", "-qm", "test: lifecycle code delivery");
     const commitSha = git(workerRoot, "rev-parse", "HEAD"),
-      writeCloseout = (claim: string) =>
-        writeFileSync(
-          path.join(rootDir, "harness", closeoutPath),
+      writeCloseout = (claim: string) => {
+        const body =
           `# Closeout\n\n## Summary\n\n${claim} Commit ${commitSha}.\n\n` +
-            "## Verification\n\nVerified by integration test.\n\n## Residual Risk\n\nNone.\n\n" +
-            "## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
-        );
+          "## Verification\n\nVerified by integration test.\n\n## Residual Risk\n\nNone.\n\n" +
+          "## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n";
+        for (const root of [rootDir, workerRoot]) {
+          const file = path.join(root, "harness", closeoutPath);
+          mkdirSync(path.dirname(file), { recursive: true });
+          writeFileSync(file, body);
+        }
+      };
     writeCloseout("Lifecycle behavior is implemented.");
     const synced = await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, holder);
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));

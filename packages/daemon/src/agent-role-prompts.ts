@@ -36,7 +36,7 @@ const reviewerDiscipline = [
 ].join("\n");
 
 // Publication commands belong to the action-specific mission, not the static role baseline.
-const taskDeliveryPublicationDiscipline = `- After affected tests pass, commit and publish through the task delivery commands; read the hosting platform's PR checks for that delivery commit. Pending is not green. Investigate failures, repair change-caused regressions and repeat; record failures also present on latest main. If checks cannot be read, report the error and mark CI unverified. Sync delivery documents before task submit, which freezes the cut. Final merge authority belongs to the CEO.`;
+const taskDeliveryPublicationDiscipline = `- After affected tests pass, commit and publish through the task delivery commands; read the hosting platform's PR checks for that delivery commit. Pending is not green. Investigate failures, repair change-caused regressions and repeat; record failures also present on latest main. If checks cannot be read, report the error and mark CI unverified. Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync for them. Final merge authority belongs to the CEO.`;
 
 const workerDiscipline = `# Worker Role
 

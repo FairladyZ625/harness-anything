@@ -4,7 +4,7 @@
 
 ## Summary
 
-总结完成的行为变化。提交的 execution 会冻结交付 commit 和其他机器派生的交付值，不要在这里手抄。
+总结完成的行为变化。submission 会冻结 `commitSha`、`changedFiles` 和代码 cut 的 `productionDelta` 等机器派生事实；直接引用这些字段，不要手抄数值。
 
 ## Verification
 
