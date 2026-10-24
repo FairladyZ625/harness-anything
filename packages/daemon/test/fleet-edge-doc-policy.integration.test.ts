@@ -498,6 +498,56 @@ test("an edge task-start carries a persisted raw .log row edited to decodable te
 });
 
 test(
+  "an edge task-start carries text while leaving raw image bytes outside lifecycle claims",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    const created = await fixture.createTask("node-one", "task-edge-image-policy", "Edge image policy"),
+      imagePath = `${created.packagePath}/artifacts/screenshots/shot.png`,
+      webpPath = `${created.packagePath}/artifacts/screenshots/shot.webp`,
+      logPath = `${created.packagePath}/artifacts/evidence/startup.log`,
+      imageBytes = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(32, 0xab),
+      ]),
+      webpBytes = Buffer.from("RIFF0000WEBPVP8 "),
+      logBytes = Buffer.from("startup completed\n");
+    for (const [logical, bytes] of [
+      [imagePath, imageBytes],
+      [webpPath, webpBytes],
+      [logPath, logBytes],
+    ] as const) {
+      const target = fixture.worktree("node-one", logical);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, bytes);
+    }
+
+    const started = await fixture.edgeTask("node-one", {
+      kind: "task-start",
+      taskId: created.taskId,
+      executionId: "exe-edge-image-policy",
+    });
+    assert.equal(started.ok, true, JSON.stringify(started).slice(0, 800));
+    await fixture.waitPublished(String(started.opId));
+
+    const event = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo }).readEvent(String(started.opId)),
+      carried = (
+        event?.payload as { readonly carriedDocumentClaims?: readonly { readonly path: string }[] } | undefined
+      )?.carriedDocumentClaims;
+    assert.ok(
+      carried?.some((claim) => claim.path === logPath),
+      "text candidates remain atomic with task-start",
+    );
+    assert.equal(carried?.some((claim) => claim.path === imagePath) ?? false, false);
+    assert.equal(carried?.some((claim) => claim.path === webpPath) ?? false, false);
+    assert.deepEqual(readFileSync(fixture.worktree("node-one", imagePath)), imageBytes);
+    assert.deepEqual(readFileSync(fixture.worktree("node-one", webpPath)), webpBytes);
+    assert.equal(fixture.view("node-one")?.entries.has(imagePath) ?? true, false);
+  },
+);
+
+test(
   "a stray binary outside artifacts/ does not refuse the package's task commands",
   { timeout: 90_000 },
   async (t) => {
