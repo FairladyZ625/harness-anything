@@ -245,7 +245,7 @@ export const taskActionDescriptorProjection = {
         exactlyOneOf: [["fromFile", "jsonInput"]],
       },
       explain:
-        "Record an independent, content-pinned review; a changes_requested verdict below the repository rework budget reopens the implementation round automatically.",
+        "Record an independent, content-pinned review; changes_requested below the rework budget reopens rework.",
       execution: {
         ingress: "task-review-execution",
         topology: "local-arbiter",

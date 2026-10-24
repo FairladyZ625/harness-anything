@@ -452,8 +452,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", semanticKey: "reviewId" },
     ),
-    explain:
-      "Record an independent, content-pinned review; a changes_requested verdict below the repository rework budget reopens the implementation round automatically.",
+    explain: "Record an independent, content-pinned review; changes_requested below the rework budget reopens rework.",
   }),
   lifecycle("consent", {
     input: input([

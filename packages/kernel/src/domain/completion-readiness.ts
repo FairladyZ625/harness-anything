@@ -259,8 +259,10 @@ function evaluateCompletion(
       "not_in_review",
       "lifecycle",
       `ha task show ${task.taskId}`,
-      "This historical cut predates the review corridor and has not entered review; supersede the " +
-        "task or migrate its contract — no command can forward it into review.",
+      "This historical cut recorded `submitted` at the review node before the automatic corridor; the current " +
+        "version has no command that forwards it into review. The registered stock disposal in " +
+        "docs-release/data-format-migrations.md applies: forward it with a pre-upgrade version before " +
+        "upgrading, or supersede the task — migrating its contract cannot lift the frozen cut's review gate.",
     );
   // A lightweight cut (review gate lifted) completes straight off submitted; every other
   // status off the review corridor has no completion to run.
@@ -290,15 +292,21 @@ function evaluateCompletion(
   const changes = includeReview
     ? changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? [])
     : undefined;
-  if (changes)
+  if (changes) {
+    // The exhaustion scenario often has no approved review on the cut; the consent side accepts
+    // the disposed changes_requested verdict itself (review-consent-validity's
+    // allowSelectedChangesRequested), so the printed command is always fillable as printed.
+    const consentReviewId =
+      approvedReviewHistoryForExecution(snapshot.reviews, execution).at(-1)?.reviewId ?? changes.reviewId;
     return one(
       "review_missing",
       "review",
-      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id <approved-review-id> ` +
+      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${consentReviewId} ` +
         `--dispose ${changes.reviewId} --rationale <why the adverse verdict is overruled>`,
       `Review ${changes.reviewId} requested changes and the rework budget is exhausted; the owner ` +
         "decides: dispose the verdict with consent, or supersede the task.",
     );
+  }
   const gate = assessment.gates.find(({ gateId, status }) => {
     const requirement = submission.completionContract.gates.find((candidate) => candidate.gateId === gateId);
     return (

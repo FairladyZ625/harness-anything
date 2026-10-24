@@ -283,9 +283,11 @@ test("a recorded changes_requested review guides the owner's disposition instead
     },
     result = taskCompletionNext(changesRequested, context);
   assert.equal(result.blocker?.code, "review_missing");
+  // No approved review exists on this cut, so the fillable consent command names the disposed
+  // changes_requested verdict itself (allowSelectedChangesRequested), never a placeholder.
   assert.equal(
     result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes --rationale <why the adverse verdict is overruled>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   assert.equal(result.next?.authority, "person-owner");
   assert.doesNotMatch(result.next!.reason, /no recorded review/u);
@@ -298,7 +300,7 @@ test("a recorded changes_requested review guides the owner's disposition instead
   })[0]!.body;
   assert.match(
     index,
-    /ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes/u,
+    /ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes/u,
   );
   assert.doesNotMatch(index, /dispatch-review/u);
   // Without any recorded review the dispatch guidance stands.
@@ -316,7 +318,7 @@ test("a changes request on the current cut comes before missing merge evidence",
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes --rationale <why the adverse verdict is overruled>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   // Without the changes request, the old frozen CI gate is interpreted through merge evidence.
   assert.equal(taskCompletionNext(reviewed, { ...context, delivery }).blocker?.code, "delivery_missing");
@@ -400,10 +402,55 @@ test("an undisposed changes request prevents an approved review from reaching co
     },
     result = taskCompletionNext(conflicted, context);
   assert.equal(result.blocker?.code, "review_missing");
+  // An approved review does exist on this cut, so the consent command names it and disposes the
+  // adverse verdict beside it.
   assert.equal(
     result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes --rationale <why the adverse verdict is overruled>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
+});
+
+// CEO ruling 2026-10-25 (必修 1): rows frozen at `submitted` on the review node before the
+// automatic corridor are a registered stock disposal, and the guidance must point at that
+// registration instead of exits the shape cannot take (contract migration cannot lift a frozen
+// cut's review gate).
+test("a legacy submitted review cut points at the registered stock disposal, not contract migration", () => {
+  // Real old-shape input: the pre-corridor kernel recorded task.status "submitted" on the
+  // execution_submitted envelope itself, and replay owns the recorded status
+  // (task-lifecycle-replay's submit atomicity accepts both), so reducing the fixture's real
+  // submit envelope with the legacy recorded status reproduces the stored row as an upgraded
+  // ledger reads it.
+  const [created, started, submitEvent] = fixture.events,
+    legacyEvents = [
+      created!,
+      started!,
+      {
+        ...submitEvent!,
+        payload: {
+          ...submitEvent!.payload,
+          task: { ...submitEvent!.payload.task, status: "submitted" as const },
+        },
+      },
+    ],
+    legacy = legacyEvents.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  assert.equal(submitEvent?.type, "execution_submitted", "fixture must expose its real submit envelope");
+  assert.equal(legacy.task?.status, "submitted");
+  assert.equal(legacy.task?.currentNode, "review");
+  const result = taskCompletionNext(legacy, context);
+  assert.equal(result.blocker?.code, "not_in_review");
+  assert.match(result.next!.reason, /docs-release\/data-format-migrations\.md/u);
+  assert.match(result.next!.reason, /forward it with a pre-upgrade version before upgrading/u);
+  assert.match(result.next!.reason, /supersede the task/u);
+  assert.doesNotMatch(result.next!.reason, /migrate its contract/u);
+  // INDEX renders the action line only; it must not advise review dispatch or contract migration.
+  const index = rematerializeTaskDocuments({
+    snapshot: legacy,
+    packagePath: "tasks/task-1",
+    paths: ["tasks/task-1/INDEX.md"],
+    currentDocuments: [],
+  })[0]!.body;
+  assert.match(index, /ha task show task-1/u);
+  assert.doesNotMatch(index, /dispatch-review|contract migrate/u);
 });
 
 test("an executorless review without dispatch lineage names an executable independent-review step", () => {

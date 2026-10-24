@@ -244,7 +244,7 @@
   "components.taskCloseout.resolvedByPrefix": "Resolved by ",
   "components.taskCloseout.resolvedBySuffix": "",
   "components.taskCloseout.completionTitle": "Closeout Settlement",
-  "components.taskCloseout.stageReviewDesc": "Independent review has not recorded a verdict: the reviewer only inspects; after findings return, the task owner adjudicates. Completion is unavailable before adjudication.",
+  "components.taskCloseout.stageReviewDesc": "Independent review has not recorded a verdict: the reviewer only inspects; a changes_requested verdict reopens the work automatically, and only an exhausted rework budget waits for the owner. Completion is unavailable before an approved verdict.",
   "components.taskCloseout.stageConsentDesc": "Independent review approved: owner final approval records consent per reviewed content; after consent, completion is purely mechanical.",
   "components.taskCloseout.stageReadyDesc": "Final approval recorded: completion is purely mechanical, archiving immediately.",
   "components.taskCloseout.completionConsent": "Approve Final Review",
