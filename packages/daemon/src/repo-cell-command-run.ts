@@ -479,8 +479,13 @@ async function bindCurrentPersonIdentityWitnesses(
   rootDir: string,
 ): Promise<RepoCellBinding> {
   const ids = new Set<string>();
-  if (action.kind === "relation-relate" && typeof action.targetRef === "string") {
-    const target = parseEntityRef(action.targetRef);
+  if (
+    (action.kind === "relation-relate" && typeof action.targetRef === "string") ||
+    (action.kind.endsWith("-assign") && typeof action.personId === "string")
+  ) {
+    const target = parseEntityRef(
+      action.kind === "relation-relate" ? (action.targetRef as string) : `person/${action.personId}`,
+    );
     if (target?.kind === "person") ids.add(target.id);
   }
   if (typeof action.decisionId === "string" && ["decision-review", "decision-respond-review"].includes(action.kind)) {
@@ -496,6 +501,37 @@ async function bindCurrentPersonIdentityWitnesses(
           : decision.reviews.some(({ verdict }) => verdict === "changes_requested");
       if (changesRequested) ids.add(decision.proposer.principal.personId);
     }
+  }
+  const assignmentAction = action.kind.endsWith("-assign") || action.kind.endsWith("-unassign");
+  if (assignmentAction && action.kind.endsWith("-assign")) {
+    const targetIds = [
+      typeof action.personId === "string" ? ["person", action.personId] : null,
+      typeof action.nodeId === "string" ? ["node", action.nodeId] : null,
+      typeof action.teamId === "string" ? ["team", action.teamId] : null,
+    ].filter((value): value is [string, string] => value !== null);
+    if (targetIds.length !== 1)
+      throw Object.assign(new Error("Assignment requires exactly one person, node or team target."), {
+        code: "invalid_field",
+      });
+    const credential = binding.keycloakAuthorization;
+    if (!credential?.center)
+      throw Object.assign(new Error("Assignment targets require the center directory."), {
+        code: "authentication_required",
+      });
+    const center = await credential.center(),
+      adapter = new KeycloakPolicyAdapter({
+        url: center.url,
+        realm: center.realm,
+        resourceServerClientId: center.clientId,
+      }),
+      [kind, id] = targetIds[0]!;
+    if (kind === "person" && !(await adapter.findUserId(center.accessToken, id)))
+      throw Object.assign(new Error(`Person ${id} was not found in the current Keycloak realm.`), {
+        code: "entity_not_found",
+      });
+    if (kind === "node" && (await adapter.readNode(center.accessToken, id))?.state !== "active")
+      throw Object.assign(new Error(`Node ${id} is not registered and active.`), { code: "entity_not_found" });
+    if (kind === "team") await adapter.readTeam(center.accessToken, id);
   }
   if (ids.size === 0) return binding;
   const credential = binding.keycloakAuthorization;

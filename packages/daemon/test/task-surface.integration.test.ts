@@ -893,9 +893,11 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
     replay.close();
     rmSync(replay.path, { force: true });
     const rebuilt = replay.rebuild(),
-      cold = replay.read("task_status_replay").snapshot;
+      cold = replay.read("task_status_replay").snapshot,
+      hotLifecycle = hot.task ? { ...hot, task: { ...hot.task } } : hot;
+    if (hotLifecycle.task) delete (hotLifecycle.task as { assignment?: unknown }).assignment;
     assert.equal(rebuilt.watermark, store.readHead()?.revision);
-    assert.deepEqual(cold, hot);
+    assert.deepEqual(cold, hotLifecycle);
     replay.close();
   } finally {
     await cell?.close();

@@ -288,10 +288,12 @@ export function task(value: unknown): boolean {
         isJsonObject(assignee) &&
         (assignee.kind === "team"
           ? exactRecord(assignee, ["kind", "teamId"]) && nonEmpty(assignee.teamId)
-          : assignee.kind === "person" &&
-            nonEmpty(assignee.personId) &&
-            Object.keys(assignee).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
-            (assignee.nodeId === undefined || nonEmpty(assignee.nodeId))))) &&
+          : assignee.kind === "node"
+            ? exactRecord(assignee, ["kind", "nodeId"]) && nonEmpty(assignee.nodeId)
+            : assignee.kind === "person" &&
+              nonEmpty(assignee.personId) &&
+              Object.keys(assignee).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
+              (assignee.nodeId === undefined || nonEmpty(assignee.nodeId))))) &&
     typeof value.pinned === "boolean" &&
     isJsonObject(value.graph) &&
     (value.metadata === undefined || validTaskMetadata(value.metadata)) &&
@@ -789,7 +791,9 @@ function validClaimAssignment(value: unknown): boolean {
   const a = value.assignee;
   return a.kind === "team"
     ? Object.keys(a).length === 2 && nonEmpty(a.teamId)
-    : a.kind === "person" &&
+    : a.kind === "node"
+      ? Object.keys(a).length === 2 && nonEmpty(a.nodeId)
+      : a.kind === "person" &&
         nonEmpty(a.personId) &&
         Object.keys(a).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
         (a.nodeId === undefined || nonEmpty(a.nodeId));

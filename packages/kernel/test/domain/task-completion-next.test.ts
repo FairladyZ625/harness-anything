@@ -20,6 +20,19 @@ const context = {
   eligibleDirtyPaths: [],
 };
 
+// A task whose work already happened outside Harness has no execution to submit: the blocker
+// must hand over the settle chain instead of reading as a dead end (task_b6896bab owner-done).
+test("a never-started task names the evidence-and-settle chain, a started one keeps the plain message", () => {
+  const neverStarted = taskCompletionNext(at(1), context);
+  assert.equal(neverStarted.blocker?.code, "not_in_review");
+  assert.match(neverStarted.next!.reason, /No execution has started/u);
+  assert.match(neverStarted.next!.reason, /ha task settle task-1/u);
+  assert.match(neverStarted.next!.reason, /closeout\.md/u);
+  // A round that returned to planned still has its executions: the plain submission message stands.
+  const returned = { ...at(2), lease: null, task: { ...at(2).task!, status: "planned" as const } };
+  assert.doesNotMatch(taskCompletionNext(returned, context).next!.reason, /settle/u);
+});
+
 test("completion next is one pure judgment across lifecycle and unavailable-input fixtures", () => {
   const active = at(2),
     submitted = at(3),

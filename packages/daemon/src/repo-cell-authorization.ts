@@ -239,6 +239,8 @@ function resourceName(resource: AuthorizationResource): string {
  */
 function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCellAction>[0]): AuthorizationDecision {
   switch (input.action.kind) {
+    case "agent-assign":
+      return authorizeRepoCellAction(input);
     case "agent-delete":
       return authorizeRepoCellAction(input);
     case "agent-install":
@@ -246,6 +248,10 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
     case "agent-retire":
       return authorizeRepoCellAction(input);
     case "agent-run":
+      return authorizeRepoCellAction(input);
+    case "agent-unassign":
+      return authorizeRepoCellAction(input);
+    case "assignment-migrate":
       return authorizeRepoCellAction(input);
     case "daemon-control-request":
       return authorizeRepoCellAction(input);
@@ -270,6 +276,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
     case "decision-accept":
       return authorizeRepoCellAction(input);
     case "decision-amend":
+      return authorizeRepoCellAction(input);
+    case "decision-assign":
       return authorizeRepoCellAction(input);
     case "decision-claim-add":
       return authorizeRepoCellAction(input);
@@ -301,6 +309,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "decision-transition":
       return authorizeRepoCellAction(input);
+    case "decision-unassign":
+      return authorizeRepoCellAction(input);
     case "distill-candidate":
       return authorizeRepoCellAction(input);
     case "distill-promote":
@@ -331,6 +341,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "fact-archive":
       return authorizeRepoCellAction(input);
+    case "fact-assign":
+      return authorizeRepoCellAction(input);
     case "fact-unarchive":
       return authorizeRepoCellAction(input);
     case "fact-reclassify":
@@ -340,6 +352,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
     case "fact-rematerialize":
       return authorizeRepoCellAction(input);
     case "fact-type-register":
+      return authorizeRepoCellAction(input);
+    case "fact-unassign":
       return authorizeRepoCellAction(input);
     case "migrate-import":
       return authorizeRepoCellAction(input);
@@ -399,6 +413,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "schedule-claim":
       return authorizeRepoCellAction(input);
+    case "schedule-assign":
+      return authorizeRepoCellAction(input);
     case "schedule-create":
       return authorizeRepoCellAction(input);
     case "schedule-delete":
@@ -417,17 +433,23 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "schedule-update":
       return authorizeRepoCellAction(input);
+    case "schedule-unassign":
+      return authorizeRepoCellAction(input);
     case "script-run":
       return authorizeRepoCellAction(input);
     case "settings-update":
       return authorizeRepoCellAction(input);
     case "squad-cancel":
       return authorizeRepoCellAction(input);
+    case "squad-assign":
+      return authorizeRepoCellAction(input);
     case "squad-delete":
       return authorizeRepoCellAction(input);
     case "squad-install":
       return authorizeRepoCellAction(input);
     case "squad-run":
+      return authorizeRepoCellAction(input);
+    case "squad-unassign":
       return authorizeRepoCellAction(input);
     case "task-amend":
       return authorizeRepoCellAction(input);

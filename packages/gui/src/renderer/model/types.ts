@@ -86,6 +86,7 @@ export type BlockingContributor =
 
 interface TaskRowFields {
   revision?: number;
+  assignmentRevision?: number;
   assignment?: NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["assignment"];
   taskId: string;
   title: string;

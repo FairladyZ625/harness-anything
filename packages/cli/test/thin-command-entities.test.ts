@@ -283,6 +283,68 @@ test("fact record help declares the supersedes/rationale pairing the rejection e
   }
 });
 
+test("Decision and Fact assignment commands share the principal and CAS shape", () => {
+  const decision = parseThinCommand([
+      "decision",
+      "assign",
+      "dec_1",
+      "--person",
+      "person-a",
+      "--expires-at",
+      "2026-12-01T00:00:00.000Z",
+      "--expected-version",
+      "4",
+    ]),
+    fact = parseThinCommand([
+      "fact",
+      "assign",
+      "F-ABCDEFGH",
+      "--team",
+      "team-a",
+      "--expires-at",
+      "2026-12-02T00:00:00.000Z",
+      "--expected-version",
+      "7",
+    ]),
+    unassign = parseThinCommand(["decision", "unassign", "dec_1", "--expected-version", "5"]),
+    ambiguous = parseThinCommand([
+      "fact",
+      "assign",
+      "F-ABCDEFGH",
+      "--person",
+      "person-a",
+      "--team",
+      "team-a",
+      "--expires-at",
+      "2026-12-02T00:00:00.000Z",
+      "--expected-version",
+      "7",
+    ]);
+  assert.equal(decision.ok, true, JSON.stringify(decision));
+  assert.equal(fact.ok, true, JSON.stringify(fact));
+  assert.equal(unassign.ok, true, JSON.stringify(unassign));
+  if (decision.ok)
+    assert.deepEqual(decision.command.action, {
+      kind: "decision-assign",
+      decisionId: "dec_1",
+      personId: "person-a",
+      expiresAt: "2026-12-01T00:00:00.000Z",
+      expectedVersion: 4,
+    });
+  if (fact.ok)
+    assert.deepEqual(fact.command.action, {
+      kind: "fact-assign",
+      factId: "F-ABCDEFGH",
+      teamId: "team-a",
+      expiresAt: "2026-12-02T00:00:00.000Z",
+      expectedVersion: 7,
+    });
+  if (unassign.ok)
+    assert.deepEqual(unassign.command.action, { kind: "decision-unassign", decisionId: "dec_1", expectedVersion: 5 });
+  assert.equal(ambiguous.ok, false);
+  if (!ambiguous.ok) assert.equal(ambiguous.code, "invalid_field");
+});
+
 test("Decision CLI maps every canonical command and keeps the five local error codes closed", () => {
   const packet = JSON.stringify({
       title: "Canonical",
@@ -1352,6 +1414,17 @@ test("migration import parser accepts ordered sources and repeated explicit conf
     false,
   );
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
+});
+
+test("assignment migration parser exposes dry-run without a second write surface", () => {
+  const dryRun = parseThinCommand(["migrate", "assignment", "--dry-run"]),
+    apply = parseThinCommand(["migrate", "assignment"]),
+    invalid = parseThinCommand(["migrate", "assignment", "--force"]);
+  assert.equal(dryRun.ok, true, JSON.stringify(dryRun));
+  assert.equal(apply.ok, true, JSON.stringify(apply));
+  if (dryRun.ok) assert.deepEqual(dryRun.command.action, { kind: "assignment-migrate", dryRun: true });
+  if (apply.ok) assert.deepEqual(apply.command.action, { kind: "assignment-migrate" });
+  assert.equal(invalid.ok, false);
 });
 
 test("retired in-place ledger migration is rejected while generation reconciliation remains readable", () => {

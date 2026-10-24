@@ -413,8 +413,11 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; task_72d27e77a6004768bddbb0f7fe adds six Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to the worker's gh.
   // Owner 2026-10-21 B3 deletes task-code-doc-reconcile and task-code-doc-repoint with the code/doc mechanism.
+  // The owner ruling makes assignment/unassignment a declared Action for every
+  // assignment-capable kind, adding eleven catalog declarations to the former
+  // 155-entry inventory.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
-  assert.equal(actionDeclarations.length, 156);
+  assert.equal(actionDeclarations.length, 167);
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
     false,

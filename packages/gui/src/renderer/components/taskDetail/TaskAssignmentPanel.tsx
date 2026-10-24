@@ -41,7 +41,8 @@ export function TaskAssignmentPanel({
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null),
     [submittedRevision, setSubmittedRevision] = useState<number | null>(null),
-    disabled = busy || task.revision === undefined || submittedRevision === task.revision,
+    assignmentRevision = task.assignmentRevision ?? task.revision,
+    disabled = busy || assignmentRevision === undefined || submittedRevision === assignmentRevision,
     assignment = task.assignment,
     assignee = assignment?.assignee,
     choices =
@@ -52,11 +53,11 @@ export function TaskAssignmentPanel({
           : directory.data?.people.map((person) => ({ id: person.personId, label: person.username }));
 
   async function save(remove: boolean) {
-    if (disabled || task.revision === undefined) return;
+    if (disabled || assignmentRevision === undefined) return;
     setBusy(true);
     setMessage(null);
     try {
-      const expectedVersion = task.revision,
+      const expectedVersion = assignmentRevision,
         scope = { repoId: task.projectId, taskId: task.taskId, expectedVersion },
         receipt = await (remove
           ? harnessClient.unassignTask(scope)
@@ -86,7 +87,15 @@ export function TaskAssignmentPanel({
             <span>
               {t(`taskAssignment.${assignee.kind === "team" ? "team" : assignee.nodeId ? "node" : "person"}`)}
             </span>
-            <IdText value={assignee.kind === "team" ? assignee.teamId : (assignee.nodeId ?? assignee.personId)} />
+            <IdText
+              value={
+                assignee.kind === "team"
+                  ? assignee.teamId
+                  : assignee.kind === "node"
+                    ? assignee.nodeId
+                    : (assignee.nodeId ?? assignee.personId)
+              }
+            />
             <span>{formatTime(assignment!.expiresAt, { style: "month-day-time" })}</span>
           </>
         ) : (
