@@ -335,7 +335,7 @@ test("reviewer settlement does not prepare credentials or push a worker branch",
   assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
 });
 
-test("a reviewer's branch commit does not witness success without the registered review", async (context) => {
+test("a reviewer without a registered review settles failed with a specific reason", async (context) => {
   // The git fixture leaves the worker branch one commit above the baseline, so the branch
   // witness alone would flip the outcome; the review list is empty (F-4C182EEE shape).
   const fixture = workerGitFixture(context, "settle-review-unregistered", { reachableRemote: true }),
@@ -345,8 +345,12 @@ test("a reviewer's branch commit does not witness success without the registered
       role: "reviewer",
     }),
     outcomes: Record<string, unknown>[] = [],
-    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
-      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body ?? ""));
+      }
       return {};
     });
   await publishExit(
@@ -357,7 +361,51 @@ test("a reviewer's branch commit does not witness success without the registered
     runtime,
     0,
   );
-  assert.equal(outcomes[0]?.outcome, "stopped");
+  assert.equal(outcomes[0]?.outcome, "failed");
+  assert.equal(outcomes[0]?.reasonCode, "review_result_missing");
+  assert.match(
+    String(outcomes[0]?.attempt && (outcomes[0].attempt as Record<string, unknown>).reason),
+    /review-.*was not registered/u,
+  );
+  assert.match(outcomeBodies[0]!, /review-.*was not registered/u);
+});
+
+test("a decision reviewer without a registered review settles failed with a specific reason", async (context) => {
+  const fixture = workerGitFixture(context, "settle-decision-review-unregistered", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "decision review report written",
+      role: "reviewer",
+      task: null,
+      decisionReviewTarget: { decisionId: "dec_0123456789abcdef01234567", digest: "sha256:reviewed-cut" },
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    outcomeBodies: string[] = [],
+    projection = {
+      readDecision: () => ({ decision: { reviews: [] } }),
+    },
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body ?? ""));
+      }
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      input: { ...settleContext.input, projection },
+      requiredRuntimeProjection: () => projection,
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "failed");
+  assert.equal(outcomes[0]?.reasonCode, "review_result_missing");
+  assert.match(
+    String(outcomes[0]?.attempt && (outcomes[0].attempt as Record<string, unknown>).reason),
+    /review-.*was not registered/u,
+  );
+  assert.match(outcomeBodies[0]!, /review-.*was not registered/u);
 });
 
 test("an edge reviewer without a local projection settles stopped", async (context) => {
