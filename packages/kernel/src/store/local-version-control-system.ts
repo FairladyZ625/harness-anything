@@ -30,6 +30,7 @@ import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayout
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { VcsCommandError } from "../ports/version-control-system.ts";
+import { cmdShellInvocation } from "./cmd-command-line.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024,
@@ -287,11 +288,7 @@ function gitInvocation(
   args: readonly string[],
 ): { readonly command: string; readonly args: readonly string[] } {
   if (process.platform !== "win32") return { command: "git", args: ["-C", repoRoot, ...args] };
-  const command = ["git", "-C", repoRoot, ...args].map(quoteWindowsCommandArgument).join(" ");
-  return { command: process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe", args: ["/d", "/s", "/c", command] };
-}
-function quoteWindowsCommandArgument(value: string): string {
-  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+  return cmdShellInvocation("git", ["-C", repoRoot, ...args], process.env);
 }
 function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8Array | number): Buffer {
   localGitProcesses += 1;

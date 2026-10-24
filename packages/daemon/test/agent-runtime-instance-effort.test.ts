@@ -192,8 +192,6 @@ test("stored effort reaches launch flags for agy and config.toml for codex when 
       prompt: "Stored",
     });
     assert.deepEqual(stored.args, [
-      "-p",
-      "Stored",
       "--output-format",
       "stream-json",
       "--print-timeout",

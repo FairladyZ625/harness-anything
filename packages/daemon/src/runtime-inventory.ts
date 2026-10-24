@@ -401,12 +401,14 @@ export const runtimeKinds = [
     isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
     permissions: { available: false, defaultMode: "bypass" },
     launch: {
-      input: "argument",
+      // Print mode reads the prompt from a piped stdin (measured 2026-10-24: without -p and
+      // with stdin piped, agy logs `Print mode: starting (promptLength=<stdin length>)`), so the
+      // prompt never joins a command line — on Windows a .cmd shim launch would otherwise pass
+      // it through cmd.exe parsing, where no quoting can carry % or CR/LF verbatim.
+      input: "stdin",
       streamFormat: "stream-json",
       resumeFlag: "--conversation",
       argumentTemplate: [
-        "-p",
-        "$prompt",
         "--output-format",
         "stream-json",
         "--print-timeout",

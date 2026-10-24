@@ -26,6 +26,7 @@ export type {
 } from "../store/task-event-store-factory.ts";
 export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-lease.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
+export { cmdShellInvocation } from "../store/cmd-command-line.ts";
 export { eventShapeMigrations } from "../store/event-shape-migration.ts";
 export { applyAttachMigrations } from "../store/attach-migrations.ts";
 export {

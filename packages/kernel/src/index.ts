@@ -275,6 +275,7 @@ export {
 export {
   canonicalEventCut,
   canonicalEventWritePlan,
+  cmdShellInvocation,
   createLedgerBackup,
   drillLedgerBackup,
   restoreLedgerBackup,

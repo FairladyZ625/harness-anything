@@ -754,8 +754,6 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       runtimeDiscover: () => [installation],
       runtimeLaunch: (prepared) => {
         assert.deepEqual(prepared.args, [
-          "-p",
-          unknown ? "Unknown event" : "Structured result",
           "--output-format",
           "stream-json",
           "--print-timeout",
