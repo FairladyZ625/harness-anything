@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 import {
@@ -146,7 +146,19 @@ function withWorktreeCandidates(input: Input): Input {
     input.store.currentCut(),
     input.projection,
   );
-  return inventory === undefined ? input : { ...input, authoredCandidateInventory: inventory };
+  if (inventory === undefined) return input;
+  // The newer authored copy wins: a stale worktree mirror must not shadow a canonical edit, and the
+  // worker's atomic replacement must still publish over an untouched canonical scaffold.
+  const layout = resolveHarnessLayout(input.rootDir),
+    authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
+    rows = inventory.rows.filter((row) => {
+      const target = path.join(layout.authoredRoot, ...row.path.split("/")),
+        mirrored = path.join(taskRoot, authoredRelative, ...row.path.split("/"));
+      if (!existsSync(target)) return true;
+      if (!existsSync(mirrored)) return false;
+      return statSync(mirrored).mtimeMs > statSync(target).mtimeMs;
+    });
+  return rows.length === 0 ? input : { ...input, authoredCandidateInventory: { ...inventory, rows } };
 }
 
 function singleSelectedTask(input: Input): string | null {
