@@ -128,6 +128,7 @@ export async function fixture(
   options: {
     readonly autoSubmit?: boolean;
     readonly submitCommit?: boolean;
+    readonly guiDelivery?: boolean;
     readonly providerRoundBackoffBaseSeconds?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
@@ -254,7 +255,10 @@ export async function fixture(
           onErrorOutput: () => undefined,
           terminate: () => undefined,
           onExit: (listener) => {
-            pending.exit = listener;
+            pending.exit = (code) => {
+              pending.exit = undefined;
+              listener(code);
+            };
             if (remainingProviderFailures > 0) {
               remainingProviderFailures -= 1;
               setImmediate(() => {
@@ -297,6 +301,15 @@ export async function fixture(
   const packagePath = String((created as Record<string, unknown>).packagePath);
   await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
   assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
+  if (options.guiDelivery) {
+    await cell.settlePendingMaterialization("GUI fixture delivery");
+    const checkout = boundWorktree(root),
+      guiPath = "packages/gui/src/App.tsx";
+    mkdirSync(path.dirname(path.join(checkout, guiPath)), { recursive: true });
+    writeFileSync(path.join(checkout, guiPath), "export const App = () => null;\n");
+    git(checkout, "add", guiPath);
+    git(checkout, "commit", "-qm", "feat: fixture GUI delivery");
+  }
   assert.equal(
     (
       await run({
@@ -670,6 +683,7 @@ export async function fixture(
       return awaitOutcome(runtimeSessionId);
     },
     close: async () => {
+      for (const pending of pendingProviders) pending.exit?.(1);
       await cell.close();
       await eventsReader?.drain();
       rmSync(root, { recursive: true, force: true });

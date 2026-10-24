@@ -71,7 +71,11 @@ export interface RuntimeProviderDeclaration {
   readonly launch: {
     readonly input: "argument" | "stdin";
     readonly streamFormat: "stream-json" | "jsonl";
-    readonly resumeFlag: string;
+    /** What the `$resume`/`$resume-command` template tokens expand to on an argv-resume kind
+     * (e.g. `exec resume`, `--resume`). Absent when the protocol itself carries resume: every
+     * acp kind resumes through the shared client, which negotiates session/load vs
+     * session/resume from the initialize response (runtime-worker-acp.ts). */
+    readonly resumeFlag?: string;
     readonly argumentTemplate: readonly string[];
     readonly permissionArgs: Readonly<Record<"bypass" | "workspace-write" | "read-only", readonly string[]>>;
     readonly resumePermissionArgs?: Readonly<Record<"bypass" | "workspace-write" | "read-only", readonly string[]>>;

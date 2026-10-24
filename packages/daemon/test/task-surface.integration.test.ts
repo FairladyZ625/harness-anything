@@ -202,6 +202,7 @@ test("task create publishes complete metadata and first-class relations survive 
       parentTaskId: "task_dependency",
       workKind: "feat",
       riskTier: "high",
+      riskTierFlowVersion: 1,
       urgency: "medium",
       verticalId: "software/coding",
       presetId: "standard-task",
@@ -211,6 +212,9 @@ test("task create publishes complete metadata and first-class relations survive 
       surfaces: ["ha task create", "packages/kernel"],
       fromLegacyId: null,
     });
+    const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", { taskId: "task_surface" }, binding);
+    assert.equal(runtimeContext.schema, "task-runtime-context-read/v3");
+    assert.equal(runtimeContext.riskTierFlowVersion, 1);
     assert.equal("relations" in event.payload.task, false);
     const related = await cell.run(
       {
@@ -449,7 +453,6 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
             taskId: "task_lifecycle",
             patches: [
               { field: "title", value: "Lifecycle amended" },
-              { field: "riskTier", value: "high" },
               { field: "taskClass", value: "work" },
             ],
           },
@@ -458,6 +461,11 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
+    const riskTierAmend = await cell.run(
+      { kind: "task-amend", taskId: "task_lifecycle", patches: [{ field: "riskTier", value: "high" }] },
+      binding,
+    );
+    assert.equal(riskTierAmend.outcome, "op_rejected", JSON.stringify(riskTierAmend));
     // dec_5F7E74F1: the retired module grouping and milestone class are no longer amendable.
     for (const patch of [
       { field: "taskClass", value: "container" },
@@ -610,7 +618,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
         .rows.find((row) => row.sourceRef === "task/task_lifecycle" && row.targetRef === "task/task_replacement");
     replay.close();
     assert.equal(lifecycle?.title, "Lifecycle amended");
-    assert.equal(lifecycle?.metadata.riskTier, "high");
+    assert.equal(lifecycle?.metadata.riskTier, "medium");
     assert.equal(lifecycle?.metadata.moduleKey, null);
     assert.equal(lifecycle?.packageDisposition, "archived");
     assert.equal(replacement?.packageDisposition, "active");
@@ -877,8 +885,9 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
       ).outcome,
       "applied",
     );
-    const hot = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task_status_replay")?.snapshot;
-    assert.ok(hot);
+    const taskList = await cell.read("repo.tasks.list"),
+      hot = taskList.rows.find((row) => row.taskId === "task_status_replay")?.snapshot;
+    assert.ok(hot, JSON.stringify(taskList));
     await cell.close();
     cell = undefined;
     const store = makeTaskEventReader({ repoId: "task-status-replay", rootDir }),
@@ -1205,7 +1214,7 @@ test("task amend refuses to retitle a plan with unsynced local edits, then retit
       { kind: "task-amend", taskId: "task_amendprose", patches: [{ field: "riskTier", value: "high" }] },
       binding,
     );
-    assert.equal(metadataAmend.outcome, "applied", JSON.stringify(metadataAmend));
+    assert.equal(metadataAmend.outcome, "op_rejected", JSON.stringify(metadataAmend));
     assert.equal(readFileSync(authoredPlan, "utf8"), unsyncedBody);
     // Negative control: once the rewrite is synced, the same title amend applies and retitles only the H1.
     const synced = await cell.run({ kind: "doc-submit", paths: [`${packagePath}/task_plan.md`] }, binding);

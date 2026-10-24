@@ -3,6 +3,7 @@ import {
   sessionProvenance,
   taskBootstrapWritePlan,
   type WriteReceiptDraft as WriteReceipt,
+  type TaskMetadataV1,
 } from "@harness-anything/kernel";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "@harness-anything/preset";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
@@ -159,6 +160,14 @@ export function prepareTaskCreateAt(
   if (existing) {
     return cell.receiptForOperation(opId, binding);
   }
+  if (
+    canonicalAction.profileId === "lightweight" &&
+    !["migration", "import"].includes(String(canonicalAction.createMode ?? ""))
+  )
+    throw cell.cellCodedError(
+      "invalid_field",
+      "The lightweight profile is selected automatically for low-risk tasks when the preset provides it; choose --risk-tier low instead.",
+    );
   const idempotent =
     !dryRun && typeof canonicalAction.idempotencyKey === "string"
       ? cell.projection.readTaskByIdempotencyKey(canonicalAction.idempotencyKey)
@@ -202,16 +211,18 @@ export function prepareTaskCreateAt(
   // The operation id stays keyed on the caller's literal action rather than the derived fields.
   const createInput =
     parentMetadata === undefined
-      ? canonicalAction
+      ? { ...canonicalAction, riskTier: canonicalAction.riskTier ?? "medium" }
       : {
           ...canonicalAction,
           verticalId: canonicalAction.verticalId ?? parentMetadata.verticalId,
           locale: canonicalAction.locale ?? parentLocale,
+          riskTier: canonicalAction.riskTier ?? "medium",
         };
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,
-    occurredAt = cell.now();
+    occurredAt = cell.now(),
+    riskTierFlowVersion = ["migration", "import"].includes(String(canonicalAction.createMode ?? "")) ? null : 1;
   let baseCompiled: ReturnType<typeof compileRepoTaskBootstrap>;
   try {
     baseCompiled = compileRepoTaskBootstrap({
@@ -225,7 +236,52 @@ export function prepareTaskCreateAt(
       eventId,
       opId,
       occurredAt,
+      riskTierFlowVersion,
     });
+    if (
+      canonicalAction.riskTier === "low" &&
+      canonicalAction.profileId === undefined &&
+      baseCompiled.lightweightPresetIds.includes(baseCompiled.snapshot.identity.id) &&
+      baseCompiled.snapshot.profile.id !== "lightweight"
+    )
+      baseCompiled = compileRepoTaskBootstrap({
+        rootDir: cell.rootDir,
+        settings: cell.settings.read(),
+        action: { ...createInput, profileId: "lightweight" },
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        workspaceRevision,
+        eventId,
+        opId,
+        occurredAt,
+        riskTierFlowVersion,
+      });
+    else if (
+      canonicalAction.riskTier !== "low" &&
+      canonicalAction.profileId === undefined &&
+      baseCompiled.snapshot.profile.id === "lightweight"
+    ) {
+      const profileId = baseCompiled.defaultNonLightweightProfileId;
+      if (profileId === null)
+        throw cell.cellCodedError(
+          "invalid_field",
+          `Preset ${baseCompiled.snapshot.identity.id} declares only the lightweight profile; medium and high tasks require a non-lightweight default profile.`,
+        );
+      baseCompiled = compileRepoTaskBootstrap({
+        rootDir: cell.rootDir,
+        settings: cell.settings.read(),
+        action: { ...createInput, profileId },
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        workspaceRevision,
+        eventId,
+        opId,
+        occurredAt,
+        riskTierFlowVersion,
+      });
+    }
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "plan_placeholder") {
       const source = typeof action.planFile === "string" ? action.planFile : "the supplied plan body";
@@ -247,6 +303,12 @@ export function prepareTaskCreateAt(
         ...baseCompiled.event.payload,
         task: {
           ...baseCompiled.event.payload.task,
+          metadata: {
+            ...(baseCompiled.event.payload.task.metadata as TaskMetadataV1),
+            ...(!["migration", "import"].includes(String(canonicalAction.createMode ?? ""))
+              ? { riskTierFlowVersion: 1 as const }
+              : {}),
+          },
           provenance: [sessionProvenance(resolveWriteSessionIdentity(binding, cell.projection), occurredAt)],
         },
       },
@@ -298,7 +360,7 @@ export function prepareTaskCreateAt(
       summary: `would create task ${taskId} at ${workspaceRelativePath(
         roots,
         compiled.packagePath,
-      )}${workReceiptLine(cell.projection, compiled.event.payload.task)}${shortPathSummary(compiled)}`,
+      )}${workReceiptLine(cell.projection, compiled.event.payload.task)}`,
     };
     return preview;
   }
@@ -340,28 +402,13 @@ export function preparedTaskCreateReceipt(
       ? `created task ${fields.taskId} at ${workspaceRelativePath(
           roots,
           compiled.packagePath,
-        )}${workReceiptLine(cell.projection, compiled.event.payload.task)}${shortPathSummary(compiled)}`
+        )}${workReceiptLine(cell.projection, compiled.event.payload.task)}`
       : `task ${fields.taskId} is awaiting exact canonical settlement${workReceiptLine(
           cell.projection,
           compiled.event.payload.task,
         )}`,
   };
   return receipt;
-}
-
-/** A low-risk task created on a full-ceremony profile hears about the lightweight short path; the profile is
- * frozen at creation, so the line is advice for this create's rerun or the next small change. */
-function shortPathSummary(compiled: PreparedTaskCreate["compiled"]): string {
-  const { metadata, snapshot, lightweightPresetIds } = compiled;
-  if (metadata.riskTier !== "low" || snapshot.profile.id === "lightweight" || !lightweightPresetIds.length) return "";
-  const where = lightweightPresetIds.includes(snapshot.identity.id)
-    ? "this preset"
-    : `--preset ${lightweightPresetIds.join(" | ")} (not ${snapshot.identity.id})`;
-  return (
-    `\nshort path: a low-risk small change can take --profile lightweight on ${where} — short plan and ` +
-    "closeout, no review or consent at closeout; a code change still lands through the PR's CI. " +
-    "The profile is fixed at creation."
-  );
 }
 
 export function upgradePresetSnapshot(

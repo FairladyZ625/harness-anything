@@ -150,6 +150,7 @@ export function compileRepoTaskBootstrap(input: {
   readonly opId: string;
   readonly occurredAt: string;
   readonly settings: SettingsV1;
+  readonly riskTierFlowVersion?: 1 | null;
 }): CompiledTaskBootstrap {
   const defaults = presetRuntimeDefaults(input.settings),
     taskClass = optionalTaskClass(input.action.taskClass),
@@ -163,6 +164,7 @@ export function compileRepoTaskBootstrap(input: {
     presetId: optionalActionText(input.action.presetId) ?? defaults.presetId,
     verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId,
     ...(profileId ? { profileId } : {}),
+    ...(input.riskTierFlowVersion === undefined ? {} : { riskTierFlowVersion: input.riskTierFlowVersion }),
     locale: optionalActionText(input.action.locale) ?? defaults.locale,
     actor: input.actor,
     source: input.source,
@@ -177,6 +179,7 @@ export function compileRepoTaskPackage(input: {
   readonly action: Action;
   readonly taskId: string;
   readonly settings: SettingsV1;
+  readonly riskTierFlowVersion?: 1 | null;
 }): CompiledTaskPackage {
   const defaults = presetRuntimeDefaults(input.settings),
     taskClass = optionalTaskClass(input.action.taskClass),
@@ -190,6 +193,7 @@ export function compileRepoTaskPackage(input: {
     presetId: optionalActionText(input.action.presetId) ?? defaults.presetId,
     verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId,
     ...(profileId ? { profileId } : {}),
+    ...(input.riskTierFlowVersion === undefined ? {} : { riskTierFlowVersion: input.riskTierFlowVersion }),
     locale: optionalActionText(input.action.locale) ?? defaults.locale,
   });
 }

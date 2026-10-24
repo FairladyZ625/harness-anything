@@ -53,23 +53,41 @@ export function reviewLaneHits(
   submission: SubmissionV1 | null,
   lanes: readonly ReviewPathLane[],
 ): ReadonlyMap<string, readonly string[]> {
-  const hits = new Map<string, string[]>();
-  if (!submission || lanes.length === 0) return hits;
+  if (!submission || lanes.length === 0) return new Map();
   const facts = readSubmissionFacts(submission),
-    manifest = facts.changedFiles,
-    incompleteLegacy = facts.kind === "legacy" && facts.pathEvidence !== "complete";
+    incompleteLegacy = facts.kind === "legacy" && facts.pathEvidence !== "complete",
+    hits = new Map<string, string[]>();
   for (const lane of lanes) {
     const matched = [
-      ...new Set(
-        manifest.filter(
-          (target) => lane.files.includes(target) || lane.prefixes.some((prefix) => target.startsWith(prefix)),
-        ),
-      ),
+      ...laneMatches(facts.changedFiles, lane),
       ...(incompleteLegacy ? [LEGACY_PATH_EVIDENCE_UNAVAILABLE] : []),
     ].sort();
     if (matched.length > 0) hits.set(lane.agentId, matched);
   }
   return hits;
+}
+
+/** The configured lanes a plain path list hits; the risk-tier assessor reuses this on its own diff. */
+export function reviewLanePaths(
+  paths: readonly string[],
+  lanes: readonly ReviewPathLane[],
+): ReadonlyMap<string, readonly string[]> {
+  const hits = new Map<string, readonly string[]>();
+  for (const lane of lanes) {
+    const matched = laneMatches(paths, lane);
+    if (matched.length > 0) hits.set(lane.agentId, matched);
+  }
+  return hits;
+}
+
+function laneMatches(paths: readonly string[], lane: ReviewPathLane): readonly string[] {
+  return [
+    ...new Set(
+      paths.filter(
+        (target) => lane.files.includes(target) || lane.prefixes.some((prefix) => target.startsWith(prefix)),
+      ),
+    ),
+  ].sort();
 }
 
 /** A lane's own claim fence: the cut-review key grammar with the lane's agent as the segment. */

@@ -1,0 +1,10 @@
+{
+  "schema": "task-risk-manifest/v1",
+  "scripts": [
+    {
+      "id": "repository-risk-floor",
+      "command": ["node", "tools/task-risk-floor.mjs"]
+    }
+  ],
+  "lowGuiAcceptance": true
+}

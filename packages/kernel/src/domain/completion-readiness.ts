@@ -262,7 +262,7 @@ function evaluateCompletion(
       "not_in_review",
       "lifecycle",
       `ha task adjudicate ${task.taskId} --forward --reviewer <agent> --note-file <path>`,
-      "This review-required cut is still submitted; completion requires independent review " +
+      "This historical cut has not entered review; completion requires independent review " +
         "and the owner's verdict.",
     );
   // A lightweight cut (review gate lifted) completes straight off submitted; every other

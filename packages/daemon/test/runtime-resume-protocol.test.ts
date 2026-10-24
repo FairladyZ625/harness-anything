@@ -57,7 +57,7 @@ test("Codex and ACP runtime declarations admit resuming their provider session t
     );
 });
 
-test("resume admission rejects runtimes that declare provider-session resume unsupported", () => {
+test("resume admission accepts deepseek-harness now that resume is a family-level acp declaration", () => {
   assert.deepEqual(
     runtimeResumeAdmission({
       dispatchId: "dispatch_0123456789abcdef01234567",
@@ -66,7 +66,7 @@ test("resume admission rejects runtimes that declare provider-session resume uns
       providerSessionId: "provider-session",
       resumedDispatches: new Map(),
     }),
-    { resumable: false, reason: "runtime_kind_unsupported", kindId: "deepseek-harness" },
+    { resumable: true, dispatchId: "dispatch_0123456789abcdef01234567", agentId: null },
   );
 });
 

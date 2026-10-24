@@ -86,6 +86,7 @@ test("submit enters independent review automatically and completion still requir
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
     autoForward: false,
+    create: { riskTier: "high" },
   });
   try {
     await f.install();
@@ -120,11 +121,87 @@ test("submit enters independent review automatically and completion still requir
   }
 });
 
+test("a low declaration raised to high freezes the assessed tier, consent, and configured GUI acceptance", async () => {
+  const f = await fixture(false, true, true, false, false, undefined, {
+    autoSubmit: false,
+    guiDelivery: true,
+    submitCommit: true,
+    create: { riskTier: "low" },
+  });
+  try {
+    await f.install();
+    const tools = path.join(f.root, "tools");
+    mkdirSync(tools, { recursive: true });
+    writeFileSync(
+      path.join(tools, "task-risk-manifest.json"),
+      JSON.stringify({
+        schema: "task-risk-manifest/v1",
+        lowGuiAcceptance: true,
+        scripts: [
+          {
+            id: "fixture-high-floor",
+            command: [
+              process.execPath,
+              "-e",
+              "process.stdout.write(JSON.stringify({ schema: 'task-risk-tier-result/v1', minimumTier: 'high', reasons: ['fixture high floor'] }));",
+            ],
+          },
+        ],
+      }),
+    );
+
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = f.events().find((candidate) => candidate.type === "execution_submitted");
+    assert.ok(event?.type === "execution_submitted");
+    const submission = event.payload.execution.submission;
+    assert.ok(submission);
+    const assessment = submission.riskTierAssessment;
+    assert.ok(assessment, "the accepted submission freezes its risk assessment");
+    assert.equal(assessment.declaredTier, "low");
+    assert.equal(assessment.effectiveTier, "high");
+    assert.match(assessment.deliveryBaseSha ?? "", /^[0-9a-f]{40}$/u);
+    assert.match(assessment.deliveryHeadSha ?? "", /^[0-9a-f]{40}$/u);
+    assert.deepEqual(assessment.matchedPathReviewers, []);
+    assert.equal(
+      submission.completionContract.closeoutGates.consent,
+      false,
+      "risk-floor escalation changes review only",
+    );
+    assert.equal(assessment.guiAcceptanceRequired, true);
+    assert.ok(submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
+    assert.match(assessment.reasons.join("\n"), /fixture high floor/u);
+    console.info(`SUBMISSION_RISK_TIER_ASSESSMENT ${JSON.stringify(assessment)}`);
+  } finally {
+    await f.close();
+  }
+});
+
+test("medium tier preserves the repository's resolved consent gate", async () => {
+  const f = await fixture(false, true, true, false, false, undefined, {
+    autoSubmit: false,
+    create: { riskTier: "medium" },
+  });
+  try {
+    await f.install();
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = f.events().find((candidate) => candidate.type === "execution_submitted");
+    assert.ok(event?.type === "execution_submitted");
+    const submission = event.payload.execution.submission;
+    assert.ok(submission);
+    assert.equal(submission.riskTierAssessment?.effectiveTier, "medium");
+    assert.equal(submission.completionContract.closeoutGates.consent, true);
+  } finally {
+    await f.close();
+  }
+});
+
 test("a lightweight task's forward order upgrades the cut into the review corridor instead of deadlocking", async () => {
   const f = await fixture(false, true, false, false, false, undefined, {
     autoSubmit: false,
     autoForward: false,
-    create: { profileId: "lightweight" },
+    create: { riskTier: "low" },
   });
   try {
     await f.install();
@@ -196,7 +273,7 @@ test("changes requested remains in review until the owner returns the cut with i
     })) as Receipt;
     assert.equal(mistaken.outcome, "op_rejected", JSON.stringify(mistaken));
     assert.equal(mistaken.code, "invalid_transition", JSON.stringify(mistaken));
-    assert.match(String(mistaken.rejectionExplanation), /--forward requires an explicit --reviewer/u);
+    assert.match(String(mistaken.rejectionExplanation), /already in review after submit/u);
     assert.deepEqual(mistaken.nextActions, [
       'ha task adjudicate task-completion-review --forward --reviewer <agent> --note "<why>"',
       'ha task adjudicate task-completion-review --return --review-id review-changes-requested --note "<the owner\'s rework instruction>"',
@@ -345,7 +422,7 @@ test.skip("sibling complete refuses unfinished sources and missing facts, then c
 test("a done lightweight source without independent review cannot resolve a sibling", async () => {
   const f = await fixture(false, true, true, false, false, undefined, {
     autoForward: false,
-    create: { profileId: "lightweight" },
+    create: { riskTier: "low" },
   });
   try {
     await f.createPlannedTask("task-unreviewed-target");

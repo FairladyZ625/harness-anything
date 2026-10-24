@@ -252,7 +252,7 @@ test(
   "a node acting for its owner cannot consent, and the same person signed in at the center can",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await fleetFixture(t, undefined, "strict");
+    const fixture = await fleetFixture(t, undefined, "strict", true, "high");
     t.after(() => fixture.close());
     const { nodeId, repoId, taskId, executionId } = fixture.subject,
       reviewId = "review-fleet",

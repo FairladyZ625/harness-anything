@@ -339,11 +339,27 @@ test("the DeepSeek Harness launch contract keeps subscription shared and enables
     wireApi: ["openai-completions", "openai-responses", "anthropic-messages"],
   });
   assert.equal(kind.auth.acpAuthMethod, undefined);
-  assert.deepEqual(kind.declaredCapabilities, ["structured_witness", "attach", "session_identity"]);
-  assert.equal(kind.capabilities.resume, "unsupported");
+  assert.deepEqual(kind.declaredCapabilities, ["structured_witness", "resume", "attach", "session_identity"]);
+  assert.equal(kind.capabilities.resume, "supported");
   // Negative control: no other kind declares an environment-borne permission mapping.
   assert.deepEqual(
     runtimeKinds.filter((entry) => entry.launch.permissionEnvironment !== undefined).map((entry) => entry.kindId),
     ["deepseek-harness"],
   );
+});
+
+// Resume on an acp kind is a protocol negotiation (session/load vs session/resume from the
+// initialize response, runtime-worker-acp.ts), so the catalog carries one family-level
+// declaration and no per-kind launch flag: a hand-written resumeFlag would claim knowledge
+// the negotiation owns. argv-resume kinds keep theirs.
+test("every acp kind resumes through protocol negotiation with one family declaration", () => {
+  const acpKinds = runtimeKinds.filter((entry) => entry.protocolFamily === "acp");
+  assert.ok(acpKinds.length > 0);
+  for (const kind of acpKinds) {
+    assert.equal(kind.launch.resumeFlag, undefined, `${kind.kindId} must not carry a launch resumeFlag`);
+    assert.equal(kind.capabilities.resume, "supported", `${kind.kindId} shares the family resume declaration`);
+    assert.deepEqual(kind.declaredCapabilities, ["structured_witness", "resume", "attach", "session_identity"]);
+  }
+  const flagKinds = runtimeKinds.filter((entry) => entry.launch.resumeFlag !== undefined).map((entry) => entry.kindId);
+  assert.deepEqual(flagKinds, ["claude", "codex", "agy", "zcode"]);
 });
