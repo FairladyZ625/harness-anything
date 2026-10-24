@@ -397,11 +397,78 @@ test("consent refuses an approved review while another review dispatch on the cu
       "a refused consent records nothing",
     );
 
-    // Cancelling the outstanding dispatch reaches its own verdict, so the refusal lifts.
-    f.cancel(dispatch.payload.runtimeSessionId);
+    // Cancelling the outstanding dispatch reaches its own verdict, so the refusal lifts. The receipt is
+    // the completion signal: `cancelRuntime` awaits `publishExit`, which publishes the canonical
+    // outcome before `controlReceipt` builds the response (runtime-spawn-control.ts:51 →
+    // runtime-spawn-settlement.ts:437-450). Reading the ledger without awaiting it reads a window, not
+    // a verdict.
+    await f.cancel(dispatch.payload.runtimeSessionId);
     await f.awaitOutcome(dispatch.payload.runtimeSessionId);
     const consented = await consentOf();
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+  } finally {
+    await f.close();
+  }
+});
+
+/**
+ * The canonical terminal events recorded for one session, in ledger order. `runtime_session_cancelled`
+ * already reduces liveness to `exited` (agent-runtime.ts:907-916), so the `runtime_session_exited` that
+ * `publishTerminalOutcome` still attempts afterwards compiles to `no_changes` and writes nothing. The
+ * cancel path's canonical sequence is therefore `cancelled → outcome_observed`.
+ */
+function terminalEventsFor(
+  f: Awaited<ReturnType<typeof fixture>>,
+  runtimeSessionId: string,
+): { readonly type: string; readonly revision: number }[] {
+  return f
+    .events()
+    .filter(
+      (event) =>
+        (event.type === "runtime_session_cancelled" ||
+          event.type === "runtime_session_exited" ||
+          event.type === "runtime_session_outcome_observed") &&
+        event.payload.runtimeSessionId === runtimeSessionId,
+    )
+    .map((event) => ({ type: event.type, revision: event.workspaceRevision }));
+}
+
+// 2026-10-24 (task_89267edc): `cancelRuntime` awaits `publishExit`, which reaches its single
+// settlement entry and publishes the canonical outcome before `controlReceipt` builds the response
+// (runtime-spawn-control.ts:51 → runtime-spawn-settlement.ts:444/:450). So the receipt is already a
+// completion signal: when it resolves, the canonical outcome must be readable — no polling, no
+// `awaitOutcome`, no grace. The flake was this test dropping that receipt and then reading the ledger
+// at whatever point `awaitOutcome` happened to return, which is a different, earlier signal.
+test("a cancel receipt is returned only after the canonical outcome is readable", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    closeoutProfile: "standard",
+    autoForward: false,
+  });
+  try {
+    await f.install();
+    assert.equal((await f.forward()).outcome, "applied");
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const runtimeSessionId = dispatch.payload.runtimeSessionId;
+
+    const recorded = (await f.cancel(runtimeSessionId), terminalEventsFor(f, runtimeSessionId));
+    // The receipt alone must already imply the outcome: `cancelled` first, outcome last, nothing pending.
+    assert.deepEqual(
+      recorded.map(({ type }) => type),
+      ["runtime_session_cancelled", "runtime_session_outcome_observed"],
+      `runtime session ${runtimeSessionId} has no settled canonical outcome after its cancel receipt returned`,
+    );
+    const outcome = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.ok(outcome?.type === "runtime_session_outcome_observed");
+    assert.equal(outcome.payload.outcome, "cancelled");
+    // Causality, not co-occurrence: the outcome's commit is the last revision the settlement produced,
+    // so no terminal append can still be in flight behind the receipt.
+    assert.equal(outcome.workspaceRevision, Math.max(...recorded.map(({ revision }) => revision)));
   } finally {
     await f.close();
   }

@@ -98,7 +98,10 @@ export function executeRepoAction(
     });
   if (action.kind === "assignment-migrate") return runAssignmentMigrationAction(cell, action, binding);
   if (action.kind === "projection-rebuild") {
-    cell.settings.initializeFromAuthoredDocument(binding);
+    // A rebuild re-derives the projection from the events that already exist; it never creates one.
+    // Minting here would let any actor holding this action's `repo-write`/`contributor` policy write
+    // repository Settings around the principal-only gate that guards `settings-update`, and the
+    // receipt would not disclose it. Settings are minted only by `settings-update`.
     const rebuilt = cell.projection.rebuild(),
       sourceRevision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, sourceRevision),

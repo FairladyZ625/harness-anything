@@ -40,6 +40,11 @@ await vi.hoisted(async () => {
     if (!native.has(name))
       Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: window[name as never] });
   Object.assign(globalThis, { window, IS_REACT_ACT_ENVIRONMENT: true });
+  // happy-dom 21 自带 WAAPI(Element.prototype.animate);motion-dom 一旦看到它就把
+  // opacity/transform 交给 WAAPI,而这个环境没有时钟推进,动画不结束、中途 cancel 还会把
+  // 原生 finished promise 以 AbortError 驳成未处理 rejection。与 test/vitest.setup.ts 的
+  // 全局补丁同一机制;本文件在 node 环境自建 realm,setup 的 Element 检查够不到,须就地摘除。
+  delete (window.Element.prototype as { animate?: unknown }).animate;
 });
 
 let container: HTMLDivElement, root: Root;
