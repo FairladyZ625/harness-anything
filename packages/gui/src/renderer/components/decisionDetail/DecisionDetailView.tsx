@@ -47,6 +47,13 @@ const reviewTabIds: ReadonlySet<string> = new Set<DecisionReviewTab>(["review", 
 
 type DecisionDetailTab = (typeof tabs)[number]["id"];
 
+/**
+ * 不带页签参数打开时的落点(业主 2026-10-24):先答「这条决策在决定什么、选了什么、否了
+ * 什么、走到哪」——概况一屏给全,正文是它的展开而非入口。这是默认页签的唯一决定点:
+ * 首次挂载与切到另一条决策都读它,路由只带评审页签参数。
+ */
+const DEFAULT_TAB: DecisionDetailTab = "overview";
+
 export function DecisionDetailView({
   repoId,
   decisionId,
@@ -96,9 +103,10 @@ export function DecisionDetailView({
 }) {
   const routeTab = reviewLocation?.tab ?? null,
     routeReviewId = reviewLocation?.reviewId ?? null;
-  const [activeTab, setActiveTab] = useState<DecisionDetailTab>(routeTab ?? "body");
+  const [activeTab, setActiveTab] = useState<DecisionDetailTab>(routeTab ?? DEFAULT_TAB);
   useEffect(() => {
-    setActiveTab("body");
+    // 换一条决策回默认页签;评审深链由下一个 effect 再选中。
+    setActiveTab(DEFAULT_TAB);
   }, [decisionId]);
   useEffect(() => {
     // 退出评审路由时保留 selectTab 的本地落点;新决策先重置,评审深链再选中。
@@ -307,7 +315,7 @@ export function DecisionDetailView({
           data-testid={`decision-panel-${activeTab}`}
         >
           {activeTab === "overview" ? (
-            <OverviewPanel decision={decision} />
+            <OverviewPanel decision={decision} onNavigateEntity={onNavigateEntity} />
           ) : (
             <div className="mx-auto h-full w-full max-w-[72rem]">
               {activeTab === "body" ? (

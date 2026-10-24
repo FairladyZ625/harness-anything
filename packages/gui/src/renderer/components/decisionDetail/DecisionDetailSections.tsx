@@ -26,7 +26,13 @@ const STATE_TONE: Record<DecisionState, StatusTone> = {
 /** 问题、选项与理由都是整句:在条目里折行显示全文,不按 DenseRow 的单行省略号截断。 */
 const wrapped = (text: string) => <span className="whitespace-normal">{text}</span>;
 
-export function OverviewPanel({ decision }: { decision: DecisionRow }) {
+export function OverviewPanel({
+  decision,
+  onNavigateEntity,
+}: {
+  decision: DecisionRow;
+  onNavigateEntity: (ref: string) => void;
+}) {
   const timeline = decisionTimeline(decision);
   return (
     // 区域板(标准 §2.1,与工作概况、任务详情概况同一个 RegionBoard):主区依次是问题、已选、
@@ -85,7 +91,7 @@ export function OverviewPanel({ decision }: { decision: DecisionRow }) {
       {timeline.length > 0 && (
         <BoardSide region="timeline" data-testid="decision-overview-timeline">
           <Region title={t("views.decisionDetailView.timeline")} big={timeline.length} padded>
-            <DecisionTimelineDigest entries={timeline} />
+            <DecisionTimelineDigest entries={timeline} onNavigateEntity={onNavigateEntity} />
           </Region>
         </BoardSide>
       )}
@@ -95,9 +101,23 @@ export function OverviewPanel({ decision }: { decision: DecisionRow }) {
 
 interface TimelineEntry {
   readonly at: string;
-  /** 谁:可读名字(人名或 agent 会话名),完整身份串放悬停(视觉基线 v2)。 */
-  readonly actor: { readonly name: string; readonly full: string } | null;
+  /**
+   * 谁:可读名字(人名或 agent 会话名),完整身份串放悬停(视觉基线 v2)。
+   * agent 是可寻址实体:ref 给了就必须走 EntityRefLink,不能只显示成死文本(G10)。
+   */
+  readonly actor: { readonly name: string; readonly full: string; readonly ref: string | null } | null;
   readonly step: DayPathStep;
+}
+
+/** 身份 → 时间线行主文字;载体种类决定它有没有详情页(agent 有,human/system 没有)。 */
+function timelineActor(actor: string | { readonly kind: string; readonly id: string } | null): TimelineEntry["actor"] {
+  if (!actor) return null;
+  const display = actorDisplayName(actor);
+  const agentPrefix = "agent:";
+  return {
+    ...display,
+    ref: display.full.startsWith(agentPrefix) ? `agent/${display.full.slice(agentPrefix.length)}` : null,
+  };
 }
 
 /**
@@ -111,13 +131,13 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
   if (decision.proposedAt)
     entries.push({
       at: decision.proposedAt,
-      actor: decision.proposedBy ? actorDisplayName(decision.proposedBy) : null,
+      actor: timelineActor(decision.proposedBy ?? null),
       step: { label: t("views.decisionDetailView.timelineProposed"), tone: "plan" },
     });
   for (const review of decision.review?.reviews ?? [])
     entries.push({
       at: review.reviewedAt,
-      actor: actorDisplayName(actorText(review.actor)),
+      actor: timelineActor(actorText(review.actor)),
       step:
         review.verdict === "approved"
           ? { label: t("views.decisionReview.verdictApproved"), tone: "done" }
@@ -126,7 +146,7 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
   for (const response of decision.review?.responses ?? [])
     entries.push({
       at: response.respondedAt,
-      actor: actorDisplayName(actorText(response.actor)),
+      actor: timelineActor(actorText(response.actor)),
       step: {
         label: t(response.disposition === "adopt" ? "views.decisionReview.adopt" : "views.decisionReview.rebut"),
         tone: "active",
@@ -135,13 +155,13 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
   for (const override of decision.review?.overrides ?? [])
     entries.push({
       at: override.overriddenAt,
-      actor: actorDisplayName(actorText(override.actor)),
+      actor: timelineActor(actorText(override.actor)),
       step: { label: t("views.decisionReview.overrideTitle"), tone: "wait" },
     });
   for (const consent of decision.judgmentConsents)
     entries.push({
       at: consent.consentedAt,
-      actor: actorDisplayName(actorText(consent.actor)),
+      actor: timelineActor(actorText(consent.actor)),
       step: { label: decisionStateLabel(consent.targetState), tone: STATE_TONE[consent.targetState] },
     });
   if (decision.decidedAt && !decision.judgmentConsents.some((consent) => consent.consentedAt === decision.decidedAt))
@@ -150,16 +170,20 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
       actor:
         decision.state === "superseded" || decision.state === "outcome_retired"
           ? null
-          : decision.arbiter
-            ? actorDisplayName(decision.arbiter)
-            : null,
+          : timelineActor(decision.arbiter ?? null),
       step: { label: decisionStateLabel(decision.state), tone: STATE_TONE[decision.state] },
     });
   return entries.sort((a, b) => b.at.localeCompare(a.at));
 }
 
 /** 时间线按天收束(§1.4):天摘要 + 每条记录一行(时刻、谁、做了什么)。 */
-function DecisionTimelineDigest({ entries }: { readonly entries: readonly TimelineEntry[] }) {
+function DecisionTimelineDigest({
+  entries,
+  onNavigateEntity,
+}: {
+  readonly entries: readonly TimelineEntry[];
+  readonly onNavigateEntity: (ref: string) => void;
+}) {
   const groups: { day: string; entries: TimelineEntry[] }[] = [];
   for (const entry of entries) {
     const day = dayKeyOf(entry.at) ?? entry.at.slice(0, 10);
@@ -178,7 +202,20 @@ function DecisionTimelineDigest({ entries }: { readonly entries: readonly Timeli
           summary={t("views.decisionDetailView.timelineDay", { count: group.entries.length })}
           paths={group.entries.map((entry) => ({
             time: formatTime(entry.at, { style: "time" }) ?? undefined,
-            name: entry.actor?.name ?? "—",
+            // 行主文字是可读名;agent 身份同时带 canonical 引用,经 G10 唯一出口成路。
+            name:
+              entry.actor === null || entry.actor.ref === null ? (
+                (entry.actor?.name ?? "—")
+              ) : (
+                <EntityRefLink
+                  entityRef={entry.actor.ref}
+                  onNavigate={onNavigateEntity}
+                  title={entry.actor.full}
+                  className="hover:text-accent hover:underline"
+                >
+                  {entry.actor.name}
+                </EntityRefLink>
+              ),
             title: entry.actor?.full,
             steps: [entry.step],
           }))}
