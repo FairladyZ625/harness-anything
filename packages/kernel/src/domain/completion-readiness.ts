@@ -396,16 +396,16 @@ export function reviewReturnCommand(taskId: string, reviewId: string): string {
   return `ha task adjudicate ${taskId} --return --worker-mode <resume|fresh|none> --message <feedback> --review-id ${reviewId} --note-file <path>`;
 }
 
-/** review-consent selects a sole approved candidate itself; several candidates each need their explicit command. */
+/** Consent commands always name the execution and the review: a sole candidate is a suggestion, never an implicit choice. */
 export function reviewConsentCommands(
   taskId: string,
   reviews: readonly ReviewV1[],
   execution: ExecutionV1,
 ): readonly string[] {
-  const candidates = approvedReviewHistoryForExecution(reviews, execution);
-  return candidates.length === 1
-    ? [`ha task review-consent ${taskId}`]
-    : candidates.map((review) => `ha task review-consent ${taskId} --review-id ${review.reviewId}`);
+  return approvedReviewHistoryForExecution(reviews, execution).map(
+    (review) =>
+      `ha task review-consent ${taskId} --execution-id ${execution.executionId} --review-id ${review.reviewId}`,
+  );
 }
 
 function closeoutReason(context: CompletionReadinessContext): string {

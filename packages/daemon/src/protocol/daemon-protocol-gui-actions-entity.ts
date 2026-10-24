@@ -195,12 +195,13 @@ export const taskCompletionGuiActions = Object.freeze([
     "/api/tasks/:taskId/adjudicate",
     "repo-write",
   ),
-  // The owner's verdict accept onto the same `task-review-consent` action as the CLI.
+  // The owner's verdict accept onto the same `task-review-consent` action as the CLI. The
+  // execution is a stated id (the reviewed cut's own execution), never an inferred one.
   guiAction(
     "task.consent",
     "repo.task.consent",
     "task-review-consent",
-    shape({ taskId: "string", executionId: "string?", reviewId: "string" }),
+    shape({ taskId: "string", executionId: "string", reviewId: "string" }),
     "consentReview",
     "/api/tasks/:taskId/consent",
     "repo-write",

@@ -359,14 +359,14 @@ export const taskActionDescriptorProjection = {
           {
             field: "executionId",
             type: "string",
-            required: false,
-            cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
+            required: true,
+            cli: { name: "--execution-id", kind: "single", error: "missing_field" },
           },
           {
             field: "reviewId",
             type: "string",
-            required: false,
-            cli: { name: "--review-id", kind: "single", error: "invalid_field" },
+            required: true,
+            cli: { name: "--review-id", kind: "single", error: "missing_field" },
           },
           {
             field: "dispose",

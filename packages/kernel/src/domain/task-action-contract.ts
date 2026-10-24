@@ -520,8 +520,10 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
-      wire(cli("reviewId", "string", false, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+      // Consent is an owner signature on a named cut and review; stating both ids is what makes
+      // the write explicit, so a probing call without them never reaches the ledger.
+      wire(cli("executionId", "string", true, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+      wire(cli("reviewId", "string", true, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       cli("dispose", "string-array", false, "--dispose", "repeated"),
       cli("rationale", "string", false, "--rationale"),
     ]),
