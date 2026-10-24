@@ -14,6 +14,7 @@ export function parseTaskCreate(
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const title = f.one.get("--title"),
     id = f.one.get("--id"),
+    profile = f.one.get("--profile"),
     modes = ["migration", "import", "admin"].filter((mode) => f.booleans.has(`--${mode}`)),
     structured = [f.one.get("--from-file"), f.one.get("--json-input")].filter(Boolean);
   if (
@@ -26,6 +27,12 @@ export function parseTaskCreate(
       inputs,
       route.id,
       !title && !structured.length ? "--title" : id || modes.length ? "--id" : "--json-input",
+      json,
+    );
+  if (profile === "lightweight")
+    return rejected(
+      "invalid_field",
+      "The lightweight profile is selected automatically by --risk-tier low when the preset provides it; omit --profile lightweight.",
       json,
     );
   const declared = Object.fromEntries(

@@ -13,17 +13,17 @@
 
 场景合同必须声明的顶层形状是固定的。下面每个字段都是这个结构体的必需成员(标注除外):
 
-| 字段 | 声明了什么 |
-|------|------------|
-| `schema` | 字面量 `"vertical-definition/v1"`——一个版本戳 |
-| `id`、`title`、`version` | 场景合同的身份(`"software/coding"` 等) |
-| `entityKinds[]` | 这个领域关心的种类,每个是 `lifecycle` 或 `schema` |
-| `contractEntityKinds[]` | 其中哪些种类是承重的合同实体 |
-| `packageScaffolds[]` | 按实体种类,声明它的文档包具体化出哪些文档 |
-| `repositoryScaffold` | 顶层目录布局、种子文档、agents 入口 |
-| `scripts[]` | 场景合同附带的声明式脚本条目 |
-| `templateSelections[]` | 不属于任何文档包的、场景合同级模板选择 |
-| `projectionSchemas[]` | 投影用来校验行的前置元数据 schema |
+| 字段                     | 声明了什么                                        |
+| ------------------------ | ------------------------------------------------- |
+| `schema`                 | 字面量 `"vertical-definition/v1"`——一个版本戳     |
+| `id`、`title`、`version` | 场景合同的身份(`"software/coding"` 等)            |
+| `entityKinds[]`          | 这个领域关心的种类,每个是 `lifecycle` 或 `schema` |
+| `contractEntityKinds[]`  | 其中哪些种类是承重的合同实体                      |
+| `packageScaffolds[]`     | 按实体种类,声明它的文档包具体化出哪些文档         |
+| `repositoryScaffold`     | 顶层目录布局、种子文档、agents 入口               |
+| `scripts[]`              | 场景合同附带的声明式脚本条目                      |
+| `templateSelections[]`   | 不属于任何文档包的、场景合同级模板选择            |
+| `projectionSchemas[]`    | 投影用来校验行的前置元数据 schema                 |
 
 引擎从不自己编造这些东西;它读的就是 JSON 声明的内容。这一页接下来走一遍承载业务的四个部分:实体种类、模板选择、仓库脚手架,和 agents 入口。
 
@@ -35,10 +35,7 @@ vertical 定义领域；选中的 preset/profile 定义某个 Task 适用哪些�
 kernel 校验非空 gate-ID 语法,daemon 在完成路径上按 `completion-readiness.ts` 执行已实现的门,
 拒绝未知或重复 gate。所以 `--ci` 类要求是 coding 契约的要求,不是 CLI 的全局要求（ADR-0027 D7）。
 
-profile 还可以声明 `closeoutOverrides` 与 `archiveOnComplete`。内置的 `standard-task`、`worker-dispatch`、
-`docs-task` 各带一个 `lightweight` profile,给低风险小改用:计划与 closeout 用精简模板,收口不要求评审、consent
-和 Fact;它不免除 PR 的 CI。`ha task create --help` 列出每个 preset 的 profile;对某个 preset 用它没有声明的
-`--profile`,会以 `missing_profile` 拒绝,并列出该 preset 自己的 profile 和声明了它的 preset。
+profile 还可以声明 `closeoutOverrides` 与 `archiveOnComplete`。风险等级决定任务流程：low 不派评审且不要求 consent，preset 声明短档时自动采用；medium（默认）派一轮功能评审；high 走完整评审并要求 consent。提交时仓库定级脚本检查实际 delivery diff，只能抬高生效等级；生效等级决定评审、consent 与 low 档 GUI 验收，medium 档原有 consent 门继续生效。代码改动仍须通过 PR CI。`--profile lightweight` 不再是建任务选项。
 
 真实 Task 的 preset/profile 无法解析时,完成路径 fail closed;`task-contract.json` 会钉住
 创建时的 `presetSnapshotDigest`,让契约不随 preset 演进悄悄漂移。

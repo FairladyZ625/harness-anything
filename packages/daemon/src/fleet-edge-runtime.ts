@@ -332,9 +332,9 @@ export function openFleetEdgeRuntime(input: {
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
           planPath = path.join(packageRoot, "task_plan.md"),
-          // Causal context, profile and worktree binding share the just-confirmed replica cut.
+          // Causal context, risk tier, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
-          { causalContext, profileId, worktree } = runtimeContext;
+          { causalContext, riskTier, profileId, riskTierFlowVersion, worktree } = runtimeContext;
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -399,10 +399,12 @@ export function openFleetEdgeRuntime(input: {
             ...taskMissionSections(
               taskId,
               causalContext,
-              profileId,
+              riskTier,
               current.task?.taskClass,
               ownerReturnBody,
               review !== undefined,
+              profileId,
+              riskTierFlowVersion,
             ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
@@ -415,7 +417,9 @@ export function openFleetEdgeRuntime(input: {
               }
             : {}),
           packageRoot,
+          riskTier,
           profileId,
+          riskTierFlowVersion,
           taskClass: current.task!.taskClass,
           ownerReturnBody,
           continuationContext: runtimeContext.continuationContext,
@@ -888,6 +892,8 @@ function taskRuntimeContext(
   taskId: string,
 ): {
   readonly causalContext: string | null;
+  readonly riskTier: "low" | "medium" | "high" | null;
+  readonly riskTierFlowVersion: 1 | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: import("./runtime-continuation-context.ts").RuntimeContinuationSeed | null;
@@ -897,10 +903,12 @@ function taskRuntimeContext(
 } {
   const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
   if (
-    read.schema === "task-runtime-context-read/v1" &&
+    read.schema === "task-runtime-context-read/v3" &&
     read.ok === true &&
     read.taskId === taskId &&
     (read.causalContext === null || typeof read.causalContext === "string") &&
+    (read.riskTier === null || ["low", "medium", "high"].includes(String(read.riskTier))) &&
+    (read.riskTierFlowVersion === null || read.riskTierFlowVersion === 1) &&
     (read.profileId === null || typeof read.profileId === "string") &&
     (worktree === null ||
       (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string")) &&
@@ -909,6 +917,8 @@ function taskRuntimeContext(
   )
     return {
       causalContext: read.causalContext,
+      riskTier: read.riskTier === null ? null : (read.riskTier as "low" | "medium" | "high"),
+      riskTierFlowVersion: read.riskTierFlowVersion === null ? null : 1,
       profileId: read.profileId === null ? null : (read.profileId as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
       continuationContext:

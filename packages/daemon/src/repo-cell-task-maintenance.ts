@@ -116,6 +116,7 @@ export function supersedeWithNewTask(
             verticalId: metadata.verticalId,
             presetId: metadata.presetId,
             profileId: metadata.profileId,
+            riskTierFlowVersion: metadata.riskTierFlowVersion,
             surfaces: metadata.surfaces,
           }
         : {}),
@@ -249,6 +250,8 @@ export function migrateTaskContracts(
             verticalId: task.metadata?.verticalId,
             presetId: task.metadata?.presetId,
             profileId: task.metadata?.profileId,
+            riskTier: task.metadata?.riskTier,
+            riskTierFlowVersion: task.metadata?.riskTierFlowVersion,
             slug: task.metadata?.slug,
           };
           if (projected.document) {
@@ -468,6 +471,8 @@ export function withBackfilledContractDocuments(
         verticalId: task.metadata?.verticalId,
         presetId: task.metadata?.presetId,
         profileId: task.metadata?.profileId,
+        riskTier: task.metadata?.riskTier,
+        riskTierFlowVersion: task.metadata?.riskTierFlowVersion,
         slug: task.metadata?.slug,
       },
     });

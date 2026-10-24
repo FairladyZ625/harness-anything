@@ -494,12 +494,16 @@ test(
       {
         schema: context.schema,
         taskId: context.taskId,
+        riskTier: context.riskTier,
+        riskTierFlowVersion: context.riskTierFlowVersion,
         worktree: context.worktree,
         continuationContext: context.continuationContext,
       },
       {
-        schema: "task-runtime-context-read/v1",
+        schema: "task-runtime-context-read/v3",
         taskId,
+        riskTier: "medium",
+        riskTierFlowVersion: 1,
         worktree: { branch: taskId, path: `.worktrees/${taskId}` },
         continuationContext: null,
       },

@@ -7,6 +7,7 @@ import { t } from "../i18n/index.tsx";
 import type { TaskRow } from "../model/types.ts";
 import {
   locateCreatedTask,
+  START_WORK_RISK_TIERS,
   START_WORK_TASK_CLASSES,
   START_WORK_WORK_KINDS,
   startWorkBlockers,
@@ -79,7 +80,7 @@ export function StartWorkDialog({
     title: "",
     intent: "",
     presetId: "",
-    profileId: null,
+    riskTier: "medium",
     taskClass: START_WORK_TASK_CLASSES[0],
     workKind: START_WORK_WORK_KINDS[0],
     parentTaskId: null,
@@ -93,7 +94,7 @@ export function StartWorkDialog({
       title: "",
       intent: "",
       presetId: "",
-      profileId: null,
+      riskTier: "medium",
       taskClass: START_WORK_TASK_CLASSES[0],
       workKind: START_WORK_WORK_KINDS[0],
       parentTaskId: null,
@@ -211,7 +212,7 @@ function TypeStep({
           aria-label={t("views.work.startWork.presetLabel")}
           data-testid="start-work-preset"
           value={draft.presetId}
-          onChange={(event) => onChange({ ...draft, presetId: event.target.value, profileId: null })}
+          onChange={(event) => onChange({ ...draft, presetId: event.target.value })}
           className="min-w-[240px] rounded border border-border bg-surface px-2 py-1 font-mono ui-micro text-text"
         >
           {catalog.presets.map((preset) => (
@@ -227,18 +228,17 @@ function TypeStep({
           {presetRow.description} · vertical {presetRow.verticalId} · {presetRow.sourceKind}
         </p>
       ) : null}
-      <CfgRow label={t("views.work.startWork.profileLabel")}>
+      <CfgRow label={t("views.work.startWork.riskTierLabel")}>
         <select
-          aria-label={t("views.work.startWork.profileLabel")}
-          data-testid="start-work-profile"
-          value={draft.profileId ?? ""}
-          onChange={(event) => onChange({ ...draft, profileId: event.target.value === "" ? null : event.target.value })}
+          aria-label={t("views.work.startWork.riskTierLabel")}
+          data-testid="start-work-risk-tier"
+          value={draft.riskTier}
+          onChange={(event) => onChange({ ...draft, riskTier: event.target.value })}
           className="min-w-[240px] rounded border border-border bg-surface px-2 py-1 font-mono ui-micro text-text"
         >
-          <option value="">{t("views.work.startWork.profileDefault")}</option>
-          {(presetRow?.profiles ?? []).map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {profile.title} · {profile.id}
+          {START_WORK_RISK_TIERS.map((tier) => (
+            <option key={tier} value={tier}>
+              {tier}
             </option>
           ))}
         </select>

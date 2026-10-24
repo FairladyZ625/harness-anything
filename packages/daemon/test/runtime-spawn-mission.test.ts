@@ -134,9 +134,9 @@ test("task mission includes the previous conclusion and compares it with current
 });
 
 test("task-bound explicit prompts carry the lookup guidance, living protocol and PR note", () => {
-  const mission = explicitPromptMission("task_x", null, "Finish the leaf task.", "baseline"),
+  const mission = explicitPromptMission("task_x", null, "Finish the leaf task.", "medium"),
     guidanceAt = mission.indexOf(taskQueryGuidance("task_x")),
-    protocolAt = mission.indexOf(livingDeliverableProtocol("baseline")!),
+    protocolAt = mission.indexOf(livingDeliverableProtocol("medium")!),
     noteAt = mission.indexOf(taskPrPublicationNote),
     promptAt = mission.indexOf("Finish the leaf task.");
   assert.ok(guidanceAt >= 0, "lookup guidance rides the task-bound mission");
@@ -150,21 +150,61 @@ test("task-bound explicit prompts carry the lookup guidance, living protocol and
 
 test("an injected causal block sits between the protocol and the caller text", () => {
   const xml = "<task-context>\n<refs>task/task_x</refs>\n</task-context>",
-    mission = explicitPromptMission("task_x", xml, "Go.", "baseline");
+    mission = explicitPromptMission("task_x", xml, "Go.", "medium");
   assert.ok(
-    mission.indexOf(xml) > mission.indexOf(livingDeliverableProtocol("baseline")!),
+    mission.indexOf(xml) > mission.indexOf(livingDeliverableProtocol("medium")!),
     "protocol precedes the XML block",
   );
   assert.ok(mission.indexOf("Go.") > mission.indexOf(xml), "the XML block precedes the caller text");
 });
 
-test("lightweight tasks carry the guidance but never the Living Deliverable Protocol", () => {
-  const mission = explicitPromptMission("task_x", null, "Finish the small change.", "lightweight");
+test("low-risk tasks carry the guidance but never the Living Deliverable Protocol", () => {
+  const mission = explicitPromptMission(
+    "task_x",
+    null,
+    "Finish the small change.",
+    "low",
+    "standard",
+    null,
+    false,
+    null,
+    "baseline",
+    1,
+  );
   assert.match(mission, /# 台账查询引导/u, "the lookup guidance still rides a lightweight mission");
   assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
   assert.doesNotMatch(mission, /explainer\.html/u);
   assert.ok(mission.endsWith("Finish the small change."), "explicit caller text stays intact");
-  assert.equal(livingDeliverableProtocol("lightweight"), null, "lightweight owes no explainer page");
+  assert.equal(livingDeliverableProtocol("low", undefined, "baseline", 1), null, "low risk owes no explainer page");
+});
+
+test("the mission protocol follows risk tier when a low task keeps a full preset profile", () => {
+  const low = explicitPromptMission(
+      "task_x",
+      null,
+      "Do the docs change.",
+      "low",
+      "standard",
+      null,
+      false,
+      null,
+      "baseline",
+      1,
+    ),
+    medium = explicitPromptMission(
+      "task_y",
+      null,
+      "Implement the feature.",
+      "medium",
+      "standard",
+      null,
+      false,
+      null,
+      "baseline",
+      1,
+    );
+  assert.doesNotMatch(low, /# Living Deliverable Protocol/u);
+  assert.match(medium, /# Living Deliverable Protocol/u);
 });
 
 test("a task with no profile metadata still gets the protocol", () => {
@@ -174,8 +214,47 @@ test("a task with no profile metadata still gets the protocol", () => {
   assert.match(explicitPromptMission("task_x", null, "Go."), /# Living Deliverable Protocol/u);
 });
 
+test("a real pre-tier lightweight task keeps its frozen mission behavior", () => {
+  // task_f1f0d5e6fd1ea3009373964a69 was bootstrapped at revision 103330 with profileId=lightweight,
+  // riskTier absent, and no explainer.html claim. Reconstruct those persisted fields through the
+  // worker mission path so a later daemon build cannot add a document obligation to that task.
+  const mission = explicitPromptMission(
+    "task_f1f0d5e6fd1ea3009373964a69",
+    null,
+    "Continue the task.",
+    null,
+    "standard",
+    null,
+    false,
+    null,
+    "lightweight",
+    null,
+  );
+  assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
+  assert.doesNotMatch(mission, /explainer\.html/u);
+});
+
+test("a real historical low-tier baseline task keeps its profile-based mission behavior", () => {
+  // The live task projection for task_628011248271aabd80eff26b06 records profileId=baseline and
+  // riskTier=low. It predates the risk-tier mission switch, so its frozen profile contract still
+  // requires the living deliverable protocol.
+  const mission = explicitPromptMission(
+    "task_628011248271aabd80eff26b06",
+    null,
+    "Continue the task.",
+    "low",
+    "standard",
+    null,
+    false,
+    null,
+    "baseline",
+    null,
+  );
+  assert.match(mission, /# Living Deliverable Protocol/u);
+});
+
 test("unbound prompts pass through without guidance or Living Deliverable Protocol", () => {
-  const mission = explicitPromptMission(null, null, "Free-form prompt.", "baseline");
+  const mission = explicitPromptMission(null, null, "Free-form prompt.", "medium");
   assert.equal(mission, "Free-form prompt.");
   assert.doesNotMatch(mission, /# 台账查询引导/u);
   assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
@@ -218,7 +297,7 @@ test("the guidance says the inlined plan and task-context need no lookup until t
   assert.match(guidance, /ha task read-set task_x/u, "the read-set escape hatch stays named");
   assert.match(guidance, /ha task show task_x/u);
   assert.match(guidance, /资料不足[\s\S]*owner/u);
-  const protocol = livingDeliverableProtocol("baseline")!;
+  const protocol = livingDeliverableProtocol("medium")!;
   assert.match(protocol, /# Living Deliverable Protocol/u);
   assert.match(protocol, /artifacts\/explainer\.html/u);
   assert.match(protocol, /实时说明页/u, "the protocol names the owner-facing live page");
@@ -233,7 +312,7 @@ test("the guidance says the inlined plan and task-context need no lookup until t
 
 test("the task plan rides the mission verbatim ahead of the guidance and the caller text", () => {
   const plan = "# Plan title\n\n## Brief\n\nShip the fixture lifecycle.\n",
-    mission = explicitPromptMission("task_x", null, "Go.", "baseline", undefined, null, false, plan),
+    mission = explicitPromptMission("task_x", null, "Go.", "medium", undefined, null, false, plan),
     planAt = mission.indexOf("Ship the fixture lifecycle."),
     guidanceAt = mission.indexOf(taskQueryGuidance("task_x"));
   assert.ok(mission.startsWith("本任务的 task_plan.md 全文如下"), "the plan opens the mission");
@@ -241,7 +320,7 @@ test("the task plan rides the mission verbatim ahead of the guidance and the cal
   assert.ok(planAt >= 0 && guidanceAt > planAt, "the inlined plan precedes the lookup guidance");
   assert.ok(mission.endsWith("Go."), "explicit caller text stays last");
   assert.doesNotMatch(
-    explicitPromptMission("task_x", null, "Go.", "baseline"),
+    explicitPromptMission("task_x", null, "Go.", "medium"),
     /task_plan\.md 全文如下/u,
     "a dispatch with no plan body inlines no plan section",
   );
@@ -258,10 +337,11 @@ test("taskPlanSection names the package root once and carries the body trimmed a
 });
 
 test("PR publication freezes machine facts before the repository opens the PR", () => {
-  for (const profileId of ["baseline", "lightweight"] as const) {
-    const mission = explicitPromptMission("task_x", null, "Go.", profileId);
+  for (const riskTier of ["low", "medium", "high"] as const) {
+    const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
     assert.match(mission, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
     assert.match(mission, /再推送并用 `gh pr create --head <task-id>` 开 PR/u);
+    assert.match(mission, /正文遵循本仓库的 PR 规范/u);
     assert.match(mission, /机器派生交付事实从 submission 读取，不要手填或重新计算/u);
     assert.ok(
       mission.indexOf("ha task submit <task-id>") < mission.indexOf("gh pr create --head <task-id>"),
@@ -271,7 +351,7 @@ test("PR publication freezes machine facts before the repository opens the PR", 
     assert.doesNotMatch(mission, /pull_request_template\.md|Production-Delta|check-pr-body|task\.pr-body/u);
   }
   assert.doesNotMatch(
-    explicitPromptMission(null, null, "Go.", "baseline"),
+    explicitPromptMission(null, null, "Go.", "medium"),
     /gh pr create/u,
     "unbound prompts carry no publication note",
   );
@@ -282,7 +362,7 @@ test("reviewer task-bound missions keep the guidance and Reviewer Role but omit 
       "task_x",
       null,
       "Review the submitted cut.",
-      "baseline",
+      "medium",
       undefined,
       "Fix the implementation first.",
       true,
@@ -297,13 +377,13 @@ test("reviewer task-bound missions keep the guidance and Reviewer Role but omit 
   assert.doesNotMatch(reviewerMission, /ha task push/u, "reviewers never publish the task branch");
   assert.ok(reviewerMission.endsWith("Review the submitted cut."), "explicit caller text stays intact");
 
-  const workerPrompt = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Do the work.", "baseline"));
+  const workerPrompt = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Do the work.", "medium"));
   assert.match(workerPrompt, /# Living Deliverable Protocol/u, "worker dispatches keep the living protocol");
   assert.match(workerPrompt, /gh pr create/u, "worker dispatches keep the PR publication note");
 });
 
 test("work missions omit the task maintenance protocol because work explainers are derived", () => {
-  const mission = explicitPromptMission("task_work", null, "Inspect work.", "baseline", "work");
+  const mission = explicitPromptMission("task_work", null, "Inspect work.", "medium", "work");
   assert.doesNotMatch(mission, /# Work Page Maintenance Protocol/u);
   assert.doesNotMatch(mission, /ha task progress append task_work/u);
   assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
@@ -312,7 +392,7 @@ test("work missions omit the task maintenance protocol because work explainers a
 
 test("a re-dispatched explicit mission carries the owner return verbatim before the caller text", () => {
   const returnBody = "# Owner return for iteration 0\n\n## Rework instruction\n\nFix the frozen-gate short circuit.",
-    mission = explicitPromptMission("task_x", null, "Continue task task_x.", "baseline", undefined, returnBody),
+    mission = explicitPromptMission("task_x", null, "Continue task task_x.", "medium", undefined, returnBody),
     returnAt = mission.indexOf("# Owner rework instruction");
   assert.ok(returnAt >= 0, "the managed return body rides the mission");
   assert.ok(
@@ -321,9 +401,9 @@ test("a re-dispatched explicit mission carries the owner return verbatim before 
   );
   assert.ok(mission.indexOf("Continue task task_x.") > returnAt, "the caller text stays last");
   assert.ok(mission.endsWith("Continue task task_x."), "explicit caller text stays intact");
-  assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# Owner rework instruction/u);
+  assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "medium"), /# Owner rework instruction/u);
   assert.doesNotMatch(
-    explicitPromptMission(null, null, "Go.", "baseline", undefined, returnBody),
+    explicitPromptMission(null, null, "Go.", "medium", undefined, returnBody),
     /# Owner rework instruction/u,
     "unbound prompts carry no rework record",
   );
@@ -333,17 +413,17 @@ test("every task-bound mission tells the worker this session cannot ask, with on
   // Measured 2026-10-21 (task_936005e1): a dispatched Codex worker called the provider's question
   // tool; the turn failed and the dispatch settled failed, with the question visible only in the
   // raw stream. The mission must name the constraint and where a ruling request actually lands.
-  for (const profileId of ["baseline", "lightweight", undefined] as const) {
-    const mission = explicitPromptMission("task_x", null, "Go.", profileId);
-    assert.match(mission, /# 无人值守会话：不能提问/u, `profile=${String(profileId)} carries the constraint`);
+  for (const riskTier of ["low", "medium", "high", undefined] as const) {
+    const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
+    assert.match(mission, /# 无人值守会话：不能提问/u, `riskTier=${String(riskTier)} carries the constraint`);
     assert.match(mission, /不要调用任何提问\/等待用户输入的 provider 工具/u);
     assert.match(mission, /artifacts\/rulings\/__HARNESS_DISPATCH_ID__\.md/u, "the artifact path is per dispatch");
   }
   // Reviewers are unattended too: same constraint, same single channel.
   assert.match(
-    explicitPromptMission("task_x", null, "Review.", "baseline", undefined, null, true),
+    explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true),
     /# 无人值守会话：不能提问/u,
   );
   // Unbound prompts have no task package, so there is nowhere to write the ruling artifact.
-  assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "baseline"), /无人值守会话/u);
+  assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
 });

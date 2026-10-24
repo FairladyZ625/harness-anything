@@ -521,12 +521,17 @@ test(
   "submitted cuts reject explicit dispatch-review and generic reviewer runtime ingress before owner forward",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    // A low-tier code delivery still needs an accepted artifact before submission.
+    const f = await fixture(false, true, true, false, false, undefined, {
+      autoSubmit: false,
       closeoutProfile: "standard",
       autoForward: false,
+      create: { riskTier: "low" },
     });
     try {
       await f.install();
+      const submitted = await f.submit();
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], executionId });
       assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
       assert.match(dispatchesOf(receipt)[0]?.error ?? "", /has no automatic review requirement/u);
@@ -741,7 +746,14 @@ test(
       const plainStep = dispatchesOf(plain)[0]!;
       assert.equal(plainStep.outcome, "already_dispatched");
       assert.equal(plainStep.agentId, "closeout-reviewer");
-      assert.equal(plainStep.instanceId, "review-first");
+      const heldDispatch = f
+        .events()
+        .find(
+          (event) => event.type === "runtime_dispatch_requested" && event.payload.dispatchId === plainStep.dispatchId,
+        );
+      assert.ok(heldDispatch?.type === "runtime_dispatch_requested");
+      assert.equal(plainStep.runtimeSessionId, heldDispatch.payload.runtimeSessionId);
+      assert.equal(plainStep.instanceId, heldDispatch.payload.instanceId);
       // The holding agent's own explicit --agent stays idempotent.
       const same = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
       assert.equal(same.outcome, "applied", JSON.stringify(same));
@@ -891,7 +903,7 @@ test(
       assert.equal(
         secondReceipt.dispatchId,
         second.payload.dispatchId,
-        "receipt must name the fresh fallback dispatch",
+        `receipt must name the fresh fallback dispatch: ${JSON.stringify(secondReceipt)}`,
       );
       assert.equal(secondReceipt.runtimeSessionId, second.payload.runtimeSessionId);
       assert.equal(second.payload.resumedFromDispatchId, undefined, "fallback must own a fresh dispatch");
@@ -1071,7 +1083,7 @@ test(
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
-      create: { presetId: "standard-task" },
+      create: { presetId: "standard-task", riskTier: "high" },
     });
     try {
       await f.install();

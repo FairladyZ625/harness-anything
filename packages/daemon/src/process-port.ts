@@ -242,6 +242,7 @@ export function runProcessExitAsync(
   options: {
     readonly timeoutMs?: number;
     readonly windowsVerbatimArguments?: boolean;
+    readonly maxBuffer?: number;
   } = {},
 ): Promise<ProcessExitResult> {
   return launchProcessText(command, args, cwd, env, input, signal, options).then((outcome) => {

@@ -77,7 +77,7 @@ test("agenda and task list keep a pinned submitted task visible for owner adjudi
   await withCell("agenda-submitted", async (cell, rootDir) => {
     const taskId = "task_submitted_pinned",
       executionId = "exe_submitted_pinned",
-      created = await cell.run({ kind: "task-create", taskId, title: "Submitted pinned" }, binding);
+      created = await cell.run({ kind: "task-create", taskId, title: "Submitted pinned", riskTier: "low" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
     const packagePath = String((created as Record<string, unknown>).packagePath);
@@ -124,7 +124,10 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ["task_wait_adjudicate", "Submitted, awaiting adjudication"],
       ["task_returned", "Returned for rework"],
     ] as const) {
-      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      const created = await cell.run(
+        { kind: "task-create", taskId, title, ...(taskId === "task_wait_adjudicate" ? { riskTier: "low" } : {}) },
+        binding,
+      );
       assert.equal(created.outcome, "applied");
       await waitForFixturePublication(cell, created.opId, binding);
       createdTasks.set(taskId, String((created as Record<string, unknown>).packagePath));

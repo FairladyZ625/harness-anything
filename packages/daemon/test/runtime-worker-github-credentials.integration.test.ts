@@ -149,7 +149,10 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       );
     await runtimeOutcome(root, repoId, String(unbound.runtimeSessionId));
 
-    const created = await cell.run({ kind: "task-create", taskId, title: "GitHub worker push" }, binding);
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "GitHub worker push", riskTier: "low" },
+      binding,
+    );
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) =>

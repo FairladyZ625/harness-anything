@@ -248,12 +248,11 @@ export const generatedTaskCreateResultFields = Object.freeze(
   taskCreateProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
 );
 
-// A cold agent picks the short path from --help alone: the flag says what lightweight lifts and what it keeps,
-// and the Recommended presets rows name the presets that declare it.
+// Profile remains a preset materialization identity. Risk tier is the only user-facing flow switch;
+// a low tier selects the short profile automatically when the preset declares one.
 const taskCreateProfileFormat =
-  "<profile; lightweight = short plan and closeout with no review or consent at closeout, for a " +
-  "low-risk small change (a code change still lands through the PR's CI); Recommended presets below lists " +
-  "the presets that declare it>";
+  "<profile; preset-specific materialization identity (do not select the internal lightweight profile; use --risk-tier low " +
+  "for a low-risk change); Recommended presets below lists the available profiles>";
 // Same advice the over-wide-title receipt hint gives: one focus in the title, everything else in the plan.
 export const titleFocusFormat =
   "<one focus only — move the explanation after a colon, parenthetical supplements, and decision/PR " +

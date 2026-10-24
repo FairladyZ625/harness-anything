@@ -142,6 +142,35 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
     /task metadata contains unknown fields: orbit/u,
   );
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /task metadata contains unknown fields: orbit/u);
+  const frozenLegacy = {
+    ...event,
+    payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long_running", metadata } },
+  } as TaskBootstrapEventV1;
+  assert.deepEqual(validateCurrentCanonicalEvent(frozenLegacy), [], "pre-policy task metadata remains valid");
+  const tierGoverned = {
+    ...event,
+    payload: {
+      ...event.payload,
+      task: { ...event.payload.task, taskClass: "long_running", metadata: { ...metadata, riskTierFlowVersion: 1 } },
+    },
+  } as TaskBootstrapEventV1;
+  assert.deepEqual(validateCurrentCanonicalEvent(tierGoverned), []);
+  for (const invalidVersion of [null, 0, 2, "1", true])
+    assert.throws(
+      () =>
+        serializeCanonicalEvent({
+          ...event,
+          payload: {
+            ...event.payload,
+            task: {
+              ...event.payload.task,
+              taskClass: "long_running",
+              metadata: { ...metadata, riskTierFlowVersion: invalidVersion },
+            },
+          },
+        } as unknown as TaskBootstrapEventV1),
+      /task metadata fields have invalid values: riskTierFlowVersion/u,
+    );
   const { fromLegacyId: _missing, ...missingField } = metadata;
   void _missing;
   assert.match(
