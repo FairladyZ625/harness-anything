@@ -55,7 +55,8 @@ Submission(`packages/daemon/src/repo-cell-submit.ts`)。机械检查包括:
 - 具名 commit 必须在某个绑定或 canonical 仓库里已发布,且是某绑定工作区的 HEAD
   或已发布的合并 commit;`deliverables` 由 `git diff` 求出。
 - `artifact:` 锚的路径必须有 center-accepted revision。
-- `closeout.md` 仍是 preset 脚手架句时,`closeout_placeholder` 拒绝。
+- `closeout.md` 是自由正文:章节标题与保留的脚手架句都不构成拒绝
+  (dec_E369B8616F50A6208B293997E7 CH2);只有派生不出合法 Submission 才是拒绝。
 
 重复提交同一份 closeout 返回已存回执;内容变化则拒绝,须显式 `ha task submit --amend`。
 submit 必须持有并原子释放该 Execution 的 active lease——lease 与提交权绑定,
@@ -99,7 +100,6 @@ preset/profile 的 `completionGates`,执行 `completion-readiness.ts` 的确定�
 | `not_in_review` | task 不在 `in_review` |
 | `task_blocked` | task 处于 blocked |
 | `executor_missing` | 未声明 executor(`ha task declare-executor`) |
-| `closeout_placeholder` | closeout 仍是脚手架 |
 | `review_missing` | 缺 approved Review |
 | `consent_missing` | 缺 review-consent 记录 |
 | `delivery_missing` | 仓库设置要求代码交付已合入，但执行记录的合入 commit 不在配置的目标分支上；旧冻结 `ci` gate 也只读使用同一合入证据 |

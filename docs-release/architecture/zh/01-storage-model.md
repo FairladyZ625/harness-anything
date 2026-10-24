@@ -61,8 +61,9 @@ Submission(`packages/daemon/src/repo-cell-submit.ts`)。closeout 的 Summary 必
 一个交付 commit,或至少一个 `artifact:path@revision` 锚;`deliverables` 由该 commit 的
 `git diff` 求出,`outputs` 记录删除路径与 artifact 锚,`artifacts`/`commitSha` 一并落定。
 最终 packet 是六个字段:`completionClaim`、`deliverables`、`outputs`、
-`verificationNotes`、`knownGaps`、`residualRisks`。派生失败以
-`closeout_placeholder` 或 `invalid_submission` 拒绝;已提交的 cut 内容变化时须显式
+`verificationNotes`、`knownGaps`、`residualRisks`。closeout 是自由正文:段落标题只是
+脚手架的建议,提交不比较标题、也不拒绝保留提示句(dec_E369B8616F50A6208B293997E7
+CH2);交付缺陷以 `invalid_submission` 拒绝。已提交的 cut 内容变化时须显式
 `ha task submit --amend`。
 
 Review 是针对某个 submitted Execution 的独立不可变文件,schema `review/v1`

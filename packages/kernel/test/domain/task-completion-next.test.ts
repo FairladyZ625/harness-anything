@@ -123,17 +123,6 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "ha task show task-1",
     ],
     [
-      "empty section",
-      ready,
-      {
-        ...context,
-        closeout: "placeholder" as const,
-        closeoutMissingSections: [{ section: "Verification", reason: "empty" as const }],
-      },
-      "closeout_placeholder",
-      "section Verification",
-    ],
-    [
       "bad artifact",
       ready,
       {

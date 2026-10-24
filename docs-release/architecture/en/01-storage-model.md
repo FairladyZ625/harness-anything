@@ -75,8 +75,11 @@ one delivery commit, or at least one `artifact:path@revision` anchor;
 paths and artifact anchors, and `artifacts`/`commitSha` are settled alongside.
 The resulting packet has six fields: `completionClaim`, `deliverables`,
 `outputs`, `verificationNotes`, `knownGaps`, and `residualRisks`. Derivation
-failures reject as `closeout_placeholder` or `invalid_submission`; a changed
-submitted cut requires an explicit `ha task submit --amend`.
+closeout is free prose: its section headings are scaffold suggestions, and submit
+neither compares headings nor rejects retained prompt sentences
+(dec_E369B8616F50A6208B293997E7 CH2); delivery defects reject as
+`invalid_submission`. A changed submitted cut requires an explicit
+`ha task submit --amend`.
 
 A Review is a separate immutable file for one submitted Execution, schema
 `review/v1` (`packages/kernel/src/domain/review.ts`): `verdict` is one of

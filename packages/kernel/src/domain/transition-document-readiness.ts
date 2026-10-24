@@ -14,10 +14,9 @@ function taskActionReadinessDocumentSlot(transitionId: string): string | undefin
     : undefined;
 }
 
-type TransitionDocumentKind = "task.plan" | "task.closeout" | "decision.body" | "agent.instructions" | "squad.roster";
+type TransitionDocumentKind = "task.plan" | "decision.body" | "agent.instructions" | "squad.roster";
 type TransitionDocumentPlaceholderCode =
   | "plan_placeholder"
-  | "closeout_placeholder"
   | "body_placeholder"
   | "instructions_placeholder"
   | "roster_placeholder";
@@ -94,7 +93,6 @@ export function transitionDocumentContract(scaffoldBody: string): MarkdownDocume
 
 const placeholderCodes: Readonly<Record<TransitionDocumentKind, TransitionDocumentPlaceholderCode>> = {
   "task.plan": "plan_placeholder",
-  "task.closeout": "closeout_placeholder",
   "decision.body": "body_placeholder",
   "agent.instructions": "instructions_placeholder",
   "squad.roster": "roster_placeholder",
@@ -118,7 +116,7 @@ export function assessTransitionDocument(
   contract?: MarkdownDocumentContract,
 ): TransitionDocumentReadiness {
   const missingSections =
-    kind === "task.plan" || kind === "task.closeout"
+    kind === "task.plan"
       ? missingMarkdownSections(body, requireDocumentContract(kind, contract), kind)
       : kind === "decision.body"
         ? decisionBodyMissingSections(body)
@@ -174,28 +172,35 @@ export function assertTransitionDocumentReady(
   throw error;
 }
 
-/** Preserve authored evidence verbatim; the execution cut supplies every repository-derived field. */
+/**
+ * Preserve authored evidence verbatim; the execution cut supplies every repository-derived field.
+ * The closeout prose is read, never judged: section headings are conventions the scaffold suggests,
+ * and any authored body without a `## Summary` answers with its own prose. Only the Submission
+ * schema decides whether a cut carries a claim (dec_E369B8616F50A6208B293997E7 CH2).
+ */
 export function submissionFromCloseout(
   body: string,
   cut: import("./execution.ts").SubmissionDelivery &
     Pick<SubmissionV1, "deliverables" | "outputs" | "completionContract">,
-  contract?: MarkdownDocumentContract,
 ): SubmissionV1 {
-  assertTransitionDocumentReady("task.closeout", body, contract);
-  const sections = markdownSections(body),
-    // A lightweight closeout scaffold declares only Summary and Verification; the risk sections
-    // ride along when the scaffold declared them, and are honestly absent when it did not.
+  // The four scaffold headings are read as prefixes, so an authored suffix ("## Summary (what
+  // shipped)") still files its prose under that section without the heading having to match exactly.
+  const sections = markdownSections(body, closeoutSectionPrefixes),
+    // The risk sections ride along when the author kept them; both feed known and residual risks.
     risks = [sections.get("residual risk"), sections.get("same mechanism elsewhere")].filter(
       (section): section is string => section !== undefined,
-    );
+    ),
+    verification = sections.get("verification");
   return {
-    completionClaim: sections.get("summary")!,
-    verificationNotes: [sections.get("verification")!],
+    completionClaim: sections.get("summary") ?? authorProse(body),
+    verificationNotes: verification === undefined ? [] : [verification],
     knownGaps: risks,
     residualRisks: risks,
     ...cut,
   };
 }
+
+const closeoutSectionPrefixes = Object.freeze(["summary", "verification", "residual risk", "same mechanism elsewhere"]);
 
 function missingMarkdownSections(
   body: string,
@@ -251,6 +256,14 @@ function decisionBodyMissingSections(body: string): readonly TransitionDocumentM
       retainedScaffold,
     }));
   return meaningfulMarkdown(body) ? [] : [{ section: "body", reason: "empty" }];
+}
+
+/** The authored body as the claim of last resort: frontmatter, heading marks and HTML comments removed. */
+function authorProse(body: string): string {
+  return stripFrontmatter(body)
+    .replace(/^#{1,6}[ \t]+.*$/gmu, "")
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .trim();
 }
 
 function meaningfulMarkdown(body: string): boolean {

@@ -63,16 +63,12 @@ function deriveCloseoutSubmissionData(
     }),
     frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.
-    parsed = submissionFromCloseout(
-      document.body,
-      {
-        commitSha: "0".repeat(40),
-        deliverables: [],
-        outputs: [],
-        completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
-      },
-      document.contract ?? undefined,
-    ),
+    parsed = submissionFromCloseout(document.body, {
+      commitSha: "0".repeat(40),
+      deliverables: [],
+      outputs: [],
+      completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
+    }),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = parsed,
     readPresetSnapshot = presetSnapshotReader(cell.projection),
@@ -896,7 +892,7 @@ export async function settleTask(
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 
-const submissionStopCodes = ["closeout_placeholder", "invalid_submission", "gate_mapping_invalid"];
+const submissionStopCodes = ["invalid_submission", "gate_mapping_invalid"];
 
 /** A stop guard that knows its own remedy attaches it to the error it throws; the closeout default covers the rest. */
 function submissionStopNextAction(error: Error): string | null {

@@ -107,27 +107,6 @@ function loadCatalogAssets(): CatalogSource | null {
  * written; with the readiness contract its scaffold declares, or null when none resolves. A
  * projection that has not caught up counts as written so the reader reports it.
  */
-export function taskTransitionDocumentState(input: {
-  readonly projection: TaskProjectionQueries;
-  readonly taskId: string;
-  readonly slot: TaskTransitionDocumentSlot;
-}):
-  | { readonly state: "undeclared" }
-  | {
-      readonly state: "unwritten" | "written";
-      readonly path: string;
-      readonly contract: MarkdownDocumentContract | null;
-    } {
-  const located = locateTaskTransitionDocument(input);
-  if (located.path === null || !located.descriptor) return { state: "undeclared" };
-  const read = input.projection.readDocument(located.path);
-  return {
-    state: !read.document && read.watermark >= read.sourceRevision ? "unwritten" : "written",
-    path: located.path,
-    contract: transitionDocumentReadinessContract({ contract: located.contract, descriptor: located.descriptor }),
-  };
-}
-
 export function locateTaskTransitionDocument(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
@@ -204,7 +183,9 @@ export function readTaskTransitionDocument(input: {
     blobSha256: overridden === undefined ? documentRead.document.blobSha256 : sha256Text(overridden),
     workspaceRevision: documentRead.document.workspaceRevision,
     source: overridden === undefined ? "canonical projection" : "submitted candidate",
-    contract: transitionDocumentReadinessContract({ contract, descriptor }),
+    // The closeout is authored prose: submit extracts its sections and never compares them to a
+    // scaffold (dec_E369B8616F50A6208B293997E7 CH2). Only the plan is judged against its contract.
+    contract: input.slot === "task.plan" ? transitionDocumentReadinessContract({ contract, descriptor }) : null,
   };
 }
 

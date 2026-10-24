@@ -431,7 +431,7 @@ test("settle submits against its frozen snapshot after an installed preset chang
   }
 });
 
-test("settle stops on the closeout gate instead of fabricating a draft", async (t) => {
+test("settle stops on an underivable closeout instead of fabricating a draft", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-closeout-")),
     repoId = workspaceId("settle-closeout"),
     taskId = "task_settle_closeout",
@@ -442,7 +442,7 @@ test("settle stops on the closeout gate instead of fabricating a draft", async (
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-closeout" });
     const title = "Settle Closeout";
-    await createRealizedTaskPlanFixture(
+    const created = await createRealizedTaskPlanFixture(
       rootDir,
       async () => {
         const created = await cell!.run({ kind: "task-create", taskId, title, presetId: "docs-task" }, workerBinding);
@@ -474,6 +474,13 @@ test("settle stops on the closeout gate instead of fabricating a draft", async (
       "applied",
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, workerBinding)).outcome, "applied");
+    // dec_E369B8616F50A6208B293997E7 CH2: the materialized skeleton is authored prose and settles.
+    // The stop this test pins is a closeout with no prose at all — it derives no completion claim.
+    writeFileSync(
+      path.join(rootDir, "harness", String(created.packagePath), "closeout.md"),
+      "# Closeout\n\n## Summary\n\n## Verification\n",
+    );
+    assert.equal((await cell.run({ kind: "doc-submit", taskId }, workerBinding)).outcome, "applied");
 
     const settled = (await cell.run({ kind: "task-settle", taskId }, workerBinding)) as Record<string, unknown>;
     assert.equal(settled.outcome, "op_rejected", JSON.stringify(settled));

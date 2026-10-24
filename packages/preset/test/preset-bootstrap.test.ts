@@ -579,7 +579,12 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
     });
     assert.equal(compiled.documents.find((document) => document.relativePath === "task_plan.md")!.body, authoredPlan);
     const closeout = compiled.documents.find((document) => document.relativePath === "closeout.md")!;
-    assert.match(closeout.body, /Replace this file's placeholder content before closeout/u);
+    // dec_E369B8616F50A6208B293997E7 CH2: the closeout ships as a filled skeleton, and its descriptor
+    // carries no readiness contract because submit never compares it to a scaffold. The plan keeps one.
+    assert.deepEqual(
+      [...closeout.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
+      ["## Summary", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
+    );
     const contract = JSON.parse(
         compiled.documents.find((document) => document.relativePath === "task-contract.json")!.body,
       ),
@@ -591,6 +596,10 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
       planDescriptor.readiness.Brief?.includes("One-line statement of the task objective and scope."),
       "readiness phrases stay the scaffold's, not the authored body's",
     );
+    const closeoutDescriptor = contract.documents.find(
+      (descriptor: { readonly slot: string }) => descriptor.slot === "task.closeout",
+    );
+    assert.equal(Object.hasOwn(closeoutDescriptor, "readiness"), false, "a closeout has no readiness contract");
     const readiness = assessTransitionDocument("task.plan", authoredPlan, {
       requiredSections: Object.keys(planDescriptor.readiness),
       scaffoldBySection: planDescriptor.readiness,

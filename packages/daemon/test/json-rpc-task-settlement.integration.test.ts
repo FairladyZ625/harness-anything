@@ -639,14 +639,8 @@ test("task mutation rejections name the missing field and current execution stat
       cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding),
     );
     await cell.run({ kind: "task-start", taskId, executionId }, repoWriteBinding);
-    writeFileSync(
-      path.join(rootDir, "harness", String((created as Record<string, unknown>).packagePath), "closeout.md"),
-      "# Closeout\n\n## Summary\n\nReady.\n",
-    );
-    const invalidSubmission = await cell.run({ kind: "task-submit", taskId, executionId }, repoWriteBinding);
-    assert.equal(invalidSubmission.code, "closeout_placeholder", JSON.stringify(invalidSubmission));
-    assert.match(JSON.stringify(invalidSubmission.next), /closeout.md/u);
-    context.diagnostic(`invalid_submission receipt=${JSON.stringify(invalidSubmission)}`);
+    // Both rejection diagnostics below need the execution still active; dec_E369B8616F50A6208B293997E7
+    // CH2 made a Summary-only closeout submittable, so the submit moved to the end of this test.
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Premature review.", evidenceChecked: ["fixture"] }),
@@ -686,6 +680,15 @@ test("task mutation rejections name the missing field and current execution stat
       ),
     );
     assert.equal(derivedPrematureReview.code, "invalid_command", JSON.stringify(derivedPrematureReview));
+    // dec_E369B8616F50A6208B293997E7 CH2: a closeout carrying only a Summary is authored prose, so
+    // the same cut that main rejected as `closeout_placeholder` now submits.
+    writeFileSync(
+      path.join(rootDir, "harness", String((created as Record<string, unknown>).packagePath), "closeout.md"),
+      "# Closeout\n\n## Summary\n\nReady.\n",
+    );
+    const submittedBody = await cell.run({ kind: "task-submit", taskId, executionId }, repoWriteBinding);
+    assert.equal(submittedBody.outcome, "applied", JSON.stringify(submittedBody));
+    context.diagnostic(`submitted receipt=${JSON.stringify(submittedBody)}`);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

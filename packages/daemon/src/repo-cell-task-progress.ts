@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import {
   canStartExecution,
-  assessTransitionDocument,
   compileTaskProgress,
   completionBlockers,
   completionPreparationBlockers,
@@ -10,7 +9,6 @@ import {
   currentSubmittedExecutions,
   consumeKnownError,
   isTaskProgressEvent,
-  requireTransitionDocumentKind,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   stableStringify,
@@ -471,24 +469,10 @@ export function completionContext(
       taskId,
     }),
     eligible = scan.rows.filter((row) => row.state === "eligible"),
-    closeoutCandidate = eligible.find((row) => row.path === canonical.closeoutPath),
-    assessment = closeoutCandidate?.bytes
-      ? assessTransitionDocument(
-          requireTransitionDocumentKind("task.complete"),
-          Buffer.from(closeoutCandidate.bytes).toString("utf8"),
-          canonical.closeoutContract ?? undefined,
-        )
-      : null,
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
     ...canonical,
     closeoutGates: readEffectiveCloseoutGates(cell.projection, snapshot),
-    ...(assessment
-      ? {
-          closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),
-          closeoutMissingSections: assessment.missingSections,
-        }
-      : {}),
     eligibleDirtyPaths: eligible.map((row) => row.path),
     ...(invalid ? { invalidDocument: { path: invalid.path, reason: invalid.reason ?? invalid.state } } : {}),
   };

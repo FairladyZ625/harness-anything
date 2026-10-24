@@ -174,7 +174,9 @@ for (const explicit of [false, true])
       assert.equal(wrong.code, 1, JSON.stringify(wrong));
       assert.equal(ledgerRevision(fixture), before);
       if (explicit) {
-        fixture.writeWorktree("node-one", closeout, "## Summary\nTODO\n");
+        // dec_E369B8616F50A6208B293997E7 CH2: a Summary-only body with prose is a valid closeout,
+        // so the rejected fixture carries headings without any prose — it derives no claim.
+        fixture.writeWorktree("node-one", closeout, "# Closeout\n\n## Summary\n\n## Verification\n");
         const incomplete = await invoke(["--commit", commitSha]);
         assert.equal(incomplete.code, 1, JSON.stringify(incomplete));
         assert.equal(
