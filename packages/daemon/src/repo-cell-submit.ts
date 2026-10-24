@@ -1,5 +1,5 @@
-import { lstatSync, readFileSync, realpathSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { realpathSync } from "node:fs";
 import {
   completionGuidance,
   currentExecutionCuts,
@@ -13,9 +13,7 @@ import {
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
-  sha256Bytes,
   sha256Text,
-  resolveHarnessLayout,
   type DocEventChange,
   type SubmissionV1,
   type WriteSource,
@@ -31,9 +29,9 @@ import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
+import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 import { readCanonicalVerticalDeclaration, readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
-import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -391,82 +389,6 @@ function automaticSubmissionArtifactPaths(
         path.startsWith(`${packagePath}/artifacts/`) && !path.endsWith("/.gitkeep") && !runtimeReportPaths.has(path),
     )
     .sort();
-}
-
-function taskWorktreeRoot(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection">,
-  snapshot: Snapshot,
-): string | null {
-  const binding = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection));
-  if (binding === null) return null;
-  const taskRoot = path.join(cell.rootDir, binding.path),
-    directory = lstatSync(taskRoot, { throwIfNoEntry: false }),
-    top =
-      directory?.isDirectory() && !directory.isSymbolicLink()
-        ? makeGitReadinessSource().run(taskRoot, ["rev-parse", "--show-toplevel"])
-        : null;
-  return top?.ok && realpathSync(top.stdout.trim()) === realpathSync(taskRoot) ? taskRoot : null;
-}
-
-function taskWorktreeCandidateInventory(
-  rootDir: string,
-  taskRoot: string,
-  packagePath: string | null,
-  baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
-  projection: RepoCellOperationalContext["projection"],
-): AuthoredCandidateInventoryV1 | undefined {
-  if (packagePath === null) return undefined;
-  const layout = resolveHarnessLayout(rootDir),
-    authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
-    authoredOutsideCheckout =
-      authoredRelative === ".." || authoredRelative.startsWith(`..${path.sep}`) || path.isAbsolute(authoredRelative),
-    packageRoot = authoredOutsideCheckout ? null : path.resolve(taskRoot, authoredRelative, ...packagePath.split("/")),
-    taskRootResolved = path.resolve(taskRoot);
-  if (packageRoot === null) return undefined;
-  if (packageRoot !== taskRootResolved && !packageRoot.startsWith(`${taskRootResolved}${path.sep}`))
-    throw new Error(`Task package ${packagePath} escapes its bound worktree.`);
-  const rows: Array<AuthoredCandidateInventoryV1["rows"][number]> = [];
-  collectTaskPackageCandidates(packageRoot, packagePath, rows);
-  return {
-    schema: "harness-authored-candidate-inventory/v1",
-    baseLedgerSha,
-    rows: rows.filter((row) => {
-      const closeoutPath = `${packagePath}/closeout.md`,
-        isCloseout = row.path === closeoutPath,
-        isArtifact = row.path.startsWith(`${packagePath}/artifacts/`) && !row.path.endsWith("/.gitkeep");
-      if (!isCloseout && !isArtifact) return false;
-      if (isCloseout) {
-        const current = projection.readDocument(row.path).document;
-        return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
-      }
-      const current = projection.readDocument(row.path).document;
-      return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
-    }),
-  };
-}
-
-function collectTaskPackageCandidates(
-  directory: string,
-  logicalDirectory: string,
-  rows: Array<AuthoredCandidateInventoryV1["rows"][number]>,
-): void {
-  const directoryStat = lstatSync(directory, { throwIfNoEntry: false });
-  if (!directoryStat || !directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return;
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name),
-      logical = `${logicalDirectory}/${entry.name}`,
-      stat = lstatSync(absolute);
-    if (stat.isDirectory()) {
-      collectTaskPackageCandidates(absolute, logical, rows);
-      continue;
-    }
-    if (stat.isSymbolicLink() || !stat.isFile()) {
-      rows.push({ path: logical, safe: false, size: null, bytes: null, conflicts: [] });
-      continue;
-    }
-    const bytes = readFileSync(absolute);
-    rows.push({ path: logical, safe: true, size: bytes.byteLength, bytes, conflicts: [] });
-  }
 }
 
 function freezeCompletionContract(

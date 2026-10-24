@@ -91,10 +91,23 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
   }
   if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
     throw executionCredentialRejected("self-approval");
+  // A path-selected doc submit names its task on the documents, not in the action envelope, and this
+  // entry turn holds no projection to resolve an owner. It is admitted here and the owner is proved
+  // where the projection exists: runDocAction refuses any path outside the execution's task, so a
+  // cross-task path still ends in execution_credential_rejected.
+  if (p.role === "implementation" && action.kind === "doc-submit" && selectedDocPaths(action) !== null) return;
   if (repositoryWriteActions.has(action.kind) || (commandClass === "repo-write" && action.taskId === undefined))
     throw executionCredentialRejected("write-other-task");
   if (commandClass !== "repo-write" || action.taskId !== p.taskId || p.role === "reviewer")
     throw executionCredentialRejected("write-other-task");
+}
+
+/** Non-empty explicit path selection; a scopeless `--all` sweep is not a path selection. */
+function selectedDocPaths(action: RepoTaskAction): readonly string[] | null {
+  const paths = (action as { readonly paths?: unknown }).paths;
+  return Array.isArray(paths) && paths.length > 0 && paths.every((value) => typeof value === "string")
+    ? (paths as readonly string[])
+    : null;
 }
 
 /** Rechecked in the current writer turn; the credential never grants a second execution lease. */
