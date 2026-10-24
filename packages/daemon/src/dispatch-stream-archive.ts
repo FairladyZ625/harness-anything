@@ -1,17 +1,8 @@
-import {
-  closeSync,
-  mkdirSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  readSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
+import { withReadOnlyFile } from "./durable-file.ts";
 
 type Schedule = (work: () => void | Promise<void>) => void;
 
@@ -136,8 +127,7 @@ function archivedDispatchStreams(rootDir: string): readonly ArchivedStream[] {
 
 /** Read the age signal from the stream's own header line; the header is written by this daemon. */
 function archivedStartedAtMs(file: string): number {
-  const descriptor = openSync(file, "r");
-  try {
+  return withReadOnlyFile(file, (descriptor) => {
     const chunks: Buffer[] = [];
     while (true) {
       const chunk = Buffer.alloc(4096),
@@ -151,9 +141,7 @@ function archivedStartedAtMs(file: string): number {
     const startedAt =
       header !== null && typeof header === "object" ? (header as { startedAt?: unknown }).startedAt : null;
     return typeof startedAt === "string" ? Date.parse(startedAt) : NaN;
-  } finally {
-    closeSync(descriptor);
-  }
+  });
 }
 
 /**
