@@ -80,6 +80,23 @@ Worktrees created before this naming (`codex/<slug>-<id8>`) are renamed once by
 `ha task contract migrate --apply`. One with uncommitted changes or a live
 worker is left in place and listed for you to handle.
 
+## Dispatch record retention
+
+Every dispatch writes a full record (a JSONL stream of its transcript) on the
+daemon; when the dispatch finishes, the record is archived on that machine.
+Two Settings limits decide how long archived records are kept — either one
+being exceeded prunes the oldest records, and each can be turned off with 0:
+
+```bash
+ha settings update --dispatch-archive-retention-days 60        # default: delete after 60 days; 0 keeps them regardless of age
+ha settings update --dispatch-archive-retention-bytes 53687091200  # 50 GiB total cap; 0 (default) sets no size limit
+ha settings read                                               # shows settings.dispatchArchive
+```
+
+Pruning runs when the repository opens on the daemon. Still-running dispatches
+are never touched, and a deleted record simply no longer appears in history
+views.
+
 ## Publish the task branch
 
 A dispatched worker in that worktree publishes through the daemon, not with a

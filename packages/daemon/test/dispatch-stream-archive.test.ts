@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,7 +11,10 @@ import {
   openDispatchStream,
   readDispatchStream,
 } from "../src/dispatch-stream.ts";
-import { scheduleArchivedDispatchStreamCompaction } from "../src/dispatch-stream-archive.ts";
+import {
+  pruneDispatchStreamArchive,
+  scheduleArchivedDispatchStreamCompaction,
+} from "../src/dispatch-stream-archive.ts";
 
 const ROOT = tmpdir();
 
@@ -155,6 +158,108 @@ test("startup compaction queues only local archives and leaves live streams alon
     assert.equal(readDispatchStream(rootDir, archivedId)?.header.transcriptCompactionVersion, 1);
     assert.equal(readDispatchStream(rootDir, liveId)?.header.transcriptCompactionVersion, undefined);
     assert.deepEqual(readFileSync(livePath), liveBefore);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function archiveStreamFixture(
+  rootDir: string,
+  dispatchId: string,
+  ageDays: number,
+  fill: string,
+): { readonly file: string; readonly sizeBytes: number } {
+  const at = new Date(Date.parse("2026-10-24T00:00:00.000Z") - ageDays * 86_400_000);
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId: `runtime-${dispatchId}`,
+    instanceId: "instance-prune",
+    startedAt: at.toISOString(),
+  });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "provider_event",
+    occurredAt: at.toISOString(),
+    event: { type: "model.streaming", turnId: "turn-1", payload: { kind: "text_delta", delta: fill } },
+  });
+  const live = dispatchStreamPath(rootDir, dispatchId),
+    archive = path.join(path.dirname(live), "archive"),
+    archived = path.join(archive, `${dispatchId}.jsonl`);
+  mkdirSync(archive, { recursive: true });
+  renameSync(live, archived);
+  utimesSync(archived, at, at);
+  return { file: archived, sizeBytes: statSync(archived).size };
+}
+
+test("retention deletes archived streams past the day limit, keeps the boundary, and never touches live streams", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-age-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z"),
+    liveId = "dispatch_444444444444444444444444";
+  try {
+    const expired = archiveStreamFixture(rootDir, "dispatch_555555555555555555555555", 61, "Past retention."),
+      boundary = archiveStreamFixture(rootDir, "dispatch_666666666666666666666666", 60, "Exactly at retention."),
+      fresh = archiveStreamFixture(rootDir, "dispatch_777777777777777777777777", 59, "Inside retention.");
+    openDispatchStream(rootDir, {
+      dispatchId: liveId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-still-live",
+      instanceId: "instance-prune",
+      startedAt: "2026-10-23T00:00:00.000Z",
+    });
+
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    // Re-running the same pass stays idempotent once the expired file is already gone.
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+
+    assert.equal(existsSync(expired.file), false);
+    assert.equal(existsSync(boundary.file), true);
+    assert.equal(existsSync(fresh.file), true);
+    assert.equal(existsSync(dispatchStreamPath(rootDir, liveId)), true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retention evicts oldest archived streams past the byte cap, emptying the archive when even one stream exceeds it", () => {
+  const now = Date.parse("2026-10-24T00:00:00.000Z"),
+    capRoot = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-size-"));
+  try {
+    const oldest = archiveStreamFixture(capRoot, "dispatch_888888888888888888888888", 10, "Ten-day-old bytes."),
+      newest = archiveStreamFixture(capRoot, "dispatch_999999999999999999999999", 1, "One-day-old bytes.");
+
+    pruneDispatchStreamArchive(capRoot, { retentionDays: 0, retentionBytes: newest.sizeBytes }, now);
+    assert.equal(existsSync(oldest.file), false, "the oldest stream is evicted to reach the cap");
+    assert.equal(existsSync(newest.file), true, "the newest stream fits under the cap and stays");
+  } finally {
+    rmSync(capRoot, { recursive: true, force: true });
+  }
+
+  const emptyRoot = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-empty-"));
+  try {
+    const lone = archiveStreamFixture(emptyRoot, "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", 2, "A single oversized stream."),
+      newer = archiveStreamFixture(emptyRoot, "dispatch_999999999999999999999999", 1, "One-day-old bytes.");
+
+    pruneDispatchStreamArchive(
+      emptyRoot,
+      { retentionDays: 0, retentionBytes: Math.min(lone.sizeBytes, newer.sizeBytes) - 1 },
+      now,
+    );
+    assert.equal(existsSync(lone.file), false, "a cap no single stream satisfies empties the archive");
+    assert.equal(existsSync(newer.file), false, "the remaining stream also exceeds that cap");
+  } finally {
+    rmSync(emptyRoot, { recursive: true, force: true });
+  }
+});
+
+test("retention with both limits disabled keeps every archived stream", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-off-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z");
+  try {
+    const ancient = archiveStreamFixture(rootDir, "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", 400, "Older than any default.");
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: 0 }, now);
+    assert.equal(existsSync(ancient.file), true);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

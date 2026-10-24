@@ -71,6 +71,17 @@ test("the schedule admission window is read from the facet and refuses a sub-sec
   assert.throws(() => readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 999\n"));
 });
 
+test("dispatch archive retention defaults to 60 days with no size cap and reads either limit independently", () => {
+  assert.deepEqual(readSettingsFacet("settings:\n").dispatchArchive, { retentionDays: 60, retentionBytes: 0 });
+  assert.deepEqual(
+    readSettingsFacet("settings:\n  dispatchArchive:\n    retentionDays: 7\n    retentionBytes: 53687091200\n")
+      .dispatchArchive,
+    { retentionDays: 7, retentionBytes: 53_687_091_200 },
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  dispatchArchive:\n    retentionDays: -1\n"));
+  assert.throws(() => readSettingsFacet("settings:\n  dispatchArchive:\n    retentionBytes: -1\n"));
+});
+
 test("worktree setup steps round-trip as a block list and default to none", () => {
   assert.deepEqual(readSettingsFacet(body).worktree.setup, []);
   const steps = ["node-modules", "run: uv sync --frozen, then more"],

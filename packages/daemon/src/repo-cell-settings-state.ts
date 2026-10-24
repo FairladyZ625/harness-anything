@@ -28,6 +28,7 @@ import {
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "./durable-file.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import type { DispatchArchiveRetention } from "./dispatch-stream-archive.ts";
 import type {
   AuthoredSettingsInitialization,
   RepoCellActionContext,
@@ -288,6 +289,23 @@ export function readEffectiveReviewReturnBudget(
   return {
     value: projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     source: "repository",
+  };
+}
+
+/**
+ * The dispatch-archive retention in force at this projection cut: the repository settings value,
+ * else the declared defaults (60 days, no size limit) — including repositories whose Settings
+ * entity predates the fields, where absence is the default rather than a hole.
+ */
+export function readEffectiveDispatchArchiveRetention(
+  projection: Pick<TaskProjectionQueries, "getEntity">,
+): DispatchArchiveRetention {
+  const projected = projection.getEntity("settings", SETTINGS_ID)?.value as
+    | { readonly dispatchArchive?: { readonly retentionDays?: number; readonly retentionBytes?: number } }
+    | undefined;
+  return {
+    retentionDays: projected?.dispatchArchive?.retentionDays ?? INITIAL_SETTINGS_V1.dispatchArchive.retentionDays,
+    retentionBytes: projected?.dispatchArchive?.retentionBytes ?? INITIAL_SETTINGS_V1.dispatchArchive.retentionBytes,
   };
 }
 
