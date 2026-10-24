@@ -544,17 +544,19 @@ const guidanceSnapshot = {
 } as unknown as Parameters<typeof completionGuidance>[0];
 
 test("rejected submit receipts render the daemon's completion guidance as next steps", () => {
-  const placeholder = "Closeout is incomplete: Summary, Verification.",
+  // dec_E369B8616F50A6208B293997E7 CH2 removed `closeout_placeholder`; a submit rejection now names
+  // the real delivery defect (an unreadable or mismatched cut), never missing closeout prose.
+  const rejection = "Requested delivery commit a does not match bound worktree HEAD b.",
     cases = [
       {
-        code: "closeout_placeholder",
-        rejectionExplanation: placeholder,
+        code: "invalid_submission",
+        rejectionExplanation: rejection,
         next: [
           completionGuidance(
             guidanceSnapshot,
             "exe-a",
             "Fill harness/tasks/task-a/closeout.md, then run ha task submit task-a.",
-            placeholder,
+            rejection,
           ),
         ],
         lines: ["next: Fill harness/tasks/task-a/closeout.md, then run ha task submit task-a."],

@@ -1,6 +1,6 @@
 # Closeout
 
-收口前必须替换本文件占位内容；`ha task complete` 会拒绝占位文本。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。
+这个文件是 issue 时物化的固定骨架，直接改写每一节的内容即可；提交只读取正文，不比较章节标题，也不检查是否还留着提示句。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。
 
 ## Summary
 

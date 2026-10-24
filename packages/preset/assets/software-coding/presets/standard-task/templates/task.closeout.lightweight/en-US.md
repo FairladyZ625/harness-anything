@@ -1,6 +1,10 @@
 # Closeout
 
-Replace this file's placeholder content before closeout; `ha task complete` rejects placeholder text. A lightweight closeout answers two things only: what was delivered, and the command that verified it. Fact and decision bookkeeping is not a completion precondition under this profile; record it as usual when it happens.
+This file is the fixed skeleton materialized with the task; rewrite each section in place. Submit
+reads the prose and never compares headings or rejects retained prompt sentences. A lightweight
+closeout answers two things only: what was delivered, and the command that verified it. Fact and
+decision bookkeeping is not a completion precondition under this profile; record it as usual when
+it happens.
 
 ## Summary
 

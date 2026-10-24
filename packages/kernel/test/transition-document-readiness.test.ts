@@ -36,52 +36,50 @@ const planTemplate = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.closeout/zh-CN.md", import.meta.url),
     "utf8",
   ),
-  lightweightPlanTemplate = readFileSync(
-    new URL("../../preset/assets/software-coding/templates/task.plan.lightweight/en-US.md", import.meta.url),
-    "utf8",
-  ),
   lightweightCloseoutTemplate = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.closeout.lightweight/en-US.md", import.meta.url),
     "utf8",
   ),
+  lightweightPlanTemplate = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.plan.lightweight/en-US.md", import.meta.url),
+    "utf8",
+  ),
   planContract = transitionDocumentContract(planTemplate),
-  closeoutContract = transitionDocumentContract(closeoutTemplate),
   lightweightPlanContract = transitionDocumentContract(lightweightPlanTemplate),
-  lightweightCloseoutContract = transitionDocumentContract(lightweightCloseoutTemplate),
-  plan = (body: string) => assessTransitionDocument("task.plan", body, planContract),
-  closeout = (body: string) => assessTransitionDocument("task.closeout", body, closeoutContract);
+  plan = (body: string) => assessTransitionDocument("task.plan", body, planContract);
 
 test("transition document bindings enumerate canonical consumers and omit work closeout without a transition", () => {
   assert.deepEqual(
-    [
-      "task.start",
-      "runtime.run",
-      "squad.run",
-      "task.complete",
-      "decision.accept",
-      "agent.install",
-      "squad.install",
-    ].map((transition) => `${transition}:${requireTransitionDocumentKind(transition)}`),
+    ["task.start", "runtime.run", "squad.run", "decision.accept", "agent.install", "squad.install"].map(
+      (transition) => `${transition}:${requireTransitionDocumentKind(transition)}`,
+    ),
     [
       "task.start:task.plan",
       "runtime.run:task.plan",
       "squad.run:task.plan",
-      "task.complete:task.closeout",
       "decision.accept:decision.body",
       "agent.install:agent.instructions",
       "squad.install:squad.roster",
     ],
   );
+  // dec_E369B8616F50A6208B293997E7 CH2: a closeout is authored prose. `task.complete` names no
+  // readiness-judged document, so completion never compares it to a scaffold and never rejects it
+  // for retaining a template sentence. `work.closeout` still has no transition of its own.
+  assert.throws(() => requireTransitionDocumentKind("task.complete"), /no canonical document binding/u);
   assert.throws(() => requireTransitionDocumentKind("work.closeout"), /no canonical document binding/u);
 });
 
 test("task document readiness resolves a dotted transition id directly from its descriptor", () => {
-  const transition = "task.complete",
+  const transition = "task.start",
     action = getTaskActionForTransition(transition);
-  assert.equal(action?.id, "complete");
+  assert.equal(action?.id, "start");
   assert.equal(
     action?.managedDocuments.find(({ readinessRequired }) => readinessRequired)?.slot,
     requireTransitionDocumentKind(transition),
+  );
+  assert.equal(
+    getTaskActionForTransition("task.complete")?.managedDocuments.some(({ readinessRequired }) => readinessRequired),
+    false,
   );
 });
 
@@ -177,37 +175,23 @@ test("task plan suffix matching respects heading boundaries and fenced examples"
   assert.equal(plan(body + "\n## Required Reading (first)\nRead file.\n## Required Reading—second\n").ready, true);
 });
 
-test("closeout uses the same required-section and scaffold rules", () => {
-  const template = readFileSync(
-    new URL("../../preset/assets/software-coding/templates/task.closeout/zh-CN.md", import.meta.url),
-    "utf8",
+test("a closeout is never judged against its scaffold: the template body submits as authored", () => {
+  const cut = { commitSha: "c".repeat(40), deliverables: [], outputs: [] },
+    packet = submissionFromCloseout(closeoutTemplate, cut);
+  // The template materialized by task create is valid authored prose. Summary carries the
+  // scaffold's own sentence; that sentence is what the frozen submission records as the claim.
+  assert.equal(packet.completionClaim.startsWith("总结完成的行为变化及其意义。"), true);
+  assert.equal(packet.verificationNotes.length, 1);
+  assert.deepEqual(packet.knownGaps, packet.residualRisks);
+  // Section heading suffixes and missing optional sections are prose choices, not rejections.
+  const suffixed = submissionFromCloseout(
+    "# Closeout\n\n## Summary（交付了什么）\n\nDone.\n\n## Verification\n\nTests passed.\n",
+    cut,
   );
-  assert.deepEqual(
-    closeout(template).missingSections.map(({ section, reason }) => ({
-      section,
-      reason,
-    })),
-    [
-      { section: "Summary", reason: "scaffold" },
-      { section: "Verification", reason: "scaffold" },
-      { section: "Residual Risk", reason: "scaffold" },
-      { section: "Same Mechanism Elsewhere", reason: "scaffold" },
-    ],
-  );
-  assert.equal(
-    closeout(
-      "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nTests passed.\n\n" +
-        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nSearched the shared validator; no siblings.",
-    ).ready,
-    true,
-  );
-  assert.deepEqual(
-    closeout(
-      "# Closeout\n\n## Summary（交付了什么）\n\nDone.\n\n## Verification\n\nTests passed.\n\n" +
-        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable.",
-    ).missingSections.map(({ section }) => section),
-    ["Summary"],
-  );
+  assert.equal(suffixed.completionClaim, "Done.");
+  assert.deepEqual(suffixed.verificationNotes, ["Tests passed."]);
+  assert.deepEqual(suffixed.knownGaps, []);
+  assert.deepEqual(suffixed.residualRisks, []);
 });
 
 test("decision and declaration documents reject their canonical blank scaffolds", () => {
@@ -295,9 +279,6 @@ test("the readiness contract derives required sections and scaffold phrases from
   assert.throws(() => assessTransitionDocument("task.plan", realizedPlan()), {
     code: "scaffold_unavailable",
   });
-  assert.throws(() => assertTransitionDocumentReady("task.closeout", "## Summary\nDone."), {
-    code: "scaffold_unavailable",
-  });
 });
 
 test("the lightweight three-section scaffold passes once filled and rejects retained placeholders", () => {
@@ -370,13 +351,32 @@ test("section reader preserves repeated risk sections and fenced heading example
     sections.get("residual risk"),
     "已知缺口：first unresolved issue.\n\n已知缺口：second unresolved issue.",
   );
-  assert.equal(closeout(body).ready, true);
+  assert.deepEqual(submissionFromCloseout(body, { commitSha: "f".repeat(40), deliverables: [], outputs: [] }), {
+    commitSha: "f".repeat(40),
+    deliverables: [],
+    outputs: [],
+    completionClaim: "Delivered parser.",
+    verificationNotes: ["Command:\n```markdown\n## Residual Risk\nexample\n```\nExit 0."],
+    knownGaps: [
+      "已知缺口：first unresolved issue.\n\n已知缺口：second unresolved issue.",
+      "Inspected adjacent parser.",
+    ],
+    residualRisks: [
+      "已知缺口：first unresolved issue.\n\n已知缺口：second unresolved issue.",
+      "Inspected adjacent parser.",
+    ],
+  });
 });
 
-test("fenced required headings cannot make a missing closeout section ready", () => {
+test("a fenced heading example stays inside its real section and never becomes one", () => {
   const body =
     "## Summary\nDelivery\n## Verification\n~~~\n## Residual Risk\nExample only\n~~~\n## Same Mechanism Elsewhere\nInspected.";
-  assert.deepEqual(closeout(body).missingSections, [{ section: "Residual Risk", reason: "empty" }]);
+  // The reader still treats a fenced `## ` line as content, so the example cannot pose as a section.
+  assert.equal(markdownSections(body).get("verification"), "~~~\n## Residual Risk\nExample only\n~~~");
+  assert.deepEqual(
+    submissionFromCloseout(body, { commitSha: "d".repeat(40), deliverables: [], outputs: [] }).knownGaps,
+    ["Inspected."],
+  );
 });
 
 test("closeout submission preserves all prose, repeated sections, gaps and fenced headings", () => {
@@ -389,7 +389,7 @@ test("closeout submission preserves all prose, repeated sections, gaps and fence
       `## Residual Risk\n${risk}\n## Same Mechanism Elsewhere\n${mechanism}\n` +
       "## Residual Risk\nAnother known gap.",
     cut = { commitSha: "a".repeat(40), deliverables: [], outputs: ["Deleted-Production-Paths: src/old.ts"] },
-    packet = submissionFromCloseout(body, cut, closeoutContract),
+    packet = submissionFromCloseout(body, cut),
     allRisks = [risk + "\n\nAnother known gap.", mechanism];
   assert.deepEqual(packet, {
     ...cut,
@@ -400,24 +400,31 @@ test("closeout submission preserves all prose, repeated sections, gaps and fence
   });
 });
 
-test("closeout submission fails closed on missing or scaffold sections", () => {
-  const cut = { commitSha: "a".repeat(40), deliverables: [], outputs: [] },
-    summaryScaffold = closeoutContract.scaffoldBySection["Summary"]![0]!;
+test("closeout submission derives prose without failing on sections the author omitted", () => {
+  const cut = { commitSha: "a".repeat(40), deliverables: [], outputs: [] };
   for (const body of [
     "## Summary\nCompleted.\n## Verification\nTests pass.\n## Residual Risk\nKnown gap.",
-    `## Summary\n${summaryScaffold}\n## Verification\nTests pass.\n` +
-      "## Residual Risk\nNo residual risks.\n## Same Mechanism Elsewhere\nSibling checked.",
+    // The canonically materialized template, untouched, is a valid submission.
+    closeoutTemplate,
   ]) {
-    assert.throws(() => submissionFromCloseout(body, cut, closeoutContract), { code: "closeout_placeholder" });
+    const packet = submissionFromCloseout(body, cut);
+    assert.equal(packet.completionClaim.length > 0, true);
+    assert.notEqual(packet.completionClaim, "");
   }
 });
 
-test("the lightweight closeout contract requires only Summary and Verification and submits without risk sections", () => {
-  assert.deepEqual(lightweightCloseoutContract.requiredSections, ["Summary", "Verification"]);
+test("a closeout body without a Summary heading answers with its own prose", () => {
+  const cut = { commitSha: "e".repeat(40), deliverables: [], outputs: [] },
+    packet = submissionFromCloseout("# Closeout\n\nDelivered the change.\n", cut);
+  assert.equal(packet.completionClaim, "Delivered the change.");
+  assert.deepEqual(packet.verificationNotes, []);
+});
+
+test("the lightweight closeout submits without risk sections and keeps its own Verification prose", () => {
   const sha = "b".repeat(40),
     body = `## Summary\nDelivered ${sha}.\n## Verification\nnode tools/x.test.mjs — exit 0.`,
     cut = { commitSha: sha, deliverables: [], outputs: [] },
-    packet = submissionFromCloseout(body, cut, lightweightCloseoutContract);
+    packet = submissionFromCloseout(body, cut);
   assert.deepEqual(packet, {
     ...cut,
     completionClaim: `Delivered ${sha}.`,
@@ -425,15 +432,7 @@ test("the lightweight closeout contract requires only Summary and Verification a
     knownGaps: [],
     residualRisks: [],
   });
-  // A placeholder Verification is still rejected under the minimal contract.
-  const verificationScaffold = lightweightCloseoutContract.scaffoldBySection["Verification"]![0]!;
-  assert.throws(
-    () =>
-      submissionFromCloseout(
-        `## Summary\nDelivered ${sha}.\n## Verification\n${verificationScaffold}`,
-        cut,
-        lightweightCloseoutContract,
-      ),
-    { code: "closeout_placeholder" },
-  );
+  // The lightweight template itself is a valid authored body: its prompt sentences are content.
+  const untouched = submissionFromCloseout(lightweightCloseoutTemplate, cut);
+  assert.equal(untouched.completionClaim.startsWith("Summarize the completed behavior change."), true);
 });

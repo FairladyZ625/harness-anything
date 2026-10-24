@@ -110,7 +110,6 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["not_in_review", started.snapshot, ready],
       // A submitted cut the owner has not forwarded is still outside review.
       ["not_in_review", submitted.snapshot, ready],
-      ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
       ["review_missing", forwarded.snapshot, ready],
       ["consent_missing", reviewed.snapshot, ready],
       [
@@ -121,11 +120,7 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["gate_witness_missing", withGates(["lint"]), ready],
       ["decision_lineage_missing", orphanWork, ready],
       ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
-      [
-        "doc_sync_required",
-        consented.snapshot,
-        { ...ready, closeout: "dirty_eligible" as const, eligibleDirtyPaths: ["tasks/task-1/closeout.md"] },
-      ],
+      ["doc_sync_required", consented.snapshot, { ...ready, eligibleDirtyPaths: ["tasks/task-1/closeout.md"] }],
     ] as const;
     assert.equal(created.snapshot.task?.status, "planned");
     for (const [code, snapshot, context] of cases) {
@@ -138,21 +133,9 @@ test("completion blocker matrix returns one canonical next for every substantive
       assert.equal((blockers[0]?.next.action.length ?? 0) > 0, true, code);
       assert.equal((blockers[0]?.next.reason.length ?? 0) > 0, true, code);
     }
-    const missingSections = completionBlockers(consented.snapshot, "execution-1", {
-      ...ready,
-      closeout: "placeholder",
-      closeoutMissingSections: [
-        { section: "Summary", reason: "empty" },
-        { section: "Verification", reason: "empty" },
-      ],
-    })[0]!;
-    assert.match(missingSections.next.reason, /section Summary is empty/);
-    const templateSection = completionBlockers(consented.snapshot, "execution-1", {
-      ...ready,
-      closeout: "placeholder",
-      closeoutMissingSections: [{ section: "Residual Risk", reason: "scaffold" }],
-    })[0]!;
-    assert.match(templateSection.next.reason, /section Residual Risk is scaffold/);
+    // dec_E369B8616F50A6208B293997E7 CH2: closeout prose is never a blocker. A cut whose closeout
+    // still carries the scaffold sentence completes like any ready cut.
+    assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
     // A manual-attest gate names its own attestation command; no execution selector is needed.
     const witness = completionBlockers(withGates(["lint"]), "execution-1", ready)[0]!;
     assert.equal(witness.next.action.includes("--execution-id"), false);

@@ -571,9 +571,10 @@ function descriptor(document: CompiledTaskDocument, planScaffold: string | null 
     templateRef: document.templateRef,
     contentSha256: document.contentSha256,
     // The readiness contract this scaffold declares, frozen at materialization so judging a
-    // transition document never needs the scaffold blob or the bundled catalog. Only the
-    // readiness-judged slots carry it; the map's ordered keys are the required sections.
-    ...(document.slot === "task.plan" || document.slot === "task.closeout"
+    // transition document never needs the scaffold blob or the bundled catalog. Only the plan is
+    // readiness-judged; a closeout is authored prose, read at submit without a scaffold comparison
+    // (dec_E369B8616F50A6208B293997E7 CH2). The map's ordered keys are the required sections.
+    ...(document.slot === "task.plan"
       ? { readiness: transitionDocumentContract(planScaffold ?? document.body).scaffoldBySection }
       : {}),
   };

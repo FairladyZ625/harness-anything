@@ -69,11 +69,9 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     writeFileSync(path.join(artifacts, "report.md"), "# Evidence\n\nHolder-bound receipt under test.\n");
     const artifactReceipt = await cell.run({ kind: "doc-submit", taskId }, holder);
     assert.equal(artifactReceipt.outcome, "applied", JSON.stringify(artifactReceipt));
-    const completeBody = completeBodyTemplate;
-    writeFileSync(closeoutPath, completeBody);
+    writeFileSync(closeoutPath, completeBodyTemplate);
     const acceptedCloseout = await cell.run({ kind: "doc-submit", taskId }, holder);
     assert.equal(acceptedCloseout.outcome, "applied", JSON.stringify(acceptedCloseout));
-    writeFileSync(closeoutPath, completeBody.replace(/## Verification\n[\s\S]*?(?=## Residual Risk)/u, ""));
     const submit = async () => {
       let receipt = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
       for (let attempt = 0; receipt.outcome === "pending" && attempt < 4; attempt += 1) {
@@ -82,14 +80,12 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
       }
       return receipt;
     };
-    const missing = await submit();
-    assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
-    assert.equal(missing.code, "closeout_placeholder", JSON.stringify(missing));
-    assert.match(JSON.stringify(missing.next), /Verification/u);
+    // dec_E369B8616F50A6208B293997E7 CH2 deleted the closeout scaffold comparison: an incomplete
+    // body is prose. `closeout-skeleton-submit.integration.test.ts` covers that direct path; this
+    // fixture stays on holder authority, so it submits once with the complete body below.
     const foreign = await cell.run({ kind: "task-submit", taskId, executionId }, other);
     assert.equal(foreign.outcome, "op_rejected", JSON.stringify(foreign));
     assert.match(String(foreign.code), /lease/u);
-    writeFileSync(closeoutPath, completeBody);
     const submitted = await submit();
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     // Success says success: the affirmation names the execution instead of dumping closeout duties.
@@ -132,7 +128,7 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     assert.deepEqual(events(), before, "discarding the response must not create another submission event");
     writeFileSync(
       closeoutPath,
-      completeBody.replace("Delivered the private report.", "Delivered the amended private report."),
+      completeBodyTemplate.replace("Delivered the private report.", "Delivered the amended private report."),
     );
     const bareChanged = await submit();
     assert.equal(bareChanged.outcome, "op_rejected", JSON.stringify(bareChanged));

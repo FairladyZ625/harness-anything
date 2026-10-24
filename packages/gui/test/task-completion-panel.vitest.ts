@@ -146,7 +146,7 @@ describe("Task completion panel", () => {
     installBridge();
     await mount();
     await clickTab("收口");
-    // blocker 不在 review/consent 阶段(默认 closeout_placeholder)时,面板只给指引,不给按钮。
+    // blocker 不在 review/consent 阶段(默认 gate_witness_missing)时,面板只给指引,不给按钮。
     expect(document.querySelector('[data-testid="task-completion-submit"]')).toBeNull();
     expect(document.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
   });

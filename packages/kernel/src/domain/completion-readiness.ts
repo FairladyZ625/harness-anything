@@ -9,7 +9,6 @@ import {
   type CompletionDeliveryStatus,
 } from "./closeout-readiness.ts";
 import type { FrozenCompletionContract } from "./completion-contract.ts";
-import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 import {
   approvedReviewHistoryForExecution,
@@ -29,7 +28,6 @@ export type CompletionBlockerCode =
   | "not_in_review"
   | "task_blocked"
   | "executor_missing"
-  | "closeout_placeholder"
   | "review_missing"
   | "consent_missing"
   | "delivery_missing"
@@ -55,9 +53,8 @@ export interface CompletionBlocker {
 }
 export interface CompletionReadinessContext {
   /** `missing`: the task contract declares no closeout document (an older contract generation). */
-  readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing";
+  readonly closeout: "ready" | "missing";
   readonly closeoutPath: string;
-  readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
   readonly eligibleDirtyPaths: readonly string[];
   readonly projectionStatus?: "ready" | "pending";
   readonly preparedGateIds?: readonly string[];
@@ -65,7 +62,6 @@ export interface CompletionReadinessContext {
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
   readonly delivery?: CompletionDeliveryStatus;
-  readonly closeoutContract?: MarkdownDocumentContract | null;
   /** Whether declare-executor has a dispatch record it can replay as executor proof. */
   readonly hasDispatchLineage?: boolean;
   /** Direct children with an active package; with a null parent it makes the task a derived work root. */
@@ -324,13 +320,6 @@ function evaluateCompletion(
       `Identify the authorizing Decision claim in harness/${context.closeoutPath} Summary.`,
       `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
     );
-  if (context.closeout !== "ready" && context.closeout !== "dirty_eligible")
-    return one(
-      "closeout_placeholder",
-      "closeout",
-      `Fill harness/${context.closeoutPath} section ${context.closeoutMissingSections?.[0]?.section ?? "Summary"}.`,
-      closeoutReason(context),
-    );
   if (context.eligibleDirtyPaths.length)
     return one(
       "doc_sync_required",
@@ -406,13 +395,6 @@ export function reviewConsentCommands(
     (review) =>
       `ha task review-consent ${taskId} --execution-id ${execution.executionId} --review-id ${review.reviewId}`,
   );
-}
-
-function closeoutReason(context: CompletionReadinessContext): string {
-  const first = context.closeoutMissingSections?.[0];
-  return first
-    ? `closeout.md section ${first.section} is ${first.reason}.`
-    : "Replace the canonical closeout placeholder before completion.";
 }
 
 /** One read-only next decision for complete and task detail consumers. */

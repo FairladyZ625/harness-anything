@@ -3,8 +3,6 @@ import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStoppe
 import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
-  assessTransitionDocument,
-  requireTransitionDocumentKind,
   taskCompletionNext,
   getExecutableEntityAction,
   isTaskEvent,
@@ -78,7 +76,7 @@ export async function runTaskCommandWithDocs(
         readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir),
         typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
       );
-    if (decision.blocker && decision.blocker.code !== "closeout_placeholder")
+    if (decision.blocker)
       return cell.completionStopped(opId, current.snapshot, decision.executionId ?? "", decision.blocker, []);
   }
   // A carried base must be a real cut in this center's history. Unrelated
@@ -252,26 +250,9 @@ export async function runTaskCommandWithDocs(
   let completionExecutionId: string | null = null;
   if (taskAction.kind === "task-complete" && taskAction.resolvedBy === undefined) {
     const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir),
-      body = bodyOverrides.get(context.closeoutPath),
-      assessment =
-        body === undefined
-          ? null
-          : assessTransitionDocument(
-              requireTransitionDocumentKind("task.complete"),
-              body,
-              context.closeoutContract ?? undefined,
-            ),
       decision = taskCompletionNext(
         current.snapshot,
-        {
-          ...context,
-          ...(assessment
-            ? {
-                closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),
-                closeoutMissingSections: assessment.missingSections,
-              }
-            : {}),
-        },
+        context,
         typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
       );
     if (decision.blocker) {

@@ -844,9 +844,7 @@ export function descriptorFacets(id: string) {
         ])
       : id === "start"
         ? Object.freeze([document("task.plan", "task_plan.md", "doc-sync", true, true, false)])
-        : id === "complete"
-          ? Object.freeze([document("task.closeout", "closeout.md", "doc-sync", true, true, false)])
-          : Object.freeze([]),
+        : Object.freeze([]),
     followUps: create
       ? Object.freeze([
           Object.freeze({

@@ -73,8 +73,9 @@ then derives the Submission from `closeout.md`
   a bound worktree's HEAD or its published merge commit; `deliverables` come
   from `git diff`.
 - Each `artifact:` anchor path must have a center-accepted revision.
-- A `closeout.md` still carrying preset scaffold sentences rejects as
-  `closeout_placeholder`.
+- `closeout.md` is free prose: section headings and retained scaffold sentences
+  are not rejections (dec_E369B8616F50A6208B293997E7 CH2); only a body that
+  cannot derive a valid Submission rejects.
 
 Resubmitting an identical closeout returns the stored receipt; a changed
 submission rejects and requires an explicit `ha task submit --amend`. Submit
@@ -129,7 +130,6 @@ current blocker codes:
 | `not_in_review` | the task is not in `in_review` |
 | `task_blocked` | the task is blocked |
 | `executor_missing` | no declared executor (`ha task declare-executor`) |
-| `closeout_placeholder` | the closeout is still scaffolding |
 | `review_missing` | no approved Review |
 | `consent_missing` | no review-consent record |
 | `delivery_missing` | repository settings require merged code delivery, but its recorded merge commit is absent from the configured target branch; legacy frozen `ci` gates use the same read-only merge evidence |

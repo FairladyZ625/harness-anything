@@ -210,7 +210,7 @@ export async function cleanupMountedDetail() {
 export function installBridge({
   uncommittedPlan = false,
   completionAction = "Center completion action",
-  completionBlocker = { code: "closeout_placeholder", gate: "closeout" },
+  completionBlocker = { code: "gate_witness_missing", gate: "lint" },
   planBody = "# Canonical plan body",
   explainer = false,
 }: {

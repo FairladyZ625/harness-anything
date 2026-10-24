@@ -111,13 +111,6 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     assert.equal(started.outcome, "applied", JSON.stringify(started));
     await waitForFixturePublication(cell, started.opId, owner);
 
-    const missingCloseout = await assertRejectedWithoutMutation(
-      rootDir,
-      repoId,
-      () => cell!.run({ kind: "task-submit", taskId, executionId }, owner),
-      [],
-    );
-    assert.equal(missingCloseout.code, "closeout_placeholder");
     writeFileSync(path.join(rootDir, "README.md"), "# Action failure delivery\n");
     git(rootDir, "add", "README.md");
     git(rootDir, "commit", "-qm", "test: action failure delivery");

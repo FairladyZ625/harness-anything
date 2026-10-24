@@ -1,12 +1,10 @@
 import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-task-completion.ts";
 import {
   assessFactRetirement,
-  assessTransitionDocument,
   consumeKnownError,
   currentExecutionCuts,
   INITIAL_SETTINGS_V1,
   localGitObjectRefStore,
-  requireTransitionDocumentKind,
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
   taskCompletionNext,
@@ -17,7 +15,7 @@ import {
   type TaskLifecycleSnapshot,
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
-import { readTaskTransitionDocument, taskTransitionDocumentState } from "./transition-document-access.ts";
+import { locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
@@ -51,10 +49,10 @@ export function readCompletionContext(
       eligibleDirtyPaths: [],
       projectionStatus: "pending",
     };
-  // Completion names its next step for packages of any generation: a closeout the contract never
-  // declared, has not written yet, or cannot judge without a scaffold is a step to take, not a
-  // read failure that would fail the write rendering this step.
-  const closeout = taskTransitionDocumentState({ projection, taskId, slot: "task.closeout" }),
+  // Completion names its next step for packages of any generation. The contract declaring no
+  // closeout document stays a step to take; an unwritten one is read when submit derives its
+  // prose, where the Submission schema — not a scaffold comparison — decides the empty claim.
+  const closeout = locateTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }),
     projectionStatus = projection.readRelationQuery({
       source: `task/${taskId}`,
       relationType: "produces",
@@ -67,29 +65,9 @@ export function readCompletionContext(
       projectionStatus,
       childTaskCount: projection.readTaskChildCounts([taskId])[taskId] ?? 0,
     };
-  if (closeout.state === "undeclared") return { ...common, closeout: "missing", closeoutPath: "" };
-  if (closeout.contract === null)
-    return {
-      ...common,
-      closeout: "placeholder",
-      closeoutPath: closeout.path,
-      invalidDocument: {
-        path: closeout.path,
-        reason: "The closeout document has no materialized scaffold to judge its readiness against.",
-      },
-    };
-  const assessment = assessTransitionDocument(
-    requireTransitionDocumentKind("task.complete"),
-    closeout.state === "written" ? readTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }).body : "",
-    closeout.contract,
-  );
-  return {
-    ...common,
-    closeout: assessment.ready ? "ready" : "placeholder",
-    closeoutContract: closeout.contract,
-    closeoutPath: closeout.path,
-    closeoutMissingSections: assessment.missingSections,
-  };
+  return closeout.path === null
+    ? { ...common, closeout: "missing", closeoutPath: "" }
+    : { ...common, closeout: "ready", closeoutPath: closeout.path };
 }
 
 export function readCompletionDeliveryStatus(

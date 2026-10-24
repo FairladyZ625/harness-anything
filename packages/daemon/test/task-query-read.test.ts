@@ -1635,7 +1635,7 @@ test("single-task completion read carries the canonical next and validates its r
     } as unknown as TaskProjection,
     result = readTaskCompletion(projection, taskId);
   const canonical = taskCompletionNext(snapshot, {
-    closeout: "placeholder",
+    closeout: "ready",
     closeoutPath: "tasks/task-1/closeout.md",
     eligibleDirtyPaths: [],
     projectionStatus: "ready",
