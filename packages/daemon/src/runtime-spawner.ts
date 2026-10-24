@@ -45,7 +45,11 @@ import {
   runtimeMissionName,
   resolveRuntimeMission,
 } from "./runtime-spawn-mission.ts";
-import { privateLedgerReadSection, resolvePrivateLedgerReads } from "./private-ledger-paths.ts";
+import {
+  dispatchLedgerReadTexts,
+  privateLedgerReadSection,
+  resolvePrivateLedgerReads,
+} from "./private-ledger-paths.ts";
 import { dispatchPromptTemplate, renderDispatchPrompt } from "./runtime-spawn-prompt.ts";
 import {
   assertPreparedRuntimeLaunch,
@@ -459,12 +463,19 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             readOnlyDispatch = effectivePermissionMode === "read-only",
             dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
             // A worktree checks out no private ledger, so every `harness/…` reference the agent
-            // declaration or the mission carries is answered with the path this worker can open.
+            // declaration or the mission carries is answered with the path this worker can open;
+            // an implementation dispatch also owes the isolated-test entry when nothing names it.
             privateReads = privateLedgerReadSection(
               resolvePrivateLedgerReads({
                 rootDir: input.rootDir,
                 cwd,
-                texts: [...(agent?.prompts ?? []), agent?.instructions, dispatchMission],
+                texts: dispatchLedgerReadTexts({
+                  prompts: agent?.prompts ?? [],
+                  instructions: agent?.instructions,
+                  mission: dispatchMission,
+                  reviewer: reviewerBinding,
+                  readOnly: readOnlyDispatch,
+                }),
               }),
             ),
             assembledPrompt = agent
