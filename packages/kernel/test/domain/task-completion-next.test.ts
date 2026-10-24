@@ -36,8 +36,7 @@ test("a never-started task names the evidence-and-settle chain, a started one ke
 test("completion next is one pure judgment across lifecycle and unavailable-input fixtures", () => {
   const active = at(2),
     submitted = at(3),
-    forwarded = at(4),
-    ready = at(6);
+    ready = at(5);
   const cases = [
     ["planned", at(1), context, "not_in_review", "ha task start task-1"],
     ["active own lease", active, context, "not_in_review", "ha task submit task-1"],
@@ -95,16 +94,15 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "review_missing",
       "ha task dispatch-review task-1",
     ],
-    ["forwarded unreviewed", forwarded, context, "review_missing", "ha task dispatch-review task-1"],
-    ["approved awaits the owner's verdict", at(5), context, "consent_missing", "ha task review-consent task-1"],
+    ["approved awaits the owner's verdict", at(4), context, "consent_missing", "ha task review-consent task-1"],
     [
       "multiple approved reviews await the owner's verdict",
-      { ...at(5), reviews: [...at(5).reviews, { ...at(5).reviews[0]!, reviewId: "review-additional" }] },
+      { ...at(4), reviews: [...at(4).reviews, { ...at(4).reviews[0]!, reviewId: "review-additional" }] },
       context,
       "consent_missing",
       "ha task review-consent task-1",
     ],
-    ["done", at(7), context, null, null],
+    ["done", at(6), context, null, null],
     [
       "projection unknown",
       ready,
@@ -203,7 +201,7 @@ const gatedAt = (
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 
 test("a retired code/doc requirement never demands a witness, empty cut or not", () => {
-  const snapshot = gatedAt([codeDocRequirement], 6),
+  const snapshot = gatedAt([codeDocRequirement], 5),
     withDeliverables = (deliverables: readonly string[]) => ({
       ...snapshot,
       executions: snapshot.executions.map((execution) => ({
@@ -224,11 +222,11 @@ test("a retired code/doc requirement never demands a witness, empty cut or not",
   }
   // A live requirement in the same contract still surfaces as a missing witness, so the
   // assertion above is not passing because gates were ignored wholesale.
-  assert.equal(taskCompletionNext(gatedAt([manualRequirement], 6), context).blocker?.code, "gate_witness_missing");
+  assert.equal(taskCompletionNext(gatedAt([manualRequirement], 5), context).blocker?.code, "gate_witness_missing");
 });
 
 test("a frozen CI gate reads configured merge evidence instead of an observation", () => {
-  const snapshot = gatedAt([retiredCiRequirement], 6),
+  const snapshot = gatedAt([retiredCiRequirement], 5),
     delivery = { required: true, targetBranch: "main", platform: "github" as const };
   const unmerged = taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: false } });
   assert.equal(unmerged.blocker?.code, "delivery_missing");
@@ -237,7 +235,7 @@ test("a frozen CI gate reads configured merge evidence instead of an observation
 });
 
 test("delivery_missing prompts for pr-merge or annotate when merge annotation is missing", () => {
-  const snapshot = gatedAt([retiredCiRequirement], 6),
+  const snapshot = gatedAt([retiredCiRequirement], 5),
     delivery = { required: true, targetBranch: "main", merged: null };
   const unmerged = taskCompletionNext(snapshot, { ...context, delivery });
   assert.equal(unmerged.blocker?.code, "delivery_missing");
@@ -249,7 +247,7 @@ test("delivery_missing prompts for pr-merge or annotate when merge annotation is
 });
 
 test("delivery_missing prompts for fetch when merge annotation is present but ref is not visible locally", () => {
-  const snapshot = gatedAt([retiredCiRequirement], 6),
+  const snapshot = gatedAt([retiredCiRequirement], 5),
     mergeSha = "f".repeat(40),
     delivery = { required: true, targetBranch: "main", merged: null, mergeSha };
   const unmerged = taskCompletionNext(snapshot, { ...context, delivery });
@@ -278,12 +276,12 @@ test("delivery_missing points local-only repositories to the explicit Settings r
 
 test("completion has no fact quota: a task with zero recorded facts still clears every blocker", () => {
   // dec_BB2BCE9F995CD3A126E2918734 CH4 removed the per-task fact gate; facts are on-demand.
-  assert.equal(taskCompletionNext(at(6), context).blocker, null);
+  assert.equal(taskCompletionNext(at(5), context).blocker, null);
 });
 
 test("a contract that declares no closeout starts completion with its migration", () => {
   const undeclared = { ...context, closeout: "missing" as const, closeoutPath: "" };
-  for (const snapshot of [at(1), at(2), at(6)]) {
+  for (const snapshot of [at(1), at(2), at(5)]) {
     const result = taskCompletionNext(snapshot, undeclared);
     assert.equal(result.blocker?.code, "document_invalid");
     assert.equal(result.next!.action, "ha task contract migrate --apply --task task-1");
@@ -293,9 +291,9 @@ test("a contract that declares no closeout starts completion with its migration"
   assert.equal(taskCompletionNext(done, undeclared).blocker, null);
 });
 
-// Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.
-test("a recorded changes_requested review guides the owner's return instead of another review dispatch", () => {
-  const reviewed = at(5),
+// Q1-R1-003: an adverse verdict past the rework budget is the owner's to dispose, not a missing review.
+test("a recorded changes_requested review guides the owner's disposition instead of another review dispatch", () => {
+  const reviewed = at(4),
     changesRequested = {
       ...reviewed,
       reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],
@@ -304,11 +302,11 @@ test("a recorded changes_requested review guides the owner's return instead of a
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   assert.equal(result.next?.authority, "person-owner");
   assert.doesNotMatch(result.next!.reason, /no recorded review/u);
-  assert.match(result.next!.reason, /rework/u);
+  assert.match(result.next!.reason, /budget is exhausted/u);
   const index = rematerializeTaskDocuments({
     snapshot: changesRequested,
     packagePath: "tasks/task-1",
@@ -317,11 +315,11 @@ test("a recorded changes_requested review guides the owner's return instead of a
   })[0]!.body;
   assert.match(
     index,
-    /ha task adjudicate task-1 --return --worker-mode <resume\|fresh\|none> --message <feedback> --review-id review-changes --note-file <path>/u,
+    /ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes/u,
   );
   assert.doesNotMatch(index, /dispatch-review/u);
   // Without any recorded review the dispatch guidance stands.
-  assert.equal(taskCompletionNext(at(4), context).next?.action, "ha task dispatch-review task-1");
+  assert.equal(taskCompletionNext(at(3), context).next?.action, "ha task dispatch-review task-1");
 });
 
 test("a changes request on the current cut comes before missing merge evidence", () => {
@@ -335,7 +333,7 @@ test("a changes request on the current cut comes before missing merge evidence",
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   // Without the changes request, the old frozen CI gate is interpreted through merge evidence.
   assert.equal(taskCompletionNext(reviewed, { ...context, delivery }).blocker?.code, "delivery_missing");
@@ -344,7 +342,7 @@ test("a changes request on the current cut comes before missing merge evidence",
 // Consent guidance names the execution and the review explicitly: a sole candidate is never
 // selected implicitly, so an exploratory run of the printed command can never write a consent.
 test("consent guidance names both ids for one candidate and for each of several", () => {
-  const single = at(5),
+  const single = at(4),
     multiple = { ...single, reviews: [...single.reviews, { ...single.reviews[0]!, reviewId: "review-additional" }] },
     index = (snapshot: typeof single) =>
       rematerializeTaskDocuments({
@@ -374,7 +372,7 @@ test("consent guidance names both ids for one candidate and for each of several"
 // The completion gate reads the same dispositions review-consent recorded: a changes_requested
 // review the owner disposed at consent no longer blocks completion.
 test("a consent-disposed changes_requested review no longer blocks completion", () => {
-  const consented = at(6),
+  const consented = at(5),
     late = { ...consented.reviews[0]!, reviewId: "review-late", verdict: "changes_requested" as const },
     execution = consented.executions[0]!,
     withLate = { ...consented, reviews: [...consented.reviews, late] },
@@ -409,7 +407,7 @@ test("a consent-disposed changes_requested review no longer blocks completion", 
 });
 
 test("an undisposed changes request prevents an approved review from reaching consent", () => {
-  const approved = at(5),
+  const approved = at(4),
     conflicted = {
       ...approved,
       reviews: [
@@ -421,15 +419,15 @@ test("an undisposed changes request prevents an approved review from reaching co
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id <approved-review-id> --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
 });
 
 test("an executorless review without dispatch lineage names an executable independent-review step", () => {
-  const forwarded = at(4),
+  const inReview = at(3),
     executorless = {
-      ...forwarded,
-      executions: forwarded.executions.map((execution) => ({
+      ...inReview,
+      executions: inReview.executions.map((execution) => ({
         ...execution,
         actor: { ...execution.actor, executor: null },
       })),
@@ -453,10 +451,10 @@ test("a missing executor blocks only while an independent review is still owed",
     }),
     reviewLifted = { review: false, consent: false, factDisposition: false };
   // A recorded review already judged independence, so the chain moves on to the remaining gates.
-  assert.notEqual(taskCompletionNext(withoutExecutor(at(6)), context).blocker?.code, "executor_missing");
+  assert.notEqual(taskCompletionNext(withoutExecutor(at(5)), context).blocker?.code, "executor_missing");
   // With the review gate lifted no reviewer independence is judged at all.
   assert.notEqual(
-    taskCompletionNext(withoutExecutor(at(4)), { ...context, closeoutGates: reviewLifted }).blocker?.code,
+    taskCompletionNext(withoutExecutor(at(3)), { ...context, closeoutGates: reviewLifted }).blocker?.code,
     "executor_missing",
   );
 });

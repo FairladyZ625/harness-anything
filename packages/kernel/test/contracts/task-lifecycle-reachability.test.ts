@@ -100,13 +100,6 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
       },
       { actorBinding: owner, leaseVersion: 0, sessionDisposition: "complete" },
     ),
-    adjudications = (["forward", "return"] as const).map((decision) =>
-      make(
-        owner,
-        { type: "AdjudicateSubmission", taskId, executionId, decision, reason: "reachability" },
-        { actorBinding: owner, capability: "task-adjudicate@v1", capabilityRef: "cap-adjudicate" },
-      ),
-    ),
     review = make(
       reviewer,
       {
@@ -124,7 +117,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
           ? submissionDigest(currentExecution.submission)
           : `sha256:${"c".repeat(64)}`,
       },
-      { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review" },
+      { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review", reworkBudget: 2 },
     ),
     consent = make(
       owner,
@@ -168,7 +161,6 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
     start,
     ...transitions,
     submit,
-    ...adjudications,
     review,
     consent,
     complete,

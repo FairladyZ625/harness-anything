@@ -112,7 +112,7 @@ const canonicalRuntimeInputs: readonly ProviderWitnessV1[] = [
   { type: "heartbeat", payload: { runtimeSessionId: "runtime-session-claude" } },
 ];
 const claude = { witnesses: canonicalRuntimeInputs };
-test("runtime session semantics preserve the four adjudicated liveness/outcome cases", () => {
+test("runtime session semantics preserve the four judged liveness/outcome cases", () => {
   assert.deepEqual(
     [
       runtimeSessionSemanticState({ liveness: "live", outcome: null }),
