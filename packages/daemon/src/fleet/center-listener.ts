@@ -1080,9 +1080,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     isConnected: (key) => replicationOwners.has(replicationSlotKey(key)),
     diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
   });
-  // One limiter for every connection: the failure budget lives per node across sessions, not per
-  // socket. Each unauthenticated socket holds a session slot and a credential check it may still
-  // trigger; the limiter bounds the credential cost of a node that keeps failing its hello.
+  // One limiter for every connection: the failure budget lives per connection source across
+  // sessions, not per socket and not per claimed node id. Each unauthenticated socket holds a
+  // session slot and a credential check it may still trigger; the limiter bounds the credential
+  // cost of a source that keeps failing its hello.
   const guardedAuthenticate = createHelloRateLimiter(options.authenticate);
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(

@@ -158,23 +158,55 @@ test("an unauthenticated connection is cut after the hello window", { timeout: 1
   peer.close();
 });
 
-test("hello authentication failures are rate limited per node", { timeout: 30_000 }, async (t) => {
+test("rotating the claimed node id cannot refill the hello failure budget", { timeout: 30_000 }, async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center();
+  // Every hello claims a different, unregistered id from the same source address.
   for (let attempt = 0; attempt < 5; attempt += 1)
     await assert.rejects(
-      rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "wrong-machine-secret"),
+      rawPeer(fixture.track, center.port, fixture.cert, `rotated-${attempt}`, "wrong-machine-secret"),
       /authentication_failed/u,
     );
-  // The failure budget is spent: even the valid credential is now rejected locally.
+  // The real node's id was never claimed, yet the shared source budget is spent: its valid credential
+  // is refused locally instead of buying a sixth credential check.
   await assert.rejects(
     rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
     /authentication_failed/u,
   );
-  // Another node's budget is untouched by this node's failures.
-  const other = await rawPeer(fixture.track, center.port, fixture.cert, fixture.peerSubject.nodeId, "machine-secret"),
-    ready = await other.request(beginFrame(fixture.subject.repoId, "rate-limit-peer", 5, "rate-limit-peer"));
+});
+
+test("a third party's failed hellos do not lock a node out from another source", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  // A dual-stack listener lets one center see ::1 and 127.0.0.1 as distinct pre-authentication sources.
+  let center;
+  try {
+    center = await fixture.center(replicaQuota, { hostname: "::" });
+  } catch {
+    t.skip("requires dual-stack loopback (IPv4 and IPv6 on one listener) to present two peer addresses");
+    return;
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1)
+    await assert.rejects(
+      rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "wrong-machine-secret", {
+        host: "::1",
+      }),
+      /authentication_failed/u,
+    );
+  // A different source address carries its own budget: the real node still authenticates.
+  let peer;
+  try {
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === "ECONNREFUSED" || code === "EADDRNOTAVAIL") {
+      t.skip("requires dual-stack loopback (IPv4 and IPv6 on one listener) to present two peer addresses");
+      return;
+    }
+    throw error;
+  }
+  const ready = await peer.request(beginFrame(fixture.subject.repoId, "source-budget-peer", 5, "source-budget-peer"));
   assert.equal(ready.schema, "fleet.upload.ready/v1", JSON.stringify(ready));
-  other.close();
+  peer.close();
 });

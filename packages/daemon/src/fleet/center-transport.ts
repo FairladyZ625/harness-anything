@@ -56,6 +56,10 @@ export async function serve(
   replicationOwners: Map<string, TLSSocket>,
 ): Promise<void> {
   const disconnected = new AbortController();
+  // The hello-failure budget is charged to this pre-authentication source, which the hello frame
+  // cannot choose. Normalizing the v4-mapped form keeps one host from holding two budgets on a
+  // dual-stack listener.
+  const connectionSource = socket.remoteAddress?.replace(/^::ffff:/u, "") ?? "unknown";
   // Kernel probes find a peer that vanished without a FIN (sleep, NAT reset, suspended VM).
   socket.setKeepAlive(true, 15_000);
   // The hello window bounds what an unauthenticated socket can hold: a session slot and the
@@ -285,7 +289,7 @@ export async function serve(
             "protocol_version_unsupported",
             `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; upgrade the edge node to the same version as the center.`,
           );
-        if (!(await options.authenticate(frame.nodeId, frame.credential)))
+        if (!(await options.authenticate(frame.nodeId, frame.credential, connectionSource)))
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         helloAdmitted();
         nodeId = frame.nodeId;

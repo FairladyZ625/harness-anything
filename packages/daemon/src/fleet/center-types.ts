@@ -37,7 +37,11 @@ export interface FleetCenterOptions {
   readonly helloTimeoutMs?: number;
   readonly now?: () => string;
   readonly writerId?: string;
-  readonly authenticate: (nodeId: string, credential: string) => boolean | Promise<boolean>;
+  /**
+   * `source` is the pre-authentication connection source (the peer address), supplied by the
+   * transport so hello-failure budgets are keyed on something the hello frame cannot choose.
+   */
+  readonly authenticate: (nodeId: string, credential: string, source: string) => boolean | Promise<boolean>;
   /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;

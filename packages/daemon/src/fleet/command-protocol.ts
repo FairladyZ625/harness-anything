@@ -21,7 +21,7 @@ export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_UPLOAD_MAX_BYTES = 64 * 1024 * 1024,
   /** An unauthenticated connection is cut when its hello has not been admitted within this window. */
   FLEET_HELLO_TIMEOUT_MS = 30_000,
-  /** Failed hello authentications one node may produce before its next hello is refused locally. */
+  /** Failed hello authentications one connection source may produce before its next hello is refused locally. */
   FLEET_HELLO_FAILURE_LIMIT = 5,
   FLEET_HELLO_FAILURE_WINDOW_MS = 60_000,
   FLEET_PAGE_ROWS = 128,
