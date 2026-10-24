@@ -142,6 +142,8 @@ test("task-bound explicit prompts carry the lookup guidance, living protocol and
   assert.ok(guidanceAt >= 0, "lookup guidance rides the task-bound mission");
   assert.ok(protocolAt > guidanceAt, "the living deliverable protocol follows the guidance");
   assert.ok(noteAt > protocolAt, "the PR publication note follows the living protocol");
+  assert.match(taskPrPublicationNote, /先运行 `ha task submit <task-id>` 冻结交付事实/u);
+  assert.match(taskPrPublicationNote, /机器派生交付事实从 submission 读取/u);
   assert.ok(promptAt > noteAt, "the caller text stays last");
   assert.ok(mission.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 });
@@ -255,10 +257,16 @@ test("taskPlanSection names the package root once and carries the body trimmed a
   assert.match(taskPlanSection(body), /^本任务的 task_plan\.md 全文如下/u, "package root is optional");
 });
 
-test("PR publication rides one sentence and no repository-specific body protocol", () => {
+test("PR publication freezes machine facts before the repository opens the PR", () => {
   for (const profileId of ["baseline", "lightweight"] as const) {
     const mission = explicitPromptMission("task_x", null, "Go.", profileId);
-    assert.match(mission, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
+    assert.match(mission, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
+    assert.match(mission, /再推送并用 `gh pr create --head <task-id>` 开 PR/u);
+    assert.match(mission, /机器派生交付事实从 submission 读取，不要手填或重新计算/u);
+    assert.ok(
+      mission.indexOf("ha task submit <task-id>") < mission.indexOf("gh pr create --head <task-id>"),
+      "the submission cut is frozen before publication",
+    );
     assert.doesNotMatch(mission, /# PR Body Delivery Protocol/u);
     assert.doesNotMatch(mission, /pull_request_template\.md|Production-Delta|check-pr-body|task\.pr-body/u);
   }

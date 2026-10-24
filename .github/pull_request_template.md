@@ -9,6 +9,10 @@
 
 -
 
+<!-- After task submit, generate this block with `node tools/gates/render-task-pr-body.mjs --task <task-id>`. -->
+<!-- harness:submission-facts:start -->
+<!-- harness:submission-facts:end -->
+
 ## Machine-Readable Declarations
 
 <!-- These declarations are checked by jobs in `.github/workflows/pr-body.yml`; `tools/gate-manifest.json` is the authority for their workflow mapping. -->
@@ -58,10 +62,8 @@ Dependency-Change: none
 
 ## Verification
 
-- Delivery and base anchors: read them from the frozen submission record (the execution `Commit` field via `ha task show <task-id> --json`); never hand-copy a SHA into this body.
 - Public diff command:
 - Private evidence commit/path:
-- GitHub Actions `rewrite-ci` run URL:
 - Commands recorded below ran exactly as written; anything not run is listed with a reason.
 - Not run: none
 

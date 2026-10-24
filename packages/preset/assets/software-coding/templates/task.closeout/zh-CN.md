@@ -4,7 +4,7 @@
 
 ## Summary
 
-总结完成的行为变化及其意义。提交的 execution 会冻结交付 commit、基线、交付清单和门禁计算出的 production delta；不要在这里手抄这些机器派生值。
+总结完成的行为变化及其意义。submission 会冻结机器派生的交付事实：`commitSha`、`changedFiles`，以及代码 cut 的 `productionDelta.baseSha` / `productionDelta.added` / `productionDelta.deleted`。直接引用这些字段，不要在这里手抄数值。
 
 ## Verification
 

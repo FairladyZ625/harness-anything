@@ -70,18 +70,29 @@ test("an expired current-round lease is recoverable by any repo-write actor thro
     const artifacts = path.join(rootDir, "harness", packagePath, "artifacts");
     mkdirSync(artifacts, { recursive: true });
     writeFileSync(path.join(artifacts, "report.md"), "# Evidence\n\nTakeover receipt under test.\n");
+    const worktreeArtifacts = path.join(rootDir, ".worktrees", "task_dead_zone", "harness", packagePath, "artifacts");
+    mkdirSync(worktreeArtifacts, { recursive: true });
+    writeFileSync(path.join(worktreeArtifacts, "report.md"), "# Evidence\n\nTakeover receipt under test.\n");
     const artifactReceipt = (await cell.run(
       { kind: "doc-submit", taskId: "task_dead_zone" },
       peerBinding,
     )) as WriteReceipt;
     assert.equal(artifactReceipt.outcome, "applied", JSON.stringify(artifactReceipt));
-    writeFileSync(
-      path.join(rootDir, "harness", packagePath, "closeout.md"),
-      "## Summary\nRecovered after lease expiry. " +
+    const closeoutBody =
+        "## Summary\nRecovered after lease expiry. " +
         `artifact:${packagePath}/artifacts/report.md@${String(artifactReceipt.revision)}\n` +
         "## Verification\n- Targeted test passed.\n" +
         "## Residual Risk\n- None.\n" +
         "## Same Mechanism Elsewhere\n- None.\n",
+      closeoutPath = path.join(rootDir, "harness", packagePath, "closeout.md"),
+      worktreeCloseoutPath = path.join(rootDir, ".worktrees", "task_dead_zone", "harness", packagePath, "closeout.md");
+    for (const file of [closeoutPath, worktreeCloseoutPath]) {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, closeoutBody);
+    }
+    assert.equal(
+      (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, peerBinding)).outcome,
+      "applied",
     );
     const submitted = (await cell.run(
       { kind: "task-submit", taskId: "task_dead_zone", executionId: "exe_dead_zone" },
@@ -124,13 +135,19 @@ test("the task owner can force-release an abandoned lease, rejoin its execution,
     assert.equal(started.outcome, "applied", JSON.stringify(started));
 
     // The agent session ended after a provider 429; no heartbeat or release reached the ledger.
-    writeFileSync(
-      path.join(rootDir, "harness", packagePath, "closeout.md"),
-      "## Summary\nThe delivery was ready before the worker session ended.\n" +
+    const closeoutBody =
+        "## Summary\nThe delivery was ready before the worker session ended.\n" +
         "## Verification\nThe task owner recovered the existing execution.\n" +
         "## Residual Risk\nNo provider retry was attempted.\n" +
         "## Same Mechanism Elsewhere\nRuntime-session leases use the same task-start fencing sequence.\n",
-    );
+      closeoutPaths = [
+        path.join(rootDir, "harness", packagePath, "closeout.md"),
+        path.join(rootDir, ".worktrees", taskId, "harness", packagePath, "closeout.md"),
+      ];
+    for (const file of closeoutPaths) {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, closeoutBody);
+    }
     const foreignTakeover = (await cell.run(
       {
         kind: "task-release",
@@ -180,7 +197,10 @@ test("the task owner can force-release an abandoned lease, rejoin its execution,
     )) as WriteReceipt;
     assert.equal(staleWrite.outcome, "op_rejected", JSON.stringify(staleWrite));
 
-    const synced = (await cell.run({ kind: "doc-submit", taskId }, holderBinding)) as WriteReceipt;
+    const synced = (await cell.run(
+      { kind: "doc-submit", paths: [`${packagePath}/closeout.md`] },
+      holderBinding,
+    )) as WriteReceipt;
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, holderBinding)) as WriteReceipt;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));

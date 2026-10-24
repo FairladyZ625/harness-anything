@@ -125,10 +125,12 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
     const deliveryRoot = path.join(root, ".worktrees", taskId);
     writeFileSync(path.join(deliveryRoot, "README.md"), "# Executor null live\n\nDelivered change.\n");
     git(deliveryRoot, "commit", "--quiet", "-am", "executor null delivery");
-    writeFileSync(
-      path.join(root, "harness", closeoutPath),
-      `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`,
-    );
+    const closeoutBody = `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`;
+    for (const closeoutRoot of [root, deliveryRoot]) {
+      const file = path.join(closeoutRoot, "harness", closeoutPath);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, closeoutBody);
+    }
     const closeoutSync = run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]);
     assert.equal(closeoutSync.outcome, "applied");
     published(root, userRoot, daemonId, closeoutSync);
