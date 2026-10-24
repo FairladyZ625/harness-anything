@@ -121,12 +121,12 @@ export async function publishExit(
           })()
         : { superseded: false };
     const reviewId = `review-${active.dispatchId}`;
+    const providerAlreadyFailed = outcome === "failed";
     // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
     // the event on the node that owns the projection so normal exit without registration cannot
     // look complete. Remote edges have no local projection and keep their existing unknown path.
     if (
       !cancelled &&
-      outcome !== "failed" &&
       ruling === null &&
       !reviewSuperseded.superseded &&
       (active.role === "reviewer" ||
@@ -141,7 +141,7 @@ export async function publishExit(
         : active.decisionReviewTarget !== null &&
           decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))
     ) {
-      outcome = "failed";
+      if (!providerAlreadyFailed) outcome = "failed";
       reviewResultMissing = true;
     }
     const attemptOutcome = {
@@ -151,7 +151,7 @@ export async function publishExit(
       // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
       reason: reviewSuperseded.superseded
         ? reviewSuperseded.reason!
-        : reviewResultMissing
+        : reviewResultMissing && !providerAlreadyFailed
           ? `Review ${reviewId} was not registered before reviewer settlement.`
           : isProviderFailureClassification(classifiedAttempt.classification)
             ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)

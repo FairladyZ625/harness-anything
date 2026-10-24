@@ -408,6 +408,33 @@ test("a decision reviewer without a registered review settles failed with a spec
   assert.match(outcomeBodies[0]!, /review-.*was not registered/u);
 });
 
+test("a missing review is explicit without replacing an existing provider failure", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-provider-failure", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "provider failure before review registration",
+      role: "reviewer",
+      providerOutcome: "failed",
+      failureText: "provider authentication expired",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body ?? ""));
+      }
+      return {};
+    });
+  await publishExit(settleContext, runtime, 0);
+  assert.equal(outcomes[0]?.outcome, "failed");
+  assert.equal(outcomes[0]?.reasonCode, "review_result_missing");
+  assert.match(
+    String((outcomes[0]?.attempt as { readonly reason?: string })?.reason),
+    /provider authentication expired/u,
+  );
+  assert.match(outcomeBodies[0]!, /review-.*was not registered/u);
+});
+
 test("an edge reviewer without a local projection settles stopped", async (context) => {
   const fixture = workerGitFixture(context, "settle-review-edge", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
