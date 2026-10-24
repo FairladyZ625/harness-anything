@@ -109,8 +109,7 @@ describe("live floor model", () => {
   it("keeps only live sessions and enriches them from the same dispatch row", () => {
     const rows = liveFloorRows({
       sessions: [session(), session({ runtimeSessionId: "runtime-exited", liveness: "exited" })],
-      dispatches: [dispatch()],
-      taskTitles: new Map([["task/task-1", "修复现场页面"]]),
+      dispatches: [dispatch({ taskTitle: "修复现场页面" })],
       works,
     });
     expect(rows).toHaveLength(1);
@@ -124,11 +123,24 @@ describe("live floor model", () => {
     });
   });
 
+  // CEO 现场截图(#3935 之后)的真实形状:行按工作正确分组,标题却全丢——分组读工作索引,
+  // 标题读任务列表,而任务列表把仍带退役字段的投影行整行隔离掉。绑定任务的会话行必须从
+  // 派工行拿标题(与 taskId 同一来源),不许再退回某个覆盖不全的第二索引,也不许显示原始 id。
+  it("labels a bound dispatch row from its own task title even when the task list is sparse", () => {
+    const rows = liveFloorRows({
+      sessions: [session({ runtimeSessionId: "runtime_936005e17712d168d126f3273a", associations: [] })],
+      dispatches: [
+        dispatch({ runtimeSessionId: "runtime_936005e17712d168d126f3273a", taskTitle: "让任务等级决定流程" }),
+      ],
+      works: { ...NO_WORKS, ready: true, hasWorks: true, workOf: () => null },
+    });
+    expect(rows[0]?.taskTitle).toBe("让任务等级决定流程");
+  });
+
   it("labels retry attempts as rework and presents readable model names", () => {
     const rows = liveFloorRows({
       sessions: [session()],
-      dispatches: [dispatch({ attemptIndex: 1 })],
-      taskTitles: new Map([["task/task-1", "返工"]]),
+      dispatches: [dispatch({ attemptIndex: 1, taskTitle: "返工" })],
       works,
     });
     expect(rows[0]?.channel).toBe("rework");
@@ -155,7 +167,6 @@ describe("live floor model", () => {
       dispatches: [
         dispatch({ activityStatus: undefined, activityObservedAt: undefined, activityIdleMinutes: undefined }),
       ],
-      taskTitles: new Map(),
       works,
     });
     expect(legacy[0]?.activityStatus).toBeNull();
@@ -233,14 +244,14 @@ describe("live floor model", () => {
   });
 
   it("maps ended dispatches onto conclusions, with the review verdict outranking outcome wording", () => {
-    const titles = new Map([["task/task-1", "任务一"]]),
-      nowMs = Date.parse("2026-10-23T12:00:00.000Z"),
+    const nowMs = Date.parse("2026-10-23T12:00:00.000Z"),
       ended = (patch: Partial<TaskDispatchProjectionRow>) =>
         dispatch({
           endedAt: "2026-10-23T08:00:00.000Z",
           outcome: "succeeded",
           status: "succeeded",
           reportPath: "tasks/task-1/artifacts/reports/dispatch-1.md",
+          taskTitle: "任务一",
           ...patch,
         }),
       tasks = [
@@ -296,7 +307,6 @@ describe("live floor model", () => {
           endedAt: "2026-10-21T08:00:00.000Z",
         }),
       ],
-      taskTitles: titles,
       tasks,
       nowMs,
     });
@@ -308,6 +318,8 @@ describe("live floor model", () => {
       ["d-stopped", "interrupted"],
     ]);
     expect(rows[0]?.reportPath).toBe("tasks/task-1/artifacts/reports/dispatch-1.md");
+    // 「刚结束」的行也从派工行拿标题:列表稀疏时不再退回原始 task id。
+    expect(rows.every((row) => row.taskTitle === "任务一")).toBe(true);
   });
 
   it("buckets pipeline tasks by the daemon stage, keeps unknown daemon words visible, and drops work roots", () => {

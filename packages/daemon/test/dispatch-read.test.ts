@@ -62,7 +62,12 @@ function session(
 }
 function fixture(
   current = session("live", null),
-  options: { archive?: Record<string, unknown>; successor?: Dispatch; metrics?: Record<string, unknown> } = {},
+  options: {
+    archive?: Record<string, unknown>;
+    successor?: Dispatch;
+    metrics?: Record<string, unknown>;
+    title?: string | null;
+  } = {},
 ) {
   const event = {
     schema: "agent-runtime-event/v1",
@@ -84,11 +89,16 @@ function fixture(
   } as unknown as Dispatch;
   const events = options.successor ? [event, options.successor] : [event];
   const projection = {
-    read: () => ({ watermark: 1, sourceRevision: 1, packagePath: "tasks/task-1", snapshot: { task: { taskId } } }),
+    read: () => ({
+      watermark: 1,
+      sourceRevision: 1,
+      packagePath: "tasks/task-1",
+      snapshot: { task: { taskId, ...(options.title === null ? {} : { title: options.title ?? "Task one" }) } },
+    }),
     readTaskRuntimeBatch: () => ({
       status: "ready",
       taskIds: [taskId],
-      rows: [{ taskId, packagePath: "tasks/task-1", sessions: [current] }],
+      rows: [{ taskId, packagePath: "tasks/task-1", sessions: [current], title: options.title ?? "Task one" }],
       watermark: 1,
       sourceRevision: 1,
     }),
@@ -167,6 +177,34 @@ test("dispatch rows expose their source role, last observed activity, and daemon
   assert.equal(validTaskDispatchRow({ ...row, activityObservedAt: "not-a-utc-timestamp" }), false);
   assert.equal(validTaskDispatchRow({ ...row, activityIdleMinutes: 1.5 }), false);
   assert.equal(validTaskDispatchRow({ ...row, activityIdleMinutes: -1 }), false);
+});
+
+// The live floor groups its rows by the daemon work index but used to label them from
+// repo.tasks.list, so a task whose snapshot row the list read isolates kept its group and lost
+// its own title (the row fell back to 「未归属任务的会话」 or a raw task id). Both the batch and
+// the single-task dispatch reads already join task_snapshot for the session batch, so the row
+// itself must carry the title: one task identity, one title, no second read to disagree with.
+test("dispatch rows carry the task title the same projection holds, without a task-list read", () => {
+  const titled = fixture(session("live", null), { title: "让任务等级决定流程" }),
+    row = titled.rows()[0]!;
+  assert.equal(row.taskTitle, "让任务等级决定流程");
+  assert.deepEqual(
+    validateDaemonTaskDispatches({
+      ok: true,
+      status: "ready",
+      taskId,
+      dispatches: [row],
+      outcome: "unknown",
+      exitCode: 0,
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+    [],
+  );
+  // A projectless dispatch keeps the field absent rather than inventing a label.
+  const unbound = fixture(session("live", null), { title: null }).rows()[0]!;
+  assert.equal(unbound.taskTitle, undefined);
+  assert.equal(validTaskDispatchRow({ ...row, taskTitle: "" }), false);
 });
 
 test("dispatch rows project the latest provider activity from the local stream", () => {
