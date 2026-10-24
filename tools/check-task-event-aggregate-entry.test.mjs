@@ -27,17 +27,11 @@ function makeGateRoot(prefix) {
 }
 
 // S8's two exact registrations do not authorize another path or a second constructor.
-for (const eventType of ["task_assigned", "task_unassigned", "task_completion_generation_retired"]) {
+for (const eventType of ["task_completion_generation_retired"]) {
   test(`${eventType} registration rejects duplicate and unregistered constructors`, () => {
     const root = makeGateRoot("ha-assignment-entry-");
     try {
-      const allowed = path.join(
-        root,
-        "packages/kernel/src/domain",
-        eventType === "task_completion_generation_retired"
-          ? "task-completion-generation-retirement.ts"
-          : "task-assignment-transitions.ts",
-      );
+      const allowed = path.join(root, "packages/kernel/src/domain", "task-completion-generation-retirement.ts");
       mkdirSync(path.dirname(allowed), { recursive: true });
       const constructor = `envelope(command, "${eventType}", {});\n`;
       writeFileSync(allowed, constructor);

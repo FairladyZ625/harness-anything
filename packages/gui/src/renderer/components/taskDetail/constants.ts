@@ -21,6 +21,7 @@ export const OUT_LABEL: Record<RelationKind, string> = {
   owns: "拥有",
   dispatches: "派发",
   awaits: "等待答复",
+  "assigned-to": "指派给",
 };
 
 export const IN_LABEL: Record<RelationKind, string> = {
@@ -44,4 +45,5 @@ export const IN_LABEL: Record<RelationKind, string> = {
   owns: "归属",
   dispatches: "被派发",
   awaits: "被等待答复",
+  "assigned-to": "被指派",
 };

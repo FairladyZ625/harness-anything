@@ -61,6 +61,8 @@ import {
 } from "./protocol/daemon-protocol.contract.ts";
 import { workRootOf, workspaceStructureFromProjection } from "./workspace-scope-read.ts";
 import { attentionRegionWeights } from "./agenda-attention.ts";
+import { assignmentMatchesViewer, type AssignmentRelationLike } from "@harness-anything/kernel";
+import { assignmentFromRelation } from "./entity-assignment-runtime.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
@@ -93,6 +95,9 @@ export interface AgendaQuery {
   readonly limit?: number;
   readonly cursor?: string;
   readonly principalId?: string;
+  readonly nodeId?: string;
+  readonly teamIds?: readonly string[];
+  readonly ownerPersonId?: string;
   /** A work root task id; keeps that root and its subtree. */
   readonly work?: string;
 }
@@ -252,6 +257,21 @@ export function makeTaskQueryReadModel(input: {
         ...new Set(derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? [])),
       ],
       decisionRead = projection.readDecisions(decisionIds),
+      assignmentRead = projection.readTaskRelationsBySources(
+        lifecycle.rows.map(({ taskId }) => `task/${taskId}`),
+        "assigned-to",
+      ),
+      assignmentByTaskId = new Map(
+        lifecycle.rows.map(
+          (row) =>
+            [
+              row.taskId,
+              assignmentRead.rows.find(
+                ({ sourceRef, state }) => sourceRef === `task/${row.taskId}` && state === "active",
+              ) ?? null,
+            ] as const,
+        ),
+      ),
       cut = requireSameProjectionCut("task control surface", [
         lifecycle,
         dependencies,
@@ -260,6 +280,7 @@ export function makeTaskQueryReadModel(input: {
         awaits,
         taskStatuses,
         decisionRead,
+        assignmentRead,
       ]),
       activeDerives = new Map<string, typeof derives.rows>();
     for (const edge of derives.rows)
@@ -271,6 +292,20 @@ export function makeTaskQueryReadModel(input: {
       ...lifecycle,
       rows: lifecycle.rows.map((row) => {
         const task = row.snapshot.task,
+          assignment = assignmentByTaskId.get(row.taskId) ?? null,
+          assignmentRevision = Math.max(
+            row.workspaceRevision,
+            ...assignmentRead.rows
+              .filter(({ sourceRef }) => sourceRef === `task/${row.taskId}`)
+              .map(({ workspaceRevision }) => workspaceRevision ?? 0),
+          ),
+          snapshot: typeof row.snapshot =
+            task == null
+              ? row.snapshot
+              : {
+                  ...row.snapshot,
+                  task: { ...task, assignment: assignment === null ? null : assignmentFromRelation(assignment) },
+                },
           metadata = task?.metadata,
           disposition = requiredPackageDisposition(row.taskId, task?.packageDisposition),
           derived = activeDerives.get(`task/${row.taskId}`) ?? [],
@@ -314,10 +349,10 @@ export function makeTaskQueryReadModel(input: {
           coordinationStatus = task
             ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
             : ("unknown" as const),
-          closeoutAssessment = closeout(row.snapshot, snapshotAvailability),
+          closeoutAssessment = closeout(snapshot, snapshotAvailability),
           deliveryStage = taskDeliveryStage({
             status: coordinationStatus,
-            snapshot: row.snapshot,
+            snapshot,
             closeout: closeoutAssessment,
             blocking: blockingAssessment,
             updatedAt: row.updatedAt,
@@ -325,7 +360,7 @@ export function makeTaskQueryReadModel(input: {
           // dec_5B135F46 CH4: the board / visibility / capability judgments are the kernel's. This
           // read passes the row and the assessments it already has and returns what comes back.
           boardRow = {
-            snapshot: row.snapshot,
+            snapshot,
             blockingState: blockingAssessment.state,
             packageDisposition: disposition,
             origin,
@@ -333,13 +368,15 @@ export function makeTaskQueryReadModel(input: {
           };
         return {
           ...row,
+          assignmentRevision,
           coordinationStatus,
           snapshotAvailability,
           closeoutAssessment,
           blockingAssessment,
           deliveryStage,
           placement,
-          executionEvidence: row.snapshot.executions.map((execution) =>
+          snapshot,
+          executionEvidence: snapshot.executions.map((execution) =>
             projectExecutionEvidence(row.taskId, execution, origin),
           ),
           board: taskBoardPlacement(boardRow),
@@ -469,6 +506,19 @@ export function makeTaskQueryReadModel(input: {
               limit: sourceLimit,
               ...(cursor?.answeredForYou ? { cursor: cursor.answeredForYou } : {}),
             }),
+      assignmentSources = [
+        ...(active?.rows ?? []),
+        ...(blocked?.rows ?? []),
+        ...(planned?.rows ?? []),
+        ...(submitted?.rows ?? []),
+        ...(inReview?.rows ?? []),
+      ]
+        .map(({ taskId }) => `task/${taskId}`)
+        .concat((decisions?.decisions ?? []).map(({ decisionId }) => `decision/${decisionId}`)),
+      assignments =
+        query.principalId === undefined
+          ? null
+          : projection.readTaskRelationsBySources(assignmentSources, "assigned-to"),
       reads = [
         ...(active?.reads ?? []),
         ...(blocked?.reads ?? []),
@@ -478,7 +528,24 @@ export function makeTaskQueryReadModel(input: {
         ...(decisions === null ? [] : [decisions]),
         ...(awaits === null ? [] : [awaits]),
         ...(answered === null ? [] : [answered]),
+        ...(assignments === null ? [] : [assignments]),
       ],
+      assignmentFor = (sourceRef: string) => {
+        if (query.principalId === undefined) return true;
+        const relation = assignments?.rows.find(
+          ({ sourceRef: candidate, state }) => candidate === sourceRef && state === "active",
+        );
+        return assignmentMatchesViewer(
+          (relation as AssignmentRelationLike | undefined) ?? null,
+          {
+            personId: query.principalId,
+            ...(query.nodeId === undefined ? {} : { nodeId: query.nodeId }),
+            ...(query.teamIds === undefined ? {} : { teamIds: query.teamIds }),
+          },
+          query.ownerPersonId ?? sourceOwnerOf(sourceRef),
+          now().toISOString(),
+        );
+      },
       inFlight = (active?.rows ?? [])
         .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
         .map(agendaTaskRow)
@@ -491,6 +558,7 @@ export function makeTaskQueryReadModel(input: {
             !row.snapshot.executions.some(({ state }) => state === "active") &&
             latestExecution(row.snapshot.executions)?.state === "changes_requested",
         )
+        .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
       waitingOnOthers = [
@@ -531,7 +599,9 @@ export function makeTaskQueryReadModel(input: {
             projection
               .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId)
               .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
-        for (const row of leaseReturnedRows(active?.rows ?? [])) {
+        for (const row of leaseReturnedRows(active?.rows ?? []).filter(({ taskId }) =>
+          assignmentFor(`task/${taskId}`),
+        )) {
           const packagePath = row.packagePath;
           if (typeof packagePath === "string")
             for (const { path } of projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents) {
@@ -594,10 +664,12 @@ export function makeTaskQueryReadModel(input: {
         }
         return [...rows.values()].sort((left, right) => left.askedAt.localeCompare(right.askedAt));
       })(),
-      awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? []).sort(
-        compareAwaitingExecutions,
-      ),
-      underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? []).sort(compareAwaitingExecutions),
+      awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? [])
+        .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
+        .sort(compareAwaitingExecutions),
+      underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? [])
+        .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
+        .sort(compareAwaitingExecutions),
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         const full = projection.readDecision(decision.decisionId).decision;
         if (!full || decisionReviewRequirement === null) return { decision, signal: "ready" as const };
@@ -640,7 +712,11 @@ export function makeTaskQueryReadModel(input: {
       awaitingDecisionReview = sortDecisions(
         decisionSignals.filter(({ signal }) => signal === "needsReview").map(decisionRow),
       ),
-      awaitingDecision = sortDecisions(decisionSignals.filter(({ signal }) => signal === "ready").map(decisionRow)),
+      awaitingDecision = sortDecisions(
+        decisionSignals
+          .filter(({ signal, decision }) => signal === "ready" && assignmentFor(`decision/${decision.decisionId}`))
+          .map(decisionRow),
+      ),
       awaitingYou: AgendaAwaitsRow[] = (awaits?.rows ?? []).filter(relationIsCurrent).flatMap((edge) => {
         const request = parseAwaitsRequest(edge.rationale),
           relation = projection.readRelationEdge(edge.relationId);

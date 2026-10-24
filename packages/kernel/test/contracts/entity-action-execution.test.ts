@@ -5,7 +5,11 @@ import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/e
 
 const ingressKinds = [
   "agent-install",
+  "agent-assign",
+  "agent-unassign",
   "decision-accept",
+  "decision-assign",
+  "decision-unassign",
   "decision-amend",
   "decision-claim-add",
   "decision-claim-fulfill",
@@ -21,6 +25,8 @@ const ingressKinds = [
   "decision-transition",
   "decision-validate",
   "fact-record",
+  "fact-assign",
+  "fact-unassign",
   "fact-show",
   "relation-reconfirm",
   "relation-relate",
@@ -33,6 +39,8 @@ const ingressKinds = [
   "runtime_session_started",
   "runtime_session_task_bound",
   "schedule-claim",
+  "schedule-assign",
+  "schedule-unassign",
   "schedule-create",
   "schedule-delete",
   "schedule-disable",
@@ -47,6 +55,10 @@ const ingressKinds = [
   "schedule-update",
   "settings-read",
   "settings-update",
+  "squad-assign",
+  "squad-unassign",
+  "task-assign",
+  "task-unassign",
 ] as const;
 const readIngressKinds = new Set([
   "decision-list",
@@ -83,10 +95,19 @@ test("entity explanations expose action identity but keep runtime compile hooks 
 test("Agent catalog exposes reads while install owns its write contracts", () => {
   const explanation = explainEntityKind("agent"),
     action = getExecutableEntityAction("agent-install");
-  assert.deepEqual(explanation.transitions.available, ["install", "delete", "retire", "validate", "list", "inspect"]);
+  assert.deepEqual(explanation.transitions.available, [
+    "install",
+    "delete",
+    "retire",
+    "validate",
+    "list",
+    "inspect",
+    "assign",
+    "unassign",
+  ]);
   assert.deepEqual(
     explanation.transitions.actions.map(({ id }) => id),
-    ["install", "delete", "retire", "validate", "list", "inspect"],
+    ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign"],
   );
   assert.ok(action?.execution?.compile);
   assert.equal(action.execution.implementation, "compiled-event");
@@ -161,6 +182,8 @@ test("Schedule explanations expose revision, single-flight, assignment, claim-fe
     "reckon",
     "runs",
     "show",
+    "assign",
+    "unassign",
   ]);
   assert.equal(byId.has("fire"), false);
   assert.equal(

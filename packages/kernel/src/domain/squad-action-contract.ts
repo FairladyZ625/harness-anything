@@ -403,6 +403,9 @@ export function compileSquadDeleteAction(input: EntityActionCompileInput): Squad
 }
 
 export function squadActionUsage(action: EntityActionContract, squadId = "<squad-id>"): string {
+  if (action.id === "assign")
+    return `ha squad assign ${squadId} --person <person-id>|--node <node-id>|--team <team-id> --expected-version <revision>`;
+  if (action.id === "unassign") return `ha squad unassign ${squadId} --expected-version <revision>`;
   const usage: Record<SquadActionId, string> = {
     install: "ha squad install --source <squad-package> [--dry-run]",
     delete: `ha squad delete ${squadId} --expected-version <revision> --reason <reason>`,

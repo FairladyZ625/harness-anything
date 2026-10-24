@@ -99,10 +99,9 @@ test(
     );
     assert.equal(released.task.assignment.assignee.nodeId, "node-one");
     f.owners.reassign("node-one", "person-new");
-    assert.equal(
-      (await f.command("node-one", { kind: "task-start", taskId: "task-node" })).code,
-      "task_assignee_mismatch",
-    );
+    // A node principal identifies the current owner of that node. Reassignment of the node
+    // therefore follows the assigned principal; it is not a stale person field on the relation.
+    assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-node" })).outcome, "applied");
     await f.command("node-two", { kind: "task-create", taskId: "task-expired", title: "Expired selector" });
     const unassigned = JSON.parse(
       String(
@@ -296,7 +295,7 @@ test(
         await f.command("node-one", {
           kind: "task-unassign",
           taskId: "task-bundle",
-          expectedVersion: assigned.revision,
+          expectedVersion: assigned.assignmentRevision,
         })
       ).outcome,
       "applied",

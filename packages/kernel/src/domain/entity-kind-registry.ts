@@ -54,6 +54,7 @@ import { createRuntimeInstanceActionCatalog, createRuntimeInstanceKindContract }
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import { createPersonActionCatalog } from "./person-action-contract.ts";
 import { createSquadActionCatalog } from "./squad-action-contract.ts";
+import { createAssignmentActionCatalog } from "./assignment-action-contract.ts";
 import {
   DEFAULT_ENTITY_ACTION_RESULT_CONTRACT,
   DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
@@ -387,6 +388,7 @@ const entityTypeContractFields = (kind: EntityKind): Omit<EntityTypeContract, "k
     id: contract.id,
     relationEndpoint: contract.relationEndpoint,
     baseActions: contract.baseActions,
+    assignmentCapability: contract.assignmentCapability,
   };
 };
 const taskIdentity = requireEntityTypeContract("task").id;
@@ -480,6 +482,8 @@ const executableAction = (
 ) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
 
 const taskActionCatalog = createTaskActionCatalog((id) => entityAction("task", taskIdentity, id, taskExposure));
+const assignmentCatalogFor = (kind: string, identity: EntityKindContract["id"], exposure: EntitySdkExposure) =>
+  createAssignmentActionCatalog(kind, identity.refTemplate, (id) => entityAction(kind, identity, id, exposure));
 
 const scheduleActionCatalog = createScheduleActionCatalog(
   (id) => entityAction("schedule", scheduleIdentity, id),
@@ -666,7 +670,13 @@ export const entityKindContracts = withDeclaredEntityActions([
     relations: relationsFor("task"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
-    actionCatalog: taskActionCatalog,
+    actionCatalog: Object.freeze({
+      ...taskActionCatalog,
+      actions: Object.freeze([
+        ...taskActionCatalog.actions.filter((action) => action.id !== "assign" && action.id !== "unassign"),
+        ...assignmentCatalogFor("task", taskIdentity, taskExposure),
+      ]),
+    }),
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: taskExposure,
@@ -679,7 +689,13 @@ export const entityKindContracts = withDeclaredEntityActions([
     relations: relationsFor("fact"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
-    actionCatalog: factActionCatalog,
+    actionCatalog: Object.freeze({
+      ...factActionCatalog,
+      actions: Object.freeze([
+        ...factActionCatalog.actions,
+        ...assignmentCatalogFor("fact", factIdentity, factExposure),
+      ]),
+    }),
     entityStore: null,
     authoring: { kind: "fact-event", contractRef: "fact-event/v1" },
     sdkExposure: factExposure,
@@ -692,7 +708,13 @@ export const entityKindContracts = withDeclaredEntityActions([
     relations: relationsFor("decision"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: decisionStates }],
-    actionCatalog: decisionActionCatalog,
+    actionCatalog: Object.freeze({
+      ...decisionActionCatalog,
+      actions: Object.freeze([
+        ...decisionActionCatalog.actions,
+        ...assignmentCatalogFor("decision", decisionIdentity, decisionExposure),
+      ]),
+    }),
     entityStore: null,
     authoring: { kind: "decision-event", contractRef: "decision-event/v1" },
     sdkExposure: decisionExposure,
@@ -719,7 +741,13 @@ export const entityKindContracts = withDeclaredEntityActions([
     schema: AGENT_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
-    actionCatalog: agentActionCatalog,
+    actionCatalog: Object.freeze({
+      ...agentActionCatalog,
+      actions: Object.freeze([
+        ...agentActionCatalog.actions,
+        ...assignmentCatalogFor("agent", agentIdentity, noSdkExposure),
+      ]),
+    }),
     entityStore: genericEntityStore("agents/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
@@ -730,7 +758,13 @@ export const entityKindContracts = withDeclaredEntityActions([
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
-    actionCatalog: squadActionCatalog,
+    actionCatalog: Object.freeze({
+      ...squadActionCatalog,
+      actions: Object.freeze([
+        ...squadActionCatalog.actions,
+        ...assignmentCatalogFor("squad", requireEntityTypeContract("squad").id, noSdkExposure),
+      ]),
+    }),
     entityStore: genericEntityStore("squads/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
@@ -881,7 +915,13 @@ export const entityKindContracts = withDeclaredEntityActions([
       { field: "state", words: scheduleStates },
       { field: "status.lastRun.outcome", words: scheduleRunOutcomes },
     ],
-    actionCatalog: scheduleActionCatalog,
+    actionCatalog: Object.freeze({
+      ...scheduleActionCatalog,
+      actions: Object.freeze([
+        ...scheduleActionCatalog.actions,
+        ...assignmentCatalogFor("schedule", scheduleIdentity, noSdkExposure),
+      ]),
+    }),
     entityStore: null,
     authoring: { kind: "schedule-event", contractRef: "schedule-event/v1" },
     sdkExposure: noSdkExposure,
@@ -918,7 +958,17 @@ const entityKindContractByKind = new Map<string, EntityKindContract>(
 );
 const executableActionsByIngress = new Map<string, EntityActionContract>(),
   taskActionsByTransition = new Map<string, EntityActionContract>();
-for (const { actionCatalog, kind } of entityKindContracts as readonly EntityKindContract[])
+for (const { actionCatalog, assignmentCapability, kind } of entityKindContracts as readonly EntityKindContract[]) {
+  const assignmentActions = new Set(
+    (actionCatalog?.actions ?? []).map(({ id }) => id).filter((id) => id === "assign" || id === "unassign"),
+  );
+  if (
+    assignmentCapability === "supported" &&
+    (assignmentActions.size !== 2 || !assignmentActions.has("assign") || !assignmentActions.has("unassign"))
+  )
+    throw new Error(`Entity kind ${kind} declares assignment capability without assign/unassign Actions.`);
+  if (assignmentCapability === "none" && assignmentActions.size > 0)
+    throw new Error(`Entity kind ${kind} exposes assignment Actions without assignment capability.`);
   for (const action of actionCatalog?.actions ?? []) {
     if (action.execution?.ingress !== undefined && !executableActionsByIngress.has(action.execution.ingress))
       executableActionsByIngress.set(action.execution?.ingress, action);
@@ -926,6 +976,7 @@ for (const { actionCatalog, kind } of entityKindContracts as readonly EntityKind
       for (const key of [action.id, `task.${action.id}`, action.execution?.lifecycle?.transitionId])
         if (key !== undefined && !taskActionsByTransition.has(key)) taskActionsByTransition.set(key, action);
   }
+}
 export function getEntityKindContract(kind: string): EntityKindContract | undefined {
   return entityKindContractByKind.get(kind);
 }

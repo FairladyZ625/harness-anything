@@ -303,15 +303,47 @@ function typeContainsNullish(node) {
 // is not evidence for this write. Fail closed when any part of the queued write route breaks.
 function taskCatalogAuthorization(rootDir, analysis, authority) {
   const contractPath = "packages/kernel/src/domain/task-action-contract.ts",
+    assignmentContractPath = "packages/kernel/src/domain/assignment-action-contract.ts",
+    entityRegistryPath = "packages/kernel/src/domain/entity-kind-registry.ts",
     declarationPath = "packages/kernel/src/domain/action-declaration.ts",
     rows = new Map();
-  if (!existsSync(path.join(rootDir, contractPath))) return rows;
+  if (!existsSync(path.join(rootDir, declarationPath))) return rows;
   const contract = parseTypeScript(rootDir, contractPath),
     specs = unwrapExpression(findVariable(contract, "lifecycleSpecs")?.initializer),
     registrations = unwrapExpression(findVariable(contract, "declarations")?.initializer),
     declarations = existsSync(path.join(rootDir, declarationPath)) ? parseTypeScript(rootDir, declarationPath) : null,
     inventory = declarations && unwrapExpression(findVariable(declarations, "actionDeclarations")?.initializer),
     wired = authority.ok && authority.keycloak && queuedTaskWrite(analysis) && taskCatalogWiring(analysis);
+  const assignmentContract = existsSync(path.join(rootDir, assignmentContractPath))
+      ? parseTypeScript(rootDir, assignmentContractPath)
+      : null,
+    entityRegistry = existsSync(path.join(rootDir, entityRegistryPath))
+      ? parseTypeScript(rootDir, entityRegistryPath)
+      : null,
+    taskAssignmentRegistration = `...assignmentCatalogFor("task", taskIdentity, taskExposure),`;
+  // Task assignment is a generic Entity Action now. Keep its durable route in this gate even
+  // though the legacy task lifecycle catalog no longer owns assign/unassign.
+  for (const id of ["assign", "unassign"]) {
+    const kind = `task-${id}`,
+      registered =
+        entityRegistry?.getText().includes(taskAssignmentRegistration) === true &&
+        assignmentContract?.getText().includes(`action("${id}")`) === true,
+      declared =
+        inventory &&
+        ts.isArrayLiteralExpression(inventory) &&
+        inventory.elements.some(
+          (node) =>
+            ts.isCallExpression(node) &&
+            ["canonical", "closure"].includes(node.expression.getText()) &&
+            node.arguments[0] &&
+            ts.isStringLiteral(node.arguments[0]) &&
+            node.arguments[0].text === kind &&
+            node.arguments[1] &&
+            ts.isStringLiteral(node.arguments[1]) &&
+            node.arguments[1].text === `task/${id}`,
+        );
+    rows.set(kind, Boolean(wired && registered && declared));
+  }
   if (!specs || !ts.isObjectLiteralExpression(specs)) return rows;
   for (const spec of specs.properties) {
     if (!ts.isPropertyAssignment(spec) || !ts.isObjectLiteralExpression(spec.initializer)) continue;

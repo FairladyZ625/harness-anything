@@ -3,6 +3,7 @@ import { timestamp } from "./timestamp.ts";
 
 export type TaskAssignee =
   | { readonly kind: "person"; readonly personId: string; readonly nodeId?: string }
+  | { readonly kind: "node"; readonly nodeId: string }
   | { readonly kind: "team"; readonly teamId: string };
 export interface TaskAssignment {
   readonly assignee: TaskAssignee;
@@ -25,6 +26,8 @@ export function validTaskAssignment(value: unknown): value is TaskAssignment {
   )
     return false;
   const assignee = value.assignee;
+  if (assignee.kind === "node")
+    return isNonEmptyString(assignee.nodeId) && Object.keys(assignee).every((key) => ["kind", "nodeId"].includes(key));
   if (assignee.kind === "team")
     return isNonEmptyString(assignee.teamId) && Object.keys(assignee).every((key) => ["kind", "teamId"].includes(key));
   return (
@@ -44,6 +47,8 @@ export function taskAssignmentMatches(
 ): boolean {
   if (!assignment || Date.parse(assignment.expiresAt) <= Date.parse(now)) return scope === "startable";
   const assignee = assignment.assignee;
+  if (assignee.kind === "node")
+    return scope !== "node" ? assignee.nodeId === claimant.nodeId : assignee.nodeId === claimant.nodeId;
   if (assignee.kind === "team") return scope !== "node" && claimant.teamIds.includes(assignee.teamId);
   return (
     assignee.personId === claimant.personId &&

@@ -28,6 +28,7 @@ import { projectedTaskNotFound } from "./projection-readiness.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import { readWorktreeSetupSucceeded } from "./worktree-setup.ts";
+import { assignmentFromRelations } from "./entity-assignment-runtime.ts";
 
 /**
  * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
@@ -178,7 +179,16 @@ export function taskShowFromProjection(
       );
     return failed(`read:${taskId}`, notFound);
   }
-  const task = projection.read(taskId, true).snapshot.task,
+  const taskRead = projection.read(taskId, true),
+    assignmentRevision = Math.max(
+      taskRead.snapshot.revision,
+      ...projection
+        .readRelationQuery({ source: `task/${taskId}`, relationType: "assigned-to" })
+        .rows.map((row) => row.workspaceRevision ?? 0),
+    ),
+    task = taskRead.snapshot.task
+      ? { ...taskRead.snapshot.task, assignment: assignmentFromRelations(projection, `task/${taskId}`) }
+      : null,
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),
@@ -212,6 +222,7 @@ export function taskShowFromProjection(
     ),
     payload = {
       ...read.snapshot,
+      assignmentRevision,
       task: task
         ? {
             ...task,
@@ -247,6 +258,7 @@ export function taskShowFromProjection(
       // resend as --expected-version. The ledger cut above it is a different number; stating both
       // keeps the mutation input reachable without decoding the evidence snapshot.
       expectedVersion: read.snapshot.revision,
+      assignmentRevision,
       evidence: JSON.stringify(payload),
       summary: renderEvidencePayload(payload),
       visibility: "center" as const,

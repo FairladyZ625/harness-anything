@@ -74,6 +74,8 @@ export interface EntityTypeContract<E extends BaseEntity = BaseEntity> {
   readonly id: EntityIdentityContract<E["kind"]>;
   readonly relationEndpoint: E["relationEndpoint"];
   readonly baseActions: readonly BaseEntityActionId[];
+  /** Whether the kind contract exposes the shared assigned-to Action pair. */
+  readonly assignmentCapability: "supported" | "none";
 }
 
 export type EntityFromTypeContract<C extends EntityTypeContract> = BaseEntity<C["kind"], string, C["residency"]>;
@@ -83,12 +85,14 @@ export type EntityTypeContractBase<E extends BaseEntity> = Omit<EntityTypeContra
 export function baseEntityTypeContract<K extends string, R extends EntityResidencyFacets>(
   identity: EntityIdentityContract<K>,
   residency: R,
+  assignmentCapability: "supported" | "none" = "none",
 ): EntityTypeContractBase<BaseEntity<K, string, R>> {
   return Object.freeze({
     id: identity,
     residency,
     relationEndpoint: relationEndpointEligibility,
     baseActions: baseEntityActionIds,
+    assignmentCapability,
   });
 }
 
@@ -162,11 +166,11 @@ const relationIdentity = Object.freeze({
 });
 
 export const entityTypeContracts = Object.freeze([
-  { kind: "task", ...baseEntityTypeContract(taskIdentity, authoredResidency) },
-  { kind: "fact", ...baseEntityTypeContract(factIdentity, authoredResidency) },
-  { kind: "decision", ...baseEntityTypeContract(decisionIdentity, authoredResidency) },
-  { kind: "agent", ...baseEntityTypeContract(slugIdentity("agent"), authoredResidency) },
-  { kind: "squad", ...baseEntityTypeContract(slugIdentity("squad"), authoredResidency) },
+  { kind: "task", ...baseEntityTypeContract(taskIdentity, authoredResidency, "supported") },
+  { kind: "fact", ...baseEntityTypeContract(factIdentity, authoredResidency, "supported") },
+  { kind: "decision", ...baseEntityTypeContract(decisionIdentity, authoredResidency, "supported") },
+  { kind: "agent", ...baseEntityTypeContract(slugIdentity("agent"), authoredResidency, "supported") },
+  { kind: "squad", ...baseEntityTypeContract(slugIdentity("squad"), authoredResidency, "supported") },
   { kind: "execution", ...baseEntityTypeContract(executionIdentity, authoredLiveResidency) },
   { kind: "review", ...baseEntityTypeContract(reviewIdentity, authoredResidency) },
   { kind: "runtime-session", ...baseEntityTypeContract(runtimeSessionIdentity, authoredLiveResidency) },
@@ -174,7 +178,7 @@ export const entityTypeContracts = Object.freeze([
     kind: "runtime-instance",
     ...baseEntityTypeContract(runtimeInstanceIdentity, Object.freeze({ configuration: "runtime-local" as const })),
   },
-  { kind: "schedule", ...baseEntityTypeContract(scheduleIdentity, scheduleResidency) },
+  { kind: "schedule", ...baseEntityTypeContract(scheduleIdentity, scheduleResidency, "supported") },
   {
     kind: "settings",
     ...baseEntityTypeContract(

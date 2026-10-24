@@ -1,4 +1,4 @@
-import { assertTaskAssignment, resolveTaskAssignment } from "./task-assignment-runtime.ts";
+import { assertEntityAssignment, assignmentFromRelations } from "./entity-assignment-runtime.ts";
 import {
   canStartExecution,
   evaluateTaskActionCapability,
@@ -70,7 +70,11 @@ export async function runTaskActionCatalogRuntime(
   if (lifecycle?.coordination === "reserve")
     binding = {
       ...binding,
-      taskClaimant: await assertTaskAssignment(current.snapshot.task?.assignment, binding, cell.now()),
+      taskClaimant: await assertEntityAssignment(
+        assignmentFromRelations(cell.projection, `task/${taskId}`),
+        binding,
+        cell.now(),
+      ),
     };
   if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
   if (
@@ -146,11 +150,7 @@ export async function runTaskActionCatalogRuntime(
   let normalized: ReturnType<RepoCellOperationalContext["buildCommand"]>;
   try {
     normalized = cell.buildCommand(
-      action.kind === "task-assign"
-        ? { ...action, assignment: await resolveTaskAssignment(action, binding, cell.settings.read(), cell.now()) }
-        : preview
-          ? cell.withoutDryRun(action)
-          : action,
+      preview ? cell.withoutDryRun(action) : action,
       taskId,
       binding,
       cell.input.repoId,

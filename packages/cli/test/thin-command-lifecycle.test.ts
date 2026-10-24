@@ -1339,7 +1339,6 @@ test("task assign states the whole person/node/team choice when the group rule i
   if (assigned.ok)
     assert.deepEqual(assigned.command.action, {
       kind: "task-assign",
-      commandType: "AssignTask",
       taskId: "task-1",
       expectedVersion: 5,
       nodeId: "node-1",
