@@ -161,7 +161,6 @@ export {
 } from "./domain/doc-sync.contract.ts";
 export {
   artifactSubtreePath,
-  classifyDocCandidate,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
   mediaTypeForBinaryPath,
