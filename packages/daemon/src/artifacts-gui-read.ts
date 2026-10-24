@@ -4,10 +4,11 @@ import {
   classifyRawArtifactPath,
   consumeKnownError,
   normalizeRelativeDocumentPath,
+  mediaTypeForBinaryPath,
   RAW_ARTIFACT_MEDIA_TYPE,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
-import { mediaTypeForBinaryPath, statFileSync, statLinkSync } from "./doc-sync-reads.ts";
+import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
 /** 本读需要的投影面(结构性窄口,真实 TaskProjection 天然满足;测试可注入 stub)。 */

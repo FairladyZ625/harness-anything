@@ -343,8 +343,8 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     for (const logical of [firstLog, secondLog]) {
       const selected = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
         row = rows(selected.evidence)[0];
-      assert.deepEqual([row?.path, row?.state, row?.size], [logical, "inapplicable", Buffer.byteLength(jsonl)]);
-      assert.match(row?.reason ?? "", /ha task artifact add/u);
+      assert.deepEqual([row?.path, row?.state, row?.size], [logical, "eligible", Buffer.byteLength(jsonl)]);
+      assert.equal(row?.reason, null);
     }
     write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
     const rejected = await cell.run({ kind: "doc-submit", paths: [oversized] }, binding);
@@ -828,7 +828,7 @@ test("doc retire refuses a document the canonical projection never claimed, even
   }
 });
 
-test("new non-textual artifacts are inapplicable while binary replacement of canonical text remains blocked", async () => {
+test("new non-textual artifacts are directly eligible while binary replacement of canonical text remains blocked", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-non-textual-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -852,18 +852,10 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
     writeFileSync(freshTarget, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]));
     const status = await cell.run({ kind: "doc-status", paths: [fresh] }, binding),
       row = rows(status.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual(
-      [row?.state, row?.reason],
-      ["inapplicable", "non-textual artifact is outside doc sync; publish it with ha task artifact add"],
-    );
+    assert.deepEqual([row?.state, row?.reason ?? null], ["eligible", null]);
     assert.deepEqual(status.detail?.unresolvedTouches, []);
-    const noOp = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
-    assert.equal(noOp.outcome, "no_changes");
-    assert.equal(noOp.acceptance, null);
-    assert.equal(noOp.proof, undefined);
-    assert.equal(noOp.code, "no_changes");
-    assert.match(String(noOp.summary), /applied count: 0/u);
-    assert.match(String(noOp.opId), /^noop:/u);
+    const submittedFresh = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
+    assert.equal(submittedFresh.outcome, "applied");
 
     write(rootDir, tracked, "textual baseline\n");
     const submitted = await cell.run({ kind: "doc-submit", paths: [tracked] }, binding);

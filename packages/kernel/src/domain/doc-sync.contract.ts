@@ -27,6 +27,7 @@ export {
   decideDocWrite,
   decideDocWriteCriteria,
   docSyncWritePlan,
+  inspectDocCandidate,
   isValidDocEventChange,
   resolveDocRoute,
 } from "./doc-sync-writer.ts";

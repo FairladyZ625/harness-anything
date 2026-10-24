@@ -226,6 +226,7 @@ export interface TaskProjection {
       readonly blobSha256: string;
       readonly size: number;
       readonly mediaType: string;
+      readonly policyId: string | null;
     }[];
     readonly watermark: number;
     readonly sourceRevision: number;

@@ -1,0 +1,21 @@
+const fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module');
+const product=process.cwd(),req=createRequire(path.join(product,'package.json')),root=fs.readFileSync('/tmp/document-render-root.txt','utf8').trim();
+(async()=>{
+ if(!fs.existsSync(path.join(root,'node_modules'))) fs.symlinkSync(path.dirname(req.resolve('react/package.json'))+'/..',path.join(root,'node_modules'),'dir');
+ fs.writeFileSync(path.join(root,'index.html'),'<html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/entry.tsx"></script></body></html>');
+ fs.writeFileSync(path.join(root,'probe.css'),'@source '+JSON.stringify(path.join(product,'packages/gui/src/renderer'))+';\n@import '+JSON.stringify(path.join(product,'packages/gui/src/renderer/styles.css'))+';');
+ fs.writeFileSync(path.join(root,'entry.tsx'),`import React from 'react'; import {createRoot} from 'react-dom/client'; import {BinaryDocumentPreview} from ${JSON.stringify(path.join(product,'packages/gui/src/renderer/components/BinaryDocumentPreview.tsx'))}; import ${JSON.stringify(path.join(root,'probe.css'))}; import fixtures from './fixtures.json'; function App(){const [kind,setKind]=React.useState('pdf');window.chooseKind=setKind;return <main className="content-viewport" style={{height:'90vh',width:'100%',padding:20}}><BinaryDocumentPreview key={kind} path={'test.'+kind} mediaType={kind==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document'} bytes={fixtures[kind]}/></main>} createRoot(document.getElementById('root')).render(<App/>);`);
+ const {createServer}=await import(req.resolve('vite'));const {default:react}=await import(req.resolve('@vitejs/plugin-react'));const {default:tailwind}=await import(req.resolve('@tailwindcss/vite'));
+ const server=await createServer({root,configFile:false,plugins:[react(),tailwind()],server:{host:'127.0.0.1',port:0,watch:{ignored:['**/profile/**']},fs:{allow:[root,product,fs.realpathSync(path.join(product,'node_modules'))]}}});await server.listen();const url=server.resolvedUrls.local[0];
+ fs.writeFileSync(path.join(root,'main.cjs'),`const {app,BrowserWindow}=require('electron');app.whenReady().then(()=>{const w=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{contextIsolation:true,nodeIntegration:false}});w.loadURL(${JSON.stringify(url)});});`);
+ const app=await req('playwright-core')._electron.launch({executablePath:req('electron'),args:[path.join(root,'main.cjs'),'--headless','--no-sandbox','--user-data-dir='+fs.mkdtempSync('/tmp/ha-document-profile-')],env:{...process.env,ELECTRON_DISABLE_SANDBOX:'1'}});
+ try{const page=await app.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+ for(const kind of ['pdf','docx']){
+  if(kind==='docx')await page.evaluate(()=>window.chooseKind('docx'));
+  await page.waitForFunction(k=>!!document.querySelector('[role="alert"]')||(k==='pdf'?document.querySelectorAll('[data-pdf-pages] canvas').length===2:document.querySelectorAll('.docx-preview-host .docx').length>0),kind,{timeout:20000});
+  const state=await page.evaluate(()=>({alert:document.querySelector('[role="alert"]')?.textContent,canvases:document.querySelectorAll('canvas').length,docx:document.querySelector('.docx-preview-host')?.textContent,scroll:Array.from(document.querySelectorAll('[data-document-scroll]')).map(e=>({height:e.clientHeight,scrollHeight:e.scrollHeight,width:e.clientWidth,scrollWidth:e.scrollWidth}))}));
+  await page.screenshot({path:path.join(root,kind+'.png')});console.log(kind,JSON.stringify(state));
+ }
+ console.log('docx-style',JSON.stringify(await page.evaluate(()=>Array.from(document.querySelectorAll('.docx-preview-host,.docx-wrapper,section.docx,.docx table td')).map(e=>({tag:e.tagName,cls:e.className,color:getComputedStyle(e).color,align:getComputedStyle(e).alignItems,left:e.getBoundingClientRect().left,width:e.getBoundingClientRect().width})))));console.log('errors',JSON.stringify(errors));console.log('visible',await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().map(w=>w.isVisible())));
+ }finally{await app.close();await server.close();}
+})().catch(e=>{console.error(e);process.exitCode=1});

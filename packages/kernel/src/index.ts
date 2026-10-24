@@ -152,6 +152,7 @@ export {
   decideDocWrite,
   decideDocWriteCriteria,
   docSyncWritePlan,
+  inspectDocCandidate,
   documentPath,
   isDocEvent,
   isTaskEvent,
@@ -160,11 +161,11 @@ export {
 } from "./domain/doc-sync.contract.ts";
 export {
   artifactSubtreePath,
-  classifyOpaqueTextualArtifactPath,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
+  mediaTypeForBinaryPath,
   DOC_SYNC_INLINE_MAX_BYTES,
-  isOpaqueTextualMediaType,
+  type DocCandidateClassification,
   type OpaqueTextualMediaType,
   OPAQUE_TEXTUAL_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,

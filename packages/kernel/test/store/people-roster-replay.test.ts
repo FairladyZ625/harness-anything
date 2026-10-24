@@ -52,6 +52,7 @@ test("retired People cold replay keeps the audit and never projects current peop
           blobSha256: replayEvent.payload.peopleDocumentClaim.sha256,
           size: Buffer.byteLength(body),
           mediaType: "application/yaml",
+          policyId: replayEvent.payload.peopleDocumentClaim.policyId,
         },
       ]);
       assert.equal(projection.readEntityVersionWitness("person/person-fixture").currentVersion, null);

@@ -53,6 +53,12 @@ export function readEdgeDocWorkspace(
     rows.push(row(logical, "clean", view.entries.get(logical)!.sha256, null, view.entries.get(logical)!.size));
   for (const change of scan.changes)
     rows.push(row(change.path, "eligible", sha256Bytes(change.bytes), null, change.bytes.byteLength));
+  // The center answers `inapplicable` for a path its classifier does not recognize and no route
+  // owns; `blocked` there means "a human must resolve this". The edge reports the same state instead
+  // of a refusal, so an ordinary file in a task package neither hides from `doc-status` nor wedges
+  // the package's commands.
+  for (const logical of scan.inapplicablePaths)
+    rows.push(row(logical, "inapplicable", null, "path is not a supported textual document", null));
   for (const blocked of scan.blocked)
     rows.push(
       row(blocked.path, deleted.has(blocked.path) ? "deletion" : "blocked", null, blocked.reason, blocked.size ?? null),

@@ -893,7 +893,13 @@ test("replica basis returns one exact L2 manifest and only post-cut applied even
       headEvent: event,
       events: [],
       documents: [
-        { path: "context/replica.md", blobSha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" },
+        {
+          path: "context/replica.md",
+          blobSha256: hash,
+          size: Buffer.byteLength(body),
+          mediaType: "text/markdown",
+          policyId: DOC_POLICY_ID,
+        },
       ],
     });
     assert.deepEqual(projection.readReplicaBasis(0).events, [event]);

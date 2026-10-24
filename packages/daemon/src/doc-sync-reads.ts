@@ -9,6 +9,7 @@ import {
   RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
   resolveHarnessLayout,
+  mediaTypeForBinaryPath,
   worktreeDocumentMediaType,
   sha256Bytes,
   sha256Text,
@@ -441,32 +442,6 @@ function readWorktreeDocument(
     size: bytes.byteLength,
     mediaType: binary ? RAW_ARTIFACT_MEDIA_TYPE : worktreeDocumentMediaType(relative),
   };
-}
-
-export function mediaTypeForBinaryPath(relative: string, fallback: string | null): string | null {
-  const extension = path.extname(relative).toLowerCase();
-  return (
-    {
-      ".png": "image/png",
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".gif": "image/gif",
-      ".webp": "image/webp",
-      ".avif": "image/avif",
-      ".bmp": "image/bmp",
-      ".ico": "image/x-icon",
-      ".svg": "image/svg+xml",
-      ".pdf": "application/pdf",
-      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ".doc": "application/msword",
-      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      ".ppt": "application/vnd.ms-powerpoint",
-      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
-      ".xls": "application/vnd.ms-excel",
-      ".ods": "application/vnd.oasis.opendocument.spreadsheet",
-    }[extension] ?? fallback
-  );
 }
 
 /** Document-shaped files currently on disk under the task package. The worktree is the

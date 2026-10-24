@@ -1,13 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
-  classifyRawArtifactPath,
-  classifyTextualArtifactPath,
-  DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
+  inspectDocCandidate,
   makeTaskProjectionReader,
   openSqliteEventStore,
-  resolveDocRoute,
   resolveHarnessLayout,
   serializeEventHead,
   sha256Bytes,
@@ -21,6 +18,8 @@ export interface FleetMirrorBlob {
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;
+  /** The policy the center wrote this row under; `null` when the projection row carries none. */
+  readonly policyId: string | null;
 }
 export interface FleetMirrorView {
   readonly repoId: string;
@@ -39,12 +38,16 @@ export interface FleetMirrorDirtyFile {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly baseBlobSha256: string | null;
-  readonly mediaType: "text/markdown" | "text/plain";
+  readonly mediaType: string;
+  /** The policy this candidate must be submitted under; the scan settled it, callers never re-derive it. */
+  readonly policyId: string;
 }
 export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
   readonly cleanCount: number;
   readonly cleanPaths: readonly string[];
+  /** Dirty paths this channel does not carry and no route owns: the center's `inapplicable` answer. */
+  readonly inapplicablePaths: readonly string[];
   readonly deletedPaths: readonly string[];
   readonly blocked: readonly {
     readonly path: string;
@@ -141,14 +144,24 @@ export function locateFleetMirrorView(
                   ? options.entryPaths.flatMap((logical) => {
                       const doc = reader.withSession((queries) => queries.readDocument(logical)).document;
                       return doc
-                        ? [[logical, { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType }] as const]
+                        ? [
+                            [
+                              logical,
+                              {
+                                sha256: doc.blobSha256,
+                                size: doc.size,
+                                mediaType: doc.mediaType,
+                                policyId: doc.policyId,
+                              },
+                            ] as const,
+                          ]
                         : [];
                     })
                   : reader
                       .withSession((queries) => queries.readDocuments(options.entriesPrefix ?? ""))
                       .documents.map((doc) => [
                         doc.path,
-                        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType },
+                        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType, policyId: doc.policyId },
                       ]),
               );
         // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
@@ -227,6 +240,7 @@ export function scanFleetMirrorWorktree(
     wanted = selection ? new Set(selection) : null,
     changes: FleetMirrorDirtyFile[] = [],
     cleanPaths: string[] = [],
+    inapplicablePaths: string[] = [],
     blocked: {
       path: string;
       reason: string;
@@ -238,50 +252,78 @@ export function scanFleetMirrorWorktree(
   for (const logical of materializedPaths(root)) {
     if (wanted && !wanted.has(logical)) continue;
     const file = path.join(root, ...logical.split("/")),
-      bytes = readFileSync(file),
-      base = view.entries.get(logical);
-    if (!logical.endsWith(".md") && !logical.endsWith(".txt")) {
-      // An unchanged accepted artifact is not a document candidate. New binary
-      // artifacts use artifact add; replacing canonical text still blocks submission.
-      if (
-        base?.mediaType.startsWith("text/") &&
-        classifyRawArtifactPath(logical) &&
-        (base.size !== bytes.byteLength || base.sha256 !== sha256Bytes(bytes))
-      )
-        blocked.push({
-          path: logical,
-          size: statSync(file).size,
-          reason: "non-textual artifact is outside doc sync",
-          code: "raw_artifact_outside_doc_sync",
-          requiredRoute: "typed-binary-content",
-        });
+      base = view.entries.get(logical),
+      fileSize = lstatSync(file).size,
+      inspection = inspectDocCandidate(
+        documentPath(logical),
+        fileSize,
+        base?.policyId ?? null,
+        base !== undefined,
+        () => readFileSync(file),
+      );
+    // Raw artifacts — a PNG, a PDF, a log with stray bytes, a JSON evidence file — are doc-sync
+    // candidates inside a task package's artifacts subtree. Outside that subtree the edge keeps the
+    // canonical-prose scope: only `.md`/`.txt` documents, or bytes the classifier accepts, travel this
+    // channel.
+    //
+    // The shared inspector owns route attribution, candidate membership, persisted-policy handling,
+    // and the path-specific read cap for both the center and this edge.
+    const unchanged =
+        inspection.bytes !== null &&
+        base !== undefined &&
+        base.size === inspection.bytes.byteLength &&
+        base.sha256 === sha256Bytes(inspection.bytes),
+      route = inspection.route;
+    // Membership first, then the unchanged check: an untouched file the channel does not carry is
+    // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
+    // channel is still reported — but for a path no route owns it is not a refusal. The center answers
+    // `inapplicable` for a path the shared classifier does not recognize and proceeds; blocking it
+    // here refused every task command in the package over an ordinary file (`evidence/shot.png`,
+    // `.DS_Store`, a NUL-bearing `.txt`) that the center never counted as doc-sync business. A path a
+    // route owns keeps its block: the owning command is the one that must answer for it, and the
+    // center reports it as blocked too.
+    if (unchanged || (hasMarkerWithoutBaseline && base)) {
+      cleanPaths.push(logical);
       continue;
     }
-    const route = resolveDocRoute(documentPath(logical));
-    if ((!route || !route.allowed) && classifyTextualArtifactPath(logical)?.kind !== "opaque-textual") {
+    if (inspection.kind === "route-owned") {
+      blocked.push({
+        path: logical,
+        reason: `path is owned by ${route.requiredRoute}`,
+        code: "doc_route_owned",
+        requiredRoute: route.requiredRoute,
+      });
+      continue;
+    }
+    if (inspection.kind === "inapplicable") {
+      inapplicablePaths.push(logical);
+      continue;
+    }
+    if (inspection.kind === "unsupported") {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
     }
-    if (bytes.byteLength > DOC_SYNC_INLINE_MAX_BYTES) {
+    if (inspection.kind === "too-large") {
       blocked.push({
         path: logical,
-        size: bytes.byteLength,
-        maxInlineBytes: DOC_SYNC_INLINE_MAX_BYTES,
+        size: fileSize,
+        maxInlineBytes: inspection.maxBytes,
         reason: "document exceeds inline limit",
         code: "doc_candidate_too_large",
         requiredRoute: "blob-content",
       });
       continue;
     }
-    if (base && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) cleanPaths.push(logical);
-    else if (hasMarkerWithoutBaseline && base) cleanPaths.push(logical);
-    else
-      changes.push({
-        path: logical,
-        bytes,
-        baseBlobSha256: base?.sha256 ?? null,
-        mediaType: logical.endsWith(".md") ? "text/markdown" : "text/plain",
-      });
+    if (inspection.kind !== "candidate") continue;
+    const { bytes, classification: docClass } = inspection;
+    if (bytes === null || docClass === null) continue;
+    changes.push({
+      path: logical,
+      bytes,
+      baseBlobSha256: base?.sha256 ?? null,
+      mediaType: docClass.mediaType,
+      policyId: docClass.policyId,
+    });
   }
   const deletedPaths = [...view.entries.keys()].filter(
     (logical) =>
@@ -292,7 +334,7 @@ export function scanFleetMirrorWorktree(
   );
   for (const logical of deletedPaths)
     blocked.push({ path: logical, reason: "canonical document is missing from the registered harness" });
-  return { changes, cleanCount: cleanPaths.length, cleanPaths, deletedPaths, blocked };
+  return { changes, cleanCount: cleanPaths.length, cleanPaths, inapplicablePaths, deletedPaths, blocked };
 }
 export function cacheFleetMirrorDirtyBases(
   viewRoot: string,

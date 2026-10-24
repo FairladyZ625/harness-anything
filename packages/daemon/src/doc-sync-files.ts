@@ -68,14 +68,21 @@ export function artifactSource(
   const relative = path.relative(root, absolute).split(path.sep).join("/"),
     authoredRoot = realpathSync.native(resolveHarnessLayout(input.rootDir).authoredRoot),
     authoredRelative = path.relative(authoredRoot, absolute).split(path.sep).join("/"),
-    projected =
-      !authoredRelative.startsWith("../") && !path.isAbsolute(authoredRelative)
-        ? input.projection.readDocument(authoredRelative).document
-        : null;
-  if (projected !== null || gitTracked(input.rootDir, relative))
+    insideAuthoredRoot = !authoredRelative.startsWith("../") && !path.isAbsolute(authoredRelative);
+  if (
+    (insideAuthoredRoot && input.projection.readDocument(authoredRelative).document !== null) ||
+    gitTracked(input.rootDir, relative)
+  )
     throw docSyncError(
       "artifact_source_tracked",
       "artifact source must be untracked; use ha doc sync for tracked edits",
+    );
+  // A file already inside a task package has its one entry, doc sync. Its untracked copy cannot be
+  // re-registered under a second command and a second name.
+  if (insideAuthoredRoot && authoredRelative.startsWith("tasks/"))
+    throw docSyncError(
+      "artifact_source_in_task_package",
+      `source is inside a task package; use ha doc sync --submit --path ${authoredRelative}`,
     );
   return { absolute, relative };
 }

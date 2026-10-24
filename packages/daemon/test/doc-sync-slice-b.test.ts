@@ -545,7 +545,10 @@ test("task artifact json and log files ride doc sync under the held task lease",
     write(rootDir, undecodable, Buffer.from([0x7b, 0xff, 0x7d]));
     const refused = await cell.run({ kind: "doc-submit", paths: [undecodable] }, workerBinding);
     assert.notEqual(refused.outcome, "applied");
-    assert.match(String((refused as { summary?: string }).summary ?? JSON.stringify(refused)), /task artifact add/u);
+    assert.match(
+      String((refused as { summary?: string }).summary ?? JSON.stringify(refused)),
+      /path is not a supported textual document/u,
+    );
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

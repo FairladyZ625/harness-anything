@@ -140,6 +140,8 @@ export interface ReplicaProjectionDocument {
   readonly blobSha256: string;
   readonly size: number;
   readonly mediaType: string;
+  /** The policy this row was written under; `null` only for a fixture-inserted row without one. */
+  readonly policyId: string | null;
 }
 export interface ReplicaProjectionBasis {
   readonly watermark: number;

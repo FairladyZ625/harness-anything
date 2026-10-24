@@ -17,15 +17,12 @@ import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.
 import { randomUUID } from "node:crypto";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync, statSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import {
-  classifyTextualArtifactPath,
-  classifyRawArtifactPath,
-  resolveDocRoute,
-  documentPath,
   consumeKnownError,
-  DOC_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,
+  RAW_ARTIFACT_POLICY_ID,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
 import {
@@ -245,9 +242,7 @@ export async function runFleetEdgeTask(
       if (admission.actionAllowed !== true)
         throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
       const blocked = scan.blocked.filter(
-        (row) =>
-          row.path.startsWith(`${packagePath}/`) &&
-          (resolveDocRoute(documentPath(row.path)).allowed || classifyRawArtifactPath(row.path) !== null),
+        (row) => row.code !== "doc_route_owned" && row.path.startsWith(`${packagePath}/`),
       );
       if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
       if (changes.length === 0)
@@ -268,7 +263,7 @@ export async function runFleetEdgeTask(
                 path: change.path,
                 body: Buffer.from(change.bytes),
                 baseBlobSha256: change.baseBlobSha256,
-                policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+                policyId: change.policyId,
                 mediaType: change.mediaType,
               })),
             })
@@ -517,9 +512,14 @@ export async function runFleetEdgeTask(
     if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
-    const candidates = preScan.changes.filter((change) =>
-      action.kind === "task-review-execution" ? change.path === reportPath : change.path.startsWith(`${packagePath}/`),
-    );
+    const candidates = preScan.changes
+      .filter((change) =>
+        action.kind === "task-review-execution"
+          ? change.path === reportPath
+          : change.path.startsWith(`${packagePath}/`),
+      )
+      // Task lifecycle claims are UTF-8 text; raw-policy artifacts stay for doc-sync even when their bytes decode.
+      .filter((change) => change.policyId !== RAW_ARTIFACT_POLICY_ID && isUtf8(change.bytes));
     if (candidates.length === 0) return null;
     const descriptors = await runFleetEdgeUploadClient({
       ...peer,
@@ -534,7 +534,7 @@ export async function runFleetEdgeTask(
       docChanges: candidates.map((change, index) => ({
         path: change.path,
         baseBlobSha256: change.baseBlobSha256,
-        policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+        policyId: change.policyId,
         candidate: descriptors[index]!,
       })),
       mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },

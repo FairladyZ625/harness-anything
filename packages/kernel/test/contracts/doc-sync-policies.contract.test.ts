@@ -2,12 +2,13 @@
 import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_MAX_BYTES } from "../../src/domain/artifact-text-classification.ts";
 import {
   DOC_POLICY_ID,
   decideDocWrite,
   docRegionPolicyRegistry,
   documentPath,
+  inspectDocCandidate,
   serializeDocEvent,
   validateCurrentDocEvent,
   validateDocEvent,
@@ -28,6 +29,42 @@ import {
   opaqueClaim,
   state,
 } from "./doc-sync.fixtures.ts";
+
+test("center and edge share route ownership and the path-specific read cap", () => {
+  const reviewsPath = documentPath("tasks/task_policy/reviews/.DS_Store"),
+    reviews = inspectDocCandidate(reviewsPath, 24, null, false, () => Buffer.from([0, 1, 2]));
+  assert.equal(reviews.kind, "route-owned");
+  assert.deepEqual(reviews.route, { allowed: false, requiredRoute: "task-review-execution" });
+
+  for (const logical of [
+    "tasks/task_policy/evidence/dump.json",
+    "tasks/task_policy/evidence/run.log",
+    "tasks/task_policy/evidence/rows.csv",
+  ]) {
+    let read = false;
+    const oversized = inspectDocCandidate(documentPath(logical), 256 * 1024 + 1, null, false, () => {
+      read = true;
+      return Buffer.from('{"ok":true}\\n');
+    });
+    assert.equal(oversized.kind, "inapplicable", logical);
+    assert.equal(oversized.maxBytes, 256 * 1024, logical);
+    assert.equal(read, false, `${logical}: over-cap bytes must not be opened`);
+  }
+  let artifactRead = false;
+  const artifact = inspectDocCandidate(
+    documentPath("tasks/task_policy/artifacts/evidence/dump.json"),
+    RAW_ARTIFACT_MAX_BYTES + 1,
+    null,
+    false,
+    () => {
+      artifactRead = true;
+      return Buffer.from('{"ok":true}');
+    },
+  );
+  assert.equal(artifact.kind, "too-large");
+  assert.equal(artifact.maxBytes, RAW_ARTIFACT_MAX_BYTES);
+  assert.equal(artifactRead, false);
+});
 
 test("unrelated ledger changes pass while stale document bases reject with typed conflict detail", () => {
   const body = "# Notes\nA\n",

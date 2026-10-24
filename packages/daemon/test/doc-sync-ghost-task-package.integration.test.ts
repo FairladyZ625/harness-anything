@@ -51,7 +51,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
       realRow = statusRows.find((row) => row.path === real);
     assert.deepEqual([ghostRow?.state, realRow?.state], ["blocked", "eligible"]);
     assert.match(ghostRow?.reason ?? "", /tasks\/task-ghost-wrong-slug is not the package path of any projected task/u);
-    assert.match(ghostRow?.reason ?? "", /ha task artifact add/u);
+    assert.match(ghostRow?.reason ?? "", /move the file into its owning task's artifacts\/ subtree/u);
     assert.equal(ghostRow?.mediaType, "text/markdown");
     // Batch tolerance: the eligible sibling in the registered package publishes in
     // the same submit that reports the blocked ghost — no whole-batch rejection.
@@ -77,7 +77,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     );
     assert.deepEqual(
       submitted.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [[ghost, "ha task artifact add"]],
+      [[ghost, "doc-sync"]],
     );
     assert.equal(existsSync(path.join(rootDir, "harness", ghost)), true);
     // A submit whose only candidates are ghosts refuses with the recovery route.
@@ -94,13 +94,13 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     };
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "task_package_unregistered");
-    assert.match(rejected.rejectionExplanation ?? "", new RegExp(`${ghost}.*ha task artifact add`, "u"));
+    assert.match(rejected.rejectionExplanation ?? "", new RegExp(`${ghost}.*not the package path`, "u"));
     assert.match(rejected.rejectionExplanation ?? "", /next: use the required route/u);
     assert.deepEqual(
       rejected.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
       [
-        [ghost, "ha task artifact add"],
-        [`${impostor}/artifacts/second.md`, "ha task artifact add"],
+        [ghost, "doc-sync"],
+        [`${impostor}/artifacts/second.md`, "doc-sync"],
       ],
     );
   } finally {

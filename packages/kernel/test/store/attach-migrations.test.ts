@@ -11,6 +11,15 @@ import {
 } from "../../src/projection/historical-event-normalization.ts";
 import type { CanonicalEventStore } from "../../src/store/task-event-store-types.ts";
 import type { PersistedCanonicalEventV1 } from "../../src/domain/doc-sync-types.ts";
+import {
+  classifyDocCandidate,
+  classifyTextualArtifactPath,
+  effectiveDocCandidateClassification,
+  OPAQUE_TEXTUAL_MEDIA_TYPE,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  RAW_ARTIFACT_POLICY_ID,
+} from "../../src/domain/artifact-text-classification.ts";
+import { validDocEventChange } from "../../src/domain/doc-sync-validation.ts";
 
 function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
   const events = [...initial];
@@ -575,4 +584,62 @@ test("the retired code/doc closeout default never makes an accepted declaration 
   // A record without the retired field is returned unchanged, so normalization stays a no-op.
   const current = { schema: "preset-snapshot/v1", completion: { sources: {}, gates: {}, closeoutDefaults: {} } };
   assert.equal(normalizeHistoricalPresetSnapshot(current), current);
+});
+
+// The doc-claim change rewrote which policy a *new* write chooses at a binary-claiming artifact name.
+// It did not retire the opaque textual policy, so no attach step belongs in the registry. This test
+// pins the two properties that make that true, so the day either stops holding the "no step needed"
+// conclusion fails here instead of being discovered by a cold replay.
+test("the opaque textual artifact policy is live, not retired, so doc claims need no attach step", () => {
+  assert.deepEqual(
+    retiredPersistedSchemaFields.filter((field) => /artifact|policy/i.test(field)),
+    [],
+  );
+  const artifactPath = "tasks/task_legacy/artifacts/review/test.pdf",
+    classification = classifyTextualArtifactPath(artifactPath);
+  assert.equal(classification?.policyId, OPAQUE_TEXTUAL_POLICY_ID);
+  const historicalChange = {
+    path: artifactPath,
+    baseBlobSha256: null,
+    candidate: { sha256: "a".repeat(64), size: 873, mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE },
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+    regionProofs: [],
+  };
+  assert.equal(validDocEventChange(historicalChange, true), true);
+});
+
+// The invariant the registry's "no step" conclusion actually rests on is not "every persisted row
+// decodes" — the old write boundary classified by path, so a persisted opaque row can carry a NUL
+// byte that today's byte judgment calls non-textual. It is "the policy is read from the row, and the
+// validator still admits it": this test forges exactly such a row and drives the real read/write
+// judgment over it.
+test("a persisted opaque row whose bytes now read as non-textual still reads and edits under its policy", () => {
+  const artifactPath = "tasks/task_legacy/artifacts/notes/report.txt",
+    nulBytes = Buffer.from([0x72, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x00, 0x0a]),
+    editedBytes = Buffer.from([0x72, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x00, 0x0a, 0x21, 0x0a]),
+    persistedPolicyId = OPAQUE_TEXTUAL_POLICY_ID,
+    byteVerdict = classifyDocCandidate(artifactPath, nulBytes);
+  // 1. The byte judgment alone would refuse this row; the persisted policy keeps it textual.
+  assert.equal(byteVerdict, null);
+  assert.deepEqual(effectiveDocCandidateClassification(artifactPath, byteVerdict, persistedPolicyId), {
+    kind: "opaque-textual",
+    mediaType: "text/plain",
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
+  // A raw-artifact row is not rescued by the path judgment: bytes decide those.
+  assert.equal(effectiveDocCandidateClassification(artifactPath, byteVerdict, RAW_ARTIFACT_POLICY_ID), null);
+  // 2. The validator still admits an edit of that row under the policy it was written with.
+  assert.equal(
+    validDocEventChange(
+      {
+        path: artifactPath,
+        baseBlobSha256: "b".repeat(64),
+        candidate: { sha256: "c".repeat(64), size: editedBytes.byteLength, mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE },
+        policyId: persistedPolicyId,
+        regionProofs: [],
+      },
+      true,
+    ),
+    true,
+  );
 });

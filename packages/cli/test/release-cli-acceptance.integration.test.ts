@@ -391,7 +391,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
   }
 });
 
-test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, route around doc sync, and survive backup drills", async (context) => {
+test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw PNGs ride doc sync, and survive backup drills", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-release-acc-artifacts-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -475,8 +475,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
       }
     }
 
-    // Routing: a raw file dropped under the task artifacts tree is doc-sync inapplicable and routed to
-    // task artifact add instead of being published by doc sync.
+    // Routing: a raw file dropped under the task artifacts tree is directly eligible and published by doc sync.
     const unroutedBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]),
       unroutedLogical = `${packagePath}/artifacts/unrouted.png`;
     writeFileSync(path.join(root, "harness", unroutedLogical), unroutedBytes);
@@ -485,14 +484,19 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
       unrouted = rows.find((row) => String(row.path) === unroutedLogical);
     context.diagnostic(`release-acc-doc-status=${JSON.stringify(rows)}`);
     assert.ok(unrouted, `doc status must see the dropped artifact, saw ${JSON.stringify(rows)}`);
-    assert.equal(unrouted.state, "inapplicable");
-    assert.match(String(unrouted.reason ?? ""), /ha task artifact add/u);
+    assert.equal(unrouted.state, "eligible");
+    assert.equal(unrouted.reason ?? null, null);
     const synced = runMaybe(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
-    assert.equal(synced.status, 0, `doc sync must not fail on an inapplicable raw artifact: ${synced.stdout}`);
+    assert.equal(synced.status, 0, `doc sync must publish the raw artifact: ${synced.stdout}`);
+    const syncedReceipt = JSON.parse(synced.stdout) as Record<string, unknown>;
+    assert.equal(syncedReceipt.outcome, "applied", synced.stdout);
+    const settledSync = settle(root, userRoot, String(syncedReceipt.opId), worker);
+    assert.equal((settledSync.git as { state: string }).state, "verified", "doc sync git cut");
+    assert.equal((settledSync.worktree as { state: string }).state, "verified", "doc sync worktree");
     assert.equal(
       gitHasPath(root, `HEAD:harness/${unroutedLogical}`),
-      false,
-      "doc sync must not publish the raw artifact behind artifact add's back",
+      true,
+      "doc sync directly publishes the raw artifact",
     );
 
     // Collision: republishing a destination with different bytes is refused; identical bytes replay.
