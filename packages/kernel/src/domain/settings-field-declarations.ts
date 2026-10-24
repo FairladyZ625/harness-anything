@@ -76,6 +76,11 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
     title: "Schedules",
   },
   {
+    id: "dispatch-storage",
+    title: "Dispatch records",
+    advanced: true,
+  },
+  {
     id: "storage-backup",
     title: "Backup",
     advanced: true,
@@ -143,6 +148,8 @@ export const decisionReviewRequirementLevels = ["off", "high", "medium_and_high"
 export type DecisionReviewRequirement = (typeof decisionReviewRequirementLevels)[number];
 export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
+/** Archived dispatch streams are kept this many days by default; 0 disables age-based pruning. */
+const DEFAULT_DISPATCH_ARCHIVE_RETENTION_DAYS = 60;
 /** One worktree setup step may run this long before it fails and refuses the start (20 minutes). */
 export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 /** A scheduled ledger backup run is stopped after this whole-run budget (30 minutes; successful runs took ~8.5). */
@@ -778,6 +785,30 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "storage-backup",
     action: { field: "restoreDrillRetention", type: "number" },
     cli: { name: "--restore-drill-retention", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
+    path: ["dispatchArchive", "retentionDays"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_DISPATCH_ARCHIVE_RETENTION_DAYS,
+    minimum: 0,
+    description: "How many days a finished dispatch's archived record is kept before the daemon deletes it.",
+    effect: "Older archived records are deleted when the repository opens on the daemon; 0 disables age deletion.",
+    group: "dispatch-storage",
+    action: { field: "dispatchArchiveRetentionDays", type: "number" },
+    cli: { name: "--dispatch-archive-retention-days", kind: "single", regex: "^[0-9]+$" },
+  }),
+  defineSettingsField({
+    path: ["dispatchArchive", "retentionBytes"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: 0,
+    minimum: 0,
+    description: "Total bytes the archived dispatch records may occupy before the oldest are deleted.",
+    effect: "Once the archive grows past this, the oldest archived records are deleted; 0 sets no size limit.",
+    group: "dispatch-storage",
+    action: { field: "dispatchArchiveRetentionBytes", type: "number" },
+    cli: { name: "--dispatch-archive-retention-bytes", kind: "single", regex: "^[0-9]+$" },
   }),
 ] as const);
 

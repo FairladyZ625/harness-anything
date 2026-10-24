@@ -33,7 +33,11 @@ import {
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
-import { scheduleArchivedDispatchStreamCompaction } from "./dispatch-stream-archive.ts";
+import {
+  pruneDispatchStreamArchive,
+  readFactEvidenceSources,
+  scheduleArchivedDispatchStreamCompaction,
+} from "./dispatch-stream-archive.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -64,7 +68,7 @@ import { taskSurfaceWriteAt } from "./repo-cell-task-command-docs.ts";
 import { makeScheduleActionRuntime, settleScheduledRuntime } from "./schedule-action-runtime.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
-import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
+import { makeRepoCellSettingsState, readEffectiveDispatchArchiveRetention } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
@@ -828,6 +832,15 @@ export async function openRepoWriterCell(
   };
   await runtimeSpawner.adopt((completed) =>
     input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
+  );
+  // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
+  // files the same queue is about to delete.
+  schedule(() =>
+    pruneDispatchStreamArchive(
+      rootDir,
+      readEffectiveDispatchArchiveRetention(projection),
+      readFactEvidenceSources(projection),
+    ),
   );
   scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
   schedule(() => squadCoordinator.reconcile());
