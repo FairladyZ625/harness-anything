@@ -360,7 +360,7 @@ test("only the task owner can consent to a changes_requested review, and overrid
       {
         kind: "task-review-execution",
         taskId,
-        executionId: firstExecutionId,
+        executionId,
         reviewId: "review-selection-r1",
         fromFile: "review-changes.json",
       },

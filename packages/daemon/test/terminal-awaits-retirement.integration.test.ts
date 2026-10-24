@@ -366,7 +366,7 @@ test("a task completing after review and consent retires the awaits Relations it
       }
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
-      await waitForFixturePublication(cell as never, String(forward.opId), holder as never);
+      await waitForFixturePublication(cell as never, String(submitted.opId), holder as never);
       const reviewId = "review-terminal-awaits",
         reportPath = `${packagePath}/artifacts/reports/terminal-awaits.md`;
       mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true });

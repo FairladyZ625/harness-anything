@@ -225,6 +225,7 @@ test("G0-2 traces all 165 declared writes, including queued task catalog ingress
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to the worker's gh.
   // Owner 2026-10-21 B3 deletes the code/doc reconcile and repoint writes with the mechanism.
+  // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual forward/return commands.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
   assert.equal(result.rows.length, 165);
   assert.equal(

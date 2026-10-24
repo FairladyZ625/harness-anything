@@ -128,11 +128,11 @@ test(
           taskId: created.taskId,
           executionId,
           reviewId: `review-${stem}`,
-          fromFile: `${stem}.json`,
+          fromFile: `harness/${stem}.json`,
         } as never,
         reviewAuth as never,
       )) as Record<string, unknown>;
-      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed).slice(0, 400));
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed).slice(0, 1200));
     };
     for (let iteration = 0; iteration < 3; iteration += 1) {
       const executionId = `execution-rework-${iteration}`;

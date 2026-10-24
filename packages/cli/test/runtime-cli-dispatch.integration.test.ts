@@ -631,7 +631,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
       `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
         `${renderedRulingContract(promptFileDispatchId)}\n\n` +
-        `${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
+        // dec_E369B861 CH3: the worker mission names who reviews the next submitted cut.
+        `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。` +
+        `\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
         stopGuidance,
     ),
   );

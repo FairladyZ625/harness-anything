@@ -222,24 +222,19 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
     );
     writeReviewReport(rootDir, createdTasks.get("task_returned")!, "review-returned");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-review-execution",
-            taskId: "task_returned",
-            executionId: "exe_returned",
-            reviewId: "review-returned",
-            fromFile: "review.json",
-          },
-          reviewerBinding,
-        )
-      ).outcome,
-      "applied",
+    const returned = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId: "task_returned",
+        executionId: "exe_returned",
+        reviewId: "review-returned",
+        fromFile: "review.json",
+      },
+      reviewerBinding,
     );
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     // The changes_requested verdict above already reopened the rework round; nothing manual
     // remains between the verdict and the awaitingRework group.
-    const returned = await cell.run({ kind: "task-show", taskId: "task_returned" });
     await waitForFixturePublication(cell, String(returned.opId), binding);
     const proposed = await cell.run(decisionProposal(), binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));

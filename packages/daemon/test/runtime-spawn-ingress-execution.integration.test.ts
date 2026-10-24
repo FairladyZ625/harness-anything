@@ -403,7 +403,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
         assert.equal(receipt.code, "execution_frozen", JSON.stringify(receipt));
         assert.match(String(receipt.rejectionExplanation), /round was submitted and its cut is frozen/u);
-        assert.match(JSON.stringify(receipt), /a changes_requested review verdict returns the cut for rework/u);
+        assert.match(JSON.stringify(receipt), /changes_requested reopens the rework round automatically/u);
         assert.equal(launchCount, launchesBefore, "a frozen cut must not launch a runtime");
         assert.equal(
           makeTaskEventReader({ repoId, rootDir: root })

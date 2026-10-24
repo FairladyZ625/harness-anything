@@ -261,7 +261,6 @@ test("a center-local reviewer records an Execution Review while the submitting e
     writeCloseout(rootDir, created.packagePath);
     assert.equal(submissionOutcome(await run({ kind: "task-submit", taskId, executionId }, proposer)), "applied");
 
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),

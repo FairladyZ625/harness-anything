@@ -127,7 +127,6 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       ],
     );
 
-    await waitForFixturePublication(cell, forward.opId, holder);
     if (!artifact && !hasPublicDiff) {
       // dec_BB2BCE9F995CD3A126E2918734 CH4: no fact quota — the strict cut waits on review, not facts.
       const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);

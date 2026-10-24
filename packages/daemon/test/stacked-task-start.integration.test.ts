@@ -147,7 +147,7 @@ test("stack start checks out the approved delivery and freezes that exact baseli
 });
 
 test("stacked integration submits and dispatches review for CEO merge-main and ordinary commits", async () => {
-  const f = await reviewFixture(false, true, false, false, false, undefined, {
+  const f = await reviewFixture(false, true, false, false, false, {
     autoSubmit: false,
     create: { presetId: "standard-task" },
   });

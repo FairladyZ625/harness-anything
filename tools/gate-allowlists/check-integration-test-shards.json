@@ -992,6 +992,11 @@
         "value": "packages/daemon/test/code-doc-path-verification.test.ts",
         "ref": "task_ee928d2898ddd8ef9684900e9b",
         "reason": "Owner 2026-10-21 ruling B3 deletes the code/doc reconciliation mechanism; this file tested the daemon proof that only checked commit-and-path existence, and it goes with the mechanism."
+      },
+      {
+        "value": "packages/daemon/test/adjudicate-reviewer-instance.integration.test.ts",
+        "ref": "task_799ca104a7af7b18432b2ded54",
+        "reason": "Decision dec_E369B8616F50A6208B293997E7/CH5 retires the manual adjudicate forward/return surface this reviewer-instance lane exercised."
       }
     ]
   }

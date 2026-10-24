@@ -7,7 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
   commitDelivery,
@@ -220,6 +220,10 @@ test("declare-executor traces the authoring dispatch across executions and never
       ),
       "contributor",
     );
+    // The verdict itself reopens the round; denying the reviewing principal's runtime-spawn keeps
+    // the automatic worker continuation from launching in this stub cell, so the recovery round
+    // below starts like any other (a reviewer never needs to spawn).
+    revokeTestPolicyActions("person-cut-reviewer", "executor-candidates", ["runtime-spawn"]);
     assert.equal(
       (
         await cell.run(
@@ -235,6 +239,7 @@ test("declare-executor traces the authoring dispatch across executions and never
       ).outcome,
       "applied",
     );
+    grantTestPolicyGroups(["person-cut-reviewer"], "maintainer");
 
     // Recovery round: a bare owner execution with executor=null whose only dispatch is a reviewer.
     const recoveryExecutionId = "exec-recovery";

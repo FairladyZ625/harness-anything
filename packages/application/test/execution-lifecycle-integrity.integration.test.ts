@@ -113,7 +113,7 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
 
     const read = await harness.service.read("task-1");
     assert.equal(read.snapshot.executions[0]?.state, "submitted");
-    assert.equal(read.snapshot.task?.status, "submitted");
+    assert.equal(read.snapshot.task?.status, "in_review");
     assert.equal(read.snapshot.task?.currentNode, "review");
     assert.deepEqual(
       read.snapshot.edgesTaken.map((edge) => edge.on),
@@ -205,7 +205,7 @@ test("an amendment requires a Review of the new submission before consent and co
   }
 });
 
-test("a late changes_requested review blocks completion until a named rationale disposition", async () => {
+test("a changes_requested verdict below the budget reopens the round instead of blocking completion", async () => {
   const harness = lifecycleHarness();
   try {
     await harness.create();
@@ -213,24 +213,18 @@ test("a late changes_requested review blocks completion until a named rationale 
     await harness.submit("execution-1");
     await harness.review("execution-1", "acceptance", "approved", "op-review-approved");
     await harness.consent("execution-1", "op-consent-approved", "review-op-review-approved");
+    // dec_E369B861 CH3: below the rework budget the adverse verdict itself reopens the
+    // implementation round in the same write — no owner disposition lane opens for it.
     await harness.review("execution-1", "correctness", "changes_requested", "op-review-late");
+    const snapshot = (await harness.service.read("task-1")).snapshot;
+    assert.equal(snapshot.reviews.at(-1)?.verdict, "changes_requested");
+    assert.equal(snapshot.task?.status, "active");
+    assert.equal(snapshot.task?.currentNode, "implementation");
+    assert.equal(snapshot.task?.iteration, 1);
     await assert.rejects(
       harness.complete("execution-1", "op-complete-late"),
-      /reviewId=review-op-review-late.*verdict=changes_requested/u,
+      /current submitted execution|consent-selected approved/u,
     );
-    await assert.rejects(
-      harness.consent("execution-1", "op-consent-no-rationale", "review-op-review-approved", {
-        reviewIds: ["review-op-review-late"],
-      }),
-      /requires named review ids and rationale/u,
-    );
-    const overridden = await harness.consent("execution-1", "op-consent-disposed", "review-op-review-approved", {
-      reviewIds: ["review-op-review-late"],
-      rationale: "owner accepts the approved assessment",
-    });
-    assert.equal(overridden.event?.type, "review_consent_overridden");
-    assert.deepEqual(overridden.snapshot.reviewDispositions?.at(-1)?.disposedReviewIds, ["review-op-review-late"]);
-    assert.equal((await harness.complete("execution-1", "op-complete-disposed")).outcome, "applied");
   } finally {
     await harness.cleanup();
   }
@@ -311,7 +305,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
     const submitted = (await harness.service.read("task-1")).snapshot.executions[0]!.submission!;
     const command = {
       ...normalizeTaskLifecycleCommand(
-        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 4 },
+        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 },
         {
           type: "RecordReview" as const,
           taskId: "task-1",
@@ -327,7 +321,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
         },
       ),
       eventId: "event-review-ae",
-      workspaceRevision: 5,
+      workspaceRevision: 4,
       occurredAt: "2026-08-11T00:04:00.000Z",
       transport: { attempt: 1 },
     };
@@ -335,14 +329,14 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
       actorBinding: reviewer,
       capability: "execution-review@v1" as const,
       capabilityRef: "cap-ae",
-      returnBudget: 3,
+      reworkBudget: 3,
     };
     const first = await harness.service.execute(command, proof);
     const second = await harness.service.execute({ ...command, transport: { attempt: 2 } }, proof);
 
     assert.equal(first.event?.type, "review_recorded");
     assert.equal(second.event?.eventId, first.event?.eventId);
-    assert.equal(harness.eventStore.read().events.length, 5);
+    assert.equal(harness.eventStore.read().events.length, 4);
     assert.equal(second.snapshot.reviews[0]?.reviewId, "review-ae");
   } finally {
     await harness.cleanup();
@@ -358,7 +352,7 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
     const submitted = (await harness.service.read("task-1")).snapshot.executions[0]!.submission!;
     const command = {
       ...normalizeTaskLifecycleCommand(
-        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 4 },
+        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 },
         {
           type: "RecordReview" as const,
           taskId: "task-1",
@@ -374,14 +368,14 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
         },
       ),
       eventId: "event-review-drift",
-      workspaceRevision: 5,
+      workspaceRevision: 4,
       occurredAt: "2026-08-11T00:04:00.000Z",
     };
     const proof = {
       actorBinding: reviewer,
       capability: "execution-review@v1" as const,
       capabilityRef: "cap-drift",
-      returnBudget: 3,
+      reworkBudget: 3,
     };
     await harness.service.execute(command, proof);
     const drifts = [
@@ -394,7 +388,7 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
     for (const drift of drifts) {
       await assert.rejects(() => harness.service.execute({ ...command, ...drift }, proof));
     }
-    assert.equal(harness.eventStore.read().events.length, 5);
+    assert.equal(harness.eventStore.read().events.length, 4);
   } finally {
     await harness.cleanup();
   }
@@ -410,13 +404,13 @@ test("changes_requested records Review, return edge, Execution closure, and Task
     harness.kill("after_event_write");
     harness.projection.catchUp();
     assert.deepEqual((await harness.service.read("task-1")).snapshot, before);
-    assert.equal(harness.eventStore.read().revision, 4);
+    assert.equal(harness.eventStore.read().revision, 3);
     harness.kill("after_sqlite_commit");
     await assert.rejects(
       harness.review("execution-1", "anti_entropy", "changes_requested"),
       /killpoint:after_sqlite_commit/u,
     );
-    assert.equal(harness.eventStore.read().revision, 5);
+    assert.equal(harness.eventStore.read().revision, 4);
     harness.projection.catchUp();
     const snapshot = (await harness.service.read("task-1")).snapshot;
     // The changes_requested verdict reopens the rework round in the same committed write; no

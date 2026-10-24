@@ -33,7 +33,6 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "start",
         "transition",
         "submit",
-        "adjudicate",
         "review",
         "consent",
         "complete",
@@ -115,7 +114,6 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
     );
 
     await harness.submit("execution-1");
-    await harness.adjudicate("execution-1", "forward");
     const submitted = await snapshot(harness),
       submittedOwner = row(explain(harness, submitted, owner), "submit"),
       independentReview = row(explain(harness, submitted, reviewer), "review"),
