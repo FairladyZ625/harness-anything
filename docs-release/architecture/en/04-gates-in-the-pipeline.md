@@ -24,6 +24,12 @@ review, and completion (`packages/daemon/src/repo-cell-submit.ts`,
 these commands to the daemon protocol
 (`packages/cli/src/cli/thin-command-task.ts`).
 
+Code delivery completion defaults to the configured `origin/<branch>` tracking
+ref. A local-only repository may explicitly set
+`ha settings update --delivery-target-ref refs/heads/main`; completion then
+checks the recorded merge commit against that local ref. The explicit setting
+preserves the origin-based requirement for repositories with a remote.
+
 The important property is *fail-closed by construction*. Completion collects a
 set of **blockers**; a non-empty list means the transition does not happen and
 the task's status is never written. Nothing is "assumed fine" — a transition
@@ -132,7 +138,7 @@ current blocker codes:
 | `executor_missing` | no declared executor (`ha task declare-executor`) |
 | `review_missing` | no approved Review |
 | `consent_missing` | no review-consent record |
-| `delivery_missing` | repository settings require merged code delivery, but its recorded merge commit is absent from the configured target branch; legacy frozen `ci` gates use the same read-only merge evidence |
+| `delivery_missing` | repository settings require merged code delivery, but its recorded merge commit is absent from the configured target ref (default `origin/<target branch>`); legacy frozen `ci` gates use the same read-only merge evidence |
 | `gate_witness_missing` | a canonical checker witness for another declared gate is missing |
 | `decision_lineage_missing` | the load-bearing decision lineage is not closed |
 | `lease_held` | a lease is still held |

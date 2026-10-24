@@ -3,6 +3,7 @@ import {
   assessFactRetirement,
   consumeKnownError,
   currentExecutionCuts,
+  deliveryTargetRef,
   INITIAL_SETTINGS_V1,
   localGitObjectRefStore,
   type CloseoutSnapshot,
@@ -92,7 +93,7 @@ export function readCompletionDeliveryStatus(
             ?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))
             ?.note.slice(17)
         : undefined,
-    targetRef = `refs/remotes/origin/${delivery.targetBranch}`;
+    targetRef = deliveryTargetRef(delivery);
   return {
     required,
     merged:
@@ -104,6 +105,7 @@ export function readCompletionDeliveryStatus(
         ? null
         : localGitObjectRefStore.isAncestor(rootDir, mergeSha, targetRef),
     targetBranch: delivery.targetBranch,
+    ...(delivery.targetRef !== undefined ? { targetRef: delivery.targetRef } : {}),
     ...(mergeSha !== undefined ? { mergeSha } : {}),
   };
 }

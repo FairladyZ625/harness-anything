@@ -259,6 +259,23 @@ test("delivery_missing prompts for fetch when merge annotation is present but re
   assert.doesNotMatch(unmerged.next!.action, /node tools\/pr-merge\.mjs/u);
 });
 
+test("delivery_missing points local-only repositories to the explicit Settings ref", () => {
+  const snapshot = gatedAt([retiredCiRequirement], 6),
+    mergeSha = "f".repeat(40),
+    delivery = {
+      required: true,
+      targetBranch: "main",
+      targetRef: "refs/heads/main",
+      merged: null,
+      mergeSha,
+    };
+  const unmerged = taskCompletionNext(snapshot, { ...context, delivery });
+  assert.equal(unmerged.blocker?.code, "delivery_missing");
+  assert.match(unmerged.next!.action, /configured target ref refs\/heads\/main/u);
+  assert.match(unmerged.next!.reason, /configured delivery ref refs\/heads\/main is not visible/u);
+  assert.doesNotMatch(unmerged.next!.action, /git fetch origin/u);
+});
+
 test("completion has no fact quota: a task with zero recorded facts still clears every blocker", () => {
   // dec_BB2BCE9F995CD3A126E2918734 CH4 removed the per-task fact gate; facts are on-demand.
   assert.equal(taskCompletionNext(at(6), context).blocker, null);
