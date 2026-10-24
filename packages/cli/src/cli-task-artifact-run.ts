@@ -101,8 +101,6 @@ export async function runTaskArtifactCommand(
       error: result.error?.message ?? null,
       stdout: stdout.toString("utf8"),
       stderr: stderr.toString("utf8"),
-      stdoutBase64: stdout.toString("base64"),
-      stderrBase64: stderr.toString("base64"),
     };
   const receipt = await publish({
     rootDir: safePath(invocation.rootDir),

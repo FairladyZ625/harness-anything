@@ -52,6 +52,10 @@ test("task artifact add --run publishes the same-run transcript and preserves ch
   assert.equal(transcript?.stdout, "zero hits\n");
   assert.equal(transcript?.stderr, "detail\n");
   assert.equal(transcript?.exitCode, 7);
+  // The raw bytes exist once, as text the write boundary's scrubber can read. A base64 twin would
+  // carry the same secret past a text scrubber, and nothing consumes it.
+  for (const field of ["stdoutBase64", "stderrBase64"])
+    assert.equal(Object.hasOwn(transcript ?? {}, field), false, `${field} must not duplicate raw output`);
   assert.match(String(receipt.evidencePath), /^artifacts\/evidence\/command-.*\.json$/u);
 });
 
