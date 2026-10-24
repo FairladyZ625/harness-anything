@@ -1,9 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import net from "node:net";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { PassThrough, Writable } from "node:stream";
 import { actionDeclarations, getEntityKindContract } from "@harness-anything/kernel";
@@ -389,8 +391,99 @@ async function rpcServer(
   };
 }
 
+// dec_2BF45FF7E52020380F5F35CE2D/CH1 freezes every canonical write road that still lacks a
+// <kind>/<action> catalogId. The gate's object set is canonical declarations that are not
+// repo-read: read-only admission is outside this gate. The freeze reference is the pull request's
+// target branch, never a constant in this file, because a list and a baseline that move together
+// in one commit cannot ratchet anything. The landing cut is the one time the target branch has no
+// allowlist; there the reference is that branch's own declarations, measured by importing its
+// action-declaration.ts, so the landing PR cannot freeze a null it introduces itself.
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
+const CATALOG_NULL_ALLOWLIST = "tools/gate-allowlists/action-catalog-null.json";
+
+function gitText(args: readonly string[]): string {
+  return execFileSync("git", args, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function catalogNullKinds(allowlistText: string): readonly string[] {
+  return (
+    JSON.parse(allowlistText) as {
+      readonly entries: { readonly catalogNulls: readonly { readonly value: string }[] };
+    }
+  ).entries.catalogNulls.map(({ value }) => value);
+}
+
+function resolveTargetCommit(): string {
+  const branch = process.env.GITHUB_BASE_REF?.trim() || "main";
+  const commits = [`origin/${branch}`, branch].map((ref) => {
+    try {
+      return gitText(["rev-parse", "--verify", `${ref}^{commit}`]).trim();
+    } catch {
+      return null;
+    }
+  });
+  const commit = commits.find((value): value is string => value !== null);
+  if (commit !== undefined) return commit;
+  // The assigned test dispatcher clones two generations of the worktree and removes the remote.
+  // That snapshot has no named target branch, so its second generation is the base only when the
+  // branch is a single delivery commit. Require this exact shape and stay out of GitHub Actions:
+  // CI always resolves origin/<base> first, so this path cannot make the gate pass there.
+  if (
+    process.env.GITHUB_ACTIONS === undefined &&
+    gitText(["remote"]).trim() === "" &&
+    gitText(["rev-parse", "--is-shallow-repository"]).trim() === "true" &&
+    gitText(["rev-list", "--count", "HEAD"]).trim() === "2"
+  )
+    return gitText(["rev-parse", "--verify", "HEAD^^{commit}"]).trim();
+  assert.fail(
+    `cannot resolve target branch ${branch}; dec_2BF45FF7E52020380F5F35CE2D/CH3 reads its frozen ` +
+      "allowlist from the pull request's target branch and does not skip when it is unreadable",
+  );
+}
+
+function targetAllowlistKinds(commit: string): readonly string[] | null {
+  try {
+    gitText(["cat-file", "-e", `${commit}:${CATALOG_NULL_ALLOWLIST}`]);
+  } catch {
+    return null;
+  }
+  return catalogNullKinds(gitText(["show", `${commit}:${CATALOG_NULL_ALLOWLIST}`]));
+}
+
+async function measuredGateSetNullKinds(commit: string): Promise<readonly string[]> {
+  // Bootstrap is the landing cut only. Measuring this commit's set against its own allowlist would
+  // let the same PR add a null declaration and its row and freeze that name into the future
+  // baseline, so measure the target branch's declarations instead.
+  const directory = mkdtempSync(path.join(tmpdir(), "ha-action-census-"));
+  try {
+    writeFileSync(path.join(directory, "package.json"), '{"type":"module"}\n');
+    const file = path.join(directory, "action-declaration.ts");
+    writeFileSync(file, gitText(["show", `${commit}:packages/kernel/src/domain/action-declaration.ts`]));
+    const { actionDeclarations: targetDeclarations } = (await import(pathToFileURL(file).href)) as {
+      readonly actionDeclarations: readonly {
+        readonly kind: string;
+        readonly catalogId: string | null;
+        readonly executionClass: string;
+        readonly residency: { readonly scope: string };
+      }[];
+    };
+    return targetDeclarations
+      .filter(
+        ({ catalogId, executionClass, residency }) =>
+          catalogId === null && executionClass !== "repo-read" && residency.scope === "canonical",
+      )
+      .map(({ kind }) => kind);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 // Fragment from json-rpc-command-descriptors.test.ts.
-test("non-read protocol, Policy, receipt, residency, and entity catalogs close over Action declarations", () => {
+test("non-read protocol, Policy, receipt, residency, and entity catalogs close over Action declarations", async () => {
   const protocol = new Map(
       [...daemonProtocolCommands, ...daemonGuiActionMethods]
         .filter(({ commandClass }) => commandClass !== "repo-read")
@@ -459,12 +552,68 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       return (contract?.actionCatalog?.actions ?? []).map((action) => [`${kind}/${action.id}`, action] as const);
     }),
   );
+  const declaredNullRows = catalogNullKinds(
+    readFileSync(new URL("../../../tools/gate-allowlists/action-catalog-null.json", import.meta.url), "utf8"),
+  );
+  const allowlistedNullKinds = new Set(declaredNullRows);
+  assert.equal(allowlistedNullKinds.size, declaredNullRows.length, "action-catalog-null.json lists a duplicate kind");
+  const gateSetNullKinds = new Set(
+    actionDeclarations
+      .filter(
+        ({ catalogId, executionClass, residency }) =>
+          catalogId === null && executionClass !== "repo-read" && residency.scope === "canonical",
+      )
+      .map(({ kind }) => kind),
+  );
+
   for (const declaration of actionDeclarations) {
-    if (declaration.catalogId === null) continue;
+    if (declaration.catalogId === null) {
+      // dec_2BF45FF7E52020380F5F35CE2D/CH1: read-only admission is outside the gate set; a canonical
+      // write road names the Entity and action it writes. The allowlist is the only landing
+      // exemption, and CH3 authorizes removals only.
+      if (declaration.executionClass === "repo-read" || declaration.residency.scope !== "canonical") continue;
+      assert.ok(
+        allowlistedNullKinds.has(declaration.kind),
+        `${declaration.kind}: canonical declaration has no catalogId; bind <kind>/<action> or add it to ` +
+          "tools/gate-allowlists/action-catalog-null.json under an owner-approved decision",
+      );
+      continue;
+    }
     const action = catalogActions.get(declaration.catalogId);
     assert.ok(action?.execution, declaration.catalogId);
     assert.equal(action.execution.ingress, declaration.kind, declaration.catalogId);
     assert.equal(action.policy.action, declaration.policyAction, declaration.catalogId);
+  }
+  for (const kind of allowlistedNullKinds)
+    assert.ok(
+      gateSetNullKinds.has(kind),
+      `${kind}: listed in tools/gate-allowlists/action-catalog-null.json but no longer a canonical null declaration; ` +
+        "delete its row in the same commit that binds it",
+    );
+  // dec_2BF45FF7E52020380F5F35CE2D/CH3(3): the list may only shrink relative to the target branch.
+  // Comparing with a constant in this file would let one commit rewrite both sides, so a converged
+  // kind plus a new still-null kind would pass. The target branch is the reference; when it has no
+  // allowlist yet (this landing cut), its own measured declarations are the reference instead.
+  const targetCommit = resolveTargetCommit();
+  const targetKinds = targetAllowlistKinds(targetCommit);
+  if (targetKinds === null) {
+    const targetMeasured = new Set(await measuredGateSetNullKinds(targetCommit));
+    assert.deepEqual(
+      [...allowlistedNullKinds].sort(),
+      [...targetMeasured].sort(),
+      "the landing allowlist must equal the target branch's measured gate-set nulls, not this commit's " +
+        `set (dec_2BF45FF7E52020380F5F35CE2D/CH3, target ${targetCommit}); a new null and its row in one ` +
+        "commit is a ratchet change that needs an owner-approved decision",
+    );
+  } else {
+    const targetSet = new Set(targetKinds);
+    const added = [...allowlistedNullKinds].filter((kind) => !targetSet.has(kind)).sort();
+    assert.deepEqual(
+      added,
+      [],
+      "tools/gate-allowlists/action-catalog-null.json may only shrink relative to the target branch " +
+        `(dec_2BF45FF7E52020380F5F35CE2D/CH3); rows missing from ${targetCommit}: ${added.join(", ")}`,
+    );
   }
   for (const kind of ["fact", "decision", "relation"])
     for (const action of getEntityKindContract(kind)?.actionCatalog?.actions ?? [])
