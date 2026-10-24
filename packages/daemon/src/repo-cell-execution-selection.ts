@@ -242,6 +242,8 @@ export function reviewConsentSelection(
   const executionId = explicitExecutionId(action),
     reviewId = action.reviewId === undefined ? undefined : requiredCellText(action.reviewId, "reviewId");
   if (executionId !== undefined && reviewId !== undefined) return { executionId, reviewId };
+  // A sole candidate is still only a suggestion: consent is the owner's explicit signature, so an
+  // id-less command lists the candidates instead of choosing one and never writes.
   const executions = currentSubmittedExecutions(snapshot).filter(
       (value) => executionId === undefined || value.executionId === executionId,
     ),
@@ -255,7 +257,6 @@ export function reviewConsentSelection(
               reviewId: review.reviewId,
             })),
     );
-  if (candidates.length === 1) return candidates[0]!;
   const names = candidates.map((value) => `${value.executionId}/${value.reviewId}`),
     commands = candidates.map(
       (value) => `ha task review-consent ${taskId} --execution-id ${value.executionId} --review-id ${value.reviewId}`,
@@ -264,7 +265,7 @@ export function reviewConsentSelection(
   throw cellCodedError(
     "invalid_command",
     [
-      "Approved Review candidates: ",
+      "Consent requires an explicit --execution-id and --review-id. Approved Review candidates: ",
       `${names.length ? names.join(", ") : "none"}`,
       ". ",
       `${commands.length ? `Choose one explicitly: ${commands.join(" or ")}.` : next}`,

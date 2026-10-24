@@ -399,6 +399,12 @@
     "function": "read",
     "task": "task_403e958e3fefd3496820e8843d",
     "reason": "Existing request-path historical scan pending a bounded-read deletion task."
+   },
+   {
+    "file": "packages/daemon/src/assignment-migration-action.ts",
+    "function": "runAssignmentMigrationAction",
+    "task": "task_45b896d263d3ad5c0c77db8f2e",
+    "reason": "The named offline assignment migration must scan the complete canonical task-event history once to convert legacy task_assigned/task_unassigned facts into relation-event/v1; it is an explicit operator migration boundary, not a live read path."
    }
   ],
   "catchSubstitutions": [

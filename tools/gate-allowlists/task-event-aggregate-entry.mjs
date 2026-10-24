@@ -6,9 +6,6 @@
 export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
   // dec_5EC2631352B17EE2BF4979E37E; owner-authorized single offline Task retirement constructor.
   "packages/kernel/src/domain/task-completion-generation-retirement.ts|envelope-call|task_completion_generation_retired": 1,
-  // dec_CDDCFA8BB91A47BCE07B229E93 CH2; exact registration authorized by task_979e2b2f67da905e550059992a.
-  "packages/kernel/src/domain/task-assignment-transitions.ts|envelope-call|task_assigned": 1,
-  "packages/kernel/src/domain/task-assignment-transitions.ts|envelope-call|task_unassigned": 1,
   "packages/daemon/src/repo-cell-task-command-docs.ts|dynamic-task-event|<dynamic>": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_amended": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_archived": 1,

@@ -102,15 +102,31 @@ type Bound<Implementation> = Implementation extends (context: infer Context, ...
     : never
   : never;
 
+/** The settings value an absent entity would be minted with, and the authored bytes it comes from. */
+export interface AuthoredSettingsInitialization {
+  readonly settings: SettingsV1;
+  readonly repository: RepositorySettingsV1;
+  readonly documentBody: string;
+  readonly candidateDocumentBody: string;
+}
+
 export interface RepoCellSettingsState {
-  readonly initialize: (
+  /** `ha init`'s mint. It may seed a defaults local file, and only when the machine has none yet. */
+  readonly initializeBootstrap: (
     settings: SettingsV1,
     documentBody: string,
     binding: RepoCellBinding,
   ) => ReturnType<CanonicalEventStore["append"]> | null;
-  readonly initializeFromAuthoredDocument: (
+  /** The write path's mint: repository settings only, never this machine's preferences file. */
+  readonly initializeAuthored: (
+    initialization: AuthoredSettingsInitialization,
     binding: RepoCellBinding,
   ) => ReturnType<CanonicalEventStore["append"]> | null;
+  /**
+   * The mint a write request would perform, resolved without writing: the request is judged against
+   * this value first so a rejected request appends no event. `null` when the entity already exists.
+   */
+  readonly authoredInitialization: () => AuthoredSettingsInitialization | null;
   readonly read: () => SettingsV1;
   readonly readLocal: () => LocalSettingsV1;
   readonly readRepository: () => RepositorySettingsV1;

@@ -6,7 +6,6 @@ import {
   isDomainStatus,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
-  validTaskAssignment,
   reviewDigest,
   submissionDigest,
   type TaskLifecycleCommand,
@@ -74,12 +73,6 @@ export function buildCommand(
       ...(typeof action.stackOn === "string" ? { stackOn: action.stackOn } : {}),
     } as Parameters<typeof normalizeTaskLifecycleCommand>[1]);
   }
-  if (action.kind === "task-assign") {
-    if (!validTaskAssignment(action.assignment))
-      throw cellCodedError("invalid_command", "Resolved assignment is required.");
-    return normalizeTaskLifecycleCommand(bound, { type: "AssignTask", taskId, assignment: action.assignment });
-  }
-  if (action.kind === "task-unassign") return normalizeTaskLifecycleCommand(bound, { type: "UnassignTask", taskId });
   if (action.kind === "task-transition") {
     const status = String(action.status);
     if (!isDomainStatus(status))
@@ -277,7 +270,7 @@ export function buildCommand(
       packagePath,
       reviewId,
       subject: `Task ${taskId}`,
-      retry: `ha task review-consent ${taskId} --review-id ${reviewId}`,
+      retry: `ha task review-consent ${taskId} --execution-id ${executionId} --review-id ${reviewId}`,
     });
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReviewConsent",

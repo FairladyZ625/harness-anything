@@ -336,7 +336,7 @@ test(
     writeFileSync(path.join(edgeRoot, "review.json"), readFileSync(path.join(reviewerRoot, "review.json")));
     const selfReview = await invoke(review, 1);
     assert.match(JSON.stringify(selfReview), /actor_unauthorized/u);
-    const consent = ["task", "review-consent", taskId, "--review-id", "review-edge-cli"];
+    const consent = ["task", "review-consent", taskId, "--execution-id", executionId, "--review-id", "review-edge-cli"];
     signOutAt(edgeUser);
     const unsignedConsent = await invoke(consent, 1);
     assert.match(JSON.stringify(unsignedConsent), /authentication_required/u);
@@ -346,7 +346,7 @@ test(
     assert.match(JSON.stringify(unattendedConsent), /human_confirmation_required/u);
     const confirmed = await fixture.host.run(
       repoId,
-      { kind: "task-review-consent", taskId, reviewId: "review-edge-cli" },
+      { kind: "task-review-consent", taskId, executionId, reviewId: "review-edge-cli" },
       localAuthFixture(),
     );
     assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));

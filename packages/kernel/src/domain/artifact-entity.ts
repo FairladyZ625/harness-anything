@@ -285,6 +285,7 @@ export function artifactEntityContractFromSnapshot(
     residency: { authored: "ledger" as const },
     relationEndpoint: { eligible: true as const },
     baseActions: ["pin", "unpin", "relate", "unrelate", "update", "archive", "explain"],
+    assignmentCapability: "none" as const,
     // The event pins which kind schema version it was accepted against; the declared attribute names of
     // that version live in the kind record, which never rewrites a published version. Replaying an event
     // therefore checks the envelope and the pin, and leaves attribute admission to the kind contract.

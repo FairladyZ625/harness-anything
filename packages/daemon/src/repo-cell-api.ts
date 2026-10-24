@@ -190,6 +190,23 @@ export interface RepoCellSynchronousRead {
   ) => DaemonGuiReadResultMap[M];
 }
 
+function agendaViewerContext(binding: RepoCellBinding): {
+  readonly principalId: string;
+  readonly nodeId?: string;
+  readonly teamIds: readonly string[];
+} {
+  const nodeId =
+      typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : undefined,
+    cachedTeamIds = binding.taskClaimant?.teamIds;
+  if (cachedTeamIds !== undefined)
+    return {
+      principalId: binding.actor.principal.personId,
+      ...(nodeId === undefined ? {} : { nodeId }),
+      teamIds: cachedTeamIds,
+    };
+  return { principalId: binding.actor.principal.personId, ...(nodeId === undefined ? {} : { nodeId }), teamIds: [] };
+}
+
 export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
@@ -381,11 +398,13 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         ...(payload.path === undefined ? {} : { requestedPath: context.requiredCellText(payload.path, "path") }),
       });
     },
-    "repo.agenda.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) =>
-      queryRead().agenda({
+    "repo.agenda.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
+      const viewer = binding === undefined ? null : agendaViewerContext(binding);
+      return queryRead().agenda({
         ...agendaQueryFromPayload(context, payload),
-        ...(binding ? { principalId: binding.actor.principal.personId } : {}),
-      }),
+        ...(viewer === null ? {} : viewer),
+      });
+    },
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
     "repo.agent.entities.list": () =>
       readAgentEntityGuiProjection({

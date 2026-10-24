@@ -291,11 +291,22 @@ export function useTaskActions(repoId: string) {
           opId: "awaiting-receipt",
           hint: "正在记录终审批准…",
         });
+        // Consent names the reviewed cut's own execution — by review time the lease is already
+        // released, so an id-less consent would ask the daemon to infer (it refuses; it must).
+        const executionId = (task.reviews ?? []).find((review) => review.reviewId === reviewId)?.executionId;
+        if (executionId === undefined)
+          return publish(task.taskId, {
+            state: "error",
+            kind: "adjudicate",
+            opId: "N/A",
+            code: "review_not_found",
+            hint: `评审 ${reviewId} 不在当前任务切面里,刷新后再试。`,
+          });
         const settlement = settleTaskReceipt(
           await harnessClient.consentReview({
             repoId,
             taskId: task.taskId,
-            executionId: task.activeExecutionId,
+            executionId,
             reviewId,
           }),
         );

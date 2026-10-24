@@ -1,5 +1,4 @@
 import { retireCompletionGeneration } from "./task-completion-generation-retirement.ts";
-import { assignTask, unassignTask } from "./task-assignment-transitions.ts";
 import type { Transition } from "./task-lifecycle-contract-internal-types.ts";
 import {
   block,
@@ -18,8 +17,6 @@ import { adjudicate } from "./task-lifecycle-adjudication-transitions.ts";
 export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([
   create,
   retireCompletionGeneration,
-  assignTask,
-  unassignTask,
   start,
   block,
   reinstate,

@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { VerticalCompletionDeclarationSchema } from "./completion-source.ts";
 import { RelationTypeSchema } from "./entity-relations.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
+import { retiredHostedCiSourceKinds } from "../domain/event-shape-migration-event.ts";
 import type { VerticalDeclarationDocumentV1 } from "../domain/vertical-declaration.ts";
 import {
   decisionEventDescriptor,
@@ -301,6 +302,12 @@ export type EntityAttributeDeclaration = EntityKindSchemaVersion["attributes"][s
 
 /** Decode once, fail closed on every unknown field, and preserve that exact value for compilation consumers. */
 export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
+  // A retired shape is a migration question, not a schema question. Recognising it here keeps the
+  // whole Effect signature (unreadable to the person who owns the repository) out of the answer and
+  // names the one command that converts it. Recognition never rewrites the input: the conversion
+  // removes CI gates, so it stays an explicit, reviewed migration.
+  const retired = retiredVerticalConstructs(input);
+  if (retired.length > 0) throw outdatedVerticalDeclaration(retired);
   try {
     const definition = Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
     validateDecisionDeclarations(definition);
@@ -310,6 +317,41 @@ export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
       cause: error,
     });
   }
+}
+
+export const VERTICAL_DECLARATION_OUTDATED = "vertical_declaration_outdated" as const;
+
+/**
+ * The declaration constructs `ha migrate completion` removes, named by their authored path. This is
+ * the read-side mirror of that migration's own removal list: the same shapes are detected here and
+ * stripped there, in one vocabulary, so neither side can learn a shape the other does not know.
+ */
+function retiredVerticalConstructs(input: unknown): readonly string[] {
+  if (!isRecord(input)) return [];
+  const retired: string[] = [];
+  if (Object.hasOwn(input, "checkerProfile")) retired.push("checkerProfile");
+  const completion = isRecord(input.completion) ? input.completion : null,
+    sources = completion && isRecord(completion.sources) ? completion.sources : null;
+  for (const [sourceId, source] of Object.entries(sources ?? {}))
+    if (isRecord(source) && (retiredHostedCiSourceKinds as readonly string[]).includes(String(source.kind)))
+      retired.push(`completion.sources.${sourceId}.kind`);
+  const closeoutDefaults = completion && isRecord(completion.closeoutDefaults) ? completion.closeoutDefaults : null;
+  if (closeoutDefaults && Object.hasOwn(closeoutDefaults, "codeDoc"))
+    retired.push("completion.closeoutDefaults.codeDoc");
+  return retired;
+}
+
+function outdatedVerticalDeclaration(retired: readonly string[]): Error {
+  const fields = retired.join(", "),
+    message =
+      `This repository's vertical declaration (harness/vertical.json) still uses ${retired.length === 1 ? "a retired construct" : "retired constructs"}: ${fields}. ` +
+      "Convert it once, review the candidate, then accept it:\n" +
+      "  ha migrate completion --source harness/vertical.json --mode convert --destination <new-file>\n" +
+      "  # review <new-file>, place it at harness/vertical.json, then\n" +
+      "  ha doc sync --submit --path harness/vertical.json\n" +
+      "Run ha migrate completion --help for the preset-package form. The conversion removes the retired " +
+      "hosted-CI gates, so it is never applied silently.";
+  return Object.assign(new Error(message), { code: VERTICAL_DECLARATION_OUTDATED, retiredFields: [...retired] });
 }
 
 function validateDecisionDeclarations(definition: VerticalDefinition): void {

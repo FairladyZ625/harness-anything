@@ -15,3 +15,15 @@ for (const name of ["localStorage", "sessionStorage"] as const) {
 // renders zero rows. Give DOM-environment files a real viewport (node-env
 // files have no HTMLElement global and skip this patch).
 if (typeof HTMLElement !== "undefined") stubVirtualizedViewport();
+
+// happy-dom ≤20 had no WAAPI, so motion's JS animation backend (driven by
+// requestAnimationFrame/performance.now) rendered inline styles tests can
+// assert on. happy-dom 21 added `Element.prototype.animate`; motion-dom then
+// routes opacity/transform through WAAPI, whose clock this environment never
+// advances — animations never settle and every mid-flight cancel rejects the
+// native `finished` promise into an unhandled AbortError. Remove the method
+// so this lane deterministically tests the JS backend (real-browser WAAPI
+// stays covered by the screenshot lane).
+if (typeof Element !== "undefined" && Object.hasOwnProperty.call(Element.prototype, "animate")) {
+  delete (Element.prototype as { animate?: unknown }).animate;
+}

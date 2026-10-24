@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-import { consentedApprovedReviewForExecution, currentExecutionCuts } from "@harness-anything/kernel";
+import {
+  approvedReviewHistoryForExecution,
+  consentedApprovedReviewForExecution,
+  currentExecutionCuts,
+} from "@harness-anything/kernel";
 
 const MAIN_BRANCH = "main";
 const REMOTE = "origin";
@@ -214,11 +218,33 @@ function requireReviewConsent(pr, root) {
   }
   const taskId = pr.headRefName,
     evidence = readTaskReviewConsent(taskId, root);
-  if (!reviewChainClosed(taskId, evidence))
+  if (!reviewChainClosed(taskId, evidence)) {
+    // reviewChainClosed already ran the same judgment, so re-deriving the cut here cannot throw.
+    const dispositions = Array.isArray(evidence.reviewDispositions) ? evidence.reviewDispositions : [],
+      cut = currentExecutionCuts({
+        task: evidence.task,
+        executions: evidence.executions,
+        reviews: evidence.reviews,
+        consents: evidence.consents,
+        reviewDispositions: dispositions,
+        gateWitnesses: evidence.gateWitnesses,
+      }).find(({ state }) => state === "submitted"),
+      // Consent states both ids explicitly; the printed command must work as printed.
+      next =
+        cut === undefined
+          ? `ha task show ${taskId} for the current execution, then ha task review-consent ${taskId} ` +
+            "--execution-id <execution-id> --review-id <review-id>"
+          : approvedReviewHistoryForExecution(evidence.reviews, cut)
+              .map(
+                ({ reviewId }) =>
+                  `ha task review-consent ${taskId} --execution-id ${cut.executionId} --review-id ${reviewId}`,
+              )
+              .join(" or ");
     throw new Error(
       `Task ${taskId} (status=${evidence.task.status}) has no owner-consented approved review for its ` +
-        `current execution; refusing to merge. Next: ha task review-consent ${taskId}`,
+        `current execution; refusing to merge. Next: ${next}`,
     );
+  }
   console.log(`Task ${taskId} passed the review-consent check (status=${evidence.task.status}).`);
 }
 

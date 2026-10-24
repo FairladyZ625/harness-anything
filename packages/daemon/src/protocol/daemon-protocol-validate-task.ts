@@ -410,6 +410,7 @@ const taskSnapshotListRowFields = [
   "packagePath",
   "generation",
   "workspaceRevision",
+  "assignmentRevision",
   "createdAt",
   "completedAt",
   "updatedAt",
@@ -429,7 +430,9 @@ const taskSnapshotListRowFields = [
   "workspace",
 ] as const;
 
-const requiredRowFields: readonly string[] = taskSnapshotListRowFields.filter((field) => field !== "deliveryStage");
+const requiredRowFields: readonly string[] = taskSnapshotListRowFields.filter(
+  (field) => field !== "deliveryStage" && field !== "assignmentRevision",
+);
 
 function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
   const taskId = isJsonObject(value) && nonEmpty(value.taskId) ? value.taskId : "<unknown>",
@@ -451,6 +454,8 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (value.packagePath !== null && !nonEmpty(value.packagePath)) errors.push(error("packagePath"));
   if (value.generation !== "v0" && value.generation !== "v1") errors.push(error("generation"));
   if (!integer(value.workspaceRevision)) errors.push(error("workspaceRevision"));
+  if (value.assignmentRevision !== undefined && !integer(value.assignmentRevision))
+    errors.push(error("assignmentRevision"));
   if (value.createdAt !== null && !nonEmpty(value.createdAt)) errors.push(error("createdAt"));
   if (value.completedAt !== null && !nonEmpty(value.completedAt)) errors.push(error("completedAt"));
   if (!nonEmpty(value.updatedAt)) errors.push(error("updatedAt"));

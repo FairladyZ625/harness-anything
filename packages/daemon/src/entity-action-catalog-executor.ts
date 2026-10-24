@@ -68,6 +68,7 @@ import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.
 import { decisionReviewState } from "./decision-review-read.ts";
 import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
+import { retireDecisionAwaitsAfterWrite } from "./terminal-awaits-retirement.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -151,6 +152,13 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     const receipt = runWrite(contract, action, binding, opId);
     reconcileDecisionReviewAwaitAfterWrite(action, binding, opId, input);
+    retireDecisionAwaitsAfterWrite({
+      action,
+      binding,
+      opId,
+      authorizationDecision: binding.authorizationDecision ?? null,
+      context: input,
+    });
     return receipt;
   };
 
@@ -293,6 +301,11 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
   ): WriteReceipt => {
     rawAction = resolveDecisionReviewAction(input.rootDir ?? "", rawAction);
+    const assignment = contract.id === "assign" || contract.id === "unassign";
+    if (contract.id === "assign" && typeof rawAction.expiresAt !== "string" && contract.target.kind !== "relation") {
+      const ttl = input.readSettings().tasks.assignmentTtlMs;
+      rawAction = { ...rawAction, expiresAt: new Date(Date.parse(input.now()) + ttl).toISOString() } as RepoTaskAction;
+    }
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action = (
         contract.id === "amend"
@@ -312,7 +325,16 @@ export function makeEntityActionCatalogExecutor(input: {
       occurredAt = existing?.occurredAt ?? requestedTime ?? input.now();
     if (contract.target.kind === "relation" && dryRun)
       reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
-    if (contract.target.kind === "relation")
+    if (assignment && contract.target.kind === "task") {
+      const taskId = requiredCommandText(action.taskId, "taskId"),
+        lease = input.projection.currentLease(taskId, occurredAt);
+      if (lease && ["held", "reserving"].includes(lease.phase))
+        reject(
+          "lease_conflict",
+          `Task ${taskId} cannot be assigned while execution ${lease.executionId} holds its lease.`,
+        );
+    }
+    if (contract.target.kind === "relation" || assignment)
       return deriveActionResult(
         contract,
         rawAction,

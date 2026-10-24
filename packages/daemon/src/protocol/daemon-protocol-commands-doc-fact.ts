@@ -6,6 +6,28 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const docFactProtocolCommands = Object.freeze([
+  ...["assign", "unassign"].map((operation) =>
+    defineCenterForwardWriteCommand({
+      id: `fact-${operation}`,
+      phase: "DecisionFact-B",
+      path: ["fact", operation, "<fact-id>"],
+      summary:
+        operation === "assign" ? "Assign a Fact to a person, node or team." : "Remove the current Fact assignment.",
+      method: "repo.task.run",
+      inputs: [
+        cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+        ...(operation === "assign"
+          ? [
+              cliInput("--person", "single", false, { code: "invalid_field" }, { field: "personId" }),
+              cliInput("--node", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
+              cliInput("--team", "single", false, { code: "invalid_field" }, { field: "teamId" }),
+              cliInput("--expires-at", "single", false, { code: "invalid_field" }, { field: "expiresAt" }),
+            ]
+          : []),
+      ],
+      actionConstraints: operation === "assign" ? [["personId", "nodeId", "teamId"]] : [],
+    }),
+  ),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-status",
     phase: "DocSync-B",

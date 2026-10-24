@@ -304,6 +304,7 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
       {
         kind: "task-review-consent",
         taskId,
+        executionId,
         reviewId: "review-hitrate-lifecycle",
       },
       holder,

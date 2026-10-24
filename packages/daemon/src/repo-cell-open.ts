@@ -158,8 +158,14 @@ export async function openRepoWriterCell(
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
     now = input.now ?? (() => new Date().toISOString());
+  // Opening is a transient state, not a missing entity: the settings reader is installed when the
+  // cell finishes attaching, so this code is the honest one here and must stay distinct from the
+  // `settings_entity_missing` a fully attached cell reports.
   let readSettings = (): SettingsV1 => {
-    throw cellCodedError("projection_pending", "Settings projection is unavailable while the RepoCell is opening.");
+    throw cellCodedError(
+      "projection_pending",
+      "The repository is still opening; repository Settings become readable once it finishes attaching.",
+    );
   };
   const generation = Date.now() * 1_000 + (process.pid % 1_000);
   const activeWriter: WriterGeneration = {

@@ -102,6 +102,14 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
+  defineCenterForwardWriteCommand({
+    id: "assignment-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "assignment"],
+    summary: "Convert historical task assignment mutations into assigned-to Relation events and verify the conversion.",
+    method: "repo.task.run",
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
+  }),
   defineLedgerWriteCommand({
     id: "vertical-declaration-migrate",
     phase: "Migration-A",

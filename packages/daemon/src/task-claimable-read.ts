@@ -1,11 +1,12 @@
 import {
   canStartExecution,
   isNativeExecution,
-  taskAssignmentMatches,
+  parseAssignmentExpiry,
   type SettingsV1,
   type TaskClaimScope,
   type TaskProjection,
   type TaskV2,
+  type AssignmentRelationLike,
 } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
@@ -21,6 +22,7 @@ export async function readClaimableTasks(input: {
   readonly now: string;
   readonly page: (cursor?: string) => Promise<ReturnType<TaskProjection["list"]>>;
   readonly readTask?: (taskId: string) => Promise<TaskV2 | null>;
+  readonly readAssignments?: () => Promise<readonly AssignmentRelationLike[]>;
 }): Promise<TaskClaimableResult> {
   const { binding, repoId, now } = input,
     source = binding.source,
@@ -55,6 +57,9 @@ export async function readClaimableTasks(input: {
       urgency: number;
       createdAt: string;
     }[] = [];
+  const assignmentBySource = new Map(
+    (await input.readAssignments?.())?.map((relation) => [relation.sourceRef, relation] as const) ?? [],
+  );
   let cursor: string | undefined;
   do {
     const page = await input.page(cursor);
@@ -81,19 +86,31 @@ export async function readClaimableTasks(input: {
       const execution = snapshot.executions.find(
         (entry) => isNativeExecution(entry) && entry.iteration === task.iteration && entry.state === "active",
       );
+      const assignment = assignmentBySource.get(`task/${task.taskId}`) ?? null;
       if (
         !canStartExecution(snapshot, execution?.executionId ?? `claimable-${task.taskId}`) ||
-        !taskAssignmentMatches(task.assignment, claimant, now, scope)
+        !assignmentMatchesClaimant(assignment, claimant, now, scope)
       )
         continue;
-      const assignment =
-          task.assignment && Date.parse(task.assignment.expiresAt) > Date.parse(now) ? task.assignment : null,
-        assignee = assignment?.assignee;
+      const visibleAssignment =
+        assignment &&
+        (() => {
+          const expiresAt = parseAssignmentExpiry(assignment.rationale);
+          return expiresAt !== null && Date.parse(expiresAt) > Date.parse(now);
+        })()
+          ? assignmentToTaskAssignment(assignment)
+          : null;
       candidates.push({
         taskId: task.taskId,
         title: task.title,
-        assignment,
-        priority: assignee?.kind === "person" ? (assignee.nodeId ? 0 : 1) : assignee ? 2 : 3,
+        assignment: visibleAssignment,
+        priority: visibleAssignment
+          ? assignment?.targetRef.startsWith("node/")
+            ? 0
+            : assignment?.targetRef.startsWith("person/")
+              ? 1
+              : 2
+          : 3,
         urgency: task.metadata?.urgency === "high" ? 0 : task.metadata?.urgency === "medium" ? 1 : 2,
         createdAt: row.createdAt ?? "",
       });
@@ -114,4 +131,31 @@ export async function readClaimableTasks(input: {
     scope,
     tasks: candidates.slice(0, 50).map(({ taskId, title, assignment }) => ({ taskId, title, assignment })),
   };
+}
+
+function assignmentMatchesClaimant(
+  assignment: AssignmentRelationLike | null,
+  claimant: { readonly personId: string; readonly nodeId: string | null; readonly teamIds: readonly string[] },
+  now: string,
+  scope: TaskClaimScope,
+): boolean {
+  if (assignment === null) return scope === "startable";
+  const expiresAt = parseAssignmentExpiry(assignment.rationale);
+  if (expiresAt === null || Date.parse(expiresAt) <= Date.parse(now)) return scope === "startable";
+  if (assignment.targetRef.startsWith("node/")) return assignment.targetRef.slice("node/".length) === claimant.nodeId;
+  if (assignment.targetRef.startsWith("team/"))
+    return scope !== "node" && claimant.teamIds.includes(assignment.targetRef.slice("team/".length));
+  return scope !== "node" && assignment.targetRef.slice("person/".length) === claimant.personId;
+}
+
+function assignmentToTaskAssignment(
+  assignment: AssignmentRelationLike,
+): TaskClaimableResult["tasks"][number]["assignment"] {
+  const expiresAt = parseAssignmentExpiry(assignment.rationale);
+  if (!expiresAt) return null;
+  if (assignment.targetRef.startsWith("node/"))
+    return { assignee: { kind: "node", nodeId: assignment.targetRef.slice("node/".length) }, expiresAt };
+  if (assignment.targetRef.startsWith("team/"))
+    return { assignee: { kind: "team", teamId: assignment.targetRef.slice("team/".length) }, expiresAt };
+  return { assignee: { kind: "person", personId: assignment.targetRef.slice("person/".length) }, expiresAt };
 }

@@ -63,6 +63,10 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("create", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("create", "preset-bootstrap/compileTaskPackage"), mutationInvocation],
     [key("create", "task-graph/validateTaskGraphV1"), mutationInvocation],
+    [key("assign", "assignment/entity-revision"), mutationInvocation],
+    [key("unassign", "assignment/entity-revision"), mutationInvocation],
+    [key("assign", "task-assignment/no-held-lease"), assignmentLeaseAvailability],
+    [key("unassign", "task-assignment/no-held-lease"), assignmentLeaseAvailability],
     [key("start", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("start", "task-lifecycle-command-transitions/canStartExecution"), startAvailability],
     [
@@ -74,10 +78,6 @@ const taskCapabilityEvaluators = Object.freeze(
           ? "met"
           : "unmet",
     ],
-    [key("assign", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [key("assign", "task-assignment-transitions/assignTask.validate"), mutationInvocation],
-    [key("unassign", "task-assignment-transitions/unassignTask.validate"), mutationInvocation],
-    [key("unassign", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("transition", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("transition", "lifecycle-status/explainStatusTransition"), mutationInvocation],
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
@@ -174,6 +174,10 @@ function releaseAvailability({ snapshot, actor }: TaskActionCapabilityInput): "m
 
 function mutationInvocation(): "invocation-required" {
   return "invocation-required";
+}
+
+function assignmentLeaseAvailability({ snapshot }: TaskActionCapabilityInput): "met" | "unmet" {
+  return snapshot.lease === null || !["held", "reserving"].includes(snapshot.lease.phase) ? "met" : "unmet";
 }
 
 /** An orphaned lease's holder is gone and fences nothing — the write path treats it like no lease. */

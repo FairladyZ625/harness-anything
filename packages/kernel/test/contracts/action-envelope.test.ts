@@ -55,8 +55,19 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "validate",
     "list",
     "inspect",
+    "assign",
+    "unassign",
   ]);
-  assert.deepEqual(declared("agent"), ["install", "delete", "retire", "validate", "list", "inspect"]);
+  assert.deepEqual(declared("agent"), [
+    "install",
+    "delete",
+    "retire",
+    "validate",
+    "list",
+    "inspect",
+    "assign",
+    "unassign",
+  ]);
   assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
     "runtime_session_started",
     "runtime_session_provider_bound",

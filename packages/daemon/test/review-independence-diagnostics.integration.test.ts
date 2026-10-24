@@ -1162,7 +1162,10 @@ test("review binding permits independent runtimes but still rejects the executio
       "cancelled",
     );
     await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
-    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId }, operator);
+    const consented = await cell.run(
+      { kind: "task-review-consent", taskId, executionId, reviewId: "review-dispatched-reviewer" },
+      operator,
+    );
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, operator);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));

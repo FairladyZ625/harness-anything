@@ -20,6 +20,19 @@ const context = {
   eligibleDirtyPaths: [],
 };
 
+// A task whose work already happened outside Harness has no execution to submit: the blocker
+// must hand over the settle chain instead of reading as a dead end (task_b6896bab owner-done).
+test("a never-started task names the evidence-and-settle chain, a started one keeps the plain message", () => {
+  const neverStarted = taskCompletionNext(at(1), context);
+  assert.equal(neverStarted.blocker?.code, "not_in_review");
+  assert.match(neverStarted.next!.reason, /No execution has started/u);
+  assert.match(neverStarted.next!.reason, /ha task settle task-1/u);
+  assert.match(neverStarted.next!.reason, /closeout\.md/u);
+  // A round that returned to planned still has its executions: the plain submission message stands.
+  const returned = { ...at(2), lease: null, task: { ...at(2).task!, status: "planned" as const } };
+  assert.doesNotMatch(taskCompletionNext(returned, context).next!.reason, /settle/u);
+});
+
 test("completion next is one pure judgment across lifecycle and unavailable-input fixtures", () => {
   const active = at(2),
     submitted = at(3),
@@ -305,7 +318,6 @@ test("a recorded changes_requested review guides the owner's return instead of a
   assert.equal(taskCompletionNext(at(4), context).next?.action, "ha task dispatch-review task-1");
 });
 
-// Q1-R1-004: review-consent selects a sole approved candidate itself; only a choice needs its id.
 test("a changes request on the current cut comes before missing merge evidence", () => {
   const reviewed = gatedAt([retiredCiRequirement], 6),
     changesRequested = {
@@ -323,7 +335,9 @@ test("a changes request on the current cut comes before missing merge evidence",
   assert.equal(taskCompletionNext(reviewed, { ...context, delivery }).blocker?.code, "delivery_missing");
 });
 
-test("consent guidance relies on automatic selection for one candidate and names each of several", () => {
+// Consent guidance names the execution and the review explicitly: a sole candidate is never
+// selected implicitly, so an exploratory run of the printed command can never write a consent.
+test("consent guidance names both ids for one candidate and for each of several", () => {
   const single = at(5),
     multiple = { ...single, reviews: [...single.reviews, { ...single.reviews[0]!, reviewId: "review-additional" }] },
     index = (snapshot: typeof single) =>
@@ -333,13 +347,20 @@ test("consent guidance relies on automatic selection for one candidate and names
         paths: ["tasks/task-1/INDEX.md"],
         currentDocuments: [],
       })[0]!.body;
-  assert.equal(taskCompletionNext(single, context).next?.action, "ha task review-consent task-1");
-  assert.match(index(single), /`ha task review-consent task-1`/u);
+  assert.equal(
+    taskCompletionNext(single, context).next?.action,
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
+  );
+  assert.match(
+    index(single),
+    /`ha task review-consent task-1 --execution-id execution-1 --review-id review-execution`/u,
+  );
   const several = taskCompletionNext(multiple, context).next!.action;
   assert.doesNotMatch(several, /<review-id>/u);
   assert.equal(
     several,
-    "ha task review-consent task-1 --review-id review-execution or ha task review-consent task-1 --review-id review-additional",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution or " +
+      "ha task review-consent task-1 --execution-id execution-1 --review-id review-additional",
   );
   assert.match(index(multiple), /--review-id review-execution or .*--review-id review-additional`/u);
 });

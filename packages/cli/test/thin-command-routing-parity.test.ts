@@ -460,12 +460,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
     backup: ["backup-retention", "ledger-backup"],
     bootstrap: ["rbac-bootstrap"],
     agent: [
+      "agent-assign",
       "agent-delete",
       "agent-inspect",
       "agent-install",
       "agent-list",
       "agent-retire",
       "agent-run",
+      "agent-unassign",
       "agent-validate",
     ],
     daemon: [
@@ -490,6 +492,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     decision: [
       "decision-accept",
       "decision-amend",
+      "decision-assign",
       "decision-claim-add",
       "decision-claim-fulfill",
       "decision-defer",
@@ -507,6 +510,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "decision-show",
       "decision-supersede",
       "decision-transition",
+      "decision-unassign",
       "decision-validate",
       "decision-verify",
     ],
@@ -529,6 +533,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     explain: ["explain"],
     fact: [
       "fact-archive",
+      "fact-assign",
       "fact-reclassify",
       "fact-record",
       "fact-rematerialize",
@@ -536,12 +541,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "fact-type-list",
       "fact-type-register",
       "fact-unarchive",
+      "fact-unassign",
     ],
     graph: ["graph"],
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
     migrate: [
+      "assignment-migrate",
       "migrate-agent-declaration",
       "migrate-completion",
       "migrate-import",
@@ -592,6 +599,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-steer",
     ],
     schedule: [
+      "schedule-assign",
       "schedule-create",
       "schedule-delete",
       "schedule-disable",
@@ -601,6 +609,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "schedule-run-now",
       "schedule-runs",
       "schedule-show",
+      "schedule-unassign",
       "schedule-update",
     ],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
@@ -608,6 +617,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     people: ["people-delegate", "people-revoke-delegation"],
     pin: ["entity-pin"],
     squad: [
+      "squad-assign",
       "squad-cancel",
       "squad-delete",
       "squad-inspect",
@@ -615,6 +625,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "squad-list",
       "squad-run",
       "squad-status",
+      "squad-unassign",
       "squad-validate",
     ],
     task: [
@@ -1346,6 +1357,13 @@ test("all public commands expose the canonical structured input facet", () => {
   }
   const reviewConsent = daemonProtocolCommands.find((command) => command.id === "task-review-consent");
   assert.ok(reviewConsent);
+  // Consent writes an owner signature, so the target execution and review are stated ids, never
+  // inferred: both flags are required at the parse boundary.
+  for (const name of ["--execution-id", "--review-id"]) {
+    const input = reviewConsent.inputs.find((candidate) => candidate.name === name);
+    assert.ok(input, name);
+    assert.equal(input.required, true, name);
+  }
   for (const name of ["--consent-id", "--from-file", "--json-input"])
     assert.equal(
       reviewConsent.inputs.some((input) => input.name === name),

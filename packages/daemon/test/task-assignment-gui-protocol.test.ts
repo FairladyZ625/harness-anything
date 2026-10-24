@@ -47,7 +47,7 @@ test("task read accepts the canonical assignment and rejects malformed assignmen
     assert.equal(task({ ...value, assignment }), true);
   for (const assignment of [
     {},
-    { assignee: { kind: "node", nodeId: "node-a" }, expiresAt: "2099-01-01T00:00:00.000Z" },
+    { assignee: { kind: "node", nodeId: "" }, expiresAt: "2099-01-01T00:00:00.000Z" },
     { assignee: { kind: "team", teamId: "team-a" }, expiresAt: "bad" },
   ])
     assert.equal(task({ ...value, assignment }), false);
