@@ -506,18 +506,6 @@ export async function runFleetEdgeTask(
     if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
-    // Only this channel's own blocks refuse a task command. A path another route owns (`INDEX.md`,
-    // `executions/*.md`, `progress.md`) is reported by the scan as `doc_route_owned` and is refused by
-    // that route — the same split the center draws between `inapplicable` and `blocked`. Gating on it
-    // here turned a route-owned file into a refused `task-start`/`task-submit`. An oversize document
-    // still gates: it carries `doc_candidate_too_large`, not this code.
-    const blocked = preScan.blocked.filter(
-      (row) =>
-        row.code !== "doc_route_owned" &&
-        (action.kind === "task-review-execution" ? row.path === reportPath : row.path.startsWith(`${packagePath}/`)),
-    );
-    if (blocked.length)
-      throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => `${row.path}: ${row.reason}`).join("; "));
     const candidates = preScan.changes.filter((change) =>
       action.kind === "task-review-execution" ? change.path === reportPath : change.path.startsWith(`${packagePath}/`),
     );

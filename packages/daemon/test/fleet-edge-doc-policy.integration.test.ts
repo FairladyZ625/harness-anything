@@ -594,6 +594,114 @@ test(
   },
 );
 
+test(
+  "edge lifecycle commands leave unsupported, oversized, and deleted docs to the center's existing paths",
+  { timeout: 180_000 },
+  async (t) => {
+    const fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    const cases = [
+      {
+        name: "NUL-bearing .log",
+        relativePath: "evidence/binary.log",
+        initial: Buffer.from("seed log\n"),
+        changed: Buffer.from([0x80, 0x00]),
+      },
+      {
+        name: "300 KiB .log",
+        relativePath: "evidence/large.log",
+        initial: Buffer.from("seed log\n"),
+        changed: Buffer.alloc(300 * 1024, 0x61),
+      },
+      {
+        name: ">256 KiB design.md",
+        relativePath: "notes/design.md",
+        initial: Buffer.from("# Design\n"),
+        changed: Buffer.alloc(256 * 1024 + 1, 0x61),
+      },
+      {
+        name: "deleted design.md",
+        relativePath: "notes/deleted-design.md",
+        initial: Buffer.from("# Design\n"),
+        changed: null,
+      },
+    ] as const;
+
+    const outcomes: { readonly name: string; readonly center: string; readonly edge: string }[] = [];
+    for (const [index, row] of cases.entries()) {
+      const edgeTask = await fixture.createTask(
+          "node-one",
+          `task-edge-prescan-${index}`,
+          `Edge pre-scan case ${index}`,
+        ),
+        centerTask = await fixture.createTask(
+          "node-two",
+          `task-center-prescan-${index}`,
+          `Center pre-scan case ${index}`,
+        ),
+        edgePath = `${edgeTask.packagePath}/${row.relativePath}`,
+        centerPath = `${centerTask.packagePath}/${row.relativePath}`;
+      for (const logical of [edgePath, centerPath]) {
+        const canonical = path.join(fixture.repo, "harness", ...logical.split("/"));
+        mkdirSync(path.dirname(canonical), { recursive: true });
+        writeFileSync(canonical, row.initial);
+      }
+      const seeded = await fixture.centerRun({ kind: "doc-submit", paths: [edgePath, centerPath] });
+      assert.equal(seeded.outcome, "applied", `${row.name}: seed ${JSON.stringify(seeded).slice(0, 800)}`);
+      await fixture.waitPublished(String(seeded.opId));
+      assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+      for (const logical of [edgePath, centerPath]) {
+        const canonical = path.join(fixture.repo, "harness", ...logical.split("/")),
+          edge = fixture.worktree("node-one", logical);
+        if (row.changed === null) rmSync(canonical);
+        else writeFileSync(canonical, row.changed);
+        if (logical === edgePath) {
+          if (row.changed === null) rmSync(edge);
+          else writeFileSync(edge, row.changed);
+        }
+      }
+
+      const edgeReceipt = await fixture
+          .edgeTask("node-one", {
+            kind: "task-start",
+            taskId: edgeTask.taskId,
+            executionId: `exe-edge-prescan-${index}`,
+          })
+          .then((receipt) => ({
+            outcome: String(receipt.outcome ?? (receipt.ok ? "applied" : "rejected")),
+            opId: typeof receipt.opId === "string" ? receipt.opId : null,
+            detail: String(receipt.code ?? receipt.rejectionExplanation ?? ""),
+          }))
+          .catch((error: unknown) => ({
+            outcome: `threw:${typeof error === "object" && error !== null && "code" in error ? String(error.code) : String(error)}`,
+            opId: null,
+            detail: error instanceof Error ? error.message : String(error),
+          })),
+        centerResult = await fixture.centerRun({
+          kind: "task-start",
+          taskId: centerTask.taskId,
+          executionId: `exe-center-prescan-${index}`,
+        });
+      assert.equal(
+        centerResult.outcome,
+        "applied",
+        `${row.name}: center ${JSON.stringify(centerResult).slice(0, 800)}`,
+      );
+      outcomes.push({
+        name: row.name,
+        center: String(centerResult.outcome),
+        edge: `${edgeReceipt.outcome}${edgeReceipt.detail ? `:${edgeReceipt.detail}` : ""}`,
+      });
+      if (edgeReceipt.outcome === "applied" && edgeReceipt.opId !== null) await fixture.waitPublished(edgeReceipt.opId);
+      await fixture.edgeDocSync("node-one");
+    }
+    assert.deepEqual(
+      outcomes,
+      cases.map((row) => ({ name: row.name, center: "applied", edge: "applied" })),
+    );
+  },
+);
+
 test("an edge doc-status reports a stray non-member as inapplicable, like the center, instead of hiding it", () => {
   // The scan now separates `inapplicable` from `blocked`; the edge's read surface must carry that
   // distinction too, or a file that no longer wedges commands would silently disappear from
