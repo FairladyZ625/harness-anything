@@ -32,7 +32,7 @@ export type WorkerPushResult =
       readonly pushedCommit: string | null;
       readonly detail: string;
       /** Set only for rejections with a dedicated remediation path, not for ordinary push failures. */
-      readonly code?: "push_workflow_scope_required";
+      readonly code?: "push_workflow_scope_required" | "remote_ahead_of_frozen_cut";
     };
 
 export type WorkerGitIdentity = {
@@ -44,7 +44,9 @@ export type WorkerGitIdentity = {
 export function workerPushFailureCode(
   pushed: WorkerPushResult,
 ): "push_workflow_scope_required" | "delivery_publish_failed" {
-  return (pushed.attempted && !pushed.ok ? pushed.code : undefined) ?? "delivery_publish_failed";
+  return pushed.attempted && !pushed.ok && pushed.code === "push_workflow_scope_required"
+    ? pushed.code
+    : "delivery_publish_failed";
 }
 
 export function workerGitIdentityForPerson(personId: string): WorkerGitIdentity {
@@ -129,6 +131,10 @@ export async function pushWorkerBranch(input: {
   readonly env?: NodeJS.ProcessEnv;
   readonly identity?: WorkerGitIdentity;
   readonly timeoutMs?: number;
+  /** Settlement sets false so a frozen cut can only advance a remote ref, never rewrite it. */
+  readonly forceWithLease?: boolean;
+  /** On a rejected settlement push, fetch once to identify a remote descendant of the frozen cut. */
+  readonly classifyRemoteAhead?: boolean;
 }): Promise<WorkerPushResult> {
   if (samePath(input.cwd, input.canonicalRoot)) return { attempted: false, reason: "not-a-worker-worktree" };
   const env = gitEnvironment(input.env);
@@ -185,9 +191,13 @@ export async function pushWorkerBranch(input: {
       input.cwd,
       [
         "push",
-        input.expectedRemoteCommit === undefined
-          ? "--force-with-lease"
-          : `--force-with-lease=refs/heads/${branch}:${input.expectedRemoteCommit}`,
+        ...(input.forceWithLease === false
+          ? []
+          : [
+              input.expectedRemoteCommit === undefined
+                ? "--force-with-lease"
+                : `--force-with-lease=refs/heads/${branch}:${input.expectedRemoteCommit}`,
+            ]),
         "origin",
         `${pushedCommit}:refs/heads/${branch}`,
       ],
@@ -216,6 +226,32 @@ export async function pushWorkerBranch(input: {
     // The hosted credential is managed by the CEO, so a workflow-scope rejection has no worker-side
     // remedy: name the handoff push a CEO with local credentials can run instead of the raw refusal.
     const detail = errorDetail(error);
+    if (input.classifyRemoteAhead) {
+      try {
+        const remoteCommit = await fetchRemoteTaskCommit(input.cwd, branch, env);
+        if (remoteCommit !== pushedCommit && (await isAncestor(input.cwd, pushedCommit, remoteCommit, env)))
+          return {
+            attempted: true,
+            ok: false,
+            branch,
+            head,
+            pushedCommit,
+            code: "remote_ahead_of_frozen_cut",
+            detail:
+              `Remote task branch is ahead of the frozen cut; re-submit ${branch}: ${pushedCommit} ` +
+              `(remote @ ${remoteCommit})`,
+          };
+      } catch (verificationError) {
+        return {
+          attempted: true,
+          ok: false,
+          branch,
+          head,
+          pushedCommit,
+          detail: `${detail}; remote-ahead status could not be verified: ${errorDetail(verificationError)}`,
+        };
+      }
+    }
     return {
       attempted: true,
       ok: false,
@@ -249,6 +285,8 @@ export async function pushTaskWorkerBranch(input: {
   readonly env?: NodeJS.ProcessEnv;
   readonly identity?: WorkerGitIdentity;
   readonly timeoutMs?: number;
+  readonly forceWithLease?: boolean;
+  readonly classifyRemoteAhead?: boolean;
 }): Promise<WorkerPushResult> {
   let expectedRemoteCommit: string;
   try {
@@ -266,6 +304,25 @@ export async function pushTaskWorkerBranch(input: {
     };
   }
   return pushWorkerBranch({ ...input, expectedRemoteCommit });
+}
+
+async function fetchRemoteTaskCommit(cwd: string, branch: string, env: NodeJS.ProcessEnv): Promise<string> {
+  await readGitText(
+    cwd,
+    ["fetch", "--no-tags", "--no-write-fetch-head", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`],
+    env,
+  );
+  return (await readGitText(cwd, ["rev-parse", `refs/remotes/origin/${branch}^{commit}`], env)).trim();
+}
+
+async function isAncestor(cwd: string, ancestor: string, descendant: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  try {
+    await readGitText(cwd, ["merge-base", "--is-ancestor", ancestor, descendant], env);
+    return true;
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === 1) return false;
+    throw error;
+  }
 }
 
 // The first commit reachable from `pushedCommit` but from none of `bounds` whose author or
