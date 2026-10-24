@@ -417,24 +417,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
-    id: "decision-supersede",
-    phase: "DecisionFact-B",
-    path: ["decision", "supersede", "<id>"],
-    summary: "Deprecated alias for decision transition superseded.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput(
-        "--reason",
-        "single",
-        true,
-        {
-          code: "invalid_field",
-        },
-        { regex: "^[\\s\\S]{1,199}$" },
-      ),
-    ],
-  }),
-  defineLedgerWriteCommand({
     id: "decision-retire",
     phase: "DecisionFact-B",
     path: ["decision", "retire", "<id>"],

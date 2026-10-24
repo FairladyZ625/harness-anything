@@ -305,8 +305,6 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "decision-retire":
       return authorizeRepoCellAction(input);
-    case "decision-supersede":
-      return authorizeRepoCellAction(input);
     case "decision-transition":
       return authorizeRepoCellAction(input);
     case "decision-unassign":

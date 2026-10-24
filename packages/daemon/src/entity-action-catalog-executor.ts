@@ -7,12 +7,14 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   getExecutableEntityAction,
+  isRelationEvent,
   isSamePerson,
   parseEntityRef,
   requireEntityStoreKindContract,
   readAcceptedCommandOutcome,
   timestamp,
   type AuthorizationDecision,
+  type CanonicalWriteBundle,
   type CanonicalEventStore,
   type RepositorySettingsV1,
   type EntityActionContract,
@@ -27,6 +29,8 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import { docByteLength, type DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract";
+import { relationStrengthForType } from "@harness-anything/kernel/internal/domain/entity-relation";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import {
   decisionFilters,
@@ -334,25 +338,48 @@ export function makeEntityActionCatalogExecutor(input: {
           `Task ${taskId} cannot be assigned while execution ${lease.executionId} holds its lease.`,
         );
     }
-    if (contract.target.kind === "relation" || assignment)
-      return deriveActionResult(
+    if (contract.target.kind === "relation" || assignment) {
+      const relationReceipt = executeRelationAction({
+        rootDir: input.rootDir ?? "",
+        repositoryId: input.repositoryId ?? input.rootDir ?? "",
         contract,
-        rawAction,
-        executeRelationAction({
-          rootDir: input.rootDir ?? "",
-          repositoryId: input.repositoryId ?? input.rootDir ?? "",
-          contract,
-          action: rawAction,
-          binding,
-          opId,
-          occurredAt,
-          authorizationDecision,
-          store: input.store,
-          projection: input.projection,
-          sessionIdentity: input.sessionIdentity,
-          ...(input.killpoint ? { killpoint: input.killpoint } : {}),
-        }),
-      );
+        action: rawAction,
+        binding,
+        opId,
+        occurredAt,
+        authorizationDecision,
+        store: input.store,
+        projection: input.projection,
+        sessionIdentity: input.sessionIdentity,
+        compileSupersededDecision: ({
+          decisionId,
+          opId: decisionOpId,
+          occurredAt: decisionTime,
+          workspaceRevision,
+          relationBundle,
+        }) => {
+          const decisionContract = executableAction("decision-transition"),
+            supersedeAction = {
+              kind: "decision-transition",
+              decisionId,
+              targetState: "superseded",
+              reason: `Superseded by ${String(rawAction.sourceRef)} through an active decision supersedes Relation.`,
+            };
+          return compileAction(
+            decisionContract,
+            supersedeAction,
+            binding,
+            decisionOpId,
+            decisionTime,
+            workspaceRevision,
+            () => input.readSettings().decisionReviewRequirement,
+            relationBundle ?? undefined,
+          ) as DecisionBundle;
+        },
+        ...(input.killpoint ? { killpoint: input.killpoint } : {}),
+      });
+      return deriveActionResult(contract, rawAction, relationReceipt);
+    }
     if (contract.target.kind === "decision" && !timestamp(occurredAt))
       reject("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
     let reviewRequirement: RepositorySettingsV1["decisionReviewRequirement"] | undefined;
@@ -509,6 +536,7 @@ export function makeEntityActionCatalogExecutor(input: {
     allocatedRevision?: number,
     readDecisionReviewRequirement: () => RepositorySettingsV1["decisionReviewRequirement"] = () =>
       input.readSettings().decisionReviewRequirement,
+    relationBundle?: CanonicalWriteBundle,
   ): CatalogBundle => {
     const compile = contract.execution.compile;
     if (!compile) reject("invalid_command", `${contract.execution.ingress} has no write compiler.`);
@@ -562,6 +590,7 @@ export function makeEntityActionCatalogExecutor(input: {
       },
       decisionApproval(action, binding),
       readDecisionReviewRequirement,
+      relationBundle,
     );
   };
 
@@ -677,6 +706,7 @@ function compileDraft(
   approval: Parameters<typeof compileDecisionWrite>[0]["approval"] | undefined,
   // Only Decision writes consult the review requirement; other entity writes must not depend on Settings.
   readDecisionReviewRequirement: () => RepositorySettingsV1["decisionReviewRequirement"],
+  relationBundle?: CanonicalWriteBundle,
 ): CatalogBundle {
   if (draft.kind === "fact")
     return compileFactWrite({
@@ -717,7 +747,9 @@ function compileDraft(
     document = projection.readDocument(path);
   if (document.watermark !== document.sourceRevision)
     reject("content_not_ready", `Decision document ${path} is pending.`);
-  const incomingRelations = projection
+  if (draft.event.type !== "decision_proposed" && !document.document)
+    reject("content_not_ready", `Decision document ${path} is missing.`);
+  let incomingRelations = projection
     .readDecisionIncomingRelations(draft.event.decisionId)
     .filter((edge) => {
       const target = parseEntityRef(edge.targetRef);
@@ -734,6 +766,40 @@ function compileDraft(
       rationale: edge.rationale,
       state: edge.state,
     }));
+  let currentDocument: DocumentState | null = document.document;
+  if (relationBundle && isRelationEvent(relationBundle.event)) {
+    const path = `decisions/decision-${draft.event.decisionId}/decision.md`,
+      claim = relationBundle.event.payload.documentClaims?.find((entry) => entry.path === path),
+      bodyBlob = claim ? relationBundle.blobs.find((blob) => blob.sha256 === claim.sha256) : undefined;
+    if (claim && bodyBlob && currentDocument) {
+      currentDocument = {
+        ...currentDocument,
+        blobSha256: claim.sha256,
+        size: docByteLength(claim.size),
+        body: typeof bodyBlob.body === "string" ? bodyBlob.body : Buffer.from(bodyBlob.body).toString("utf8"),
+      };
+    }
+    if (relationBundle.event.type === "relation_created") {
+      const relation = relationBundle.event.payload.relation,
+        target = parseEntityRef(relation.target);
+      if (target?.kind === "decision" && target.id === draft.event.decisionId) {
+        incomingRelations = [
+          ...incomingRelations.filter(({ relation_id }) => relation_id !== relation.relation_id),
+          {
+            relation_id: relation.relation_id,
+            source: relation.source,
+            target: relation.target,
+            type: relation.type,
+            strength: relationStrengthForType(relation.type),
+            direction: relation.direction,
+            origin: relation.origin,
+            rationale: relation.rationale,
+            state: relation.state,
+          },
+        ];
+      }
+    }
+  }
   return compileDecisionWrite({
     event: draft.event,
     ...(approval ? { approval } : {}),
@@ -741,7 +807,7 @@ function compileDraft(
     currentRelations: read.decision?.relations ?? [],
     currentIncomingRelations: incomingRelations,
     resolveLink: decisionRelationLinkResolver(projection),
-    currentDocument: document.document,
+    currentDocument,
     decisionReviewRequirement: readDecisionReviewRequirement(),
   });
 }

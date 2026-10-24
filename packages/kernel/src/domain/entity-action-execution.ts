@@ -268,7 +268,6 @@ export type DecisionActionCompilerId =
   | "replace-relation"
   | "retire"
   | "retire-relation"
-  | "supersede"
   | "transition";
 
 export function decisionActionCompiler(id: DecisionActionCompilerId): EntityActionCompileHook {
@@ -437,8 +436,6 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
     return { ...base, type: "decision_rejected", payload: { reason: short(input, action.reason, "reason") } };
   if (id === "defer")
     return { ...base, type: "decision_deferred", payload: { reason: short(input, action.reason, "reason") } };
-  if (id === "supersede")
-    return { ...base, type: "decision_superseded", payload: { reason: short(input, action.reason, "reason") } };
   if (id === "retire")
     return { ...base, type: "decision_retired", payload: { reason: short(input, action.reason, "reason") } };
   if (id === "amend") {
@@ -564,7 +561,10 @@ function transitionEvent(
         .map(({ targetState }) => targetState),
       "targetState",
     ),
-    reason = `Transitioned to ${state} via the canonical Decision lifecycle command.`;
+    reason =
+      typeof action.reason === "string"
+        ? short(input, action.reason, "reason")
+        : `Transitioned to ${state} via the canonical Decision lifecycle command.`;
   return state === "superseded"
     ? { ...base, type: "decision_superseded", payload: { reason } }
     : { ...base, type: "decision_retired", payload: { reason } };

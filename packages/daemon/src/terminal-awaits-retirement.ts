@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   getExecutableEntityAction,
   isTerminalStatus,
+  parseEntityRef,
   type AuthorizationDecision,
   type CanonicalEventStore,
   type DomainStatus,
@@ -51,19 +52,24 @@ export function retireTaskAwaitsAtTerminalStatus(
 export function retireDecisionAwaitsAfterWrite(
   input: { readonly action: RepoTaskAction } & AwaitsRetirementInput,
 ): void {
+  const supersededTarget =
+      input.action.kind === "relation-relate" && input.action.relationType === "supersedes"
+        ? parseEntityRef(String(input.action.targetRef))
+        : null,
+    decisionId = supersededTarget?.kind === "decision" ? supersededTarget.id : input.action.decisionId;
   if (
-    !input.action.kind.startsWith("decision-") ||
+    (!input.action.kind.startsWith("decision-") && decisionId === null) ||
     input.action.dryRun === true ||
-    typeof input.action.decisionId !== "string" ||
+    typeof decisionId !== "string" ||
     !input.binding.authorizationDecision
   )
     return;
-  const decision = input.context.projection.readDecision(input.action.decisionId).decision;
-  if (!decision) reject("content_not_ready", `Decision ${input.action.decisionId} is not materialized.`);
+  const decision = input.context.projection.readDecision(decisionId).decision;
+  if (!decision) reject("content_not_ready", `Decision ${decisionId} is not materialized.`);
   if (decision.state !== "rejected" && decision.state !== "superseded") return;
   retireAwaitsInitiatedBy(
-    `decision/${input.action.decisionId}`,
-    `Decision ${input.action.decisionId} is ${decision.state}; its awaits Relations retire with the terminal transition.`,
+    `decision/${decisionId}`,
+    `Decision ${decisionId} is ${decision.state}; its awaits Relations retire with the terminal transition.`,
     { ...input, authorizationDecision: input.binding.authorizationDecision },
   );
 }
