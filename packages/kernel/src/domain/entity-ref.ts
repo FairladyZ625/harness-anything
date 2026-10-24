@@ -111,7 +111,17 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
     };
   }
   const artifact = body.match(artifactRefPattern)?.groups;
-  if (!artifact?.kind || !artifact.id) return null;
+  if (!artifact?.kind || !artifact.id) {
+    const principal = /^(?<kind>node|team)\/(?<id>[A-Za-z0-9][A-Za-z0-9_-]{0,127})$/u.exec(body)?.groups;
+    if (!principal?.kind || !principal.id) return null;
+    return {
+      raw: value,
+      kind: principal.kind,
+      id: principal.id,
+      ...(harnessAlias ? { harnessAlias } : {}),
+      externalHarness: Boolean(harnessAlias),
+    };
+  }
   return {
     raw: value,
     kind: artifact.kind,

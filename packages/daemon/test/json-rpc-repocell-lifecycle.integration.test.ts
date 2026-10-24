@@ -169,7 +169,14 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
         "tasks/task-submit-ab-submit-a-b",
         "Typed GUI submit is equivalent.",
       );
-      const closeoutPath = path.join(rootDir, "harness", "tasks/task-submit-ab-submit-a-b", "closeout.md");
+      const closeoutPath = path.join(
+        rootDir,
+        ".worktrees",
+        taskId,
+        "harness",
+        "tasks/task-submit-ab-submit-a-b",
+        "closeout.md",
+      );
       // A/B inputs must be identical even when the fixture repositories have different Git cuts.
       writeFileSync(closeoutPath, readFileSync(closeoutPath, "utf8").replace(commitSha, "<repo-cut>"));
     }
@@ -182,16 +189,30 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     assert.ok(cliSubmission && guiSubmission);
     assert.ok(cliSubmission.riskTierAssessment, "CLI submission freezes its assessed risk tier");
     assert.ok(guiSubmission.riskTierAssessment, "GUI submission freezes its assessed risk tier");
-    const comparableSubmission = (submission: NonNullable<typeof guiSubmission>) => ({
-      ...submission,
-      commitSha: "<repo-cut>",
-      riskTierAssessment: submission.riskTierAssessment
-        ? { ...submission.riskTierAssessment, deliveryBaseSha: "<repo-cut>", deliveryHeadSha: "<repo-cut>" }
-        : submission.riskTierAssessment,
-    });
+    const normalizeSubmission = (submission: NonNullable<typeof cliSubmission>) => {
+      const { productionDelta, riskTierAssessment, ...rest } = submission;
+      return {
+        ...rest,
+        commitSha: "<repo-cut>",
+        productionDelta: productionDelta ? { ...productionDelta, baseSha: "<repo-base>" } : productionDelta,
+        riskTierAssessment: riskTierAssessment
+          ? { ...riskTierAssessment, deliveryBaseSha: "<repo-cut>", deliveryHeadSha: "<repo-cut>" }
+          : riskTierAssessment,
+      };
+    };
     assert.deepEqual(
-      { taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: comparableSubmission(guiSubmission) },
-      { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: comparableSubmission(cliSubmission) },
+      {
+        taskId: events[1].taskId,
+        actor: events[1].actor,
+        source: events[1].source,
+        submission: normalizeSubmission(guiSubmission),
+      },
+      {
+        taskId: events[0].taskId,
+        actor: events[0].actor,
+        source: events[0].source,
+        submission: normalizeSubmission(cliSubmission),
+      },
     );
     const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!;
     assert.deepEqual(row.snapshotAvailability, { consents: "known", gateWitnesses: "known" });
@@ -409,8 +430,10 @@ async function writeCloseout(
     stdio: ["ignore", "pipe", "pipe"],
   });
   const commitSha = git(deliveryRoot, "rev-parse", "HEAD");
+  const closeoutPath = path.join(deliveryRoot, "harness", packagePath, "closeout.md");
+  mkdirSync(path.dirname(closeoutPath), { recursive: true });
   writeFileSync(
-    path.join(rootDir, "harness", packagePath, "closeout.md"),
+    closeoutPath,
     `# Closeout\n\n## Summary\n\n${summary} Commit ${commitSha}.\n\n## Verification\n\n${verification}\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n`,
   );
   return commitSha;

@@ -10,6 +10,7 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { EntityActionContract } from "@harness-anything/kernel";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
+import { assignmentProtocolCommands } from "./daemon-protocol-commands-assignment.ts";
 import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
 import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-decision-relations.ts";
 import { docFactProtocolCommands } from "./daemon-protocol-commands-doc-fact.ts";
@@ -153,6 +154,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
   ...agentProtocolCommands,
+  ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,
   ...docFactProtocolCommands,
   ...decisionLifecycleProtocolCommands,

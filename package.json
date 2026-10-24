@@ -45,7 +45,7 @@
     "check:pr": "npm run typecheck && npm run lint && npm run test:fast && npm run test:contract && npm run test:integration && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui",
     "check:local": "node tools/run-local-check.mjs",
     "check:local:derived-contracts": "node tools/gates/derived-contracts.mjs --check",
-    "check:local:gates": "node tools/run-local-gates-check.mjs",
+    "check:static": "node tools/run-local-gates-check.mjs",
     "check:local:full": "node tools/run-local-check.mjs --full",
     "check:local:schema-closure": "node tools/gates/schema-closure.mjs --check",
     "harness:check-test-tier-manifest": "node tools/test-tier-manifest.mjs",

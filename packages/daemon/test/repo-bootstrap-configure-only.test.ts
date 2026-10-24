@@ -54,9 +54,12 @@ test("init --configure-only reapplies ledger maintenance without writing the wor
       repoId: workspaceId(repoId),
       ownerId: "configure-only-test",
     });
+    // The cell is fully attached here, so the honest answer is "this ledger never minted Settings",
+    // not "the projection is still catching up" (which would suggest waiting could fix it).
     await assert.rejects(
       unprojected.read("repo.settings.read"),
-      (error: Error & { code?: string }) => error.code === "projection_pending",
+      (error: Error & { code?: string }) =>
+        error.code === "settings_entity_missing" && /ha settings update/u.test(error.message),
     );
     await unprojected.close();
     // Drop the pinned key so the reapply has something to do: an unconditional noop would pass the

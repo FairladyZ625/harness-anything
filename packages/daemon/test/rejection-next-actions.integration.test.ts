@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -14,19 +14,25 @@ import { withAuthorizationDecision } from "../src/repo-cell-authorization.ts";
 import { settleSquadChildAssignment } from "../src/repo-cell-squad-child.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { publishExecutedVerticalScript } from "../src/vertical-script-actions.ts";
-import { readWorkerRemoteCommit } from "../src/runtime-worker-push.ts";
+import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { commitDelivery } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-function writeCloseout(rootDir: string, packagePath: unknown): void {
-  writeFileSync(
-    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
-    `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
+function writeCloseout(rootDir: string, taskId: string, packagePath: unknown): void {
+  const body =
+      `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
       "## Verification\n\nIntegration assertions exercise the lifecycle refusals.\n\n" +
       "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared lifecycle authorization.\n",
-  );
+    packageRoot = String(packagePath),
+    worktree = path.join(rootDir, ".worktrees", taskId),
+    roots = [rootDir, ...(existsSync(path.join(worktree, "harness", packageRoot)) ? [worktree] : [])];
+  for (const root of roots) {
+    const closeout = path.join(root, "harness", packageRoot, "closeout.md");
+    mkdirSync(path.dirname(closeout), { recursive: true });
+    writeFileSync(closeout, body);
+  }
 }
 
 function writeReviewReport(rootDir: string, packagePath: unknown, reviewId: string, body?: string): string {
@@ -61,7 +67,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.deepEqual(rejectedTransition.nextActions, [
       `ha task start ${taskId} [--stack-on <stack-on>] [--execution-id <execution-id>] [--ttl-ms <ttl-ms>] [--dry-run]`,
     ]);
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     const withoutLease = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     assert.equal(withoutLease.code, "lease_required", JSON.stringify(withoutLease));
     assert.deepEqual(
@@ -69,6 +75,19 @@ test("submit lease refusals name the state-specific command that advances the ex
       ["repo-cell-proof/proofFor.SubmitExecution"],
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "doc-submit",
+            paths: [`${String((created as Record<string, unknown>).packagePath)}/closeout.md`],
+          },
+          holder,
+        )
+      ).outcome,
+      "applied",
+    );
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
@@ -238,7 +257,7 @@ test("executor declaration rejection names its eligibility rule and review comma
       cell!.run({ kind: "doc-submit", paths: [planPath] }, worker),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, worker)).outcome, "applied");
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, worker)).outcome, "applied");
     const rejected = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, agent: "assigned-worker", reason: "Already assigned" },
@@ -299,7 +318,7 @@ test("executor declaration and completion context refusals name projection rebui
     const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
     await commitDelivery(cell, deliveryRoot);
     assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, owner);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const submittedEvent = makeTaskEventReader({ repoId: cell.repoId, rootDir }).readEvent(submitted.opId);
@@ -471,7 +490,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
     );
-    writeCloseout(rootDir, packagePath);
+    writeCloseout(rootDir, taskId, packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
@@ -535,7 +554,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner)).outcome,
       "applied",
     );
-    writeCloseout(rootDir, packagePath);
+    writeCloseout(rootDir, taskId, packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
       "applied",
@@ -907,35 +926,24 @@ test(
   "a remote-triggered push refusal keeps the scrubbed remote text, not a credential hint",
   { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
   async () => {
-    // `delivery_publish_failed` has one remaining relayed producer: `readWorkerRemoteCommit` forwards
-    // git's own stderr through `errorDetail`, which scrubs it. The receipt must keep that sentence —
-    // it names what the remote actually said — and must not carry the token the URL embedded in it.
-    const root = mkdtempSync(path.join(tmpdir(), "ha-push-relay-"));
+    // Publication relays git's own stderr through `errorDetail`, which scrubs it. The receipt must
+    // keep that sentence — it names what the remote actually said — and must not carry the token
+    // the URL embedded in it.
+    const { root, canonical, worker, relay } = pushRelayFixture("ha-push-relay-");
     try {
-      execFileSync("git", ["init", "-q", root]);
-      // An `ext::` transport whose helper prints a credential-bearing remote line to stderr: this is
-      // the exact shape of a git failure that relays far-end text, without needing a live network.
-      const helper = path.join(root, "relay.sh");
-      writeFileSync(
-        helper,
+      relay(
         '#!/bin/sh\necho "remote: https://x-access-token:ghp_realtokenvalue123@github.com/acme/repo.git" >&2\nexit 1\n',
-        { mode: 0o755 },
       );
-      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
-      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
-      await assert.rejects(
-        readWorkerRemoteCommit(root, "task_push_relay"),
-        (error: Error & { code?: string; message: string }) => {
-          assert.equal(error.code, "delivery_publish_failed");
-          assert.match(
-            error.message,
-            /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u,
-            error.message,
-          );
-          assert.doesNotMatch(error.message, /ghp_realtokenvalue123/u, error.message);
-          return true;
-        },
+      const pushed = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: pushRelayTask });
+      assert.equal(pushed.ok, false);
+      assert.equal(pushed.attempted && pushed.code, undefined);
+      const message = pushed.attempted ? pushed.detail : "";
+      assert.match(message, /remote: https:\/\/x-access-token:REDACTED@github\.com|remote: https:\/\//u, message);
+      assert.doesNotMatch(message, /ghp_realtokenvalue123/u, message);
+      const explanation = String(
+        failed("op-relay", Object.assign(new Error(message), { code: "delivery_publish_failed" })).rejectionExplanation,
       );
+      assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -950,33 +958,24 @@ test(
     // and its PAT reaches git as URL userinfo (`https://oauth2:glpat-…@host`) — a shape the
     // token-prefix rules never matched. Git strips userinfo from its own stderr, so the ext:: relay
     // is the honest way to feed the shape a less careful remote or proxy can still print.
-    const root = mkdtempSync(path.join(tmpdir(), "ha-push-provider-"));
+    const { root, canonical, worker, relay } = pushRelayFixture("ha-push-provider-");
     try {
-      execFileSync("git", ["init", "-q", root]);
-      const helper = path.join(root, "relay.sh");
-      writeFileSync(
-        helper,
+      relay(
         "#!/bin/sh\n" +
           "echo \"fatal: unable to access 'https://oauth2:glpat-AbCdEf1234567890xyz@gitlab.com/acme/repo.git/': " +
           'The requested URL returned error: 403" >&2\n' +
           'echo "remote: https://user:pa55w0rd@bitbucket.internal/team/repo.git" >&2\n' +
           "exit 1\n",
-        { mode: 0o755 },
       );
-      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
-      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
-      let thrown: (Error & { code?: string; message: string }) | undefined;
-      await assert.rejects(
-        readWorkerRemoteCommit(root, "task_push_provider"),
-        (error: Error & { code?: string; message: string }) => {
-          thrown = error;
-          assert.equal(error.code, "delivery_publish_failed");
-          assert.doesNotMatch(error.message, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, error.message);
-          assert.match(error.message, /gitlab\.com/u, "the remote that failed stays named");
-          return true;
-        },
+      const pushed = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: pushRelayTask });
+      assert.equal(pushed.ok, false);
+      const message = pushed.attempted ? pushed.detail : "";
+      assert.doesNotMatch(message, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, message);
+      assert.match(message, /gitlab\.com/u, "the remote that failed stays named");
+      const explanation = String(
+        failed("op-provider", Object.assign(new Error(message), { code: "delivery_publish_failed" }))
+          .rejectionExplanation,
       );
-      const explanation = String(failed("op-provider", thrown).rejectionExplanation);
       assert.doesNotMatch(explanation, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, explanation);
       assert.match(explanation, /gitlab\.com/u, explanation);
     } finally {
@@ -993,12 +992,9 @@ test(
     // separator; git also quotes a path containing spaces. Each shape must leave as `<local-path>`
     // while the sentence that says what happened survives — otherwise the host layout reaches the
     // CLI and an agent's prompt on the platform that ships the Windows integration shard.
-    const root = mkdtempSync(path.join(tmpdir(), "ha-push-path-shapes-"));
+    const { root, canonical, worker, relay } = pushRelayFixture("ha-push-path-shapes-");
     try {
-      execFileSync("git", ["init", "-q", root]);
-      const helper = path.join(root, "relay.sh");
-      writeFileSync(
-        helper,
+      relay(
         String.raw`#!/bin/sh
 cat <<'EOF' >&2
 fatal: C:\Users\op\AppData\Local\Temp\ha-x\mirror.git does not appear to be a git repository
@@ -1009,22 +1005,16 @@ fatal: C:\Program Files\Harness\mirror.git does not appear to be a git repositor
 EOF
 exit 1
 `,
-        { mode: 0o755 },
       );
-      execFileSync("git", ["-C", root, "config", "protocol.ext.allow", "always"]);
-      execFileSync("git", ["-C", root, "remote", "add", "origin", `ext::${helper}`]);
-      let thrown: (Error & { code?: string; message: string }) | undefined;
-      await assert.rejects(
-        readWorkerRemoteCommit(root, "task_push_path_shapes"),
-        (error: Error & { code?: string; message: string }) => {
-          thrown = error;
-          assert.equal(error.code, "delivery_publish_failed");
-          assert.doesNotMatch(error.message, /AppData|fileserver|share\\|Program Files|\/srv\//u, error.message);
-          assert.match(error.message, /does not appear to be a git repository/u, "the cause survives the scrub");
-          return true;
-        },
+      const pushed = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: pushRelayTask });
+      assert.equal(pushed.ok, false);
+      const message = pushed.attempted ? pushed.detail : "";
+      assert.doesNotMatch(message, /AppData|fileserver|share\\|Program Files|\/srv\//u, message);
+      assert.match(message, /does not appear to be a git repository/u, "the cause survives the scrub");
+      const explanation = String(
+        failed("op-path-shapes", Object.assign(new Error(message), { code: "delivery_publish_failed" }))
+          .rejectionExplanation,
       );
-      const explanation = String(failed("op-path-shapes", thrown).rejectionExplanation);
       assert.doesNotMatch(explanation, /AppData|fileserver|Program Files|\/srv\//u, explanation);
       assert.match(explanation, /does not appear to be a git repository/u, explanation);
     } finally {
@@ -1032,6 +1022,41 @@ exit 1
     }
   },
 );
+
+/** A canonical root with a worker checkout whose origin is an `ext::` helper: the relay point. */
+const pushRelayTask = "task_push_relay";
+
+function pushRelayFixture(prefix: string): {
+  readonly root: string;
+  readonly canonical: string;
+  readonly worker: string;
+  readonly relay: (script: string) => void;
+} {
+  const root = mkdtempSync(path.join(tmpdir(), prefix)),
+    canonical = path.join(root, "canonical"),
+    worker = path.join(root, "worker"),
+    helper = path.join(root, "relay.sh");
+  execFileSync("git", ["init", "-q", "-b", "main", canonical], { windowsHide: true });
+  execFileSync("git", ["-C", canonical, "config", "user.email", "relay@example.invalid"], { windowsHide: true });
+  execFileSync("git", ["-C", canonical, "config", "user.name", "Relay Test"], { windowsHide: true });
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  execFileSync("git", ["-C", canonical, "add", "README.md"], { windowsHide: true });
+  execFileSync("git", ["-C", canonical, "commit", "--quiet", "-m", "fixture"], { windowsHide: true });
+  execFileSync("git", ["-C", canonical, "config", "protocol.ext.allow", "always"], { windowsHide: true });
+  execFileSync("git", ["-C", canonical, "remote", "add", "origin", `ext::${helper}`], { windowsHide: true });
+  execFileSync("git", ["-C", canonical, "worktree", "add", "--quiet", worker, "-b", pushRelayTask], {
+    windowsHide: true,
+  });
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  execFileSync("git", ["-C", worker, "add", "change.txt"], { windowsHide: true });
+  execFileSync("git", ["-C", worker, "commit", "--quiet", "-m", "feat: worker change"], { windowsHide: true });
+  return {
+    root,
+    canonical,
+    worker,
+    relay: (script: string) => writeFileSync(helper, script, { mode: 0o755 }),
+  };
+}
 
 test("a task push to an unusable origin explains the cause without exporting this host's paths", async () => {
   const rootDir = workspace("push-dead-origin"),
@@ -1048,7 +1073,7 @@ test("a task push to an unusable origin explains the cause without exporting thi
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
-    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, taskId, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     // An origin that is a local path makes git echo this host's filesystem into the refusal, which
     // cross-node surfaces and agent prompts must not receive; the remote-side cause still explains

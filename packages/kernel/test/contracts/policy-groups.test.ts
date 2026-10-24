@@ -26,7 +26,9 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
   // Owner 2026-10-21 (W2, dec_E369B8616F50A6208B293997E7) deletes task-pr: PRs and CI waits move to the worker's gh.
   // Owner 2026-10-21 B3 (task_8ebc730e board) deletes task-code-doc-reconcile/repoint with the mechanism.
-  assert.equal(actionDeclarations.length, 155);
+  // Owner 2026-10-23 (task_45b896d2) makes assign/unassign generic Actions for every assignable Entity kind;
+  // the declaration inventory therefore grows from the prior 155 to 166.
+  assert.equal(actionDeclarations.length, 166);
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),

@@ -6,7 +6,13 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/fleet-task-delivery.ts";
-import { fetchWorkerDelivery, readWorkerRemoteCommit, workerGitIdentityForPerson } from "../src/runtime-worker-push.ts";
+import {
+  fetchWorkerDelivery,
+  pushWorkerBranch,
+  readPublishedTaskCut,
+  workerGitIdentityForPerson,
+  workerPushFailureCode,
+} from "../src/runtime-worker-push.ts";
 
 for (const denialMode of ["node", "owner", "permission", "cas"])
   test(`delivery checks current node, owner, permission and remote CAS (${denialMode})`, async (t) => {
@@ -114,5 +120,15 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
       /not the conventional identity/u,
     );
     git(first, "remote", "remove", "origin");
-    await assert.rejects(readWorkerRemoteCommit(first, taskId), { code: "delivery_publish_failed" });
+    // With no origin, no cut is known: the lease expectation is empty without touching a network,
+    // and a publication that cannot reach its remote maps to the one delivery failure code.
+    assert.equal(await readPublishedTaskCut(first, taskId), "");
+    const pushed = await pushWorkerBranch({
+      cwd: path.join(first, "worker"),
+      canonicalRoot: first,
+      taskId,
+      expectedRemoteCommit: "",
+    });
+    assert.equal(pushed.ok, false);
+    assert.equal(workerPushFailureCode(pushed), "delivery_publish_failed");
   });

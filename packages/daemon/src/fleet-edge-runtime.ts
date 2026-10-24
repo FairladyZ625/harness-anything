@@ -203,10 +203,13 @@ export function openFleetEdgeRuntime(input: {
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never },
     // Repository settings follow the authorized replica cut, including before workspace materialization.
+    // A replica that has not projected the Settings entity yet falls back to the authored facet alone;
+    // the non-null assertion this replaces crashed on exactly the never-minted repositories this task
+    // is about, instead of answering with the declaration they do have.
     readSettings = () =>
       withEdgeReadModel({ ...request, principalId: replicaOwner }, (projection) => ({
         ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
-        ...(projection.getEntity("settings", "repository")!.value as RepositorySettingsV1),
+        ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
       }));
   let replicaOwner: string | undefined;
   const readReplica = async (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>

@@ -843,6 +843,8 @@ export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly rows: readonly (TaskProjectionListRow & {
+    /** Current assignment aggregate CAS version, including retired assignment relations. */
+    readonly assignmentRevision?: number;
     readonly coordinationStatus:
       | import("@harness-anything/kernel/internal/domain/lifecycle-status").DomainStatus
       | "unknown";

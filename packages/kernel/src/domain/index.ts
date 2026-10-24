@@ -106,6 +106,15 @@ export { assessFactRetirement, validFactStillHoldsAttestation } from "./fact-ret
 export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
+export {
+  classifyModule,
+  classifyPath,
+  isProductionPath,
+  isTestPath,
+  normalizeRepoPath,
+  productionDeltaFromNumstat,
+} from "./production-delta.ts";
+export { historicalReadConclusions, readSubmissionFacts } from "./submission-facts.ts";
 
 export {
   taskBoardPlacement,
@@ -231,6 +240,8 @@ export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
   deriveRelationId,
+  assignmentRationale,
+  parseAssignmentExpiry,
   parseAwaitsRequest,
   normalizeLegacyRelationState,
   relationDirections,
@@ -241,6 +252,7 @@ export {
 } from "./entity-relation.ts";
 export {
   compileRelationDocumentWrite,
+  compileRelationRetiredEvent,
   isRelationEvent,
   reduceRelationEntity,
   relationEventWritePlan,
@@ -251,6 +263,9 @@ export { compileEntityDocumentRematerialization } from "./entity-document-event.
 export type { EntityDocumentUpdate } from "./entity-document-event.ts";
 export { factLiveness } from "./fact-liveness.ts";
 export type { RelationDirection, RelationState, RelationType } from "./entity-relation.ts";
+export { assignmentMatchesViewer } from "./assignment-viewer.ts";
+export type { AssignmentRelationLike } from "./assignment-viewer.ts";
+export { migrateTaskAssignments } from "./assignment-migration.ts";
 export {} from "./entity-freshness.ts";
 export type {} from "./entity-freshness.ts";
 export { deriveTaskReadSet } from "./task-read-set.ts";

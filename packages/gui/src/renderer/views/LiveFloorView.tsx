@@ -53,14 +53,12 @@ const ENDED_CANDIDATE_WINDOW_MS = 24 * 60 * 60_000;
 export function LiveFloorView({
   repoId,
   tasks,
-  taskTitles,
   works,
   onOpenTask,
   onNavigateEntity,
 }: {
   readonly repoId: string;
   readonly tasks: readonly TaskRow[];
-  readonly taskTitles: ReadonlyMap<string, string>;
   readonly works: WorkIndex;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
@@ -143,13 +141,13 @@ export function LiveFloorView({
       return questions;
     }, [decisionAsks, decisionReads]),
     liveRows = useMemo(
-      () => liveFloorRows({ sessions, dispatches: dispatches.data ?? [], taskTitles, works }),
-      [dispatches.data, sessions, taskTitles, works],
+      () => liveFloorRows({ sessions, dispatches: dispatches.data ?? [], works }),
+      [dispatches.data, sessions, works],
     ),
     groups = useMemo(() => liveFloorWorkGroups(liveRows), [liveRows]),
     endedRows = useMemo(
-      () => liveFloorEndedRows({ dispatches: dispatches.data ?? [], taskTitles, tasks }),
-      [dispatches.data, taskTitles, tasks],
+      () => liveFloorEndedRows({ dispatches: dispatches.data ?? [], tasks }),
+      [dispatches.data, tasks],
     ),
     pipeline = useMemo(() => liveFloorPipelineGroups(tasks, works), [tasks, works]),
     asks = useMemo(

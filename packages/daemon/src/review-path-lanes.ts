@@ -1,4 +1,4 @@
-import { submissionDigest, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
+import { readSubmissionFacts, submissionDigest, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
 import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 
 /**
@@ -10,9 +10,8 @@ import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
  * mechanism; which agents watch which paths is repository configuration, and what a lane
  * reviews lives in the agent's own declaration.
  *
- * The hit input is the manifest submit froze into the submission (deliverables plus the
- * Deleted-Production-Paths output lines, see repo-cell-submit), so dispatch-time matching
- * involves no Git invocation and stays deterministic on an edge as on the center.
+ * The hit input is the complete changedFiles list frozen into new submissions, so dispatch-time
+ * matching involves no Git invocation and stays deterministic on an edge as on the center.
  */
 
 /** One configured lane after grouping entries by agent. */
@@ -22,7 +21,7 @@ export interface ReviewPathLane {
   readonly files: readonly string[];
 }
 
-const DELETED_OUTPUT_PREFIX = "Deleted-Production-Paths: ";
+const LEGACY_PATH_EVIDENCE_UNAVAILABLE = "Legacy submission path evidence is incomplete; review the full delivery.";
 
 /**
  * Group the configured entries into lanes. The settings write boundary already rejects
@@ -55,28 +54,40 @@ export function reviewLaneHits(
   lanes: readonly ReviewPathLane[],
 ): ReadonlyMap<string, readonly string[]> {
   if (!submission || lanes.length === 0) return new Map();
-  const deleted = submission.outputs
-    .filter((line) => line.startsWith(DELETED_OUTPUT_PREFIX))
-    .map((line) => line.slice(DELETED_OUTPUT_PREFIX.length));
-  return reviewLanePaths([...submission.deliverables, ...deleted], lanes);
-}
-
-export function reviewLanePaths(
-  paths: readonly string[],
-  lanes: readonly ReviewPathLane[],
-): ReadonlyMap<string, readonly string[]> {
-  const hits = new Map<string, string[]>();
+  const facts = readSubmissionFacts(submission),
+    incompleteLegacy = facts.kind === "legacy" && facts.pathEvidence !== "complete",
+    hits = new Map<string, string[]>();
   for (const lane of lanes) {
     const matched = [
-      ...new Set(
-        paths.filter(
-          (target) => lane.files.includes(target) || lane.prefixes.some((prefix) => target.startsWith(prefix)),
-        ),
-      ),
+      ...laneMatches(facts.changedFiles, lane),
+      ...(incompleteLegacy ? [LEGACY_PATH_EVIDENCE_UNAVAILABLE] : []),
     ].sort();
     if (matched.length > 0) hits.set(lane.agentId, matched);
   }
   return hits;
+}
+
+/** The configured lanes a plain path list hits; the risk-tier assessor reuses this on its own diff. */
+export function reviewLanePaths(
+  paths: readonly string[],
+  lanes: readonly ReviewPathLane[],
+): ReadonlyMap<string, readonly string[]> {
+  const hits = new Map<string, readonly string[]>();
+  for (const lane of lanes) {
+    const matched = laneMatches(paths, lane);
+    if (matched.length > 0) hits.set(lane.agentId, matched);
+  }
+  return hits;
+}
+
+function laneMatches(paths: readonly string[], lane: ReviewPathLane): readonly string[] {
+  return [
+    ...new Set(
+      paths.filter(
+        (target) => lane.files.includes(target) || lane.prefixes.some((prefix) => target.startsWith(prefix)),
+      ),
+    ),
+  ].sort();
 }
 
 /** A lane's own claim fence: the cut-review key grammar with the lane's agent as the segment. */
@@ -108,8 +119,15 @@ export function reviewLanePrompt(input: {
     `Independently review task ${taskId}, execution ${execution.executionId}, iteration ` +
       `${execution.iteration}, through the additional review lane for agent ${agentId}.`,
     `The exact submission digest is ${submissionDigest(execution.submission!)}.`,
-    `This lane fired because the delivery's frozen manifest touches paths configured for this reviewer:` +
-      `\n${hits.map((hit) => `- ${hit}`).join("\n")}`,
+    hits.includes(LEGACY_PATH_EVIDENCE_UNAVAILABLE)
+      ? "This historical delivery has incomplete legacy path evidence. The lane was dispatched conservatively; " +
+        "review the full delivery for this lane's configured scope. Known stored paths follow:\n" +
+        hits
+          .filter((hit) => hit !== LEGACY_PATH_EVIDENCE_UNAVAILABLE)
+          .map((hit) => `- ${hit}`)
+          .join("\n")
+      : `This lane fired because the delivery's frozen manifest touches paths configured for this reviewer:` +
+        `\n${hits.map((hit) => `- ${hit}`).join("\n")}`,
     `Read ha task show ${taskId} --json and select execution ${execution.executionId}; its submission ` +
       "is the authoritative delivery. Read the delivery diff yourself (deliveryBaseline -> submission " +
       "commit). Your own Agent declaration defines this lane's review focus, required output, and " +

@@ -201,6 +201,31 @@ uses a deterministic task/execution/iteration/submission-digest/attempt key, so 
 converges on one runtime; only after it terminates can the owner deterministically open the next
 review runtime rather than overwriting another node's artifact.
 
+## 7. Work completed outside Harness
+
+Work that already happened in a local terminal — a settings change, a one-off fix in
+another repository — closes through the same chain. There is no separate `done`
+transition: until an execution exists, `ha task complete` reports `not_in_review`,
+and `start` plus `submit` create exactly that execution.
+
+Record the verification evidence first, so the ledger can audit what was checked:
+
+```bash
+ha fact record --task task_... --statement "settings_changed opId read:... applied the change; verified effective." --source "settings" --confidence high
+```
+
+Summarize the completed work and its evidence in the task's `closeout.md`, then let
+one command run start, document sync, and submission together:
+
+```bash
+ha task settle task_...
+```
+
+A task with no code diff submits as a closeout-only cut (`commitSha=null`); submit
+still dispatches the independent reviewer automatically, and owner consent plus
+`ha task complete` then close it exactly as in section 6. For a never-started task,
+the `not_in_review` receipt names this evidence-and-settle path.
+
 You now have a complete, queryable cycle rather than a task-shaped chat log.
 Next, read [The three-primitive kernel](../../learn/en/01-three-primitive-kernel.md)
 or keep the [daily command sheet](03-daily-commands.md) nearby.

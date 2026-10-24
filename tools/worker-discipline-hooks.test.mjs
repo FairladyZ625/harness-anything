@@ -176,8 +176,12 @@ test("worker handoff templates carry framework-owned publication rules", () => {
   for (const relativePath of templatePaths) {
     const body = readFileSync(path.join(repositoryRoot, relativePath), "utf8");
     assert.match(body, /origin\/main/u);
-    assert.match(body, /ha doc sync --submit --task <task-id>/u);
+    assert.match(body, /Task package documents are accepted with the submission|提交时会接纳任务包文档/u);
+    assert.match(body, /ha task submit <task-id>/u);
+    assert.doesNotMatch(body, /ha doc sync --submit --task <task-id>/u);
     assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
+    assert.doesNotMatch(body, /Report the commit, changed files|回报 commit、变更文件/u);
+    assert.match(body, /changed-file facts live in the frozen submission|变更文件以冻结的 submission 为准/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
     // The worker opens the PR and waits with the machine's own gh; the daemon holds no CI wait.
@@ -206,16 +210,36 @@ test("worker publication commands belong to the delivery mission while review ca
     delivery = mission(false),
     review = mission(true);
   assert.match(prompt, /canonical repository root/u);
-  assert.match(prompt, /Sync delivery documents before task submit, which freezes the cut/u);
+  assert.match(
+    prompt,
+    /Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync/u,
+  );
   assert.match(prompt, /PR checks for that delivery commit/u);
   assert.match(prompt, /Pending is not green/u);
   assert.doesNotMatch(prompt, /ha doc sync|ha task push|ha task pr|gh pr checks/u);
-  assert.match(delivery, /推送后用 `gh pr create --head <task-id>` 开 PR，正文遵循本仓库的 PR 规范。/u);
+  assert.match(delivery, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
+  assert.match(delivery, /机器派生交付事实从 submission 读取，不要手填或重新计算/u);
   assert.doesNotMatch(delivery, /PR Body Delivery Protocol|pull_request_template\.md|check-pr-body/u);
   assert.doesNotMatch(
     review,
     /Living Deliverable Protocol|推送后用 `gh pr create|ha doc sync|ha task push|ha task pr/u,
   );
+});
+
+test("the repository guide passes its generated body file to task-bound PR creation", () => {
+  const guide = readFileSync(path.join(repositoryRoot, "skills/harness-contributing/SKILL.md"), "utf8"),
+    example = readFileSync(
+      path.join(repositoryRoot, "skills/harness-contributing/references/example-pr-body.md"),
+      "utf8",
+    );
+  assert.match(
+    guide,
+    /node tools\/gates\/render-task-pr-body\.mjs --task <task-id> > \/tmp\/harness-anything-pr-body\.md/u,
+  );
+  assert.match(guide, /gh pr create --head <task-id> --body-file \/tmp\/harness-anything-pr-body\.md/u);
+  assert.match(example, /frozen submission by `tools\/gates\/render-task-pr-body\.mjs`/u);
+  assert.match(example, /read from the PR checks after opening/u);
+  assert.doesNotMatch(example, /rewrite-ci` run URL/u);
 });
 
 function makeRepo(context, prefix) {

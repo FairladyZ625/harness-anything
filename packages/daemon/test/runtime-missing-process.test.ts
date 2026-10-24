@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
+import { attachReceiptAcceptance } from "@harness-anything/kernel";
+import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
 
@@ -262,6 +264,54 @@ test("runtime steer records the requesting actor and prompt without settling the
     assert.equal(
       records.some((record) => record.kind === "process_exit"),
       false,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a successful steer receipt survives the GUI write exit instead of reporting ok must be false", async () => {
+  // The reported defect: the prompt reached the dispatch stream, but the CLI answered
+  // `invalid_result: field=ok; actual=true; must be false`. The steer receipt was passed through
+  // ledger acceptance even though steer never writes the ledger, so `applied` became
+  // `indeterminate` while `ok` stayed true — a shape the GUI receipt exit has to reject.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-steer-gui-receipt-"));
+  try {
+    const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
+      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-gui-receipt");
+    const context = {
+        input: { rootDir, repoId: "steer-gui-receipt", now: () => "2026-09-13T00:01:00.000Z" },
+        processes: new Map([
+          [
+            runtimeSessionId,
+            {
+              dispatchId,
+              runtimeSessionId,
+              kindId: "codex",
+              providerSessionId: "provider-thread",
+              process: { pid: process.pid },
+            },
+          ],
+        ]),
+      },
+      receipt = await steerRuntime(context as never, { dispatchId, prompt: "Also cover the timeout." }, binding),
+      // `repo.agentRuntime.steer` answers through its own RPC branch: the receipt goes straight to
+      // parseDaemonGuiActionResult, with no makeDaemonCommandReceipt to recompute `ok`. That is why
+      // the reported failure shows actual=true — the acceptance step had already turned the outcome
+      // indeterminate while `ok` stayed true. A store without a command outcome is production's
+      // state: a steer appends to the dispatch stream and never to the ledger.
+      wire = attachReceiptAcceptance(
+        receipt as never,
+        { readCommandOutcome: () => null } as never,
+        { readCut: () => ({ watermark: 0 }) } as never,
+      ) as unknown as Record<string, unknown>;
+    assert.equal(wire.ok, true, JSON.stringify(wire));
+    assert.equal(wire.outcome, "applied", JSON.stringify(wire));
+    assert.deepEqual(validateDaemonGuiCommandReceipt(wire), [], JSON.stringify(wire));
+    assert.equal(
+      readDispatchStream(rootDir, dispatchId)!.records.some((record) => record.kind === "steer_requested"),
+      true,
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

@@ -168,28 +168,6 @@ const mutationConcurrency: EntityActionContract["concurrency"] = Object.freeze({
 const criterion = (ref: string, failureCode: string, explain: string) => Object.freeze({ ref, failureCode, explain });
 
 const lifecycleSpecs = Object.freeze({
-  assign: {
-    ingress: "task-assign",
-    commandType: "AssignTask",
-    transitionId: "assign_task",
-    implementation: "task-lifecycle",
-    topology: "center-forward-write",
-    remoteEdgeAdmission: "via-center-forward",
-    coordination: "execute",
-    eventType: "task_assigned",
-    proof: [],
-  },
-  unassign: {
-    ingress: "task-unassign",
-    commandType: "UnassignTask",
-    transitionId: "unassign_task",
-    implementation: "task-lifecycle",
-    topology: "center-forward-write",
-    remoteEdgeAdmission: "via-center-forward",
-    coordination: "execute",
-    eventType: "task_unassigned",
-    proof: [],
-  },
   create: {
     ingress: "task-create",
     commandType: "CreateReplayTask",
@@ -361,55 +339,6 @@ export const declarations: readonly Declaration[] = Object.freeze([
       `Apply the ${operation} transition to an Execution gate run through its owning Task.`,
     ),
   ),
-  lifecycle("assign", {
-    input: input(
-      [
-        taskId,
-        cli("expectedVersion", "number", true, "--expected-version", "single", {
-          regex: "^[0-9]+$",
-          projection: "number",
-        }),
-        cli("personId", "string", false, "--person"),
-        cli("nodeId", "string", false, "--node"),
-        cli("teamId", "string", false, "--team"),
-        cli("expiresAt", "string", false, "--expires-at"),
-      ],
-      [["personId", "nodeId", "teamId"]],
-    ),
-    criteria: Object.freeze([
-      criterion(
-        "task-assignment-transitions/assignTask.validate",
-        "invalid_transition",
-        "Assignment requires a valid target, future expiry and no held lease.",
-      ),
-    ]),
-    concurrency: taskConcurrency(
-      { authority: "task-lease/v1", mode: "must-be-released" },
-      { authority: "operation-id", retry: "canonical-event-replay" },
-    ),
-    explain: "Assign a task to a person, a specific node or a work team until the chosen expiry.",
-  }),
-  lifecycle("unassign", {
-    input: input([
-      taskId,
-      cli("expectedVersion", "number", true, "--expected-version", "single", {
-        regex: "^[0-9]+$",
-        projection: "number",
-      }),
-    ]),
-    criteria: Object.freeze([
-      criterion(
-        "task-assignment-transitions/unassignTask.validate",
-        "invalid_transition",
-        "Removing an assignment requires no held lease.",
-      ),
-    ]),
-    concurrency: taskConcurrency(
-      { authority: "task-lease/v1", mode: "must-be-released" },
-      { authority: "operation-id", retry: "canonical-event-replay" },
-    ),
-    explain: "Remove the task assignment while no execution holds its lease.",
-  }),
   lifecycle("create", {
     input: createInput,
     criteria: Object.freeze([

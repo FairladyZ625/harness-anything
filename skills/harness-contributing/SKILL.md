@@ -158,61 +158,63 @@ git diff -- <changed-paths>
 > `node tools/run-node-tests.mjs --tier integration --prefix packages/<包>/test` 跑所在包整层。docs-only 改动若没有
 > 对应行为测试，不要为了凑数新增无意义测试。
 
-## Run local gates
+## Run local static gates before you push
 
 Do not use `npm run check:local` as the contribution loop, and do not run the
-full aggregate merely to approximate GitHub. GitHub CI is authoritative. The
-worker stop-point command derives its cheap deterministic checks from the
-current gate manifest and the complete working-tree diff:
+full aggregate merely to approximate GitHub. GitHub CI is authoritative. But a
+boundary/vocabulary/dead-export/write-path/complexity red costs an ~11 minute CI
+round trip, and those gates read only repository source. Run them locally before
+the commit:
 
 ```bash
-node tools/run-manifest-gates.mjs --changed origin/main
+npm run check:static              # the whole static set, ~75s
+npm run check:static -- --changed # only gates whose localPathGlobs match the working-tree diff
 ```
 
-Run that command before the local commit. It includes every matching gate whose
-manifest entry is deterministic, local, PR-visible, and declares
-`localPathGlobs`; an unscoped gate is not silently promoted into this bounded
-local path. Run affected integration tests separately through the isolated test
-dispatcher. Use `--workflow-job` only to reproduce or preflight a particular CI
-job; workflow mode runs all selected gates and reports every failure together.
+The set is derived from `tools/gate-manifest.json`, not a second checklist: a
+gate qualifies when it is `deterministic: true`, PR-visible, `pr-required`, and
+neither a test tier, a smoke, nor a release-policy gate. That deliberately leaves
+out three things a worker must not run here:
 
-First list the current pull-request job names and tiers:
+- **Gates that need inputs this machine does not own.** `deterministic: false`
+  gates read external APIs, so on a clean worktree they fail with e.g.
+  `repository must be provided as owner/name`. Selecting them is what made the
+  old local gate command red on unmodified code.
+- **Test tiers and smokes.** `test:fast`, `test:contract`, `test:integration`,
+  `test:gui` and the package smokes run whole tiers or boot a packaged artifact;
+  run only the tests your change affects instead (see above), and let CI own the
+  full tiers.
+- **Release-policy gates.** `check-package-tarball-exports` alone spends ~99s
+  packing tarballs for a verdict a static read cannot give.
 
-```bash
-node -e 'const m=require("./tools/gate-manifest.json"); console.log([...new Set(m.gates.filter(g=>!g.aggregate).flatMap(g=>(g.executionSurfaces?.rewriteCi?.pullRequestJobs??[]).map(job=>`${g.tier}\t${job}`)))].sort().join("\n"))'
-```
+`--changed` narrowing is a convenience, not a licence to skip: a gate that
+declares no `localPathGlobs` cannot be narrowed and always runs. When the diff
+touches a shared surface (protocol, events, authorization, construction
+entry points), run the full set and the affected integration files through the
+isolated test dispatcher.
 
-Then print the gate IDs, commands, and declared consumer scope behind those
-jobs; use this output rather than inferring a job from its name:
+To reproduce a specific CI job instead, list its gates and run the job with the
+manifest runner. `--workflow-job` runs every selected gate and reports all
+failures together; CI omits `--changed` and still runs every command:
 
 ```bash
 node -e 'const m=require("./tools/gate-manifest.json"); for (const g of m.gates.filter(g=>!g.aggregate)) for (const job of g.executionSurfaces?.rewriteCi?.pullRequestJobs??[]) console.log(`${job}\t${g.id}\t${g.command}\t${(g.consumerScope??[]).join("; ")}`)'
-```
-
-Then run every job that matches the changed surface. Pass the merge base to the
-runner so its optional manifest path declarations can narrow local commands; a
-working-tree comparison includes committed, uncommitted, and untracked edits:
-
-```bash
 node tools/run-manifest-gates.mjs --workflow-job <job> --changed origin/main
-npm run typecheck
 ```
 
 `boundaries` is the usual job for public source, tool, and documentation
 boundaries. Use the manifest's other current PR jobs when the patch touches
 their surface—for example tests, package policy, dependencies/supply chain, or
-the GUI. Path selection is conservative: it narrows a job only when every
+the GUI. Job-level path selection is conservative: it narrows only when every
 changed path matches explicit `localPathGlobs`; an unclassified or mixed surface
-runs the complete job. A docs-only change under `docs-release/**` selects the
-three docs/release checks declared by the manifest. CI omits `--changed` and
-still runs every command in every job. Record every command and result in the PR
-body, including a scoped reason for anything not run.
+runs the complete job. Record every command and result in the PR body, including
+a scoped reason for anything not run.
 
-One gate has a local credential exception. If `boundaries` reaches
-`check-github-required-contexts`, the only failure that may be excluded locally
-is the exact error `repository must be provided as owner/name` when no GitHub
-repository/token context is available. Preserve that output and rerun the same
-job with only that gate excluded:
+If a `--workflow-job` run reaches `check-github-required-contexts`, the only
+failure that may be excluded locally is the exact error
+`repository must be provided as owner/name` when no GitHub repository/token
+context is available. Preserve that output and rerun with only that gate
+excluded:
 
 ```bash
 node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/main --exclude check-github-required-contexts
@@ -220,15 +222,18 @@ node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/mai
 
 If that exact message is not the sole failure, do not exclude the gate. Never
 treat the exclusion as a CI waiver; the required GitHub context must still pass
-on the PR.
+on the PR. `npm run check:static` needs no such exception because it excludes
+every non-deterministic gate by declaration.
 
-> 中文：worker 停止点统一运行 `node tools/run-manifest-gates.mjs --changed
-> origin/main`；它从 manifest 中派生带 `localPathGlobs` 的本地、PR、确定性门，不维护
-> 第二份清单。受影响的 integration 测试仍须经隔离派测入口单独运行。按 job 复现 CI
-> 时才使用 `--workflow-job`，该模式会跑完所选门并一次报告全部失败；CI 始终全跑。
-> 本地只有 `check-github-required-contexts` 的精确报错
-> `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
-> 该排除不适用于 CI，也不能掩盖其他失败。
+> 中文：推送前跑 `npm run check:static`（全套约 75s）或加 `--changed` 只跑与改动
+> 相关的门。集合由 `tools/gate-manifest.json` 派生：`deterministic: true`、PR 可见、
+> `pr-required`，且不是测试层、smoke 或 release-policy 门。刻意不含三类——需要本机
+> 没有的外部输入的 `deterministic: false` 门（它们会在干净 worktree 上报
+> `repository must be provided as owner/name`）、整层测试与 smoke、以及打包类
+> release-policy 门（仅 `check-package-tarball-exports` 就要约 99s）。`--changed`
+> 是便利不是豁免：未声明 `localPathGlobs` 的门无法收窄，永远运行。触碰协议、事件、
+> 授权、构造入口这类共享面时跑全套，并按隔离入口点名受影响的 integration 文件。
+> 这是 worker 的本地静态门，不是 `check:local`；CI 仍是完整权威。
 
 ## Commit with the contributor identity
 
@@ -262,9 +267,9 @@ agent operator's configured git identity.
 
 ## Prepare the PR body
 
-Do this after all contribution commits, because the production-delta gate
-measures committed `HEAD` from its merge-base. Refresh and synchronize first,
-then rerun affected tests and gates if the rebase changes the branch:
+Do this after all contribution commits and after `ha task submit` freezes the
+delivery cut. Refresh and synchronize first, then rerun affected tests and
+resubmit if a rebase changes the branch:
 
 ```bash
 git fetch origin
@@ -279,14 +284,25 @@ If the initial worktree check found approved pre-existing commits, describe the
 complete `origin/main...HEAD` delta in the PR body and explicitly separate
 those commits from the changes authored in the current run.
 
-Copy the current template; never reconstruct its sections from memory:
+Generate the body from the live template and frozen submission; the generated
+Delivery Facts block owns the commit, merge base, changed paths, and production
+delta. Never hand-copy those values:
 
 ```bash
-cp .github/pull_request_template.md /tmp/harness-anything-pr-body.md
+node tools/gates/render-task-pr-body.mjs --task <task-id> > /tmp/harness-anything-pr-body.md
 ${EDITOR:-vi} /tmp/harness-anything-pr-body.md
 ```
 
-Fill every uncommented section with real delivery facts. Governance
+Fill the human-authored sections with real delivery facts. Keep the generated
+Delivery Facts block intact. After an amended submission, rerun the renderer
+against the current body file so the block follows the new frozen cut:
+
+```bash
+node tools/gates/render-task-pr-body.mjs --task <task-id> --body-file /tmp/harness-anything-pr-body.md > /tmp/harness-anything-pr-body.next.md
+mv /tmp/harness-anything-pr-body.next.md /tmp/harness-anything-pr-body.md
+```
+
+Governance
 Declaration and the Dependency-Change line are required only when their
 trigger applies — a manifest-derived protected surface is touched, or a
 package manifest or lockfile changes; otherwise the template defaults are
@@ -310,13 +326,9 @@ indirectly runs `npm run harness:check-import-boundaries`,
 `npm run harness:check-legacy-intake-readiness`; list anything else that was
 not run with a reason.
 
-Run the authoritative production-delta calculator after all commits. It
-reports the computed addition, deletion, churn, and net values from the diff
-alone — no PR body declaration is involved:
-
-```bash
-node tools/gates/production-delta.mjs --base origin/main
-```
+Do not calculate or hand-copy production delta into the body. The submission
+freezes G33's result for its delivery commit; the PR renderer inserts it, and
+the PR workflow independently runs G33 against the current delivery diff.
 
 Preflight the completed body through the requested environment interface,
 then run the manifest's full PR-body job:
@@ -334,8 +346,8 @@ unset PR_BODY PR_BASE_SHA PR_HEAD_SHA
 docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
-> 中文：所有 commit 完成后运行 production-delta 计算器（它只从 diff 实算，不读 PR
-> 正文）。PR body 按模板填写所有未注释的节；治理声明与 `Dependency-Change:` 仅在
+> 中文：task submit 冻结交付 cut 后，用 renderer 生成 PR body 的 Delivery Facts；不得
+> 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；治理声明与 `Dependency-Change:` 仅在
 > 触发条件成立时必填。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID；无
 > 依赖文件变化时删除整条 `Dependency-Change:`。Verification 只记录直接通过、或由
 > runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生的 CI、人工
@@ -346,7 +358,8 @@ always copy the live repository template for a real PR.
 This section is the external-contributor path: it uses the contributor's own
 Git credentials. A different model exists for dispatched, task-bound workers in
 a registered Harness workspace — they publish the branch through the daemon with
-`ha task push <task-id>`, open the PR with `gh pr create --head <task-id>`, with direct-push
+`ha task push <task-id>`, open the PR with
+`gh pr create --head <task-id> --body-file /tmp/harness-anything-pr-body.md`, with direct-push
 protection limiting any push to the task's own branch. Read hosted checks and
 failure logs directly with the hosting platform CLI and your own platform
 credentials. If your session runs as such a worker, use those publishing
@@ -421,7 +434,7 @@ Before handoff, report:
 - what changed and what stayed out of scope;
 - exact tests and manifest jobs run, with pass/fail results;
 - commands not run and the scoped reason;
-- the production delta and PR-body preflight result;
+- the frozen submission facts and PR-body preflight result;
 - open findings, residual risk, and the files needing human attention; and
 - that merge remains maintainer-owned.
 

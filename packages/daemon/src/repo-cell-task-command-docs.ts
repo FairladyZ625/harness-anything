@@ -1,4 +1,4 @@
-import { assertTaskAssignment } from "./task-assignment-runtime.ts";
+import { assertEntityAssignment, assignmentFromRelations } from "./entity-assignment-runtime.ts";
 import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
 import {
@@ -102,10 +102,13 @@ export async function runTaskCommandWithDocs(
   const reservingTaskId =
     getExecutableEntityAction(taskAction.kind)?.execution?.lifecycle?.coordination === "reserve" ? taskId : undefined;
   if (reservingTaskId !== undefined) {
-    const current = await cell.service.read(taskId);
     binding = {
       ...binding,
-      taskClaimant: await assertTaskAssignment(current.snapshot.task?.assignment, binding, cell.now()),
+      taskClaimant: await assertEntityAssignment(
+        assignmentFromRelations(cell.projection, `task/${taskId}`),
+        binding,
+        cell.now(),
+      ),
     };
   }
   let unleasedTaskCommandId = reservingTaskId;

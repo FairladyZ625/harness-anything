@@ -70,7 +70,7 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
     assert.ok(catalog);
     assert.deepEqual(
       catalog.actions.map(({ id }) => id),
-      ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
+      ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel", "assign", "unassign"],
     );
     assert.deepEqual(
       catalog.actions.filter(({ execution }) => execution?.read).map(({ id }) => id),
@@ -140,7 +140,7 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
       );
     assert.deepEqual(
       explainedCatalog.subjects[0]!.actions.map(({ action }) => action.id),
-      ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
+      ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel", "assign", "unassign"],
     );
     assert.equal(
       explainedCatalog.subjects[0]!.actions.every(({ available }) => available === null),

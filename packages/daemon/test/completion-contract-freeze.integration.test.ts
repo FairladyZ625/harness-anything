@@ -82,8 +82,10 @@ async function writeCloseout(
   writeFileSync(path.join(deliveryRoot, "README.md"), `# ${summary}\n`);
   git(deliveryRoot, "add", "README.md");
   git(deliveryRoot, "commit", "--quiet", "-m", "test: delivery");
+  const closeoutPath = path.join(rootDir, ".worktrees", taskId, "harness", packagePath, "closeout.md");
+  mkdirSync(path.dirname(closeoutPath), { recursive: true });
   writeFileSync(
-    path.join(rootDir, "harness", packagePath, "closeout.md"),
+    closeoutPath,
     `# Closeout\n\n## Summary\n\n${summary} Commit ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n` +
       "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable.\n",
   );

@@ -38,8 +38,10 @@ async function deliverRound(
   git(worktree, "add", "DELIVERY.md");
   git(worktree, "commit", "--quiet", "-m", `test: ${summary}`);
   const tip = git(worktree, "rev-parse", "HEAD");
+  const closeoutPath = path.join(rootDir, ".worktrees", taskId, "harness", packagePath, "closeout.md");
+  mkdirSync(path.dirname(closeoutPath), { recursive: true });
   writeFileSync(
-    path.join(rootDir, "harness", packagePath, "closeout.md"),
+    closeoutPath,
     `# Closeout\n\n## Summary\n\n${summary} Commit ${tip}.\n\n` +
       "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable.\n",
   );

@@ -252,8 +252,10 @@ export async function pushTaskWorkerBranch(input: {
 }): Promise<WorkerPushResult> {
   let expectedRemoteCommit: string;
   try {
-    expectedRemoteCommit = await readWorkerRemoteCommit(input.canonicalRoot, input.taskId, input.env);
+    expectedRemoteCommit = await readPublishedTaskCut(input.cwd, input.taskId, input.env);
   } catch (error) {
+    // A git that cannot run at all is reported through the same delivery failure every caller
+    // already handles, with the cause it printed; only an absent ref is an ordinary empty cut.
     return {
       attempted: true,
       ok: false,
@@ -390,22 +392,29 @@ function errorDetail(error: unknown): string {
   return scrubbed.slice(0, detailLimit) || "git push failed without diagnostics";
 }
 
-/** Observe without updating tracking refs: later background fetches cannot relax this CAS. */
-export async function readWorkerRemoteCommit(
-  cwd: string,
-  taskId: string,
-  extraEnv?: NodeJS.ProcessEnv,
-): Promise<string> {
-  try {
-    const line = await readGitText(
+/**
+ * The remote cut this node last published or continued, read from the ref `git push` itself
+ * writes on success. Empty when this node has never seen the branch, which is exactly the
+ * expectation for a first publication.
+ *
+ * The value that makes a compare-and-swap meaningful is the commit the push is built on, not a
+ * tip sampled a moment earlier. Sampling the remote could only catch a push landing inside the
+ * few seconds between the two calls, and it made the expectation whatever the remote held right
+ * then — so it never protected against this node's checkout predating another node's push, which
+ * is the case that loses work. This ref is written by the publishing push and by every fetch of
+ * the branch, so it carries the cut this working copy actually knows, and a newer remote tip is
+ * refused instead of overwritten.
+ */
+export async function readPublishedTaskCut(cwd: string, branch: string, extraEnv?: NodeJS.ProcessEnv): Promise<string> {
+  // for-each-ref answers an absent ref with empty output and a successful status, so absence is a
+  // value here; a git that cannot run at all still throws, as everywhere else in this module.
+  return (
+    await readGitText(
       cwd,
-      ["ls-remote", "--refs", "origin", `refs/heads/${taskId}`],
+      ["for-each-ref", "--format=%(objectname)", `refs/remotes/origin/${branch}`],
       gitEnvironment(extraEnv),
-    );
-    return line.trim().split(/\s/u)[0] ?? "";
-  } catch (error) {
-    throw Object.assign(new Error(errorDetail(error)), { code: "delivery_publish_failed" });
-  }
+    )
+  ).trim();
 }
 
 /** The center fetches only its configured origin and the task branch, into a request-private ref. */

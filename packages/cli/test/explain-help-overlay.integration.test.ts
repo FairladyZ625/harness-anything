@@ -175,11 +175,14 @@ test("ha explain reports submit availability for the same actor that can submit"
     });
     const started = runJson(root, userRoot, ["task", "start", taskId], actorId);
     assert.equal(started.status, 0, started.stderr);
-    writeFileSync(
-      path.join(root, "harness", packagePath, "closeout.md"),
+    const closeoutBody =
       `## Summary\n\nSubmit actor fixture at ${deliveryCommit}.\n\n## Verification\n\nCLI integration.\n\n` +
-        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared actor binding.\n",
-    );
+      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared actor binding.\n";
+    for (const closeoutRoot of [root, path.join(root, ".worktrees", taskId)]) {
+      const closeoutPath = path.join(closeoutRoot, "harness", packagePath, "closeout.md");
+      mkdirSync(path.dirname(closeoutPath), { recursive: true });
+      writeFileSync(closeoutPath, closeoutBody);
+    }
     const closeoutSynced = runJson(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], actorId);
     assert.equal(closeoutSynced.status, 0, closeoutSynced.stderr);
 

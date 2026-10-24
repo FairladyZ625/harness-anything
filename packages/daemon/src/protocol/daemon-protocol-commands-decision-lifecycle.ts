@@ -1,5 +1,6 @@
 import {
   defineEdgeReplicaQueryOnlyReadCommand,
+  defineCenterForwardWriteCommand,
   cliInput,
   decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
@@ -10,6 +11,30 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const decisionLifecycleProtocolCommands = Object.freeze([
+  ...["assign", "unassign"].map((operation) =>
+    defineCenterForwardWriteCommand({
+      id: `decision-${operation}`,
+      phase: "DecisionFact-B",
+      path: ["decision", operation, "<id>"],
+      summary:
+        operation === "assign"
+          ? "Assign a Decision to a person, node or team."
+          : "Remove the current Decision assignment.",
+      method: "repo.task.run",
+      inputs: [
+        cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+        ...(operation === "assign"
+          ? [
+              cliInput("--person", "single", false, { code: "invalid_field" }, { field: "personId" }),
+              cliInput("--node", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
+              cliInput("--team", "single", false, { code: "invalid_field" }, { field: "teamId" }),
+              cliInput("--expires-at", "single", false, { code: "invalid_field" }, { field: "expiresAt" }),
+            ]
+          : []),
+      ],
+      actionConstraints: operation === "assign" ? [["personId", "nodeId", "teamId"]] : [],
+    }),
+  ),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-validate",
     actionKind: "decision-validate",

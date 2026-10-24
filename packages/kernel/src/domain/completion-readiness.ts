@@ -216,7 +216,10 @@ function evaluateCompletion(
       "A work root's status derives from its subtree; complete or cancel its child tasks instead. " +
         "The root itself runs no execution chain.",
     );
-  if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission)
+  if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission) {
+    // A task with zero executions has never started, so "not submitted" reads as a dead end when
+    // the work already happened outside Harness; the settle chain is that task's real next step.
+    const neverStarted = snapshot.executions.length === 0;
     return one(
       "not_in_review",
       "lifecycle",
@@ -224,8 +227,13 @@ function evaluateCompletion(
       snapshot.lease
         ? `Fill harness/${context.closeoutPath} with the verified delivery before submitting execution ${executionId}; ` +
             `the execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
-        : "The current execution has not been submitted.",
+        : neverStarted
+          ? `No execution has started. Work already completed outside Harness closes through the same chain: ` +
+            `record the verification evidence as a Fact and in closeout.md, then run ha task settle ${task.taskId} ` +
+            "(start, document sync, and submit in one); review, consent, and complete follow the receipt."
+          : "The current execution has not been submitted.",
     );
+  }
   // The executor only matters for judging reviewer independence, so it is restored only while an
   // independent review is still owed: the review gate applies and nobody has reviewed this cut yet
   // (a recorded review already judged independence; an adverse one routes to the owner's return).

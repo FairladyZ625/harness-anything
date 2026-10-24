@@ -26,8 +26,6 @@ test("all public Task writes are complete executable Action contracts", () => {
       "witness-settle",
       "witness-revoke",
       "witness-rerun",
-      "assign",
-      "unassign",
       "create",
       "start",
       "transition",
@@ -43,18 +41,27 @@ test("all public Task writes are complete executable Action contracts", () => {
       "delete",
       "reopen",
       "contract-migrate",
+      "assign",
+      "unassign",
     ],
   );
   for (const action of actions) {
     assert.ok(action.execution, action.id);
     assert.equal(action.actor.source, "authenticated-binding");
     assert.equal(action.target.kind, "task");
-    assert.equal(action.input.schema, "entity-action-input/v2");
+    assert.equal(
+      action.input.schema,
+      action.id === "assign" || action.id === "unassign" ? "entity-action-input/v1" : "entity-action-input/v2",
+    );
     assert.ok(action.criteria.length >= 1, action.id);
     assert.deepEqual(Object.keys(action.concurrency), concurrencyFields);
-    assert.ok(["execution", "task"].includes(String(action.concurrency.artifactOwnership.owner)), action.id);
+    assert.ok(["execution", "task", "entity"].includes(String(action.concurrency.artifactOwnership.owner)), action.id);
     assert.ok(
-      action.effects.every(({ ref }) => ref.includes("task-lifecycle") || ref.includes("task-mutation")),
+      action.effects.every(({ ref }) =>
+        action.id === "assign" || action.id === "unassign"
+          ? ref.startsWith("relation/") || ref.startsWith("assignment/")
+          : ref.includes("task-lifecycle") || ref.includes("task-mutation"),
+      ),
       action.id,
     );
     assert.equal(action.result.schema, "entity-action-result/v2");
@@ -67,8 +74,6 @@ test("all public Task writes are complete executable Action contracts", () => {
     "witness-settle",
     "witness-revoke",
     "witness-rerun",
-    "assign",
-    "unassign",
     "create",
     "start",
     "transition",
@@ -84,6 +89,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     "delete",
     "reopen",
     "contract-migrate",
+    "assign",
+    "unassign",
   ]);
   assert.deepEqual(explainEntityKind("agent").transitions.available, [
     "install",
@@ -92,6 +99,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     "validate",
     "list",
     "inspect",
+    "assign",
+    "unassign",
   ]);
 });
 
@@ -118,28 +127,6 @@ test("named lifecycle specifications preserve every execution metadata field", (
         : [];
     }),
     [
-      {
-        id: "assign",
-        ingress: "task-assign",
-        commandType: "AssignTask",
-        transitionId: "assign_task",
-        implementation: "task-lifecycle",
-        topology: "center-forward-write",
-        coordination: "execute",
-        eventType: "task_assigned",
-        proof: [],
-      },
-      {
-        id: "unassign",
-        ingress: "task-unassign",
-        commandType: "UnassignTask",
-        transitionId: "unassign_task",
-        implementation: "task-lifecycle",
-        topology: "center-forward-write",
-        coordination: "execute",
-        eventType: "task_unassigned",
-        proof: [],
-      },
       {
         id: "create",
         ingress: "task-create",

@@ -26,10 +26,10 @@ make the public entry pages point to that authority (#1234).
 
 ## Verification
 
-- Delivery and base anchors: read from the frozen submission record (the execution `Commit` field via `ha task show <task-id> --json`); not hand-copied into this body.
+- Delivery facts: inserted from the frozen submission by `tools/gates/render-task-pr-body.mjs`; this docs-only example has no repository commit or production delta.
 - Public diff command: `git diff --stat origin/main...HEAD`
 - Private evidence commit/path: not applicable
-- GitHub Actions `rewrite-ci` run URL: pending until the PR is opened
+- CI status: read from the PR checks after opening; no run URL is copied into the body.
 - Commands recorded below ran exactly as written; anything not run is listed with a reason.
 - Not run: the full aggregate, `npm test`, `npm run check`,
   `npm run harness:check-package-policy`, `npm run harness:smoke-cli-package`,

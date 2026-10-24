@@ -171,6 +171,12 @@ function validRiskTierAssessment(value: unknown): boolean {
 
 export function validateGuiSubmission(value: unknown): readonly string[] {
   const arrayFields = ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const,
+    optionalFacts = isJsonObject(value)
+      ? [
+          ...(value.changedFiles === undefined ? [] : ["changedFiles"]),
+          ...(value.productionDelta === undefined ? [] : ["productionDelta"]),
+        ]
+      : [],
     fields = [
       "completionClaim",
       ...arrayFields,
@@ -181,7 +187,7 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
     // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
     // requires and fully validates it on every new submission, so the wire shape only checks its envelope.
-    shapeError = recordShapeError(entityId, value, fields, [...fields, "completionContract"]),
+    shapeError = recordShapeError(entityId, value, fields, [...fields, ...optionalFacts, "completionContract"]),
     anchorsOk =
       isJsonObject(value) &&
       (value.artifacts === undefined ||
@@ -194,6 +200,12 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   for (const field of arrayFields)
     if (!stringArray(value[field]))
       errors.push(validationError(entityId, field, value[field], "must be an array of non-empty strings"));
+  if (value.changedFiles !== undefined && !stringArray(value.changedFiles))
+    errors.push(validationError(entityId, "changedFiles", value.changedFiles, "must be an array of non-empty strings"));
+  if (value.productionDelta !== undefined && (value.commitSha === null || value.changedFiles === undefined))
+    errors.push(
+      validationError(entityId, "productionDelta", value.productionDelta, "requires a code commit and changedFiles"),
+    );
   if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),
@@ -316,10 +328,12 @@ export function task(value: unknown): boolean {
         isJsonObject(assignee) &&
         (assignee.kind === "team"
           ? exactRecord(assignee, ["kind", "teamId"]) && nonEmpty(assignee.teamId)
-          : assignee.kind === "person" &&
-            nonEmpty(assignee.personId) &&
-            Object.keys(assignee).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
-            (assignee.nodeId === undefined || nonEmpty(assignee.nodeId))))) &&
+          : assignee.kind === "node"
+            ? exactRecord(assignee, ["kind", "nodeId"]) && nonEmpty(assignee.nodeId)
+            : assignee.kind === "person" &&
+              nonEmpty(assignee.personId) &&
+              Object.keys(assignee).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
+              (assignee.nodeId === undefined || nonEmpty(assignee.nodeId))))) &&
     typeof value.pinned === "boolean" &&
     isJsonObject(value.graph) &&
     (value.metadata === undefined || validTaskMetadata(value.metadata)) &&
@@ -817,7 +831,9 @@ function validClaimAssignment(value: unknown): boolean {
   const a = value.assignee;
   return a.kind === "team"
     ? Object.keys(a).length === 2 && nonEmpty(a.teamId)
-    : a.kind === "person" &&
+    : a.kind === "node"
+      ? Object.keys(a).length === 2 && nonEmpty(a.nodeId)
+      : a.kind === "person" &&
         nonEmpty(a.personId) &&
         Object.keys(a).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
         (a.nodeId === undefined || nonEmpty(a.nodeId));

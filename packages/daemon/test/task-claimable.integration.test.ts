@@ -4,13 +4,15 @@ import test from "node:test";
 import {
   INITIAL_SETTINGS_V1,
   REPLAY_TASK_GRAPH,
+  assignmentRationale,
   type TaskAssignment,
   type TaskClaimScope,
   type TaskProjection,
+  type AssignmentRelationLike,
 } from "@harness-anything/kernel";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { readClaimableTasks } from "../src/task-claimable-read.ts";
-import { readTaskAssignmentDirectory } from "../src/task-assignment-directory.ts";
+import { readEntityAssignmentDirectory } from "../src/entity-assignment-directory.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 
@@ -47,6 +49,25 @@ function row(taskId: string, assignment: TaskAssignment | null): ReturnType<Task
   };
 }
 
+function assignmentRelation(taskId: string, assignment: TaskAssignment | null): AssignmentRelationLike | null {
+  if (!assignment) return null;
+  const assignee = assignment.assignee;
+  return {
+    sourceRef: `task/${taskId}`,
+    targetRef:
+      assignee.kind === "team"
+        ? `team/${assignee.teamId}`
+        : assignee.kind === "node"
+          ? `node/${assignee.nodeId}`
+          : assignee.nodeId
+            ? `node/${assignee.nodeId}`
+            : `person/${assignee.personId}`,
+    relationType: "assigned-to",
+    state: "active",
+    rationale: assignmentRationale(assignment.expiresAt),
+  };
+}
+
 test("fresh claimable query applies three scopes, live membership, task permission and lease without writes", async (t) => {
   const realm = await serveKeycloak();
   t.after(() => realm.close());
@@ -63,13 +84,18 @@ test("fresh claimable query applies three scopes, live membership, task permissi
   await adapter.setTeamMember("center-token", team.id, userId, true);
   realm.keycloak.permit("owner", "repo", ["task-start", "task-assign"]);
   const rows = [
-    row("task-node", { assignee: { kind: "person", personId: "owner", nodeId: "node-a" }, expiresAt }),
-    row("task-other-node", { assignee: { kind: "person", personId: "owner", nodeId: "node-b" }, expiresAt }),
-    row("task-person", { assignee: { kind: "person", personId: "owner" }, expiresAt }),
-    row("task-team", { assignee: { kind: "team", teamId: team.id }, expiresAt }),
-    row("task-free", null),
-    row("task-expired", { assignee: { kind: "person", personId: "someone-else" }, expiresAt: now }),
-  ];
+      row("task-node", { assignee: { kind: "person", personId: "owner", nodeId: "node-a" }, expiresAt }),
+      row("task-other-node", { assignee: { kind: "person", personId: "owner", nodeId: "node-b" }, expiresAt }),
+      row("task-person", { assignee: { kind: "person", personId: "owner" }, expiresAt }),
+      row("task-team", { assignee: { kind: "team", teamId: team.id }, expiresAt }),
+      row("task-free", null),
+      row("task-expired", { assignee: { kind: "person", personId: "someone-else" }, expiresAt: now }),
+    ],
+    assignments = rows.flatMap((entry) => {
+      const task = entry.snapshot.task;
+      const relation = task ? assignmentRelation(task.taskId, task.assignment) : null;
+      return relation ? [relation] : [];
+    });
   const binding = {
       actor: { principal: { personId: "owner" }, executor: null },
       source: { kind: "node", nodeId: "node-a" } as const,
@@ -96,6 +122,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
         binding,
         now,
         page,
+        readAssignments: async () => assignments,
         settings: { ...INITIAL_SETTINGS_V1, fleet: { ...INITIAL_SETTINGS_V1.fleet, claim: { scope } } },
       }),
     before = JSON.stringify(rows),
@@ -113,11 +140,11 @@ test("fresh claimable query applies three scopes, live membership, task permissi
     ["task-node", "task-person", "task-team", "task-expired", "task-free"],
   );
   assert.equal(JSON.stringify(rows), before);
-  const directory = await readTaskAssignmentDirectory("repo", "task-node", binding);
+  const directory = await readEntityAssignmentDirectory("repo", "task/task-node", binding);
   assert.ok(directory.people.some((person) => person.personId === "owner"));
   for (const session of [undefined, { ...binding.keycloakAuthorization.session, personId: "someone-else" }]) {
     await assert.rejects(
-      readTaskAssignmentDirectory("repo", "task-node", {
+      readEntityAssignmentDirectory("repo", "task/task-node", {
         ...binding,
         keycloakAuthorization: { ...binding.keycloakAuthorization, session },
       }),
@@ -126,7 +153,9 @@ test("fresh claimable query applies three scopes, live membership, task permissi
   }
   assert.deepEqual(realm.keycloak.writes.slice(writes), [], "user-session reads do not issue admin writes");
   realm.keycloak.revoke("owner", "repo", ["task-assign"]);
-  await assert.rejects(readTaskAssignmentDirectory("repo", "task-node", binding), { code: "authorization_denied" });
+  await assert.rejects(readEntityAssignmentDirectory("repo", "task/task-node", binding), {
+    code: "authorization_denied",
+  });
   const free = rows.find((entry) => entry.taskId === "task-free")!;
   rows[rows.indexOf(free)] = {
     ...free,
@@ -171,6 +200,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
       binding: { ...binding, source: "local" },
       now,
       page,
+      readAssignments: async () => assignments,
       settings: INITIAL_SETTINGS_V1,
     }),
     { code: "authentication_required" },
@@ -194,17 +224,13 @@ test("live node authorization reads claim candidates under all configured scopes
     ["named", { nodeId: "node-one" }],
     ["person", { personId: "person-one" }],
   ] as const) {
-    assert.equal(
-      (
-        await f.command("node-one", {
-          kind: "task-assign",
-          taskId: `task-${suffix}`,
-          expectedVersion: revisions.get(`task-${suffix}`),
-          ...target,
-        })
-      ).outcome,
-      "applied",
-    );
+    const assigned = await f.command("node-one", {
+      kind: "task-assign",
+      taskId: `task-${suffix}`,
+      expectedVersion: revisions.get(`task-${suffix}`),
+      ...target,
+    });
+    assert.equal(assigned.outcome, "applied");
   }
   const ids = (result: Record<string, unknown>) => (result.tasks as { taskId: string }[]).map((task) => task.taskId);
   assert.deepEqual(ids(await query()), ["task-named"]);
@@ -225,49 +251,50 @@ test("live node authorization reads claim candidates under all configured scopes
   await assert.rejects(query(), /permission|denied/i);
 });
 
-test("task show states the expected-version assign accepts", { timeout: 60_000 }, async (t) => {
-  const { fleetNodeClaimFixture } = await import("./fleet-node-claim.fixtures.ts");
-  const { localAuthFixture } = await import("./fleet-runtime-recovery.fixtures.ts");
-  const f = await fleetNodeClaimFixture(t);
-  const taskId = "task-show-version";
-  assert.equal(
-    (await f.command("node-one", { kind: "task-create", taskId, title: "expected version visibility" })).outcome,
-    "applied",
-  );
-  // task-show is a center read, not a fleet-forwardable write, so the node reads it off the host.
-  const shown = (await f.host.run("lease-repo", { kind: "task-show", taskId }, localAuthFixture())) as {
-    readonly revision: number;
-    readonly expectedVersion?: number;
-    readonly evidence: string;
-  };
-  const snapshot = JSON.parse(shown.evidence) as { readonly revision: number };
-  // The receipt states the task's own projection revision at the top level — the exact value
-  // --expected-version validates — and it is not the ledger cut sitting beside it.
-  assert.equal(shown.expectedVersion, snapshot.revision);
-  assert.notEqual(shown.expectedVersion, shown.revision);
-  t.diagnostic(
-    `task-show ${taskId}: revision=${String(shown.revision)} (ledger cut) ` +
-      `expectedVersion=${String(shown.expectedVersion)} (task projection revision)`,
-  );
-  // Sending the ledger cut (the pre-fix trap: the only revision visible at top level) is rejected;
-  // sending the stated expectedVersion assigns.
-  const rejected = await f.command("node-one", {
-    kind: "task-assign",
-    taskId,
-    expectedVersion: shown.revision,
-    nodeId: "node-one",
-  });
-  assert.equal(rejected.outcome, "op_rejected");
-  t.diagnostic(
-    `task-assign --expected-version ${String(shown.revision)} (ledger cut): ` +
-      `${rejected.outcome} code=${String(rejected.code)}`,
-  );
-  const assigned = await f.command("node-one", {
-    kind: "task-assign",
-    taskId,
-    expectedVersion: shown.expectedVersion,
-    nodeId: "node-one",
-  });
-  assert.equal(assigned.outcome, "applied");
-  t.diagnostic(`task-assign --expected-version ${String(shown.expectedVersion)}: ${assigned.outcome}`);
-});
+test(
+  "task assignment uses the source revision for its first CAS and the relation revision thereafter",
+  { timeout: 60_000 },
+  async (t) => {
+    const { fleetNodeClaimFixture } = await import("./fleet-node-claim.fixtures.ts");
+    const { localAuthFixture } = await import("./fleet-runtime-recovery.fixtures.ts");
+    const f = await fleetNodeClaimFixture(t);
+    const taskId = "task-show-version";
+    assert.equal(
+      (await f.command("node-one", { kind: "task-create", taskId, title: "expected version visibility" })).outcome,
+      "applied",
+    );
+    // task-show is a center read, not a fleet-forwardable write, so the node reads it off the host.
+    const shown = (await f.host.run("lease-repo", { kind: "task-show", taskId }, localAuthFixture())) as {
+      readonly revision: number;
+      readonly expectedVersion?: number;
+      readonly evidence: string;
+    };
+    const snapshot = JSON.parse(shown.evidence) as { readonly revision: number };
+    // The receipt states the task's own projection revision at the top level — the exact value
+    // --expected-version validates — and it is not the ledger cut sitting beside it.
+    assert.equal(shown.expectedVersion, snapshot.revision);
+    assert.notEqual(shown.expectedVersion, shown.revision);
+    t.diagnostic(
+      `task-show ${taskId}: revision=${String(shown.revision)} (ledger cut) ` +
+        `expectedVersion=${String(shown.expectedVersion)} (task projection revision)`,
+    );
+    const assigned = await f.command("node-one", {
+      kind: "task-assign",
+      taskId,
+      expectedVersion: shown.expectedVersion,
+      nodeId: "node-one",
+    });
+    assert.equal(assigned.outcome, "applied");
+    const stale = await f.command("node-one", {
+      kind: "task-assign",
+      taskId,
+      expectedVersion: shown.expectedVersion,
+      nodeId: "node-two",
+    });
+    assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
+    assert.equal(stale.code, "revision_conflict", JSON.stringify(stale));
+    t.diagnostic(
+      `first assignment used source revision ${String(shown.expectedVersion)}; repeated source fence rejected after relation revision ${String(assigned.revision)}`,
+    );
+  },
+);

@@ -357,7 +357,6 @@ export {
 
 export {
   type TaskClaimScope,
-  validTaskAssignment,
   taskAssignmentMatches,
   type TaskAssignment,
   type TaskClaimant,

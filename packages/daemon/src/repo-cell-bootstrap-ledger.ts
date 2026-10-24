@@ -37,7 +37,7 @@ export async function initializeBootstrapLedger(
       "authorization_denied",
       authorizationDecision.nextActions.join(" ") || "Repository bootstrap requires owner authority.",
     );
-  const appended = settings.initialize(...bootstrap.settingsBootstrap, {
+  const appended = settings.initializeBootstrap(...bootstrap.settingsBootstrap, {
     ...baseBinding,
     authorizationDecision,
   });

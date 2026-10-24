@@ -29,7 +29,6 @@ export type LiveFloorChannel = "implementation" | "rework" | "review_task" | "re
 export function liveFloorRows(input: {
   readonly sessions: readonly AgentRuntimeSessionDto[];
   readonly dispatches: readonly TaskDispatchProjectionRow[];
-  readonly taskTitles: ReadonlyMap<string, string>;
   readonly works: WorkIndex;
 }): readonly LiveFloorRow[] {
   const dispatchBySession = new Map<string, TaskDispatchProjectionRow>();
@@ -47,7 +46,8 @@ export function liveFloorRows(input: {
       return {
         session,
         taskId,
-        taskTitle: taskId === null ? "" : (input.taskTitles.get(`task/${taskId}`) ?? ""),
+        // 标题与 taskId 同源:派工行带的是这条派工所绑任务的标题,分组也按同一个 taskId 查工作。
+        taskTitle: dispatch?.taskTitle ?? "",
         workKey: work === null ? "loose" : `work:${work.taskId}`,
         workTitle: work?.title ?? "",
         channel: liveFloorDispatchChannel(dispatch),
@@ -249,7 +249,6 @@ export const LIVE_FLOOR_ENDED_WINDOW_MS = 24 * 60 * 60_000;
  */
 export function liveFloorEndedRows(input: {
   readonly dispatches: readonly TaskDispatchProjectionRow[];
-  readonly taskTitles: ReadonlyMap<string, string>;
   readonly tasks: readonly TaskRow[];
   readonly nowMs?: number;
 }): readonly LiveFloorEndedRow[] {
@@ -282,7 +281,7 @@ export function liveFloorEndedRows(input: {
         {
           dispatch,
           taskId: dispatch.taskId || null,
-          taskTitle: dispatch.taskId ? (input.taskTitles.get(`task/${dispatch.taskId}`) ?? "") : "",
+          taskTitle: dispatch.taskTitle ?? "",
           channel,
           endedAt: dispatch.endedAt,
           conclusion,

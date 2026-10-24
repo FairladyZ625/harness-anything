@@ -7,6 +7,7 @@ import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.t
 import type { WriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { validateFrozenCompletionContract, type FrozenCompletionContract } from "./completion-contract.ts";
+import type { ProductionDeltaCounts } from "./production-delta.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -42,15 +43,22 @@ export interface TaskRiskTierAssessmentV1 {
   readonly reasons: readonly string[];
   readonly guiAcceptanceRequired: boolean;
 }
+export type ProductionDeltaV1 = ProductionDeltaCounts & {
+  readonly baseSha: string;
+};
 export type SubmissionV1 = SubmissionDelivery & {
   readonly completionClaim: string;
   readonly deliverables: readonly string[];
+  /** Complete authored and deleted paths changed by this cut, not only accepted deliverables. */
+  readonly changedFiles?: readonly string[];
   readonly outputs: readonly string[];
   readonly verificationNotes: readonly string[];
   readonly knownGaps: readonly string[];
   readonly residualRisks: readonly string[];
   /** The submit-time repository risk floor and the review route it selected. */
   readonly riskTierAssessment?: TaskRiskTierAssessmentV1;
+  /** G33's immutable result for this delivery commit and its merge-base with the current default branch. */
+  readonly productionDelta?: ProductionDeltaV1;
   /** Gate requirements frozen at the execution's first submission; YAML edits never reach this cut. */
   readonly completionContract: FrozenCompletionContract;
 };
@@ -220,6 +228,30 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
   // A no-diff submission delivers its frozen closeout prose without a code or artifact cut.
   return (Array.isArray(value.artifacts) && value.artifacts.length === 0) || validArtifactAnchors(value.artifacts);
 }
+function validProductionDelta(value: unknown): value is ProductionDeltaV1 {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, ["baseSha", "added", "deleted", "changed", "unclassified"]) &&
+    isNativeCommitSha(value.baseSha) &&
+    Number.isSafeInteger(value.added) &&
+    Number(value.added) >= 0 &&
+    Number.isSafeInteger(value.deleted) &&
+    Number(value.deleted) >= 0 &&
+    Array.isArray(value.changed) &&
+    value.changed.every(
+      (entry) =>
+        isRecord(entry) &&
+        hasOnlyFields(entry, ["filePath", "module", "added", "deleted"]) &&
+        isNonEmptyString(entry.filePath) &&
+        isNonEmptyString(entry.module) &&
+        Number.isSafeInteger(entry.added) &&
+        Number(entry.added) >= 0 &&
+        Number.isSafeInteger(entry.deleted) &&
+        Number(entry.deleted) >= 0,
+    ) &&
+    stringArray(value.unclassified)
+  );
+}
 export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
   return (
     isRecord(value) &&
@@ -242,6 +274,8 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       ...required,
       ...(value.commitSha === null || value.artifacts !== undefined ? ["artifacts"] : []),
+      ...(value.changedFiles !== undefined ? ["changedFiles"] : []),
+      ...(value.productionDelta !== undefined ? ["productionDelta"] : []),
       ...(value.riskTierAssessment !== undefined ? ["riskTierAssessment"] : []),
     ]) ||
     !isNonEmptyString(value.completionClaim) ||
@@ -250,8 +284,11 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !stringArray(value.verificationNotes) ||
     !stringArray(value.knownGaps) ||
     !stringArray(value.residualRisks) ||
+    (value.changedFiles !== undefined && !stringArray(value.changedFiles)) ||
     (value.riskTierAssessment !== undefined && !validTaskRiskTierAssessment(value.riskTierAssessment)) ||
-    !validSubmissionDelivery(value)
+    !validSubmissionDelivery(value) ||
+    (value.productionDelta !== undefined &&
+      (value.commitSha === null || value.changedFiles === undefined || !validProductionDelta(value.productionDelta)))
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
