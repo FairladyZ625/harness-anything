@@ -140,6 +140,14 @@ export function withoutRetiredCloseoutOverrides(value: unknown): unknown {
   return Object.keys(remaining).length ? remaining : undefined;
 }
 
+/**
+ * Hosted-CI witness kinds retired when the CI gate left the product. One list for the settings gate
+ * mapping, the vertical completion sources and the decode-time recognition of both, so a reader that
+ * names a retired source and the migration step that strips it can never disagree about which kinds
+ * are retired.
+ */
+export const retiredHostedCiSourceKinds = Object.freeze(["github-actions", "gitlab-pipeline"] as const);
+
 export function withoutRetiredScheduleCiObserve(value: unknown): unknown {
   if (!isRecord(value) || !Object.hasOwn(value, "ciObserve")) return value;
   return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "ciObserve"));
@@ -172,7 +180,7 @@ export function withoutRetiredSettings(value: unknown): unknown {
   }
   if (Array.isArray(next.gates)) {
     const gates = next.gates.filter(
-      (gate) => !isRecord(gate) || !["github-actions", "gitlab-pipeline"].includes(String(gate.adapter)),
+      (gate) => !isRecord(gate) || !(retiredHostedCiSourceKinds as readonly string[]).includes(String(gate.adapter)),
     );
     if (gates.length !== next.gates.length) {
       next.gates = gates;
@@ -188,7 +196,10 @@ export function withoutRetiredVerticalHostedCi(value: unknown): unknown {
   if (!isRecord(completion) || !isRecord(completion.sources)) return value;
   const retiredSources = new Set(
     Object.entries(completion.sources)
-      .filter(([, source]) => isRecord(source) && ["github-actions", "gitlab-pipeline"].includes(String(source.kind)))
+      .filter(
+        ([, source]) =>
+          isRecord(source) && (retiredHostedCiSourceKinds as readonly string[]).includes(String(source.kind)),
+      )
       .map(([sourceId]) => sourceId),
   );
   if (retiredSources.size === 0) return value;
