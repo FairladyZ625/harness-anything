@@ -631,7 +631,8 @@ async function dispatchPathReviewLanes(
   },
 ): Promise<readonly PathLaneDispatchResult[]> {
   const assessment = input.execution.submission?.riskTierAssessment;
-  if (assessment?.effectiveTier !== "high") return [];
+  // A cut frozen before risk assessments carries no path evidence; no risk tier gates a lane.
+  if (assessment === undefined) return [];
   const hits = new Map<string, readonly string[]>(
     assessment.matchedPathReviewers.map(({ agentId, paths }) => [agentId, paths]),
   );
