@@ -80,10 +80,10 @@ test("opening a repository prunes archived dispatch streams past the default 60-
       ownerId: "dispatch-retention-test",
     });
 
-    // The prune rides the attach write queue; the observable is the file itself, not the queue
-    // counter (which drops before the queued work runs).
-    for (let round = 0; round < 500 && existsSync(expired); round += 1)
-      await new Promise((resolve) => setImmediate(resolve));
+    // The prune rides the attach write queue behind git-backed publication work; poll the file
+    // itself (the queue counter drops before the queued work runs) with a bounded deadline.
+    for (let round = 0; round < 150 && existsSync(expired); round += 1)
+      await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(existsSync(expired), false, "the 61-day-old archived stream is pruned at attach");
     assert.equal(existsSync(retained), true, "the 30-day-old archived stream is inside retention");
     assert.equal(existsSync(liveFile), true, "a still-live stream is never touched");
