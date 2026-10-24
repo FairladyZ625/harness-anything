@@ -165,7 +165,7 @@ export function renderAgendaSummary(
     ),
     section(
       "待派审",
-      "status=submitted 且有 submitted execution；按冻结契约完成；显式选 reviewer 才用 adjudicate --forward --reviewer",
+      "status=submitted 且有 submitted execution 的历史切面（评审走廊之前的提交）；免审切面按冻结契约完成，需审历史切面只能 supersede 或迁移合同",
       groups.awaitingAdjudication.map(executionLine),
     ),
     section(

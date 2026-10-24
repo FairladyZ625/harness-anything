@@ -142,8 +142,9 @@ export type SubmissionForwardedEvent = TaskEventEnvelope<
     readonly reason: string;
   }
 >;
-/** The owning CEO's return order (triage return or review verdict return): the cut is closed and
- * the task returns to the implementation node on the next iteration with the adjudicated note. */
+/** The owner's return order as written before automatic rework (dec_E369B861 CH5 retired the
+ * command; the event stays replayable history): the cut is closed and the task returns to the
+ * implementation node on the next iteration with the adjudicated note. */
 export type SubmissionReturnedEvent = TaskEventEnvelope<
   "submission_returned",
   {

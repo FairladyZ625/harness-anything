@@ -104,7 +104,10 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly packageDisposition?: TaskPackageDisposition;
   readonly supersededBy?: string | null;
   readonly contractVersion?: number;
+  /** Legacy read-only history: snapshots written before the rework budget moved to repository Settings. */
   readonly reviewReturnBudget?: number;
+  /** This task's own reviewer agent id; unset falls back to the repository defaultReviewer. */
+  readonly reviewer?: string;
   readonly closeoutOverrides?: CloseoutOverridesV1;
   /** Set from the preset profile; a successful completion archives the package. */
   readonly archiveOnComplete?: boolean;
@@ -145,6 +148,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "supersededBy",
       "contractVersion",
       "reviewReturnBudget",
+      "reviewer",
       "closeoutOverrides",
       "archiveOnComplete",
       "assignment",
@@ -232,6 +236,8 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     (!Number.isSafeInteger(value.reviewReturnBudget) || (value.reviewReturnBudget as number) < 1)
   )
     issues.push({ code: "invalid_task", message: "reviewReturnBudget must be a positive integer" });
+  if (value.reviewer !== undefined && !/^[A-Za-z0-9_-]{1,96}$/u.test(String(value.reviewer)))
+    issues.push({ code: "invalid_task", message: "reviewer must be an agent id" });
   if (value.closeoutOverrides !== undefined && !isValidCloseoutOverrides(value.closeoutOverrides))
     issues.push({
       code: "invalid_task",

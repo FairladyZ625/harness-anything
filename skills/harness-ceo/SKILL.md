@@ -52,7 +52,7 @@ description: 通过明确的委托契约、模型无关的角色选择、派工�
 
 复核结果或关闭一个工作时阅读[验收方法](references/acceptance.md)；关闭工作先按 `work-closeout` 预设逐项核对，再走其根任务的正常生命周期。区分实现、验证、集成、发布和采用，只声明请求与证据实际支持的阶段。
 
-提交会按冻结的评审要求自动派发 reviewer（含仓库 pathReviewers）；主控通过 `ha task dispatches <task-id>` 跟踪结论，再做 consent 与合并。只有显式选派 reviewer 时使用 `ha task adjudicate <task-id> --forward --reviewer <agent> --note <原因>`；免评审 profile 的评审要求仍由原有契约决定。
+提交会按冻结的评审要求自动派发 reviewer（含仓库 pathReviewers）；主控通过 `ha task dispatches <task-id>` 跟踪结论，再做 consent 与合并。`changes_requested` 在仓库返工上限（`reviewReturnBudget`）内自动重开返工并续跑提交者（带评审报告）；到上限停在 `in_review` 交主控处置（`ha task review-consent --dispose <review-id>` 或 supersede）。需要换评审员时用 `ha task dispatch-review <task-id> --agent <agent-id>`。
 
 主控对照原始意图复核组装后的结果，先问当前目标要证明什么、哪个已有权威已经证明、新增责任买到什么，而不是只问是否符合当初设计。可委托取证和独立评审，最终语义判断仍由主控负责。使用仓库为当前角色和触碰面规定的检查；相关状态不变时复用证据，发生相关变更或新疑点时才重跑。不为了获得完成感而增加全量矩阵、新门禁或重复复审。
 

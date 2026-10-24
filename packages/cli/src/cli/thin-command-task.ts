@@ -45,7 +45,6 @@ export function parseTask(
     id === "task-witness-rerun" ||
     id === "task-start" ||
     id === "task-submit" ||
-    id === "task-adjudicate" ||
     id === "task-settle" ||
     id === "task-review-execution" ||
     id === "task-complete" ||
@@ -54,10 +53,9 @@ export function parseTask(
     id === "task-read-set" ||
     id === "task-review"
   ) {
-    const parsed = parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
+    return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       taskId,
     });
-    return id === "task-adjudicate" ? requireWorkerContinuation(parsed, json) : parsed;
   }
   if (id === "task-transition") {
     const status = args[3];
@@ -143,35 +141,6 @@ function parseTaskShow(
         taskId: positional ?? flagged,
       })
     : rejected("missing_field", "Run ha task show <task-id>.", json);
-}
-
-function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): ThinParseResult {
-  if (!parsed.ok) return parsed;
-  const action = parsed.command.action as Readonly<Record<string, unknown>>;
-  if (action.return !== true) return parsed;
-  // Collect every missing parameter in one pass: the owner triaging a return must see the whole
-  // gap at once, not one rejection per retry. --note-file counts as the note; the daemon client
-  // inlines its text before the adjudication reaches the kernel.
-  const mode = action.workerMode,
-    missing = [
-      ...(mode === undefined ? ["--worker-mode resume|fresh|none"] : []),
-      ...((typeof action.reason === "string" && action.reason.trim()) || typeof action.noteFile === "string"
-        ? []
-        : ["--note <the owner's rework instruction>"]),
-      ...(mode !== "none" && !(typeof action.followUp === "string" && action.followUp.trim())
-        ? ["--message <the worker's continuation directive>"]
-        : []),
-    ];
-  if (missing.length > 0) return rejected("missing_field", `A returned cut requires ${missing.join(", ")}.`, json);
-  if (mode === "none")
-    return action.followUp === undefined
-      ? parsed
-      : rejected(
-          "invalid_field",
-          "--worker-mode none dispatches no worker, so it takes no --message; put the owner's note in --note.",
-          json,
-        );
-  return parsed;
 }
 
 function parseTaskArtifactAdd(
