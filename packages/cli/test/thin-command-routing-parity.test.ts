@@ -1346,6 +1346,13 @@ test("all public commands expose the canonical structured input facet", () => {
   }
   const reviewConsent = daemonProtocolCommands.find((command) => command.id === "task-review-consent");
   assert.ok(reviewConsent);
+  // Consent writes an owner signature, so the target execution and review are stated ids, never
+  // inferred: both flags are required at the parse boundary.
+  for (const name of ["--execution-id", "--review-id"]) {
+    const input = reviewConsent.inputs.find((candidate) => candidate.name === name);
+    assert.ok(input, name);
+    assert.equal(input.required, true, name);
+  }
   for (const name of ["--consent-id", "--from-file", "--json-input"])
     assert.equal(
       reviewConsent.inputs.some((input) => input.name === name),

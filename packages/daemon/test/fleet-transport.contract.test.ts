@@ -27,7 +27,7 @@ test("fleet authentication metadata admits a standard JWT and remains separate f
     opId: "human-op",
     repoId: "repo",
     taskId: "task",
-    action: { kind: "task-review-consent", taskId: "task", reviewId: "review" },
+    action: { kind: "task-review-consent", taskId: "task", executionId: "execution", reviewId: "review" },
     docChanges: null,
     mirrorBaseCut: null,
     accessToken: "a".repeat(2_048),
@@ -437,7 +437,7 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       reason: "checked",
       evidenceChecked: ["tests"],
     },
-    { kind: "task-review-consent", taskId: "task_abc", reviewId: "review_abc" },
+    { kind: "task-review-consent", taskId: "task_abc", executionId: "execution_abc", reviewId: "review_abc" },
     { kind: "task-release", taskId: "task_abc", reason: "handoff" },
     { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "manual review required" },
   ]) {
@@ -552,6 +552,9 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...taskCommand, action: { kind: "task-complete", taskId: "task_abc", consent: true } },
     { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", jsonInput: "{}" } },
     { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", fromFile: "packet.json" } },
+    // Consent's target ids are required at the wire: an id-less frame never reaches the center.
+    { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", reviewId: "review_abc" } },
+    { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", executionId: "execution_abc" } },
     { ...taskCommand, action: { kind: "host-run", command: "anything" } },
     {
       ...taskCommand,

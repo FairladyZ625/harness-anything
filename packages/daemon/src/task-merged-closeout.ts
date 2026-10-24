@@ -41,7 +41,10 @@ export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "
           commands: [
             ...(consented
               ? []
-              : approved.map((review) => `ha task review-consent ${taskId} --review-id ${review.reviewId}`)),
+              : approved.map(
+                  (review) =>
+                    `ha task review-consent ${taskId} --execution-id ${execution.executionId} --review-id ${review.reviewId}`,
+                )),
             `ha task complete ${taskId}`,
           ],
         },

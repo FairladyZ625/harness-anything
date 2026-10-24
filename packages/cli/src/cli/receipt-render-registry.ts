@@ -177,6 +177,7 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   return [
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
+    ...executionLines(payload),
     // Optional on the write-receipt schema: legacy receipts predate the field and render no line.
     ...(typeof receipt.expectedVersion === "number"
       ? [
@@ -194,6 +195,23 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
       ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
       : []),
   ].join("\n");
+}
+
+/**
+ * The current execution ids an owner needs for review/consent commands, so getting one never
+ * requires probing a write. The daemon derives the current-iteration list; ambiguity stays
+ * visible as one row per execution with its state rather than silently picking the first.
+ */
+function executionLines(payload: Record<string, unknown>): readonly string[] {
+  if (!Array.isArray(payload.currentExecutions)) return [];
+  const rows = payload.currentExecutions.flatMap((execution) =>
+    isRecord(execution) && typeof execution.executionId === "string" && typeof execution.state === "string"
+      ? [`${execution.executionId} (${execution.state})`]
+      : [],
+  );
+  return [
+    `execution: ${rows.length ? rows.join(", ") : "none"} (pass as --execution-id to review-consent/adjudicate/complete)`,
+  ];
 }
 
 /** dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4: one line tells where every task works. */

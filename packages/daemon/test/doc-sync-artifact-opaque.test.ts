@@ -558,7 +558,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     const packagePath = String(added.destination).split("/artifacts/")[0]!,
       manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
-    await reachGreenInReview(cell, rootDir, taskId, packagePath);
+    await reachGreenInReview(cell, rootDir, repoId, taskId, packagePath);
     const completed = (await cell.run({ kind: "task-complete", taskId }, binding)) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(completed.commitSha, null);
@@ -596,6 +596,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
 async function reachGreenInReview(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   rootDir: string,
+  repoId: string,
   taskId: string,
   packagePath: string,
 ): Promise<void> {
@@ -643,7 +644,17 @@ async function reachGreenInReview(
     reviewerBinding,
   )) as unknown as Record<string, unknown>;
   assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-  const consented = await cell.run({ kind: "task-review-consent", taskId }, binding);
+  const reviewEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(reviewed.opId));
+  if (reviewEvent?.type !== "review_recorded") throw new Error("review event missing");
+  const consented = await cell.run(
+    {
+      kind: "task-review-consent",
+      taskId,
+      executionId: reviewEvent.payload.review.executionId,
+      reviewId: "review-opaque",
+    },
+    binding,
+  );
   assert.equal(consented.outcome, "applied", JSON.stringify(consented));
 }
 
