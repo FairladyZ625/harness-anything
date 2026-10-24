@@ -1,9 +1,9 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, chmodSync, statSync } from "node:fs";
+import { rmSync, chmodSync, statSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { defaultUnixSocketPath } from "../client/local-daemon-target.ts";
+import { defaultUnixSocketPath, mkdirSecurely } from "../client/local-daemon-target.ts";
 export { defaultUnixSocketPath } from "../client/local-daemon-target.ts";
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
@@ -83,7 +83,10 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       // treats its Windows spelling as a relative path on POSIX, while on
       // Windows mkdir/rm/chmod against \\.\pipe itself are invalid.
       if (process.platform !== "win32") {
-        mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
+        // An existing socket parent is only ours if it is a real directory we own; sticky /tmp
+        // lets any local user pre-create the name, and binding inside their directory hands
+        // every hello credential to them.
+        mkdirSecurely(path.dirname(endpoint));
         rmSync(endpoint, { force: true });
       }
       await new Promise<void>((resolve, reject) => {

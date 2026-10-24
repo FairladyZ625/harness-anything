@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { DaemonRegistryRepo } from "@harness-anything/kernel";
@@ -181,6 +181,29 @@ export function perUserSocketRoot(uid = process.getuid?.() ?? 0): string {
 export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.() ?? 0): string {
   // TMPDIR can exceed the Unix socket path limit and differ between clients and the daemon.
   return path.join(perUserSocketRoot(uid), `daemon-${uid}-${daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-")}.sock`);
+}
+
+/** The daemon socket and the per-dispatch callback relays bind under the per-user socket root.
+ * Its /tmp parent is sticky: any local user can pre-create the directory name before the real
+ * owner does, so an existing directory is accepted only when it is a real directory owned by
+ * this uid, and it is tightened to 0700 before any socket binds inside it. */
+export function mkdirSecurely(target: string): void {
+  mkdirSync(target, { recursive: true, mode: 0o700 });
+  assertOwnedSocketDirectory(target);
+  if (process.platform !== "win32") chmodSync(target, 0o700);
+}
+
+/** The connect-time twin of mkdirSecurely: a client refuses to open a socket whose parent
+ * directory another local user could have planted, so the hello credential — which names this
+ * user — never reaches an impostor socket. A missing directory stays silent: the connect itself
+ * reports the native error callers already handle while the daemon is down. */
+export function assertOwnedSocketDirectory(target: string): void {
+  if (process.platform === "win32") return;
+  const uid = process.getuid?.(),
+    info = lstatSync(target, { throwIfNoEntry: false });
+  if (!info) return;
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== uid)
+    throw new Error(`socket directory is unsafe: ${target} is not a directory owned by uid ${uid}`);
 }
 
 /** Remote secrets use the existing user-managed loopback tunnel, never a bare remote TCP host. */

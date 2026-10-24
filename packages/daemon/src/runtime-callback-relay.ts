@@ -1,9 +1,9 @@
-import { chmodSync, lstatSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
+import { chmodSync, lstatSync, rmSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
-import { localUserDaemonEndpoint, perUserSocketRoot } from "./client/local-daemon-target.ts";
+import { localUserDaemonEndpoint, mkdirSecurely, perUserSocketRoot } from "./client/local-daemon-target.ts";
 import type { RuntimeCallbackRelay, RuntimeDaemonRoute } from "./runtime-spawn-types.ts";
 import { JSON_LINE_FRAME_MAX_BYTES } from "./transport/frame-codec.ts";
 
@@ -138,15 +138,6 @@ function endpointIdentityMatches(route: RuntimeDaemonRoute, platform: NodeJS.Pla
     return actual.slice(1) === path.basename(expected);
   }
   return platform !== "win32" ? path.basename(actual) === path.basename(expected) : actual === expected;
-}
-
-function mkdirSecurely(target: string): void {
-  mkdirSync(target, { recursive: true, mode: 0o700 });
-  const info = lstatSync(target);
-  // Sticky /tmp lets any user pre-create this name; only tighten a real directory owned by us.
-  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.())
-    throw new Error("runtime callback relay directory is unsafe");
-  if (process.platform !== "win32") chmodSync(target, 0o700);
 }
 
 function removeStaleRelay(target: string): void {
