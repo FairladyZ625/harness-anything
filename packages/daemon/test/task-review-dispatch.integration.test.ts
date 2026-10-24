@@ -1186,6 +1186,91 @@ test(
 );
 
 test(
+  "a medium-risk cut touching a configured path still dispatches its migration reviewer",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      create: { presetId: "standard-task", riskTier: "medium" },
+    });
+    try {
+      await f.install();
+      const laneAgent = await f.run({
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "data-migration",
+          name: "Data migration reviewer",
+          instructions:
+            "Report the affected persisted data, the attach-migration registration, and the old-copy evidence.",
+          runtimes: [{ type: "codex", model: "review-model" }],
+          role: "reviewer",
+        },
+      });
+      assert.equal(laneAgent.outcome, "applied", JSON.stringify(laneAgent));
+      await f.cell().settlePendingMaterialization("medium path lane fixture delivery");
+      const worktreePaths = execFileSync("git", ["-C", f.root, "worktree", "list", "--porcelain"], {
+          encoding: "utf8",
+        })
+          .trim()
+          .split("\n\n")
+          .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
+          .filter((line): line is string => line !== undefined)
+          .map((line) => path.resolve(line.slice("worktree ".length))),
+        checkout = worktreePaths.find((entry) => entry !== path.resolve(f.root));
+      assert.ok(checkout, `expected the bound task worktree beside ${f.root}`);
+      // One of the decision's exact-file entries, not a directory prefix: a medium-risk cut that
+      // touches that file must still reach the configured reviewer.
+      const surface = "packages/kernel/src/domain/review.ts";
+      const settings = await f.run({ kind: "settings-read" });
+      const configured = await f.runPrincipal({
+        kind: "settings-update",
+        reviewPathReviewers: [`data-migration ${surface}`],
+        expectedVersion: settings.revision,
+      });
+      assert.equal(configured.outcome, "applied", JSON.stringify(configured));
+      mkdirSync(path.dirname(path.join(checkout, surface)), { recursive: true });
+      writeFileSync(path.join(checkout, surface), "// migration-sensitive domain surface\n");
+      execFileSync("git", ["-C", checkout, "add", surface]);
+      execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: add the reviewed domain surface"]);
+      const launchesBefore = f.launches.length;
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      const submitted = f
+        .events()
+        .filter((event) => event.type === "execution_submitted")
+        .at(-1);
+      assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
+      const assessment = submitted.payload.execution.submission.riskTierAssessment;
+      assert.equal(assessment?.effectiveTier, "medium", "the cut keeps its declared medium tier");
+      assert.ok(
+        assessment?.matchedPathReviewers.some(
+          ({ agentId, paths }) => agentId === "data-migration" && paths.includes(surface),
+        ),
+        "the medium cut froze the configured path hit",
+      );
+      const laneDispatch = f
+        .events()
+        .find(
+          (event) =>
+            event.type === "runtime_dispatch_requested" &&
+            event.payload.dispatchKey?.startsWith("task-review-lane:data-migration:"),
+        );
+      assert.ok(laneDispatch?.type === "runtime_dispatch_requested", "no path-review lane dispatch was requested");
+      assert.equal(laneDispatch.payload.agentId, "data-migration");
+      assert.equal(laneDispatch.payload.role, "reviewer");
+      assert.equal(laneDispatch.payload.executionId, executionId);
+      const laneLaunch = f.launches.find((launch) => launch.prompt.includes(laneDispatch.payload.dispatchId!));
+      assert.ok(laneLaunch, `no provider launch carried the lane dispatch ${laneDispatch.payload.dispatchId!}`);
+      assert.ok(laneLaunch.prompt.includes(`- ${surface}`), laneLaunch.prompt);
+      assert.equal(f.launches.length, launchesBefore + 2, "one cut review plus one path-review lane");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "dispatch-review refuses a task with no submitted cut instead of binding the implementation execution",
   { timeout: 20_000 },
   async () => {
