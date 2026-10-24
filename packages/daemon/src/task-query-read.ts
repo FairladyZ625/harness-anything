@@ -629,15 +629,20 @@ export function makeTaskQueryReadModel(input: {
                 blockingAssessment: row.blockingAssessment,
               });
             }
-          const seenDispatches = new Set<string>();
-          for (const execution of row.snapshot.executions)
-            for (const { event: dispatch } of projection.readRuntimeDispatchesByTaskExecution(
-              row.taskId,
-              execution.executionId,
-            )) {
+          const seenDispatches = new Set<string>(),
+            newestIteration = latestExecution(row.snapshot.executions)?.iteration ?? null;
+          for (const execution of row.snapshot.executions) {
+            // 终结派工的事故回执不进队列:所属 execution 已交付,或之后开了新一轮,这一轮的问题已被翻篇。
+            if (execution.submission !== null) continue;
+            if (newestIteration !== null && execution.iteration < newestIteration) continue;
+            const roundDispatches = projection.readRuntimeDispatchesByTaskExecution(row.taskId, execution.executionId);
+            for (let index = 0; index < roundDispatches.length; index += 1) {
+              const { event: dispatch } = roundDispatches[index]!;
               const dispatchId = dispatch.payload.dispatchId;
               if (seenDispatches.has(dispatchId)) continue;
               seenDispatches.add(dispatchId);
+              // 同一轮里之后还有派工(按台账追加序),这个事故已被接续动作翻篇。
+              if (index < roundDispatches.length - 1) continue;
               const receipt = readIncidentActionReceipt(rootDir, dispatchId);
               if (
                 receipt === null ||
@@ -661,6 +666,7 @@ export function makeTaskQueryReadModel(input: {
                 blockingAssessment: row.blockingAssessment,
               });
             }
+          }
         }
         return [...rows.values()].sort((left, right) => left.askedAt.localeCompare(right.askedAt));
       })(),

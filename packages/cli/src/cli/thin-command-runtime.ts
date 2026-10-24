@@ -45,6 +45,7 @@ export function parseRuntime(
     if (!f.ok) return rejected(f.code, f.nextAction, json);
     return parseRuntimeStatus(route, rootDir, repoId, json, runtimeSessionIds, f);
   }
+  if (kind === "runtime-incident-dismiss") return parseIncidentDismiss(route, rootDir, repoId, json, inputs, args);
   const id = args[2]?.startsWith("--") ? undefined : args[2],
     f = readFlags(kind, args.slice(id ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
@@ -95,6 +96,25 @@ export function parseRuntime(
     },
     route.method,
   );
+}
+
+function parseIncidentDismiss(
+  route: ProtocolCommand,
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+  args: readonly string[],
+): ThinParseResult {
+  const kind = route.id,
+    dispatchId = args[2],
+    f = readFlags(kind, args.slice(3), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (!nonEmpty(dispatchId))
+    return rejected("missing_field", "Use ha runtime incident-dismiss <dispatch-id> --reason <text>.", json);
+  const reason = f.one.get("--reason");
+  if (!nonEmpty(reason)) return rejectInput(inputs, kind, "--reason", json);
+  return accepted(rootDir, repoId, json, { kind, dispatchId, reason: reason! }, route.method);
 }
 
 function parseRuntimeControl(

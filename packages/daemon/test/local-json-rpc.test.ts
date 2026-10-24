@@ -416,7 +416,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // The owner ruling makes assignment/unassignment a declared Action for every
   // assignment-capable kind, adding eleven catalog declarations to the former
   // 155-entry inventory.
-  assert.equal(actionDeclarations.length, 166);
+  // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
+  assert.equal(actionDeclarations.length, 167);
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
     false,

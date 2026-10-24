@@ -405,6 +405,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "runtime-instance-update":
       return authorizeRepoCellAction(input);
+    case "runtime-incident-dismiss":
+      return authorizeRepoCellAction(input);
     case "runtime-run":
       return authorizeRepoCellAction(input);
     case "runtime-spawn":

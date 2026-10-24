@@ -927,6 +927,19 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     show = parseThinCommand(["runtime", "status", "runtime-1"]),
     wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]),
     cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
+  const incidentDismiss = parseThinCommand([
+      "runtime",
+      "incident-dismiss",
+      "dispatch_0123456789abcdef01234567",
+      "--reason",
+      "Owner adjudicated: no resume needed.",
+    ]),
+    incidentDismissWithoutReason = parseThinCommand([
+      "runtime",
+      "incident-dismiss",
+      "dispatch_0123456789abcdef01234567",
+    ]),
+    incidentDismissWithoutDispatch = parseThinCommand(["runtime", "incident-dismiss", "--reason", "Missing target"]);
   for (const parsed of [
     run,
     taskOnly,
@@ -943,10 +956,21 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     show,
     wait,
     cancel,
+    incidentDismiss,
   ])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   assert.equal(file.ok, false);
   assert.equal(dryRunOnExit.ok, false, "--dry-run cannot pair with --on-exit");
+  assert.equal(incidentDismissWithoutReason.ok, false);
+  assert.equal(incidentDismissWithoutDispatch.ok, false);
+  if (incidentDismiss.ok) {
+    assert.equal(incidentDismiss.command.method, "repo.task.run");
+    assert.deepEqual(incidentDismiss.command.action, {
+      kind: "runtime-incident-dismiss",
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      reason: "Owner adjudicated: no resume needed.",
+    });
+  }
   if (dryRun.ok)
     assert.deepEqual(dryRun.command.action, {
       kind: "runtime-run",

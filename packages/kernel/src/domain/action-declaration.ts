@@ -123,6 +123,11 @@ export const actionPresentation = {
   "runtime-handoff-export": { domain: "runtime", name: "导出运行交接", description: "导出供接续执行的交接资料。" },
   "runtime-handoff-claim": { domain: "runtime", name: "领取运行交接", description: "领取交接资料并接续执行。" },
   "runtime-handoff-revoke": { domain: "runtime", name: "撤销运行交接", description: "结束交接资料的领取资格。" },
+  "runtime-incident-dismiss": {
+    domain: "runtime",
+    name: "关闭事故回执",
+    description: "以理由关闭一条确需人工处置的事故升级回执。",
+  },
   "runtime-instance-create": { domain: "runtime", name: "创建运行实例", description: "登记代理运行实例。" },
   "runtime-instance-delete": { domain: "runtime", name: "删除运行实例", description: "删除代理运行实例的配置。" },
   "runtime-instance-hosting-credential-set": {
@@ -404,6 +409,9 @@ export const actionDeclarations = Object.freeze([
   canonical("runtime-handoff-export", null, "repo-write"),
   canonical("runtime-handoff-claim", null, "repo-write"),
   canonical("runtime-handoff-revoke", null, "repo-write"),
+  // Owner adjudication of an escalated incident receipt: the dismiss settles the receipt's visible
+  // disposition on the dispatch's own durable stream, so it settles no canonical event.
+  canonical("runtime-incident-dismiss", null, "repo-write", "none", "maintainer"),
   runtimeAdmin("runtime-instance-create"),
   runtimeAdmin("runtime-instance-delete"),
   runtimeAdmin("runtime-instance-hosting-credential-set"),
