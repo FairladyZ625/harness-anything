@@ -30,6 +30,7 @@ import {
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
+import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
@@ -47,6 +48,8 @@ import { createReplicaStatusTracker } from "./replica-status.ts";
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
 export const REPLICATION_KEEPALIVE_MS = 15_000;
+/** Active (unfinished) uploads one node may hold across all of its sessions. */
+const FLEET_NODE_ACTIVE_UPLOADS = 16;
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => {
@@ -138,6 +141,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         },
       };
     };
+  // The one repository admission port: reader identity plus the node owner's grant on this
+  // repository (dec_66CE6F92 — a cross-cutting responsibility has a single implementation that
+  // callers reuse instead of copying).
+  const repoAdmission = async (node: {
+    nodeId: string;
+    repoId: string;
+    accessToken?: string;
+    humanClientId?: string;
+  }) => {
+    const principal = await readerAuth(node),
+      decision = await options.host.authorize(node.repoId, "repository-read", principal);
+    if (decision.outcome !== "allowed")
+      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
+    return principal;
+  };
   const extracted = {
     get state() {
       return state;
@@ -451,16 +469,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const admitReplica = async (nodeId: string, repoId: string, accessToken?: string, humanClientId?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
-    const a = await nodeContext(nodeId, repoId, accessToken),
-      auth = await readerAuth({ ...a, humanClientId }),
-      owner = await options.nodeOwner(nodeId);
+    const a = await nodeContext(nodeId, repoId, accessToken);
+    // The node owner's repository-read authority admits the replica
+    // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
+    await repoAdmission({ ...a, humanClientId });
+    const owner = await options.nodeOwner(nodeId);
     if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
-    const replica = options.host.replica(a.repoId),
-      // The node owner's repository-read authority admits the replica
-      // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
-      decision = await options.host.authorize(a.repoId, "repository-read", auth);
-    if (decision.outcome !== "allowed")
-      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
+    const replica = options.host.replica(a.repoId);
     return { a, replica, readerProfile: { personId: owner, nodeId } };
   };
   const handle = async (
@@ -548,12 +563,18 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             String(frame.content.size),
             frame.content.mediaType,
           );
-        await readerAuth(a);
+        await repoAdmission(a);
         let upload = state.uploads[uploadId];
         if (upload && JSON.stringify(upload.content) !== JSON.stringify(frame.content))
           throw new FleetFault("upload_conflict", "Upload identity conflicts with persisted metadata.");
         if (!upload && Object.keys(state.uploads).length >= 64)
           throw new FleetFault("busy", "Upload recovery window is full.", true);
+        if (
+          !upload &&
+          Object.values(state.uploads).filter((entry) => entry.nodeId === nodeId && entry.descriptor === null).length >=
+            FLEET_NODE_ACTIVE_UPLOADS
+        )
+          throw new FleetFault("busy", `Node already has ${FLEET_NODE_ACTIVE_UPLOADS} active uploads.`, true);
         if (!upload)
           upload = state.uploads[uploadId] = {
             nodeId,
@@ -594,10 +615,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (frame.schema === "fleet.upload.chunk/v1") {
       return runFleetCenterWrite(frame, async () => {
         const upload = ownedUpload(state, nodeId, frame.uploadId);
-        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
+        await repoAdmission({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
         const file = uploadPath(frame.uploadId),
-          bytes = Buffer.from(frame.dataBase64, "base64"),
-          length = existsSync(file) ? statSync(file).size : 0;
+          bytes = Buffer.from(frame.dataBase64, "base64");
+        if (frame.offset + bytes.length > upload.content.size)
+          throw new FleetFault(
+            "upload_oversize",
+            "Chunk extends past the declared upload size.",
+            false,
+            upload.content.size,
+          );
+        const length = existsSync(file) ? statSync(file).size : 0;
         if (frame.offset > length)
           throw new FleetFault("upload_gap", "Chunk offset is beyond the durable prefix.", true, length);
         if (frame.offset < length) {
@@ -1052,8 +1080,18 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     isConnected: (key) => replicationOwners.has(replicationSlotKey(key)),
     diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
   });
+  // One limiter for every connection: the failure budget lives per node across sessions, not per
+  // socket. Each unauthenticated socket holds a session slot and a credential check it may still
+  // trigger; the limiter bounds the credential cost of a node that keeps failing its hello.
+  const guardedAuthenticate = createHelloRateLimiter(options.authenticate);
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
-    serve(socket, { ...options, onReplicationStart }, handle, sessions, replicationOwners),
+    serve(
+      socket,
+      { ...options, authenticate: guardedAuthenticate, onReplicationStart },
+      handle,
+      sessions,
+      replicationOwners,
+    ),
   );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

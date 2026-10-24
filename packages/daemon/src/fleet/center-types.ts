@@ -33,6 +33,8 @@ export interface FleetCenterOptions {
   readonly replicationKeepaliveMs?: number;
   readonly port?: number;
   readonly hostname?: string;
+  /** Overrides the default hello window for an unauthenticated connection (tests, slow-link tuning). */
+  readonly helloTimeoutMs?: number;
   readonly now?: () => string;
   readonly writerId?: string;
   readonly authenticate: (nodeId: string, credential: string) => boolean | Promise<boolean>;

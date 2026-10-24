@@ -11,6 +11,7 @@ import { replicationSlotKey } from "./replication-slot.ts";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
+  FLEET_HELLO_TIMEOUT_MS,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
   currentFleetProtocolVersion,
@@ -57,7 +58,15 @@ export async function serve(
   const disconnected = new AbortController();
   // Kernel probes find a peer that vanished without a FIN (sleep, NAT reset, suspended VM).
   socket.setKeepAlive(true, 15_000);
-  socket.once("close", () => disconnected.abort());
+  // The hello window bounds what an unauthenticated socket can hold: a session slot and the
+  // credential check it may still trigger. Authentication clears it; every later frame rides an
+  // admitted session that idles legitimately (a replica stream waits between pulls).
+  const helloTimer = setTimeout(() => socket.destroy(), options.helloTimeoutMs ?? FLEET_HELLO_TIMEOUT_MS),
+    helloAdmitted = () => clearTimeout(helloTimer);
+  socket.once("close", () => {
+    helloAdmitted();
+    disconnected.abort();
+  });
   let nodeId: string | null = null,
     accessToken: string | undefined,
     humanClientId: string | undefined,
@@ -244,6 +253,7 @@ export async function serve(
             inviteToken: frame.inviteToken,
             accessToken: frame.accessToken,
           });
+          helloAdmitted();
           await enqueue(
             immediate({
               schema: "fleet.edge.join.result/v1",
@@ -277,6 +287,7 @@ export async function serve(
           );
         if (!(await options.authenticate(frame.nodeId, frame.credential)))
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
+        helloAdmitted();
         nodeId = frame.nodeId;
         accessToken = frame.accessToken;
         humanClientId = frame.humanClientId;
