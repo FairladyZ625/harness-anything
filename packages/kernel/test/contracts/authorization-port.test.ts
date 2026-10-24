@@ -43,7 +43,8 @@ test("retired People mutations are absent from the durable authorization invento
   // Owner 2026-10-21 B3 (task_8ebc730e board) deletes code-doc reconcile/repoint with the whole mechanism.
   // Owner 2026-10-23 (task_45b896d2) makes assign/unassign generic Actions for every assignable Entity kind;
   // the durable policy inventory therefore grows from the prior 154 to 165.
-  assert.equal(durablePolicyActions.length, 165);
+  // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
+  assert.equal(durablePolicyActions.length, 166);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);
   assert.equal(durablePolicyActions.includes("ci-observe-pull"), false);

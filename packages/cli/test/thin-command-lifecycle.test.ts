@@ -256,15 +256,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "owner adjudicated both reports",
     ]),
     derivedComplete = parseThinCommand(["task", "complete", "task-1"]);
-  for (const parsed of [
-    derivedDeclare,
-    derivedSubmit,
-    derivedReview,
-    inlineReview,
-    derivedPairConsent,
-    overrideConsent,
-    derivedComplete,
-  ])
+  for (const parsed of [derivedDeclare, derivedSubmit, derivedReview, inlineReview, derivedComplete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (derivedDeclare.ok)
     assert.deepEqual(derivedDeclare.command.action, {
@@ -295,16 +287,39 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       commandType: "RecordReview",
       jsonInput: '{"verdict":"approved","reason":"ok","evidenceChecked":[]}',
     });
-  if (derivedPairConsent.ok)
-    assert.deepEqual(derivedPairConsent.command.action, {
+  // Consent is an explicit signature, never an inference: both ids must be stated on the command
+  // line, so an exploratory run cannot write an owner consent. The rejection names the missing flag.
+  for (const [label, parsed] of [
+    ["no ids", derivedPairConsent],
+    ["dispose without ids", overrideConsent],
+    ["review id only", parseThinCommand(["task", "review-consent", "task-1", "--review-id", "review-1"])],
+    ["execution id only", parseThinCommand(["task", "review-consent", "task-1", "--execution-id", "execution-1"])],
+  ] as const) {
+    assert.equal(parsed.ok, false, label);
+    if (!parsed.ok) assert.equal(parsed.code, "missing_field", label);
+  }
+  const explicitOverride = parseThinCommand([
+    "task",
+    "review-consent",
+    "task-1",
+    "--execution-id",
+    "execution-1",
+    "--review-id",
+    "review-a",
+    "--dispose",
+    "review-a",
+    "--dispose",
+    "review-b",
+    "--rationale",
+    "owner adjudicated both reports",
+  ]);
+  assert.equal(explicitOverride.ok, true, JSON.stringify(explicitOverride));
+  if (explicitOverride.ok)
+    assert.deepEqual(explicitOverride.command.action, {
       kind: "task-review-consent",
       taskId: "task-1",
-      commandType: "RecordReviewConsent",
-    });
-  if (overrideConsent.ok)
-    assert.deepEqual(overrideConsent.command.action, {
-      kind: "task-review-consent",
-      taskId: "task-1",
+      executionId: "execution-1",
+      reviewId: "review-a",
       commandType: "RecordReviewConsent",
       dispose: ["review-a", "review-b"],
       rationale: "owner adjudicated both reports",
@@ -912,6 +927,19 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     show = parseThinCommand(["runtime", "status", "runtime-1"]),
     wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]),
     cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
+  const incidentDismiss = parseThinCommand([
+      "runtime",
+      "incident-dismiss",
+      "dispatch_0123456789abcdef01234567",
+      "--reason",
+      "Owner adjudicated: no resume needed.",
+    ]),
+    incidentDismissWithoutReason = parseThinCommand([
+      "runtime",
+      "incident-dismiss",
+      "dispatch_0123456789abcdef01234567",
+    ]),
+    incidentDismissWithoutDispatch = parseThinCommand(["runtime", "incident-dismiss", "--reason", "Missing target"]);
   for (const parsed of [
     run,
     taskOnly,
@@ -928,10 +956,21 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     show,
     wait,
     cancel,
+    incidentDismiss,
   ])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   assert.equal(file.ok, false);
   assert.equal(dryRunOnExit.ok, false, "--dry-run cannot pair with --on-exit");
+  assert.equal(incidentDismissWithoutReason.ok, false);
+  assert.equal(incidentDismissWithoutDispatch.ok, false);
+  if (incidentDismiss.ok) {
+    assert.equal(incidentDismiss.command.method, "repo.task.run");
+    assert.deepEqual(incidentDismiss.command.action, {
+      kind: "runtime-incident-dismiss",
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      reason: "Owner adjudicated: no resume needed.",
+    });
+  }
   if (dryRun.ok)
     assert.deepEqual(dryRun.command.action, {
       kind: "runtime-run",

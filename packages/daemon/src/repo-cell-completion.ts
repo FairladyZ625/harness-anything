@@ -222,6 +222,11 @@ export function taskShowFromProjection(
     ),
     payload = {
       ...read.snapshot,
+      // The current-iteration executions the owner needs ids from (review/consent/complete), so
+      // getting one never requires probing a write command. Derived here once; the thin CLI renders.
+      currentExecutions: read.snapshot.executions
+        .filter((value) => value.iteration === task?.iteration)
+        .map(({ executionId, state }) => ({ executionId, state })),
       assignmentRevision,
       task: task
         ? {

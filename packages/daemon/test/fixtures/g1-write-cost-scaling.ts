@@ -526,7 +526,7 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
       await each(
         "task-create",
         measure,
-        (subject) => run({ kind: "task-create", taskId: subject.taskId, title: `G1 measured ${subject.taskId}` }),
+        (subject) => run({ kind: "task-create", taskId: subject.taskId, title: subject.taskId }),
         (result, subject) => {
           assertApplied("task-create", result);
           const created = result as { readonly opId: string; readonly packagePath: string };

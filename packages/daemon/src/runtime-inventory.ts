@@ -28,6 +28,11 @@ const sharedCapabilities = {
 // turn, so a steer keeps the session and reprompts in place instead of restarting a CLI.
 const acpSteer = { strategy: "cancel-reprompt" } as const;
 
+// One resume declaration for the whole acp family: whether an agent can resume is negotiated
+// from its initialize response (agentCapabilities.loadSession vs sessionCapabilities.resume,
+// runtime-worker-acp.ts), so no acp kind carries a per-kind launch flag or capability entry.
+const acpDeclaredCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
+
 function acpKind<K extends RuntimeKindId>(
   kindId: K,
   displayName: string,
@@ -59,7 +64,7 @@ function acpKind<K extends RuntimeKindId>(
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: { fields: {}, publicFields: {}, publicDefaults: {} },
     auth: {
       shape: auth.shape,
@@ -75,7 +80,6 @@ function acpKind<K extends RuntimeKindId>(
     launch: {
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/load",
       argumentTemplate,
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
@@ -521,7 +525,7 @@ export const runtimeKinds = [
       modelProbe: ["models", "list", "--format", "json"],
       modelProbeFormat: "json-families",
     },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
       fields: {},
       publicFields: {},
@@ -543,11 +547,11 @@ export const runtimeKinds = [
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
     launch: {
-      // The prompt travels inside session/prompt; the permission mode is applied
-      // through session/set_mode; resume is session/load. Only the model rides argv.
+      // The prompt travels inside session/prompt and the permission mode is applied
+      // through session/set_mode; resume is negotiated by the shared client from the
+      // initialize capabilities. Only the model rides argv.
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/load",
       argumentTemplate: ["acp", "--model", "$model"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
@@ -594,7 +598,7 @@ export const runtimeKinds = [
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
       fields: {},
       publicFields: {},
@@ -615,7 +619,6 @@ export const runtimeKinds = [
     launch: {
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/load",
       argumentTemplate: ["acp"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
@@ -661,7 +664,7 @@ export const runtimeKinds = [
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
       fields: {},
       publicFields: {},
@@ -685,7 +688,6 @@ export const runtimeKinds = [
     launch: {
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/load",
       argumentTemplate: [],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
@@ -732,7 +734,7 @@ export const runtimeKinds = [
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
       fields: {},
       publicFields: {},
@@ -750,7 +752,6 @@ export const runtimeKinds = [
     launch: {
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/load",
       argumentTemplate: [],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
@@ -877,7 +878,7 @@ export const runtimeKinds = [
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
       fields: {},
       publicFields: {},
@@ -898,7 +899,6 @@ export const runtimeKinds = [
     launch: {
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/load",
       argumentTemplate: ["acp"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
     },
@@ -949,9 +949,10 @@ export const runtimeKinds = [
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
-    // No `resume`: initialize advertises sessionCapabilities.resume but no loadSession, and
-    // the shared client speaks session/load only.
-    declaredCapabilities: ["structured_witness", "attach", "session_identity"] as const,
+    // initialize advertises agentCapabilities.sessionCapabilities.resume and no loadSession
+    // (measured 2026-10-24, task artifacts/evidence/dsh-real-resume-20261024.md), so the
+    // shared client's negotiation picks session/resume here — the family declaration covers it.
+    declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
       fields: { baseUrl: "url", wireApi: "identifier" },
       choices: { wireApi: ["openai-completions", "openai-responses", "anthropic-messages"] },
@@ -975,7 +976,6 @@ export const runtimeKinds = [
     launch: {
       input: "stdin",
       streamFormat: "jsonl",
-      resumeFlag: "session/resume",
       argumentTemplate: ["--profile", "acp"],
       permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
       // The acp profile has no session modes and takes no flags: its sandbox-policy and
@@ -999,7 +999,6 @@ export const runtimeKinds = [
     gui: { modelFamily: "open", effort: "none", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
-      resume: "unsupported",
       sessionIdEveryFrame: "supported",
       toolAllowlist: "unsupported",
       toolDenylist: "unsupported",

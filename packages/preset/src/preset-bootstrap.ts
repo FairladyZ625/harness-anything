@@ -41,6 +41,8 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly parentTaskId?: string;
   readonly workKind?: TaskMetadataV1["workKind"];
   readonly riskTier?: TaskMetadataV1["riskTier"];
+  /** Creation-frozen policy marker; absent markers preserve profile-based legacy restatement. */
+  readonly riskTierFlowVersion?: TaskMetadataV1["riskTierFlowVersion"] | null;
   readonly urgency?: TaskMetadataV1["urgency"];
   readonly slug?: string;
   readonly surfaces?: readonly string[];
@@ -76,6 +78,7 @@ export interface CompiledTaskPackage {
   readonly documents: readonly CompiledTaskDocument[];
   readonly metadata: TaskMetadataV1;
   readonly lightweightPresetIds: readonly string[];
+  readonly defaultNonLightweightProfileId: string | null;
 }
 export interface CompiledTaskBootstrap extends CompiledTaskPackage {
   readonly event: TaskBootstrapEventV1;
@@ -210,20 +213,21 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         "invalid_scaffold",
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
-  const explainer =
-    metadata.profileId === "lightweight" || input.taskClass === "work"
-      ? null
-      : {
-          slot: "task.explainer",
-          relativePath: "artifacts/explainer.html",
-          path: `${packagePath}/artifacts/explainer.html`,
-          body: LIVING_EXPLAINER_TEMPLATE(input.title),
-          contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE(input.title)),
-          mediaType: "text/html" as const,
-          owner: "doc-sync" as const,
-          requiredAnchors: [],
-          templateRef: null,
-        };
+  const tierGoverned = input.riskTierFlowVersion === 1,
+    explainer =
+      (tierGoverned ? metadata.riskTier === "low" : metadata.profileId === "lightweight") || input.taskClass === "work"
+        ? null
+        : {
+            slot: "task.explainer",
+            relativePath: "artifacts/explainer.html",
+            path: `${packagePath}/artifacts/explainer.html`,
+            body: LIVING_EXPLAINER_TEMPLATE(input.title),
+            contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE(input.title)),
+            mediaType: "text/html" as const,
+            owner: "doc-sync" as const,
+            requiredAnchors: [],
+            templateRef: null,
+          };
   const scaffoldDigest = resolved.snapshot.scaffold.resolvedSelectionDigest,
     orderedProse = [bySlot.get("task.plan")!, bySlot.get("task.closeout")!, bySlot.get("task.artifacts.keep")!],
     additions = prose
@@ -298,6 +302,10 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
     documents,
     metadata,
     lightweightPresetIds: resolved.lightweightPresetIds,
+    defaultNonLightweightProfileId:
+      resolved.manifest.defaultProfile === "lightweight"
+        ? (resolved.manifest.profiles.find(({ id }) => id !== "lightweight")?.id ?? null)
+        : resolved.manifest.defaultProfile,
   };
   function machine(slot: string, relativePath: string, body: string): CompiledTaskDocument {
     return {
@@ -444,6 +452,8 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       taskClass: input.task.taskClass,
       slug: input.task.metadata?.slug,
       workKind: input.task.metadata?.workKind ?? undefined,
+      riskTier: input.task.metadata?.riskTier ?? undefined,
+      riskTierFlowVersion: input.task.metadata?.riskTierFlowVersion ?? undefined,
       reviewReturnBudget: input.task.reviewReturnBudget,
       verticalId,
       profileId: input.toPresetId && input.toPresetId !== presetId ? undefined : profileId,

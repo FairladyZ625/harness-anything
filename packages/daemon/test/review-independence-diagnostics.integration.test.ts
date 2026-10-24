@@ -336,7 +336,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
         parentTaskId,
         verticalId: "software/coding",
         presetId: "standard-task",
-        profileId: "baseline",
+        riskTier: "low",
       },
       bare,
     );
@@ -347,7 +347,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
         profileId: (created as Record<string, unknown>).profileId,
         completionGates: (created as Record<string, unknown>).completionGates,
       },
-      { presetId: "standard-task", profileId: "baseline", completionGates: [] },
+      { presetId: "standard-task", profileId: "lightweight", completionGates: [] },
       JSON.stringify(created),
     );
     await waitForFixturePublication(cell, created.opId, bare);
@@ -634,7 +634,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
   }
 });
 
-test("a lightweight reviewed child closes without declaring a review executor", async () => {
+test("a low-risk child skips automatic review and waits for merge evidence", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-reviewed-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const repoId = workspaceId("review-bare-reviewed"),
@@ -676,7 +676,7 @@ test("a lightweight reviewed child closes without declaring a review executor", 
         parentTaskId,
         verticalId: "software/coding",
         presetId: "standard-task",
-        profileId: "baseline",
+        riskTier: "low",
       },
       bare,
     );
@@ -687,7 +687,7 @@ test("a lightweight reviewed child closes without declaring a review executor", 
         profileId: (created as Record<string, unknown>).profileId,
         completionGates: (created as Record<string, unknown>).completionGates,
       },
-      { presetId: "standard-task", profileId: "baseline", completionGates: [] },
+      { presetId: "standard-task", profileId: "lightweight", completionGates: [] },
       JSON.stringify(created),
     );
     await waitForFixturePublication(cell, created.opId, bare);
@@ -720,9 +720,16 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     writeCloseout(rootDir, packagePath);
     const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, bare)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    // Initial owner triage is required before any independent reviewer can act.
+    // A low-risk cut does not dispatch a reviewer and waits for merge evidence.
     const next = submitted.next as { readonly command: string; readonly reason?: string }[];
     assert.doesNotMatch(JSON.stringify(next), /code-doc/u, "no completion step names the retired code/doc pair");
+    assert.ok(next[0]!.command.includes("node tools/pr-merge.mjs"), next[0]!.command);
+    assert.equal(
+      makeTaskEventReader({ repoId, rootDir })
+        .read()
+        .events.some((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === taskId),
+      false,
+    );
     return;
     assert.equal(
       (
@@ -1162,7 +1169,10 @@ test("review binding permits independent runtimes but still rejects the executio
       "cancelled",
     );
     await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
-    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId }, operator);
+    const consented = await cell.run(
+      { kind: "task-review-consent", taskId, executionId, reviewId: "review-dispatched-reviewer" },
+      operator,
+    );
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, operator);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));

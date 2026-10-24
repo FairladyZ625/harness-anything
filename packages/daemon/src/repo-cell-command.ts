@@ -270,7 +270,7 @@ export function buildCommand(
       packagePath,
       reviewId,
       subject: `Task ${taskId}`,
-      retry: `ha task review-consent ${taskId} --review-id ${reviewId}`,
+      retry: `ha task review-consent ${taskId} --execution-id ${executionId} --review-id ${reviewId}`,
     });
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReviewConsent",

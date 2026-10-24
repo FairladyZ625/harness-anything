@@ -24,18 +24,20 @@ import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-type
 import { assertCurrentSubmittedExecution, currentCutReviewForReturn } from "./repo-cell-execution-selection.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
-import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
+import { makeGitReadinessSource, runProcessText, runProcessTextAsync } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
+import { readCanonicalVerticalDeclaration, readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /** Structured execution binding selects the public delivery commit; Accepted task documents select artifacts. */
-export function deriveCloseoutSubmission(
+function deriveCloseoutSubmissionData(
   cell: Pick<
     RepoCellOperationalContext,
     "rootDir" | "projection" | "store" | "cellCodedError" | "settings" | "projection"
@@ -47,7 +49,12 @@ export function deriveCloseoutSubmission(
   requestedCommit?: string,
   source?: WriteSource,
   carried?: { readonly changes: readonly DocEventChange[]; readonly revision: number },
-): SubmissionV1 {
+): {
+  readonly submission: SubmissionV1;
+  readonly rootDir: string;
+  readonly baseSha: string | null;
+  readonly headSha: string | null;
+} {
   const document = readTaskTransitionDocument({
       projection: cell.projection,
       taskId,
@@ -67,7 +74,7 @@ export function deriveCloseoutSubmission(
       document.contract ?? undefined,
     ),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
-    prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
+    prose = parsed,
     readPresetSnapshot = presetSnapshotReader(cell.projection),
     privateDelivery = taskOutputShape(snapshot.task, readPresetSnapshot) !== "repository-diff",
     artifactPaths = automaticSubmissionArtifactPaths(
@@ -113,11 +120,17 @@ export function deriveCloseoutSubmission(
         },
       );
     return {
-      ...prose,
-      commitSha: null,
-      artifacts,
-      deliverables: artifacts.map((anchor) => anchor.path),
-      outputs: [],
+      submission: {
+        ...prose,
+        commitSha: null,
+        artifacts,
+        deliverables: artifacts.map((anchor) => anchor.path),
+        outputs: [],
+        completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
+      },
+      rootDir: cell.rootDir,
+      baseSha: null,
+      headSha: null,
     };
   }
   // An assignment's checkout belongs to its node. Its delivery was fetched from the
@@ -212,6 +225,7 @@ export function deriveCloseoutSubmission(
         : baseline === undefined && bound === commitSha;
   let deliverables: readonly string[],
     commitOutputs: readonly string[],
+    riskBaseSha: string | null = null,
     changedFiles: readonly string[] | undefined,
     productionDelta: SubmissionV1["productionDelta"];
   // An unchanged published HEAD is a delivery only when this task's record owns it: another
@@ -281,6 +295,7 @@ export function deriveCloseoutSubmission(
         );
     }
     if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    riskBaseSha = base;
     changedFiles = runProcessText("git", ["diff", "--name-only", "--no-renames", "-z", base, commitSha, "--"], root)
       .split("\0")
       .filter(Boolean)
@@ -323,15 +338,22 @@ export function deriveCloseoutSubmission(
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
     ...(productionDelta ? { productionDelta } : {}),
   };
+  const contractBase = frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
+    assessedDelivery: SubmissionV1 = { ...delivery, completionContract: contractBase };
   // An empty public manifest has no code cut to witness, including when HEAD is an empty commit.
-  return deliverables.length || commitOutputs.length
-    ? { ...delivery, commitSha }
-    : (() => {
-        const artifactOnly = { ...delivery };
-        delete artifactOnly.changedFiles;
-        delete artifactOnly.productionDelta;
-        return { ...artifactOnly, commitSha: null, artifacts };
-      })();
+  let submission: SubmissionV1;
+  if (deliverables.length || commitOutputs.length) submission = { ...assessedDelivery, commitSha };
+  else {
+    const artifactOnly = { ...assessedDelivery };
+    delete artifactOnly.changedFiles;
+    delete artifactOnly.productionDelta;
+    submission = { ...artifactOnly, commitSha: null, artifacts };
+  }
+  return { submission, rootDir: root, baseSha: riskBaseSha, headSha: commitSha };
+}
+
+export function deriveCloseoutSubmission(...args: Parameters<typeof deriveCloseoutSubmissionData>): SubmissionV1 {
+  return deriveCloseoutSubmissionData(...args).submission;
 }
 
 /** Accepted task artifacts select implicit deliveries; reviewer outputs are credentials, not deliveries. */
@@ -372,11 +394,15 @@ function automaticSubmissionArtifactPaths(
 function freezeCompletionContract(
   cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
   snapshot: Snapshot,
+  assessment?: SubmissionV1["riskTierAssessment"],
 ): SubmissionV1["completionContract"] {
   const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
     .snapshot as import("@harness-anything/preset").PresetSnapshotV1;
   const resolved = resolveCompletionContract(
-    snapshot.task?.completionGateIds ?? [],
+    [
+      ...(snapshot.task?.completionGateIds ?? []),
+      ...(assessment?.guiAcceptanceRequired ? [GUI_ACCEPTANCE_GATE_ID] : []),
+    ],
     cell.settings.readRepository(),
     frozenPreset,
     snapshot.task?.closeoutOverrides,
@@ -386,8 +412,182 @@ function freezeCompletionContract(
   // cut already under review; cuts frozen before the field fall back to the repository default.
   return {
     ...resolved.contract,
+    closeoutGates: riskTierCloseoutGates(resolved.contract.closeoutGates, assessment),
     reviewer: { agentId: cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer" },
   };
+}
+
+const GUI_ACCEPTANCE_GATE_ID = "gui-acceptance";
+
+function riskTierCloseoutGates(
+  gates: SubmissionV1["completionContract"]["closeoutGates"],
+  assessment: SubmissionV1["riskTierAssessment"],
+): SubmissionV1["completionContract"]["closeoutGates"] {
+  if (!assessment) return gates;
+  return {
+    ...gates,
+    review: assessment.effectiveTier !== "low",
+    // A repository floor changes the reviewer route only; preserve the original contract's
+    // consent decision for medium, and keep the tier-specific low/high rules.
+    consent: assessment.declaredTier === "low" ? false : assessment.declaredTier === "high" ? true : gates.consent,
+  };
+}
+
+export function riskTierCompletionContract(
+  cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
+  snapshot: Snapshot,
+  contract: SubmissionV1["completionContract"],
+  assessment: SubmissionV1["riskTierAssessment"],
+): SubmissionV1["completionContract"] {
+  if (!assessment?.guiAcceptanceRequired || contract.gates.some((gate) => gate.gateId === GUI_ACCEPTANCE_GATE_ID))
+    return { ...contract, closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment) };
+  const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
+      .snapshot as import("@harness-anything/preset").PresetSnapshotV1,
+    canonicalVertical = readCanonicalVerticalDeclaration(cell.projection),
+    currentVertical = canonicalVertical?.definition,
+    taskVerticalId = snapshot.task?.metadata?.verticalId ?? "software/coding",
+    bundledVertical = readDefaultVerticalDefinition(),
+    candidateDeclaration =
+      frozenPreset.completion.gates[GUI_ACCEPTANCE_GATE_ID] !== undefined
+        ? frozenPreset.completion
+        : currentVertical?.id === taskVerticalId &&
+            currentVertical.completion.gates[GUI_ACCEPTANCE_GATE_ID] !== undefined
+          ? currentVertical.completion
+          : bundledVertical.id === taskVerticalId
+            ? bundledVertical.completion
+            : frozenPreset.completion,
+    gateDeclaration = {
+      ...frozenPreset.completion,
+      sources: { ...candidateDeclaration.sources, ...frozenPreset.completion.sources },
+      gates: { ...candidateDeclaration.gates, ...frozenPreset.completion.gates },
+    },
+    resolved = resolveCompletionContract([GUI_ACCEPTANCE_GATE_ID], cell.settings.readRepository(), {
+      ...frozenPreset,
+      completion: gateDeclaration,
+    });
+  if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
+  return {
+    ...contract,
+    gates: [...contract.gates, ...resolved.contract.gates],
+    closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment),
+  };
+}
+
+export function sameFrozenSubmissionCut(derived: SubmissionV1, frozen: SubmissionV1 | null | undefined): boolean {
+  if (frozen === null || frozen === undefined) return false;
+  const { riskTierAssessment: _assessment, ...frozenCut } = frozen;
+  return submissionDigest(derived) === submissionDigest(frozenCut as SubmissionV1);
+}
+
+export function isLegacyFrozenSubmissionCut(derived: SubmissionV1, frozen: SubmissionV1 | null | undefined): boolean {
+  return sameFrozenSubmissionCut(derived, frozen) && frozen?.riskTierAssessment === undefined;
+}
+
+export function submissionForRiskTierRetry(
+  derived: SubmissionV1,
+  frozen: SubmissionV1 | null | undefined,
+  assessment: SubmissionV1["riskTierAssessment"],
+  completionContract: () => SubmissionV1["completionContract"],
+  preserveLegacyCut = false,
+): SubmissionV1 {
+  if (preserveLegacyCut && isLegacyFrozenSubmissionCut(derived, frozen)) return derived;
+  return { ...derived, riskTierAssessment: assessment, completionContract: completionContract() };
+}
+
+function taskRiskIdentity(snapshot: Snapshot, taskId: string): TaskRiskTierScriptInput["task"] {
+  const metadata = snapshot.task?.metadata;
+  return {
+    taskId,
+    declaredTier: metadata?.riskTier ?? "medium",
+    verticalId: metadata?.verticalId ?? "software/coding",
+    presetId: metadata?.presetId ?? "standard-task",
+    workKind: metadata?.workKind ?? null,
+  };
+}
+
+async function readDeliveryRiskDiff(
+  rootDir: string,
+  baseSha: string,
+  headSha: string,
+): Promise<TaskRiskTierScriptInput["delivery"]> {
+  const gitArgs = ["--find-renames", baseSha, headSha, "--"],
+    [statusText, numstatText] = await Promise.all([
+      runProcessTextAsync(
+        "git",
+        ["diff", "--name-status", "-z", ...gitArgs],
+        rootDir,
+        undefined,
+        undefined,
+        undefined,
+        {
+          timeoutMs: 30_000,
+          maxBuffer: 16 * 1024 * 1024,
+        },
+      ),
+      runProcessTextAsync("git", ["diff", "--numstat", "-z", ...gitArgs], rootDir, undefined, undefined, undefined, {
+        timeoutMs: 30_000,
+        maxBuffer: 16 * 1024 * 1024,
+      }),
+    ]),
+    statusTokens = statusText.split("\0").filter(Boolean),
+    numstatTokens = numstatText.split("\0").filter(Boolean),
+    statuses = new Map<string, TaskRiskTierScriptInput["delivery"]["files"][number]["status"]>(),
+    counts = new Map<string, { additions: number; deletions: number; binary: boolean }>();
+  for (let index = 0; index < statusTokens.length; ) {
+    const code = statusTokens[index++]!,
+      oldPath = statusTokens[index++]!;
+    if (code.startsWith("R") || code.startsWith("C")) {
+      const newPath = statusTokens[index++]!;
+      statuses.set(newPath, code.startsWith("R") ? "renamed" : "copied");
+    } else {
+      statuses.set(
+        oldPath,
+        code === "A" ? "added" : code === "D" ? "deleted" : code === "T" ? "type-changed" : "modified",
+      );
+    }
+  }
+  for (let index = 0; index < numstatTokens.length; ) {
+    const row = numstatTokens[index++]!,
+      firstTab = row.indexOf("\t"),
+      secondTab = row.indexOf("\t", firstTab + 1),
+      added = row.slice(0, firstTab),
+      removed = row.slice(firstTab + 1, secondTab),
+      inlinePath = row.slice(secondTab + 1),
+      oldPath = inlinePath || (numstatTokens[index++] ?? ""),
+      finalPath = inlinePath || (numstatTokens[index++] ?? oldPath);
+    if (!finalPath) continue;
+    const binary = added === "-" || removed === "-";
+    counts.set(finalPath, {
+      additions: binary ? 0 : Number(added),
+      deletions: binary ? 0 : Number(removed),
+      binary,
+    });
+  }
+  const paths = [...statuses.keys()].sort(),
+    files: TaskRiskTierScriptInput["delivery"]["files"][number][] = [];
+  for (let offset = 0; offset < paths.length; offset += 4) {
+    const batch = await Promise.all(
+      paths.slice(offset, offset + 4).map(async (filePath) => {
+        const patch = await runProcessTextAsync(
+          "git",
+          ["diff", "--no-ext-diff", "--binary", "--find-renames", baseSha, headSha, "--", filePath],
+          rootDir,
+          undefined,
+          undefined,
+          undefined,
+          { timeoutMs: 30_000, maxBuffer: 16 * 1024 * 1024 },
+        );
+        return {
+          path: filePath,
+          status: statuses.get(filePath)!,
+          ...(counts.get(filePath) ?? { additions: 0, deletions: 0, binary: false }),
+          patch,
+        };
+      }),
+    );
+    files.push(...batch);
+  }
+  return { baseSha, headSha, files };
 }
 
 /**
@@ -591,7 +791,7 @@ export async function submitTask(
       ],
     } as WriteReceiptDraft;
   const fresh = await cell.service.read(taskId),
-    derived = readCloseoutSubmission(
+    derived = await readCloseoutSubmission(
       cell,
       taskId,
       executionId,
@@ -599,6 +799,8 @@ export async function submitTask(
       undefined,
       typeof action.commitSha === "string" ? action.commitSha : undefined,
       binding.source,
+      undefined,
+      Boolean(selected?.submission),
     );
   if (!derived.ok)
     return submissionStopped(
@@ -670,7 +872,8 @@ export async function settleTask(
     current = await cell.service.read(taskId);
   if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
   const held = heldLeaseForExecutionActor(current.snapshot, undefined, binding.actor),
-    alreadySubmitted = currentExecutionCuts(current.snapshot).some((execution) => execution.state === "submitted"),
+    submittedCut = currentExecutionCuts(current.snapshot).find((execution) => execution.state === "submitted"),
+    alreadySubmitted = submittedCut !== undefined,
     steps: WriteReceiptDraft[] = [];
   // A submitted current round needs no lease — the holder checks inside submitTask decide
   // whether this caller may resume or amend that cut. Everything else needs a held lease;
@@ -732,11 +935,41 @@ export function submissionStopped(
   } as WriteReceiptDraft;
 }
 
-export function readCloseoutSubmission(
-  ...args: Parameters<typeof deriveCloseoutSubmission>
-): { readonly ok: true; readonly submission: SubmissionV1 } | { readonly ok: false; readonly error: Error } {
+export async function readCloseoutSubmission(
+  ...args: [...Parameters<typeof deriveCloseoutSubmission>, preserveLegacyCut?: boolean]
+): Promise<{ readonly ok: true; readonly submission: SubmissionV1 } | { readonly ok: false; readonly error: Error }> {
   try {
-    return { ok: true, submission: deriveCloseoutSubmission(...args) };
+    const deriveArgs = args.slice(0, 8) as Parameters<typeof deriveCloseoutSubmission>,
+      preserveLegacyCut = args[8] === true,
+      [cell, taskId, executionId, snapshot] = deriveArgs,
+      derived = deriveCloseoutSubmissionData(...deriveArgs),
+      frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
+      sameCut = sameFrozenSubmissionCut(derived.submission, frozen),
+      legacyFrozenCut = preserveLegacyCut && isLegacyFrozenSubmissionCut(derived.submission, frozen),
+      riskDelivery =
+        legacyFrozenCut || derived.baseSha === null || derived.headSha === null
+          ? { baseSha: derived.baseSha, headSha: derived.headSha, files: [] }
+          : await readDeliveryRiskDiff(derived.rootDir, derived.baseSha, derived.headSha),
+      riskTierAssessment = legacyFrozenCut
+        ? undefined
+        : sameCut && frozen?.riskTierAssessment
+          ? frozen.riskTierAssessment
+          : await assessTaskRiskTier({
+              rootDir: cell.rootDir,
+              task: taskRiskIdentity(snapshot, taskId),
+              delivery: riskDelivery,
+              pathReviewers: cell.settings.readRepository().review?.pathReviewers,
+              matchedPathReviewers: [],
+              ...(frozen?.riskTierAssessment ? { previousEffectiveTier: frozen.riskTierAssessment.effectiveTier } : {}),
+            }),
+      submission: SubmissionV1 = submissionForRiskTierRetry(
+        derived.submission,
+        frozen,
+        riskTierAssessment,
+        () => riskTierCompletionContract(cell, snapshot, derived.submission.completionContract, riskTierAssessment),
+        preserveLegacyCut,
+      );
+    return { ok: true, submission };
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code)))
       throw error;

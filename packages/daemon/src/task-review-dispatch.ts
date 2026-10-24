@@ -17,7 +17,7 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { reviewLaneDispatchKey, reviewLaneHits, reviewLanePrompt, reviewPathLanes } from "./review-path-lanes.ts";
+import { reviewLaneDispatchKey, reviewLanePrompt } from "./review-path-lanes.ts";
 import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
@@ -283,7 +283,6 @@ function previousReviewerContinuation(
     resume: canResume,
   };
 }
-
 export function reviewDispatchIds(
   repoId: string,
   dispatchKey: string,
@@ -369,6 +368,15 @@ export function reviewDispatchPrompt(input: {
       "pre-merge checks, and post-merge verification. Distinguish observed check failures from pending " +
       "evidence: a witness produced only after merge is not a source defect merely because this review " +
       "runs before merge. Report unverified evidence without claiming a gate passed or waiving it.",
+    ...(execution.submission?.riskTierAssessment?.effectiveTier === "medium"
+      ? [
+          "This is a medium-risk functional review. Request changes only for a behavior defect, data-loss or data-integrity risk, " +
+            "or security risk. Treat wording, formatting, explanation quality, and missing narrative/evidence as non-blocking notes; " +
+            "do not return the cut for those issues.",
+        ]
+      : execution.submission?.riskTierAssessment?.effectiveTier === "high"
+        ? ["This is a high-risk review; inspect the full delivery and apply the complete reviewer declaration."]
+        : []),
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
       `${reviewFindingScopePrompt("first")} ` +
@@ -444,6 +452,29 @@ export async function spawnCutReviewDispatch(
         dispatchOpId: existing.opId,
       },
     };
+  if (input.dispatchKey === undefined || key === cutReviewKey) {
+    const inFlight = activeCutReviewDispatches(cell, input.taskId, input.execution).at(-1)?.event ?? null;
+    if (inFlight !== null) {
+      const holdingReviewer = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
+      if (holdingReviewer === input.reviewerId)
+        return {
+          outcome: "already_dispatched",
+          ids: {
+            dispatchId: inFlight.payload.dispatchId,
+            runtimeSessionId: inFlight.payload.runtimeSessionId,
+            dispatchOpId: inFlight.opId,
+          },
+        };
+      if (input.dispatchKey === undefined)
+        return {
+          outcome: "failed",
+          error:
+            `Task ${input.taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
+            `${holdingReviewer ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}); ` +
+            `reviewer ${input.reviewerId} was not dispatched. Retry after that review session ends.`,
+        };
+    }
+  }
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -599,20 +630,21 @@ async function dispatchPathReviewLanes(
     readonly extras?: Readonly<Record<string, unknown>>;
   },
 ): Promise<readonly PathLaneDispatchResult[]> {
-  const lanes = reviewPathLanes(cell.settings.readRepository().review?.pathReviewers),
-    hits = reviewLaneHits(input.execution.submission, lanes);
+  const assessment = input.execution.submission?.riskTierAssessment;
+  if (assessment?.effectiveTier !== "high") return [];
+  const hits = new Map<string, readonly string[]>(
+    assessment.matchedPathReviewers.map(({ agentId, paths }) => [agentId, paths]),
+  );
   if (hits.size === 0) return [];
   const results: PathLaneDispatchResult[] = [];
-  for (const lane of lanes) {
-    const matched = hits.get(lane.agentId);
-    if (matched === undefined || matched.length === 0) continue;
+  for (const [agentId, matched] of hits) {
     const { key, ids, existing } = reviewDispatchAttempt(
       cell,
-      reviewLaneDispatchKey(lane.agentId, input.taskId, input.execution),
+      reviewLaneDispatchKey(agentId, input.taskId, input.execution),
     );
     if (existing !== null) {
       results.push({
-        lane: lane.agentId,
+        lane: agentId,
         hits: matched,
         outcome: "already_dispatched",
         ids: { ...ids, dispatchOpId: existing.opId },
@@ -625,11 +657,11 @@ async function dispatchPathReviewLanes(
       packagePath: input.packagePath,
       binding: input.binding,
       revision: input.revision,
-      reviewerId: lane.agentId,
+      reviewerId: agentId,
       dispatchKey: key,
       promptFor: (dispatchId) =>
         reviewLanePrompt({
-          agentId: lane.agentId,
+          agentId,
           taskId: input.taskId,
           packagePath: input.packagePath,
           dispatchId,
@@ -640,8 +672,8 @@ async function dispatchPathReviewLanes(
     });
     results.push(
       dispatch.outcome === "failed"
-        ? { lane: lane.agentId, hits: matched, outcome: "failed", error: dispatch.error }
-        : { lane: lane.agentId, hits: matched, outcome: dispatch.outcome, ids: dispatch.ids },
+        ? { lane: agentId, hits: matched, outcome: "failed", error: dispatch.error }
+        : { lane: agentId, hits: matched, outcome: dispatch.outcome, ids: dispatch.ids },
     );
   }
   return results;
@@ -686,8 +718,10 @@ export function activeCutReviewDispatches(
       suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
       isCutReviewKey =
         suffix === "" ||
-        suffix?.startsWith(":reviewer:") === true ||
-        (suffix?.startsWith(":attempt") === true && /^:attempt[1-9][0-9]*$/u.test(suffix));
+        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(
+          suffix ?? "",
+        ) ||
+        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(suffix ?? "");
     return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
   });
 }
@@ -731,7 +765,7 @@ export async function dispatchInReviewCutReview(
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
       reviewerId,
-      dispatchKey: reviewDispatchKey(taskId, execution, reviewerId),
+      ...(typeof action.reviewer === "string" ? { dispatchKey: reviewDispatchKey(taskId, execution, reviewerId) } : {}),
       ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
       // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
       // would otherwise land on an unpredictable default instance.
@@ -929,35 +963,34 @@ export async function dispatchTaskReview(
               outcome: lane.outcome,
             },
       );
-    const activeCutReviews = activeCutReviewDispatches(cell, taskId, execution),
-      active = activeCutReviews.find(({ event }) => event.payload.agentId === agent.id) ?? activeCutReviews[0];
-    if (active !== undefined) {
-      const holding = active.event.payload,
-        holdingAgent = typeof holding.agentId === "string" ? holding.agentId : null;
+    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
+    const inFlight = activeCutReviewDispatches(cell, taskId, execution).at(-1)?.event ?? null;
+    if (inFlight !== null && existing === null) {
+      const holdingAgent = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
       if (reviewerFromArgument && holdingAgent !== agent.id) {
         fail(
-          `Task ${taskId}'s submitted cut already holds review dispatch ${holding.dispatchId} by agent ` +
-            `${holdingAgent ?? "with no recorded agent"} (runtime session ${holding.runtimeSessionId}, ` +
-            `instance ${holding.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
+          `Task ${taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
+            `${holdingAgent ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}, ` +
+            `instance ${inFlight.payload.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
             `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
           execution.executionId,
         );
-      } else {
-        steps.push({
-          taskId,
-          executionId: execution.executionId,
-          dispatchId: holding.dispatchId,
-          runtimeSessionId: holding.runtimeSessionId,
-          dispatchOpId: active.event.opId,
-          ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
-          instanceId: holding.instanceId,
-          outcome: "already_dispatched",
-        });
+        steps.push(...laneSteps);
+        continue;
       }
       steps.push(...laneSteps);
+      steps.push({
+        taskId,
+        executionId: execution.executionId,
+        dispatchId: inFlight.payload.dispatchId,
+        runtimeSessionId: inFlight.payload.runtimeSessionId,
+        dispatchOpId: inFlight.opId,
+        ...(holdingAgent === null ? {} : { agentId: holdingAgent }),
+        instanceId: inFlight.payload.instanceId,
+        outcome: "already_dispatched",
+      });
       continue;
     }
-    const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     if (existing !== null) {
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.

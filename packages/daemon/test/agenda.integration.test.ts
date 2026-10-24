@@ -77,7 +77,7 @@ test("agenda and task list keep a pinned submitted task visible for owner adjudi
   await withCell("agenda-submitted", async (cell, rootDir) => {
     const taskId = "task_submitted_pinned",
       executionId = "exe_submitted_pinned",
-      created = await cell.run({ kind: "task-create", taskId, title: "Submitted pinned" }, binding);
+      created = await cell.run({ kind: "task-create", taskId, title: "Submitted pinned", riskTier: "low" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
     const packagePath = String((created as Record<string, unknown>).packagePath);
@@ -124,7 +124,10 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ["task_wait_adjudicate", "Submitted, awaiting adjudication"],
       ["task_returned", "Returned for rework"],
     ] as const) {
-      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      const created = await cell.run(
+        { kind: "task-create", taskId, title, ...(taskId === "task_wait_adjudicate" ? { riskTier: "low" } : {}) },
+        binding,
+      );
       assert.equal(created.outcome, "applied");
       await waitForFixturePublication(cell, created.opId, binding);
       createdTasks.set(taskId, String((created as Record<string, unknown>).packagePath));
@@ -1336,7 +1339,8 @@ test("terminal-source awaits leave both agenda queues while open sources stay li
       keepAsk = await ask(`decision/${keepDecisionId}`, "consent: 待裁决策你同意吗?"),
       acceptedAsk = await ask(`decision/${acceptedDecisionId}`, "consent: 将被采纳的决策你同意吗?");
 
-    // 两个源实体进入终态:task cancelled、decision accepted(in_effect)。边保持 active/retired 原状。
+    // 两个源实体进入终态:task cancelled 由终态转换本身收掉自己发起的 awaits 边;
+    // decision accepted(in_effect)不在写侧收口范围,边保持 active,由议程读侧终态过滤收口。
     const cancelled = await cell.run(
       {
         kind: "task-transition",
@@ -1348,6 +1352,21 @@ test("terminal-source awaits leave both agenda queues while open sources stay li
       binding,
     );
     assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
+    const cancelledEdge = JSON.parse(
+      String(
+        (await cell.run({ kind: "relation-list", source: "task/task_cancelled_src", relationType: "awaits" }, binding))
+          .evidence,
+      ),
+    ).rows as { readonly state: string }[];
+    assert.deepEqual(
+      cancelledEdge.map(({ state }) => state),
+      ["retired"],
+      "the cancelled source's awaits edge retires with the transition",
+    );
+    assert.equal(
+      (cancelledEdge[0] as { readonly relationId?: string } | undefined)?.relationId,
+      cancelledAsk.relationId,
+    );
     const accepted = await cell.run(
       {
         kind: "decision-accept",
@@ -1366,8 +1385,8 @@ test("terminal-source awaits leave both agenda queues while open sources stay li
       ["task/task_open_src", `decision/${keepDecisionId}`],
     );
 
-    // 答复全部四条边:答复落在源终态之后,版本出列判据不再触发——终态源必须由终态过滤收口。
-    for (const { relationId, revision } of [openAsk, cancelledAsk, keepAsk, acceptedAsk]) {
+    // 答复其余三条边:cancelled 源的边已随转换退役,不再需要(也不允许)人工答复。
+    for (const { relationId, revision } of [openAsk, keepAsk, acceptedAsk]) {
       const answered = await cell.run(
         { kind: "relation-unrelate", relationId, reason: "已答复", expectedVersion: revision },
         answerer,

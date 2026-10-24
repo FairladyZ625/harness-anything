@@ -101,7 +101,10 @@ test("adjudicate --forward pins reviewer resources and carries the owner context
   try {
     const taskId = "task_adjudicate_instance",
       executionId = "execution-adjudicate-instance",
-      created = await cell.run({ kind: "task-create", taskId, title: "Adjudicate instance pin" }, binding);
+      created = await cell.run(
+        { kind: "task-create", taskId, title: "Adjudicate instance pin", riskTier: "low" },
+        binding,
+      );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
     const packagePath = String((created as Record<string, unknown>).packagePath);
@@ -259,7 +262,7 @@ for (const mode of ["resume", "fresh"] as const)
       );
       const taskId = "task_return_worker",
         executionId = "execution-original",
-        created = await cell.run({ kind: "task-create", taskId, title: "Return worker" }, binding);
+        created = await cell.run({ kind: "task-create", taskId, title: "Return worker", riskTier: "low" }, binding);
       assert.equal(created.outcome, "applied", JSON.stringify(created));
       await waitForFixturePublication(cell, created.opId, binding);
       const packagePath = String((created as Record<string, unknown>).packagePath);
@@ -407,7 +410,10 @@ test("adjudicate --return --worker-mode none returns the cut without dispatching
   try {
     const taskId = "task_return_none",
       executionId = "execution-original",
-      created = await cell.run({ kind: "task-create", taskId, title: "Return without worker" }, binding);
+      created = await cell.run(
+        { kind: "task-create", taskId, title: "Return without worker", riskTier: "low" },
+        binding,
+      );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
     const packagePath = String((created as Record<string, unknown>).packagePath);

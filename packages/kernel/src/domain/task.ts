@@ -68,6 +68,8 @@ export interface TaskMetadataV1 {
   readonly parentTaskId: string | null;
   readonly workKind: "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | null;
   readonly riskTier: "low" | "medium" | "high" | null;
+  /** Present on tasks created under tier-governed mission rules; absent on frozen legacy tasks. */
+  readonly riskTierFlowVersion?: 1;
   readonly urgency: "low" | "medium" | "high" | null;
   readonly verticalId: string;
   readonly presetId: string;
@@ -258,6 +260,7 @@ const taskMetadataFields = [
   "surfaces",
   "fromLegacyId",
 ] as const;
+const taskMetadataKnownFields = [...taskMetadataFields, "riskTierFlowVersion"] as const;
 function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractValidationIssue | null {
   // longRunning predates taskClass=long_running (dec_01KYRHP8ND). The event log is immutable,
   // so historical payloads may still carry the retired boolean; current writers never emit it.
@@ -266,7 +269,7 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
   if (missing.length)
     return { code: "invalid_task", message: `task metadata is missing required fields: ${missing.join(", ")}` };
   const unknown = Object.keys(value)
-    .filter((field) => !(taskMetadataFields as readonly string[]).includes(field))
+    .filter((field) => !(taskMetadataKnownFields as readonly string[]).includes(field))
     .sort();
   if (!allowUnknownFields && unknown.length)
     return { code: "invalid_task", message: `task metadata contains unknown fields: ${unknown.join(", ")}` };
@@ -280,6 +283,7 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
       value.workKind === null || ["feat", "fix", "refactor", "docs", "test", "chore"].includes(String(value.workKind))
     ) && "workKind",
     !(value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) && "riskTier",
+    value.riskTierFlowVersion !== undefined && value.riskTierFlowVersion !== 1 && "riskTierFlowVersion",
     !(value.urgency === null || ["low", "medium", "high"].includes(String(value.urgency))) && "urgency",
     !isNonEmptyString(value.verticalId) && "verticalId",
     !isNonEmptyString(value.presetId) && "presetId",

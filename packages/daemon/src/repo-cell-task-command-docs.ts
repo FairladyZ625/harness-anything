@@ -30,6 +30,7 @@ import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-c
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
 import { runTaskActionCatalogRuntime } from "./task-action-catalog-runtime.ts";
+import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.ts";
 import { reviewExecutionSelection } from "./repo-cell-execution-selection.ts";
 
 export type TaskCommandWithDocsAction = RepoTaskAction & {
@@ -288,7 +289,7 @@ export async function runTaskCommandWithDocs(
   let submittedAction = taskAction,
     anchorDriftWarnings: readonly string[] = [];
   if (submittedExecutionId) {
-    const derived = readCloseoutSubmission(
+    const derived = await readCloseoutSubmission(
       cell,
       taskId,
       submittedExecutionId,
@@ -297,6 +298,9 @@ export async function runTaskCommandWithDocs(
       typeof taskAction.commitSha === "string" ? taskAction.commitSha : undefined,
       binding.source,
       { changes: carriedChanges, revision: headRevision + 1 },
+      Boolean(
+        current.snapshot.executions.find((execution) => execution.executionId === submittedExecutionId)?.submission,
+      ),
     );
     if (!derived.ok) {
       recycleClaims(cell.rootDir, intent);
@@ -346,6 +350,21 @@ export async function runTaskCommandWithDocs(
     recycleClaims(cell.rootDir, intent);
   }
   if (transition.outcome === "applied" && transition.event && transition.proof) {
+    retireTaskAwaitsAtTerminalStatus({
+      taskId,
+      status: transition.snapshot.task?.status,
+      binding,
+      opId: command.opId,
+      authorizationDecision: binding.authorizationDecision ?? null,
+      context: {
+        rootDir: cell.rootDir,
+        repositoryId: cell.input.repoId,
+        store: cell.store,
+        projection: cell.projection,
+        now: cell.now,
+        ...(cell.input.killpoint ? { killpoint: cell.input.killpoint } : {}),
+      },
+    });
     const publication = cell.publicPublication(cell.store.publication(transition.event)),
       receipt = cell.lifecycleReceipt(
         transition.event,

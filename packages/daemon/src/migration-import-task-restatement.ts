@@ -63,6 +63,8 @@ export interface TaskContractCompileFallback {
   readonly verticalId?: unknown;
   readonly presetId?: unknown;
   readonly profileId?: unknown;
+  readonly riskTier?: unknown;
+  readonly riskTierFlowVersion?: unknown;
   readonly locale?: unknown;
   readonly slug?: unknown;
 }
@@ -322,9 +324,11 @@ function compileContract(sourceRoot: string, taskId: string, metadata: TaskContr
       verticalId: metadata.verticalId,
       presetId: metadata.presetId,
       profileId: metadata.profileId,
+      riskTier: metadata.riskTier,
       locale: metadata.locale,
       slug: metadata.slug,
     },
+    riskTierFlowVersion: metadata.riskTierFlowVersion === 1 ? 1 : undefined,
   });
 }
 
@@ -333,6 +337,7 @@ function contractCompileMetadata(
   fallback: TaskContractCompileFallback | undefined,
 ): TaskContractCompileFallback {
   const preset = migrationImportRecord(contract.preset) ? contract.preset : {},
+    taskMetadata = migrationImportRecord(contract.metadata) ? contract.metadata : {},
     profile = migrationImportRecord(contract.profile) ? contract.profile : {},
     documentLocale = Array.isArray(contract.documents)
       ? contract.documents
@@ -346,6 +351,8 @@ function contractCompileMetadata(
     verticalId: contract.verticalId ?? contract.vertical ?? fallback?.verticalId,
     presetId: contract.presetId ?? preset.id ?? fallback?.presetId,
     profileId: contract.profileId ?? profile.id ?? fallback?.profileId,
+    riskTier: taskMetadata.riskTier ?? fallback?.riskTier,
+    riskTierFlowVersion: taskMetadata.riskTierFlowVersion ?? fallback?.riskTierFlowVersion,
     locale: contract.locale ?? documentLocale ?? fallback?.locale,
     slug: contract.slug ?? fallback?.slug,
   };

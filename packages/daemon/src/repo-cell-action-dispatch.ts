@@ -39,6 +39,7 @@ import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 import { applyTaskWorktreeLifecycle, presetSnapshotReader, type TaskWorktreeLifecycleInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
+import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
 import { readWork } from "./work-read.ts";
 import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 
@@ -143,6 +144,7 @@ export function executeRepoAction(
   }
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "entity-pin" || action.kind === "entity-unpin") return runEntityPinAction(cell, action, binding);
+  if (action.kind === "runtime-incident-dismiss") return runIncidentDismissAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
     return cell.receiptForOperation(opId, binding);

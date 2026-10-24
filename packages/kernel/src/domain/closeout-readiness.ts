@@ -94,7 +94,7 @@ export function closeoutReadiness(
     };
   }
   // Review-required cuts must be in_review; review-disabled profiles complete from submitted.
-  // Any review-required submitted cut must enter the review corridor before completion.
+  // Historical submitted cuts still need an explicit owner order to enter review.
   if (task.status === "submitted" && effectiveGates?.review !== false)
     return {
       readiness: "incomplete",

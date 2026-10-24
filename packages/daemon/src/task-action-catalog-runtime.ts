@@ -14,6 +14,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
+import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.ts";
 import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
@@ -289,6 +290,22 @@ export async function runTaskActionCatalogRuntime(
     if (rejection) return rejection;
     throw error;
   }
+  if (result.outcome === "applied")
+    retireTaskAwaitsAtTerminalStatus({
+      taskId,
+      status: result.snapshot.task?.status,
+      binding,
+      opId: command.opId,
+      authorizationDecision: binding.authorizationDecision ?? null,
+      context: {
+        rootDir: cell.rootDir,
+        repositoryId: cell.input.repoId,
+        store: cell.store,
+        projection: cell.projection,
+        now: cell.now,
+        ...(cell.input.killpoint ? { killpoint: cell.input.killpoint } : {}),
+      },
+    });
   if (result.outcome === "applied" && result.event && result.proof)
     return cell.lifecycleReceipt(
       result.event,

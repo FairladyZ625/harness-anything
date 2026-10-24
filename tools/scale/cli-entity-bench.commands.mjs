@@ -106,7 +106,11 @@ export const commandTable = [
     (c, s) => ["task", "review-execution", chain(s), "--review-id", `rev-${s}`, "--json-input", J(c.review(s))],
     reviewer,
   ],
-  ["task-review-consent", (c, s) => ["task", "review-consent", chain(s), "--review-id", `rev-${s}`], worker],
+  [
+    "task-review-consent",
+    (c, s) => ["task", "review-consent", chain(s), "--execution-id", `exe-chain-${s}`, "--review-id", `rev-${s}`],
+    worker,
+  ],
   ["task-complete", (c, s) => ["task", "complete", chain(s), "--consent"], worker],
   // Chain 2 uses an independent artifact reviewer; chain 3 walks the non-happy transitions.
   [

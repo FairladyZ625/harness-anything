@@ -67,6 +67,29 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
   );
 });
 
+test("runtime task context v3 requires tier policy and rejects the retired v2 shape", () => {
+  const result = {
+    schema: "task-runtime-context-read/v3",
+    ok: true,
+    taskId: "task-runtime-context",
+    causalContext: null,
+    riskTier: "medium",
+    riskTierFlowVersion: 1,
+    profileId: null,
+    worktree: null,
+    continuationContext: null,
+    snapshot: {},
+  };
+  assert.equal(parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", result), result);
+  assert.throws(() =>
+    parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", { ...result, schema: "task-runtime-context-read/v2" }),
+  );
+  const { riskTier: _riskTier, ...missingTier } = result;
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", missingTier));
+  const { riskTierFlowVersion: _flowVersion, ...missingFlowVersion } = result;
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", missingFlowVersion));
+});
+
 test("GUI S3 contracts reject unknown and secret-like fields recursively", () => {
   assert.notDeepEqual(validateSystemStatus({ ok: true, token: "x" }), []);
   assert.notDeepEqual(validateCatalogSnapshot({ ok: true, nested: { apiToken: "x" } }), []);

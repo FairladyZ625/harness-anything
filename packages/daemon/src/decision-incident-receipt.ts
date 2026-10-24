@@ -84,6 +84,40 @@ export function incidentActionFromRecord(record: Readonly<Record<string, unknown
   };
 }
 
+/** The owner's explicit close of one escalated incident receipt: the visible disposition becomes
+ * `no_action` carrying the owner's reason, on the same durable record the automatic disposition
+ * used. Idempotent by the summary's last-record-wins projection — concurrent closes from several
+ * edge nodes all land as a settled no_action. */
+export type IncidentDismissOutcome =
+  | { readonly settled: "dismissed" }
+  | { readonly settled: "already_settled" }
+  | { readonly settled: "missing" }
+  | { readonly settled: "claimed" };
+
+export function dismissIncidentActionReceipt(
+  rootDir: string,
+  dispatchId: string,
+  reason: string,
+  decidedAt: string,
+): IncidentDismissOutcome {
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  if (receipt === null) return { settled: "missing" };
+  if (receipt.status === "claimed") return { settled: "claimed" };
+  if (receipt.action !== "needs_attention") return { settled: "already_settled" };
+  appendIncidentActionReceipt(rootDir, dispatchId, {
+    pointId: receipt.pointId,
+    questionVersion: receipt.questionVersion,
+    status: "applied",
+    selected: "no_action",
+    action: "no_action",
+    reason,
+    successorDispatchId: null,
+    budget: null,
+    decidedAt,
+  });
+  return { settled: "dismissed" };
+}
+
 function validBudget(value: unknown): boolean {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const budget = value as { readonly used?: unknown; readonly limit?: unknown; readonly source?: unknown };

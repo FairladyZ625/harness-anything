@@ -538,12 +538,10 @@ test("agenda projects incident escalation receipts, including a rejected owner w
   appendIncidentActionReceipt(rootDir, dispatchId, {
     pointId: "runtime-incident-worker-stop",
     questionVersion: "runtime-incident-disposition/v1",
-    // The pre-fix executor persisted this failed result after relation-relate was rejected. Keeping
-    // failed needs_attention receipts actionable also recovers incidents already on dispatch streams.
-    status: "failed",
+    status: "applied",
     selected: "needs_attention",
     action: "needs_attention",
-    reason: "question: Decisions provider failed with decision_transport; owner await write settled as op_rejected.",
+    reason: "question: Decisions provider failed with decision_transport.",
     successorDispatchId: null,
     budget: { used: 0, limit: 3, source: "repository" },
     decidedAt: "2026-10-23T12:01:00.000Z",
@@ -560,10 +558,13 @@ test("agenda projects incident escalation receipts, including a rejected owner w
   appendIncidentActionReceipt(rootDir, currentDispatchId, {
     pointId: "runtime-incident-worker-stop",
     questionVersion: "runtime-incident-disposition/v1",
-    status: "applied",
+    // The pre-fix executor persisted this failed result after relation-relate was rejected. Keeping
+    // failed needs_attention receipts actionable also recovers incidents already on dispatch streams;
+    // it rides the round's last dispatch, the one question not superseded by a later dispatch.
+    status: "failed",
     selected: "needs_attention",
     action: "needs_attention",
-    reason: "question: Decisions provider failed with decision_transport.",
+    reason: "question: Decisions provider failed with decision_transport; owner await write settled as op_rejected.",
     successorDispatchId: null,
     budget: { used: 0, limit: 3, source: "repository" },
     decidedAt: "2026-10-23T12:03:00.000Z",
@@ -593,28 +594,10 @@ test("agenda projects incident escalation receipts, including a rejected owner w
       title: taskId,
       work: null,
       pinned: false,
-      dispatchId,
+      dispatchId: currentDispatchId,
       executionId,
       question:
         "question: Decisions provider failed with decision_transport; owner await write settled as op_rejected.",
-      options: [],
-      askedAt: "2026-10-23T12:01:00.000Z",
-      blockingAssessment: {
-        taskId,
-        state: "unknown",
-        label: "unresolved",
-        blockers: [],
-        warnings: ["task snapshot missing from blocking judgment"],
-      },
-    },
-    {
-      taskId,
-      title: taskId,
-      work: null,
-      pinned: false,
-      dispatchId: currentDispatchId,
-      executionId,
-      question: "question: Decisions provider failed with decision_transport.",
       options: [],
       askedAt: "2026-10-23T12:03:00.000Z",
       blockingAssessment: {
@@ -626,9 +609,178 @@ test("agenda projects incident escalation receipts, including a rejected owner w
       },
     },
   ]);
-  assert.match(result.summary, /等你裁决 \(2\)/u);
+  assert.match(result.summary, /等你裁决 \(1\)/u);
   assert.match(result.summary, /Decisions provider failed with decision_transport/u);
   assert.match(result.summary, /owner await write settled as op_rejected/u);
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incident-terminal-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const submission = { schema: "submission/v1", submissionDigest: `sha256:${"a".repeat(64)}` },
+    dispatchOf = (suffix: string, taskId: string, executionId: string, at: string) => ({
+      event: {
+        schema: "agent-runtime-event/v1",
+        type: "runtime_dispatch_requested",
+        occurredAt: at,
+        payload: {
+          taskId,
+          executionId,
+          dispatchId: `dispatch_${suffix}`,
+          runtimeSessionId: `runtime_${suffix}`,
+          attemptGroupId: `dispatch_${suffix}`,
+          attemptIndex: 0,
+          startedAt: at,
+        },
+      } as never,
+    }),
+    needsAttentionReceipt = (suffix: string, at: string, action: "needs_attention" | "no_action" = "needs_attention") =>
+      appendIncidentActionReceipt(rootDir, `dispatch_${suffix}`, {
+        pointId: "runtime-incident-worker-stop",
+        questionVersion: "runtime-incident-disposition/v1",
+        status: "applied",
+        selected: action,
+        action,
+        reason:
+          action === "needs_attention"
+            ? `question: dispatch_${suffix} needs an owner disposition.`
+            : `Owner dismissed dispatch_${suffix}: the delivery landed through a later dispatch.`,
+        successorDispatchId: null,
+        budget: null,
+        decidedAt: at,
+      }),
+    openStream = (suffix: string, taskId: string, executionId: string, at: string) =>
+      openDispatchStream(rootDir, {
+        dispatchId: `dispatch_${suffix}`,
+        taskId,
+        executionId,
+        runtimeSessionId: `runtime_${suffix}`,
+        instanceId: "instance-codex",
+        startedAt: at,
+        binding: { actor: { principal: { personId: "person-owner" } }, source: "local" },
+      }),
+    dispatchesByExecution = new Map<string, unknown[]>(),
+    rowsFor = (taskId: string, executions: readonly unknown[]) => {
+      const row = protocolTaskRow(taskId, [], { status: "active" });
+      return { ...row, snapshot: { ...row.snapshot, executions: [...executions] } };
+    };
+  // task_terminal_submitted: the receipt's own execution already carries a submission (task_63acdc95's
+  // three stale receipts all had this shape — changes_requested rounds with a delivery in them).
+  openStream("a00000000000000000000000", "task_terminal_submitted", "execution_submitted", "2026-10-22T15:22:43.000Z");
+  needsAttentionReceipt("a00000000000000000000000", "2026-10-22T15:23:00.000Z");
+  dispatchesByExecution.set("execution_submitted", [
+    dispatchOf(
+      "a00000000000000000000000",
+      "task_terminal_submitted",
+      "execution_submitted",
+      "2026-10-22T15:22:43.000Z",
+    ),
+  ]);
+  // task_terminal_superseded: a fresh dispatch followed the incident inside the same round, so the
+  // round moved past the incident even though the execution never submitted.
+  openStream(
+    "b00000000000000000000000",
+    "task_terminal_superseded",
+    "execution_superseded",
+    "2026-10-23T11:29:44.000Z",
+  );
+  needsAttentionReceipt("b00000000000000000000000", "2026-10-23T11:30:00.000Z");
+  openStream(
+    "b00000000000000000000001",
+    "task_terminal_superseded",
+    "execution_superseded",
+    "2026-10-23T11:51:01.000Z",
+  );
+  dispatchesByExecution.set("execution_superseded", [
+    dispatchOf(
+      "b00000000000000000000000",
+      "task_terminal_superseded",
+      "execution_superseded",
+      "2026-10-23T11:29:44.000Z",
+    ),
+    dispatchOf(
+      "b00000000000000000000001",
+      "task_terminal_superseded",
+      "execution_superseded",
+      "2026-10-23T11:51:01.000Z",
+    ),
+  ]);
+  // task_terminal_replaced: the incident's round was replaced by a later iteration (abandoned, no
+  // submission of its own), so the task's newest question lives in the later round.
+  openStream(
+    "c00000000000000000000000",
+    "task_terminal_replaced",
+    "execution_replaced_old",
+    "2026-10-22T15:37:23.000Z",
+  );
+  needsAttentionReceipt("c00000000000000000000000", "2026-10-22T15:38:00.000Z");
+  dispatchesByExecution.set("execution_replaced_old", [
+    dispatchOf(
+      "c00000000000000000000000",
+      "task_terminal_replaced",
+      "execution_replaced_old",
+      "2026-10-22T15:37:23.000Z",
+    ),
+  ]);
+  // task_terminal_dismissed: a live incident the owner already closed with a reason — the receipt's
+  // action is no_action, so it no longer awaits a ruling.
+  openStream("d00000000000000000000000", "task_terminal_dismissed", "execution_dismissed", "2026-10-24T05:56:47.000Z");
+  needsAttentionReceipt("d00000000000000000000000", "2026-10-24T06:10:00.000Z", "no_action");
+  dispatchesByExecution.set("execution_dismissed", [
+    dispatchOf(
+      "d00000000000000000000000",
+      "task_terminal_dismissed",
+      "execution_dismissed",
+      "2026-10-24T05:56:47.000Z",
+    ),
+  ]);
+  // task_incident_live: the control — last dispatch of the current, unsubmitted round; still listed.
+  openStream("e00000000000000000000000", "task_incident_live", "execution_live", "2026-10-24T04:19:35.000Z");
+  needsAttentionReceipt("e00000000000000000000000", "2026-10-24T05:56:47.000Z");
+  dispatchesByExecution.set("execution_live", [
+    dispatchOf("e00000000000000000000000", "task_incident_live", "execution_live", "2026-10-24T04:19:35.000Z"),
+  ]);
+  const projection = {
+      ...projectionStub({
+        taskRows: [
+          rowsFor("task_terminal_submitted", [
+            { ...executionRow("execution_submitted", 0, "changes_requested", "task_terminal_submitted"), submission },
+          ]),
+          rowsFor("task_terminal_superseded", [
+            executionRow("execution_superseded", 0, "active", "task_terminal_superseded"),
+          ]),
+          rowsFor("task_terminal_replaced", [
+            executionRow("execution_replaced_old", 0, "abandoned", "task_terminal_replaced"),
+            executionRow("execution_replaced_new", 1, "active", "task_terminal_replaced"),
+          ]),
+          rowsFor("task_terminal_dismissed", [
+            executionRow("execution_dismissed", 0, "active", "task_terminal_dismissed"),
+          ]),
+          rowsFor("task_incident_live", [executionRow("execution_live", 0, "active", "task_incident_live")]),
+        ],
+      }),
+      readDocuments: () => ({ documents: [] }),
+      readRuntimeDispatchesByTaskExecution: (_taskId: string, executionId: string) =>
+        dispatchesByExecution.get(executionId) ?? [],
+      readRuntimeDispatchByResumeSource: () => null,
+      readRuntimeDispatchesByAttemptGroup: () => [],
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(rootDir),
+      projection,
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.awaitingRuling.map(({ taskId, dispatchId }) => [taskId, dispatchId]),
+    [["task_incident_live", "dispatch_e00000000000000000000000"]],
+  );
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 

@@ -57,6 +57,7 @@ export async function fleetFixture(
   paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
   closeoutProfile: "standard" | "strict" = "standard",
   startExecution = true,
+  riskTier: "low" | "medium" | "high" = "medium",
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
@@ -147,7 +148,11 @@ export async function fleetFixture(
     },
     machines = new Set([subject.nodeId, peerSubject.nodeId, slowSubject.nodeId]),
     auth = owners.auth(subject);
-  const created = await host.run(subject.repoId, { kind: "task-create", taskId: subject.taskId, title: "Fleet" }, auth);
+  const created = await host.run(
+    subject.repoId,
+    { kind: "task-create", taskId: subject.taskId, title: "Fleet", riskTier },
+    auth,
+  );
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFleetPublication(host, subject.repoId, created.opId, auth);
   await realizeTaskPlanFixture(

@@ -585,6 +585,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-handoff-claim",
       "runtime-handoff-export",
       "runtime-handoff-revoke",
+      "runtime-incident-dismiss",
       "runtime-instance-create",
       "runtime-instance-delete",
       "runtime-instance-hosting-credential-set",
@@ -840,15 +841,31 @@ test("task-create help renders recommended presets only from effective catalog r
     help,
     /Recommended presets:.*standard-task — Standard Task — General work\..*module — Module — unavailable \(missing_provider\)/su,
   );
-  assert.match(
-    help,
-    /profile=baseline \(also --profile lightweight\) — outputShape=repository-diff.*completionGates=\["ci","manual-attest"\]/su,
-  );
+  assert.match(help, /profile=baseline — outputShape=repository-diff.*completionGates=\["ci","manual-attest"\]/su);
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
+  const createHelp = renderThinHelp([], "task", "ha task create");
+  assert.match(createHelp, /--profile — optional; value; format: <profile/u);
   assert.match(
-    renderThinHelp([], "task", "ha task create"),
-    /--profile — optional; value; format: <profile; lightweight = short plan and closeout with no review or consent at closeout, for a low-risk small change \(a code change still lands through the PR's CI\)/u,
+    createHelp,
+    /small localized change or docs-only work[\s\S]*ordinary feature work[\s\S]*data, security/u,
   );
+  assert.match(createHelp, /ha task create --title "Fix a typo" --risk-tier low/u);
+  assert.match(createHelp, /repository-configured risk-floor scripts; they may only raise the tier/u);
+  const lightweightChoice = parseThinCommand([
+    "task",
+    "create",
+    "--title",
+    "A low-risk task",
+    "--risk-tier",
+    "low",
+    "--profile",
+    "lightweight",
+  ]);
+  assert.equal(lightweightChoice.ok, false);
+  if (!lightweightChoice.ok) {
+    assert.equal(lightweightChoice.code, "invalid_field");
+    assert.match(lightweightChoice.nextAction, /--risk-tier low/u);
+  }
   // The one-focus title advice rides --title help in both create commands (task and work alias).
   for (const help of [renderThinHelp([], "task", "ha task create"), renderThinHelp([], "work", "ha work create")]) {
     assert.match(help, /--title — (optional|required); value; format: <one focus only — move the explanation/u);
@@ -1357,6 +1374,13 @@ test("all public commands expose the canonical structured input facet", () => {
   }
   const reviewConsent = daemonProtocolCommands.find((command) => command.id === "task-review-consent");
   assert.ok(reviewConsent);
+  // Consent writes an owner signature, so the target execution and review are stated ids, never
+  // inferred: both flags are required at the parse boundary.
+  for (const name of ["--execution-id", "--review-id"]) {
+    const input = reviewConsent.inputs.find((candidate) => candidate.name === name);
+    assert.ok(input, name);
+    assert.equal(input.required, true, name);
+  }
   for (const name of ["--consent-id", "--from-file", "--json-input"])
     assert.equal(
       reviewConsent.inputs.some((input) => input.name === name),

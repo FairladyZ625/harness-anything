@@ -504,7 +504,7 @@ export const harnessClient = {
   },
   /** CEO 终审批准:与 `ha task review-consent` 同一条 daemon 动作。 */
   async consentReview(
-    payload: RepoScope & { readonly taskId: string; readonly executionId?: string; readonly reviewId: string },
+    payload: RepoScope & { readonly taskId: string; readonly executionId: string; readonly reviewId: string },
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.consent", payload, "consentReview"));
   },

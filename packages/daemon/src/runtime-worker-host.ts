@@ -132,6 +132,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
           endpoint: manifest.callbackRelay.endpoint,
         },
         relayPath: manifest.callbackRelay.path,
+        executionCredential: manifest.env.HARNESS_EXECUTION_CREDENTIAL,
       })
     : null;
   let child: ReturnType<typeof spawn> | undefined,

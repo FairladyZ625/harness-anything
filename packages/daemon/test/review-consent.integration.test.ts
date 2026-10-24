@@ -153,8 +153,26 @@ test("review-consent derives the recorded Review digests without a packet and re
     assert.equal(store().readHead()?.revision, beforeCreatorConsent);
 
     withPolicyGroup(binding, "maintainer");
+    // Agenda task_bfd6a899 B9 (2026-10-23/24): an id-less consent must never write, even when a
+    // sole approved candidate makes the target unambiguous — consent is an explicit signature, and
+    // an exploratory run of the command is not one.
+    const beforeImplicit = store().readHead()?.revision,
+      refused = (await cell.run(
+        { kind: "task-review-consent", taskId },
+        withPolicyGroup({ actor: outsider, source: "local" }, "maintainer"),
+      )) as unknown as Record<string, unknown>;
+    assert.deepEqual(
+      { outcome: refused.outcome, code: refused.code },
+      { outcome: "op_rejected", code: "invalid_command" },
+      JSON.stringify(refused),
+    );
+    assert.match(
+      String(refused.rejectionExplanation),
+      /ha task review-consent task-derived --execution-id execution-derived --review-id review-derived/u,
+    );
+    assert.equal(store().readHead()?.revision, beforeImplicit, "the id-less consent wrote nothing");
     const consented = (await cell.run(
-      { kind: "task-review-consent", taskId },
+      { kind: "task-review-consent", taskId, executionId, reviewId: "review-derived" },
       withPolicyGroup({ actor: outsider, source: "local" }, "maintainer"),
     )) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));

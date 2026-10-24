@@ -781,7 +781,14 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
     command: "task-show",
     expectedVersion: 161530,
     evidence: JSON.stringify({
-      task: { status: "done", currentNode: "review", completionGateIds: [], packageDisposition: "archived" },
+      task: {
+        status: "done",
+        currentNode: "review",
+        iteration: 2,
+        completionGateIds: [],
+        packageDisposition: "archived",
+      },
+      currentExecutions: [{ executionId: "execution-1", state: "submitted" }],
       returnBudget: 2,
       returnBudgetSource: "task",
     }),
@@ -791,11 +798,23 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.deepEqual(rendered.text.split("\n"), [
     "status: done",
     "graph cursor: review",
+    "execution: execution-1 (submitted) (pass as --execution-id to review-consent/adjudicate/complete)",
     "expected-version: 161530 (pass as --expected-version to assign/unassign/transition)",
     "completion gates: none",
     "packageDisposition: archived",
     "returnBudget=2 (task)",
   ]);
+  // A snapshot whose current iteration holds no execution states none instead of guessing one.
+  const unstarted = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({
+      task: { status: "active", currentNode: "implementation", iteration: 0 },
+      currentExecutions: [],
+    }),
+    summary: "task: status=active",
+  });
+  assert.match(unstarted.text, /^execution: none \(pass as --execution-id/mu);
   // Legacy snapshots without the fields still render a line, defaulted to active, and the
   // optional expectedVersion absence renders no version line at all.
   const legacy = renderCliReceipt({
@@ -806,6 +825,7 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   });
   assert.match(legacy.text, /\npackageDisposition: active$/u);
   assert.doesNotMatch(legacy.text, /expected-version/u);
+  assert.doesNotMatch(legacy.text, /^execution:/mu);
 });
 
 test("task show renders the completion blocker as an appended completion gate", () => {

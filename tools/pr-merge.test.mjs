@@ -410,7 +410,7 @@ function consentMissingHaState() {
       ...snapshotArrays(),
       completionBlocker: { code: "consent_missing", gate: "consent" },
       completionNext: {
-        action: `ha task review-consent ${TASK_BRANCH}`,
+        action: `ha task review-consent ${TASK_BRANCH} --execution-id exe_test --review-id review_test`,
         reason: "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
         authority: "person_zeyu",
         readCut: { revision: 1, iteration: 0, executionId: "exe_test" },
@@ -591,7 +591,11 @@ test("refuses a task PR whose missing consent is masked by a merge-only gate", a
       });
 
       assert.equal(result.status, 1, result.stdout);
-      assert.match(result.stderr, new RegExp(`ha task review-consent ${TASK_BRANCH}`, "u"));
+      // The printed remedy states both ids, so running it as printed never asks for inference.
+      assert.match(
+        result.stderr,
+        new RegExp(`ha task review-consent ${TASK_BRANCH} --execution-id exe_cut --review-id rev_approved`, "u"),
+      );
       assert.match(result.stderr, /no owner-consented approved review for its current execution/u);
       assert.match(result.stderr, /refusing to merge/u);
       assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
