@@ -335,6 +335,21 @@ function stubOverviewWindow() {
   });
 }
 
+/** 页签按 id 点击:详情页默认落概况,正文用例先切到「正文」。 */
+async function openDecisionTab(div: HTMLElement, key: string) {
+  const tab = div.querySelector<HTMLElement>(`#decision-tab-${key}`);
+  expect(tab).not.toBeNull();
+  await act(async () => {
+    tab!.click();
+  });
+  for (let index = 0; index < 3; index++) {
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
 async function mountDecisionView(decision: DecisionRow | null, props: Record<string, unknown> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div"),
@@ -426,7 +441,7 @@ describe("DecisionDetailView", () => {
     }
     await click("claims");
     await act(async () => navigate(null, "dec_2"));
-    selected("body");
+    selected("overview");
   });
 
   it("页头长标题自己折行;状态/风险/紧急徽章不折行、不被压缩(标准 §2.5 v2)", async () => {
@@ -457,6 +472,7 @@ describe("DecisionDetailView", () => {
     const showDecision = vi.fn(async () => showReceipt(PROSE));
     vi.stubGlobal("window", { harness: { showDecision } });
     const div = await mountDecisionView(decisionRow());
+    await openDecisionTab(div, "body");
 
     expect(showDecision).toHaveBeenCalledWith({ repoId: "repo-a", decisionId: "dec_1", includeBody: true });
     const body = div.querySelector("[data-testid='decision-body-document']");
@@ -470,6 +486,7 @@ describe("DecisionDetailView", () => {
   it("投影未返回正文时说出原因,不显示空白(负向不变量)", async () => {
     vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(null)) } });
     const div = await mountDecisionView(decisionRow());
+    await openDecisionTab(div, "body");
 
     expect(div.querySelector("[data-testid='decision-body-unavailable']")?.textContent).toContain(
       "投影未返回该决策的正文",
@@ -480,6 +497,7 @@ describe("DecisionDetailView", () => {
   it("投影追赶(pending)与读取失败各自显式说明", async () => {
     vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(PROSE, "pending")) } });
     const pending = await mountDecisionView(decisionRow());
+    await openDecisionTab(pending, "body");
     expect(pending.querySelector("[data-testid='decision-body-pending']")?.textContent).toContain("投影仍在追赶");
     expect(pending.querySelector("[data-testid='decision-body-pending']")?.textContent).toContain(
       "Retry decision-show after projection catch-up.",
@@ -503,6 +521,7 @@ describe("DecisionDetailView", () => {
       },
     });
     const failed = await mountDecisionView(decisionRow());
+    await openDecisionTab(failed, "body");
     const error = failed.querySelector("[data-testid='decision-body-error']");
     expect(error?.textContent).toContain("决策正文读取失败");
   });
@@ -511,6 +530,7 @@ describe("DecisionDetailView", () => {
     const longBody = Array.from({ length: 30 }, (_, index) => `第 ${index} 节内容,验证长正文完整渲染。`).join("\n\n");
     vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(longBody)) } });
     const div = await mountDecisionView(decisionRow());
+    await openDecisionTab(div, "body");
 
     expect(div.querySelectorAll("[data-testid='decision-body-block']").length).toBe(30);
     expect(div.textContent).toContain("第 29 节内容");
@@ -594,25 +614,34 @@ describe("DecisionDetailView", () => {
     expect(panel.id).toBe("decision-panel");
     for (const tab of tablist.querySelectorAll('[role="tab"]'))
       expect(tab.getAttribute("aria-controls")).toBe("decision-panel");
-    expect(div.querySelector("#decision-tab-body")?.getAttribute("aria-selected")).toBe("true");
-    expect(panel.getAttribute("aria-labelledby")).toBe("decision-tab-body");
+    expect(div.querySelector("#decision-tab-overview")?.getAttribute("aria-selected")).toBe("true");
+    expect(panel.getAttribute("aria-labelledby")).toBe("decision-tab-overview");
 
     await act(async () => {
-      div.querySelector<HTMLElement>("#decision-tab-overview")!.click();
+      div.querySelector<HTMLElement>("#decision-tab-body")!.click();
     });
-    expect(div.querySelector("#decision-tab-overview")?.getAttribute("aria-selected")).toBe("true");
+    expect(div.querySelector("#decision-tab-body")?.getAttribute("aria-selected")).toBe("true");
     // 同一个面板跨页签持久(入场动效挂在它上面),只换 aria-labelledby 与内容。
     expect(div.querySelector('[role="tabpanel"]')).toBe(panel);
-    expect(panel.getAttribute("aria-labelledby")).toBe("decision-tab-overview");
-    expect(onLocate).toHaveBeenLastCalledWith("decision/dec_1");
+    expect(panel.getAttribute("aria-labelledby")).toBe("decision-tab-body");
     await act(async () => {
       div.querySelector<HTMLElement>("#decision-tab-judge")!.click();
     });
     expect(onLocate).toHaveBeenLastCalledWith("decisionreview/dec_1/judge");
   });
 
+  it("不带标签参数打开时默认选中概况;评审深链仍按参数打开(dec preview)", async () => {
+    stubOverviewWindow();
+    const plain = await mountDecisionView(decisionRow());
+    expect(plain.querySelector("#decision-tab-overview")?.getAttribute("aria-selected")).toBe("true");
+    expect(plain.querySelector("#decision-tab-body")?.getAttribute("aria-selected")).toBe("false");
+    expect(plain.querySelector("[data-testid='decision-panel-overview']")).not.toBeNull();
+    expect(plain.querySelector("[data-testid='decision-panel-body']")).toBeNull();
+  });
+
   it("概况是区域板:问题/已选/已否在区域框里,选项是两行条目,时间线在板的最后一列", async () => {
     stubOverviewWindow();
+    const onNavigateEntity = vi.fn();
     const div = await mountDecisionView(
       decisionRow({
         chosen: [{ id: "CH1", text: "复用集合投影", rationale: "读径只有一条", evidence: [] }],
@@ -637,6 +666,7 @@ describe("DecisionDetailView", () => {
           dispatches: null,
         } as DecisionRow["review"],
       }),
+      { onNavigateEntity },
     );
     await act(async () => {
       div.querySelector<HTMLElement>("#decision-tab-overview")!.click();
@@ -689,6 +719,13 @@ describe("DecisionDetailView", () => {
     expect(entries[1]).toContain("reviewer-1");
     expect(entries[1]).toContain("请求修改");
     expect(entries.slice(2).join("|")).toContain("提出");
+    // agent 是可寻址实体:时间线上的身份经 G10 唯一出口成路,不渲染成死 ID。
+    const agentLink = timeline.querySelector<HTMLButtonElement>("button[title*='agent:reviewer-1']");
+    expect(agentLink?.textContent).toBe("reviewer-1");
+    await act(async () => {
+      agentLink!.click();
+    });
+    expect(onNavigateEntity).toHaveBeenCalledWith("agent/reviewer-1");
   });
 
   it("概况的时间线不重复列与 consent 同刻的 decidedAt;空区域整块不出现", async () => {
