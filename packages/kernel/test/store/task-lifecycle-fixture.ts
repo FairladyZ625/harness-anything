@@ -133,6 +133,9 @@ export function lifecycleFixture(
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
+  // A review-lifted cut completes straight off `submitted`; only a review-required cut carries
+  // the review, consent, and complete tail.
+  if (snapshot.task?.status !== "in_review") return { events, snapshot };
   run(reviewCommand(4, taskId, executionId, "approved", reviewId, completionContract), {
     actorBinding: reviewer,
     capability: "execution-review@v1",

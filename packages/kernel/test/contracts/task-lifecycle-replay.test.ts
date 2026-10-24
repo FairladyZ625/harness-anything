@@ -316,16 +316,29 @@ test("a late changes_requested review may reopen a consented cut for a fresh ite
   );
 });
 
-test("an owner return publishes its instruction as a managed task document", () => {
+test("a historical owner return still publishes its instruction as a managed task document", () => {
+  // The manual return command retired with the automatic review loop (dec_E369B861 CH5); journals
+  // still replay submission_returned events, and their managed documents must keep compiling.
   const fixture = twoRoundLifecycleEvents(),
-    returned = fixture.events.find((event) => event.type === "submission_returned")!,
-    returnedSnapshot = fixture.events
-      .slice(0, 6)
+    reopened = fixture.events.find((event) => event.type === "review_recorded")!,
+    // The publication path compiles the historical envelope shape; it does not re-derive the
+    // transition invariants, so the synthetic return mirrors the retired reduce's output.
+    returned = {
+      ...reopened,
+      type: "submission_returned",
+      payload: {
+        task: reopened.payload.task,
+        execution: reopened.payload.execution,
+        reason: "owner accepted the changes_requested report; rework the cut",
+        reviewId: reopened.payload.review.reviewId,
+      },
+    } as unknown as typeof reopened,
+    submittedSnapshot = fixture.events
+      .slice(0, 3)
       .reduce((snapshot, event) => reduceTaskEvent(snapshot, event), emptyTaskLifecycleSnapshot());
-  assert.ok(returned);
   const compiled = compileTaskLifecycleWrite({
     event: returned,
-    snapshot: returnedSnapshot,
+    snapshot: submittedSnapshot,
     packagePath: "tasks/task-two-round",
     currentDocuments: [],
   });
