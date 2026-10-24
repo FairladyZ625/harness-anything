@@ -17,6 +17,13 @@ export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
 
 export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_CHUNK_BYTES = 64 * 1024,
+  /** An upload declaration larger than this is an invalid frame; chunks may never write past it. */
+  FLEET_UPLOAD_MAX_BYTES = 64 * 1024 * 1024,
+  /** An unauthenticated connection is cut when its hello has not been admitted within this window. */
+  FLEET_HELLO_TIMEOUT_MS = 30_000,
+  /** Failed hello authentications one connection source may produce before its next hello is refused locally. */
+  FLEET_HELLO_FAILURE_LIMIT = 5,
+  FLEET_HELLO_FAILURE_WINDOW_MS = 60_000,
   FLEET_PAGE_ROWS = 128,
   FLEET_KEY_SEND_WINDOW_BYTES = 256 * 1024,
   FLEET_SESSION_SEND_WINDOW_BYTES = 512 * 1024;
@@ -341,7 +348,8 @@ const cut = shape({
     revision: uint,
     headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
   });
-const blob = shape({ sha256: sha64, size: uint, mediaType: text }),
+const uploadSize: Check = (value) => uint(value) && Number(value) <= FLEET_UPLOAD_MAX_BYTES,
+  blob = shape({ sha256: sha64, size: uploadSize, mediaType: text }),
   descriptor = shape({
     ref: (value) => typeof value === "string" && /^doc-sync-claims\/[A-Za-z0-9_-]{1,96}$/u.test(value),
     sha256: sha64,

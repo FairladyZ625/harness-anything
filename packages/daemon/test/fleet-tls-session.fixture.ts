@@ -244,7 +244,12 @@ export async function fleetFixture(
     transportErrors,
     center: (
       diskQuotaBytes = replicaQuota,
-      timing: { replicaPreparationTimeoutMs?: number; replicaWatchProgressMs?: number; now?: () => string } = {},
+      timing: {
+        replicaPreparationTimeoutMs?: number;
+        replicaWatchProgressMs?: number;
+        now?: () => string;
+        hostname?: string;
+      } = {},
     ) =>
       owned.hold(
         listenFleetTls({
@@ -325,9 +330,12 @@ export async function rawPeer(
   ca: Buffer,
   nodeId: string,
   credential: string,
+  connection: { readonly host?: string } = {},
 ) {
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
-      const candidate = connect({ host: "127.0.0.1", port, ca, servername: "localhost" }, () => resolve(candidate));
+      const candidate = connect({ host: connection.host ?? "127.0.0.1", port, ca, servername: "localhost" }, () =>
+        resolve(candidate),
+      );
       candidate.once("error", reject);
     }),
     frames: FleetFrameV1[] = [],
