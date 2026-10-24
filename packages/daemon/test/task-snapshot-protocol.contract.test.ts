@@ -80,7 +80,6 @@ const row = {
     { id: "start", available: false, reason: "unknown" },
     { id: "progress", available: false, reason: "unknown" },
     { id: "submit", available: false, reason: "unknown" },
-    { id: "adjudicate", available: false, reason: "unknown" },
     { id: "review", available: false, reason: "unknown" },
     { id: "complete", available: false, reason: "unknown" },
   ],

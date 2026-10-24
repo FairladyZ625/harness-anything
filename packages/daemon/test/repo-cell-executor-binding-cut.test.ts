@@ -139,7 +139,7 @@ test("post-submit claimant writes name the frozen cut, not the claimant's own ex
     assert.equal(receipt.diagnostic?.actual, `agent:${runtimeActor.executor.id}`);
     const expectation = String(receipt.diagnostic?.expectation);
     assert.match(expectation, /is frozen/u);
-    assert.match(expectation, new RegExp(`ha task adjudicate ${taskId} --return`));
+    assert.match(expectation, /a changes_requested review verdict returns the cut for rework/u);
     assert.ok(
       !expectation.includes(`agent:${runtimeActor.executor.id}`),
       `expectation must not echo the claimant's executor id: ${expectation}`,
@@ -176,7 +176,7 @@ test("a taskless post-submit claimant write still names the frozen round of its 
   assert.equal(receipt.code, "executor_binding_invalid");
   const expectation = String(receipt.diagnostic?.expectation);
   assert.match(expectation, new RegExp(`task ${taskId}.*is frozen`));
-  assert.match(expectation, new RegExp(`ha task adjudicate ${taskId} --return`));
+  assert.match(expectation, /a changes_requested review verdict returns the cut for rework/u);
   assert.ok(!expectation.includes(`agent:${runtimeActor.executor.id}`), expectation);
 });
 

@@ -367,19 +367,7 @@ async function reachGreenInReview(
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-  // The owner's triage gate: the cut enters independent review only by explicit order.
-  const forwarded = await cell.run(
-    {
-      kind: "task-adjudicate",
-      taskId,
-      executionId,
-      forward: true,
-      reviewer: "closeout-reviewer",
-      reason: "Forwarded for independent review.",
-    },
-    binding,
-  );
-  assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+  // The cut enters in_review directly at submit; the reviewer dispatch rides the same write.
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
