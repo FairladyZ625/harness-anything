@@ -119,7 +119,7 @@ test("acp worker session drives initialize/authenticate/new/prompt and emits can
 });
 
 test("acp worker session/load keeps replayed history out of finalText and tags it with the session id", async () => {
-  const { parent, executablePath } = fixture();
+  const { parent, capture, executablePath } = fixture();
   try {
     const { records, append } = collect(),
       child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
@@ -152,6 +152,146 @@ test("acp worker session/load keeps replayed history out of finalText and tags i
     const result = frames.at(-1)!;
     assert.equal(result.type, "acp.result");
     assert.equal(result.finalText, "devin live content");
+    assert.deepEqual(
+      capturedEntries(capture).filter((entry) => entry.load !== undefined || entry.resume !== undefined),
+      [{ load: "prior-session" }],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+function resumeFixture(agentCapabilities: Record<string, unknown>) {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "dsh-stub"), capture, { agentCapabilities });
+  writeFileSync(capture, "");
+  return { parent, capture, executablePath };
+}
+
+// DeepSeek Harness 0.2.1-rc.2 advertise exactly this shape: no loadSession, only
+// agentCapabilities.sessionCapabilities.resume (artifacts/evidence/dsh-real-resume-20261024.md).
+test("acp worker resumes through session/resume when the agent advertises only sessionCapabilities.resume", async () => {
+  const { parent, capture, executablePath } = resumeFixture({
+    sessionCapabilities: { resume: {} },
+  });
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "deepseek-harness",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          providerSessionId: "prior-session",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const captured = capturedEntries(capture),
+      frames = records
+        .filter((record) => record.kind === "provider_event")
+        .map((record) => record.event as Record<string, unknown>);
+    assert.deepEqual(
+      captured.filter((entry) => entry.load !== undefined || entry.resume !== undefined),
+      [{ resume: "prior-session" }],
+      "the negotiated method is session/resume, never session/load",
+    );
+    // session/resume must not replay history, so the only message chunks are this turn's.
+    const chunks = frames.filter(
+      (frame) => (frame.update as Record<string, unknown> | undefined)?.sessionUpdate === "agent_message_chunk",
+    );
+    assert.deepEqual(
+      chunks.map((frame) => (frame.update as Record<string, unknown, never>).content),
+      [
+        { type: "text", text: "devin live " },
+        { type: "text", text: "content" },
+      ],
+    );
+    const sessionFrame = frames.find((frame) => frame.type === "acp.session");
+    assert.equal(sessionFrame?.sessionId, "prior-session");
+    const result = frames.at(-1)!;
+    assert.equal(result.type, "acp.result");
+    assert.equal(result.finalText, "devin live content");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// codex-acp, claude-acp, opencode and friends advertise both flags (acp-capability-inventory.json);
+// load wins because its history replay lands in the resumed dispatch stream.
+test("acp worker prefers session/load when the agent advertises both resume capabilities", async () => {
+  const { parent, capture, executablePath } = resumeFixture({
+    loadSession: true,
+    sessionCapabilities: { resume: {} },
+  });
+  try {
+    const { append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          providerSessionId: "prior-session",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    assert.deepEqual(
+      capturedEntries(capture).filter((entry) => entry.load !== undefined || entry.resume !== undefined),
+      [{ load: "prior-session" }],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// The spec forbids calling either method without its advertisement, so an agent offering
+// neither fails the resume naming both flags instead of sending a doomed request.
+test("acp worker fails closed when the agent advertises neither resume capability", async () => {
+  const { parent, capture, executablePath } = resumeFixture({});
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          providerSessionId: "prior-session",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    await closed(child);
+    const frames = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>);
+    assert.deepEqual(
+      frames.map((frame) => frame.type),
+      ["acp.error"],
+    );
+    assert.match(
+      String(frames[0]!.message),
+      /advertises neither session\/load \(agentCapabilities\.loadSession\) nor session\/resume \(agentCapabilities\.sessionCapabilities\.resume\); cannot resume session prior-session/u,
+    );
+    assert.deepEqual(
+      capturedEntries(capture).filter((entry) => entry.load !== undefined || entry.resume !== undefined),
+      [],
+      "no resume request is sent to an agent that advertised neither method",
+    );
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

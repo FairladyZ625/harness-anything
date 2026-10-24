@@ -77,9 +77,15 @@ export function launchArgs(
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
     if (token === "$permission") return permission;
-    if (token === "$resume-command") return providerSessionId ? [launch.resumeFlag] : [];
+    if (token === "$resume-command" || token === "$resume") {
+      // A resume token with no flag to expand would silently launch a fresh session on a
+      // resume request, so the mismatch fails the launch instead.
+      if (launch.resumeFlag === undefined)
+        throw new Error(`${declaration.kindId} argumentTemplate carries ${token} without a launch.resumeFlag`);
+      if (token === "$resume-command") return providerSessionId ? [launch.resumeFlag] : [];
+      return providerSessionId ? [launch.resumeFlag, providerSessionId] : [];
+    }
     if (token === "$session") return providerSessionId ? [providerSessionId] : [];
-    if (token === "$resume") return providerSessionId ? [launch.resumeFlag, providerSessionId] : [];
     if (token === "$effort-flag") return effort ? ["--effort", effort === "minimal" ? "low" : effort] : [];
     if (token === "$effort-config") return effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : [];
     if (token === "$api-auth") return config.auth.mode === "api-key" ? (launch.apiKeyArgs ?? []) : [];

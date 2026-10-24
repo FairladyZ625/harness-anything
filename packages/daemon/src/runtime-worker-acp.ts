@@ -4,7 +4,7 @@
 // session traffic into the canonical dispatch-stream frame vocabulary:
 //
 //   {type:"acp.session", sessionId, modes, currentMode, models?, currentModelId?}
-//                                                       emitted once after session/new|load
+//                                             emitted once after session/new|load|resume
 //   {type:"acp.mode",    sessionId, requested, applied}   permission-mode mapping result
 //   {type:"acp.model",   sessionId, requested, applied}   model selection through configOptions
 //   {type:"acp.update",  sessionId, update, usage?}       whitelisted session/update kinds
@@ -13,8 +13,8 @@
 //
 // Every canonical frame carries `sessionId` once the session exists, which the
 // acp sessionIdentity declaration (eventIdField "sessionId", no discriminator)
-// resolves — including during resume admission, where session/load returning the
-// recorded id is the whole proof.
+// resolves — including during resume admission, where the resume method answering
+// for the recorded id is the whole proof.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
@@ -258,7 +258,7 @@ export function runAcpProviderSession(
         await request("authenticate", { methodId, _meta: { api_key: apiKey ?? "" } });
       }
       const session = manifest.providerSessionId
-        ? ((await request("session/load", {
+        ? ((await request(acpResumeMethod(initialize) ?? notResumable(manifest.providerSessionId), {
             sessionId: manifest.providerSessionId,
             cwd: manifest.cwd,
             mcpServers: [],
@@ -361,6 +361,30 @@ export function runAcpProviderSession(
 interface AcpModes {
   readonly available: readonly string[];
   readonly current: string | null;
+}
+
+// ACP carries two resume methods, each gated by an initialize capability: `session/load`
+// (agentCapabilities.loadSession) replays the whole conversation before responding, while
+// `session/resume` (agentCapabilities.sessionCapabilities.resume) restores the context with no
+// replay. Load is the richer primitive — the replay lands in the resumed dispatch stream — so it
+// wins when both are advertised; the spec leaves that choice to the client ("the client chooses
+// based on whether it wants history", v1 session-setup).
+function acpResumeMethod(initialize: Record<string, unknown>): "session/load" | "session/resume" | null {
+  const capabilities = isRecord(initialize.agentCapabilities) ? initialize.agentCapabilities : {},
+    sessionCapabilities = isRecord(capabilities.sessionCapabilities) ? capabilities.sessionCapabilities : null;
+  if (capabilities.loadSession === true) return "session/load";
+  if (sessionCapabilities?.resume !== undefined) return "session/resume";
+  return null;
+}
+
+// The spec forbids calling either method without its advertisement ("Clients MUST NOT attempt to
+// call …", v1 session-setup), so an agent offering neither fails the resume here, naming both
+// flags, instead of sending a request the agent is left to reject.
+function notResumable(providerSessionId: string): never {
+  throw new Error(
+    "ACP agent advertises neither session/load (agentCapabilities.loadSession) nor " +
+      `session/resume (agentCapabilities.sessionCapabilities.resume); cannot resume session ${providerSessionId}.`,
+  );
 }
 
 function acpModes(session: Record<string, unknown>): AcpModes {
