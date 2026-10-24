@@ -7,6 +7,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { addManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
 import {
+  dispatchLedgerReadTexts,
   privateLedgerReadSection,
   privateLedgerReferences,
   resolvePrivateLedgerReads,
@@ -17,7 +18,9 @@ const planBody = "# Plan\n",
   standards = path.join("harness", "governance", "standards"),
   standard = path.join(standards, "testing-standard.md"),
   contract = path.join(standards, "implementation-contract-standard.md"),
-  devSkill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md");
+  devSkill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md"),
+  // As written in a prompt: forward slashes, exactly what the reference extractor records.
+  isolatedEntry = "harness/skills/test-isolation/dispatch-isolated-test.mjs";
 
 test("every declared read-set file keeps an openable path when the mission also names globs", async (t) => {
   const root = fixture(t),
@@ -142,6 +145,39 @@ test("a brace group enumerates files while a glob stops at its directory", async
   assert.equal(glob?.readable, path.join(root, "harness", "skills"));
 });
 
+test("an implementation dispatch carries the isolated-test entry without naming it", async (t) => {
+  const root = fixture(t),
+    worktree = await privateWorktree(root),
+    reads = resolvePrivateLedgerReads({
+      rootDir: root,
+      cwd: worktree,
+      texts: dispatchLedgerReadTexts({
+        prompts: [],
+        instructions: null,
+        mission: "# Mission\n本 mission 不点名任何私有路径。",
+        reviewer: false,
+        readOnly: false,
+      }),
+    }),
+    entry = reads.find((candidate) => candidate.asWritten === isolatedEntry.replaceAll("\\", "/"));
+
+  // task_936005e1: nothing named the entry, so the section omitted it and the worker read the
+  // isolated dispatcher as absent, stopping without its targeted tests.
+  assert.ok(entry, "the fixed entry must be listed for a coding dispatch");
+  assert.equal(entry.directory, false);
+  assert.equal(existsSync(entry.readable), true, `${isolatedEntry} must be openable at ${entry.readable}`);
+  assert.match(privateLedgerReadSection(reads)!, new RegExp(`- ${isolatedEntry.replaceAll("/", "\\/")} -> .+`, "u"));
+});
+
+test("reviewer and read-only dispatches omit the fixed entry", () => {
+  const lastText = (reviewer: boolean, readOnly: boolean) =>
+    dispatchLedgerReadTexts({ prompts: [], instructions: null, mission: "MISSION", reviewer, readOnly }).at(-1);
+
+  assert.deepEqual(privateLedgerReferences(lastText(false, false)!), [isolatedEntry]);
+  assert.deepEqual(privateLedgerReferences(lastText(true, false)!), [], "a reviewer cannot run the entry");
+  assert.deepEqual(privateLedgerReferences(lastText(false, true)!), [], "a read-only dispatch cannot run the entry");
+});
+
 /** A managed worktree of the fixture repo, prepared through the same setup production uses. */
 async function privateWorktree(root: string): Promise<string> {
   const worktree = {
@@ -183,6 +219,7 @@ function fixture(t: TestContext): string {
     path.join("harness", "context", "architecture", "README.md"),
     path.join("harness", "skills", "alpha", "SKILL.md"),
     path.join("harness", "skills", "zeta", "SKILL.md"),
+    path.join("harness", "skills", "test-isolation", "dispatch-isolated-test.mjs"),
     ...Array.from({ length: 38 }, (_, index) => path.join(standards, `standard-${String(index).padStart(2, "0")}.md`)),
   ]) {
     mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });

@@ -43,7 +43,9 @@ const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as con
     digest: `sha256:${"a".repeat(64)}`,
   },
   standard = path.join("harness", "governance", "standards", "testing-standard.md"),
-  skill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md");
+  skill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md"),
+  // As written in a prompt: forward slashes, exactly what the reference extractor records.
+  entry = "harness/skills/test-isolation/dispatch-isolated-test.mjs";
 
 test("a real worktree dispatch hands the worker an openable path for every private file it names", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-worktree-private-")));
@@ -152,6 +154,15 @@ test("a real worktree dispatch hands the worker an openable path for every priva
   }
   assert.match(prompt, /Never copy one into this repository, never write through one/u);
   assert.match(prompt, /ha doc show --path <ledger path> --raw/u, "read-set locators name their opening command");
+  // The isolated-test entry rides every coding dispatch whether or not anything names it —
+  // task_936005e1 read the entry as absent and stopped without its targeted tests.
+  const entryReadable = workerLedgerPath(root, prepared!.cwd, path.join(root, entry));
+  assert.equal(existsSync(entryReadable), true, `the fixed entry must be openable at ${entryReadable}`);
+  assert.match(
+    prompt,
+    new RegExp(`- ${entry.replaceAll("/", "\\/")} -> ${entryReadable.replaceAll("/", "\\/")}`, "u"),
+    "the fixed entry must be paired with its openable path",
+  );
   t.diagnostic(`worktree=${prepared!.cwd} prompt bytes=${String(prompt.length)}`);
 });
 
@@ -175,7 +186,7 @@ function instance(): RuntimeInstanceSummary {
   };
 }
 
-/** A repository whose private ledger holds one standard and one skill, exactly as production does. */
+/** A repository whose private ledger holds one standard, one skill and the isolated-test entry, exactly as production does. */
 function repositoryWithPrivateLedger(root: string): void {
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Worktree Private Test");
@@ -185,7 +196,7 @@ function repositoryWithPrivateLedger(root: string): void {
   git(root, "add", "README.md", ".gitignore");
   git(root, "commit", "-qm", "base");
   git(root, "branch", "origin/main");
-  for (const relative of [standard, skill]) {
+  for (const relative of [standard, skill, entry]) {
     mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
     writeFileSync(path.join(root, relative), `# ${path.basename(relative)}\n`);
   }
