@@ -168,9 +168,19 @@ function taskChain(f, reader, index) {
     },
   );
   f.check("task.review.independent", () => assert.equal(reviewed.outcome, "applied"));
-  f.invoke("task.review-consent", ["task", "review-consent", taskId, "--review-id", `review-${f.seed}-${index}`], {
-    actor,
-  });
+  f.invoke(
+    "task.review-consent",
+    [
+      "task",
+      "review-consent",
+      taskId,
+      "--execution-id",
+      `execution-${f.seed}-${index}`,
+      "--review-id",
+      `review-${f.seed}-${index}`,
+    ],
+    { actor },
+  );
   f.invoke("task.complete", ["task", "complete", taskId], { actor });
   const shown = f.invoke("task.show", ["task", "show", taskId]);
   f.check("task.done", () => assert.equal(evidence(shown).task.status, "done"));
