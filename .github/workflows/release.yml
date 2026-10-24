@@ -3,16 +3,18 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Manual runs are rehearsals. They validate the selected ref or tag and never publish,
+  # because every publishing job is gated on the push event. Leave release_tag empty to
+  # rehearse the dispatch ref; supply it to rehearse that tag.
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "v* tag to rehearse"
-        required: true
+        description: "Optional v* tag to validate; empty validates the dispatch ref. Manual runs never publish."
+        required: false
         type: string
 
-permissions:
-  contents: write
-  id-token: write
+# Deny every scope by default; each job opts in to only what it needs.
+permissions: {}
 
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
@@ -24,33 +26,91 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       tag: ${{ steps.context.outputs.tag }}
       version: ${{ steps.context.outputs.version }}
       npm_tag: ${{ steps.context.outputs.npm_tag }}
       prerelease: ${{ steps.context.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
       - id: context
         env:
-          INPUT_TAG: ${{ inputs.release_tag || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.release_tag || '' }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "release tag must be v<semver>" >&2; exit 1; }
-          version="${INPUT_TAG#v}"
-          echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          tag="$INPUT_TAG"
+          if [[ -z "$tag" && "$EVENT_NAME" == "push" ]]; then
+            tag="$REF_NAME"
+          fi
+          if [[ -z "$tag" ]]; then
+            if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+              echo "release tag is required for $EVENT_NAME runs" >&2
+              exit 1
+            fi
+            echo "rehearsal of ${REF_NAME}: no release tag supplied; tag and version checks are skipped" >&2
+            {
+              echo "tag="
+              echo "version="
+              echo "npm_tag="
+              echo "prerelease=false"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "release tag must be v<semver>" >&2; exit 1; }
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null || { echo "release tag $tag does not exist in this checkout" >&2; exit 1; }
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          checked_out="$(git rev-parse HEAD)"
+          [[ "$tag_commit" == "$checked_out" ]] || { echo "release tag $tag points at $tag_commit but HEAD is $checked_out" >&2; exit 1; }
+          # A release tag may only describe a commit on main or a protected release line.
+          # dec_799A4C48FE22F5EF58F3B7C166 CH2 puts version tags on release/<x.y>; main stays
+          # accepted for the ordinary main-based path. A tag on any other branch is refused.
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/release/*:refs/remotes/origin/release/*'
+          release_line=""
+          if git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/main; then
+            release_line="main"
+          else
+            while IFS= read -r branch; do
+              if git merge-base --is-ancestor "$tag_commit" "$branch"; then
+                release_line="${branch#refs/remotes/origin/}"
+                break
+              fi
+            done < <(git for-each-ref --format='%(refname)' refs/remotes/origin/release)
+          fi
+          [[ -n "$release_line" ]] || { echo "release tag $tag ($tag_commit) is not contained in origin/main or origin/release/*; refusing to publish from an arbitrary branch" >&2; exit 1; }
+          echo "release tag $tag is on $release_line" >&2
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" == *-* ]]; then echo "npm_tag=next" >> "$GITHUB_OUTPUT"; echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "npm_tag=latest" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
-      - run: node tools/check-release-version.mjs "${{ steps.context.outputs.tag }}"
+      - if: steps.context.outputs.tag != ''
+        run: node tools/check-release-version.mjs "${{ steps.context.outputs.tag }}"
       - run: npm ci
-      - run: node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui
+      - name: Run the PR-equivalent gate before any publication
+        run: npm run check:pr
 
   publish-npm:
+    if: github.event_name == 'push'
     needs: [validate, build-app]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
@@ -71,7 +131,11 @@ jobs:
           done
 
   build-app:
+    if: github.event_name == 'push'
     needs: validate
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: true
       matrix:
@@ -85,10 +149,11 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x64
             args: "--linux AppImage deb --x64"
-    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -104,17 +169,20 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run package:prepare && npx electron-builder --config electron-builder.config.mjs ${{ matrix.args }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gui-${{ matrix.platform }}
           path: dist/release/${{ matrix.platform }}/
           if-no-files-found: error
 
   github-release:
+    if: github.event_name == 'push'
     needs: [validate, publish-npm]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: gui-*
           path: dist/release
@@ -144,10 +212,13 @@ jobs:
           gh release create "$TAG" "${args[@]}" dist/release/*
 
   upload-update-feed:
+    if: github.event_name == 'push'
     needs: [validate, github-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: gui-*
           path: dist/release
