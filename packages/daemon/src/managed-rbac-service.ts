@@ -20,7 +20,7 @@ import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { runProcessText } from "./process-port.ts";
+import { runProcessExitAsync, runProcessText } from "./process-port.ts";
 import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
@@ -517,7 +517,7 @@ export class ManagedRbacService {
       binary = path.join(this.#root, "runtime", "postgres", "bin", "postgres"),
       data = path.join(this.#root, "data", "postgres"),
       logs = path.join(this.#root, "logs");
-    await this.#hardenPostgresAuthentication(binary, data, config.postgresPort);
+    await this.#hardenPostgresAuthentication(binary, data);
     mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
       "postgres",
@@ -531,46 +531,48 @@ export class ManagedRbacService {
 
   /**
    * A data directory initialized before password authentication allowed every local process in with
-   * `trust`. Set the postgres role's password over that trusted loopback connection once, then
-   * rewrite the trust lines to scram-sha-256. No trust branch survives, so a failed migration fails
-   * the start instead of leaving an open database.
+   * `trust`. Set the postgres role's password with the bundled postgres in single-user mode — the
+   * runtime ships no psql — then rewrite the trust lines to scram-sha-256. Single-user mode does not
+   * use pg_hba.conf, so the statement runs before any password is required. No trust branch survives,
+   * so a failed migration fails the start instead of leaving an open database.
    */
-  async #hardenPostgresAuthentication(binary: string, data: string, port: number): Promise<void> {
+  async #hardenPostgresAuthentication(binary: string, data: string): Promise<void> {
     const hba = path.join(data, "pg_hba.conf");
     if (!existsSync(hba) || !postgresHbaUsesTrust(readFileSync(hba, "utf8"))) return;
     const password = this.#postgresPassword(),
-      sqlFile = path.join(this.#root, "postgres-auth.sql");
-    await this.#spawnUntilReady(
-      "postgres",
-      binary,
-      ["-D", data, "-h", "127.0.0.1", "-p", String(port)],
-      {},
-      /database system is ready to accept connections/u,
-      30_000,
-    );
+      applied = "harness-postgres-password-applied",
+      sql = [
+        `ALTER ROLE postgres WITH PASSWORD '${password.replaceAll("'", "''")}';`,
+        `SELECT '${applied}' FROM pg_authid WHERE rolname = 'postgres' AND rolpassword LIKE 'SCRAM-SHA-256$%';`,
+        "",
+      ].join("\n");
+    let result: Awaited<ReturnType<typeof runProcessExitAsync>>;
     try {
-      writeFileSync(sqlFile, `ALTER ROLE postgres WITH PASSWORD '${password.replaceAll("'", "''")}';\n`, {
-        mode: 0o600,
-      });
-      chmodSync(sqlFile, 0o600);
-      run(path.join(this.#root, "runtime", "postgres", "bin", "psql"), [
-        "-h",
-        "127.0.0.1",
-        "-p",
-        String(port),
-        "-U",
-        "postgres",
-        "-d",
-        "postgres",
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-f",
-        sqlFile,
-      ]);
-    } finally {
-      rmSync(sqlFile, { force: true });
-      await this.#stopChild("postgres");
+      result = await runProcessExitAsync(
+        binary,
+        ["--single", "-D", data, "postgres"],
+        undefined,
+        undefined,
+        sql,
+        undefined,
+        { timeoutMs: 30_000 },
+      );
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error ? String(error.code) : "unknown error";
+      throw managedRbacError(
+        "rbac_postgres_password_failed",
+        `The bundled postgres could not run in single-user mode (${code}).`,
+      );
     }
+    // Single-user mode reports SQL errors but still exits 0, and its error output can echo the
+    // statement (including the password). Read the sentinel row instead of trusting the exit code,
+    // and keep stderr out of the thrown message.
+    if (!result.stdout.includes(applied) || /(?:^|\n)[^\n]*\b(?:ERROR|FATAL):/u.test(result.stderr))
+      throw managedRbacError(
+        "rbac_postgres_password_failed",
+        "Setting the PostgreSQL password with the bundled postgres failed; trust authentication was left in place.",
+      );
     const hardened = hardenPostgresHba(readFileSync(hba, "utf8"));
     if (postgresHbaUsesTrust(hardened))
       throw managedRbacError(

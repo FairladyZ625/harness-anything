@@ -702,6 +702,8 @@ function fakePostgresBin(rbac: string, name: string, body: string): string {
   const file = path.join(rbac, "runtime", "postgres", "bin", name);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, `#!/bin/sh\n${body}`, { mode: 0o755 });
+  // writeFileSync keeps the mode of an existing file; the fixture pre-creates "postgres".
+  chmodSync(file, 0o755);
   return file;
 }
 
@@ -769,40 +771,90 @@ test("managed Keycloak connects to PostgreSQL with the generated password", asyn
   }
 });
 
-test("a legacy trust PostgreSQL data directory is moved to scram before Keycloak starts", async () => {
+/** Non-comment pg_hba.conf lines; comments in the stock file also mention "trust". */
+const activeHbaLines = (hba: string) =>
+  readFileSync(hba, "utf8")
+    .split(/\r?\n/u)
+    .filter((line) => line.trim() !== "" && !line.trim().startsWith("#"))
+    .map((line) => line.trim());
+
+const trustHbaLines = [
+  "local all all trust",
+  "host all all 127.0.0.1/32 trust",
+  "host all all ::1/128 trust",
+  "host replication all 127.0.0.1/32 trust",
+  "",
+].join("\n");
+
+test("a legacy trust PostgreSQL data directory is moved to scram with the bundled postgres, no psql", async () => {
   const managed = managedFixture(),
     rbac = path.join(path.dirname(managed.certificateFile), "rbac"),
     data = path.join(rbac, "data", "postgres"),
     hba = path.join(data, "pg_hba.conf"),
-    record = path.join(rbac, "psql-sql.txt");
+    argsRecord = path.join(rbac, "single-user-args.txt"),
+    sqlRecord = path.join(rbac, "single-user.sql"),
+    psql = path.join(rbac, "runtime", "postgres", "bin", "psql");
   try {
     mkdirSync(data, { recursive: true });
-    writeFileSync(
-      hba,
-      [
-        "local all all trust",
-        "host all all 127.0.0.1/32 trust",
-        "host all all ::1/128 trust",
-        "host replication all 127.0.0.1/32 trust",
-        "",
-      ].join("\n"),
-    );
+    writeFileSync(hba, trustHbaLines);
     fakePostgresBin(
       rbac,
-      "psql",
-      `while [ $# -gt 0 ]; do\n  if [ "$1" = "-f" ]; then cp "$2" '${record}'; fi\n  shift\ndone\n`,
+      "postgres",
+      `printf '%s\\n' "$@" > '${argsRecord}'\ncat > '${sqlRecord}'\nprintf '%s\\n' 'harness-postgres-password-applied'\n`,
     );
     await managed.service.start();
     const hardened = readFileSync(hba, "utf8"),
-      sql = readFileSync(record, "utf8"),
+      sql = readFileSync(sqlRecord, "utf8"),
+      args = readFileSync(argsRecord, "utf8").split("\n").filter(Boolean),
       password = readFileSync(path.join(rbac, "postgres-password"), "utf8");
-    assert.equal(/\btrust\b/u.test(hardened), false);
+    assert.equal(existsSync(psql), false);
+    assert.deepEqual(args, ["--single", "-D", data, "postgres"]);
+    assert.equal(
+      activeHbaLines(hba).some((line) => line.split(/\s+/u).at(-1) === "trust"),
+      false,
+    );
     assert.equal(hardened.match(/scram-sha-256/gu)?.length, 4);
     assert.match(sql, /^ALTER ROLE postgres WITH PASSWORD '/u);
     assert.equal(sql.includes(password), true);
-    // One temporary start to set the password, then the normal start Keycloak waits on.
-    assert.equal(managed.postgresLaunches().length, 2);
+    assert.match(sql, /FROM pg_authid WHERE rolname = 'postgres' AND rolpassword LIKE 'SCRAM-SHA-256\$%'/u);
+    // Single-user mode is not a server start: Keycloak waits on the one normal PostgreSQL launch.
+    assert.equal(managed.postgresLaunches().length, 1);
     assert.equal(managed.keycloakLaunches().length, 1);
+  } finally {
+    await managed.close();
+  }
+});
+
+test("a failed single-user password migration leaves trust authentication and reports why", async () => {
+  const managed = managedFixture(),
+    rbac = path.join(path.dirname(managed.certificateFile), "rbac"),
+    data = path.join(rbac, "data", "postgres"),
+    hba = path.join(data, "pg_hba.conf"),
+    sqlRecord = path.join(rbac, "single-user.sql");
+  try {
+    mkdirSync(data, { recursive: true });
+    writeFileSync(hba, trustHbaLines);
+    // Single-user mode reports SQL errors and still exits 0; the service must not trust that exit.
+    fakePostgresBin(
+      rbac,
+      "postgres",
+      `cat > '${sqlRecord}'\nprintf '%s\\n' 'ERROR: could not set the postgres password' >&2\n`,
+    );
+    await assert.rejects(managed.service.start(), (error: { code?: string; message: string }) => {
+      assert.equal(error.code, "rbac_postgres_password_failed");
+      const password = readFileSync(path.join(rbac, "postgres-password"), "utf8");
+      // The statement (and the password in it) must not travel into the lifecycle error.
+      assert.equal(error.message.includes(password), false);
+      assert.equal(error.message.includes("could not set the postgres password"), false);
+      return true;
+    });
+    assert.equal(
+      activeHbaLines(hba).every((line) => line.split(/\s+/u).at(-1) === "trust"),
+      true,
+    );
+    assert.equal(readFileSync(sqlRecord, "utf8").includes("ALTER ROLE postgres WITH PASSWORD"), true);
+    assert.deepEqual(managed.postgresLaunches(), []);
+    assert.deepEqual(managed.keycloakLaunches(), []);
   } finally {
     await managed.close();
   }
