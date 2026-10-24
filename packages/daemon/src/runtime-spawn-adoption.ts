@@ -120,6 +120,7 @@ export async function adoptRuntimes(
       model: metadata.model,
       reasoningEffort: metadata.reasoningEffort,
       fast: metadata.fast,
+      tokenLimit: stream.header.tokenLimit ?? null,
       startedAt: stream.header.startedAt,
       stream: reopenDispatchStream(context.input.rootDir, stream.header),
       fallbackAttempt: stream.header.fallbackAttempt ?? null,
@@ -140,6 +141,13 @@ export async function adoptRuntimes(
           ...(processState ? { pid: processState.pid } : {}),
         });
         await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
+        // Replaying the durable stream recomputes consumption from the launch cut. A runtime
+        // already past its frozen limit must be stopped before liveness is republished, or a
+        // daemon restart would hand a capped dispatch a fresh lease on spending.
+        if (processAlive && active.spendCapExceeded) {
+          await context.enforceSpendCap(active);
+          return;
+        }
         if (processAlive && session?.liveness !== "live" && session?.liveness !== "exited") {
           await context.publishRuntimeEvent(
             "runtime_session_liveness_changed",

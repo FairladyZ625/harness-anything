@@ -739,6 +739,9 @@ export function SessionDetailView({
             </KVRow>
             <KVRow name={t("agentRuntime.facts.outcome")}>{session.activity.outcome ?? "—"}</KVRow>
             <KVRow name={t("agentRuntime.facts.exitCode")}>{session.activity.exitCode ?? "—"}</KVRow>
+            {session.activity.reasonCode !== undefined && (
+              <KVRow name={t("agentRuntime.facts.reasonCode")}>{session.activity.reasonCode}</KVRow>
+            )}
             <KVRow name={t("agentRuntime.facts.holder")}>
               {association?.holder?.personId
                 ? actorDisplayName(association.holder.personId).name

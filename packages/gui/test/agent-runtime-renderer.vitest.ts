@@ -322,6 +322,16 @@ describe("agent runtime renderer", () => {
     expect(firstScreen).toContain('title="2026-08-13T00:00:00.000Z"');
     expect(markup).not.toContain("secret");
   });
+  it("renders the terminal reason code recorded by the daemon", () => {
+    const markup = detailView({
+      session: {
+        ...session,
+        activity: { ...session.activity, outcome: "failed", reasonCode: "runtime_spend_cap_exceeded" },
+      },
+    });
+    expect(markup).toContain("Reason code");
+    expect(markup).toContain("runtime_spend_cap_exceeded");
+  });
   it("keeps a historical session visible when its definition snapshot was not persisted", () => {
     const markup = detailView({
       session: { ...session, definitionSnapshot: null, definitionSnapshotPersisted: false },

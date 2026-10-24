@@ -165,6 +165,8 @@ export type ActiveRuntime = {
   readonly model: string;
   readonly reasoningEffort: string | null;
   readonly fast: boolean;
+  /** Total-token cap frozen from repository settings at launch; null disables the cap. */
+  readonly tokenLimit: number | null;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;
@@ -185,6 +187,8 @@ export type ActiveRuntime = {
   cancelRequested: boolean;
   cancelBinding: RuntimeBinding | null;
   cancelOpId: string | null;
+  /** Set once provider-reported consumption passes `tokenLimit`; one-way for the attempt. */
+  spendCapExceeded: boolean;
   lossReason: string | null;
   lossSignal: string | null;
   lossExitCode: number | null;

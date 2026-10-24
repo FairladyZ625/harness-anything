@@ -9,6 +9,7 @@ import {
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
+import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import {
   pushTaskWorkerBranch,
   squadWorkerBranchHasDelivery,
@@ -233,11 +234,14 @@ export async function publishExit(
     if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
     const exitGuidance = unsubmittedExitGuidance(active, outcome);
     if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
-    let reasonCode: string | null = reviewSuperseded.superseded
-        ? "review_cut_superseded"
-        : reviewResultMissing
-          ? "review_result_missing"
-          : null,
+    let reasonCode: string | null =
+        active.spendCapExceeded && !cancelled
+          ? runtimeSpendCapReasonCode
+          : reviewSuperseded.superseded
+            ? "review_cut_superseded"
+            : reviewResultMissing
+              ? "review_result_missing"
+              : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
@@ -657,6 +661,7 @@ export function runtimeResultText(
   code: number | null,
   outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
 ): string {
+  if (active.spendCapExceeded && outcome !== "cancelled") return runtimeSpendCapReason(active);
   if (active.lossReason)
     return `Runtime session lost: ${active.lossReason}${active.lossSignal ? ` (${active.lossSignal})` : ""}.`;
   if (code === 0 || code === null)
