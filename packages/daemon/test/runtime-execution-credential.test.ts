@@ -93,7 +93,7 @@ test("execution requests exclude other tasks, repos, controls, and human consent
     });
   assert.doesNotThrow(() => request("task-show"));
   assert.doesNotThrow(() => request("task-push"));
-  for (const kind of ["task-review-consent", "task-adjudicate", "people-delegate", "task-review-execution"])
+  for (const kind of ["task-review-consent", "people-delegate", "task-review-execution"])
     assert.throws(() => request(kind));
   assert.doesNotThrow(() => request("task-show", { taskId: "task-other" }));
   assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-progress-append", taskId: p.taskId }));
@@ -494,10 +494,7 @@ test("execution event list permits repository reads without widening task or wri
       assert.throws(() => request("other-repo", { kind: "event-list" }), { code: "execution_credential_rejected" });
       for (const action of [{ kind: "task-progress-append", taskId: "other-task" }])
         assert.throws(() => requireExecutionActionScope(p, action), { code: "execution_credential_rejected" });
-      for (const action of [
-        { kind: "task-adjudicate", taskId: p.taskId },
-        { kind: "relation-relate", taskId: p.taskId },
-      ])
+      for (const action of [{ kind: "relation-relate", taskId: p.taskId }])
         assert.throws(() => requireExecutionActionScope(p, action), { code: "execution_credential_rejected" });
       for (const action of [
         { kind: "event-show", opId: "other-event" },

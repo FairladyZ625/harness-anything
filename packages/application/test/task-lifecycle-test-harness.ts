@@ -195,7 +195,11 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
-              completionContract: { ...emptyCompletionContract, gates },
+              completionContract: {
+                ...emptyCompletionContract,
+                closeoutGates: { review: true, consent: true, factDisposition: true },
+                gates,
+              },
             },
           },
           opId,
@@ -227,36 +231,16 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
-              completionContract: { ...emptyCompletionContract, gates: [] },
+              completionContract: {
+                ...emptyCompletionContract,
+                closeoutGates: { review: true, consent: true, factDisposition: true },
+                gates: [],
+              },
             },
           },
           opId,
         ),
         { actorBinding: owner, leaseVersion: null, sessionDisposition: "complete" },
-      );
-    },
-    adjudicate: async (
-      executionId: string,
-      decision: "forward" | "return",
-      reviewId?: string,
-      opId = `op-adjudicate-${revision() + 1}`,
-    ) => {
-      const next = revision() + 1;
-      return service.execute(
-        command(
-          owner,
-          next,
-          {
-            type: "AdjudicateSubmission",
-            taskId: "task-1",
-            executionId,
-            decision,
-            reason: `${decision} the current cut`,
-            ...(reviewId === undefined ? {} : { reviewId }),
-          },
-          opId,
-        ),
-        { actorBinding: owner, capability: "task-adjudicate@v1", capabilityRef: `cap-${opId}` },
       );
     },
     review: async (
@@ -292,7 +276,7 @@ export function lifecycleHarness() {
           actorBinding: reviewer,
           capability: "execution-review@v1",
           capabilityRef: `cap-${opId}`,
-          returnBudget: 3,
+          reworkBudget: 3,
         },
       );
     },

@@ -47,7 +47,7 @@ export default {
         "",
         "## Verification",
         "",
-        "start/submit/adjudicate 回执全部 ok,投影携带 seeded execution 与 review。",
+        "start/submit 回执全部 ok,投影携带 seeded execution 与 review。",
         "",
         "## Residual Risk",
         "",

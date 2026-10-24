@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
@@ -100,6 +100,40 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     };
+    // A changes_requested review verdict reopens each rework round automatically
+    // (dec_E369B861 CH3); the reviewer records under its own agent actor.
+    const reviewAuth = {
+      transportKind: "unix-socket" as const,
+      unixSocketOwnerBoundary: {
+        ownerUid: process.getuid?.() ?? 501,
+        source: "unix-socket-filesystem-owner-boundary" as const,
+      },
+      sessionEnvironment: { HARNESS_ACTOR: "agent:fleet-reviewer" },
+    };
+    const recordVerdict = async (iteration: number, executionId: string, verdict: "approved" | "changes_requested") => {
+      const stem = `rework-${iteration}`;
+      mkdirSync(path.join(fixture.repo, "harness", created.packagePath, "artifacts", "reports"), { recursive: true });
+      writeFileSync(
+        path.join(fixture.repo, "harness", created.packagePath, "artifacts", "reports", `${stem}.md`),
+        `# Review ${stem}\n\nEdge rework round verdict.\n`,
+      );
+      writeFileSync(
+        path.join(fixture.repo, "harness", `${stem}.json`),
+        JSON.stringify({ verdict, reason: `Round ${iteration} verdict.`, evidenceChecked: ["closeout.md"] }),
+      );
+      const reviewed = (await fixture.host.run(
+        "dual-repo",
+        {
+          kind: "task-review-execution",
+          taskId: created.taskId,
+          executionId,
+          reviewId: `review-${stem}`,
+          fromFile: `${stem}.json`,
+        } as never,
+        reviewAuth as never,
+      )) as Record<string, unknown>;
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed).slice(0, 400));
+    };
     for (let iteration = 0; iteration < 3; iteration += 1) {
       const executionId = `execution-rework-${iteration}`;
       const started = await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId });
@@ -126,16 +160,7 @@ test(
         executionId,
       });
       assert.equal(submitted.ok, true, JSON.stringify(submitted));
-      const forward = await fixture.centerRun({
-        kind: "task-adjudicate",
-        taskId: created.taskId,
-        executionId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Review this iteration.",
-      });
-      assert.equal(forward.outcome, "applied", JSON.stringify(forward));
-      // The edge runtime answers from the resident replica after the center-side forward lands.
+      // The edge runtime answers from the resident replica after the center-side submit lands.
       assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
       const reviewers: string[] = [];
       for (const explicit of [false, true]) {
@@ -178,17 +203,10 @@ test(
         assert.equal(ledgerRevision(fixture), before);
         assert.equal(launches, launchCount);
       }
-      if (iteration < 2) {
-        const returned = await fixture.centerRun({
-          kind: "task-adjudicate",
-          taskId: created.taskId,
-          executionId,
-          return: true,
-          workerMode: "none",
-          reason: "Revise the delivery.",
-        });
-        assert.equal(returned.outcome, "applied", JSON.stringify(returned));
-      }
+      // Below the budget the adverse verdict itself reopens the next round; the final round
+      // approves and stays at the gate.
+      await recordVerdict(iteration, executionId, iteration < 2 ? "changes_requested" : "approved");
+      assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
     }
     // No held implementation lease remains after submission.
     await assert.rejects(spawn("implementation", undefined, "implementation"), { code: "execution_missing" });

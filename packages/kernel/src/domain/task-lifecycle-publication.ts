@@ -318,7 +318,7 @@ export function renderLifecycleDocument(
   if (path.includes("/returns/") && event.type === "submission_returned")
     return [
       `# Owner return for iteration ${String(event.payload.execution.iteration)}\n\n`,
-      "Managed by `ha task adjudicate --return`; hand edits are rejected.\n\n",
+      "Historical owner return (the manual command is retired); hand edits are rejected.\n\n",
       `- Task: ${event.taskId}\n`,
       `- Execution: ${event.payload.execution.executionId}\n`,
       `- Review: ${event.payload.reviewId ?? "none recorded"}\n`,
@@ -440,7 +440,7 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, pa
       taskClass: task.taskClass,
       pinned: task.pinned,
       presetSnapshotDigest: task.presetSnapshotDigest,
-      ...(task.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: task.reviewReturnBudget }),
+      ...(task.reviewer === undefined ? {} : { reviewer: task.reviewer }),
       ...(task.closeoutOverrides === undefined ? {} : { closeoutOverrides: task.closeoutOverrides }),
       ...(task.archiveOnComplete === undefined ? {} : { archiveOnComplete: task.archiveOnComplete }),
       metadata,

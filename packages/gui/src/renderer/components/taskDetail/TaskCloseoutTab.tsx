@@ -41,10 +41,6 @@ export interface TaskActionProps {
   readonly onSubmit?: () => Promise<unknown>;
   /** 收口销账:纯机械动作。 */
   readonly onComplete?: () => Promise<unknown>;
-  /** CEO 初审送审/打回与终审打回。 */
-  readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
-  /** 批量 Diff 批注的结构化返工说明直接预填入统一打回对话框。 */
-  readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   /** CEO 终审批准:对指定已批准评审记录同意。 */
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注:manual-attest 打勾(approve)或失败关卡特批(override)。 */
@@ -64,8 +60,6 @@ export function TaskCloseoutTab({
   onProgress,
   onSubmit,
   onComplete,
-  onAdjudicate,
-  onReturnNote,
   onConsentReview,
   onAttest,
   onNavigateEntity,
@@ -160,8 +154,6 @@ export function TaskCloseoutTab({
               diffFiles={diffFiles}
               completionBlocker={completion.data?.completionBlocker ?? null}
               onComplete={onComplete}
-              onAdjudicate={onAdjudicate}
-              onReturnNote={onReturnNote}
               onConsentReview={onConsentReview}
             />
             <AuditGroup title="Review" count={reviews.length}>
@@ -230,16 +222,12 @@ function CompletionPanel({
   completionBlocker,
   diffFiles,
   onComplete,
-  onAdjudicate,
-  onReturnNote,
   onConsentReview,
 }: {
   readonly task: TaskRow;
   readonly completionBlocker: TaskCompletionRead["completionBlocker"];
   readonly diffFiles?: readonly DiffFile[];
   readonly onComplete?: () => Promise<unknown>;
-  readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
-  readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
 }) {
   const code = completionBlocker?.code,
@@ -255,8 +243,6 @@ function CompletionPanel({
   if (!["submitted", "in_review"].includes(task.coordinationStatus) || (stage === "other" && !hasDeliveryDiff))
     return null;
   const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1);
-  const sendReturnNote =
-    onReturnNote ?? ((reason: string, reviewId?: string) => onAdjudicate?.("return", reason, reviewId));
 
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
@@ -268,51 +254,12 @@ function CompletionPanel({
             ? t("components.taskCloseout.stageConsentDesc")
             : t("components.taskCloseout.stageReadyDesc")}
       </p>
-      {diffFiles && diffFiles.length > 0 && (
+      {diffFiles && diffFiles.length > 0 ? (
         <div className="mt-3">
-          <AnnotateDiffViewer
-            files={diffFiles}
-            onBatchSend={(prompt) => {
-              void sendReturnNote?.(prompt, approved?.reviewId);
-            }}
-          />
+          <AnnotateDiffViewer files={diffFiles} />
         </div>
-      )}
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        {task.coordinationStatus === "submitted" ? (
-          <>
-            <Button
-              testId="task-triage-forward"
-              disabled={!onAdjudicate}
-              variant="primary"
-              onClick={() =>
-                void onAdjudicate?.("forward", "Owner initial review accepted this cut for independent review.")
-              }
-            >
-              {t("components.taskCloseout.triageForward")}
-            </Button>
-            <Button
-              testId="task-triage-return"
-              disabled={!onAdjudicate}
-              variant="plain"
-              onClick={() => void onAdjudicate?.("return", "Owner initial review returned this cut for rework.")}
-            >
-              {t("components.taskCloseout.triageReturn")}
-            </Button>
-          </>
-        ) : null}
-        {task.coordinationStatus === "in_review" && approved ? (
-          <Button
-            testId="task-review-return"
-            disabled={!onAdjudicate}
-            variant="plain"
-            onClick={() =>
-              void onAdjudicate?.("return", "Owner final review returned this cut for rework.", approved.reviewId)
-            }
-          >
-            {t("components.taskCloseout.reviewReturn")}
-          </Button>
-        ) : null}
         {stage === "consent" ? (
           <Button
             testId="task-completion-consent"

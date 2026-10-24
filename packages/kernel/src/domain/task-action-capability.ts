@@ -94,22 +94,6 @@ const taskCapabilityEvaluators = Object.freeze(
           ? "met"
           : "unmet",
     ],
-    [key("adjudicate", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [
-      key("adjudicate", "task-lifecycle-adjudication-transitions/adjudicate.validate"),
-      ({ snapshot }) => {
-        const task = snapshot.task;
-        if (task === null) return "unmet";
-        const submitted = task.currentNode === "review" && currentSubmittedExecutions(snapshot).length > 0;
-        return submitted && ["submitted", "in_review"].includes(task.status) && snapshot.lease === null
-          ? "invocation-required"
-          : "unmet";
-      },
-    ],
-    [
-      key("adjudicate", "repo-cell-proof/proofFor.AdjudicateSubmission"),
-      ({ snapshot }) => (snapshot.task !== null ? "met" : "unmet"),
-    ],
     [key("review", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("review", "task-lifecycle-review-transitions/review.validate"), reviewValidation],
     [key("review", "repo-cell-proof/proofFor.RecordReview"), reviewIndependence],
@@ -211,7 +195,7 @@ function submitValidation(input: TaskActionCapabilityInput): PredicateEvaluation
     status: input.invocation?.amend === false ? "unmet" : "invocation-required",
     nextActions: [
       `Execution ${executionId} is already submitted; use ${amend} to correct it, or wait for the ` +
-        `owning CEO to adjudicate the cut (ha task adjudicate ${taskId}).`,
+        `recorded review verdict (ha runtime status --task ${taskId} --wait).`,
     ],
   };
 }

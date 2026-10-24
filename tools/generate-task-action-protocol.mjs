@@ -71,10 +71,10 @@ export function projectTaskActions() {
       },
     }));
   // Assignment is a generic Relation Action. The Task lifecycle projection therefore contains
-  // create plus the seven remaining lifecycle transitions; task/assign and task/unassign are
+  // create plus the six remaining lifecycle transitions; task/assign and task/unassign are
   // projected by the shared entity Action catalog instead of this Task-only protocol.
-  if (actions.length !== 8 || actions.some(({ execution }) => !execution.topology))
-    throw new Error("Task Action protocol projection requires create and seven lifecycle descriptors.");
+  if (actions.length !== 7 || actions.some(({ execution }) => !execution.topology))
+    throw new Error("Task Action protocol projection requires create and six lifecycle descriptors.");
   const create = descriptors.find(({ id }) => id === "create"),
     start = descriptors.find(({ id }) => id === "start");
   if (!create || !start) throw new Error("Task create/start descriptors are missing.");

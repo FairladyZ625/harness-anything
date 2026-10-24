@@ -76,7 +76,7 @@ export function createGuiExecutionId(randomUUID: () => string = () => crypto.ran
 
 export interface TaskMutationFeedback {
   readonly state: "pending" | "success" | "error";
-  readonly kind: "start" | "progress" | "submit" | "complete" | "pin" | "attest" | "adjudicate";
+  readonly kind: "start" | "progress" | "submit" | "complete" | "pin" | "attest" | "consent";
   readonly opId: string;
   readonly code?: string;
   readonly hint: string;
@@ -233,8 +233,8 @@ export function useTaskActions(repoId: string) {
       }),
     [once, reread],
   );
-  // 收口销账与 `ha task complete` 同一条 daemon 动作:纯机械动作。评审裁决
-  // (adjudicate)与终审批准(consent)是各自独立的显式动作;评审是否批准只由读面回答。
+  // 收口销账与 `ha task complete` 同一条 daemon 动作:纯机械动作。终审批准(consent)
+  // 是独立显式动作;评审是否批准只由读面回答,打回返工由评审 verdict 自动驱动。
   const completeTask = useCallback(
     (task: TaskRow): Promise<TaskMutationFeedback> =>
       once(`complete:${task.taskId}`, task.taskId, async () => {
@@ -251,43 +251,13 @@ export function useTaskActions(repoId: string) {
       }),
     [once, reread],
   );
-  // CEO 裁决:送审(--forward,daemon 同时派出独立评审)或打回(--return,带返工说明)。
-  const adjudicateTask = useCallback(
-    (
-      task: TaskRow,
-      decision: "forward" | "return",
-      reason: string,
-      reviewId?: string,
-      workerMode?: "resume" | "fresh",
-    ): Promise<TaskMutationFeedback> =>
-      once(`adjudicate:${task.taskId}:${decision}`, task.taskId, async () => {
-        publish(task.taskId, {
-          state: "pending",
-          kind: "adjudicate",
-          opId: "awaiting-receipt",
-          hint: decision === "forward" ? "正在送审并派发独立评审…" : "正在下达返工指令…",
-        });
-        const settlement = settleTaskReceipt(
-          await harnessClient.adjudicateTask({
-            repoId,
-            taskId: task.taskId,
-            executionId: task.activeExecutionId,
-            ...(reviewId ? { reviewId } : {}),
-            ...(decision === "forward" ? { forward: true } : { return: true, workerMode, followUp: reason }),
-            reason,
-          }),
-        );
-        return reread(task.taskId, "adjudicate", settlement);
-      }),
-    [once, reread],
-  );
   // CEO 终审批准:对已批准的评审记录同意,随后 complete 才能机械结项。
   const consentReview = useCallback(
     (task: TaskRow, reviewId: string): Promise<TaskMutationFeedback> =>
       once(`consent:${task.taskId}:${reviewId}`, task.taskId, async () => {
         publish(task.taskId, {
           state: "pending",
-          kind: "adjudicate",
+          kind: "consent",
           opId: "awaiting-receipt",
           hint: "正在记录终审批准…",
         });
@@ -297,7 +267,7 @@ export function useTaskActions(repoId: string) {
         if (executionId === undefined)
           return publish(task.taskId, {
             state: "error",
-            kind: "adjudicate",
+            kind: "consent",
             opId: "N/A",
             code: "review_not_found",
             hint: `评审 ${reviewId} 不在当前任务切面里,刷新后再试。`,
@@ -310,7 +280,7 @@ export function useTaskActions(repoId: string) {
             reviewId,
           }),
         );
-        return reread(task.taskId, "adjudicate", settlement);
+        return reread(task.taskId, "consent", settlement);
       }),
     [once, reread],
   );
@@ -369,7 +339,6 @@ export function useTaskActions(repoId: string) {
     appendProgress,
     submitTask,
     completeTask,
-    adjudicateTask,
     consentReview,
     setTaskPin,
     attestGate,

@@ -150,8 +150,9 @@ approved 只是回流给 owner 的报告，不会自行批准完成。owner 显�
 ha task review-consent task_... --review-id review-docs-loop
 ```
 
-若结论是 `changes_requested`，任务仍停在 `in_review`，直到 owner 执行
-`ha task adjudicate task_... --return --worker-mode resume --message <反馈> --review-id <id> --note <原因>`。
+若结论是 `changes_requested`，任务在未超过仓库返工上限（`reviewReturnBudget`，默认 2）时自动回到
+`active` 重开返工轮，提交它的 worker 会话被自动续跑并带上评审报告；超过上限则停在 `in_review` 等
+owner 处置（用 `ha task review-consent ... --dispose <id>` 处置该结论，或 supersede 任务）。
 
 ```bash
 ha task complete task_...

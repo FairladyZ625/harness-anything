@@ -139,8 +139,9 @@ test("catalog and object modes share one strict schema with four honest criterio
   );
   assert.equal(
     actions.reduce((count, action) => count + action.criteria.length, 0),
-    37, // dec_4190D5EA63D9DD208CE946F133: four GateRun criteria, alongside S8 assignment criteria.
+    34, // dec_4190D5EA63D9DD208CE946F133: four GateRun criteria, alongside S8 assignment criteria.
     // 41 → 37: every code/doc criterion left with its Action (owner 2026-10-21 B3).
+    // 37 → 34: dec_E369B8616F50A6208B293997E7/CH5 retires the three adjudicate criteria with the command.
   );
 
   const dishonestAvailability = structuredClone(object) as unknown as {

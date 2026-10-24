@@ -43,41 +43,6 @@ export function reviewDispatchKey(taskId: string, execution: ExecutionV1, review
   return reviewerId ? `${key}:reviewer:${reviewerId}` : key;
 }
 
-/**
- * The deterministic impossibilities of dispatching a cut reviewer: no sealed daemon route, no
- * resolvable reviewer declaration, or an installed reviewer that declares no explicit model. The
- * same conditions `spawnCutReviewDispatch` fails on after its durable write; stated here as one
- * answer so the upgrade-forward precondition names exactly what the spawn itself would reject.
- * A launch that fails only at runtime (instances down) stays with the idempotent retry lane.
- */
-export function cutReviewDispatchObstruction(
-  cell: Pick<RepoCellOperationalContext, "input" | "rootDir" | "store">,
-  input: {
-    readonly reviewerId: string;
-    readonly model?: string;
-  },
-): string | null {
-  if (!cell.input.runtimeDaemonRoute) return "no sealed daemon route to dispatch its reviewer through this cell";
-  try {
-    const resolved = readAgentDeclarationResolution({
-      rootDir: cell.rootDir,
-      agentId: input.reviewerId,
-      entityStore: createEntityStore(cell.store),
-    });
-    if (!resolved) return `no resolvable reviewer ${input.reviewerId}; install one or pass --agent <agent-id>`;
-    if (
-      resolved.layer === "installed" &&
-      !agentDeclaresExplicitModels(resolved.declaration.runtimes) &&
-      typeof input.model !== "string"
-    )
-      return `reviewer ${input.reviewerId} declares no explicit model; pass --model <model>`;
-  } catch (error) {
-    if (!isAgentDeclarationInvalid(error)) throw error;
-    return error instanceof Error ? error.message : String(error);
-  }
-  return null;
-}
-
 export function decisionReviewDispatchKey(decisionId: string, digest: string): string {
   return `decision-review:${decisionId}:${digest}`;
 }
@@ -784,7 +749,7 @@ export async function dispatchInReviewCutReview(
             cell.cellCodedError(
               "review_dispatch_failed",
               `Task ${taskId} is already in_review. Reviewer ${reviewerId} dispatch failed: ${dispatch.error} ` +
-                `Recover with ha task dispatch-review ${taskId} --agent ${reviewerId}; do not repeat adjudicate.`,
+                `Recover with ha task dispatch-review ${taskId} --agent ${reviewerId}.`,
             ),
           )
         : ({
@@ -900,8 +865,8 @@ export async function dispatchTaskReview(
     if (snapshot.task?.status !== "in_review") {
       fail(
         snapshot.task?.status === "submitted"
-          ? `Task ${taskId} has no automatic review requirement. Complete it, or explicitly request review with ` +
-              `ha task adjudicate ${taskId} --forward --reviewer ${reviewerId} --note <why>.`
+          ? `Task ${taskId} has no automatic review requirement; its cut lifted review. Complete it with ` +
+              `ha task complete ${taskId}.`
           : `Task ${taskId} is not at the in-review gate.`,
       );
       continue;

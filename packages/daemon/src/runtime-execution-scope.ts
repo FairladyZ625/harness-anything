@@ -47,7 +47,6 @@ export function requireExecutionRequestScope(
 
 const selfApprovalActions = new Set([
   "task-review-consent",
-  "task-adjudicate",
   "task-complete",
   "decision-accept",
   "decision-consent",

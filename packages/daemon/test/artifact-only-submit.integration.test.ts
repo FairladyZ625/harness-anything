@@ -126,18 +126,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
         ...(artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : []),
       ],
     );
-    const forward = await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId,
-        executionId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Owner forwards verified delivery.",
-      },
-      holder,
-    );
-    assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+
     await waitForFixturePublication(cell, forward.opId, holder);
     if (!artifact && !hasPublicDiff) {
       // dec_BB2BCE9F995CD3A126E2918734 CH4: no fact quota — the strict cut waits on review, not facts.

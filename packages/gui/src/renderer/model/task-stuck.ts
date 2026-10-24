@@ -75,8 +75,8 @@ export function taskStuckItems(task: TaskRow): readonly TaskStuckItem[] {
     }
     if (items.length === 0) items.push({ kind: "cycle", key: "cycle" });
   }
-  // 被打回待返工:adjudicate return 把 execution 置 changes_requested、任务回 active
-  // 并 +1 轮;新一轮还没有人认领(无 lease)时才算卡,认领后就是在做的活。
+  // 被打回待返工:changes_requested 评审把 execution 置 changes_requested、任务回 active
+  // 并 +1 轮(自动续跑的 worker 会认领);新一轮还没有人认领(无 lease)时才算卡,认领后就是在做的活。
   const iteration = task.iteration ?? 0;
   if (
     task.coordinationStatus === "active" &&

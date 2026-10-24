@@ -56,7 +56,6 @@ export interface WorkspaceViewProps {
   readonly onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   readonly onAttest?: (task: Pick<TaskRow, "taskId">, gateId: string, mode: "approve" | "override") => void;
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
-  readonly onAdjudicate?: (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string) => void;
   readonly feedback?: (taskId: string) => TaskMutationFeedback | undefined;
   readonly onLoadMore?: () => void;
   readonly loadingMore?: boolean;
@@ -95,7 +94,6 @@ export function WorkspaceView({
   onSetTaskPin,
   onAttest,
   onConsent,
-  onAdjudicate,
   feedback,
   onLoadMore,
   loadingMore = false,
@@ -435,11 +433,6 @@ export function WorkspaceView({
               lanes={lanes}
               agoOf={agoOf}
               feedback={feedback}
-              onAdjudicate={
-                onAdjudicate === undefined
-                  ? undefined
-                  : (task, decision, reason) => void onAdjudicate(task, decision, reason)
-              }
               onAttest={onAttest}
               onConsent={onConsent}
               onOpenTask={openTask}

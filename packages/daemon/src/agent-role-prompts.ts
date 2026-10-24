@@ -31,8 +31,8 @@ const reviewerDiscipline = [
     "changes_requested against the pinned target and digest, and stop if that cut changes. " +
     "If ha task review-execution returns error code review_cut_superseded, the cut has been replaced; " +
     "this error is terminal and must not be retried.",
-  "- Findings are evidence-backed advice to the owner. Do not amend or adjudicate the target, and do not " +
-    "accept, reject, defer, consent to, or complete it. Provider success is not review approval.",
+  "- Findings are evidence-backed advice to the owner. Do not amend the target, and do not " +
+    "accept, reject, defer, consent to, or complete it. A changes_requested verdict automatically returns the cut for rework. Provider success is not review approval.",
 ].join("\n");
 
 // Publication commands belong to the action-specific mission, not the static role baseline.

@@ -84,13 +84,6 @@ export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
   readonly amend?: true;
   readonly asOwner?: true;
 }
-export interface AdjudicateSubmissionIntent extends Intent<"AdjudicateSubmission"> {
-  readonly executionId: string;
-  readonly decision: "forward" | "return";
-  readonly reason: string;
-  /** Present when a return adjudicates a recorded review verdict. */
-  readonly reviewId?: string;
-}
 export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly executionId: string;
   readonly reviewId: string;
@@ -128,7 +121,6 @@ export type TaskLifecycleCommandIntent =
   | StartExecutionIntent
   | TransitionTaskIntent
   | SubmitExecutionIntent
-  | AdjudicateSubmissionIntent
   | RecordReviewIntent
   | RecordReviewConsentIntent
   | CompleteTaskIntent;
@@ -146,7 +138,6 @@ export type UnassignTaskCommand = NormalizedTaskLifecycleCommand<UnassignTaskInt
 export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutionIntent> & Meta;
 export type TransitionTaskCommand = NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta;
 export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta;
-export type AdjudicateSubmissionCommand = NormalizedTaskLifecycleCommand<AdjudicateSubmissionIntent> & Meta;
 export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & Meta;
 export type RecordReviewConsentCommand = NormalizedTaskLifecycleCommand<RecordReviewConsentIntent> & Meta;
 export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
@@ -158,7 +149,6 @@ export type TaskLifecycleCommand =
   | StartExecutionCommand
   | TransitionTaskCommand
   | SubmitExecutionCommand
-  | AdjudicateSubmissionCommand
   | RecordReviewCommand
   | RecordReviewConsentCommand
   | CompleteTaskCommand;
@@ -186,15 +176,16 @@ export interface SubmitExecutionProof {
   readonly leaseVersion: number | null;
   readonly sessionDisposition: "complete" | "partial" | "unavailable";
 }
-export interface AdjudicationProof {
-  readonly actorBinding: ActorAxes;
-  readonly capability: "task-adjudicate@v1";
-  readonly capabilityRef: string;
-}
 export interface ReviewProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "execution-review@v1";
   readonly capabilityRef: string;
+  /**
+   * The effective repository rework budget at this write: a changes_requested verdict below it
+   * reopens the implementation iteration in the same transition; at or beyond it the verdict only
+   * records and the cut awaits the owner.
+   */
+  readonly reworkBudget: number;
 }
 export interface ReviewConsentProof {
   readonly actorBinding: ActorAxes;
@@ -228,15 +219,13 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
         ? TransitionTaskProof
         : C extends SubmitExecutionCommand
           ? SubmitExecutionProof
-          : C extends AdjudicateSubmissionCommand
-            ? AdjudicationProof
-            : C extends RecordReviewCommand
-              ? ReviewProof
-              : C extends RecordReviewConsentCommand
-                ? ReviewConsentProof
-                : C extends CompleteTaskCommand
-                  ? CompleteTaskProof
-                  : never;
+          : C extends RecordReviewCommand
+            ? ReviewProof
+            : C extends RecordReviewConsentCommand
+              ? ReviewConsentProof
+              : C extends CompleteTaskCommand
+                ? CompleteTaskProof
+                : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;

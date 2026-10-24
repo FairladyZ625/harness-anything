@@ -102,8 +102,7 @@ function createdTask(events: ReturnType<ChildFixture["events"]>, childTaskId: st
 }
 
 test("a low-risk submit freezes no dispatch and never launches a reviewer", { timeout: 20_000 }, async () => {
-  const f = await fixture(false, true, true, false, false, undefined, {
-    autoForward: false,
+  const f = await fixture(false, true, true, false, false, {
     autoSubmit: false,
     create: { riskTier: "low" },
   });
@@ -125,7 +124,7 @@ test(
   "submit automatically dispatches the accepted cut and complete never dispatches a reviewer",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     try {
       await f.install();
       const submitted = (await f.submit()) as Record<string, unknown>;
@@ -149,7 +148,7 @@ test(
 );
 
 test("submit and amend dispatch their own frozen cuts without owner forward", { timeout: 20_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     const reportPath = path.join(f.root, "harness", f.packagePath, "artifacts", "independent.md");
@@ -199,7 +198,7 @@ test(
   "a low-risk subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
   { timeout: 30_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
       closeoutProfile: "strict",
       create: { presetId: "create-work", taskClass: "work", locale: "zh-CN" },
@@ -298,7 +297,7 @@ test(
   "a low-risk subtask under a docs-task parent also resolves the repository default preset, and explicit flags still win",
   { timeout: 30_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, {
+    const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
       closeoutProfile: "strict",
       create: { presetId: "docs-task" },
@@ -363,7 +362,7 @@ test(
 );
 
 test("a baseline-profile sibling under strict settings dispatches at submit", { timeout: 30_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     closeoutProfile: "strict",
     create: { presetId: "standard-task" },
@@ -395,7 +394,7 @@ test(
     timeout: 30_000,
   },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     try {
       await f.install();
       const settings = await f.runPrincipal({
@@ -405,27 +404,25 @@ test(
       });
       assert.equal(settings.outcome, "applied", JSON.stringify(settings));
       assert.equal((await f.submit()).outcome, "applied");
-      const forwarded = (await f.run({
-        kind: "task-adjudicate",
-        taskId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Review frozen cut.",
-      })) as unknown as Record<string, unknown>;
-      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-      assert.equal(forwarded.reviewerId, "closeout-reviewer");
-      assert.equal(forwarded.reviewerSource, "argument");
+      // The frozen claim (missing-reviewer) beats the repository default at submit, so the
+      // auto-dispatch fails and lands its recovery step; the explicit dispatch-review argument
+      // then selects the installed reviewer (owner ruling 2026-09-21 precedence, now on the
+      // one dispatch port).
       const state = (await f.cell().read("repo.tasks.list")).rows.find((row) => row.taskId === taskId);
       assert.equal(state?.snapshot.task?.status, "in_review");
+      assert.equal(f.launches.length, 0);
+      const selected = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
+      assert.equal(selected.outcome, "applied", JSON.stringify(selected));
       assert.equal(f.launches.length, 1);
+      assert.match(String(f.launches[0]!.prompt), /Independently review task/u);
     } finally {
       await f.close();
     }
   },
 );
 
-test("explicit reviewer selection dispatches beside the automatic reviewer and retries reuse its identity", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+test("one reviewer per cut: a live dispatch owns the lane, and a replaced reviewer waits for its end", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     assert.equal(
@@ -447,36 +444,46 @@ test("explicit reviewer selection dispatches beside the automatic reviewer and r
     );
     await f.submit();
     assert.equal(f.launches.length, 1);
-    const action = {
-      kind: "task-adjudicate",
-      taskId,
-      forward: true,
-      reviewer: "alternate-reviewer",
-      reason: "Request an additional independent reviewer.",
-    };
-    const selected = await f.run(action);
+    // A cut holds one active reviewer: --agent cannot jump the queue while the automatic
+    // reviewer's session is live (dec_E369B861 CH3 keeps dispatch-review the one port).
+    const jumpQueue = (await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "alternate-reviewer",
+    })) as Record<string, unknown>;
+    assert.equal(jumpQueue.outcome, "op_rejected", JSON.stringify(jumpQueue));
+    assert.equal(jumpQueue.code, "review_dispatch_failed", JSON.stringify(jumpQueue));
+    assert.match(
+      String(jumpQueue.rejectionExplanation),
+      /already holds review dispatch .+ by agent closeout-reviewer/u,
+    );
+    assert.match(String(jumpQueue.rejectionExplanation), /after that review session ends/u);
+    assert.equal(f.launches.length, 1);
+    // Re-selecting the holding reviewer is idempotent on its own dispatch identity.
+    const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+    assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+    assert.equal(f.launches.length, 1, "the retry reuses the holding reviewer's dispatch");
+    // Once the automatic reviewer's session ends, the explicit selection owns the next attempt.
+    const holding = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(holding?.type === "runtime_dispatch_requested");
+    f.failPending();
+    await f.awaitOutcome(holding.payload.runtimeSessionId);
+    const selected = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "alternate-reviewer" });
     assert.equal(selected.outcome, "applied", JSON.stringify(selected));
     assert.equal(f.launches.length, 2);
-    assert.equal((await f.run(action)).outcome, "applied");
-    const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "alternate-reviewer" });
-    assert.equal(retry.outcome, "applied", JSON.stringify(retry));
-    assert.equal(
-      f.launches.length,
-      2,
-      "both owner selection and dispatch-review reuse the selected reviewer's dispatch",
-    );
     const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
     assert.deepEqual(
       dispatches.map((event) => event.payload.agentId),
       ["closeout-reviewer", "alternate-reviewer"],
     );
+    assert.match(String(dispatches.at(-1)!.payload.dispatchKey), /:reviewer:alternate-reviewer$/u);
   } finally {
     await f.close();
   }
 });
 
 test("legacy base-key dispatch for an alternate reviewer is reused by reroute and dispatch-review", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
+  const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     closeoutProfile: "strict",
   });
@@ -527,20 +534,8 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
       .find((event) => event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === legacyKey);
     assert.ok(legacyEvent?.type === "runtime_dispatch_requested");
 
-    const rerouted = await f.run({
-      kind: "task-adjudicate",
-      taskId,
-      executionId,
-      forward: true,
-      reviewer: "alternate-reviewer",
-      reason: "Retry the selected reviewer on the same cut.",
-    });
-    assert.equal(rerouted.outcome, "applied", JSON.stringify(rerouted));
-    const rerouteStep = ((rerouted as Record<string, unknown>).steps as readonly Record<string, unknown>[]).at(-1);
-    assert.equal(rerouteStep?.dispatchId, legacyEvent.payload.dispatchId);
-    assert.equal(rerouteStep?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
-    assert.equal(f.launches.length, 1, "the owner reroute must reuse the live legacy dispatch");
-
+    // The dispatch-review lane recognizes the live legacy dispatch and reuses its identity
+    // (the manual reroute rode the same key shape before the forward command retired).
     const retry = await f.run({
       kind: "task-dispatch-review",
       taskIds: [taskId],
@@ -578,12 +573,12 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
 });
 
 test(
-  "resumed submit keeps frozen reviewer over settings and recovers dispatch without adjudication",
+  "resumed submit keeps frozen reviewer over settings and recovers dispatch through dispatch-review",
   {
     timeout: 30_000,
   },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     try {
       await f.install();
       const settings = await f.runPrincipal({
@@ -681,7 +676,7 @@ test(
 );
 
 test("automatic submit dispatch cannot lend its authorization decision to runtime-spawn", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     revokeTestPolicyActions(owner.actor.principal.personId, "completion-review", ["runtime-spawn"]);
