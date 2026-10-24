@@ -159,9 +159,16 @@ function factEvidenceDispatchPrefixes(rootDir: string): readonly string[] {
     if (!name.endsWith(".md")) continue;
     for (const match of readFileSync(path.join(facts, name), "utf8").matchAll(
       /dispatches\/archive\/dispatch_([a-f0-9*,{}]+)/gu,
-    ))
-      for (const token of match[1]!.replace(/[{}]/gu, "").split(","))
-        if (/^[a-f0-9]{8,24}$/u.test(token)) prefixes.add(token);
+    )) {
+      // A wildcard marks where an id stops being spelled out; it is not part of the id. In
+      // `{670215fc,…,c6f6af02}*` it follows the closing brace, so reading the entry as-is would
+      // turn the last id into a non-hex string and silently drop it. Cut each entry at its first
+      // wildcard instead — a glob naming an id prefix protects every id that starts with it.
+      for (const entry of match[1]!.replace(/[{}]/gu, "").split(",")) {
+        const prefix = entry.split("*")[0]!;
+        if (/^[a-f0-9]{8,24}$/u.test(prefix)) prefixes.add(prefix);
+      }
+    }
   }
   return [...prefixes];
 }

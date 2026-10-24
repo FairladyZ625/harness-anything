@@ -320,6 +320,42 @@ test("retention never deletes an archived stream that immutable fact evidence na
   }
 });
 
+test("a fact evidence glob keeps the last id it names, where the wildcard sits", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-glob-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z"),
+    firstId = "dispatch_670215fcf0e5cbf1424611ed",
+    lastId = "dispatch_c6f6af02ad74b81bf45aa144";
+  try {
+    const first = archiveStreamFixture(rootDir, firstId, 365, "First id named by the glob."),
+      last = archiveStreamFixture(rootDir, lastId, 365, "Id the trailing wildcard is attached to.");
+    // The evidence source of fact F-19D8B951, character for character: the glob's closing brace is
+    // followed by `*`, which belongs to the reference and not to the id before it.
+    factEvidence(rootDir, "dispatch_{670215fc,f9e35de8,4298b3f7,8546206f,c6f6af02}*.jsonl", "F-19D8B951");
+
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+
+    assert.equal(existsSync(first.file), true, "every id inside the braces is named");
+    assert.equal(existsSync(last.file), true, "the id the trailing wildcard touches is still a named id");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a bare prefix glob without braces also protects the streams it names", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-prefix-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z");
+  try {
+    const named = archiveStreamFixture(rootDir, "dispatch_aaaa1111bbbb2222cccc3333", 365, "Prefix-named.");
+    factEvidence(rootDir, "dispatch_aaaa1111*.jsonl", "F-TEST0003");
+
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+
+    assert.equal(existsSync(named.file), true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("the byte cap skips a fact-protected stream and evicts the unprotected remainder", () => {
   const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-size-")),
     now = Date.parse("2026-10-24T00:00:00.000Z"),
