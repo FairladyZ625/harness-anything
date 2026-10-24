@@ -14,6 +14,9 @@ export function writeAcpProviderStub(
   options: {
     readonly authMethods?: readonly Record<string, unknown>[];
     readonly modes?: Record<string, unknown>;
+    /** The initialize response's agentCapabilities; defaults to a loadSession-only agent.
+     * session/resume is answered only when sessionCapabilities.resume is advertised. */
+    readonly agentCapabilities?: Record<string, unknown>;
     /** Extra fields merged into the session/new and session/load results —
      * e.g. a spec `models` block or `configOptions` model selector. */
     readonly session?: Record<string, unknown>;
@@ -101,7 +104,9 @@ process.stdin.on("data", (chunk) => {
     if (message.id === undefined || typeof message.method !== "string") continue;
     const reply = (result) => send({ jsonrpc: "2.0", id: message.id, result });
     const fail = (text) => send({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: text } });
-    if (message.method === "initialize") reply({ protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: ${JSON.stringify(options.authMethods ?? [{ id: "devin-browser", name: "browser" }])} });
+    if (message.method === "initialize") reply({ protocolVersion: 1, agentCapabilities: ${JSON.stringify(
+      options.agentCapabilities ?? { loadSession: true },
+    )}, authMethods: ${JSON.stringify(options.authMethods ?? [{ id: "devin-browser", name: "browser" }])} });
     else if (message.method === "authenticate") {
       const key = message.params?._meta?.api_key, methodId = message.params?.methodId;
       if (typeof key === "string" && (key || methodId === "cursor_login" || methodId === "chat-gpt")) {
@@ -114,7 +119,14 @@ process.stdin.on("data", (chunk) => {
     }
     else if (message.method === "session/load") {
       // Real agents replay session history before answering session/load.
+      record({ load: message.params?.sessionId ?? null });
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "devin history " } });
+      reply({ modes, ...sessionExtras });
+    }
+    else if (message.method === "session/resume") {
+      // Spec: session/resume restores the context without replaying history; only an
+      // agent advertising sessionCapabilities.resume ever sees this request.
+      record({ resume: message.params?.sessionId ?? null });
       reply({ modes, ...sessionExtras });
     }
     else if (message.method === "session/set_mode") { record({ mode: message.params?.modeId ?? null }); reply({}); }
