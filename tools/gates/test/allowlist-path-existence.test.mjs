@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { auditAllowlistRefReachability, main } from "../allowlist-path-existence.mjs";
+import { EVIDENCE_INDEX } from "../evidence-index.mjs";
 import { captureGate, writeRepoFile } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -85,4 +86,25 @@ test("B13 ratchet audits fixture refs against the evidence index end to end", ()
   assert.match(result.stdout, /checked ref-accounting entries \(2\)/u);
   assert.match(result.stdout, /task_00000000000000000000000000" is not reachable in the evidence index/u);
   assert.doesNotMatch(result.stdout, /ADR-0022/u);
+});
+
+test("B13 accepts the action-catalog null allowlist and its decision citations resolve", () => {
+  // The live audit above fails closed when a JSON allowlist is unclassified; this pins the
+  // file's non-path classification and the evidence-index row that makes its refs reachable.
+  const allowlist = JSON.parse(
+    readFileSync(path.join(repoRoot, "tools/gate-allowlists/action-catalog-null.json"), "utf8"),
+  );
+  const refs = allowlist.entries.catalogNulls.map((entry, index) => ({
+    source: `action-catalog-null.json:entries.catalogNulls[${index}].ref`,
+    ref: entry.ref,
+  }));
+  // dec_2BF45FF7 CH1 keeps repo-read out of the gate set, so the frozen list is the 63 canonical
+  // write roads; the read-only repository-read admission is not a row.
+  assert.equal(refs.length, 63);
+  assert.equal(
+    allowlist.entries.catalogNulls.some(({ value }) => value === "repository-read"),
+    false,
+    "repository-read is a read-only admission outside the action-catalog-null gate set",
+  );
+  assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
 });
