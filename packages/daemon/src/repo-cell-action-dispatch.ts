@@ -40,6 +40,7 @@ import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 import { applyTaskWorktreeLifecycle, presetSnapshotReader, type TaskWorktreeLifecycleInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 import { readWork } from "./work-read.ts";
+import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -95,6 +96,7 @@ export function executeRepoAction(
       now: cell.now,
       ...(cell.input.shouldStop ? { shouldStop: cell.input.shouldStop } : {}),
     });
+  if (action.kind === "assignment-migrate") return runAssignmentMigrationAction(cell, action, binding);
   if (action.kind === "projection-rebuild") {
     // A rebuild re-derives the projection from the events that already exist; it never creates one.
     // Minting here would let any actor holding this action's `repo-write`/`contributor` policy write

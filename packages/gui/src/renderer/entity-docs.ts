@@ -91,7 +91,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "agent-declaration/v1",
     refTemplate: "agent/{id}",
     statuses: [],
-    actions: ["install", "delete", "retire", "validate", "list", "inspect"],
+    actions: ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign"],
   },
   decision: {
     schemaId: "decision-package",
@@ -121,6 +121,8 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "validate",
       "list",
       "show",
+      "assign",
+      "unassign",
     ],
   },
   execution: {
@@ -143,7 +145,17 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["standing", "superseded_fact"],
       },
     ],
-    actions: ["record", "reclassify", "type-register", "archive", "unarchive", "type-list", "show"],
+    actions: [
+      "record",
+      "reclassify",
+      "type-register",
+      "archive",
+      "unarchive",
+      "type-list",
+      "show",
+      "assign",
+      "unassign",
+    ],
   },
   person: {
     schemaId: "person/v1",
@@ -266,6 +278,8 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "reckon",
       "runs",
       "show",
+      "assign",
+      "unassign",
     ],
   },
   settings: {
@@ -278,7 +292,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "squad-declaration/v1",
     refTemplate: "squad/{id}",
     statuses: [],
-    actions: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
+    actions: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel", "assign", "unassign"],
   },
   task: {
     schemaId: "task-frontmatter",
@@ -294,8 +308,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "witness-settle",
       "witness-revoke",
       "witness-rerun",
-      "assign",
-      "unassign",
       "create",
       "start",
       "transition",
@@ -311,6 +323,8 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "delete",
       "reopen",
       "contract-migrate",
+      "assign",
+      "unassign",
     ],
   },
 } as const satisfies Readonly<Record<string, EntityKernelContract>>);
@@ -337,6 +351,7 @@ export const RELATION_TYPE_WORDS: readonly string[] = Object.freeze([
   "owns",
   "dispatches",
   "awaits",
+  "assigned-to",
 ]);
 // entity-kind-contract:generated:end
 
@@ -385,6 +400,7 @@ const taskDoc: EntityKindDoc = {
     { type: "executes", sourceKind: "execution", targetKind: "task" },
     { type: "executes", sourceKind: "runtime-session", targetKind: "task" },
     { type: "awaits", sourceKind: "task", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "task", targetKind: "person" },
   ],
   guiEntry: { view: "board", note: "看板 / 议程 / 列表;详情从任务行进入" },
   liveCount: "tasks",
@@ -441,6 +457,7 @@ const decisionDoc: EntityKindDoc = {
     { type: "evidenced-by", sourceKind: "decision", targetKind: "fact" },
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "awaits", sourceKind: "decision", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "decision", targetKind: "person" },
   ],
   guiEntry: { view: "decisionPool", note: "待办签发总池的决策待裁域(专注裁决从域内进入);详情从决策行进入" },
   liveCount: "decisions",
@@ -504,6 +521,7 @@ const factDoc: EntityKindDoc = {
     { type: "evidenced-by", sourceKind: "decision", targetKind: "fact" },
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "supersedes-fact", sourceKind: "fact", targetKind: "fact" },
+    { type: "assigned-to", sourceKind: "fact", targetKind: "person" },
   ],
   guiEntry: { view: "graph", note: "关系图与 Task 详情·证据页签" },
   liveCount: null,
@@ -646,7 +664,10 @@ const agentDoc: EntityKindDoc = {
     field("prompts", false, "array", "提示词引用。"),
   ],
   nestedFields: noNested,
-  edges: [{ type: "dispatches", sourceKind: "agent", targetKind: "runtime-session" }],
+  edges: [
+    { type: "dispatches", sourceKind: "agent", targetKind: "runtime-session" },
+    { type: "assigned-to", sourceKind: "agent", targetKind: "person" },
+  ],
   guiEntry: { view: "agentSquad", note: "Agent · 含 Squad 页" },
   liveCount: "agents",
 };
@@ -665,7 +686,7 @@ const squadDoc: EntityKindDoc = {
     field("roster", true, "string", "花名册引用。"),
   ],
   nestedFields: noNested,
-  edges: [],
+  edges: [{ type: "assigned-to", sourceKind: "squad", targetKind: "person" }],
   guiEntry: { view: "agentSquad", note: "Agent · 含 Squad 页(小队编排面)" },
   liveCount: "squads",
 };
@@ -685,7 +706,7 @@ const scheduleDoc: EntityKindDoc = {
     field("status", true, "object", "运行面:上次运行、活跃运行、错过计数与原因。"),
   ],
   nestedFields: noNested,
-  edges: [],
+  edges: [{ type: "assigned-to", sourceKind: "schedule", targetKind: "person" }],
   guiEntry: { view: "schedules", note: "定时计划页(hub:概览 / 运行 / 编辑)" },
   liveCount: "schedules",
 };
@@ -747,6 +768,12 @@ const personDoc: EntityKindDoc = {
   edges: [
     { type: "awaits", sourceKind: "task", targetKind: "person" },
     { type: "awaits", sourceKind: "decision", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "task", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "decision", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "fact", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "agent", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "squad", targetKind: "person" },
+    { type: "assigned-to", sourceKind: "schedule", targetKind: "person" },
   ],
   guiEntry: null,
   liveCount: null,

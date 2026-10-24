@@ -34,13 +34,35 @@ export interface CanonicalRelationDirection {
   };
 }
 
-/** Canonical Relation endpoint kinds derive from the BaseEntity contracts. */
-export const relationEndpointKinds = Object.freeze(
-  entityTypeContracts.filter(({ relationEndpoint }) => relationEndpoint.eligible).map(({ kind }) => kind),
-);
+/**
+ * Canonical Relation endpoint kinds include ledger entities and directory principals.
+ *
+ * `node` and `team` are principal refs resolved by the center directory, rather than
+ * ledger EntityKinds. They still need to participate in relation direction admission
+ * so an assigned-to edge has the same canonical endpoint authority as every other
+ * relation. Existence and authorization of those principals remain center concerns.
+ */
+export const relationEndpointKinds = Object.freeze([
+  ...entityTypeContracts.filter(({ relationEndpoint }) => relationEndpoint.eligible).map(({ kind }) => kind),
+  "node",
+  "team",
+]);
 
 /** decision → decision: policy lineage among decisions. */
 export const canonicalRelationDirections: readonly CanonicalRelationDirection[] = [
+  // Assignment is a first-class Action-managed relation. Principal refs for node/team are
+  // resolved by the center directory and intentionally do not become ledger EntityKinds.
+  ...entityTypeContracts
+    .filter(({ assignmentCapability }) => assignmentCapability === "supported")
+    .flatMap(({ kind }) =>
+      ["person", "node", "team"].map((targetKind) => ({
+        type: "assigned-to" as const,
+        sourceKind: kind,
+        targetKind,
+        reads: `the ${kind} is assigned to the target ${targetKind}`,
+        registration: "ratified" as const,
+      })),
+    ),
   {
     type: "supersedes",
     sourceKind: "decision",

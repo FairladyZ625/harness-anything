@@ -174,7 +174,7 @@ export const daemonGuiReadSchemas = Object.freeze([
     id: "task-assignment-directory/v1",
     schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#TASK_ASSIGNMENT_DIRECTORY_SCHEMA",
     parser: "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateTaskAssignmentDirectory",
-    writer: "packages/daemon/src/task-assignment-directory.ts#readTaskAssignmentDirectory",
+    writer: "packages/daemon/src/entity-assignment-directory.ts#readEntityAssignmentDirectory",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-assignment-directory-invalid.json"]),
   },

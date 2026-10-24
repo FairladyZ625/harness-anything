@@ -70,10 +70,11 @@ export function projectTaskActions() {
         },
       },
     }));
-  // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds assign/unassign to the declared lifecycle inventory;
-  // the retired code/doc pair (2026-10-21 owner ruling B3) leaves create plus nine.
-  if (actions.length !== 10 || actions.some(({ execution }) => !execution.topology))
-    throw new Error("Task Action protocol projection requires create and nine lifecycle descriptors.");
+  // Assignment is a generic Relation Action. The Task lifecycle projection therefore contains
+  // create plus the seven remaining lifecycle transitions; task/assign and task/unassign are
+  // projected by the shared entity Action catalog instead of this Task-only protocol.
+  if (actions.length !== 8 || actions.some(({ execution }) => !execution.topology))
+    throw new Error("Task Action protocol projection requires create and seven lifecycle descriptors.");
   const create = descriptors.find(({ id }) => id === "create"),
     start = descriptors.find(({ id }) => id === "start");
   if (!create || !start) throw new Error("Task create/start descriptors are missing.");

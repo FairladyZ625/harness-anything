@@ -27,11 +27,13 @@ test("GUI assignment carries the read version and preserves assignment through a
   try {
     const bridge = createLocalGuiServiceBridge(fixture.rootDir),
       scope = { repoId: fixture.repoId, taskId: "task-gui-assignment" },
-      read = async () =>
-        parseDaemonGuiReadResult(
+      read = async () => {
+        const row = parseDaemonGuiReadResult(
           "repo.tasks.list",
           await bridge.invoke("getTasks", { repoId: fixture.repoId }),
-        ).rows.find((row) => row.taskId === scope.taskId)!.snapshot;
+        ).rows.find((row) => row.taskId === scope.taskId)!;
+        return { ...row.snapshot, assignmentRevision: row.assignmentRevision };
+      };
     fixture.keycloak.revoke(
       "person-gui",
       fixture.repoId,
@@ -65,7 +67,7 @@ test("GUI assignment carries the read version and preserves assignment through a
       personId = before.task!.createdBy.principal.personId;
     const assigned = parseDaemonGuiActionResponse(
       "repo.task.assign",
-      await bridge.invoke("assignTask", { ...scope, expectedVersion: before.revision, personId }),
+      await bridge.invoke("assignTask", { ...scope, expectedVersion: before.assignmentRevision, personId }),
     );
     assert.equal(assigned.outcome, "applied", JSON.stringify(assigned));
     const after = await read();
@@ -74,7 +76,7 @@ test("GUI assignment carries the read version and preserves assignment through a
     fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-unassign"]);
     const deniedRemoval = parseDaemonGuiActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.revision }),
+      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.assignmentRevision }),
     );
     assert.equal(deniedRemoval.outcome, "op_rejected");
     assert.equal(deniedRemoval.code, "authorization_denied");
@@ -84,20 +86,20 @@ test("GUI assignment carries the read version and preserves assignment through a
     fixture.keycloak.permit("person-gui", fixture.repoId, ["task-unassign"]);
     const stale = parseDaemonGuiActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: before.revision }),
+      await bridge.invoke("unassignTask", { ...scope, expectedVersion: before.assignmentRevision }),
     );
     assert.equal(stale.ok, false);
     assert.deepEqual((await read()).task!.assignment, after.task!.assignment);
     const removed = parseDaemonGuiActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.revision }),
+      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.assignmentRevision }),
     );
     assert.equal(removed.outcome, "applied", JSON.stringify(removed));
     assert.equal((await read()).task!.assignment, null);
     const explicit = "2099-01-01T00:00:00.000Z";
     await bridge.invoke("assignTask", {
       ...scope,
-      expectedVersion: (await read()).revision,
+      expectedVersion: (await read()).assignmentRevision,
       personId,
       expiresAt: explicit,
     });
@@ -109,7 +111,7 @@ test("GUI assignment carries the read version and preserves assignment through a
     assert.equal(started.outcome, "applied", JSON.stringify(started));
     const held = parseDaemonGuiActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: (await read()).revision }),
+      await bridge.invoke("unassignTask", { ...scope, expectedVersion: (await read()).assignmentRevision }),
     );
     assert.equal(held.ok, false);
     assert.equal((await read()).task!.assignment!.expiresAt, explicit);

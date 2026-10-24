@@ -1,5 +1,6 @@
 import {
   compileRelationDocumentWrite,
+  compileRelationRetiredEvent,
   DECISION_DOCUMENT_POLICY_ID,
   deriveRelationId,
   FACT_DOCUMENT_POLICY_ID,
@@ -9,6 +10,7 @@ import {
   reduceRelationEntity,
   relationRecord,
   relationEventWritePlan,
+  assignmentRationale,
   relationStrengthForType,
   renderDecisionDocument,
   renderFactsDocument,
@@ -47,10 +49,30 @@ export function executeRelationAction(input: {
 }): WriteReceipt {
   const { action, authorizationDecision, binding, contract, opId, occurredAt } = input,
     expectedVersion = action.expectedVersion,
-    sourceRef = action.kind === "relation-relate" ? requiredRelationText(action.sourceRef, "sourceRef") : null,
-    requestedTargetRef = action.kind === "relation-relate" ? requiredRelationText(action.targetRef, "targetRef") : null;
+    assignment = contract.id === "assign" || contract.id === "unassign",
+    sourceRef =
+      action.kind === "relation-relate"
+        ? requiredRelationText(action.sourceRef, "sourceRef")
+        : assignment
+          ? assignmentSourceRef(action, contract.target.kind)
+          : null,
+    requestedTargetRef =
+      action.kind === "relation-relate"
+        ? requiredRelationText(action.targetRef, "targetRef")
+        : assignment && contract.id === "assign"
+          ? assignmentTargetRef(action)
+          : null;
   if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0)
     reject("invalid_command", "Relation actions require a non-negative integer expectedVersion.");
+  const replay = input.store.readEvent(opId),
+    assignmentRows = assignment
+      ? input.projection.readRelationQuery({ source: sourceRef!, relationType: "assigned-to" }).rows
+      : [],
+    activeAssignments = assignmentRows.filter((row) => row.state === "active"),
+    activeAssignment = activeAssignments[0] ?? null,
+    assignmentRevision = assignmentRows.reduce((revision, row) => Math.max(revision, row.workspaceRevision ?? 0), 0);
+  if (activeAssignments.length > 1)
+    reject("invalid_store", `Entity ${sourceRef} has more than one active assigned-to relation.`);
   const requestedRelationId =
       action.kind === "relation-relate"
         ? deriveRelationId({
@@ -59,19 +81,29 @@ export function executeRelationAction(input: {
             type: requiredRelationText(action.relationType, "relationType") as never,
             direction: (typeof action.direction === "string" ? action.direction : "directed") as "directed",
           })
-        : requiredRelationText(action.relationId, "relationId"),
+        : assignment
+          ? contract.id === "assign"
+            ? deriveRelationId({
+                source: sourceRef!,
+                target: requestedTargetRef!,
+                type: "assigned-to",
+                direction: "directed",
+              })
+            : (activeAssignment?.relationId ?? (replay && isRelationEvent(replay) ? replay.relationId : ""))
+          : requiredRelationText(action.relationId, "relationId"),
     current = input.projection.readRelationEdge(requestedRelationId),
     targetRef = requestedTargetRef ?? current?.targetRef,
     source = sourceRef ? input.projection.readEntityVersionWitness(sourceRef) : null,
     target = targetRef ? relationTargetWitness(input, targetRef) : null,
-    replay = input.store.readEvent(opId),
     headRevision = input.store.readHead()?.revision ?? 0,
     lookupCut = input.projection.readCut(),
     lookupNote = ` (looked up at projection watermark ${lookupCut.watermark}, write head ${headRevision}).`;
   if (action.kind === "relation-relate") {
+    if (!assignment && action.relationType === "assigned-to")
+      reject("invalid_command", "assigned-to is managed by the entity assign Action; use ha <kind> assign.");
     if (source?.currentVersion === null)
       reject("entity_not_found", `Relation source ${sourceRef} does not exist${lookupNote}`);
-    if (target?.currentVersion === null)
+    if (target?.currentVersion === null && !assignment)
       reject("entity_not_found", `Relation target ${targetRef} does not exist${lookupNote}`);
     if (!replay && action.relationType === "evidenced-by") {
       const ref = parseEntityRef(sourceRef!),
@@ -87,19 +119,46 @@ export function executeRelationAction(input: {
         );
     }
   }
-  const draft = replay
+  if (
+    assignment &&
+    (parseEntityRef(sourceRef!)?.kind !== contract.target.kind ||
+      (contract.id === "assign" && !["person", "node", "team"].includes(parseEntityRef(targetRef ?? "")?.kind ?? "")))
+  )
+    reject(
+      "invalid_command",
+      `${contract.execution.ingress} requires a ${contract.target.kind} source and a person, node or team target.`,
+    );
+  if (assignment && source?.currentVersion === null)
+    reject("entity_not_found", `Assignment source ${sourceRef} does not exist${lookupNote}`);
+  if (!assignment && action.kind === "relation-unrelate" && current?.relationType === "assigned-to")
+    reject("invalid_command", "assigned-to is managed by the entity unassign Action; use ha <kind> unassign.");
+  if (assignment && contract.id === "unassign" && activeAssignment === null && !replay)
+    reject("entity_not_found", `Entity ${sourceRef} has no active assignment${lookupNote}`);
+  const requestedRationale =
+      typeof action.expiresAt === "string" && action.expiresAt.trim()
+        ? assignmentRationale(action.expiresAt)
+        : "assigned-to",
+    replacing =
+      assignment &&
+      contract.id === "assign" &&
+      activeAssignment !== null &&
+      (activeAssignment.targetRef !== targetRef || activeAssignment.rationale !== requestedRationale),
+    eventRevision = headRevision + (replacing ? 2 : 1),
+    draft = replay
       ? null
       : contract.execution.compile?.({
-          action,
+          action: assignment && contract.id === "unassign" ? { ...action, relationId: requestedRelationId } : action,
           actor: binding.actor,
           source: binding.source,
           session: input.sessionIdentity(binding),
           opId,
           occurredAt,
-          workspaceRevision: headRevision + 1,
+          workspaceRevision: eventRevision,
           priorTargetVersion: current?.targetObservedVersion ?? null,
           currentTargetVersion: target?.currentVersion ?? null,
-          relationDirections: relationDirectionRegistry(input.projection, input.repositoryId),
+          ...(assignment
+            ? {}
+            : { relationDirections: relationDirectionRegistry(input.projection, input.repositoryId) }),
         }),
     compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
   if (!compiled || !isRelationEvent(compiled))
@@ -110,7 +169,10 @@ export function executeRelationAction(input: {
   if (!replay && !dependenciesCaughtUp) reject("content_not_ready", `Relation dependencies are pending${lookupNote}`);
   // A retired aggregate falls through to the revision fence below: relating the same endpoints at
   // its current revision reactivates it (F-007522DF), so an answered awaits can be asked again.
-  if (compiled.type === "relation_created" && current?.state === "active") {
+  const aggregateRevision = assignment
+    ? Math.max(assignmentRevision, typeof source?.currentVersion === "number" ? source.currentVersion : 0)
+    : (current?.workspaceRevision ?? 0);
+  if (!replay && compiled.type === "relation_created" && current?.state === "active") {
     const candidate = compiled.payload.relation,
       same =
         current.sourceRef === candidate.source &&
@@ -120,23 +182,23 @@ export function executeRelationAction(input: {
         current.strength === relationStrengthForType(candidate.type) &&
         current.origin === candidate.origin &&
         current.rationale === candidate.rationale;
-    if (!same)
+    if (!same && !(assignment && replacing))
       reject(
         "revision_conflict",
         `Relation ${relationId} is still active with different projected facets. ` +
           `To ask again, retire it first (ha relation unrelate ${relationId} --reason <text> ` +
           `--expected-version ${current.workspaceRevision}), then relate with --expected-version <its retired revision>.`,
       );
-    return relationNoChanges({
-      relationId,
-      revision: current.workspaceRevision,
-      headRevision,
-      opId,
-      authorizationDecision,
-    });
+    if (!assignment)
+      return relationNoChanges({
+        relationId,
+        revision: current.workspaceRevision,
+        headRevision,
+        opId,
+        authorizationDecision,
+      });
   }
-  const aggregateRevision = current?.workspaceRevision ?? 0;
-  if (Number(expectedVersion) !== aggregateRevision)
+  if (!replay && Number(expectedVersion) !== aggregateRevision)
     reject(
       compiled.type === "relation_reconfirmed" ? "version_conflict" : "revision_conflict",
       compiled.type === "relation_created" && current?.state === "retired"
@@ -146,6 +208,7 @@ export function executeRelationAction(input: {
     );
   if (
     (compiled.type === "relation_retired" || compiled.type === "relation_reconfirmed") &&
+    !replay &&
     (!current || current.state !== "active")
   )
     reject("entity_not_found", `Relation ${relationId} is not an active aggregate${lookupNote}`);
@@ -169,17 +232,31 @@ export function executeRelationAction(input: {
     reject("relation_cycle", "The requested depends-on Relation would create a blocking cycle.");
   const bundle = replay
       ? relationReplayBundle(input.store, compiled)
-      : compileRelationDocumentWrite(compiled, relationDocumentUpdates(input.projection, compiled, current)),
+      : assignment
+        ? { event: compiled, plan: relationEventWritePlan(compiled), blobs: [] }
+        : compileRelationDocumentWrite(compiled, relationDocumentUpdates(input.projection, compiled, current)),
     plan = bundle.plan,
     published = bundle.event,
-    appended = input.store.append({ event: published, plan, blobs: bundle.blobs });
-  if (replay === null) input.projection.apply(published, plan);
+    replacement = replacing
+      ? compileRelationRetirementForReplacement(input, activeAssignment!.relationId, headRevision + 1)
+      : null,
+    appended = input.store.append({
+      event: published,
+      plan,
+      blobs: bundle.blobs,
+      ...(replacement === null ? {} : { preceding: [replacement] }),
+    });
+  if (replay === null) {
+    if (replacement !== null) input.projection.apply(replacement.event, replacement.plan);
+    input.projection.apply(published, plan);
+  }
   publicationKillpoints(input.killpoint);
   const projected = input.projection.readRelationEdge(relationId),
     visible =
-      projected !== null &&
-      projected.state === (compiled.type === "relation_retired" ? "retired" : "active") &&
-      (compiled.type !== "relation_reconfirmed" || projected.freshness === "current");
+      replay !== null ||
+      (projected !== null &&
+        projected.state === (compiled.type === "relation_retired" ? "retired" : "active") &&
+        (compiled.type !== "relation_reconfirmed" || projected.freshness === "current"));
   return {
     outcome: visible ? "applied" : "pending",
     opId,
@@ -403,6 +480,38 @@ function relationNoChanges(input: {
 function requiredRelationText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   reject("invalid_command", `${field} is required.`);
+}
+
+function assignmentTargetRef(action: RepoTaskAction): string {
+  if (typeof action.personId === "string" && action.personId.trim()) return `person/${action.personId}`;
+  if (typeof action.nodeId === "string" && action.nodeId.trim()) return `node/${action.nodeId}`;
+  if (typeof action.teamId === "string" && action.teamId.trim()) return `team/${action.teamId}`;
+  reject("invalid_command", "Assignment requires one of personId, nodeId or teamId.");
+}
+
+function assignmentSourceRef(action: RepoTaskAction, kind: string): string {
+  if (typeof action.entityRef === "string" && action.entityRef.trim()) return action.entityRef;
+  const idField = `${kind.replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase())}Id`;
+  const id = action[idField];
+  if (typeof id === "string" && id.trim()) return `${kind}/${id}`;
+  reject("invalid_command", "Assignment requires an entity reference.");
+}
+
+function compileRelationRetirementForReplacement(
+  input: Parameters<typeof executeRelationAction>[0],
+  relationId: string,
+  workspaceRevision: number,
+) {
+  const event = compileRelationRetiredEvent({
+    relationId,
+    reason: "assignment replaced",
+    actor: input.binding.actor,
+    source: input.binding.source,
+    opId: `${input.opId}-retire`,
+    occurredAt: input.occurredAt,
+    workspaceRevision,
+  });
+  return { event, plan: relationEventWritePlan(event), blobs: [] as const };
 }
 
 function hasRelationPath(projection: TaskProjection, start: string, goal: string): boolean {

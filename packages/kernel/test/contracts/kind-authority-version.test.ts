@@ -89,6 +89,8 @@ test("one named kind-contract authority explains all thirteen entity kinds with 
       "reckon",
       "runs",
       "show",
+      "assign",
+      "unassign",
     ],
   );
   assert.equal(
