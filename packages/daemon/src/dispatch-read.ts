@@ -432,6 +432,9 @@ function canonicalDispatchRow(
   const payload = event.payload,
     taskRead = payload.taskId ? projection.read(payload.taskId) : null,
     packagePath = taskRead?.packagePath ?? null,
+    // The title rides beside taskId from this one read: a caller labelling the row must never
+    // re-join the task through a second listing whose readability rules can differ.
+    taskTitle = taskRead?.snapshot.task?.title,
     documentPath = packagePath ? `${packagePath}/artifacts/dispatches/${payload.dispatchId}.json` : null,
     document = documentPath ? projection.readDocument(documentPath).document : null,
     archive = document ? parseArchive(document.body) : null,
@@ -509,6 +512,7 @@ function canonicalDispatchRow(
   return {
     dispatchId: payload.dispatchId,
     taskId: payload.taskId ?? "",
+    ...(taskTitle ? { taskTitle } : {}),
     executionId: payload.executionId ?? "",
     ...(payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId
       ? {

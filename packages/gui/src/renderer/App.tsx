@@ -583,7 +583,6 @@ function AppShell() {
                 <LiveFloorView
                   repoId={projectId}
                   tasks={tasks}
-                  taskTitles={taskTitles}
                   works={works}
                   onOpenTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
