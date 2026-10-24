@@ -73,6 +73,44 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
   assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), submittedCommitSha);
 });
 
+test("terminal settlement preserves a worker-pushed descendant of the frozen submission and requests resubmission", async (context) => {
+  const fixture = workerGitFixture(context, "settle-remote-ahead", { reachableRemote: true }),
+    submittedCommitSha = git(fixture.worker, "rev-parse", "HEAD").trim();
+  git(fixture.worker, "push", "--quiet", "origin", `HEAD:refs/heads/${fixtureTaskId}`);
+  git(fixture.worker, "commit", "--allow-empty", "--quiet", "-m", "fix: post-submission CI repair");
+  const remoteTip = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    outcomeBodies: string[] = [],
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    settleContext = workerSettlementContext(
+      fixture,
+      async (type, _payload = {}, _opId?, _binding?, body?) => {
+        if (type === "runtime_session_outcome_observed") outcomeBodies.push(String(body));
+        return {};
+      },
+      "worker delivery",
+      submittedCommitSha,
+    );
+  git(fixture.worker, "push", "--quiet", "origin", `HEAD:refs/heads/${fixtureTaskId}`);
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(submittedCommitSha, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
+
+  const receipt = outcomeBodies[0]!,
+    actualRemoteTip = git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim();
+  assert.equal(actualRemoteTip, remoteTip, `settlement must preserve the newer remote cut; receipt: ${receipt}`);
+  assert.ok(
+    receipt.includes(
+      `Remote task branch is ahead of the frozen cut; re-submit ${fixtureTaskId}: ${submittedCommitSha} (remote @ ${remoteTip})`,
+    ),
+    receipt,
+  );
+});
+
 test("an edge settlement cannot overwrite the submit cut with a later worker HEAD", async (context) => {
   const fixture = workerGitFixture(context, "settle-edge", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),

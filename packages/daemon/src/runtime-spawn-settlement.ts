@@ -205,6 +205,8 @@ export async function publishExit(
             taskId: active.task.taskId,
             identity: workerGitIdentityForPerson(active.binding.actor.principal.personId),
             ...(submittedCommitSha ? { submittedCommitSha } : {}),
+            forceWithLease: false,
+            classifyRemoteAhead: submittedCommitSha !== undefined,
             env,
           });
         hasDelivery = push.attempted && push.pushedCommit !== null;
@@ -213,12 +215,14 @@ export async function publishExit(
             ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.pushedCommit}${
                 push.head === push.pushedCommit ? "" : ` (worker HEAD ${push.head})`
               }`
-            : [
-                `${body}\n\nWorker branch push failed (no retry):`,
-                `${push.branch ?? "unknown branch"} @ ${push.pushedCommit ?? "unknown delivery commit"}${
-                  push.head && push.head !== push.pushedCommit ? ` (worker HEAD ${push.head})` : ""
-                }: ${push.detail}`,
-              ].join(" ");
+            : push.code === "remote_ahead_of_frozen_cut"
+              ? `${body}\n\n${push.detail}`
+              : [
+                  `${body}\n\nWorker branch push failed (no retry):`,
+                  `${push.branch ?? "unknown branch"} @ ${push.pushedCommit ?? "unknown delivery commit"}${
+                    push.head && push.head !== push.pushedCommit ? ` (worker HEAD ${push.head})` : ""
+                  }: ${push.detail}`,
+                ].join(" ");
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
