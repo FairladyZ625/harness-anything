@@ -88,11 +88,14 @@ export function pruneDispatchStreamArchive(
   if (retention.retentionDays <= 0 && retention.retentionBytes <= 0) return;
   const msPerDay = 86_400_000,
     streams = archivedDispatchStreams(rootDir),
-    protectedIds = factEvidenceDispatchIds(rootDir),
+    protectedPrefixes = factEvidenceDispatchPrefixes(rootDir),
     doomed = new Set<string>();
   if (retention.retentionDays > 0)
     for (const stream of streams)
-      if (!protectedIds.has(stream.dispatchId) && nowMs - stream.startedAtMs > retention.retentionDays * msPerDay)
+      if (
+        !factEvidenceNames(protectedPrefixes, stream.dispatchId) &&
+        nowMs - stream.startedAtMs > retention.retentionDays * msPerDay
+      )
         doomed.add(stream.dispatchId);
   if (retention.retentionBytes > 0) {
     // Oldest first (streams are startedAt-sorted). Protected streams still occupy disk, so their
@@ -101,7 +104,7 @@ export function pruneDispatchStreamArchive(
     let total = streams.reduce((sum, stream) => sum + (doomed.has(stream.dispatchId) ? 0 : stream.sizeBytes), 0);
     for (const stream of streams) {
       if (total <= retention.retentionBytes) break;
-      if (doomed.has(stream.dispatchId) || protectedIds.has(stream.dispatchId)) continue;
+      if (doomed.has(stream.dispatchId) || factEvidenceNames(protectedPrefixes, stream.dispatchId)) continue;
       total -= stream.sizeBytes;
       doomed.add(stream.dispatchId);
     }
@@ -154,22 +157,29 @@ function archivedStartedAtMs(file: string): number {
 }
 
 /**
- * Dispatch ids that immutable fact evidence names by their archived file path. Facts live under
- * the ledger authored root and their Evidence source is never rewritten, so a retention pass that
- * deletes these files would turn that evidence into a dangling path with no way to recover it.
+ * Dispatch-id prefixes that immutable fact evidence names under the archive path. Facts live
+ * under the ledger authored root and their Evidence source is never rewritten, so a retention
+ * pass that deletes these files would turn that evidence into a dangling path with no way to
+ * recover it. Evidence may name one id or a `{prefix,…}*` / `prefix*` glob, so entries shorter
+ * than a full id are kept as prefixes.
  */
-function factEvidenceDispatchIds(rootDir: string): ReadonlySet<string> {
+function factEvidenceDispatchPrefixes(rootDir: string): readonly string[] {
   const facts = path.join(resolveHarnessLayout(rootDir).authoredRoot, "facts");
-  if (!statSync(facts, { throwIfNoEntry: false })?.isDirectory()) return new Set();
-  const dispatchIds = new Set<string>();
+  if (!statSync(facts, { throwIfNoEntry: false })?.isDirectory()) return [];
+  const prefixes = new Set<string>();
   for (const name of readdirSync(facts).sort()) {
     if (!name.endsWith(".md")) continue;
     for (const match of readFileSync(path.join(facts, name), "utf8").matchAll(
-      /dispatches\/archive\/(dispatch_[a-f0-9]{24})\.jsonl/gu,
+      /dispatches\/archive\/dispatch_([a-f0-9*,{}]+)/gu,
     ))
-      dispatchIds.add(match[1]!);
+      for (const token of match[1]!.replace(/[{}]/gu, "").split(","))
+        if (/^[a-f0-9]{8,24}$/u.test(token)) prefixes.add(token);
   }
-  return dispatchIds;
+  return [...prefixes];
+}
+
+function factEvidenceNames(prefixes: readonly string[], dispatchId: string): boolean {
+  return prefixes.some((prefix) => dispatchId.startsWith(`dispatch_${prefix}`));
 }
 
 function streamPaths(rootDir: string, dispatchId: string): { readonly live: string; readonly archived: string } {

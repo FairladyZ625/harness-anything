@@ -289,27 +289,31 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
   }
 });
 
-function factEvidence(rootDir: string, dispatchId: string): void {
+function factEvidence(rootDir: string, reference: string, factId = "F-TEST0001"): void {
   const facts = path.join(rootDir, "harness", "facts");
   mkdirSync(facts, { recursive: true });
   writeFileSync(
-    path.join(facts, "F-TEST0001.md"),
-    `# F-TEST0001\n\n- Evidence source: .harness/runtime/dispatches/archive/${dispatchId}.jsonl\n`,
+    path.join(facts, `${factId}.md`),
+    `# ${factId}\n\n- Evidence source: .harness/runtime/dispatches/archive/${reference}\n`,
   );
 }
 
 test("retention never deletes an archived stream that immutable fact evidence names", () => {
   const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-")),
     now = Date.parse("2026-10-24T00:00:00.000Z"),
-    protectedId = "dispatch_cccccccccccccccccccccccc";
+    protectedId = "dispatch_cccccccccccccccccccccccc",
+    globbedId = "dispatch_abababab0000000000000000";
   try {
     const protectedStream = archiveStreamFixture(rootDir, protectedId, 120, "Immutable evidence."),
+      globbed = archiveStreamFixture(rootDir, globbedId, 100, "Globbed evidence."),
       expired = archiveStreamFixture(rootDir, "dispatch_dddddddddddddddddddddddd", 90, "Plain old stream.");
-    factEvidence(rootDir, protectedId);
+    factEvidence(rootDir, `${protectedId}.jsonl`);
+    factEvidence(rootDir, "dispatch_{abababab,cdcdcdcd}*.jsonl", "F-TEST0002");
 
     pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
 
     assert.equal(existsSync(protectedStream.file), true, "a fact still points at this file");
+    assert.equal(existsSync(globbed.file), true, "a glob evidence reference keeps the matching id");
     assert.equal(existsSync(expired.file), false, "unreferenced streams still follow the limit");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -323,7 +327,7 @@ test("the byte cap skips a fact-protected stream and evicts the unprotected rema
   try {
     const protectedStream = archiveStreamFixture(rootDir, protectedId, 40, "Immutable evidence bytes."),
       victim = archiveStreamFixture(rootDir, "dispatch_ffffffffffffffffffffffff", 1, "One-day-old bytes.");
-    factEvidence(rootDir, protectedId);
+    factEvidence(rootDir, `${protectedId}.jsonl`);
 
     pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: protectedStream.sizeBytes }, now);
 
