@@ -174,6 +174,28 @@ owner consent、witness 与文档，然后关闭台账任务。`--fact-holds` �
 task/execution/iteration/submission-digest/attempt 组成确定性键；同一在飞 attempt 收敛到同一个
 review runtime，已终结 attempt 后 owner 才能确定性地开启下一次，且不会覆盖另一节点的 artifact。
 
+## 7. 人在 Harness 外完成的工作
+
+工作已在本地终端完成——一条设置改动、另一个仓库里的一次修复——收口走同一条链。
+不存在单独的 `done` 转换：还没有 execution 时，`ha task complete` 报
+`not_in_review`；`start` 加 `submit` 创造的正是这条 execution。
+
+先把核验证据落成 Fact，台账才能审计核验过什么：
+
+```bash
+ha fact record --task task_... --statement "settings_changed opId read:... 已生效,核验通过" --source "settings" --confidence high
+```
+
+在任务的 `closeout.md` 里总结完成内容与证据，然后一条命令串起 start、文档同步与提交：
+
+```bash
+ha task settle task_...
+```
+
+没有代码 diff 的任务以 closeout-only cut 提交（`commitSha=null`）；submit 照常自动派
+独立评审，owner consent 加 `ha task complete` 之后按第 6 节同样收口。从未 start 的任务，
+`not_in_review` 回执会点名这条「证据 + settle」路径。
+
 现在得到的是可查询的完整闭环，而不是 task 形状的聊天记录。下一步可读
 [三原语内核](../../learn/zh/01-three-primitive-kernel.md)，或把[日常命令速记表](03-daily-commands.md)
 放在手边。
