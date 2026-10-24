@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import {
   archiveDispatchStream,
   dispatchStreamPath,
   openDispatchStream,
+  readAllDispatchStreamSummaries,
   readDispatchStream,
 } from "../src/dispatch-stream.ts";
 import {
@@ -188,9 +189,44 @@ function archiveStreamFixture(
     archived = path.join(archive, `${dispatchId}.jsonl`);
   mkdirSync(archive, { recursive: true });
   renameSync(live, archived);
-  utimesSync(archived, at, at);
+  // Deliberately do not backdate mtime: age must come from the header inside the stream, so
+  // these fixtures stay red against any mtime-based implementation.
   return { file: archived, sizeBytes: statSync(archived).size };
 }
+
+test("retention ages a compacted stream by its header, not by the rewrite mtime", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-compacted-")),
+    now = Date.now(),
+    dispatchId = "dispatch_abcdefabcdefabcdefabcdef";
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-compacted-old",
+      instanceId: "instance-prune",
+      startedAt: new Date(now - 120 * 86_400_000).toISOString(),
+    });
+    for (const delta of ["An old ", "stream."])
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "provider_event",
+        occurredAt: new Date(now - 120 * 86_400_000).toISOString(),
+        event: { type: "model.streaming", turnId: "turn-1", payload: { kind: "text_delta", delta } },
+      });
+    archiveDispatchStream(rootDir, dispatchId);
+    const archived = dispatchStreamPath(rootDir, dispatchId);
+    assert.equal(readDispatchStream(rootDir, dispatchId)?.header.transcriptCompactionVersion, 1);
+    assert.equal(existsSync(archived), true);
+    // The compaction rewrite just refreshed mtime, which is exactly the signal a naive
+    // age-based prune would read as "fresh".
+    assert.equal(statSync(archived).mtimeMs > now - 86_400_000, true);
+
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    assert.equal(existsSync(archived), false, "the header still says the stream is 120 days old");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("retention deletes archived streams past the day limit, keeps the boundary, and never touches live streams", () => {
   const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-age-")),
@@ -250,6 +286,69 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
     assert.equal(existsSync(newer.file), false, "the remaining stream also exceeds that cap");
   } finally {
     rmSync(emptyRoot, { recursive: true, force: true });
+  }
+});
+
+function factEvidence(rootDir: string, dispatchId: string): void {
+  const facts = path.join(rootDir, "harness", "facts");
+  mkdirSync(facts, { recursive: true });
+  writeFileSync(
+    path.join(facts, "F-TEST0001.md"),
+    `# F-TEST0001\n\n- Evidence source: .harness/runtime/dispatches/archive/${dispatchId}.jsonl\n`,
+  );
+}
+
+test("retention never deletes an archived stream that immutable fact evidence names", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z"),
+    protectedId = "dispatch_cccccccccccccccccccccccc";
+  try {
+    const protectedStream = archiveStreamFixture(rootDir, protectedId, 120, "Immutable evidence."),
+      expired = archiveStreamFixture(rootDir, "dispatch_dddddddddddddddddddddddd", 90, "Plain old stream.");
+    factEvidence(rootDir, protectedId);
+
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+
+    assert.equal(existsSync(protectedStream.file), true, "a fact still points at this file");
+    assert.equal(existsSync(expired.file), false, "unreferenced streams still follow the limit");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the byte cap skips a fact-protected stream and evicts the unprotected remainder", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-evidence-size-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z"),
+    protectedId = "dispatch_eeeeeeeeeeeeeeeeeeeeeeee";
+  try {
+    const protectedStream = archiveStreamFixture(rootDir, protectedId, 40, "Immutable evidence bytes."),
+      victim = archiveStreamFixture(rootDir, "dispatch_ffffffffffffffffffffffff", 1, "One-day-old bytes.");
+    factEvidence(rootDir, protectedId);
+
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: protectedStream.sizeBytes }, now);
+
+    assert.equal(existsSync(protectedStream.file), true, "protected bytes stay even though they are oldest");
+    assert.equal(existsSync(victim.file), false, "unprotected streams are evicted to approach the cap");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("summary readers treat a pruned archive as expired instead of failing", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-readers-")),
+    now = Date.parse("2026-10-24T00:00:00.000Z"),
+    dispatchId = "dispatch_121212121212121212121212";
+  try {
+    const pruned = archiveStreamFixture(rootDir, dispatchId, 61, "Expired transcript.");
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, now);
+    assert.equal(existsSync(pruned.file), false);
+    assert.equal(
+      readAllDispatchStreamSummaries(rootDir).some((summary) => summary.header.dispatchId === dispatchId),
+      false,
+      "replay enumerates what remains and treats the missing stream as expired",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 

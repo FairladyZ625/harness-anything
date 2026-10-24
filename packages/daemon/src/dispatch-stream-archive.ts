@@ -1,4 +1,14 @@
-import { mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
@@ -15,7 +25,7 @@ interface ArchivedStream {
   readonly dispatchId: string;
   readonly file: string;
   readonly sizeBytes: number;
-  readonly mtimeMs: number;
+  readonly startedAtMs: number;
 }
 
 /** Move a terminal stream out of the directory enumerated by live-runtime reads. */
@@ -57,27 +67,41 @@ export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedu
  * The one execution point of the dispatch-archive retention policy: delete archived terminal
  * streams past either limit. Only the archive directory is enumerated — live streams sit in the
  * dispatches root and are structurally out of reach — and every delete is keyed by dispatch id
- * against the file it names, so overlapping passes stay idempotent. A stream's age is its file
- * mtime: rename preserves the terminal write's mtime and a compaction rewrite refreshes it, so
- * either way mtime is the moment the stream last changed.
+ * against the file it names, so overlapping passes stay idempotent.
+ *
+ * A stream's age is the `startedAt` in its own header, never the file mtime: archiving compacts
+ * the stream by rewriting it, and every rewrite refreshes mtime to the rewrite moment. mtime
+ * therefore measures "when this file was last rewritten", not "when this run happened", and an
+ * age limit on it would almost never fire on a real archive. The header travels inside the
+ * stream and survives compaction, so it is the same signal before and after a rewrite.
+ *
+ * Streams named by immutable fact evidence are never deleted. Facts are the one reader whose
+ * provenance is a hand-written, non-regenerable pointer into the archive; generated
+ * `eventStreamRef` values are live-path snapshots that are already stale once a stream is
+ * archived, and no reader opens them as files, so they do not hold a stream back.
  */
 export function pruneDispatchStreamArchive(
   rootDir: string,
   retention: DispatchArchiveRetention,
   nowMs: number = Date.now(),
 ): void {
+  if (retention.retentionDays <= 0 && retention.retentionBytes <= 0) return;
   const msPerDay = 86_400_000,
-    streams = archivedDispatchStreams(path.join(dispatchRoot(rootDir), "archive")),
+    streams = archivedDispatchStreams(rootDir),
+    protectedIds = factEvidenceDispatchIds(rootDir),
     doomed = new Set<string>();
   if (retention.retentionDays > 0)
     for (const stream of streams)
-      if (nowMs - stream.mtimeMs > retention.retentionDays * msPerDay) doomed.add(stream.dispatchId);
+      if (!protectedIds.has(stream.dispatchId) && nowMs - stream.startedAtMs > retention.retentionDays * msPerDay)
+        doomed.add(stream.dispatchId);
   if (retention.retentionBytes > 0) {
-    // Oldest first (streams are mtime-sorted), never counting streams the age pass already doomed.
+    // Oldest first (streams are startedAt-sorted). Protected streams still occupy disk, so their
+    // bytes stay in the total; a cap those bytes alone exceed cannot be satisfied without
+    // deleting evidence, and the archive stays over it rather than doing that.
     let total = streams.reduce((sum, stream) => sum + (doomed.has(stream.dispatchId) ? 0 : stream.sizeBytes), 0);
     for (const stream of streams) {
       if (total <= retention.retentionBytes) break;
-      if (doomed.has(stream.dispatchId)) continue;
+      if (doomed.has(stream.dispatchId) || protectedIds.has(stream.dispatchId)) continue;
       total -= stream.sizeBytes;
       doomed.add(stream.dispatchId);
     }
@@ -90,19 +114,62 @@ export function pruneDispatchStreamArchive(
   }
 }
 
-function archivedDispatchStreams(archive: string): readonly ArchivedStream[] {
+function archivedDispatchStreams(rootDir: string): readonly ArchivedStream[] {
+  const archive = path.join(dispatchRoot(rootDir), "archive");
   if (!statSync(archive, { throwIfNoEntry: false })?.isDirectory()) return [];
   return readdirSync(archive)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
     .map((name) => {
       const file = path.join(archive, name),
-        stat = statSync(file, { throwIfNoEntry: false });
-      return stat?.isFile()
-        ? { dispatchId: name.slice(0, -6), file, sizeBytes: stat.size, mtimeMs: stat.mtimeMs }
+        stat = statSync(file, { throwIfNoEntry: false }),
+        startedAtMs = stat?.isFile() ? archivedStartedAtMs(file) : NaN;
+      return stat?.isFile() && Number.isFinite(startedAtMs)
+        ? { dispatchId: name.slice(0, -6), file, sizeBytes: stat.size, startedAtMs }
         : null;
     })
     .filter((stream): stream is ArchivedStream => stream !== null)
-    .sort((left, right) => left.mtimeMs - right.mtimeMs);
+    .sort((left, right) => left.startedAtMs - right.startedAtMs || left.dispatchId.localeCompare(right.dispatchId));
+}
+
+/** Read the age signal from the stream's own header line; the header is written by this daemon. */
+function archivedStartedAtMs(file: string): number {
+  const descriptor = openSync(file, "r");
+  try {
+    const chunks: Buffer[] = [];
+    while (true) {
+      const chunk = Buffer.alloc(4096),
+        read = readSync(descriptor, chunk, 0, chunk.length, null);
+      if (read === 0) break;
+      const newline = chunk.subarray(0, read).indexOf(10);
+      chunks.push(chunk.subarray(0, newline === -1 ? read : newline));
+      if (newline !== -1) break;
+    }
+    const header: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const startedAt =
+      header !== null && typeof header === "object" ? (header as { startedAt?: unknown }).startedAt : null;
+    return typeof startedAt === "string" ? Date.parse(startedAt) : NaN;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/**
+ * Dispatch ids that immutable fact evidence names by their archived file path. Facts live under
+ * the ledger authored root and their Evidence source is never rewritten, so a retention pass that
+ * deletes these files would turn that evidence into a dangling path with no way to recover it.
+ */
+function factEvidenceDispatchIds(rootDir: string): ReadonlySet<string> {
+  const facts = path.join(resolveHarnessLayout(rootDir).authoredRoot, "facts");
+  if (!statSync(facts, { throwIfNoEntry: false })?.isDirectory()) return new Set();
+  const dispatchIds = new Set<string>();
+  for (const name of readdirSync(facts).sort()) {
+    if (!name.endsWith(".md")) continue;
+    for (const match of readFileSync(path.join(facts, name), "utf8").matchAll(
+      /dispatches\/archive\/(dispatch_[a-f0-9]{24})\.jsonl/gu,
+    ))
+      dispatchIds.add(match[1]!);
+  }
+  return dispatchIds;
 }
 
 function streamPaths(rootDir: string, dispatchId: string): { readonly live: string; readonly archived: string } {

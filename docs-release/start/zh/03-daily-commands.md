@@ -76,8 +76,9 @@ ha settings update --dispatch-archive-retention-bytes 53687091200  # 总量 50 G
 ha settings read                                               # 查看 settings.dispatchArchive
 ```
 
-清理在仓库于 daemon 上打开时执行。仍在运行的派工绝不会被删；已删除的记录只是不再
-出现在历史视图里。
+每条记录从派工开始时刻起算年龄（不受归档压缩重写时间影响）。清理在仓库于 daemon
+上打开时执行。仍在运行的派工绝不会被删；被 Fact 证据来源直接引用的归档记录也会保留。
+已删除的记录只是不再出现在历史视图里。
 
 ## 发布任务分支
 

@@ -93,9 +93,11 @@ ha settings update --dispatch-archive-retention-bytes 53687091200  # 50 GiB tota
 ha settings read                                               # shows settings.dispatchArchive
 ```
 
-Pruning runs when the repository opens on the daemon. Still-running dispatches
-are never touched, and a deleted record simply no longer appears in history
-views.
+A record's age counts from when its dispatch started, not from the archive
+compaction rewrite. Pruning runs when the repository opens on the daemon.
+Still-running dispatches are never touched, and archived records named by a
+Fact's evidence source are kept. A deleted record simply no longer appears in
+history views.
 
 ## Publish the task branch
 

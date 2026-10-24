@@ -3,7 +3,7 @@
 // 设置在 attach 时删掉超期归档流、保留未超期的归档与仍在运行的 live 流。
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -51,7 +51,7 @@ function archivedStreamFixture(rootDir: string, dispatchId: string, ageDays: num
     archived = path.join(archive, `${dispatchId}.jsonl`);
   mkdirSync(archive, { recursive: true });
   renameSync(live, archived);
-  utimesSync(archived, at, at);
+  // No mtime backdating: attach must age the stream from the header inside it.
   return archived;
 }
 
