@@ -29,7 +29,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // Owner 2026-10-23 (task_45b896d2) makes assign/unassign generic Actions for every assignable Entity kind;
   // the declaration inventory therefore grows from the prior 155 to 166.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
-  assert.equal(actionDeclarations.length, 167);
+  // Owner 2026-10-24 (task_a242ec14) deletes decision-supersede: supersede is driven by the relation.
+  assert.equal(actionDeclarations.length, 166);
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),
