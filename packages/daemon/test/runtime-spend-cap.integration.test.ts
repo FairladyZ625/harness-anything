@@ -40,7 +40,7 @@ test("a dispatch over its declared token limit is terminated and settled with th
     git(root, "config", "user.email", "spend-cap@example.invalid");
     git(root, "commit", "--allow-empty", "-qm", "base");
     mkdirSync(path.join(root, "harness"), { recursive: true });
-    writeFileSync(path.join(root, "harness", "harness.yaml"), "settings:\n  runtime:\n    dispatchTokenLimit: 100\n");
+    writeFileSync(path.join(root, "harness", "harness.yaml"), "settings:\n  runtime:\n    dispatchUsageLimit: 100\n");
     grantTestPolicyGroups(["person-spend-cap"], "admin");
     let output: ((chunk: string) => void) | null = null,
       terminateCalls = 0;

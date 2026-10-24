@@ -611,7 +611,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // Freeze the declared cap with the launch: a running dispatch keeps the limit it was admitted
     // under, and an adopting daemon restores it from the stream header instead of re-reading a
     // setting that may have changed. 0 is the declared "no limit" sentinel.
-    const declaredTokenLimit = input.readSettings?.().runtime.dispatchTokenLimit ?? 0,
+    const declaredTokenLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0,
       tokenLimit = declaredTokenLimit > 0 ? declaredTokenLimit : null;
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {

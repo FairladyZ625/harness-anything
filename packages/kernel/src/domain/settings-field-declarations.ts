@@ -634,18 +634,17 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     yamlStyle: "block-list",
   }),
   defineSettingsField({
-    path: ["runtime", "dispatchTokenLimit"],
+    path: ["runtime", "dispatchUsageLimit"],
     ownership: repository,
     valueKind: "integer",
     defaultValue: 0,
     minimum: 0,
-    description:
-      "Maximum total tokens (input plus output) one dispatch may consume before its runtime is stopped; 0 disables the limit.",
+    description: "Maximum total tokens (input plus output) one dispatch may consume; 0 disables the limit.",
     effect:
-      "The node that owns the provider process stops it and settles the dispatch as failed once consumption exceeds this limit.",
+      "The owning node stops the provider and settles the dispatch as failed once consumption exceeds this limit.",
     group: "schedules-nodes",
-    action: { field: "runtimeDispatchTokenLimit", type: "number" },
-    cli: { name: "--runtime-dispatch-token-limit", kind: "single", regex: "^[0-9]+$" },
+    action: { field: "runtimeDispatchUsageLimit", type: "number" },
+    cli: { name: "--runtime-dispatch-usage-limit", kind: "single", regex: "^[0-9]+$" },
   }),
   defineSettingsField({
     path: ["runtime", "providerMaxRetries"],

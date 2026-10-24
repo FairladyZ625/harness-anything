@@ -223,6 +223,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "runtimeDispatchUsageLimit",
+      description: "Maximum total tokens (input plus output) one dispatch may consume; 0 disables the limit.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "runtimeProviderMaxRetries",
       description: "Maximum additional provider retry rounds for one dispatch attempt group.",
       type: "number",
@@ -601,6 +607,17 @@ export const settingsFieldProtocolProjection = {
       kind: "repeated",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
       format: "runtime instance ids, or none to block all machine instances",
+    },
+    {
+      field: "runtimeDispatchUsageLimit",
+      description: "Maximum total tokens (input plus output) one dispatch may consume; 0 disables the limit.",
+      group: "schedules-nodes",
+      effect:
+        "The owning node stops the provider and settles the dispatch as failed once consumption exceeds this limit.",
+      name: "--runtime-dispatch-usage-limit",
+      kind: "single",
+      regex: "^[0-9]+$",
+      projection: "number",
     },
     {
       field: "runtimeProviderMaxRetries",
