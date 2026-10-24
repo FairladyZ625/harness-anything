@@ -578,6 +578,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-handoff-claim",
       "runtime-handoff-export",
       "runtime-handoff-revoke",
+      "runtime-incident-dismiss",
       "runtime-instance-create",
       "runtime-instance-delete",
       "runtime-instance-hosting-credential-set",

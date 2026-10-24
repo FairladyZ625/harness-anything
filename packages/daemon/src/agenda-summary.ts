@@ -102,7 +102,11 @@ export function renderAgendaSummary(
       (row.options.length
         ? `\n  选项: ${row.options.map((option, index) => `${String(index + 1)}. ${option}`).join("；")}`
         : "") +
-      `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"`,
+      // 有选项的是 worker ruling，答复走续跑；无选项的是事故回执，人工裁决也可显式关闭。
+      (row.options.length
+        ? `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"`
+        : `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"` +
+          `；或关闭: ha runtime incident-dismiss ${row.dispatchId} --reason "<理由>"`),
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
       `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [

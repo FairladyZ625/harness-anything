@@ -219,6 +219,28 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--prompt-file", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt"] }),
     ],
   }),
+  defineCenterForwardWriteCommand({
+    id: "runtime-incident-dismiss",
+    phase: "Runtime-B",
+    path: ["runtime", "incident-dismiss", "<dispatch-id>"],
+    summary: [
+      "Close one escalated incident receipt with a reason: its visible disposition becomes the ",
+      "owner's no_action and it leaves the agenda's awaiting-ruling queue. Terminal dispatches ",
+      "leave the queue on their own; this is for the receipts that still need a human decision.",
+    ].join(""),
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          format: "why this incident needs no further action",
+        },
+      ),
+    ],
+  }),
   defineHostAdminCommand({
     id: "daemon-stop",
     phase: "W3",
