@@ -82,6 +82,9 @@ export interface RuntimeSpawnerContext {
   readonly resultMediaType: "text/plain; charset=utf-8";
   readonly launchExitNotification: typeof launchExitNotification;
   readonly publishExit: (active: ActiveRuntime, code: number | null, resumePublishedExit?: boolean) => Promise<void>;
+  /** Stops a runtime whose provider-reported consumption passed its frozen token limit and
+   * settles the terminal outcome; a no-op once cancellation or settlement owns the runtime. */
+  readonly enforceSpendCap: (active: ActiveRuntime) => Promise<void>;
   readonly controlReceipt: (opId: string, runtimeSessionId: string, detail?: string) => JsonObject;
   readonly captureErrorOutput: (active: ActiveRuntime, chunk: string) => void;
   readonly prepareDaemonGitEnvironment: (

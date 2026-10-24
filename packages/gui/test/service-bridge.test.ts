@@ -318,6 +318,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       // Provider scheduling fields project their repository-owned defaults.
       runtime: {
         allowedInstances: [],
+        dispatchUsageLimit: 0,
         providerMaxRetries: 3,
         providerRoundBackoffBaseSeconds: 5,
         providerRoundBackoffMaxSeconds: 60,

@@ -1,6 +1,7 @@
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { ActiveRuntime, ProviderFrame, ProviderReconnect } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
+import { runtimeSpendCapReason } from "./runtime-spend-cap.ts";
 
 const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
@@ -145,6 +146,10 @@ export function classifyRuntimeExit(
       attemptIndex,
     });
   if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
+  // A cap stop is policy: it settles failed, and the worker_stop classification keeps the
+  // fallback chain from spending the next provider's budget on the same runaway attempt.
+  if (active.spendCapExceeded)
+    return { ...classified("worker_stop", runtimeSpendCapReason(active)), outcome: "failed" };
   // A requested stop for a ruling is never a provider fault: the worker wrote the question and
   // stopped, which is exactly what the unattended contract asks for. It settles `stopped` rather
   // than `failed` so the receipt and agenda read "waiting on the owner", not "the run broke".
