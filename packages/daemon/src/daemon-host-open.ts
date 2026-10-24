@@ -117,6 +117,8 @@ export interface DaemonHostOpenInput {
     | readonly RuntimeInstallationWitness[]
     | Promise<readonly RuntimeInstallationWitness[]>;
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  /** Reads the operator's GitHub token for a launch; tests substitute it so no host login is read. */
+  readonly runtimeGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
   readonly runtimeCredentialPort?: CredentialPort;
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
@@ -180,6 +182,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       refreshDiscovery,
       env: input.runtimeEnv,
       resolveCredential: vault.resolve,
+      // Resolved by the resident daemon entry (the one process that owns the operator login);
+      // host constructors that supply nothing inject no GitHub credential.
+      resolveGithubToken: input.runtimeGithubToken,
     }),
     instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
     decisionProviders = openDecisionProviderService({

@@ -137,6 +137,12 @@ export interface PreparedRuntimeLaunch {
   readonly handshakeTimeoutMs?: number;
   /** The selected model, delivered to ACP agents through `session/set_config_option`; argv-driven kinds carry it in `args`. */
   readonly model?: string;
+  /**
+   * Set when the operator's GitHub login could not be read. The launch proceeds without the
+   * credential; the spawn receipt carries this sentence so the operator learns why the worker
+   * cannot publish instead of meeting a credential error later at `ha task push`.
+   */
+  readonly githubCredentialNotice?: string;
 }
 
 export interface PreparedRuntimeAuthCommand {
