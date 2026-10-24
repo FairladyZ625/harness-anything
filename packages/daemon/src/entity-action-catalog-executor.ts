@@ -68,6 +68,7 @@ import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.
 import { decisionReviewState } from "./decision-review-read.ts";
 import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
+import { retireDecisionAwaitsAfterWrite } from "./terminal-awaits-retirement.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -151,6 +152,13 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     const receipt = runWrite(contract, action, binding, opId);
     reconcileDecisionReviewAwaitAfterWrite(action, binding, opId, input);
+    retireDecisionAwaitsAfterWrite({
+      action,
+      binding,
+      opId,
+      authorizationDecision: binding.authorizationDecision ?? null,
+      context: input,
+    });
     return receipt;
   };
 
