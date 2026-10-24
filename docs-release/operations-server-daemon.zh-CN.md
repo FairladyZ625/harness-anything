@@ -256,7 +256,7 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 
 这里有两个独立的 HTTPS 入口。`listener-set` 配置 managed Keycloak 登录服务，负责浏览器登录和 token issuer；Fleet TLS listener 是 edge 同步服务，通过 `daemon fleet center start` 配置。不要把一个命令的地址当成另一个命令的配置。
 
-bootstrap 不会发布登录服务：没有执行 `listener-set` 时，Keycloak 只在 loopback 提供 HTTP。升级会保留已有 listener，但不会新建。托管 PostgreSQL 用 daemon 生成的密码认证 Keycloak，密码保存在 user root 的 `0600` 文件中，无需手工配置数据库凭据。
+bootstrap 不会发布登录服务：没有执行 `listener-set` 时，Keycloak 只在 loopback 提供 HTTP。升级会保留已有 listener，但不会新建。托管 PostgreSQL 用 daemon 生成的密码认证 Keycloak，密码保存在 user root 的 `0600` 文件中，无需手工配置数据库凭据。旧的 `trust` 数据目录由随包的 `postgres` 在单用户模式下完成迁移，不需要另装 `psql` 或 libpq。
 
 登录服务的绑定地址必须是中心主机上的 IP，`--hostname` 必须出现在证书 SAN 中。私钥保持 owner-only（权限 `0600`）：
 

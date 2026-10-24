@@ -298,7 +298,7 @@ There is no compatibility path for a v1 registry.
 
 There are two separate HTTPS entrances. `listener-set` configures the managed Keycloak login service; it is the browser/token issuer. The Fleet TLS listener is the edge synchronization service and is configured with `daemon fleet center start`. Do not use one command's address as the other's configuration.
 
-Bootstrap never publishes the login service: without a `listener-set`, Keycloak serves loopback HTTP only. An upgrade preserves an existing listener but never creates one. The managed PostgreSQL instance authenticates Keycloak with a daemon-generated password stored in the user root with mode `0600`; no manual database credential is required.
+Bootstrap never publishes the login service: without a `listener-set`, Keycloak serves loopback HTTP only. An upgrade preserves an existing listener but never creates one. The managed PostgreSQL instance authenticates Keycloak with a daemon-generated password stored in the user root with mode `0600`; no manual database credential is required. A legacy `trust` data directory is migrated with the bundled `postgres` in single-user mode, so no external `psql` or libpq installation is needed.
 
 For the login service, the bind address must be an IP assigned to the center host and `--hostname` must be present in the certificate SAN. Keep the private key owner-readable (mode `0600`):
 
