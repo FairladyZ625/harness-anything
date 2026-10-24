@@ -218,23 +218,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         ).outcome,
         "applied",
       );
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-adjudicate",
-              taskId,
-              executionId: firstExecutionId,
-              forward: true,
-              reviewer: "closeout-reviewer",
-              reason: "Forward first runtime cut.",
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
       writeFileSync(
         path.join(root, "redispatch-changes.json"),
         JSON.stringify({
@@ -273,47 +256,30 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             ) ?? null,
       );
       writeReviewReport(taskId, "redispatch-changes");
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-review-execution",
-              taskId,
-              executionId: firstExecutionId,
-              reviewId: "redispatch-changes",
-              fromFile: "redispatch-changes.json",
-              executor: {
-                kind: "agent",
-                id: `runtime-session:${String(firstReviewer.runtimeSessionId)}`,
-              },
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
-      const returned = await host.run(
+      const returned = (await host.run(
         repoId,
         {
-          kind: "task-adjudicate",
+          kind: "task-review-execution",
           taskId,
           executionId: firstExecutionId,
-          return: true,
-          workerMode: "fresh",
-          followUp: "Continue implementation.",
           reviewId: "redispatch-changes",
-          reason: "Return first runtime cut for rework.",
-          runtimeInstanceId: ingressDefinition.instanceId,
+          fromFile: "redispatch-changes.json",
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(firstReviewer.runtimeSessionId)}`,
+          },
         },
         auth,
-      );
+      )) as Record<string, unknown>;
       assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+      // The changes_requested verdict itself reopens the round and continues the worker; the
+      // continuation rides the review receipt (dec_E369B861 CH3).
       const implementation = returned.continuation as Record<string, unknown>;
       assert.ok(implementation, JSON.stringify(returned));
       assert.equal(implementation.outcome, "applied", JSON.stringify(implementation));
       assert.match(launchedPrompt, /# Previous submitted conclusion/u);
-      assert.match(launchedPrompt, /Continue implementation\./u);
+      assert.match(launchedPrompt, /Review redispatch-changes on your submitted cut requested changes/u);
+      assert.match(launchedPrompt, /ha doc show --path [^\n]+redispatch-changes\.md --raw/u);
       assert.match(
         launchedPrompt,
         /# Living Deliverable Protocol/u,
@@ -350,23 +316,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           auth,
         );
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-adjudicate",
-              taskId,
-              executionId: secondExecutionId,
-              forward: true,
-              reviewer: "closeout-reviewer",
-              reason: "Forward second runtime cut.",
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
       writeFileSync(
         path.join(root, "redispatch-review.json"),
         JSON.stringify({ verdict: "approved", reason: "Second round reviewed.", evidenceChecked: ["second round"] }),
@@ -454,7 +403,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
         assert.equal(receipt.code, "execution_frozen", JSON.stringify(receipt));
         assert.match(String(receipt.rejectionExplanation), /round was submitted and its cut is frozen/u);
-        assert.match(JSON.stringify(receipt), new RegExp(`ha task adjudicate ${taskId} --return`, "u"));
+        assert.match(JSON.stringify(receipt), /a changes_requested review verdict returns the cut for rework/u);
         assert.equal(launchCount, launchesBefore, "a frozen cut must not launch a runtime");
         assert.equal(
           makeTaskEventReader({ repoId, rootDir: root })
@@ -465,23 +414,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         );
       };
       await assertFrozen("submitted");
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-adjudicate",
-              taskId,
-              executionId,
-              forward: true,
-              reviewer: "closeout-reviewer",
-              reason: "Forward the frozen cut.",
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
       await assertFrozen("in_review");
     });
     await t.test(
@@ -593,18 +525,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           String(reviewClaim.rejectionExplanation),
           /a bound non-reviewer session cannot register a verdict/u,
         );
-        // The attach stays legal after the cut is forwarded for review.
+        // The attach stays legal while the cut sits in review.
         assert.equal(
           (
             await host.run(
               repoId,
               {
-                kind: "task-adjudicate",
-                taskId,
-                executionId,
-                forward: true,
-                reviewer: "closeout-reviewer",
-                reason: "Forward for review.",
+                kind: "task-dispatch-review",
+                taskIds: [taskId],
+                agentId: "closeout-reviewer",
               },
               auth,
             )

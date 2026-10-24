@@ -70,14 +70,7 @@ test("stack start checks out the approved delivery and freezes that exact baseli
     `# Closeout\n\n## Summary\n\nDelivery ${anchor}.\n\n## Verification\n\nFixture passed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nChecked.\n`,
   );
   await run({ kind: "task-submit", taskId: "task_stack_base", executionId: "exe-base" });
-  await run({
-    kind: "task-adjudicate",
-    taskId: "task_stack_base",
-    executionId: "exe-base",
-    forward: true,
-    reviewer: "closeout-reviewer",
-    reason: "Review cut.",
-  });
+
   for (const taskId of ["task_stack_work", "task_stack_negative"])
     await run({
       kind: "relation-relate",

@@ -404,19 +404,17 @@ test(
       });
       assert.equal(settings.outcome, "applied", JSON.stringify(settings));
       assert.equal((await f.submit()).outcome, "applied");
-      const forwarded = (await f.run({
-        kind: "task-adjudicate",
-        taskId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Review frozen cut.",
-      })) as unknown as Record<string, unknown>;
-      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-      assert.equal(forwarded.reviewerId, "closeout-reviewer");
-      assert.equal(forwarded.reviewerSource, "argument");
+      // The frozen claim (missing-reviewer) beats the repository default at submit, so the
+      // auto-dispatch fails and lands its recovery step; the explicit dispatch-review argument
+      // then selects the installed reviewer (owner ruling 2026-09-21 precedence, now on the
+      // one dispatch port).
       const state = (await f.cell().read("repo.tasks.list")).rows.find((row) => row.taskId === taskId);
       assert.equal(state?.snapshot.task?.status, "in_review");
+      assert.equal(f.launches.length, 0);
+      const selected = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
+      assert.equal(selected.outcome, "applied", JSON.stringify(selected));
       assert.equal(f.launches.length, 1);
+      assert.match(String(f.launches[0]!.prompt), /Independently review task/u);
     } finally {
       await f.close();
     }
@@ -446,24 +444,14 @@ test("explicit reviewer selection dispatches beside the automatic reviewer and r
     );
     await f.submit();
     assert.equal(f.launches.length, 1);
-    const action = {
-      kind: "task-adjudicate",
-      taskId,
-      forward: true,
-      reviewer: "alternate-reviewer",
-      reason: "Request an additional independent reviewer.",
-    };
-    const selected = await f.run(action);
+    // An explicit --agent beside the automatic reviewer owns its dispatch identity; the retry
+    // lane is idempotent on the same key (one launch per reviewer).
+    const selected = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "alternate-reviewer" });
     assert.equal(selected.outcome, "applied", JSON.stringify(selected));
     assert.equal(f.launches.length, 2);
-    assert.equal((await f.run(action)).outcome, "applied");
     const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "alternate-reviewer" });
     assert.equal(retry.outcome, "applied", JSON.stringify(retry));
-    assert.equal(
-      f.launches.length,
-      2,
-      "both owner selection and dispatch-review reuse the selected reviewer's dispatch",
-    );
+    assert.equal(f.launches.length, 2, "the retry reuses the selected reviewer's dispatch");
     const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
     assert.deepEqual(
       dispatches.map((event) => event.payload.agentId),
@@ -526,20 +514,8 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
       .find((event) => event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === legacyKey);
     assert.ok(legacyEvent?.type === "runtime_dispatch_requested");
 
-    const rerouted = await f.run({
-      kind: "task-adjudicate",
-      taskId,
-      executionId,
-      forward: true,
-      reviewer: "alternate-reviewer",
-      reason: "Retry the selected reviewer on the same cut.",
-    });
-    assert.equal(rerouted.outcome, "applied", JSON.stringify(rerouted));
-    const rerouteStep = ((rerouted as Record<string, unknown>).steps as readonly Record<string, unknown>[]).at(-1);
-    assert.equal(rerouteStep?.dispatchId, legacyEvent.payload.dispatchId);
-    assert.equal(rerouteStep?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
-    assert.equal(f.launches.length, 1, "the owner reroute must reuse the live legacy dispatch");
-
+    // The dispatch-review lane recognizes the live legacy dispatch and reuses its identity
+    // (the manual reroute rode the same key shape before the forward command retired).
     const retry = await f.run({
       kind: "task-dispatch-review",
       taskIds: [taskId],
@@ -577,7 +553,7 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
 });
 
 test(
-  "resumed submit keeps frozen reviewer over settings and recovers dispatch without adjudication",
+  "resumed submit keeps frozen reviewer over settings and recovers dispatch through dispatch-review",
   {
     timeout: 30_000,
   },

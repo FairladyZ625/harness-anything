@@ -62,18 +62,6 @@ test("settings CLI and RPC accept role deltas and reject the retired root review
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {
   const submit = parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]),
-    adjudicate = parseThinCommand([
-      "task",
-      "adjudicate",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--forward",
-      "--reviewer",
-      "specialist",
-      "--note",
-      "Forward the submitted cut.",
-    ]),
     declare = parseThinCommand([
       "task",
       "declare-executor",
@@ -114,7 +102,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--fact-holds",
       "F-ABCDEFGH:The upstream observation remains true after this task.",
     ]);
-  for (const parsed of [submit, adjudicate, declare, review, consent, complete])
+  for (const parsed of [submit, declare, review, consent, complete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (submit.ok)
     assert.deepEqual(submit.command.action, {
@@ -123,42 +111,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       commandType: "SubmitExecution",
       taskId: "task-1",
       executionId: "execution-1",
-    });
-  if (adjudicate.ok)
-    assert.deepEqual(adjudicate.command.action, {
-      kind: "task-adjudicate",
-      taskId: "task-1",
-      executionId: "execution-1",
-      forward: true,
-      reviewer: "specialist",
-      reason: "Forward the submitted cut.",
-      commandType: "AdjudicateSubmission",
-    });
-  const pinned = parseThinCommand([
-    "task",
-    "adjudicate",
-    "task-1",
-    "--forward",
-    "--reviewer",
-    "specialist",
-    "--instance",
-    "instance-1",
-    "--model",
-    "model-1",
-    "--note",
-    "Forward the submitted cut.",
-  ]);
-  assert.equal(pinned.ok, true, JSON.stringify(pinned));
-  if (pinned.ok)
-    assert.deepEqual(pinned.command.action, {
-      kind: "task-adjudicate",
-      taskId: "task-1",
-      forward: true,
-      reviewer: "specialist",
-      runtimeInstanceId: "instance-1",
-      model: "model-1",
-      reason: "Forward the submitted cut.",
-      commandType: "AdjudicateSubmission",
     });
   if (declare.ok)
     assert.deepEqual(declare.command.action, {
@@ -366,99 +318,28 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
   );
 });
 
-test("returned adjudication requires an explicit worker continuation choice", () => {
-  const missing = parseThinCommand(["task", "adjudicate", "task-1", "--return", "--note", "Please revise."]);
-  assert.equal(missing.ok, false);
-  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode resume\|fresh\|none/u);
-  // Every missing parameter is named in one rejection, not one per retry: a bare --return
-  // shows the whole gap (--worker-mode, --note, --message) at once.
-  const bare = parseThinCommand(["task", "adjudicate", "task-1", "--return"]);
-  assert.equal(bare.ok, false);
-  if (!bare.ok) {
-    assert.match(bare.nextAction, /--worker-mode/u);
-    assert.match(bare.nextAction, /--note/u);
-    assert.match(bare.nextAction, /--message/u);
-  }
-  const noNoteOrMode = parseThinCommand([
-    "task",
-    "adjudicate",
-    "task-1",
-    "--return",
-    "--message",
-    "Use the review comments and continue.",
-  ]);
-  assert.equal(noNoteOrMode.ok, false);
-  if (!noNoteOrMode.ok) {
-    assert.match(noNoteOrMode.nextAction, /--worker-mode/u, "the missing worker mode is named");
-    assert.match(noNoteOrMode.nextAction, /--note/u, "the missing note is named alongside it");
-    assert.doesNotMatch(noNoteOrMode.nextAction, /--message/u, "a provided parameter is not re-asked for");
-  }
-  const resumed = parseThinCommand([
-    "task",
-    "adjudicate",
-    "task-1",
-    "--return",
-    "--note",
-    "Please revise.",
-    "--worker-mode",
-    "resume",
-    "--message",
-    "Use the review comments and continue.",
-  ]);
-  assert.equal(resumed.ok, true, JSON.stringify(resumed));
-  if (resumed.ok) {
-    assert.equal(resumed.command.action.workerMode, "resume");
-    assert.equal(resumed.command.action.followUp, "Use the review comments and continue.");
-  }
-  for (const mode of ["fresh", "resume"]) {
-    const args = ["task", "adjudicate", "task-1", "--return", "--note", "Revise.", "--worker-mode", mode];
-    assert.equal(parseThinCommand(args).ok, false);
-    assert.equal(parseThinCommand([...args, "--message", " "]).ok, false);
-    assert.equal(parseThinCommand([...args, "--message", "Review the evidence."]).ok, true);
-  }
-  assert.equal(
-    parseThinCommand(["task", "adjudicate", "task-1", "--return", "--worker-mode", "auto", "--message", "Revise."]).ok,
-    false,
-  );
-});
-
-test("returned adjudication --worker-mode none takes no worker message", () => {
-  const bare = parseThinCommand([
-    "task",
-    "adjudicate",
-    "task-1",
-    "--return",
-    "--note",
-    "Owner fixed it.",
-    "--worker-mode",
-    "none",
-  ]);
-  assert.equal(bare.ok, true, JSON.stringify(bare));
-  if (bare.ok)
-    assert.deepEqual(bare.command.action, {
-      kind: "task-adjudicate",
-      taskId: "task-1",
-      return: true,
-      workerMode: "none",
-      reason: "Owner fixed it.",
-      commandType: "AdjudicateSubmission",
-    });
-  const withMessage = parseThinCommand([
-    "task",
-    "adjudicate",
-    "task-1",
-    "--return",
-    "--note",
-    "Owner fixed it.",
-    "--worker-mode",
-    "none",
-    "--message",
-    "Revise.",
-  ]);
-  assert.equal(withMessage.ok, false);
-  if (!withMessage.ok) {
-    assert.equal(withMessage.code, "invalid_field");
-    assert.match(withMessage.nextAction, /--worker-mode none .*--note/u);
+test("the retired adjudicate command no longer routes", () => {
+  // dec_E369B8616F50A6208B293997E7 CH5: the manual forward/return commands retired with the
+  // automatic review loop; the CLI rejects the verb before any flag is parsed.
+  for (const argv of [
+    ["task", "adjudicate", "task-1", "--forward", "--reviewer", "specialist", "--note", "why"],
+    [
+      "task",
+      "adjudicate",
+      "task-1",
+      "--return",
+      "--note",
+      "Please revise.",
+      "--worker-mode",
+      "resume",
+      "--message",
+      "Continue.",
+    ],
+    ["task", "adjudicate", "task-1", "--return", "--worker-mode", "none", "--note", "Owner fixed it."],
+  ]) {
+    const retired = parseThinCommand(argv);
+    assert.equal(retired.ok, false, JSON.stringify(argv));
+    if (!retired.ok) assert.equal(retired.code, "unsupported_command");
   }
 });
 

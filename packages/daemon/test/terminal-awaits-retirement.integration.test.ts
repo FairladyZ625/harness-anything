@@ -365,18 +365,7 @@ test("a task completing after review and consent retires the awaits Relations it
         submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
       }
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-      const forward = await cell.run(
-        {
-          kind: "task-adjudicate",
-          taskId,
-          executionId,
-          forward: true,
-          reviewer: "closeout-reviewer",
-          reason: "Owner forwards the verified delivery.",
-        },
-        holder,
-      );
-      assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+
       await waitForFixturePublication(cell as never, String(forward.opId), holder as never);
       const reviewId = "review-terminal-awaits",
         reportPath = `${packagePath}/artifacts/reports/terminal-awaits.md`;

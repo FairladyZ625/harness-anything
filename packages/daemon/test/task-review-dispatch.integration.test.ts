@@ -654,19 +654,6 @@ test(
       const task2 = "task-completion-review-batch",
         execution2 = "execution-completion-review-batch";
       await f.submitExtraTask(task2, execution2);
-      assert.equal(
-        (
-          await f.run({
-            kind: "task-adjudicate",
-            taskId: task2,
-            executionId: execution2,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards the second cut for independent review.",
-          })
-        ).outcome,
-        "applied",
-      );
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId, task2] });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const steps = dispatchesOf(receipt);

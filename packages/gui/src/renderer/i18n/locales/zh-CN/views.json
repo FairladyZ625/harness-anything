@@ -1512,8 +1512,6 @@
   "views.workspace.hero.title": "等你裁决",
   "views.workspace.hero.note": "都已提交，转评审后会自动派评审员；最久的 {ago}",
   "views.workspace.hero.waited": "{ago}提交",
-  "views.workspace.hero.forward": "转评审",
-  "views.workspace.hero.return": "打回",
   "views.workspace.hero.attest": "签注",
   "views.workspace.hero.override": "特批放行",
   "views.workspace.hero.consent": "同意本轮交付",

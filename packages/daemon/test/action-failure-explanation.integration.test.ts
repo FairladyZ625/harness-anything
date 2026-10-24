@@ -334,19 +334,6 @@ test("holding every action in Keycloak does not lift self-review, lease, or huma
         "## Same Mechanism Elsewhere\nShared action refusal contracts.\n",
     );
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, alice)).outcome, "applied");
-    // Commanding the cut is a permission now: Alice holds it, and having created the task is not what grants it.
-    const forwarded = await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId,
-        executionId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Forward for independent review.",
-      },
-      alice,
-    );
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
 
     // 2. Nobody reviews their own execution, whatever they are permitted to do.
     const report = (name: string) => {
