@@ -268,17 +268,6 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
         },
         "maintainer",
       ),
-      forwarded = await cell.run(
-        {
-          kind: "task-adjudicate",
-          taskId,
-          executionId,
-          forward: true,
-          reviewer: "closeout-reviewer",
-          reason: "Owner forwards the final amended cut for independent review.",
-        },
-        holder,
-      ),
       reportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
     mkdirSync(reportDir, { recursive: true });
     writeFileSync(

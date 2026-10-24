@@ -218,26 +218,12 @@ test("a lightweight task's forward order upgrades the cut into the review corrid
     const submitted = (await f.run({ kind: "task-submit", taskId, executionId })) as Receipt;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.equal(f.launches.length, 0, "the lightweight submit itself dispatches no reviewer");
-    // The deadloop's other end: dispatch-review advises the forward order, so that order must work.
+    // The forward order retired with the manual corridor: a review-lifted cut has no lane into
+    // review, and dispatch-review says so instead of advising a nonexistent command.
     const advised = (await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })) as Receipt;
     assert.equal(advised.outcome, "op_rejected", JSON.stringify(advised));
-    assert.match(
-      String(advised.rejectionExplanation),
-      /ha task adjudicate [^;]+ --forward/u,
-      "the triage advice still names the forward order",
-    );
-    const forwarded = await f.forward();
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
-    assert.equal(f.launches.length, 1, "the forward order dispatches exactly one reviewer");
-    // The upgrade is real: until the verdict lands, completion owes its review.
-    const early = (await f.complete()) as Receipt;
-    assert.equal(early.outcome, "op_rejected", JSON.stringify(early));
-    assert.equal(early.code, "review_missing", JSON.stringify(early));
-    assert.match(String(early.rejectionExplanation), /no recorded review/u);
-    const reviewed = await f.review(runtimeSessionId(forwarded), "review-lightweight-upgrade");
-    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    // Consent stays lifted with the profile: the approved verdict is the only added requirement.
+    assert.match(String(advised.rejectionExplanation), /has no automatic review requirement; its cut lifted review/u);
+    // The lifted profile completes straight off submitted; no verdict is owed.
     const completed = (await f.complete()) as Receipt;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal((await taskStatus(f)).status, "done");
@@ -246,7 +232,7 @@ test("a lightweight task's forward order upgrades the cut into the review corrid
   }
 });
 
-test("changes requested remains in review until the owner returns the cut with instructions", async () => {
+test("a changes_requested verdict below the budget reopens rework in the same write", async () => {
   const f = await fixture();
   try {
     await f.install();
@@ -259,37 +245,20 @@ test("changes requested remains in review until the owner returns the cut with i
       "changes_requested",
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
-
-    // A mistaken forward on the already-reviewed cut is refused before the write queue (2026-09-28
-    // defect: it waited minutes behind a stalled publication) and names the same-cut return order.
-    const mistaken = (await f.run({
-      kind: "task-adjudicate",
-      taskId,
-      forward: true,
-      reason: "Owner mistakenly re-forwards the reviewed cut.",
-    })) as Receipt;
-    assert.equal(mistaken.outcome, "op_rejected", JSON.stringify(mistaken));
-    assert.equal(mistaken.code, "invalid_transition", JSON.stringify(mistaken));
-    assert.match(String(mistaken.rejectionExplanation), /already in review after submit/u);
-    assert.deepEqual(mistaken.nextActions, [
-      'ha task adjudicate task-completion-review --forward --reviewer <agent> --note "<why>"',
-      'ha task adjudicate task-completion-review --return --review-id review-changes-requested --note "<the owner\'s rework instruction>"',
-    ]);
-    assert.equal(f.launches.length, 1, "the refused forward dispatches no new reviewer");
-    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
-
-    const returned = await f.returnCut("Revise the evidence and resubmit.", "review-changes-requested");
-    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    // Below the default budget (2) the verdict itself is the return order: the round reopens
+    // atomically and the continuation rides the same receipt (dec_E369B861 CH3).
     assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
-    assert.equal(f.launches.length, 1, "the reviewer verdict must not dispatch implementation work");
+    const continuation = (reviewed as Receipt).continuation as { mode?: string } | undefined;
+    assert.ok(continuation, "the rework continuation rides the review receipt");
+    assert.equal(continuation?.mode, "fresh", "this fixture submitted without a dispatch, so the worker is fresh");
+    assert.equal(f.events().filter((event) => event.type === "review_recorded").length, 1);
   } finally {
     await f.close();
   }
 });
 
-test("manual review return succeeds even after reaching the review return budget", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false, autoForward: false });
+test("the rework budget stops the loop and leaves the cut to the owner", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
   try {
     await f.install();
     const dispatchReview = async (roundExecutionId: string, reviewId: string) => {
@@ -306,26 +275,24 @@ test("manual review return succeeds even after reaching the review return budget
         roundExecutionId,
       );
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-      const returned = await f.run({
-        kind: "task-adjudicate",
-        taskId,
-        executionId: roundExecutionId,
-        return: true,
-        workerMode: "none",
-        reviewId,
-        reason: `Revise round ${roundExecutionId}.`,
-      });
-      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+      return reviewed as Receipt;
     };
-    // Submit dispatches each round's reviewer automatically; only the returns stay manual.
+    // Round 1 and 2 reopen below the default budget of 2; the third verdict only records.
     assert.equal((await f.submit()).outcome, "applied");
     await dispatchReview(executionId, "review-budget-1");
+    assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
+    let capped: Receipt | undefined;
     for (const [index, roundExecutionId] of ["execution-review-budget-2", "execution-review-budget-3"].entries()) {
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })).outcome, "applied");
       assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundExecutionId })).outcome, "applied");
-      await dispatchReview(roundExecutionId, `review-budget-${index + 2}`);
+      capped = await dispatchReview(roundExecutionId, `review-budget-${index + 2}`);
     }
-    assert.equal(f.events().filter((event) => event.type === "submission_returned").length, 3);
+    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 2 });
+    assert.match(
+      String(JSON.stringify(capped?.warnings ?? [])),
+      /rework budget is exhausted/u,
+      "the capped receipt names the owner's disposition lanes",
+    );
   } finally {
     await f.close();
   }

@@ -193,34 +193,6 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ).outcome,
       "applied",
     );
-    const noteless = await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId: "task_review",
-        executionId: "exe_review",
-        forward: true,
-        reviewer: "closeout-reviewer",
-      },
-      binding,
-    );
-    assert.equal(noteless.outcome, "op_rejected", JSON.stringify(noteless));
-    assert.match(JSON.stringify(noteless), /--note <text> or --note-file <path>/u);
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId: "task_review",
-            executionId: "exe_review",
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward agenda review cut.",
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
     // task_wait_adjudicate 提交后停住(submitted),派审与返工两条对照线各自走到位:
     // 一个只等派审,一个走完 forward → changes_requested → return。
     for (const [taskId, executionId] of [
@@ -245,22 +217,6 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       },
       "maintainer",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId: "task_returned",
-            executionId: "exe_returned",
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward agenda rework cut.",
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
@@ -281,20 +237,10 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ).outcome,
       "applied",
     );
-    const returned = await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId: "task_returned",
-        executionId: "exe_returned",
-        return: true,
-        workerMode: "none",
-        reviewId: "review-returned",
-        reason: "Return agenda cut for rework.",
-      },
-      binding,
-    );
-    assert.equal(returned.outcome, "applied");
-    await waitForFixturePublication(cell, returned.opId, binding);
+    // The changes_requested verdict above already reopened the rework round; nothing manual
+    // remains between the verdict and the awaitingRework group.
+    const returned = await cell.run({ kind: "task-show", taskId: "task_returned" });
+    await waitForFixturePublication(cell, String(returned.opId), binding);
     const proposed = await cell.run(decisionProposal(), binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
 
@@ -312,7 +258,8 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     assert.equal(agenda.inFlight[0]?.pinned, true);
     assert.equal(agenda.inFlight[0]?.leaseExecutionId, "exe_active");
     // 三种 task 状态 + 一条 decision 各落各组、互不重复(submitted→待派审、in_review→评审中、
-    // changes_requested→等我修、默认免审的 proposed decision→待裁)。
+    // changes_requested→等我修、默认免审的 proposed decision→待裁);task_returned 的返工由
+    // changes_requested 评审自动重开(dec_E369B861 CH3)。
     assert.deepEqual(
       agenda.awaitingAdjudication.map(({ taskId }) => taskId),
       ["task_wait_adjudicate"],
@@ -462,22 +409,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       (await cell.run({ kind: "task-submit", taskId: "task_rework", executionId: "exe_rework" }, binding)).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId: "task_rework",
-            executionId: "exe_rework",
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward agenda rework cut.",
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
+
     const reviewerBinding = withPolicyGroup(
       {
         actor: {
@@ -508,20 +440,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       ).outcome,
       "applied",
     );
-    const returned = await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId: "task_rework",
-        executionId: "exe_rework",
-        return: true,
-        workerMode: "none",
-        reviewId: "review-rework",
-        reason: "Return agenda cut for rework.",
-      },
-      binding,
-    );
-    assert.equal(returned.outcome, "applied");
-    await waitForFixturePublication(cell, returned.opId, binding);
+    // The changes_requested verdict above reopened the rework round automatically.
     const returnedSnapshot = JSON.parse(
       String((await cell.run({ kind: "task-show", taskId: "task_rework" }, binding)).evidence),
     ) as {
@@ -598,22 +517,7 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         (await cell.run({ kind: "task-submit", taskId, executionId: `exe_${taskId}` }, binding)).outcome,
         "applied",
       );
-      assert.equal(
-        (
-          await cell.run(
-            {
-              kind: "task-adjudicate",
-              taskId,
-              executionId: `exe_${taskId}`,
-              forward: true,
-              reviewer: "closeout-reviewer",
-              reason: "Forward archived agenda cut.",
-            },
-            binding,
-          )
-        ).outcome,
-        "applied",
-      );
+
       writeFileSync(
         path.join(rootDir, "review.json"),
         JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
@@ -634,20 +538,7 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         ).outcome,
         "applied",
       );
-      const returned = await cell.run(
-        {
-          kind: "task-adjudicate",
-          taskId,
-          executionId: `exe_${taskId}`,
-          return: true,
-          workerMode: "none",
-          reviewId: `review_${taskId}`,
-          reason: "Return archived agenda cut for rework.",
-        },
-        binding,
-      );
-      assert.equal(returned.outcome, "applied");
-      await waitForFixturePublication(cell, returned.opId, binding);
+      // The changes_requested verdict above reopened the rework round automatically.
     };
 
     await createChangesRequestedTask("task_000_archived_rework");

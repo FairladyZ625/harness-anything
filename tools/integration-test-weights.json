@@ -37,7 +37,6 @@
   "packages/cli/test/task-create-plan-guidance.integration.test.ts": 7300,
   "packages/cli/test/task-worktree-lifecycle.integration.test.ts": 67400,
   "packages/daemon/test/action-failure-explanation.integration.test.ts": 14600,
-  "packages/daemon/test/adjudicate-reviewer-instance.integration.test.ts": 4000,
   "packages/daemon/test/agenda-work-scope.integration.test.ts": 13600,
   "packages/daemon/test/agenda.integration.test.ts": 48700,
   "packages/daemon/test/agent-action.integration.test.ts": 9700,

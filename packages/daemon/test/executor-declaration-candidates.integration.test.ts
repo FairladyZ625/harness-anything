@@ -178,22 +178,6 @@ test("declare-executor traces the authoring dispatch across executions and never
       ),
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: authoringExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward cut.",
-          },
-          spawnOperator,
-        )
-      ).outcome,
-      "applied",
-    );
 
     // The cut's reviewer dispatch binds to the authoring execution; it must never carry attribution.
     const cutReviewer = await cell.spawnRuntime(
@@ -251,23 +235,6 @@ test("declare-executor traces the authoring dispatch across executions and never
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: authoringExecutionId,
-            return: true,
-            workerMode: "none",
-            reviewId: "cha",
-            reason: "Return the cut.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
 
     // Recovery round: a bare owner execution with executor=null whose only dispatch is a reviewer.
     const recoveryExecutionId = "exec-recovery";
@@ -288,22 +255,7 @@ test("declare-executor traces the authoring dispatch across executions and never
       ),
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: recoveryExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward recovery.",
-          },
-          spawnOperator,
-        )
-      ).outcome,
-      "applied",
-    );
+
     const recoveryReviewer = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
@@ -403,22 +355,7 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
       ),
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward reviewer-only cut.",
-          },
-          spawnOperator,
-        )
-      ).outcome,
-      "applied",
-    );
+
     const reviewer = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",

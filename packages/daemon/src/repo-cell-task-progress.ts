@@ -6,7 +6,6 @@ import {
   completionPreparationBlockers,
   taskCompletionNext,
   completionGuidance,
-  currentSubmittedExecutions,
   consumeKnownError,
   isTaskProgressEvent,
   resolveTaskBoundRuntimeBinding,

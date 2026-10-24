@@ -95,22 +95,6 @@ async function reachGreenInReview(
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-  assert.equal(
-    (
-      await cell.run(
-        {
-          kind: "task-adjudicate",
-          taskId,
-          executionId,
-          forward: true,
-          reviewer: "closeout-reviewer",
-          reason: "Owner forwards the lineage fixture for independent review.",
-        },
-        binding,
-      )
-    ).outcome,
-    "applied",
-  );
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),

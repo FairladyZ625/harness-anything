@@ -22,8 +22,6 @@ type ReworkContext = {
   readonly reportPath: string;
 };
 
-type WorkerContinuation = ReturnType<typeof prepareWorkerContinuation>;
-
 // dec_E369B8616F50A6208B293997E7/CH3: a changes_requested verdict below the repository rework
 // budget reopens the implementation round in the same review write; this dispatch continues the
 // worker that submitted the returned cut, carrying the review report. The existing spawner still
@@ -36,7 +34,7 @@ export async function dispatchReviewRework(
     readonly opId: string;
   },
 ): Promise<ReviewReworkStep> {
-  return dispatchContinuation(cell, input, principalBinding(input.binding), false);
+  return dispatchContinuation(cell, input, principalBinding(input.binding));
 }
 
 /** The plain-principal view of a session binding: the loop acts on the principal's standing
@@ -99,43 +97,49 @@ async function dispatchContinuation(
   cell: RepoCellOperationalContext,
   input: ReworkContext & { readonly binding: RepoCellBinding; readonly opId: string },
   binding: RepoCellBinding,
-  resumeFallbackTried: boolean,
 ): Promise<ReviewReworkStep> {
-  const previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId),
-    mode = resumeFallbackTried ? "fresh" : previous?.resume !== undefined ? "resume" : "fresh",
-    continuation = prepareWorkerContinuation(cell, input, mode);
-  try {
-    const authorizationDecision = await evaluateRepoCellAction({
-      action: { kind: "runtime-spawn", ...continuation.payload },
-      repoId: cell.input.repoId,
-      binding,
-      actionId: continuation.payload.dispatchKey,
-      revision: cell.store.readHead()?.revision ?? 0,
-      now: cell.now(),
-      readTask: (id) => cell.projection.read(id).snapshot.task,
-    });
-    if (authorizationDecision.outcome !== "allowed")
-      throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-    const worktree = await cell.runtimeSpawner.prepareWorktree(continuation.payload),
-      spawned = await cell.runtimeSpawner.spawn(continuation.payload, { ...binding, authorizationDecision }, worktree);
-    return {
-      continuation: { mode: continuation.mode, ...spawned },
-      next: [
-        {
-          command: `ha task show ${input.taskId}`,
-          reason:
-            "the worker was dispatched automatically; monitor its rework execution instead of starting another worker",
-        },
-      ],
-    };
-  } catch (error) {
-    // The rework round is already durable. A provider that cannot resume the prior session is not a
-    // stop: retry once as a fresh session carrying the same report (dec_E369B861 CH3 checkpoint).
-    if (!resumeFallbackTried && continuation.mode === "resume" && runtimeErrorCode(error) === "runtime_resume_failed")
-      return dispatchContinuation(cell, input, binding, true);
-    // Preserve the actual launch error and its code, so the receipt never masquerades as a launched worker.
-    const failure = cell.failed(input.opId, error);
-    return { continuation: { mode: continuation.mode, ...failure }, steps: [failure] };
+  // One resume attempt, then one fresh fallback: a provider that cannot resume the prior session
+  // is not a stop — the fresh session carries the same report (dec_E369B861 CH3 checkpoint).
+  for (let attempt = 0; ; attempt += 1) {
+    const previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId),
+      mode = attempt > 0 ? "fresh" : previous?.resume !== undefined ? "resume" : "fresh",
+      continuation = prepareWorkerContinuation(cell, input, mode);
+    try {
+      const authorizationDecision = await evaluateRepoCellAction({
+        action: { kind: "runtime-spawn", ...continuation.payload },
+        repoId: cell.input.repoId,
+        binding,
+        actionId: continuation.payload.dispatchKey,
+        revision: cell.store.readHead()?.revision ?? 0,
+        now: cell.now(),
+        readTask: (id) => cell.projection.read(id).snapshot.task,
+      });
+      if (authorizationDecision.outcome !== "allowed")
+        throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+      const worktree = await cell.runtimeSpawner.prepareWorktree(continuation.payload),
+        spawned = await cell.runtimeSpawner.spawn(
+          continuation.payload,
+          { ...binding, authorizationDecision },
+          worktree,
+        );
+      return {
+        continuation: { mode: continuation.mode, ...spawned },
+        next: [
+          {
+            command: `ha task show ${input.taskId}`,
+            reason:
+              "the worker was dispatched automatically; monitor its rework execution instead of starting another worker",
+          },
+        ],
+      };
+    } catch (error) {
+      // The rework round is already durable. Preserve the actual launch error and its code, so
+      // the receipt never masquerades as a launched worker; only a rejected resume retries fresh.
+      if (attempt === 0 && continuation.mode === "resume" && runtimeErrorCode(error) === "runtime_resume_failed")
+        continue;
+      const failure = cell.failed(input.opId, error);
+      return { continuation: { mode: continuation.mode, ...failure }, steps: [failure] };
+    }
   }
 }
 
