@@ -1,10 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text } from "@harness-anything/kernel";
+import { makeTaskEventStore, sha256Text, transitionDocumentContract } from "@harness-anything/kernel";
 import { compileTaskBootstrap, readBundledAgentDeclaration } from "../src/index.ts";
 import { createRuntime, presetDocumentBody } from "../src/preset-resolver.ts";
 import { loadCanonicalAssets } from "../src/preset-assets.ts";
@@ -20,6 +20,37 @@ test("every bundled catalog body exists and contains its required anchors", () =
       for (const anchor of document.requiredAnchors)
         assert.equal(body.includes(anchor), true, `${document.id}:${locale.locale}:${anchor}`);
     }
+});
+
+test("every section a readiness contract would require is declared as a required anchor", () => {
+  const catalogFiles = [
+    path.join(defaultAssets, "template-catalog.json"),
+    ...readdirSync(path.join(defaultAssets, "presets"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(defaultAssets, "presets", entry.name, "template-catalog.json")),
+  ].filter((file) => existsSync(file));
+  for (const catalogFile of catalogFiles) {
+    const catalog = JSON.parse(readFileSync(catalogFile, "utf8")) as {
+      readonly documents: readonly {
+        readonly id: string;
+        readonly requiredAnchors: readonly string[];
+        readonly locales: readonly { readonly locale: string; readonly bodyPath: string }[];
+      }[];
+    };
+    for (const document of catalog.documents)
+      for (const locale of document.locales) {
+        const body = readFileSync(path.join(path.dirname(catalogFile), locale.bodyPath), "utf8");
+        // The transition gate derives required sections from the scaffold body itself; the
+        // catalog's declared anchors must cover exactly that set or readers of the declaration
+        // will under-require what dispatch and completion will reject.
+        for (const section of transitionDocumentContract(body).requiredSections)
+          assert.equal(
+            document.requiredAnchors.includes(`## ${section}`),
+            true,
+            `${document.id}:${locale.locale}:## ${section} missing from ${path.relative(defaultAssets, catalogFile)} requiredAnchors`,
+          );
+      }
+  }
 });
 
 test("bundled closeout reviewer is machine-independent and leaves instance model selection open", () => {
