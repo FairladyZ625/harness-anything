@@ -508,7 +508,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "decision-retire",
       "decision-review",
       "decision-show",
-      "decision-supersede",
       "decision-transition",
       "decision-unassign",
       "decision-validate",

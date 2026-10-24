@@ -239,6 +239,61 @@ test("a superseded Decision retires the awaits Relations it initiated", async ()
   });
 });
 
+test("an active decision supersedes Relation supersedes a proposed Decision and retires its awaits", async () => {
+  await withCell("terminal-awaits-proposed-supersede", async (cell) => {
+    const prior = await cell.run(decisionProposal("Prior proposal", "Should the prior proposal remain open?"), holder),
+      priorId = String(JSON.parse(String(prior.evidence)).decisionId),
+      replacement = await cell.run(
+        decisionProposal("Replacement proposal", "Does the replacement proposal supersede the prior one?"),
+        holder,
+      ),
+      replacementId = String(JSON.parse(String(replacement.evidence)).decisionId);
+    assert.equal(prior.outcome, "applied", JSON.stringify(prior));
+    assert.equal(replacement.outcome, "applied", JSON.stringify(replacement));
+    await relateAwaits(cell, `decision/${priorId}`, "consent: Is the old proposal still valid?");
+
+    const direct = await cell.run(
+        { kind: "decision-transition", decisionId: priorId, targetState: "superseded" },
+        holder,
+      ),
+      related = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${replacementId}`,
+          targetRef: `decision/${priorId}`,
+          relationType: "supersedes",
+          rationale: "The replacement proposal supersedes this draft.",
+          expectedVersion: 0,
+        },
+        holder,
+      );
+    assert.equal(direct.code, "invalid_transition");
+    assert.equal(related.outcome, "applied", JSON.stringify(related));
+    assert.equal(
+      JSON.parse(String((await cell.run({ kind: "decision-show", decisionId: priorId }, holder)).evidence)).decision
+        .state,
+      "superseded",
+    );
+    assert.deepEqual(
+      (await relationRows(cell, { source: `decision/${priorId}`, relationType: "awaits" })).map(({ state }) => state),
+      ["retired"],
+    );
+    const agenda = await cell.read("repo.agenda.read", { limit: 50 }, holder);
+    assert.equal(
+      agenda.awaitingDecision.some(({ decisionId }: { readonly decisionId: string }) => decisionId === priorId),
+      false,
+    );
+    assert.equal(
+      agenda.awaitingYou.some(({ sourceRef }: { readonly sourceRef: string }) => sourceRef === `decision/${priorId}`),
+      false,
+    );
+    assert.equal(
+      agenda.awaitingDecision.some(({ decisionId }: { readonly decisionId: string }) => decisionId === replacementId),
+      true,
+    );
+  });
+});
+
 test("a task entering cancelled through the doc-carrying path also retires its awaits Relations", async () => {
   const name = "terminal-awaits-cancel-docs";
   await withCell(name, async (cell, rootDir) => {

@@ -30,6 +30,7 @@ test("capability ids are the canonical Decision transition actions in target-sta
     decisionCapabilityIds.filter((id) => !actionIds.has(id)),
     [],
   );
+  assert.equal(explainEntityKind("decision")!.transitions.available.includes("supersede"), false);
 });
 
 test("capabilities expose only row-visible lifecycle admission", () => {
