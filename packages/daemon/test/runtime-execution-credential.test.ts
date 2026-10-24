@@ -112,6 +112,31 @@ test("execution requests exclude other tasks, repos, controls, and human consent
   );
 });
 
+test("a task-bound worker may select its own package paths for doc submit", () => {
+  const p = principal(),
+    paths = (values: readonly unknown[]) => ({ kind: "doc-submit", paths: values });
+  // The request entry holds no projection, so a path selection is admitted here and the package
+  // owner is proved in runDocAction against the projection.
+  assert.doesNotThrow(() => requireExecutionActionScope(p, paths(["harness/tasks/task-worker-own/artifacts/a.md"])));
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.task.run", {
+      repo: { repoId: p.repoId },
+      payload: { action: paths([`tasks/${p.taskId}-own/artifacts/a.md`]) },
+    }),
+  );
+  // A scopeless sweep, a reviewer, and every other path-less write stay refused.
+  assert.throws(() => requireExecutionActionScope(p, paths([])), { code: "execution_credential_rejected" });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "doc-submit", paths: [1] }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope({ ...p, role: "reviewer" }, paths(["tasks/task-worker/a.md"])), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "doc-submit", taskId: "task-other" }), {
+    code: "execution_credential_rejected",
+  });
+});
+
 test("task identity may request its own task scope but cannot decide or administer permissions", () => {
   const p = principal(),
     params = {

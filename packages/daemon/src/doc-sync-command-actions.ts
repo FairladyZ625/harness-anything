@@ -42,7 +42,8 @@ import {
 import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
-import type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
+import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { executionCredentialRejected, type RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import {
   noOp,
   scanDetail,
@@ -101,6 +102,68 @@ export function isDocAction(kind: string): boolean {
   );
 }
 
+/**
+ * A task-bound execution may submit its own package by path: the request entry holds no projection,
+ * so path ownership is proved here, where the owner is known. Every selected path must belong to the
+ * execution's task; anything else stays a cross-task write and never reaches the scanner.
+ */
+function requireOwnTaskDocSelection(input: Input): void {
+  const principal = input.binding.executionPrincipal,
+    action = input.action;
+  if (principal === undefined || principal.role !== "implementation" || principal.taskId === null) return;
+  if (typeof action.taskId === "string") {
+    if (action.taskId !== principal.taskId) throw executionCredentialRejected("write-other-task");
+    return;
+  }
+  if (!Array.isArray(action.paths) || action.paths.length === 0) return;
+  const owners = new Set(
+    action.paths.flatMap((value) =>
+      typeof value === "string"
+        ? [input.projection.taskIdForDocumentPath(normalizeSelectedDocPath(input.rootDir, value))]
+        : [],
+    ),
+  );
+  if (owners.size !== 1 || !owners.has(principal.taskId)) throw executionCredentialRejected("write-other-task");
+}
+
+/**
+ * The worker authors its package in the task worktree, whose atomic-replaced files the canonical
+ * checkout never sees. Feed the scanner the same worktree candidate inventory `task submit` carries,
+ * so both channels publish the bytes that were actually written. The selection must name one task:
+ * a mixed or unowned path set keeps the canonical scan and its own admission rules.
+ */
+function withWorktreeCandidates(input: Input): Input {
+  if (input.authoredCandidateInventory !== undefined) return input;
+  const taskId = singleSelectedTask(input);
+  if (taskId === null) return input;
+  const task = input.projection.read(taskId),
+    taskRoot = task.packagePath === null ? null : taskWorktreeRoot(input, task.snapshot);
+  if (taskRoot === null) return input;
+  const inventory = taskWorktreeCandidateInventory(
+    input.rootDir,
+    taskRoot,
+    task.packagePath,
+    input.store.currentCut(),
+    input.projection,
+  );
+  return inventory === undefined ? input : { ...input, authoredCandidateInventory: inventory };
+}
+
+function singleSelectedTask(input: Input): string | null {
+  const action = input.action;
+  if (typeof action.taskId === "string") return action.taskId;
+  if (!Array.isArray(action.paths) || action.paths.length === 0) return null;
+  const owners = new Set(
+    action.paths.map((value) =>
+      typeof value === "string"
+        ? input.projection.taskIdForDocumentPath(normalizeSelectedDocPath(input.rootDir, value))
+        : null,
+    ),
+  );
+  const [only] = owners;
+  return owners.size === 1 && only !== null ? only : null;
+}
+
 export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
@@ -108,6 +171,7 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
   if (input.action.kind === "doc-materialize") return runDocMaterialize(input);
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
+  requireOwnTaskDocSelection(input);
   if (Array.isArray(input.action.paths)) {
     const derived = input.action.paths.find((candidate) => {
       if (typeof candidate !== "string" || !candidate.endsWith("/artifacts/explainer.html")) return false;
@@ -128,7 +192,8 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
         "Work explainers are rendered from the current work projection and cannot be written.",
       );
   }
-  const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;
+  const scanInput = withWorktreeCandidates(input);
+  const scan = localProseSource(scanInput.binding.source) ? scannerSubmit(scanInput) : null;
   if (scan && isScopelessSubmit(input.action)) return scopeRequiredRejection(input, scan);
   if (scan) {
     const explicitSelection = Array.isArray(input.action.paths) && input.action.paths.length > 0;
@@ -478,7 +543,13 @@ function publishTaskArtifactBytes(
       replay.payload.changes.some((change) => change.path === destination && change.candidate?.sha256 === sha)
     )
       return { ...readDocReceipt(input, replay), destination };
-    throw docSyncError("artifact_collision", `artifact destination already exists: ${destination}`);
+    // The one-shot content channel never rewrites an accepted document: it carries no base sha, so an
+    // overwrite here could not prove the writer read the current bytes. The base-sha doc channel is the
+    // authorized update route, and the receipt names it instead of leaving a dead end.
+    throw docSyncError(
+      "artifact_collision",
+      `artifact destination already exists: ${destination}; update it with ha doc sync --submit --path ${destination}`,
+    );
   }
   if (projected.watermark !== projected.sourceRevision)
     return {
