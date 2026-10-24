@@ -560,14 +560,6 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       ...(command.disposedReviewIds === undefined ? {} : { disposedReviewIds: command.disposedReviewIds }),
       ...(command.rationale === undefined ? {} : { rationale: command.rationale }),
     };
-  if (command.type === "AdjudicateSubmission")
-    return {
-      ...common,
-      executionId: command.executionId,
-      decision: command.decision,
-      reason: command.reason,
-      ...(command.reviewId === undefined ? {} : { reviewId: command.reviewId }),
-    };
   if (command.type === "RetireCompletionGeneration")
     return { ...common, executionId: command.executionId, sourceGeneration: command.sourceGeneration };
   throw new TaskLifecycleOperationConflict("unsupported lifecycle command");
