@@ -17,6 +17,18 @@ const planHeadings = [
   "Goal",
   "Context",
   "Required Reading",
+  "Execution Surface",
+  "Constraints",
+  "Deliverable Contract",
+  "Evidence Protocol",
+  "Verification",
+] as const;
+
+const legacyPlanHeadings = [
+  "Brief",
+  "Goal",
+  "Context",
+  "Required Reading",
   "Entry Conditions",
   "Dependencies",
   "Execution Surface",
@@ -29,6 +41,10 @@ const planHeadings = [
 ] as const;
 
 const planTemplate = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
+    "utf8",
+  ),
+  legacyPlanTemplate = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
     "utf8",
   ),
@@ -45,8 +61,10 @@ const planTemplate = readFileSync(
     "utf8",
   ),
   planContract = transitionDocumentContract(planTemplate),
+  legacyPlanContract = transitionDocumentContract(legacyPlanTemplate),
   lightweightPlanContract = transitionDocumentContract(lightweightPlanTemplate),
-  plan = (body: string) => assessTransitionDocument("task.plan", body, planContract);
+  plan = (body: string) => assessTransitionDocument("task.plan", body, planContract),
+  legacyPlan = (body: string) => assessTransitionDocument("task.plan", body, legacyPlanContract);
 
 test("transition document bindings enumerate canonical consumers and omit work closeout without a transition", () => {
   assert.deepEqual(
@@ -84,11 +102,7 @@ test("task document readiness resolves a dotted transition id directly from its 
 });
 
 test("task plan rejects pure scaffolds but accepts a retained scaffold sentence plus concrete content", () => {
-  const template = readFileSync(
-    new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
-    "utf8",
-  );
-  const scaffold = plan(template);
+  const scaffold = plan(planTemplate);
   assert.equal(scaffold.ready, false);
   assert.equal(scaffold.code, "plan_placeholder");
   assert.deepEqual(
@@ -109,12 +123,21 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
     "## Brief\n\nOne-line statement of the task objective and scope. Implement task-index/v1 for CLI consumers.",
   );
   assert.equal(plan(retainedScaffold).ready, true);
-  const verificationScaffold = "- List any review and human acceptance conditions this task additionally requires.",
+  const verificationScaffold = planContract.scaffoldBySection.Verification![0]!,
     pureScaffoldSection = realizedPlan().replace(
       "## Verification\n\nImplemented Verification.",
       `## Verification\n\n${verificationScaffold}`,
     );
   assert.deepEqual(plan(pureScaffoldSection).missingSections, []);
+  assert.equal(plan(realizedPlan()).ready, true);
+});
+
+test("a frozen 13-section contract still judges the old section list", () => {
+  assert.deepEqual(legacyPlanContract.requiredSections, legacyPlanHeadings);
+  assert.deepEqual(
+    legacyPlan(realizedPlan()).missingSections.map(({ section }) => section),
+    ["Entry Conditions", "Dependencies", "Checkpoint", "Implementation Plan"],
+  );
   assert.equal(plan(realizedPlan()).ready, true);
 });
 
@@ -132,15 +155,12 @@ test("task plan suffixes preserve empty and scaffold detection", () => {
       { section: "Required Reading", reason: "empty" },
     ]);
     const scaffold =
-      "List concrete code, document, and contract paths in reading order, with an authority level for each item. Resolve source conflicts explicitly instead of presenting contradictory inputs as peers.";
+      "List concrete code, document, and contract paths in reading order, with an authority level for each item. Resolve source conflicts explicitly instead of presenting contradictory inputs as peers. A decision cited by the plan is read from the ledger at start time; a superseded decision yields to its successor.";
     assert.deepEqual(plan(body.replace("Implemented Required Reading.", scaffold)).missingSections, [
       { section: "Required Reading", reason: "scaffold", retainedScaffold: scaffold.slice(0, 60) },
     ]);
   }
-  const template = readFileSync(
-    new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
-    "utf8",
-  ).replace(/^(## .+)$/gmu, "$1 (details)");
+  const template = planTemplate.replace(/^(## .+)$/gmu, "$1 (details)");
   assert.deepEqual(
     plan(template).missingSections.map(({ section, reason }) => ({ section, reason })),
     planHeadings.map((section) => ({ section, reason: "scaffold" })),
@@ -150,14 +170,13 @@ test("task plan suffixes preserve empty and scaffold detection", () => {
 test("task-plan operating rules remain valid while business sections are authored", () => {
   const authored = planHeadings
     .map((heading) => {
-      if (["Execution Surface", "Implementation Plan", "Verification"].includes(heading)) return null;
+      if (["Execution Surface", "Verification"].includes(heading)) return null;
       return `## ${heading}\n\nAuthored ${heading}.`;
     })
     .filter((section): section is string => section !== null)
     .join("\n\n");
   const body =
     `${authored}\n\n## Execution Surface\n\n${planContract.scaffoldBySection["Execution Surface"]!.join("\n")}\n\n` +
-    `## Implementation Plan\n\n${planContract.scaffoldBySection["Implementation Plan"]!.join("\n")}\n\n` +
     `## Verification\n\n${planContract.scaffoldBySection.Verification!.join("\n")}\n`;
   assert.equal(plan(body).ready, true);
 });
@@ -319,12 +338,14 @@ test("the lightweight three-section scaffold passes once filled and rejects reta
   );
 });
 
-test("a filled three-section plan still fails the baseline thirteen-section contract", () => {
-  const missing = plan(
-    "## Brief\n\nFix it.\n\n## Context\n\nFacts.\n\n## Verification\n\nTests green.",
-  ).missingSections;
+test("a filled three-section plan still fails the full baseline contract", () => {
+  const body = "## Brief\n\nFix it.\n\n## Context\n\nFacts.\n\n## Verification\n\nTests green.",
+    missing = plan(body).missingSections;
   assert.equal(missing.length, planHeadings.length - 3);
   assert.ok(missing.every(({ reason }) => reason === "empty"));
+  const legacyMissing = legacyPlan(body).missingSections;
+  assert.equal(legacyMissing.length, legacyPlanHeadings.length - 3);
+  assert.ok(legacyMissing.every(({ reason }) => reason === "empty"));
 });
 
 test("section reader preserves repeated risk sections and fenced heading examples", () => {

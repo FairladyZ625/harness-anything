@@ -135,6 +135,7 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
     /# Implementation Permissions|# Worker Role|# Commander Context|ha task push|ha task pr <task-id> --update/u,
   );
   for (const grant of writeGrants) assert.equal(prompt.includes(grant), false, grant);
+  assert.doesNotMatch(prompt, /preconditions hold and its dependencies|facts are not a completion quota/u);
 });
 
 for (const role of [undefined, "worker"] as const)
@@ -149,6 +150,10 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /Squad child hands its local commits to the Commander and stops/u);
     assert.match(prompt, /branch is not published at settlement/u);
     assert.match(prompt, /delivery, verification, residual risks and same-mechanism evidence.*closeout.md/u);
+    assert.match(prompt, /Start only when the task's stated preconditions hold and its dependencies are proven ready/u);
+    assert.match(prompt, /report the evidence instead of inventing upstream input/u);
+    assert.match(prompt, /facts are not a completion quota/u);
+    assert.match(prompt, /Propose a decision for a route choice, reversal, or long-lived boundary/u);
     assert.match(prompt, /three consecutive failures with no new evidence/u);
     assert.doesNotMatch(prompt, /ha runtime status|ha squad status|ha task dispatches/u);
   });
@@ -175,6 +180,7 @@ test("commander owns child waiting, the CEO delivery contract and final integrat
   assert.match(prompt, /submit automatically dispatches the required ledger reviewers/u);
   assert.match(prompt, /Do not merge the PR or main/u);
   assert.doesNotMatch(prompt, /ha task pr|ha task push|closeout.md|task delivery commands/u);
+  assert.doesNotMatch(prompt, /preconditions hold and its dependencies|facts are not a completion quota/u);
   assert.doesNotMatch(assembleUnboundPrompt("Review.", "reviewer"), /ha runtime status|ha task dispatches/u);
 });
 

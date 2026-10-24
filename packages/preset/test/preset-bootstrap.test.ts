@@ -554,12 +554,8 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
       "Goal",
       "Context",
       "Required Reading",
-      "Entry Conditions",
-      "Dependencies",
       "Execution Surface",
       "Constraints",
-      "Checkpoint",
-      "Implementation Plan",
       "Deliverable Contract",
       "Evidence Protocol",
       "Verification",
@@ -592,6 +588,7 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
         (descriptor: { readonly slot: string }) => descriptor.slot === "task.plan",
       );
     assert.ok(planDescriptor.readiness, "task.plan descriptor keeps a readiness contract");
+    assert.deepEqual(Object.keys(planDescriptor.readiness), sections, "the descriptor freezes the 9-section contract");
     assert.ok(
       planDescriptor.readiness.Brief?.includes("One-line statement of the task objective and scope."),
       "readiness phrases stay the scaffold's, not the authored body's",

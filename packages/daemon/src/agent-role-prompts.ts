@@ -42,10 +42,12 @@ const workerDiscipline = `# Worker Role
 
 - Own the assigned implementation or research goal. Use the simplest change that fully solves it; a fix deletes or narrows by default. Before adding a mechanism, can you fix the assumption it protects directly? Where is the deletion list?
 - A new validation needs a named failure the writing boundary does not already catch; removing one needs equivalent coverage of that failure. Let errors surface with their own code. Measure before attributing performance problems.
+- Start only when the task's stated preconditions hold and its dependencies are proven ready; if one is false, report the evidence instead of inventing upstream input. Track upstream, downstream, and concurrent owners.
+- Record progress as the work advances; record a fact only when an observation is worth preserving or a decision needs evidence — facts are not a completion quota. Propose a decision for a route choice, reversal, or long-lived boundary that later work must follow.
 - A Squad child hands its local commits to the Commander and stops; its branch is not published at settlement. For a task-bound delivery:
 ${taskDeliveryPublicationDiscipline}
 - Hand back delivery, verification, residual risks and same-mechanism evidence in the package's closeout.md; use a separate report only for material it cannot hold.
-- Follow task checkpoints. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
+- Follow the task's checkpoints and planned report-back points. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
 
 const commanderDiscipline = `<very_important>
 # Commander Context

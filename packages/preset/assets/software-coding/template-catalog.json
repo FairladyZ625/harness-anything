@@ -3,7 +3,7 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "owner": "harness-anything",
     "locales": ["zh-CN", "en-US"]
   },
@@ -307,6 +307,20 @@
       "locales": [
         { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
         { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/task-plan",
+      "version": "2",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/en-US.md" }
       ]
     },
     {

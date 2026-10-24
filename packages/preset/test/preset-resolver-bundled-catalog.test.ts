@@ -158,7 +158,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         {
           slot: "task.plan",
           target: "task_plan.md",
-          templateRef: "template://planning/task-plan@1",
+          templateRef: "template://planning/task-plan@2",
         },
         {
           slot: "task.closeout",
@@ -196,34 +196,69 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         },
       ],
     );
-    const skeletonAnchors = [
-      "## Required Reading",
-      "## Entry Conditions",
-      "## Dependencies",
-      "## Execution Surface",
-      "## Deliverable Contract",
-      "## Evidence Protocol",
-    ];
-    for (const locale of ["en-US", "zh-CN"] as const)
-      for (const presetId of ["standard-task", "create-work"]) {
-        const resolved = runtime.resolveInternal({
-            ...common,
-            locale,
-            presetId,
-          }),
-          template = resolved.snapshot.templates.find(({ slot }) => slot === "task.plan"),
-          plan = resolved.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
-        assert.doesNotMatch(plan, /ha decision relate/u, `${presetId}:${locale}:retired-command`);
-        assert.match(plan, locale === "zh-CN" ? /### 硬红线/u : /### Hard Prohibitions/u);
-        assert.match(plan, locale === "zh-CN" ? /### 决策授权范围/u : /### Decision-Derived Authorization/u);
-        assert.match(plan, /in_effect/u);
-        assert.match(plan, /supersede/u);
-        assert.match(plan, /allowlist/u);
-        for (const anchor of skeletonAnchors) {
-          assert.equal(template?.requiredAnchors.includes(anchor), true, `${presetId}:${locale}:${anchor}:contract`);
-          assert.match(plan, new RegExp(anchor, "u"), `${presetId}:${locale}:${anchor}:body`);
-        }
+    const retainedSections = [
+        "Brief",
+        "Goal",
+        "Context",
+        "Required Reading",
+        "Execution Surface",
+        "Constraints",
+        "Deliverable Contract",
+        "Evidence Protocol",
+        "Verification",
+      ],
+      removedSections = ["Entry Conditions", "Dependencies", "Checkpoint", "Implementation Plan"];
+    for (const locale of ["en-US", "zh-CN"] as const) {
+      const resolved = runtime.resolveInternal({
+          ...common,
+          locale,
+          presetId: "standard-task",
+        }),
+        template = resolved.snapshot.templates.find(({ slot }) => slot === "task.plan"),
+        plan = resolved.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
+      assert.equal(template?.templateRef, "template://planning/task-plan@2", `${locale}:default-version`);
+      assert.deepEqual(
+        template?.requiredAnchors,
+        retainedSections.map((section) => `## ${section}`),
+        `${locale}:required-anchors`,
+      );
+      assert.doesNotMatch(plan, /ha decision relate/u, `${locale}:retired-command`);
+      assert.doesNotMatch(plan, /### (?:硬红线|Hard Prohibitions)/u, `${locale}:hard-line-standing-text`);
+      assert.doesNotMatch(
+        plan,
+        /### (?:决策授权范围|Decision-Derived Authorization)/u,
+        `${locale}:decision-authority-standing-text`,
+      );
+      for (const section of retainedSections) {
+        assert.match(plan, new RegExp(`^## ${section}$`, "mu"), `${locale}:${section}:body`);
+        assert.equal(template?.requiredAnchors.includes(`## ${section}`), true, `${locale}:${section}:contract`);
       }
+      for (const section of removedSections)
+        assert.doesNotMatch(plan, new RegExp(`^## ${section}$`, "mu"), `${locale}:${section}:removed`);
+      assert.match(
+        plan,
+        locale === "zh-CN" ? /前提被证伪就停/u : /Stop when a precondition is disproven/u,
+        `${locale}:precondition-rule`,
+      );
+      assert.match(
+        plan,
+        locale === "zh-CN" ? /写入范围是边界，不是白名单/u : /boundary, not an allowlist/u,
+        `${locale}:surface-rule`,
+      );
+    }
+    for (const locale of ["en-US", "zh-CN"] as const) {
+      const resolved = runtime.resolveInternal({
+          ...common,
+          locale,
+          presetId: "create-work",
+        }),
+        template = resolved.snapshot.templates.find(({ slot }) => slot === "task.plan"),
+        plan = resolved.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
+      assert.equal(template?.templateRef, "template://planning/work-task-plan@1");
+      assert.doesNotMatch(plan, /ha decision relate/u, `${locale}:work-retired-command`);
+      for (const section of ["Mission", "Usage Questions", "Wave Decomposition", "Exit Criteria"])
+        assert.match(plan, new RegExp(`^## ${section}$`, "mu"), `${locale}:${section}:work-body`);
+    }
     for (const locale of ["en-US", "zh-CN"] as const) {
       const blackbox = runtime.resolveInternal({ ...common, locale, presetId: "lifecycle-blackbox-acceptance" }),
         plan = blackbox.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
