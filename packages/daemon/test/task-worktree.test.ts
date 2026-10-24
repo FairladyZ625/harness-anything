@@ -660,6 +660,33 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
     });
 });
 
+test("a closed task's initialized submodules are reclaimed, and dirty submodule work is retained", async (t) => {
+  const fixture = repositoryFixture(t);
+  try {
+    addSubmodule(fixture);
+    let task = boundTask("active");
+    const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd,
+      submodule = path.join(cwd, "modules", "upstream");
+    git(cwd, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "-q");
+    assert.equal(existsSync(path.join(submodule, "upstream.txt")), true);
+    // Work inside the submodule is uncommitted work: the superproject's status names it, so it is kept.
+    writeFileSync(path.join(submodule, "upstream.txt"), "edited in the submodule\n");
+    task = boundTask("cancelled");
+    const dirty = await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, {});
+    assert.equal(existsSync(cwd), true);
+    assert.match(String(dirty.warnings?.[0]), /retained .*uncommitted changes/u);
+    assert.equal(git(submodule, "status", "--porcelain"), "M upstream.txt");
+    // Clean it: the same close removes the worktree even though git refuses a plain removal of initialized submodules.
+    git(submodule, "checkout", "-q", "--", "upstream.txt");
+    const clean = await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, {});
+    assert.equal(existsSync(cwd), false);
+    assert.match(String((clean as { summary?: string }).summary), /removed/u);
+    assert.equal(git(fixture.root, "branch", "--list", binding.branch), "");
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test("a residue directory a late writer left at a reclaimed path reads as reclaimed, not a worktree", async (t) => {
   const fixture = repositoryFixture(t);
   try {
@@ -923,6 +950,21 @@ function repositoryFixture(t: TestContext): { readonly base: string; readonly ro
   git(root, "remote", "add", "origin", remote);
   git(root, "push", "-q", "-u", "origin", "main");
   return { base, root };
+}
+
+/** Adds a local submodule to the fixture's default branch and publishes that branch. */
+function addSubmodule(fixture: { readonly base: string; readonly root: string }): void {
+  const source = path.join(fixture.base, "submodule-source");
+  git(fixture.base, "init", "-q", "-b", "main", source);
+  git(source, "config", "user.name", "Submodule Test");
+  git(source, "config", "user.email", "submodule@example.invalid");
+  writeFileSync(path.join(source, "upstream.txt"), "upstream\n");
+  git(source, "add", "upstream.txt");
+  git(source, "commit", "-qm", "submodule base");
+  // A local path is a file transport, which git gates behind protocol.file.allow.
+  git(fixture.root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "modules/upstream");
+  git(fixture.root, "commit", "-qm", "add submodule");
+  git(fixture.root, "push", "-q", "origin", "main");
 }
 
 function git(cwd: string, ...args: string[]): string {
