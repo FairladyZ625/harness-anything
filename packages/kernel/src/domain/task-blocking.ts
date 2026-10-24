@@ -2,6 +2,7 @@ import { consentedApprovedReviewForExecution } from "./review.ts";
 import type { ExecutionDeliveryBaseline } from "./execution.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-types.ts";
 import {
+  derivesRelationClause,
   parseAwaitsRequest,
   relationConsumability,
   relationIsCurrent,
@@ -205,18 +206,18 @@ export function dispatchPrerequisitesOf(
   for (const edge of relations.filter(
     ({ relationType, targetRef }) => relationType === "derives" && targetRef === `task/${taskId}`,
   )) {
-    const decisionId = /^decision\/([^/]+)\/[^/]+$/u.exec(edge.sourceRef)?.[1];
+    const clause = derivesRelationClause(edge.sourceRef);
     if (edge.state === "retired") continue;
-    if (!decisionId || edge.direction !== "directed") {
+    if (!clause || edge.direction !== "directed") {
       warnings.push(`invalid derives relation ${edge.relationId}`);
       continue;
     }
-    const decision = decisionById.get(decisionId);
-    if (!decision) warnings.push(`deriving decision ${decisionId} is missing from projection`);
+    const decision = decisionById.get(clause.decisionId);
+    if (!decision) warnings.push(`deriving decision ${clause.decisionId} is missing from projection`);
     else if (decision.state === "proposed") {
       if (!relationIsCurrent(edge) || relationConsumability(edge) === "refuse")
         warnings.push(`derives relation ${edge.relationId} is ${edge.freshness}`);
-      proposedDecisionIds.push(decisionId);
+      proposedDecisionIds.push(clause.decisionId);
     }
   }
   const stackedTargets = new Map<string, string>();

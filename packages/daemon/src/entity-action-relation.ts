@@ -3,6 +3,7 @@ import {
   compileRelationRetiredEvent,
   DECISION_DOCUMENT_POLICY_ID,
   deriveRelationId,
+  derivesRelationClause,
   FACT_DOCUMENT_POLICY_ID,
   factLiveness,
   isRelationEvent,
@@ -105,6 +106,28 @@ export function executeRelationAction(input: {
       reject("entity_not_found", `Relation source ${sourceRef} does not exist${lookupNote}`);
     if (target?.currentVersion === null && !assignment)
       reject("entity_not_found", `Relation target ${targetRef} does not exist${lookupNote}`);
+    // The dispatch gate's own clause judgment, applied at the write boundary: a task derives from a decision clause,
+    // never from the decision as a whole. Other derives targets are not dispatch prerequisites and keep their shape.
+    if (
+      !replay &&
+      action.relationType === "derives" &&
+      requestedTargetRef?.startsWith("task/") &&
+      derivesRelationClause(sourceRef!) === null
+    ) {
+      const ref = parseEntityRef(sourceRef!),
+        decision = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision : null,
+        hint =
+          ref?.kind === "decision"
+            ? [...(decision?.chosen ?? []), ...(decision?.claims ?? [])].map(({ id }) => `decision/${ref.id}/${id}`)
+            : [];
+      reject(
+        "relation_source_anchor_invalid",
+        `derives requires a decision clause source of the form decision/<decision-id>/<clause-id>; ` +
+          `${sourceRef} is not one. Use --source-ref ${
+            hint.join(" or ") || `decision/${ref?.kind === "decision" ? ref.id : "<decision-id>"}/<clause-id>`
+          }.`,
+      );
+    }
     if (!replay && action.relationType === "evidenced-by") {
       const ref = parseEntityRef(sourceRef!),
         claims = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision?.claims : undefined;

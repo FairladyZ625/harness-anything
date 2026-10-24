@@ -71,6 +71,19 @@ export function relationStrengthForType(type: RelationType): RelationStrength {
 }
 
 /**
+ * The decision clause a `derives` edge must name: `decision/<decision-id>/<clause-id>`. A whole-decision source
+ * (`decision/<id>`) says the task derives from the decision as a whole, which is not an anchor the dispatch gate can
+ * judge; the relation write path and that gate therefore share this one shape judgment. Null for any other shape.
+ */
+export function derivesRelationClause(sourceRef: string): {
+  readonly decisionId: string;
+  readonly clauseId: string;
+} | null {
+  const match = /^decision\/([^/]+)\/([^/]+)$/u.exec(sourceRef);
+  return match ? { decisionId: match[1]!, clauseId: match[2]! } : null;
+}
+
+/**
  * Which endpoint's cut verdict each relation type's freshness follows
  * (dec_D6970DC1303EF90E8B4855FC80/CH1). `derives` anchors on the source: "this task is
  * derived from that decision" stays true while the source decision remains in force, no
