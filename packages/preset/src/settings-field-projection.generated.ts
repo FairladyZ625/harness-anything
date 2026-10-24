@@ -741,8 +741,7 @@ export const settingsFieldProtocolProjection = {
       field: "dispatchArchiveRetentionDays",
       description: "How many days a finished dispatch's archived record is kept before the daemon deletes it.",
       group: "dispatch-storage",
-      effect:
-        "Archived dispatch records older than this are deleted when the repository opens on the daemon; 0 keeps them regardless of age.",
+      effect: "Older archived records are deleted when the repository opens on the daemon; 0 disables age deletion.",
       name: "--dispatch-archive-retention-days",
       kind: "single",
       regex: "^[0-9]+$",

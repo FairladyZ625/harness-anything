@@ -793,8 +793,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_DISPATCH_ARCHIVE_RETENTION_DAYS,
     minimum: 0,
     description: "How many days a finished dispatch's archived record is kept before the daemon deletes it.",
-    effect:
-      "Archived dispatch records older than this are deleted when the repository opens on the daemon; 0 keeps them regardless of age.",
+    effect: "Older archived records are deleted when the repository opens on the daemon; 0 disables age deletion.",
     group: "dispatch-storage",
     action: { field: "dispatchArchiveRetentionDays", type: "number" },
     cli: { name: "--dispatch-archive-retention-days", kind: "single", regex: "^[0-9]+$" },

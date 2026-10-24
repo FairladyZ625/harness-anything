@@ -1661,7 +1661,7 @@
   "views.settingsView.worktreeSetupStepTimeoutMsEffect": "A step still running after this fails like any other: the start is refused and the step named with its log.",
   "views.settingsView.restoreDrillRetentionEffect": "Only this many of the latest successful drills are kept; older ones are deleted.",
   "views.settingsView.storageBackupExecutionLimitMsEffect": "A backup still running past this limit is stopped and settles failed; raise it for large ledgers.",
-  "views.settingsView.dispatchArchiveRetentionDaysEffect": "Archived dispatch records older than this are deleted when the repository opens on the daemon; 0 keeps them regardless of age.",
+  "views.settingsView.dispatchArchiveRetentionDaysEffect": "Older archived records are deleted when the repository opens on the daemon; 0 disables age deletion.",
   "views.settingsView.dispatchArchiveRetentionBytesEffect": "Once the archive grows past this, the oldest archived records are deleted; 0 sets no size limit.",
   "views.settingsView.scheduleAdmissionWindowMsLabel": "Scheduled run catch-up window (ms)",
   "views.settingsView.scheduleAdmissionWindowMsDescription": "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",

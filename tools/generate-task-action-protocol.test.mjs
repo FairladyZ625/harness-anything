@@ -90,6 +90,8 @@ test("Task Action transport has one current build-time projection", async () => 
       "scheduleAdmissionWindowMs",
       "storageBackupExecutionLimitMs",
       "restoreDrillRetention",
+      "dispatchArchiveRetentionDays",
+      "dispatchArchiveRetentionBytes",
       "gatesFromDocument",
       "gatesDraft",
       "expectedVersion",
