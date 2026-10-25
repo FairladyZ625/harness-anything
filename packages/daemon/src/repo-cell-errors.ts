@@ -9,6 +9,10 @@ import {
   type EntityActionCriterionFailure,
   type ReceiptDiagnostic,
 } from "@harness-anything/kernel";
+import {
+  SettingsActionError,
+  SettingsProjectionError,
+} from "@harness-anything/kernel/internal/domain/settings-action-contract";
 import { scrubSecretText } from "./secret-scrub.ts";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
@@ -119,6 +123,10 @@ export function publishGeneratedArtifact(input: {
 }
 
 export function fatalCellError(error: unknown): boolean {
+  if (error instanceof SettingsProjectionError) return true;
+  // Settings compiler judgments are expected command outcomes. Store revision/writer divergence
+  // still latches below; the source type keeps both uses of revision_conflict distinct.
+  if (error instanceof SettingsActionError) return false;
   // Rejected entity CAS is an expected domain outcome. Store revision/writer divergence still latches below.
   if (error instanceof ArtifactEntityServiceError && error.code === "revision_conflict") return false;
   if (error instanceof VcsCommandError) return true;

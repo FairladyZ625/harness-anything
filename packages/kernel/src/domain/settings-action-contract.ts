@@ -38,6 +38,16 @@ export class SettingsActionError extends Error {
   }
 }
 
+/** A command reached the settings compiler without a usable canonical projection. */
+export class SettingsProjectionError extends Error {
+  readonly code = "content_not_ready";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SettingsProjectionError";
+  }
+}
+
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
   Object.freeze({
     schema: "entity-action-input/v1",
@@ -224,7 +234,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
   if (errors.length) rejectSettings("invalid_command", errors.join("; "));
   const baseDocumentBody = input.currentDocumentBody;
   if (typeof baseDocumentBody !== "string")
-    rejectSettings("content_not_ready", "The projected harness.yaml Settings document is unavailable.");
+    throw new SettingsProjectionError("The projected harness.yaml Settings document is unavailable.");
   const authoredBase = authoredDocumentBase(input.action, current, baseDocumentBody),
     candidateDocumentBody = writeRepositorySettingsFacet(authoredBase, candidate);
   if (candidateDocumentBody === baseDocumentBody && stableStringify(candidate) === stableStringify(current))
@@ -254,7 +264,7 @@ export function settingsActionLocale(value: unknown): SettingsLocale | undefined
 function currentSettings(input: EntityActionCompileInput): RepositorySettingsV1 {
   const current = repositorySettings(input.currentEntity as RepositorySettingsV1);
   if (validateRepositorySettings(current).length)
-    rejectSettings("content_not_ready", `Settings ${SETTINGS_ID} has no valid canonical projection.`);
+    throw new SettingsProjectionError(`Settings ${SETTINGS_ID} has no valid canonical projection.`);
   return current;
 }
 

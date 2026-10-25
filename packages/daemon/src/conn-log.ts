@@ -29,9 +29,11 @@ export interface DaemonTrafficLogEntry {
   readonly conn: string;
   readonly transport: string;
   readonly method: string | null;
+  /** Repository selected by the request, when the protocol params carried one. */
+  readonly repoId?: string | null;
   /** Protocol command/action id when the request resolves one; method remains the transport fallback. */
   readonly command?: string | null;
-  /** Resolved caller identity (agent id) when the connection or action declared one; null for persons. */
+  /** Resolved caller identity (agent id or authenticated principal) when available. */
   readonly actor?: string | null;
   /** True for requests whose completion is intentionally deferred or polled by the caller. */
   readonly wait?: boolean;
@@ -143,6 +145,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         conn: entry.conn,
         transport: entry.transport,
         method: entry.method,
+        repoId: entry.repoId ?? null,
         command: entry.command ?? entry.method,
         actor: entry.actor ?? null,
         ...(entry.wait === true ? { wait: true } : {}),

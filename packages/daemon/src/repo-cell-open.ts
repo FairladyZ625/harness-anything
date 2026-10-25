@@ -271,11 +271,9 @@ export async function openRepoWriterCell(
     causeClass = causeClassOf(error);
     recoveryProbe.latch();
   };
-  // Latch self-heal: while unavailable, the next command replays the failed judgment against a
-  // freshly built ledger view (SQLite reopened and projection
-  // catch-up replayed). Pass -> rebind the core and return to attached; fail -> stay unavailable
-  // with the replayed cause. Probes are throttled so frequent read retries cannot hot-loop them,
-  // and every fresh latch earns one immediate probe.
+  // Latch self-heal reopens the ledger and catches the projection up before reattaching. It never
+  // reruns the user command that caused the latch. Probes are throttled, and each fresh latch earns
+  // one immediate probe.
   let coreClosedForReplacement = false;
   let recoveryReplacement: Promise<void> | null = null;
   const attemptRecovery = async (force = false): Promise<void> => {
