@@ -127,6 +127,6 @@ describe("deriveRuntimeHealth (fourth grid, existing read surface only)", () => 
       lastSnapshotAt: null,
       now: NOW,
     });
-    expect(health.projection).toEqual({ lag: null, loading: true, status: null });
+    expect(health.projection).toEqual({ lag: null, loading: true, status: null, isolatedRows: null, hydrating: false });
   });
 });

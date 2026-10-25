@@ -19,4 +19,12 @@
 // Version 38 stores reviewer-qualified historical cut-review keys in the runtime dispatch index,
 // drops the retired code/doc witness field from persisted task snapshots, and replays task snapshots
 // and preset-snapshot profiles without the retired code/doc closeout override key.
+//
+// Version 38's cleaner only reaches caches a *replay* rewrites, so a cache written before it keeps
+// its retired-key rows. That is repaired at the read boundary (`withoutRetiredSnapshotFields`), not
+// by a schema bump: forcing those caches through a full replay is not survivable at canonical scale.
+// Measured on a real 3.3 GB cache on 2026-10-25 — 216–340 s of replay with a 107 s no-progress gap,
+// against a 30 s attach ready-watchdog — while stripping the retired key in place takes 0.75 s and
+// serving the scrubbed rows through a read-boundary strip takes 37 ms. A version bump here would
+// therefore turn "some rows are hidden" into "the repository cannot attach".
 export const taskProjectionSchemaVersion = 38;

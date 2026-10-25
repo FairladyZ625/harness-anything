@@ -141,6 +141,27 @@ export function withoutRetiredCloseoutOverrides(value: unknown): unknown {
 }
 
 /**
+ * Snapshot-level fields retired by the code/doc deletion. They are not closeout overrides, so the
+ * override stripper above never touches them, and version 38's cleaner only reaches a cache a
+ * *replay* rewrites — a cache written before it keeps this key on disk.
+ *
+ * The retired key is therefore ignored on read. It carries no authority (every reader of the
+ * code/doc witness state was deleted with the mechanism), so dropping it at the read boundary is
+ * the same answer a replay gives, at the cost of one object copy instead of 216–340 s of replay.
+ * The version constant deliberately stays at 38: bumping it would force those caches through that
+ * replay inside attach, which does not survive the 30 s ready-watchdog.
+ */
+export const retiredTaskSnapshotFields = Object.freeze(["codeDocWitnesses"] as const);
+
+export function withoutRetiredTaskSnapshotFields(value: unknown): unknown {
+  if (!isRecord(value) || !retiredTaskSnapshotFields.some((key) => Object.hasOwn(value, key))) return value;
+  const remaining = Object.fromEntries(
+    Object.entries(value).filter(([key]) => !(retiredTaskSnapshotFields as readonly string[]).includes(key)),
+  );
+  return remaining;
+}
+
+/**
  * Hosted-CI witness kinds retired when the CI gate left the product. One list for the settings gate
  * mapping, the vertical completion sources and the decode-time recognition of both, so a reader that
  * names a retired source and the migration step that strips it can never disagree about which kinds

@@ -390,6 +390,9 @@ function AppShell() {
           watermark: tasksQuery.data.watermark,
           sourceRevision: tasksQuery.data.sourceRevision,
           status: tasksQuery.data.status,
+          // 同一读面亲口报的隔离行数:非 0 时行集相对 watermark 不完整,侧栏必须说「不完整」
+          // 而不是「落后 0 revisions」(2026-10-25 看板 92 / 台账 4,469)。
+          isolatedRows: tasksQuery.data.invalidRows.length,
         }
       : null,
     projectionLoading: tasksQuery.isLoading,
@@ -756,6 +759,7 @@ function AppShell() {
                   onStartTask={taskActions.startTask}
                   mutationFeedback={feedbackOf}
                   onSetPin={handleSetPin}
+                  isolatedRows={tasksQuery.data?.invalidRows.length ?? 0}
                 />
               ) : view === "collaboration" ? (
                 // 协作页舰队拓扑(task_8ce646d94):节点/通道/详情/事件全部来自

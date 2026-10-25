@@ -12,7 +12,7 @@ import {
   SystemStatusPanel,
   systemHealthDetail,
 } from "../src/renderer/components/sidebar/SystemStatusPanel.tsx";
-import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
+import { deriveRuntimeHealth, runtimeHealthWorst } from "../src/renderer/model/runtime-health.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 
@@ -532,6 +532,74 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
     expect(detail).toContain("cell crashed during scan");
     expect(detail).toContain("投影追赶中");
     expect(detail).toContain("本会话未观察到台账变化");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("reports an incomplete row set instead of claiming it caught up", async () => {
+    // The reported defect: watermark caught up (lag 0) while the daemon isolated 4,380 of 4,477
+    // ledger rows. The sidebar must not render that as a healthy, caught-up projection.
+    const incomplete = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: "2026-10-25T23:00:00.000Z", uptimeMs: 3_600_000 },
+      repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },
+      projection: { watermark: 217_751, sourceRevision: 217_751, status: "ready", isolatedRows: 4_380 },
+      lastSnapshotAt: "2026-10-25T22:59:00.000Z",
+      now: "2026-10-25T23:00:05.000Z",
+    });
+    expect(incomplete.projection.lag).toBe(0);
+    expect(incomplete.projection.isolatedRows).toBe(4_380);
+    // Caught up but incomplete is not healthy: lag alone would have said "ok".
+    expect(runtimeHealthWorst(incomplete)).toBe("degraded");
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: { ...ledgerStatus, revision: 217_751 },
+        health: incomplete,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    const projectionLine = panel.querySelector('[data-testid="sidebar-system-status-projection"]')?.textContent ?? "";
+    expect(projectionLine).toContain("行集不完整");
+    expect(projectionLine).toContain("4,380");
+    // The misleading reading must be gone, not merely accompanied.
+    expect(projectionLine).not.toContain("落后 0 revisions");
+    expect(panel.textContent).not.toContain("运行正常");
+    expect(panel.textContent).toContain("降级运行");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("reports hydration-pending on the visible line, not only in the tooltip", async () => {
+    // The third failure mode the review found: a budget-truncated hydration has lag 0, so a
+    // lag-only reading says "caught up" while the row set is still the pages read so far.
+    const hydrating = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: "2026-10-25T23:00:00.000Z", uptimeMs: 3_600_000 },
+      repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },
+      projection: { watermark: 100, sourceRevision: 100, status: "pending", hydrating: true },
+      lastSnapshotAt: "2026-10-25T22:59:00.000Z",
+      now: "2026-10-25T23:00:05.000Z",
+    });
+    expect(hydrating.projection.lag).toBe(0);
+    expect(hydrating.projection.hydrating).toBe(true);
+    expect(runtimeHealthWorst(hydrating)).toBe("degraded");
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: { ...ledgerStatus, revision: 100 },
+        health: hydrating,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    const line = panel.querySelector('[data-testid="sidebar-system-status-projection"]')?.textContent ?? "";
+    // The visible line — not just `systemHealthDetail`'s tooltip — must say it is not complete.
+    expect(line).toContain("行集加载中");
+    expect(line).not.toContain("落后 0 revisions");
+    expect(panel.textContent).not.toContain("运行正常");
+    expect(systemHealthDetail(hydrating)).toContain("行集加载中");
     await act(async () => {
       root.unmount();
     });

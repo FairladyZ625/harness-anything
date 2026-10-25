@@ -11,7 +11,7 @@ export function useAppRuntimeHealth(input: {
   readonly daemon: RuntimeHealthInput["daemon"];
   /** 当前仓(无选中仓给 null);cellState/queueDepth/lastError 进 repo 档。 */
   readonly repo: RuntimeHealthInput["repo"];
-  /** tasksQuery 折算:watermark/sourceRevision/status;没回来过给 null。 */
+  /** tasksQuery 折算:watermark/sourceRevision/status/isolatedRows;没回来过给 null。 */
   readonly projection: RuntimeHealthInput["projection"];
   /** 只在首次查询实际发出时显示加载,未选仓的 disabled query 仍是未知。 */
   readonly projectionLoading: boolean;

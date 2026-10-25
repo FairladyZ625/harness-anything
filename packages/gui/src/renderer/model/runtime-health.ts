@@ -39,6 +39,17 @@ export interface RuntimeHealthProjection {
   /** 首次 tasksQuery 尚未返回;与读完后仍未知的 projection 区分。 */
   readonly loading: boolean;
   readonly status: "ready" | "pending" | null;
+  /**
+   * `repo.tasks.list` 亲口报出的被隔离行数。非 0 意味着 daemon 拿着 ledger 里的行却拒绝服务它,
+   * 行集相对 watermark **不完整**——此时「落后 0 revisions」是假象,侧栏必须说「不完整」而不是「已追平」。
+   * null = 还没读到过切面。
+   */
+  readonly isolatedRows: number | null;
+  /**
+   * 切面还带着 `page.nextCursor`:水化没读完,行集只是已读到的部分。lag 可以是 0,
+   * 所以完整性与落后是两个独立事实,不能用 lag 推断前者。
+   */
+  readonly hydrating: boolean;
 }
 
 export interface RuntimeHealthLedgerChange {
@@ -69,6 +80,13 @@ export interface RuntimeHealthInput {
     readonly watermark: number;
     readonly sourceRevision: number;
     readonly status: "ready" | "pending";
+    /** The isolated-row count the same read reported; omitted when the caller does not carry it. */
+    readonly isolatedRows?: number;
+    /**
+     * The answered cut still has a cursor: the row set is a partially hydrated slice. Omitted
+     * when the caller does not carry it; a cut that reports `pending` is hydrating by definition.
+     */
+    readonly hydrating?: boolean;
   } | null;
   /** TanStack isLoading: pending 且正在请求,不会把未选仓的 disabled query 算成加载。 */
   readonly projectionLoading?: boolean;
@@ -108,17 +126,25 @@ export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
     },
     projection:
       input.projection === null
-        ? { lag: null, loading: input.projectionLoading === true, status: null }
+        ? {
+            lag: null,
+            loading: input.projectionLoading === true,
+            status: null,
+            isolatedRows: null,
+            hydrating: false,
+          }
         : {
             lag: Math.max(0, input.projection.sourceRevision - input.projection.watermark),
             loading: false,
             status: input.projection.status,
+            isolatedRows: Math.max(0, input.projection.isolatedRows ?? 0),
+            hydrating: input.projection.hydrating === true,
           },
     ledgerChange: { at: input.lastSnapshotAt, ageSec: ageSec(input.lastSnapshotAt, input.now) },
   };
 }
 
-/** 健康卡的整体灯:daemon 与 cell 任一红即红,投影落后只降黄。 */
+/** 健康卡的整体灯:daemon 与 cell 任一红即红,投影落后或行集不完整只降黄。 */
 export function runtimeHealthWorst(health: RuntimeHealth): "ok" | "degraded" | "down" {
   if (health.daemon.state === "unresponsive" || health.cell.state === "unavailable") return "down";
   if (
@@ -126,7 +152,12 @@ export function runtimeHealthWorst(health: RuntimeHealth): "ok" | "degraded" | "
     health.cell.state === "not_loaded" ||
     health.cell.state === "unknown" ||
     health.daemon.state === "unknown" ||
-    (health.projection.lag ?? 0) > 0
+    (health.projection.lag ?? 0) > 0 ||
+    // A cut that is behind nothing can still be an incomplete row set: the daemon isolates rows it
+    // will not serve, or hydration has only read part of the pages. Lag 0 does not mean the board
+    // holds the ledger.
+    (health.projection.isolatedRows ?? 0) > 0 ||
+    health.projection.hydrating
   )
     return "degraded";
   return "ok";

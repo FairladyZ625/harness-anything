@@ -150,6 +150,14 @@ async function readTaskPage(repoId: string, facets: LedgerReadFacets): Promise<T
  *   - 未读完(`resume`)只担保最老的那个水位:取 min。
  *   - 游标是不可变主键 task_id,续读期间任何已存在 task 的改动都不会被跳过;续读期间
  *     新建的 task 其 revision 必然大于所报水位,由随后的增量读补齐。
+ *
+ * **行集完整性是切面属性,不是单次读的属性。** `invalidRows` 是 daemon 按**这一页**判
+ * 定并隔离的行,直接用 `read.invalidRows` 覆盖会把「整段切面缺了多少行」缩小成「最后一页
+ * 缺了多少行」:按 500 行分页时第一页可能隔离 499 行、末页 468 行,报出去的就只剩 468;
+ * 一个没有变更行的增量(`changedAfterRevision` 返回空)更是直接归零,于是 10s 探针节拍
+ * 内界面又声称「落后 0 / 共 N」。所以这里按切面累加,且**只有 restart 能清零**——只有
+ * 从零重读第一页时,上一份切面的行集才真的被丢弃。delta 与 resume 只增不减:它们读的是
+ * 同一份行集的补充页,已经观察到的残缺不会因为这一页恰好干净而消失。
  */
 export function joinLedgerCut(
   previous: TaskListSuccess | undefined,
@@ -168,12 +176,32 @@ export function joinLedgerCut(
     ok: true,
     status: complete ? read.status : "pending",
     warnings: read.warnings,
-    invalidRows: read.invalidRows,
+    invalidRows: mergedInvalidRows(base, read, mode),
     watermark,
     sourceRevision,
     rows: [...rows.values()].sort((left, right) => compareTaskId(left.taskId, right.taskId)),
     ...(complete || read.page === undefined ? {} : { page: read.page }),
   };
+}
+
+/**
+ * 切面的隔离行集:按 `taskId` 去重累加,`restart` 从空集重来。同一 task 只留一条(首条
+ * 诊断),因为界面的问题始终是「这份行集少了多少个 task」,重复诊断不改变这个数。
+ *
+ * 反过来,这一读**服出来了**的 task 必须从集合里移除:它不再缺失,留着就会让「不完整」
+ * 永远粘住——版本门修复后重放一遍,被隔离的行会作为变更行回到 `read.rows`,此时仍报
+ * 「4,380 行被隔离」就是新的假话。
+ */
+function mergedInvalidRows(
+  base: TaskListSuccess | undefined,
+  read: TaskListSuccess,
+  mode: "restart" | "resume" | "delta",
+): TaskListSuccess["invalidRows"] {
+  if (mode === "restart" || base === undefined) return read.invalidRows;
+  const served = new Set(read.rows.map((row) => row.taskId)),
+    merged = new Map(base.invalidRows.filter((row) => !served.has(row.taskId)).map((row) => [row.taskId, row]));
+  for (const row of read.invalidRows) if (!merged.has(row.taskId)) merged.set(row.taskId, row);
+  return [...merged.values()];
 }
 
 /** 台账行序:daemon 的 keyset 分页按 task_id 升序发页,合并后必须还是同一个序。 */

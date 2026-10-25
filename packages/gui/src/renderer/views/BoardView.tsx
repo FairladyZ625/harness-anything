@@ -427,6 +427,7 @@ export const BoardView = memo(function BoardView({
   onStartTask,
   mutationFeedback,
   onSetPin,
+  isolatedRows = 0,
 }: {
   tasks: readonly TaskRow[];
   allTasks: TaskRow[];
@@ -443,6 +444,11 @@ export const BoardView = memo(function BoardView({
   mutationFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
   /** 台账 pin 写通道;三种看板布局的 task 卡片/行共用。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  /**
+   * `repo.tasks.list` 报出的被隔离行数。非 0 时这里的「共 N」只是**已服务的**行数,
+   * 不是台账行数,页头必须并列显形(2026-10-25 看板 92 / 台账 4,469)。
+   */
+  isolatedRows?: number;
 }) {
   // coding preset 默认按工作分组(root = 工作的根 task)。drill 携带 groupBy 提示。
   const [layout, setLayout] = useState<BoardLayout>(drill ? "swimlane" : (initialLayout ?? "column"));
@@ -594,8 +600,29 @@ export const BoardView = memo(function BoardView({
         <h1 className="ui-title font-semibold">看板</h1>
         {/* 页头一行(2026-10-01 评审第 8 条):页名 + 一句结论;WIP 等开发者说明改悬停。 */}
         <span className="ui-meta text-text-muted" data-testid="board-header-summary" title={wipHoverTitle(wipSnapshot)}>
-          {t("components.taskFilterBar.viewingCount", { count: boardTasks.length, total: allTasks.length })}
+          {/* 行集不完整时不能报「共 N」:那个 N 只数已服务行,读起来却是台账规模(2026-10-25 的
+              92 / 4,469)。这里换掉整句,把「已服务 / 未服务」并列说清,而不是在「共 N」旁边加脚注。 */}
+          {isolatedRows > 0
+            ? t("components.taskFilterBar.viewingCountIncomplete", {
+                count: boardTasks.length,
+                served: new Intl.NumberFormat("en-US").format(allTasks.length),
+                isolated: new Intl.NumberFormat("en-US").format(isolatedRows),
+              })
+            : t("components.taskFilterBar.viewingCount", { count: boardTasks.length, total: allTasks.length })}
         </span>
+        {isolatedRows > 0 && (
+          <span
+            className="ui-meta text-status-blocked"
+            data-testid="board-header-incomplete"
+            title={t("components.taskFilterBar.incompleteTitle", {
+              count: new Intl.NumberFormat("en-US").format(isolatedRows),
+            })}
+          >
+            {t("components.taskFilterBar.incompleteRows", {
+              count: new Intl.NumberFormat("en-US").format(isolatedRows),
+            })}
+          </span>
+        )}
       </header>
       {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && (
         <div className="border-b border-border px-4 py-2 ui-meta text-text-muted" data-testid="board-mutation-feedback">
