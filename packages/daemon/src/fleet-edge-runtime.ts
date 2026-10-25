@@ -334,7 +334,7 @@ export function openFleetEdgeRuntime(input: {
           planPath = path.join(packageRoot, "task_plan.md"),
           // Causal context, risk tier, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
-          { causalContext, riskTier, profileId, riskTierFlowVersion, worktree } = runtimeContext;
+          { causalContext, riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -405,6 +405,7 @@ export function openFleetEdgeRuntime(input: {
               review !== undefined,
               profileId,
               riskTierFlowVersion,
+              review !== undefined ? null : reviewerNote,
             ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
@@ -424,6 +425,7 @@ export function openFleetEdgeRuntime(input: {
           ownerReturnBody,
           continuationContext: runtimeContext.continuationContext,
           planBody: plan,
+          reviewerNote: review !== undefined ? null : reviewerNote,
           mission: (reachedPackageRoot) =>
             [taskPlanSection(plan, reachedPackageRoot), ...missionAfterPackage].join("\n\n"),
           causalContext,
@@ -895,6 +897,7 @@ function taskRuntimeContext(
   readonly riskTier: "low" | "medium" | "high" | null;
   readonly riskTierFlowVersion: 1 | null;
   readonly profileId: string | null;
+  readonly reviewerNote: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: import("./runtime-continuation-context.ts").RuntimeContinuationSeed | null;
   readonly snapshot: import("./repo-cell-types.ts").Snapshot & {
@@ -910,6 +913,7 @@ function taskRuntimeContext(
     (read.riskTier === null || ["low", "medium", "high"].includes(String(read.riskTier))) &&
     (read.riskTierFlowVersion === null || read.riskTierFlowVersion === 1) &&
     (read.profileId === null || typeof read.profileId === "string") &&
+    (read.reviewerNote === null || typeof read.reviewerNote === "string") &&
     (worktree === null ||
       (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string")) &&
     read.snapshot !== null &&
@@ -920,6 +924,7 @@ function taskRuntimeContext(
       riskTier: read.riskTier === null ? null : (read.riskTier as "low" | "medium" | "high"),
       riskTierFlowVersion: read.riskTierFlowVersion === null ? null : 1,
       profileId: read.profileId === null ? null : (read.profileId as string),
+      reviewerNote: read.reviewerNote === null ? null : (read.reviewerNote as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
       continuationContext:
         read.continuationContext === null

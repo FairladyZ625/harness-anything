@@ -519,6 +519,7 @@ export function explicitPromptMission(
   planBody: string | null = null,
   profileId?: string | null,
   riskTierFlowVersion?: number | null,
+  reviewerNote: string | null = null,
 ): string {
   return [
     ...(planBody === null ? [] : [taskPlanSection(planBody)]),
@@ -535,6 +536,7 @@ export function explicitPromptMission(
           reviewerBinding,
           profileId,
           riskTierFlowVersion,
+          reviewerNote,
         )),
     prompt,
   ].join("\n\n");
@@ -797,6 +799,11 @@ export async function resolveRuntimeMission(input: {
   // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
   const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
   const continuationSection = continuation === null ? null : continuationContextPrompt(continuation),
+    reviewerNote =
+      taskId === null || input.reviewerBinding
+        ? null
+        : (remoteTask?.reviewerNote ??
+          (projection ? taskReviewerNote(projection, taskSnapshot ?? projection.read(taskId).snapshot) : null)),
     baseMission =
       explicitMission === undefined
         ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
@@ -811,6 +818,7 @@ export async function resolveRuntimeMission(input: {
             planBody,
             remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId,
             remoteTask?.riskTierFlowVersion ?? taskSnapshot?.task?.metadata?.riskTierFlowVersion,
+            reviewerNote,
           ),
     mission = continuationSection === null ? baseMission : `${baseMission}\n\n${continuationSection}`;
   return {

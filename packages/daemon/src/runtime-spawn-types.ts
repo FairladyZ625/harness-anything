@@ -305,6 +305,8 @@ export interface RemoteRuntimePersistence {
     readonly ownerReturnBody: string | null;
     /** Previous runtime conclusion and exit HEAD; current HEAD is measured after edge checkout. */
     readonly continuationContext: RuntimeContinuationSeed | null;
+    /** The reviewer note the worker mission names; null for reviewer bindings (dec_E369B861 CH3). */
+    readonly reviewerNote: string | null;
     /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
