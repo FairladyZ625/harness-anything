@@ -220,7 +220,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                                 entityId: "ADR-00000000000000000000000000000000",
                                               }
                                             : scope;
-      const result = await bridge.invoke(contract.guiBridgeMethod, payload);
+      const readPayload =
+        contract.id === "work.topology.read" ? { ...payload, workRootTaskId: "task-gui-smoke" } : payload;
+      const result = await bridge.invoke(contract.guiBridgeMethod, readPayload);
       const parsed =
         contract.id === "gui.control.receipt"
           ? parseDaemonGuiReadResult(contract.method, result)

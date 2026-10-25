@@ -448,7 +448,6 @@ const decisionDoc: EntityKindDoc = {
     { type: "relates", sourceKind: "decision", targetKind: "decision" },
     { type: "derives", sourceKind: "decision", targetKind: "decision" },
     { type: "supports", sourceKind: "decision", targetKind: "decision" },
-    { type: "blocks", sourceKind: "decision", targetKind: "decision" },
     { type: "derives", sourceKind: "decision", targetKind: "task" },
     { type: "relates", sourceKind: "decision", targetKind: "task" },
     { type: "implements", sourceKind: "task", targetKind: "decision" },

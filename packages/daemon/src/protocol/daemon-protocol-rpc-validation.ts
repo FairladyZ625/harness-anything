@@ -18,7 +18,6 @@ import {
 } from "./daemon-protocol-validate-entities.ts";
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
-import { validateDaemonWorkTopologyPayload } from "./daemon-protocol-work-topology.ts";
 import {
   allDaemonProtocolMethods,
   type DaemonRpcCall,
@@ -29,6 +28,14 @@ import { decisionStateWords } from "./daemon-protocol-vocabulary.ts";
 import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonObject } from "./json-rpc-types.ts";
 
 export { DaemonProtocolContractError, validateSessionEnvironment };
+
+const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u;
+
+function validateDaemonWorkTopologyPayload(value: unknown): string[] {
+  if (!isJsonObject(value) || Object.keys(value).length !== 1 || typeof value.workRootTaskId !== "string")
+    return ["work topology requires only workRootTaskId"];
+  return TASK_ID.test(value.workRootTaskId) ? [] : ["work topology workRootTaskId is invalid"];
+}
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonMethodNameSets.guiRead.has(method);

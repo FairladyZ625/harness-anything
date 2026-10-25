@@ -1,14 +1,6 @@
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 
-const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u;
-
-export function validateDaemonWorkTopologyPayload(value: unknown): string[] {
-  if (!isJsonObject(value) || Object.keys(value).length !== 1 || typeof value.workRootTaskId !== "string")
-    return ["work topology requires only workRootTaskId"];
-  return TASK_ID.test(value.workRootTaskId) ? [] : ["work topology workRootTaskId is invalid"];
-}
-
 /** Kept in this narrow contract module so renderer clients do not pull daemon GUI services in. */
 export function validateDaemonWorkTopology(value: unknown): readonly string[] {
   const fail = () => validationError("work-topology", "result", value, "must be a valid work topology read");
