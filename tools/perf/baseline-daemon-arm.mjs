@@ -62,7 +62,13 @@ export async function runDaemonArm({ rootDir, outDir, readRounds = 10, writeRoun
       await delayUntil(windows.idle.endMs);
 
       const loadStart = Date.now();
-      const reads = { "repo.tasks.list": [], "repo.task.read": [] };
+      const reads = {
+        "repo.tasks.list": [],
+        "repo.task.read": [],
+        "repo.agenda.read": [],
+        "repo.decisions.list": [],
+        "daemon.runtimeInstance.list": [],
+      };
       const writes = [];
       const loadRss = sampleRssInBackground(child.pid);
       for (let round = 0; round < readRounds; round += 1) {
@@ -76,6 +82,13 @@ export async function runDaemonArm({ rootDir, outDir, readRounds = 10, writeRoun
           payload: { action: { kind: "task-show", taskId: PROBE_TASK_ID } },
         });
         reads["repo.task.read"].push(readMs);
+        for (const [method, params] of [
+          ["repo.agenda.read", { repo: { repoId: PROBE_REPO_ID }, payload: {} }],
+          ["repo.decisions.list", { repo: { repoId: PROBE_REPO_ID }, payload: { projection: "summary" } }],
+          ["daemon.runtimeInstance.list", { payload: {} }],
+        ]) {
+          reads[method].push(await timedRpc(endpoint, method, params));
+        }
       }
       for (let round = 0; round < writeRounds; round += 1) {
         const writeMs = await timedRpc(endpoint, "repo.task.run", {

@@ -4,6 +4,7 @@ import test from "node:test";
 import { bytesToMib, percentile, stats, summarizeEventLoopLines, windowSamples } from "./baseline-stats.mjs";
 import { eventLoopSnapshot, probeShouldActivate } from "./daemon-eventloop-probe.mjs";
 import { parseArgs, renderMarkdown } from "./baseline-suite.mjs";
+import { compare } from "./compare-baselines.mjs";
 
 test("percentile and stats cover empty, single and spread samples", () => {
   assert.equal(percentile([], 50), null);
@@ -77,6 +78,51 @@ test("parseArgs validates arms, sizes and required --out", () => {
   assert.deepEqual(options.sizes, [1000, 10000]);
 });
 
+test("commit comparison matches equal event sizes and reports latency deltas", () => {
+  const baseline = {
+    schema: "perf-baseline-suite/v1",
+    basisRevision: "a".repeat(40),
+    measuredAt: "2026-10-24T00:00:00.000Z",
+    host: { cpuModel: "fixture CPU" },
+    kernel: {
+      runs: [
+        {
+          events: 217107,
+          catchUpMs: 100,
+          reads: {
+            taskList: { p95Ms: 20 },
+            singleTaskRead: { p95Ms: 2 },
+            factSearch: { p95Ms: 3 },
+            relationGraph: { p95Ms: 4 },
+          },
+        },
+      ],
+    },
+  };
+  const current = {
+    ...baseline,
+    basisRevision: "b".repeat(40),
+    kernel: {
+      runs: [
+        {
+          events: 217107,
+          catchUpMs: 120,
+          reads: {
+            taskList: { p95Ms: 22 },
+            singleTaskRead: { p95Ms: 2 },
+            factSearch: { p95Ms: 3 },
+            relationGraph: { p95Ms: 4 },
+          },
+        },
+      ],
+    },
+  };
+  const report = compare(baseline, current);
+  assert.match(report, /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/u);
+  assert.match(report, /\+20\.0%/u);
+  assert.match(report, /Matched metrics: 5/u);
+});
+
 test("renderMarkdown carries every measured arm and the unverified section", () => {
   const report = {
     schema: "perf-baseline-suite/v1",
@@ -145,6 +191,7 @@ test("renderMarkdown carries every measured arm and the unverified section", () 
         {
           entities: 1000,
           events: 1900,
+          tasks: 1000,
           ledgerBuildMs: 100,
           catchUpMs: 200,
           reads: {

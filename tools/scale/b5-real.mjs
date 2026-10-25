@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus, freemem, loadavg, totalmem } from "node:os";
 import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
@@ -35,6 +35,8 @@ function parseArgs(argv) {
     reportFile: null,
     digestOnly: false,
     entities: null,
+    tasks: null,
+    decisions: null,
     events: null,
     seed: "plt-scale-w1",
     sourceRoot: resolve(import.meta.dirname, "../.."),
@@ -46,6 +48,8 @@ function parseArgs(argv) {
     const value = argv[++index];
     if (key === "--fixture") result.fixture = value;
     else if (key === "--entities") result.entities = Number(value);
+    else if (key === "--tasks") result.tasks = Number(value);
+    else if (key === "--decisions") result.decisions = Number(value);
     else if (key === "--events") result.events = Number(value);
     else if (key === "--seed") result.seed = value;
     else if (key === "--rounds") result.rounds = Number(value);
@@ -60,6 +64,12 @@ function parseArgs(argv) {
   }
   if ([result.fixture !== null, result.entities !== null, result.events !== null].filter(Boolean).length !== 1)
     throw new Error("exactly one of --fixture, --entities, or --events is required");
+  if (result.tasks !== null && result.events === null) throw new Error("--tasks is only valid with --events");
+  if (result.decisions !== null && result.events === null) throw new Error("--decisions is only valid with --events");
+  if (result.tasks !== null && (!Number.isInteger(result.tasks) || result.tasks < 1))
+    throw new Error("--tasks must be a positive integer");
+  if (result.decisions !== null && (!Number.isInteger(result.decisions) || result.decisions < 1))
+    throw new Error("--decisions must be a positive integer");
   if (result.events !== null && (!Number.isInteger(result.events) || result.events < 100))
     throw new Error("--events must be an integer of at least 100");
   if (!Number.isInteger(result.rounds) || result.rounds < 1) throw new Error("--rounds must be a positive integer");
@@ -104,6 +114,15 @@ function rng(seed) {
 
 const pad = (value, width = 6) => String(value).padStart(width, "0");
 
+function directoryBytes(directory) {
+  let total = 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const target = join(directory, entry.name);
+    total += entry.isDirectory() ? directoryBytes(target) : statSync(target).size;
+  }
+  return total;
+}
+
 async function measureB5RealSingle(options) {
   const importSource = (relativePath) => import(pathToFileURL(join(options.sourceRoot, relativePath)).href);
   const kernel = await importSource("packages/kernel/src/index.ts");
@@ -114,9 +133,12 @@ async function measureB5RealSingle(options) {
     options.events !== null
       ? {
           seed: options.seed,
-          primaryTaskCount: Math.max(1, Math.floor(options.events / 4)),
-          factCount: Math.max(1, Math.round((options.events / 4) * 0.45)),
-          decisionCount: Math.max(1, Math.round((options.events / 4) * 0.48)),
+          // Observed canonical volume from the assigned task brief: 217,107 events,
+          // 4,469 tasks and 1,022 decisions. Keep the entity mix fixed to those ratios;
+          // --tasks exists for the orthogonal task-count control experiment.
+          primaryTaskCount: options.tasks ?? Math.max(1, Math.round((options.events * 4_469) / 217_107)),
+          factCount: Math.max(1, Math.round((options.tasks ?? (options.events * 4_469) / 217_107) * 0.45)),
+          decisionCount: options.decisions ?? Math.max(1, Math.round((options.events * 1_022) / 217_107)),
           targetEventCount: options.events,
         }
       : options.entities !== null
@@ -228,7 +250,6 @@ async function measureB5RealSingle(options) {
         rationale: "fixture dependency edge",
         state: "active",
       };
-      currentTask = { ...currentTask, relations: [relation] };
       envelope(
         taskId,
         "task_relation_added",
@@ -354,51 +375,66 @@ async function measureB5RealSingle(options) {
     ]);
   }
 
-  // --events is the explicit scale contract: top up with replay-safe task
-  // observations so the canonical ledger contains exactly the requested 1e4 or
-  // 1e5 events. Entity-ratio fixtures retain their historical task-count mode.
-  if (metadata.targetEventCount !== null && metadata.targetEventCount !== undefined) {
-    if (events.length > metadata.targetEventCount)
-      throw new Error(
-        `entity mix already exceeds requested event count (${events.length} > ${metadata.targetEventCount})`,
-      );
-    for (let index = 0; events.length < metadata.targetEventCount; index += 1) {
-      const taskId = taskIds[index % taskIds.length],
-        task = taskSnapshots.get(taskId),
-        occurredAt = new Date(Date.UTC(2026, 1, 1) + events.length * 1_000).toISOString();
-      envelope(
-        taskId,
-        "task_transitioned",
-        {
-          task,
-          mutation: { command: "transition", reason: "scale event-count filler", fields: [] },
-          documentClaims: [],
-        },
-        occurredAt,
-      );
-    }
-  }
+  // --events is the explicit scale contract. Keep the high-volume filler lazy:
+  // retaining millions of duplicate events would benchmark JS heap capacity
+  // instead of the projection's event processing cost. Each filler is a valid
+  // next event for one dedicated task aggregate, with its task snapshot advanced
+  // on every event so aggregate identity and revision remain replayable.
+  const baseEventCount = events.length;
+  const eventCount = metadata.targetEventCount ?? events.length;
+  if (eventCount < baseEventCount)
+    throw new Error(`entity mix already exceeds requested event count (${baseEventCount} > ${eventCount})`);
+  const fillerTaskId = taskIds.at(-1);
+  const fillerTask = taskSnapshots.get(fillerTaskId);
+  if (eventCount > baseEventCount && !fillerTask) throw new Error("event-count filler requires one task aggregate");
+  const fillerTaskRevision = Math.max(
+    ...events.filter((event) => event.taskId === fillerTaskId).map((event) => event.workspaceRevision),
+  );
+  const eventAt = (index) => {
+    if (index < baseEventCount) return events[index];
+    const occurredAt = new Date(Date.UTC(2026, 1, 1) + index * 1_000).toISOString();
+    const aggregateRevision = fillerTaskRevision + index - baseEventCount + 1;
+    const fillerTaskSnapshot = { ...fillerTask, title: `${fillerTask.title} revision ${aggregateRevision}` };
+    return {
+      schema: "task-event/v1",
+      eventId: `event-${pad(index + 1, 10)}`,
+      workspaceRevision: index + 1,
+      opId: `op-b5-${pad(index + 1, 10)}`,
+      taskId: fillerTaskId,
+      type: "task_amended",
+      actor,
+      source: "local",
+      occurredAt,
+      payload: {
+        task: fillerTaskSnapshot,
+        mutation: { command: "amend", reason: "synthetic scale filler", fields: ["title"] },
+        documentClaims: [],
+      },
+    };
+  };
 
   const ledgerBuiltMs = performance.now() - buildStarted;
   const projectionStarted = performance.now();
   const eventStore = {
     readHead: () =>
-      events.length === 0
+      eventCount === 0
         ? null
         : {
-            revision: events.length,
+            revision: eventCount,
             eventDigest: `sha256:${createHash("sha256")
-              .update(kernel.serializeCanonicalEvent(events.at(-1)))
+              .update(kernel.serializeCanonicalEvent(eventAt(eventCount - 1)))
               .digest("hex")}`,
           },
     readBatch: (cursor, maxItems) => {
       const start = cursor === null ? 0 : Number(cursor),
-        slice = events.slice(start, start + maxItems);
+        end = Math.min(eventCount, start + maxItems),
+        slice = [];
+      for (let index = start; index < end; index += 1) slice.push(eventAt(index));
       return {
-        sourceRevision: events.length,
+        sourceRevision: eventCount,
         events: slice,
-        cursor: start + slice.length >= events.length ? null : String(start + slice.length),
-        done: start + slice.length >= events.length,
+        cursor: end >= eventCount ? null : String(end),
+        done: end >= eventCount,
         accessedItems: slice.length,
         prefetchContent: (batch) =>
           new Map(
@@ -416,10 +452,20 @@ async function measureB5RealSingle(options) {
   // so preserve their admitted ceiling while using the current bounded window.
   let projection;
   try {
-    projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 4096 });
+    projection = makeTaskProjection({
+      rootDir,
+      projectionPath: join(rootDir, ".harness", "cache", "task.sqlite"),
+      eventStore,
+      catchUpLimit: 4096,
+    });
   } catch (error) {
     if (!(error instanceof Error) || !/catch-up limit/u.test(error.message)) throw error;
-    projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 64 });
+    projection = makeTaskProjection({
+      rootDir,
+      projectionPath: join(rootDir, ".harness", "cache", "task.sqlite"),
+      eventStore,
+      catchUpLimit: 64,
+    });
   }
   const catchUp = projection.catchUp();
   const catchUpMs = performance.now() - projectionStarted,
@@ -531,14 +577,18 @@ async function measureB5RealSingle(options) {
       loadAfter,
     },
     ledger: {
-      events: events.length,
+      events: eventCount,
       tasks: metadata.primaryTaskCount,
       facts: metadata.factCount,
       decisions: metadata.decisionCount,
+      baseEvents: baseEventCount,
+      fillerEvents: eventCount - baseEventCount,
       buildMs: Number(buildMs.toFixed(1)),
       ledgerBuildMs: Number(ledgerBuiltMs.toFixed(1)),
       catchUpMs: Number(catchUpMs.toFixed(1)),
       catchUpReads: catchUp.metrics.sqliteTransactions,
+      fixtureDirectoryBytes: directoryBytes(rootDir),
+      processMaxRssBytes: process.resourceUsage().maxRSS * (process.platform === "darwin" ? 1024 : 1),
       narrowSupported,
     },
     sentinel,
