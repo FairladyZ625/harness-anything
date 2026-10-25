@@ -229,6 +229,50 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  nightly-event-scale:
+    # A non-required performance history lane. The last run is restored from the Actions cache and
+    # compared at the same canonical synthetic size; this job never runs on PR or push events.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Restore previous event-scale measurement
+        uses: actions/cache/restore@v4
+        with:
+          path: tmp/event-scale-history/baseline.json
+          key: event-scale-${{ github.sha }}-${{ github.run_id }}
+          restore-keys: event-scale-
+      - name: Measure canonical synthetic event scale
+        run: node tools/perf/baseline-suite.mjs --out tmp/event-scale --arms kernel --sizes 217107
+      - name: Compare with the previous measured commit
+        run: |
+          args=(--current tmp/event-scale/baseline.json --out tmp/event-scale/comparison.md)
+          if [[ -f tmp/event-scale-history/baseline.json ]]; then
+            args+=(--baseline tmp/event-scale-history/baseline.json)
+          fi
+          node tools/perf/compare-baselines.mjs "${args[@]}"
+      - name: Store this commit as the next baseline
+        uses: actions/cache/save@v4
+        with:
+          path: tmp/event-scale/baseline.json
+          key: event-scale-${{ github.sha }}-${{ github.run_id }}
+      - name: Preserve event-scale history evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: event-scale-${{ github.sha }}-${{ github.run_id }}
+          path: tmp/event-scale/
+          if-no-files-found: error
+          retention-days: 30
+
   boundaries:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     permissions:

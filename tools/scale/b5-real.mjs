@@ -452,10 +452,20 @@ async function measureB5RealSingle(options) {
   // so preserve their admitted ceiling while using the current bounded window.
   let projection;
   try {
-    projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 4096 });
+    projection = makeTaskProjection({
+      rootDir,
+      projectionPath: join(rootDir, ".harness", "cache", "task.sqlite"),
+      eventStore,
+      catchUpLimit: 4096,
+    });
   } catch (error) {
     if (!(error instanceof Error) || !/catch-up limit/u.test(error.message)) throw error;
-    projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 64 });
+    projection = makeTaskProjection({
+      rootDir,
+      projectionPath: join(rootDir, ".harness", "cache", "task.sqlite"),
+      eventStore,
+      catchUpLimit: 64,
+    });
   }
   const catchUp = projection.catchUp();
   const catchUpMs = performance.now() - projectionStarted,
