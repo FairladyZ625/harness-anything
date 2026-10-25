@@ -21,7 +21,6 @@ const ingressKinds = [
   "decision-repin",
   "decision-retire",
   "decision-show",
-  "decision-supersede",
   "decision-transition",
   "decision-validate",
   "fact-record",
