@@ -189,7 +189,14 @@ test("GUI task projection removes the retired assessment key before strict proto
       submission: { ...execution.submission, riskTierAssessment: assessment },
     },
     taskId = fixture.snapshot.task!.taskId,
-    row = { ...protocolTaskRow(taskId), snapshot: { ...fixture.snapshot, executions: [legacyExecution] } },
+    row = {
+      ...protocolTaskRow(taskId),
+      snapshot: {
+        ...fixture.snapshot,
+        task: { ...fixture.snapshot.task!, packageDisposition: "active" },
+        executions: [legacyExecution],
+      },
+    },
     result = queryRead(process.cwd(), projectionStub({ taskRows: [row] })).guiTasks();
 
   assert.deepEqual(result.invalidRows, []);
