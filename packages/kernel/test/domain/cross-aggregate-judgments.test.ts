@@ -144,6 +144,20 @@ test("closeout readiness interprets a frozen CI gate through merged delivery", (
   assert.deepEqual(closeoutReadiness(closeout("fail"), undefined, undefined, unmerged).gates, [
     { gateId: "ci", status: "missing", ok: false, detail: "delivery merge is not on origin/main" },
   ]);
+  const deliveryNotContained = {
+    ...unmerged,
+    mergeSha: "a".repeat(40),
+    deliveryCommitSha: "b".repeat(40),
+    deliveryIssue: "delivery-not-contained" as const,
+  };
+  assert.deepEqual(closeoutReadiness(closeout("fail"), undefined, undefined, deliveryNotContained).gates, [
+    {
+      gateId: "ci",
+      status: "missing",
+      ok: false,
+      detail: `annotated merge commit does not contain delivery ${"b".repeat(40)}`,
+    },
+  ]);
   const stale = closeout();
   assert.equal(
     closeoutReadiness(

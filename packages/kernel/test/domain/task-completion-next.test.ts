@@ -259,6 +259,23 @@ test("delivery_missing prompts for fetch when merge annotation is present but re
   assert.doesNotMatch(unmerged.next!.action, /node tools\/pr-merge\.mjs/u);
 });
 
+test("delivery_missing points to the corrected merge annotation when its commit omits the cut", () => {
+  const snapshot = gatedAt([retiredCiRequirement], 6),
+    delivery = {
+      required: true,
+      merged: false,
+      targetBranch: "main",
+      mergeSha: "a".repeat(40),
+      deliveryCommitSha: "b".repeat(40),
+      deliveryIssue: "delivery-not-contained" as const,
+    },
+    unmerged = taskCompletionNext(snapshot, { ...context, delivery });
+  assert.equal(unmerged.blocker?.code, "delivery_missing");
+  assert.match(unmerged.next!.action, /merge_commit_sha:<sha>/u);
+  assert.match(unmerged.next!.reason, /annotated merge commit .* does not contain the submitted delivery/u);
+  assert.match(unmerged.next!.reason, /use the commit that actually contains that delivery/u);
+});
+
 test("delivery_missing points local-only repositories to the explicit Settings ref", () => {
   const snapshot = gatedAt([retiredCiRequirement], 6),
     mergeSha = "f".repeat(40),

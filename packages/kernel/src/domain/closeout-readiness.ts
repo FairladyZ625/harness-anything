@@ -42,6 +42,8 @@ export interface CompletionDeliveryStatus {
   readonly targetBranch: string;
   readonly targetRef?: string;
   readonly mergeSha?: string;
+  readonly deliveryCommitSha?: string;
+  readonly deliveryIssue?: "merge-not-on-target" | "delivery-not-contained" | "delivery-evidence-unavailable";
 }
 
 /** One delivery baseline resolver shared by completion reads and closeout gate details. */
@@ -282,7 +284,13 @@ function retiredGateResult(
         ? gateResult(gateId, "unknown", `unable to verify delivery merge on ${deliveryTargetLabel(delivery)}`)
         : delivery.merged
           ? gateResult(gateId, "passed", `delivery merge is on ${deliveryTargetLabel(delivery)}`)
-          : gateResult(gateId, "missing", `delivery merge is not on ${deliveryTargetLabel(delivery)}`)
+          : gateResult(
+              gateId,
+              "missing",
+              delivery.deliveryIssue === "delivery-not-contained"
+                ? `annotated merge commit does not contain delivery ${delivery.deliveryCommitSha}`
+                : `delivery merge is not on ${deliveryTargetLabel(delivery)}`,
+            )
       : gateResult(gateId, "not_applicable", "the repository does not require code delivery to be merged");
 }
 
