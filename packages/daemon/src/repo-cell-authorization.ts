@@ -2,7 +2,7 @@ import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { scrubSecretText } from "./secret-scrub.ts";
 import { verifyRuntimeExecutionPrincipal, executionCredentialRejected } from "./runtime-execution-credential.ts";
-import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { isCurrentSubmittedWorkerWrite, requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
@@ -654,18 +654,30 @@ export function bindVerifiedExecutorClaim(input: {
     );
   }
   const lease = input.projection.currentLease(taskBinding.taskId, input.now),
-    submittedPush =
-      action.kind === "task-push" &&
-      lease === null &&
-      input.projection
-        .read(taskBinding.taskId)
-        .snapshot.executions.some(
-          (execution) => execution.executionId === taskBinding.executionId && execution.submission !== null,
-        ),
+    submittedCut =
+      action.kind === "task-push" || action.kind === "task-submit"
+        ? input.projection.read(taskBinding.taskId).snapshot
+        : null,
+    submittedWorkerWrite =
+      submittedCut !== null &&
+      isCurrentSubmittedWorkerWrite({
+        action,
+        taskId: taskBinding.taskId,
+        executionId: taskBinding.executionId,
+        role: "implementation",
+        snapshot: submittedCut,
+      }),
+    submittedPush = action.kind === "task-push" && submittedWorkerWrite,
+    submittedAmend =
+      action.kind === "task-submit" &&
+      action.amend === true &&
+      action.taskId === taskBinding.taskId &&
+      (action.executionId === undefined || action.executionId === taskBinding.executionId) &&
+      submittedWorkerWrite,
     // Acquiring a lease is a lifecycle transition, not a write under a released lease.
     reacquiring = action.kind === "task-start" || action.kind === "task-contract-migrate";
   if (
-    !submittedPush &&
+    !(submittedPush || submittedAmend) &&
     (!lease ||
       (lease.phase !== "held" && !(reacquiring && (lease.phase === "released" || lease.phase === "orphaned"))) ||
       (executionId !== null && executionId !== lease.executionId && action.kind !== "task-start") ||

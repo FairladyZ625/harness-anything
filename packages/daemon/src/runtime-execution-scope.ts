@@ -3,6 +3,7 @@ import {
   isSameExecution,
   submissionDigest,
   runtimeSessionActionIds,
+  type TaskLifecycleSnapshot,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { actionForDaemonMethod } from "./protocol/daemon-protocol.contract.ts";
@@ -101,6 +102,33 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     throw executionCredentialRejected("write-other-task");
 }
 
+/** The only post-submit implementation writes: the producer may publish a branch and replace the
+ * still-current submitted packet for its exact task/execution. All other writes remain lease-bound. */
+export function isCurrentSubmittedWorkerWrite(input: {
+  readonly action: RepoTaskAction;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly role: RuntimeExecutionPrincipal["role"];
+  readonly snapshot: TaskLifecycleSnapshot;
+}): boolean {
+  const { action, taskId, executionId, role, snapshot } = input;
+  if (
+    role !== "implementation" ||
+    snapshot.lease != null ||
+    action.taskId !== taskId ||
+    (action.kind !== "task-push" && !(action.kind === "task-submit" && action.amend === true)) ||
+    (action.kind === "task-submit" && action.executionId !== undefined && action.executionId !== executionId)
+  )
+    return false;
+  const current = snapshot.executions.find((candidate) => candidate.executionId === executionId);
+  return (
+    ["submitted", "in_review"].includes(String(snapshot.task?.status)) &&
+    snapshot.task?.currentNode === "review" &&
+    current?.state === "submitted" &&
+    current.submission !== null
+  );
+}
+
 /** Non-empty explicit path selection; a scopeless `--all` sweep is not a path selection. */
 function selectedDocPaths(action: RepoTaskAction): readonly string[] | null {
   const paths = (action as { readonly paths?: unknown }).paths;
@@ -159,6 +187,27 @@ export function requireCurrentExecutionScope(input: {
   const session = input.projection.readRuntimeSession(p.runtimeSessionId),
     dispatch = input.projection.readRuntimeDispatch(p.runtimeSessionId),
     actor = runtimeExecutionActor(p);
+  const postSubmitCandidate =
+      (input.action.kind === "task-push" || (input.action.kind === "task-submit" && input.action.amend === true)) &&
+      input.action.taskId === p.taskId &&
+      (input.action.kind === "task-push" ||
+        input.action.executionId === undefined ||
+        input.action.executionId === p.executionId),
+    current = postSubmitCandidate ? input.projection.read(p.taskId).snapshot : null,
+    postSubmitWorkerWrite =
+      current !== null &&
+      isCurrentSubmittedWorkerWrite({
+        action: input.action,
+        taskId: p.taskId,
+        executionId: p.executionId,
+        role: p.role,
+        snapshot: current,
+      });
+  // A submitted cut has released its implementation lease, but the worker that produced it may
+  // still need to publish a CI fix and amend that same cut. Keep this exception on the exact
+  // task/execution and current submission; every other worker write remains lease-bound.
+  const exitedPostSubmitWorkerWrite =
+    postSubmitWorkerWrite && session?.liveness === "exited" && session.outcome === "succeeded";
   if (Date.parse(p.expiresAt) <= Date.parse(input.now)) throw executionCredentialRejected("expired");
   if (
     (!isSameExecution(actor, input.binding.actor) &&
@@ -175,8 +224,8 @@ export function requireCurrentExecutionScope(input: {
           ))
       )) ||
     !session ||
-    (session.liveness === "exited" && !settling) ||
-    (session.outcome !== null && !settling) ||
+    (session.liveness === "exited" && !settling && !exitedPostSubmitWorkerWrite) ||
+    (session.outcome !== null && !settling && !exitedPostSubmitWorkerWrite) ||
     (session.outcome === "cancelled" && !negativeTerminal) ||
     dispatch?.payload.dispatchId !== p.dispatchId ||
     dispatch.actor.principal.personId !== p.personId ||
