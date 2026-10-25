@@ -80,6 +80,18 @@ export const REPOSITORY_READ_TABLES_SQL = `
       event_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
+    -- The task list derives created_at and completed_at per row from that task's event history. Both
+    -- lookups take the first event in revision order, and event_index_task_id has no revision column,
+    -- so each one sorts the task's whole history before returning its first row: one long-lived task
+    -- makes a single page unbounded. These two carry revision order in the index instead. They are
+    -- separate names because CREATE INDEX IF NOT EXISTS never replaces an existing index, so widening
+    -- event_index_task_id would be skipped on every cache already built.
+    CREATE INDEX IF NOT EXISTS event_index_task_created ON event_index (task_id, workspace_revision);
+    -- completed_at takes the first completion event of the task: the same lookup restricted to
+    -- completion events, so it does not walk that task's unrelated history.
+    CREATE INDEX IF NOT EXISTS event_index_task_completed ON event_index (task_id, workspace_revision)
+      WHERE json_extract(event_json, '$.schema') = 'task-event/v1'
+        AND json_extract(event_json, '$.type') = 'task_completed';
     CREATE INDEX IF NOT EXISTS event_index_submission_lookup ON event_index (
       task_id,
       json_extract(event_json, '$.payload.execution.executionId'),
