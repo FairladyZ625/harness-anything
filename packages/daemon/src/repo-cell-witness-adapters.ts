@@ -17,6 +17,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
 
 type Execution = Snapshot["executions"][number];
 
@@ -120,7 +121,13 @@ export function attestGateWitness(
       `Gate attestation records a human principal; executor ${binding.actor.executor.id} cannot attest.`,
     );
   if (!cell.projectionReady(read) || !snapshot.task)
-    throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for attestation.`);
+    throw projectedTaskWriteRefusal(
+      cell.projection,
+      read,
+      taskId,
+      { repoId: cell.input.repoId, rootDir: cell.rootDir },
+      cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for attestation.`),
+    );
   const execution = snapshot.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
     ),

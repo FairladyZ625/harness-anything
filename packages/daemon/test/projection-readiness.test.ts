@@ -7,6 +7,9 @@ import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { listProjectedTaskDocuments, readProjectedDocument } from "../src/doc-sync-reads.ts";
 import { requireCurrentTaskProjection } from "../src/projection-readiness.ts";
+import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
+import { annotateExecution, declareExecutionExecutor } from "../src/repo-cell-action-dispatch.ts";
+import { projectionReady, requiredCellText } from "../src/repo-cell-settlement.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { runFactAction } from "../src/repo-cell-fact-action.ts";
@@ -347,4 +350,58 @@ test("task completion read settles lagging, absent, and unpackaged tasks via the
     () => readTaskCompletion(projectionOf({ ...readyTaskRead(), packagePath: null }), "task_ready"),
     (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
   );
+});
+
+// Task-id write commands settle through one judgment: an id absent from both the current
+// projection and the canonical event stream answers task_not_found naming the repository that was
+// searched — a wrong-directory invocation sees which repository resolved — while a projection
+// merely behind, and a snapshot row lost while its canonical events remain, keep each command's
+// own content_not_ready readiness answer.
+function writeCommandCell(read: TaskRead, taskEventExists = false) {
+  return {
+    rootDir: "/repos/canonical-checkout",
+    input: { repoId: "canonical" },
+    projection: { read: () => read, readTaskEventExists: () => taskEventExists },
+    projectionReady,
+    requiredCellText,
+    explicitExecutionId: () => null,
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+  } as unknown as RepoCellOperationalContext;
+}
+
+function writeCommandRuns(cell: RepoCellOperationalContext, taskId: string) {
+  return [
+    () => attestGateWitness(cell, { kind: "task-attest", taskId, gateId: "signoff", result: "pass" }, binding),
+    () => declareExecutionExecutor(cell, { kind: "task-declare-executor", taskId, reason: "reassign" }, binding),
+    () => annotateExecution(cell, { kind: "task-annotate", taskId, executionId: "execution_1", note: "note" }, binding),
+  ];
+}
+
+test("task-id write commands answer a missing id with task_not_found naming the repository", () => {
+  const cell = writeCommandCell(missingTaskRead());
+  for (const run of writeCommandRuns(cell, "task_missing")) {
+    assert.throws(run, (error: unknown) => {
+      const coded = error as { readonly code?: unknown; readonly message?: unknown };
+      assert.equal(coded.code, "task_not_found");
+      assert.equal(
+        coded.message,
+        "Task task_missing does not exist in the canonical event stream of repository canonical at /repos/canonical-checkout.",
+      );
+      return true;
+    });
+  }
+});
+
+test("a projection merely behind keeps the write commands' content_not_ready answer", () => {
+  const cell = writeCommandCell({ ...readyTaskRead(), status: "pending", watermark: 1, sourceRevision: 2 });
+  for (const run of writeCommandRuns(cell, "task_ready")) {
+    assert.throws(run, (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready");
+  }
+});
+
+test("a snapshot row lost while its canonical events remain keeps the write commands' content_not_ready answer", () => {
+  const cell = writeCommandCell(missingTaskRead(), true);
+  for (const run of writeCommandRuns(cell, "task_missing")) {
+    assert.throws(run, (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready");
+  }
 });
