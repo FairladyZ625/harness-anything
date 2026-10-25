@@ -40,7 +40,7 @@ import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } fro
 import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
-import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -296,7 +296,7 @@ export async function proofFor(
       const currentKey = reviewDispatchKey(command.taskId, execution),
         legacyKey = currentKey.replace(/^task-review:/u, "complete-review:");
       // The current key ends in the fixed-length submission digest, so no earlier cut's key can be
-      // a strict prefix. Every reviewer dispatch — the owner's forward order or the manual
+      // a strict prefix. Every reviewer dispatch — the submit-time auto-dispatch or the manual
       // dispatch-review lane — shares this one key shape; past the ":" is the attempt of the same cut.
       if (![currentKey, legacyKey].some((cut) => key === cut || key.startsWith(`${cut}:`)))
         throw cellCodedError(
@@ -372,18 +372,9 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-review@v1",
       capabilityRef: authorizationDecision.policyRef,
-      authorizationDecision,
-    };
-  }
-  if (command.type === "AdjudicateSubmission") {
-    const authorizationDecision = requiredAuthorizationDecision(binding);
-    if (!snapshot.task) throw cellCodedError("task_not_found", "Adjudication requires an existing task.");
-    // A forwarded lightweight cut is the owner's review upgrade: the order goes through the standard
-    // corridor, and closeoutReadiness re-arms the verdict requirement from the in_review position.
-    return {
-      actorBinding: command.actor,
-      capability: "task-adjudicate@v1",
-      capabilityRef: authorizationDecision.policyRef,
+      // The repository rework budget travels with the proof: the kernel review transition reopens
+      // the implementation round for a changes_requested verdict below it, in this same write.
+      reworkBudget: readEffectiveReviewReturnBudget(projection),
       authorizationDecision,
     };
   }

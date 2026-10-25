@@ -21,7 +21,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import { assertCurrentSubmittedExecution, currentCutReviewForReturn } from "./repo-cell-execution-selection.ts";
+import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText, runProcessTextAsync } from "./process-port.ts";
@@ -406,10 +406,13 @@ function freezeCompletionContract(
   if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
   // The cut freezes the resolved reviewer declaration so a later settings change never redirects a
   // cut already under review; cuts frozen before the field fall back to the repository default.
+  // A task-level reviewer override (dec_E369B861 CH3) beats the repository default here.
   return {
     ...resolved.contract,
     closeoutGates: riskTierCloseoutGates(resolved.contract.closeoutGates, assessment),
-    reviewer: { agentId: cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer" },
+    reviewer: {
+      agentId: snapshot.task?.reviewer ?? cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer",
+    },
   };
 }
 
@@ -617,22 +620,16 @@ export function submissionAnchorDriftWarnings(
 }
 
 /**
- * The owning creator who is not the submission holder has two real lanes onto a submitted cut —
- * neither is the plain resume this refusal just denied: replace the cut in place with an owner
- * amendment, or return it (with the recorded review once one exists) to reopen the rework round.
+ * The owning creator who is not the submission holder has one real lane onto a submitted cut that
+ * is not the plain resume this refusal just denied: replace the cut in place with an owner
+ * amendment. Reopen-on-findings is the reviewer's verdict, not an owner command.
  */
-function ownerResumeLanes(
-  snapshot: Snapshot,
-  taskId: string,
-  actor: RepoCellBinding["actor"],
-  executionId: string,
-): string {
+function ownerResumeLanes(snapshot: Snapshot, taskId: string, actor: RepoCellBinding["actor"]): string {
   const task = snapshot.task;
   if (!task || !isSamePerson(task.createdBy, actor)) return "";
-  const review = currentCutReviewForReturn(snapshot, executionId);
   return (
-    ` The owning creator may instead replace the cut with ha task submit ${taskId} --amend --as-owner` +
-    `, or reopen the rework round with ha task adjudicate ${taskId} --return${review ? ` --review-id ${review.reviewId}` : ""}.`
+    ` The owning creator may instead replace the cut with ha task submit ${taskId} --amend --as-owner, ` +
+    "or wait for the reviewer verdict: changes_requested reopens the rework round automatically."
   );
 }
 
@@ -715,7 +712,7 @@ export async function submitTask(
     )
       throw cell.cellCodedError(
         "lease_required",
-        `Only the original submission holder may resume this cut.${ownerResumeLanes(current.snapshot, taskId, binding.actor, selected.executionId)}`,
+        `Only the original submission holder may resume this cut.${ownerResumeLanes(current.snapshot, taskId, binding.actor)}`,
       );
   }
   if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission && !event))

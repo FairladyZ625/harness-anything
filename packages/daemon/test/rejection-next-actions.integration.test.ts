@@ -101,27 +101,14 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.match(String(otherHolder.rejectionExplanation), /Only the original submission holder/u);
     assert.match(String(otherHolder.rejectionExplanation), /ha task submit task-submit-exit --amend --as-owner/u);
     assertSubmitHintsParse(String(otherHolder.rejectionExplanation));
-    assert.match(String(otherHolder.rejectionExplanation), /ha task adjudicate task-submit-exit --return\./u);
+    assert.match(
+      String(otherHolder.rejectionExplanation),
+      /wait for the reviewer verdict: changes_requested reopens the rework round automatically/u,
+    );
     const otherSettle = await cell.run({ kind: "task-settle", taskId }, binding("other-holder"));
     assert.equal(otherSettle.code, "lease_required", JSON.stringify(otherSettle));
     assert.match(String(otherSettle.rejectionExplanation), /ha task submit task-submit-exit --amend --as-owner/u);
     assertSubmitHintsParse(String(otherSettle.rejectionExplanation));
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward submit-exit cut.",
-          },
-          holder,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
@@ -150,8 +137,8 @@ test("submit lease refusals name the state-specific command that advances the ex
       ).outcome,
       "applied",
     );
-    // After a recorded verdict the cut sits in in_review; the owner's rejoin refusal must name the
-    // same-cut return order with the recorded review id.
+    // After a recorded verdict the cut sits in in_review; the owner's rejoin refusal names the
+    // review-driven rework instead of a retired manual return order.
     const ownerRejoin = await cell.run(
       { kind: "task-submit", taskId, executionId, asOwner: true },
       binding("other-holder"),
@@ -159,7 +146,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(ownerRejoin.code, "lease_required", JSON.stringify(ownerRejoin));
     assert.match(
       String(ownerRejoin.rejectionExplanation),
-      /ha task adjudicate task-submit-exit --return --review-id review-submit-exit\./u,
+      /wait for the reviewer verdict: changes_requested reopens the rework round automatically/u,
     );
   } finally {
     await cell?.close();
@@ -537,24 +524,6 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            forward: true,
-            // #3894 auto-dispatches the frozen reviewer on submit; a later forward must still name
-            // the reviewer it selects or replaces.
-            reviewer: "closeout-reviewer",
-            reason: "Forward r1",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review-r1.json"),
       JSON.stringify({ verdict: "changes_requested", reason: "Needs rework", evidenceChecked: ["tests"] }),
@@ -575,22 +544,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            return: true,
-            workerMode: "none",
-            reason: "Return to rework",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
+    // The changes_requested verdict above reopened the rework round automatically.
     // Iteration 1: start and submit second execution
     assert.equal(
       (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner)).outcome,
@@ -601,23 +555,6 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: secondExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward r2",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
-
     // Reviewer attempts to register review against firstExecutionId (superseded!)
     writeFileSync(
       path.join(rootDir, "review-stale.json"),

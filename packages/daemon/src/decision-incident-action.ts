@@ -41,7 +41,7 @@ export async function incidentDecisionFields(input: {
   readonly runtimeContext: DaemonTaskRuntimeContextResult;
   readonly dispatchCount: number;
   readonly toolCallCount: number | null;
-  readonly effectiveBudget: { readonly value: number; readonly source: "task" | "repository" };
+  readonly effectiveBudget: number;
   readonly used: number;
 }): Promise<IncidentDecisionFields> {
   const workspace = input.runtimeContext.snapshot.workspace,
@@ -60,8 +60,8 @@ export async function incidentDecisionFields(input: {
     roundsUsed: input.dispatchCount,
     reworkBudget: {
       used: input.used,
-      limit: input.effectiveBudget.value,
-      source: input.effectiveBudget.source,
+      limit: input.effectiveBudget,
+      source: "repository",
     },
   };
 }

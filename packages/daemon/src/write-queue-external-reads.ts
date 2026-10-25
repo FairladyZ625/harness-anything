@@ -4,13 +4,11 @@ import { artifactImportSourceResolution, prepareArtifactEntityImportSource } fro
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { currentCutReviewForReturn, explicitExecutionId } from "./repo-cell-execution-selection.ts";
 import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import { pushTaskWorkerBranch, workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
-import { cellCriterionError } from "./repo-cell-errors.ts";
 
 type QueuedPublication = ((
   action: RepoTaskAction,
@@ -125,47 +123,5 @@ export function readBeforeWriteQueue(
       };
     })();
   }
-  if (action.kind === "task-adjudicate" && action.forward === true && typeof action.taskId === "string") {
-    const refused =
-      typeof action.reviewer === "string"
-        ? null
-        : refuseAdjudicatedForwardBeforeQueue(context, action.taskId, explicitExecutionId(action));
-    if (refused) return Promise.reject(refused);
-  }
   return null;
-}
-
-const ADJUDICATE_VALIDATE_CRITERION = "task-lifecycle-adjudication-transitions/adjudicate.validate";
-
-/**
- * An in-review forward needs an explicit reviewer selection. Refuse obsolete manual triage
- * before the queue, preserving the same-cut return guidance for an already recorded verdict.
- */
-function refuseAdjudicatedForwardBeforeQueue(
-  context: RepoCellApiContext,
-  taskId: string,
-  executionId: string | undefined,
-): Error | null {
-  const { snapshot } = context.projection.read(taskId);
-  if (
-    !snapshot.task ||
-    !["submitted", "in_review"].includes(snapshot.task.status) ||
-    snapshot.task.currentNode !== "review"
-  )
-    return null;
-  const review = currentCutReviewForReturn(snapshot, executionId),
-    returnOrder = `ha task adjudicate ${taskId} --return${review ? ` --review-id ${review.reviewId}` : ""}`,
-    forwardOrder = `ha task adjudicate ${taskId} --forward --reviewer <agent> --note "<why>"`;
-  return cellCriterionError(
-    "invalid_transition",
-    snapshot.task.status === "in_review"
-      ? `Task ${taskId} is already in review after submit. Use --forward --reviewer <agent> only to select a reviewer. ` +
-          `Adjudicate the recorded verdict on the same review cut with ${returnOrder}.`
-      : `Task ${taskId} is at the review gate. Submit dispatches the frozen reviewer automatically; ` +
-          `--forward requires an explicit --reviewer to select or replace the reviewer.` +
-          (review ? ` Adjudicate the recorded verdict on the same cut with ${returnOrder}.` : ""),
-    "adjudicate",
-    ADJUDICATE_VALIDATE_CRITERION,
-    [forwardOrder, ...(review ? [`${returnOrder} --note "<the owner's rework instruction>"`] : [])],
-  );
 }

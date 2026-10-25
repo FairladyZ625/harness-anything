@@ -66,7 +66,6 @@ const createPacketFields = Object.freeze([
   field("slug", "string", false, undefined, "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$"),
   field("surfaces", "string-array"),
   field("taskClass", "string", false, taskClasses),
-  wire(field("reviewReturnBudget", "number"), { minimum: 1 }),
   field("locale", "string", false, settingsLocales),
   wire(field("createMode", "string", false, ["migration", "import", "admin"]), { omit: true }),
 ]);
@@ -121,13 +120,6 @@ const createInput = input([
   }),
   cli("surfaces", "string-array", false, "--surface", "repeated"),
   cli("taskClass", "string", false, "--task-class", "single", { enum: taskClasses }),
-  wire(
-    cli("reviewReturnBudget", "number", false, "--review-return-budget", "single", {
-      regex: "^[1-9][0-9]*$",
-      projection: "number",
-    }),
-    { minimum: 1 },
-  ),
   wire(cli("planFile", "string", false, "--plan-file", "single"), { omit: true }),
   cli("dryRun", "boolean", false, "--dry-run", "boolean"),
   cli("locale", "string", false, "--locale", "single", { enum: settingsLocales }),
@@ -211,20 +203,6 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "execution_submitted",
     proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
-  },
-  adjudicate: {
-    ingress: "task-adjudicate",
-    commandType: "AdjudicateSubmission",
-    transitionId: "adjudicate_submission",
-    implementation: "task-lifecycle",
-    topology: "ledger-write",
-    remoteEdgeAdmission: "via-center-forward",
-    coordination: "execute",
-    // The decision chooses the event: forward records submission_forwarded, return records
-    // submission_returned. The descriptor names both; the transition's matches/validate is the
-    // single authority for which one a command produces.
-    eventType: "submission_forwarded" as "submission_forwarded" | "submission_returned",
-    proof: ["ownerActor", "task-adjudicate@v1", "auditedNote"],
   },
   review: {
     ingress: "task-review-execution",
@@ -445,46 +423,6 @@ export const declarations: readonly Declaration[] = Object.freeze([
     ),
     explain: "Publish or amend the current cut and automatically dispatch its required reviewers.",
   }),
-  lifecycle("adjudicate", {
-    input: input(
-      [
-        taskId,
-        expectedVersion,
-        wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
-        cli("forward", "boolean", false, "--forward", "boolean"),
-        cli("return", "boolean", false, "--return", "boolean"),
-        wire(cli("reviewer", "string", false, "--reviewer"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
-        wire(cli("runtimeInstanceId", "string", false, "--instance"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
-        cli("model", "string", false, "--model"),
-        wire(cli("reviewId", "string", false, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
-        cli("reason", "string", false, "--note"),
-        cli("noteFile", "string", false, "--note-file", "single", {
-          conflictsWith: ["--note"],
-        }),
-        cli("workerMode", "string", false, "--worker-mode", "single", { enum: ["resume", "fresh", "none"] }),
-        cli("followUp", "string", false, "--message"),
-      ],
-      [["forward", "return"]],
-    ),
-    criteria: Object.freeze([
-      criterion(
-        "task-lifecycle-adjudication-transitions/adjudicate.validate",
-        "invalid_transition",
-        "The owner adjudicates the current submitted cut: forward explicitly selects a reviewer; " +
-          "return accepts submitted or in_review and may name a recorded review.",
-      ),
-      criterion(
-        "repo-cell-proof/proofFor.AdjudicateSubmission",
-        "actor_unauthorized",
-        "A principal authorized for task-adjudicate forwards or returns a submitted cut; reviewers only report.",
-      ),
-    ]),
-    concurrency: taskConcurrency(
-      { authority: "task-lease/v1", mode: "must-be-released" },
-      { authority: "operation-id", retry: "canonical-event-replay" },
-    ),
-    explain: "Select a reviewer explicitly with --forward --reviewer, or return the submitted cut with a rework note.",
-  }),
   lifecycle("review", {
     input: input(
       [
@@ -514,7 +452,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", semanticKey: "reviewId" },
     ),
-    explain: "Record an independent, content-pinned review for the submitted execution.",
+    explain: "Record an independent, content-pinned review; changes_requested below the rework budget reopens rework.",
   }),
   lifecycle("consent", {
     input: input([

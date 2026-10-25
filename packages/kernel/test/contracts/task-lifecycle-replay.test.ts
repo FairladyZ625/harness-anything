@@ -201,65 +201,41 @@ test("an amended delivery re-derives the record anchors; the closeout prose carr
   assert.equal(amendedCut.changedPaths.includes(recordPath), true);
 });
 
-test("the owner may return a consented cut for a fresh iteration", () => {
+test("a late changes_requested review may reopen a consented cut for a fresh iteration", () => {
   const { snapshot } = lifecycleFixture({ complete: false }),
-    command = {
+    approved = snapshot.reviews[0]!,
+    lateReview = {
       ...normalizeTaskLifecycleCommand(
         { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
         {
-          type: "AdjudicateSubmission",
+          type: "RecordReview",
           taskId: snapshot.task!.taskId,
           executionId: snapshot.executions[0]!.executionId,
-          decision: "return" as const,
-          reason: "Owner rejects the already approved cut.",
-          reviewId: snapshot.reviews[0]!.reviewId,
+          reviewId: "review-late-changes",
+          verdict: "changes_requested" as const,
+          reason: "A late finding reopens the approved cut.",
+          evidenceChecked: ["late audit"],
+          commitSha: approved.commitSha,
+          iteration: approved.iteration,
+          contentDigest: approved.contentDigest,
+          submissionDigest: approved.submissionDigest,
         },
       ),
-      eventId: "event-return-after-consent",
+      eventId: "event-late-changes-after-consent",
       workspaceRevision: snapshot.revision + 1,
       occurredAt: "2026-08-11T00:07:00.000Z",
     };
-  const nonOwner = { principal: { personId: "person-non-owner" }, executor: null } as const,
-    nonOwnerCommand = {
-      ...normalizeTaskLifecycleCommand(
-        { workspaceId: "workspace-1", actor: nonOwner, source: "local", expectedRevision: snapshot.revision },
-        {
-          type: "AdjudicateSubmission",
-          taskId: snapshot.task!.taskId,
-          executionId: snapshot.executions[0]!.executionId,
-          decision: "return" as const,
-          reason: "A non-owner attempts to reject the approved cut.",
-          reviewId: snapshot.reviews[0]!.reviewId,
-        },
-      ),
-      eventId: "event-non-owner-return-after-consent",
-      workspaceRevision: snapshot.revision + 1,
-      occurredAt: "2026-08-11T00:07:00.000Z",
-    };
-  // Who may adjudicate is the authorization layer's answer; the transition only demands its proof.
-  assert.throws(
-    () => applyTransition(snapshot, nonOwnerCommand, { actorBinding: nonOwner, capability: "task-adjudicate@v1" }),
-    /authorized task-adjudicate capability/u,
-  );
-  assert.equal(
-    applyTransition(snapshot, nonOwnerCommand, {
-      actorBinding: nonOwner,
-      capability: "task-adjudicate@v1",
-      capabilityRef: "cap-adjudicate",
-    }).event.type,
-    "submission_returned",
-    "a principal other than the creator adjudicates once it holds the capability",
-  );
-  const returned = applyTransition(snapshot, command, {
+  const returned = applyTransition(snapshot, lateReview, {
     actorBinding: implementer,
-    capability: "task-adjudicate@v1",
-    capabilityRef: "cap-adjudicate",
+    capability: "execution-review@v1",
+    capabilityRef: "cap-review",
+    reworkBudget: 2,
   });
-  assert.equal(returned.event.type, "submission_returned");
+  assert.equal(returned.event.type, "review_recorded");
   assert.equal(returned.snapshot.task?.status, "active");
   assert.equal(returned.snapshot.executions[0]?.state, "changes_requested");
   assert.equal(returned.snapshot.consents.length, 1, "the historical cut retains its consent record");
-
+  assert.equal(returned.snapshot.edgesTaken.at(-1)?.edgeId, "review-changes-requested");
   const secondExecutionId = "execution-after-consented-return",
     started = applyTransition(
       returned.snapshot,
@@ -340,16 +316,29 @@ test("the owner may return a consented cut for a fresh iteration", () => {
   );
 });
 
-test("an owner return publishes its instruction as a managed task document", () => {
+test("a historical owner return still publishes its instruction as a managed task document", () => {
+  // The manual return command retired with the automatic review loop (dec_E369B861 CH5); journals
+  // still replay submission_returned events, and their managed documents must keep compiling.
   const fixture = twoRoundLifecycleEvents(),
-    returned = fixture.events.find((event) => event.type === "submission_returned")!,
-    returnedSnapshot = fixture.events
-      .slice(0, 6)
+    reopened = fixture.events.find((event) => event.type === "review_recorded")!,
+    // The publication path compiles the historical envelope shape; it does not re-derive the
+    // transition invariants, so the synthetic return mirrors the retired reduce's output.
+    returned = {
+      ...reopened,
+      type: "submission_returned",
+      payload: {
+        task: reopened.payload.task,
+        execution: reopened.payload.execution,
+        reason: "owner accepted the changes_requested report; rework the cut",
+        reviewId: reopened.payload.review.reviewId,
+      },
+    } as unknown as typeof reopened,
+    submittedSnapshot = fixture.events
+      .slice(0, 3)
       .reduce((snapshot, event) => reduceTaskEvent(snapshot, event), emptyTaskLifecycleSnapshot());
-  assert.ok(returned);
   const compiled = compileTaskLifecycleWrite({
     event: returned,
-    snapshot: returnedSnapshot,
+    snapshot: submittedSnapshot,
     packagePath: "tasks/task-two-round",
     currentDocuments: [],
   });

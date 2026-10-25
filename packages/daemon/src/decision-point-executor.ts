@@ -391,20 +391,17 @@ async function readIncidentFields(
         runtimeContext,
         dispatchCount: dispatches.length,
         toolCallCount: typeof toolCallCount === "number" ? toolCallCount : null,
-        effectiveBudget: readEffectiveReviewReturnBudget(
-          {
-            // The merged settings facet carries repository-owned fields verbatim; the function
-            // itself still owns the absent-entity default, so no default is copied here. Only
-            // `.value` is read on this row.
-            getEntity: (kind: string, id: string) =>
-              kind === "settings" && id === "repository"
-                ? // Only `.value` is read on this row; the surrounding entity freshness fields are
-                  // not part of the effective-budget read.
-                  ({ value: settings } as unknown as ReturnType<TaskProjectionQueries["getEntity"]>)
-                : null,
-          },
-          runtimeContext.snapshot.task,
-        ),
+        effectiveBudget: readEffectiveReviewReturnBudget({
+          // The merged settings facet carries repository-owned fields verbatim; the function
+          // itself still owns the absent-entity default, so no default is copied here. Only
+          // `.value` is read on this row.
+          getEntity: (kind: string, id: string) =>
+            kind === "settings" && id === "repository"
+              ? // Only `.value` is read on this row; the surrounding entity freshness fields are
+                // not part of the effective-budget read.
+                ({ value: settings } as unknown as ReturnType<TaskProjectionQueries["getEntity"]>)
+              : null,
+        }),
         // The budget fence counts durable receipts on canonical dispatch rows, not the local
         // annotation store: that store truncates to its newest entries and would let a busy
         // repository forget old automatic dispositions and reopen the cap.

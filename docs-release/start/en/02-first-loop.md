@@ -172,8 +172,10 @@ records the final approval explicitly:
 ha task review-consent task_... --review-id review-docs-loop
 ```
 
-For `changes_requested`, the task remains `in_review` until the owner issues
-`ha task adjudicate task_... --return --worker-mode resume --message <feedback> --review-id <id> --note <reason>`.
+For `changes_requested` below the repository rework limit (`reviewReturnBudget`, default 2), the task
+automatically returns to `active` and reopens the rework round; the worker session that submitted it is
+resumed automatically with the review report. At the limit the cut stays `in_review` for the owner
+(dispose the verdict with `ha task review-consent ... --dispose <id>`, or supersede the task).
 
 ```bash
 ha task complete task_...

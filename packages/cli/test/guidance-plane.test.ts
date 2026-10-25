@@ -792,7 +792,6 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
       },
       currentExecutions: [{ executionId: "execution-1", state: "submitted" }],
       returnBudget: 2,
-      returnBudgetSource: "task",
     }),
     summary: "task: status=done currentNode=review",
   });
@@ -800,11 +799,11 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.deepEqual(rendered.text.split("\n"), [
     "status: done",
     "graph cursor: review",
-    "execution: execution-1 (submitted) (pass as --execution-id to review-consent/adjudicate/complete)",
+    "execution: execution-1 (submitted) (pass as --execution-id to review/review-consent/complete)",
     "expected-version: 161530 (pass as --expected-version to assign/unassign/transition)",
     "completion gates: none",
     "packageDisposition: archived",
-    "returnBudget=2 (task)",
+    "returnBudget=2 (repository rework round limit)",
   ]);
   // A snapshot whose current iteration holds no execution states none instead of guessing one.
   const unstarted = renderCliReceipt({
@@ -869,8 +868,8 @@ test("relation rejection renders structured triples and preserves them through d
   }
 });
 
-test("adjudication renders worker dispatch identity and its actual launch failure", () => {
-  const common = { ok: true, command: "task-adjudicate", outcome: "applied", opId: "op-return" };
+test("a recorded changes_requested review renders its automatic worker continuation", () => {
+  const common = { ok: true, command: "task-review-execution", outcome: "applied", opId: "op-review" };
   assert.match(
     renderCliReceipt({ ...common, continuation: { mode: "resume", outcome: "applied", dispatchId: "dispatch-worker" } })
       .text,
@@ -885,28 +884,6 @@ test("adjudication renders worker dispatch identity and its actual launch failur
     renderCliReceipt({ ...common, continuation: { mode: "fresh", ...failure }, steps: [failure] }).text,
     /worker dispatch failed: No instance available\./u,
   );
-});
-
-test("a none-return adjudication renders no dispatch and its manual continuation lanes", () => {
-  const rendered = renderCliReceipt({
-    ok: true,
-    command: "task-adjudicate",
-    outcome: "applied",
-    opId: "op-return-none",
-    status: "accepted_durable",
-    continuation: { mode: "none" },
-    next: [
-      {
-        command: "ha task start task-1",
-        reason: "no worker was dispatched; start the next execution to resume the rework",
-      },
-      { command: "ha task submit task-1", reason: "publish the reworked cut once the lease is held" },
-    ],
-  });
-  assert.match(rendered.text, /worker: none \(no dispatch\)/u);
-  assert.match(rendered.text, /next: ha task start task-1/u);
-  assert.match(rendered.text, /next: ha task submit task-1/u);
-  assert.doesNotMatch(rendered.text, /worker: none; undefined/u);
 });
 
 test("daemon-coded rejection messages reach the CLI hint verbatim for submit and complete", () => {

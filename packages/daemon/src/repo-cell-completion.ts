@@ -192,7 +192,7 @@ export function taskShowFromProjection(
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),
-    returnBudget = readEffectiveReviewReturnBudget(projection, task),
+    returnBudget = readEffectiveReviewReturnBudget(projection),
     rootAssessment = task
       ? deriveTaskRoot(
           {
@@ -249,8 +249,7 @@ export function taskShowFromProjection(
             },
           }
         : {}),
-      returnBudget: returnBudget.value,
-      returnBudgetSource: returnBudget.source,
+      returnBudget,
       rootAssessment,
       completionNext: completion.completionNext,
       completionBlocker: completion.completionBlocker,

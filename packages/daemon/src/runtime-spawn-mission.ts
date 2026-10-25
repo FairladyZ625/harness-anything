@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
+import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
@@ -457,6 +458,21 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
   return body ? body : null;
 }
 
+/**
+ * Who reviews this task's next submitted cut (dec_E369B861 CH3): the task's own reviewer override,
+ * else the repository defaultReviewer. Named in the worker mission so the submitter knows whose
+ * verdict the automatic review loop will run.
+ */
+export function taskReviewerNote(
+  projection: TaskProjection,
+  snapshot: ReturnType<TaskProjection["read"]>["snapshot"],
+): string | null {
+  const taskReviewer = snapshot.task?.reviewer,
+    repositoryReviewer = projectedRepositorySettings(projection)?.roles?.defaultReviewer,
+    agentId = taskReviewer ?? repositoryReviewer ?? "closeout-reviewer";
+  return `本任务的提交将由评审员 ${agentId} 审查（${taskReviewer ? "任务指定" : repositoryReviewer ? "仓库默认" : "内置默认"}）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。`;
+}
+
 /** Dynamic sections follow the dispatch action: review, delivery, or rework.
  * reviewerBinding is the spawner's existing review judgment; workers owe the delivery contracts. */
 export function taskMissionSections(
@@ -468,6 +484,7 @@ export function taskMissionSections(
   reviewerBinding: boolean,
   profileId?: string | null,
   riskTierFlowVersion?: number | null,
+  reviewerNote: string | null = null,
 ): string[] {
   const living = reviewerBinding
     ? null
@@ -475,6 +492,7 @@ export function taskMissionSections(
   return [
     taskQueryGuidance(taskId),
     unattendedRulingContract,
+    ...(reviewerBinding || reviewerNote === null ? [] : [reviewerNote]),
     ...(living === null ? [] : [living]),
     ...(reviewerBinding ? [] : [taskPrPublicationNote]),
     ...(causalContext === null ? [] : [causalContext]),
@@ -501,6 +519,7 @@ export function explicitPromptMission(
   planBody: string | null = null,
   profileId?: string | null,
   riskTierFlowVersion?: number | null,
+  reviewerNote: string | null = null,
 ): string {
   return [
     ...(planBody === null ? [] : [taskPlanSection(planBody)]),
@@ -517,6 +536,7 @@ export function explicitPromptMission(
           reviewerBinding,
           profileId,
           riskTierFlowVersion,
+          reviewerNote,
         )),
     prompt,
   ].join("\n\n");
@@ -569,6 +589,7 @@ export function deriveTaskMission(
         reviewerBinding,
         snapshot.task?.metadata?.profileId,
         snapshot.task?.metadata?.riskTierFlowVersion,
+        reviewerBinding ? null : taskReviewerNote(projection, snapshot),
       ),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");
@@ -778,6 +799,11 @@ export async function resolveRuntimeMission(input: {
   // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
   const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
   const continuationSection = continuation === null ? null : continuationContextPrompt(continuation),
+    reviewerNote =
+      taskId === null || input.reviewerBinding
+        ? null
+        : (remoteTask?.reviewerNote ??
+          (projection ? taskReviewerNote(projection, taskSnapshot ?? projection.read(taskId).snapshot) : null)),
     baseMission =
       explicitMission === undefined
         ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
@@ -792,6 +818,7 @@ export async function resolveRuntimeMission(input: {
             planBody,
             remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId,
             remoteTask?.riskTierFlowVersion ?? taskSnapshot?.task?.metadata?.riskTierFlowVersion,
+            reviewerNote,
           ),
     mission = continuationSection === null ? baseMission : `${baseMission}\n\n${continuationSection}`;
   return {

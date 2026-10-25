@@ -24,14 +24,14 @@ afterEach(async () => {
 describe("Task completion panel", () => {
   it("shows the panel for an in_review task and waits while the review blocker stands", async () => {
     installBridge({
-      completionAction: "ha task adjudicate task-w3 --forward --note-file <path>",
+      completionAction: "ha task dispatch-review task-w3",
       completionBlocker: { code: "review_missing", gate: "review" },
     });
     await mount();
     await clickTab("收口");
     const panel = byTestId("task-completion-panel");
     // 评审未记录(blocker.code = review_missing)时没有任何可点按钮:评审员只查验,
-    // 结论回流 owner 裁决前既不能同意也不能结项。
+    // 结论回流前既不能同意也不能结项;返工由 changes_requested 自动驱动。
     expect(panel.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
     expect(panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-complete"]')?.disabled).toBe(true);
     expect(panel.textContent).toContain("独立评审尚未记录结论");
@@ -55,64 +55,6 @@ describe("Task completion panel", () => {
       consent!.click();
     });
     expect(consents).toEqual(["review-w3"]);
-  });
-
-  it("sends delivery diff annotations to the return-note entry point", async () => {
-    installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
-    const notes: Array<[string, string | undefined]> = [];
-    await mount({
-      task: {
-        ...task,
-        coordinationStatus: "submitted",
-        canonicalStatus: "submitted",
-        ...projectedTaskFields("submitted"),
-      },
-      onReturnNote: (reason, reviewId) => (notes.push([reason, reviewId]), Promise.resolve()),
-    });
-    await clickTab("收口");
-    const viewer = byTestId("annotate-diff");
-    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-add-new-1"]')!.click());
-    const input = viewer.querySelector<HTMLTextAreaElement>('[data-testid="annotate-composer-text"]')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "补充回归测试");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-composer-save"]')!.click());
-    expect(viewer.querySelector('[data-testid="annotate-pending-count"]')?.textContent).toBe("1");
-    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-send"]')!.click());
-    expect(notes).toHaveLength(1);
-    expect(notes[0]?.[0]).toContain("请按以下 1 条批注一次性完成修订");
-    expect(notes[0]?.[0]).toContain("补充回归测试");
-    expect(notes[0]?.[1]).toBe("review-w3");
-  });
-
-  it("routes submitted triage and in-review return through owner adjudication", async () => {
-    installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
-    const calls: Array<[string, string | undefined]> = [];
-    await mount({
-      task: {
-        ...task,
-        coordinationStatus: "submitted",
-        canonicalStatus: "submitted",
-        ...projectedTaskFields("submitted"),
-      },
-      onAdjudicate: (decision, _reason, reviewId) => (calls.push([decision, reviewId]), Promise.resolve()),
-    });
-    await clickTab("收口");
-    await act(async () => {
-      byTestId("task-triage-forward").click();
-    });
-    expect(calls).toEqual([["forward", undefined]]);
-
-    await cleanupMountedDetail();
-    await mount({
-      onAdjudicate: (decision, _reason, reviewId) => (calls.push([decision, reviewId]), Promise.resolve()),
-    });
-    await clickTab("收口");
-    await act(async () => {
-      byTestId("task-review-return").click();
-    });
-    expect(calls.at(-1)).toEqual(["return", "review-w3"]);
   });
 
   it("keeps button behavior identical when the action prose changes", async () => {
@@ -154,26 +96,8 @@ describe("Task completion panel", () => {
   it("renders buttons and guidance correctly under en-US locale", async () => {
     setActiveLocale("en-US");
     try {
-      // 1. submitted: check triage forward and triage return buttons in en-US
-      installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
-      await mount({
-        task: {
-          ...task,
-          coordinationStatus: "submitted",
-          canonicalStatus: "submitted",
-          ...projectedTaskFields("submitted"),
-        },
-      });
-      await clickTab("Closeout");
-      const fwd = byTestId("task-triage-forward");
-      const ret = byTestId("task-triage-return");
-      const completeSubmitted = byTestId("task-completion-complete");
-      expect(fwd.textContent?.trim()).toBe("Forward to Review");
-      expect(ret.textContent?.trim()).toBe("Return Initial Review");
-      expect(completeSubmitted.textContent?.trim()).toBe("Complete Task");
-      expect(completeSubmitted.getAttribute("data-tip")).toBe("Approve final review first before mechanical closeout");
-
-      // 2. in_review with consent_missing: check review return, consent, and complete buttons
+      // The triage/return buttons retired with the manual adjudicate commands; consent and
+      // complete remain the owner's only explicit actions.
       await cleanupMountedDetail();
       installBridge({
         completionBlocker: { code: "consent_missing", gate: "consent" },
@@ -183,10 +107,8 @@ describe("Task completion panel", () => {
       const panel = byTestId("task-completion-panel");
       expect(panel.textContent).toContain("Closeout Settlement");
       expect(panel.textContent).toContain("Independent review approved");
-      const reviewRet = byTestId("task-review-return");
       const consentBtn = byTestId("task-completion-consent");
       const completeConsent = byTestId("task-completion-complete");
-      expect(reviewRet.textContent?.trim()).toBe("Return Final Review");
       expect(consentBtn.textContent?.trim()).toBe("Approve Final Review");
       expect(completeConsent.textContent?.trim()).toBe("Complete Task");
       expect(completeConsent.getAttribute("data-tip")).toBe("Approve final review first before mechanical closeout");

@@ -141,7 +141,7 @@ test("legacy relation carriers are isolated before missing pinned fields are nor
     const added = {
       ...fixture.events.at(-1),
       eventId: "event-history-relation",
-      workspaceRevision: 8,
+      workspaceRevision: 7,
       opId: "op_history_relation",
       type: "task_relation_added",
       payload: {
@@ -153,7 +153,7 @@ test("legacy relation carriers are isolated before missing pinned fields are nor
     const snapshot = {
       ...added,
       eventId: "event-history-relation-snapshot",
-      workspaceRevision: 9,
+      workspaceRevision: 8,
       opId: "op_history_relation_snapshot",
       type: "task_amended",
       payload: {
@@ -165,9 +165,9 @@ test("legacy relation carriers are isolated before missing pinned fields are nor
     const events = [...fixture.events, added, snapshot];
     const before = JSON.stringify(events);
     const plan = planLegacyGenerationConversion({ rootDir: root, store: sourceStore(events, new Map()) });
-    assert.equal(plan.events[7]!.type, "relation_created");
-    assert.equal(plan.events[7]!.payload.relation.targetObservedVersion, 7);
-    assert.equal(Object.hasOwn(plan.events[8]!.payload.task, "relations"), false);
+    assert.equal(plan.events[6]!.type, "relation_created");
+    assert.equal(plan.events[6]!.payload.relation.targetObservedVersion, 6);
+    assert.equal(Object.hasOwn(plan.events[7]!.payload.task, "relations"), false);
     assert.ok(plan.events.every((event) => validateCurrentCanonicalEvent(event).length === 0));
     assert.equal(JSON.stringify(events), before);
     assert.equal(
@@ -179,7 +179,7 @@ test("legacy relation carriers are isolated before missing pinned fields are nor
       () =>
         planLegacyGenerationConversion({
           rootDir: root,
-          store: sourceStore([...fixture.events, { ...snapshot, workspaceRevision: 8 }], new Map()),
+          store: sourceStore([...fixture.events, { ...snapshot, workspaceRevision: 7 }], new Map()),
         }),
       /relations not present at its historical cut/,
     );

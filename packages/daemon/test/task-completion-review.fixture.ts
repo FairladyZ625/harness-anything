@@ -124,7 +124,6 @@ export async function fixture(
   artifactDelivery = false,
   noInstances = false,
   hybridDelivery = false,
-  reviewReturnBudget?: number,
   options: {
     readonly autoSubmit?: boolean;
     readonly submitCommit?: boolean;
@@ -132,8 +131,6 @@ export async function fixture(
     readonly providerRoundBackoffBaseSeconds?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
-    /** False keeps review-disabled cuts out of the explicit owner upgrade lane. */
-    readonly autoForward?: boolean;
     readonly autoProviderSession?: boolean;
     readonly failProviderResume?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
@@ -293,7 +290,6 @@ export async function fixture(
     taskId,
     title: "Completion Review",
     presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
-    ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
     ...options.create,
   });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -371,35 +367,10 @@ export async function fixture(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
-  // The owner may explicitly select a reviewer; ordinary submissions dispatch automatically.
-  const forward = async (reason = "Owner forwards the cut for independent review.", roundExecutionId = executionId) =>
-    run({
-      kind: "task-adjudicate",
-      taskId,
-      executionId: roundExecutionId,
-      forward: true,
-      reviewer: "closeout-reviewer",
-      reason,
-    });
-  const returnCut = async (reason: string, reviewId?: string, roundExecutionId = executionId) =>
-    run({
-      kind: "task-adjudicate",
-      taskId,
-      executionId: roundExecutionId,
-      return: true,
-      workerMode: "none",
-      reason,
-      ...(reviewId === undefined ? {} : { reviewId }),
-    });
   const consent = (reviewId: string) => run({ kind: "task-review-consent", taskId, executionId, reviewId });
-  if (options.autoSubmit !== false) {
-    await submit();
-    if (
-      options.autoForward !== false &&
-      JSON.parse(String((await run({ kind: "task-show", taskId })).evidence)).task.status === "submitted"
-    )
-      assert.equal((await forward()).outcome, "applied");
-  }
+  // Submit lands a review-required cut in in_review and the reviewer dispatch rides the same
+  // write; review-lifted cuts complete straight off submitted (dec_E369B861 CH3).
+  if (options.autoSubmit !== false) await submit();
   // One reader serves every events() call for the fixture's life: a fresh connection per call
   // both cost a SQLite open and left the handle for the GC (which blocks deleting the fixture
   // tree on Windows). close() drains it before the tree goes away.
@@ -432,8 +403,6 @@ export async function fixture(
     events,
     cell: () => cell,
     submit,
-    forward,
-    returnCut,
     consent,
     complete: () => run({ kind: "task-complete", taskId, executionId }),
     install: async (instanceId: string | null = "review-first") => {

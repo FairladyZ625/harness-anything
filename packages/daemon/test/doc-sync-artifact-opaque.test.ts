@@ -623,17 +623,8 @@ async function reachGreenInReview(
   );
   const submitted = await cell.run({ kind: "task-submit", taskId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-  const forwarded = await cell.run(
-    {
-      kind: "task-adjudicate",
-      taskId,
-      forward: true,
-      reviewer: "closeout-reviewer",
-      reason: "Forward opaque artifact cut.",
-    },
-    binding,
-  );
-  assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+  // The submit itself enters review; this cell has no sealed runtime route, so no reviewer
+  // launch is possible — the recorded verdict below is the review evidence.
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),

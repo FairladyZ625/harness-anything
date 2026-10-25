@@ -15,10 +15,13 @@ const worker = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } }, source: "local" },
   "contributor",
 );
-const owner = withPolicyGroup(
-  { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
-  "admin",
-) as const;
+const reviewer = withPolicyGroup(
+  {
+    actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "reviewer" } },
+    source: "local",
+  },
+  "maintainer",
+);
 
 const git = (rootDir: string, ...args: readonly string[]): string =>
   execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -82,27 +85,33 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
       cell.run({ kind: "doc-submit", paths: [planPath] }, worker),
     );
 
-    // Round A starts at the fork, delivers on the task branch, and is returned for rework.
+    // Round A starts at the fork, delivers on the task branch, and a changes_requested review
+    // returns it for rework in the same write (dec_E369B861 CH3).
     const executionA = "execution-baseline-a";
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId: executionA }, worker)).outcome, "applied");
     await deliverRound(cell, rootDir, taskId, packagePath, executionA, "Round A delivery.");
+    const reportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
+    mkdirSync(reportDir, { recursive: true });
+    writeFileSync(path.join(reportDir, "baseline-rework.md"), "# Review baseline-rework\n\nNeeds revision.\n");
+    writeFileSync(
+      path.join(reportDir, "baseline-rework.json"),
+      JSON.stringify({ verdict: "changes_requested", reason: "Rework the cut.", evidenceChecked: ["DELIVERY.md"] }),
+    );
     const returned = (await cell.run(
       {
-        kind: "task-adjudicate",
+        kind: "task-review-execution",
         taskId,
         executionId: executionA,
-        return: true,
-        workerMode: "fresh",
-        followUp: "Rework the cut.",
-        reason: "Rework the cut.",
+        reviewId: "review-baseline-rework",
+        fromFile: `harness/${packagePath}/artifacts/reports/baseline-rework.json`,
       },
-      owner,
+      reviewer,
     )) as Record<string, unknown>;
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     assert.equal(
       (returned.continuation as { outcome: string }).outcome,
       "op_rejected",
-      "the applied return does not claim its unavailable worker launched",
+      "the recorded verdict does not claim its unavailable worker launched",
     );
 
     // main advances past the delivery branch's fork while the task sits in rework.

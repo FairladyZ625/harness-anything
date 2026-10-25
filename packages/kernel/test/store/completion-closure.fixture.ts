@@ -99,11 +99,20 @@ export function completionClosureFixture(root: string) {
   emit("execution_started", oldPayload(1));
   const submitted = oldPayload(2);
   emit("execution_submitted", submitted);
-  const forwarded = oldPayload(3);
+  // Accepted old-format history keeps a `submission_forwarded` record: the retired manual
+  // forward recorded {task, execution, reason} over the submitted cut. The automatic corridor's
+  // submit reaches in_review itself, so the old shape is rebuilt from the submit payload instead
+  // of cloning a fixture event that no longer exists.
+  const forwarded = {
+    task: { ...submitted.task, status: "in_review" },
+    execution: submitted.execution,
+    reason: "forwarded for independent review",
+    documentClaims: [],
+  };
   emit("submission_forwarded", forwarded);
   let execution = forwarded.execution;
   const review = (id: string, verdict: string) => ({
-    ...oldPayload(4).review,
+    ...oldPayload(3).review,
     contentDigest: `sha256:${packetSha}`,
     reviewId: id,
     verdict,
@@ -114,7 +123,7 @@ export function completionClosureFixture(root: string) {
   const approved = review("review-old-approved", "approved");
   emit("review_recorded", { ...forwarded, review: approved });
   const consent = (id: string, reviewValue: typeof approved) => ({
-    ...oldPayload(5).consent,
+    ...oldPayload(4).consent,
     contentDigest: reviewValue.contentDigest,
     consentId: id,
     reviewId: reviewValue.reviewId,

@@ -106,7 +106,8 @@ export function closeoutReadiness(
     };
   }
   // Review-required cuts must be in_review; review-disabled profiles complete from submitted.
-  // Historical submitted cuts still need an explicit owner order to enter review.
+  // Historical submitted review cuts have no entry into review in the current version: the
+  // registered stock disposal in docs-release/data-format-migrations.md names their exits.
   if (task.status === "submitted" && effectiveGates?.review !== false)
     return {
       readiness: "incomplete",

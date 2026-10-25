@@ -233,7 +233,8 @@ function evaluateCompletion(
   }
   // The executor only matters for judging reviewer independence, so it is restored only while an
   // independent review is still owed: the review gate applies and nobody has reviewed this cut yet
-  // (a recorded review already judged independence; an adverse one routes to the owner's return).
+  // (a recorded review already judged independence; an adverse one either reopens rework or, past
+  // the budget, stays for the owner's disposition).
   if (
     task.status === "in_review" &&
     execution.actor.executor === null &&
@@ -258,9 +259,11 @@ function evaluateCompletion(
     return one(
       "not_in_review",
       "lifecycle",
-      `ha task adjudicate ${task.taskId} --forward --reviewer <agent> --note-file <path>`,
-      "This historical cut has not entered review; completion requires independent review " +
-        "and the owner's verdict.",
+      `ha task show ${task.taskId}`,
+      "This historical cut recorded `submitted` at the review node before the automatic corridor; the current " +
+        "version has no command that forwards it into review. The registered stock disposal in " +
+        "docs-release/data-format-migrations.md applies: forward it with a pre-upgrade version before " +
+        "upgrading, or supersede the task — migrating its contract cannot lift the frozen cut's review gate.",
     );
   // A lightweight cut (review gate lifted) completes straight off submitted; every other
   // status off the review corridor has no completion to run.
@@ -290,13 +293,21 @@ function evaluateCompletion(
   const changes = includeReview
     ? changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? [])
     : undefined;
-  if (changes)
+  if (changes) {
+    // The exhaustion scenario often has no approved review on the cut; the consent side accepts
+    // the disposed changes_requested verdict itself (review-consent-validity's
+    // allowSelectedChangesRequested), so the printed command is always fillable as printed.
+    const consentReviewId =
+      approvedReviewHistoryForExecution(snapshot.reviews, execution).at(-1)?.reviewId ?? changes.reviewId;
     return one(
       "review_missing",
       "review",
-      reviewReturnCommand(task.taskId, changes.reviewId),
-      `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
+      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${consentReviewId} ` +
+        `--dispose ${changes.reviewId} --rationale <why the adverse verdict is overruled>`,
+      `Review ${changes.reviewId} requested changes and the rework budget is exhausted; the owner ` +
+        "decides: dispose the verdict with consent, or supersede the task.",
     );
+  }
   const gate = assessment.gates.find(({ gateId, status }) => {
     const requirement = submission.completionContract.gates.find((candidate) => candidate.gateId === gateId);
     return (
@@ -388,7 +399,8 @@ function evaluateCompletion(
 }
 
 /** The latest changes_requested verdict on the submitted cut that no consent disposition removed:
- * an adverse verdict the owner adjudicates. Dispositions share the consent side's one standard. */
+ * an adverse verdict beyond the rework budget that the owner decides. Dispositions share the
+ * consent side's one standard. */
 export function changesRequestedReview(
   reviews: readonly ReviewV1[],
   execution: ExecutionV1,
@@ -399,10 +411,6 @@ export function changesRequestedReview(
   return reviewsForExecution(reviews, execution)
     .filter((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
     .at(-1);
-}
-
-export function reviewReturnCommand(taskId: string, reviewId: string): string {
-  return `ha task adjudicate ${taskId} --return --worker-mode <resume|fresh|none> --message <feedback> --review-id ${reviewId} --note-file <path>`;
 }
 
 /** Consent commands always name the execution and the review: a sole candidate is a suggestion, never an implicit choice. */

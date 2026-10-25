@@ -1,7 +1,6 @@
 import { runTaskWitnessAction } from "./task-witness-action.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
 import { settleTask, submitTask } from "./repo-cell-submit.ts";
-import { adjudicateTask } from "./repo-cell-task-progress.ts";
 import { doctorHealth } from "./repo-cell-doctor.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -240,7 +239,6 @@ export function executeRepoAction(
         ...cell.entityActionRuntimes,
         task: async (contract, catalogAction, catalogBinding) => {
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
-          if (catalogAction.kind === "task-adjudicate") return adjudicateTask(cell, catalogAction, catalogBinding);
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (contract.execution?.implementation === "catalog-runtime") {

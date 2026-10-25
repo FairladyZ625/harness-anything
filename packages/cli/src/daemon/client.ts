@@ -160,7 +160,7 @@ export async function runCommandThroughDaemon(
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
-  command = materializePromptFile(inlineAdjudicationNote(materializeScheduleMission(command)));
+  command = materializePromptFile(materializeScheduleMission(command));
   const env = options.env ?? process.env;
   assertCanonicalCliEntry();
   const rpc = await import("@harness-anything/daemon/internal/client/local-json-rpc-client"),
@@ -464,19 +464,6 @@ function materializeScheduleMission(command: ThinCommand): ThinCommand {
   return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
 }
 
-/** `--note-file <path>` (task adjudication) is read client-side and inlined as the note text. */
-function inlineAdjudicationNote(command: ThinCommand): ThinCommand {
-  const action = command.action as Readonly<Record<string, unknown>> & { readonly kind: string };
-  if (action.kind !== "task-adjudicate" || typeof action.noteFile !== "string") return command;
-  const notePath = path.resolve(command.rootDir, action.noteFile),
-    relative = path.relative(command.rootDir, notePath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--note-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { noteFile: _noteFile, ...rest } = action;
-  return { ...command, action: { ...rest, reason: readFileSync(notePath, "utf8") } };
-}
 async function settleRepoWarming(
   initial: JsonObject,
   openReader: () => ReturnType<typeof openLocalDaemonReader>,

@@ -77,7 +77,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
+    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
     continuationContext: true,
   });
   assert.ok(
@@ -631,7 +631,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
       `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
         `${renderedRulingContract(promptFileDispatchId)}\n\n` +
-        `${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
+        // dec_E369B861 CH3: explicit prompts and derived missions both name the reviewer.
+        `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。` +
+        `\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
         stopGuidance,
     ),
   );
@@ -679,7 +681,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     runtimeSessionId: String(reused.receipt.runtimeSessionId),
     mission:
       `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
-      `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
+      `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n` +
+      // dec_E369B861 CH3: the worker mission names who reviews the next submitted cut.
+      `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。` +
+      `\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
       `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
     continuationContext: true,
   });
@@ -693,6 +698,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       taskQueryGuidance(taskId) +
       "\n\n" +
       renderedRulingContract(String((derived.receipt.spawn as Record<string, unknown>).dispatchId)) +
+      "\n\n" +
+      // dec_E369B861 CH3: the derived worker mission names who reviews the next submitted cut.
+      "本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。" +
       "\n\n" +
       livingDeliverableProtocol("baseline")! +
       "\n\n" +

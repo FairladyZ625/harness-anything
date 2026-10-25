@@ -456,8 +456,8 @@ describe("live floor model", () => {
     expect(rows[0]).toMatchObject({ kind: "ask", taskId: "task-1", ask: { relationId: "rel-1" } });
     // 打回待重开:依据是最新评审结论原文。
     expect(byKind.get("rework:task-2")?.detail).toBe("评审打回的依据原文");
-    // 已交付待派审:评审结论 + CI 收据(过了几项/验了几项)。
-    expect(byKind.get("adjudicate:task-3")?.detail).toBe("交付可派审 · CI 1/2");
+    // 历史提交待处置:评审结论 + CI 收据(过了几项/验了几项)。
+    expect(byKind.get("legacySubmitted:task-3")?.detail).toBe("交付可派审 · CI 1/2");
     // 待裁决/待派评审:依据是提案原文问题。
     expect(byKind.get("decision:dec-1")?.detail).toBe("要不要把默认分支换成 trunk?");
     expect(byKind.get("decision-review:dec-2")?.detail).toBe("评审策略是否要求双人?");

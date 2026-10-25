@@ -30,7 +30,6 @@ test("all public Task writes are complete executable Action contracts", () => {
       "start",
       "transition",
       "submit",
-      "adjudicate",
       "review",
       "consent",
       "complete",
@@ -78,7 +77,6 @@ test("all public Task writes are complete executable Action contracts", () => {
     "start",
     "transition",
     "submit",
-    "adjudicate",
     "review",
     "consent",
     "complete",
@@ -170,17 +168,6 @@ test("named lifecycle specifications preserve every execution metadata field", (
         coordination: "execute",
         eventType: "execution_submitted",
         proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
-      },
-      {
-        id: "adjudicate",
-        ingress: "task-adjudicate",
-        commandType: "AdjudicateSubmission",
-        transitionId: "adjudicate_submission",
-        implementation: "task-lifecycle",
-        topology: "ledger-write",
-        coordination: "execute",
-        eventType: "submission_forwarded",
-        proof: ["ownerActor", "task-adjudicate@v1", "auditedNote"],
       },
       {
         id: "review",
@@ -290,9 +277,6 @@ test("nested vocabularies retain identity and guarded lifecycle actions omit sta
       ?.cli?.jsonSchema?.fields.find(({ field }) => field === "verdict");
   assert.strictEqual(verdict?.value?.kind === "string" ? verdict.value.enumRef : undefined, REVIEW_V1_SCHEMA.verdicts);
   assert.equal(projectActionState(review, { verdict: "changes_requested" }, {}), null);
-  const adjudicate = actions.find(({ id }) => id === "adjudicate")!;
-  assert.equal(projectActionState(adjudicate, { forward: true }, {}), null);
-  assert.equal(projectActionState(adjudicate, { return: true }, {}), null);
   const complete = actions.find(({ id }) => id === "complete")!;
   assert.equal(projectActionState(complete, {}, {}), null);
   const lifecycleActionIds = new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId));

@@ -15,6 +15,7 @@ import { gateAppliesToSubmission } from "./completion-contract.ts";
 import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type {
   ProofFor,
+  ReviewProof,
   TaskLifecycleCommand,
   TaskLifecycleSnapshot,
   TransitionResult,
@@ -70,10 +71,15 @@ export function applyTransition<C extends TaskLifecycleCommand>(
   const issues = transition.validate(snapshot, command, proof);
   if (issues.length) throw new TaskLifecycleContractError(errorCode(issues), issues);
   const result = transition.reduce(snapshot, command, proof);
-  assertAtomic(snapshot, command, result);
+  assertAtomic(snapshot, command, result, proof);
   return result;
 }
-function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, result: TransitionResult): void {
+function assertAtomic<C extends TaskLifecycleCommand>(
+  snapshot: TaskLifecycleSnapshot,
+  command: C,
+  result: TransitionResult,
+  proof: ProofFor<C>,
+): void {
   const graphIssues = validateTaskGraph(result.snapshot.task?.graph ?? snapshot.task?.graph),
     changed =
       "executionId" in command
@@ -128,52 +134,35 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
         ),
       ]);
   }
-  if (
-    command.type === "RecordReview" &&
-    command.verdict === "changes_requested" &&
-    (result.snapshot.task?.status !== "in_review" ||
-      result.snapshot.task.currentNode !== "review" ||
-      result.snapshot.task.iteration !== snapshot.task?.iteration ||
-      changed?.state !== "submitted" ||
-      result.snapshot.lease !== null ||
-      (result.event.type === "review_recorded" && result.event.payload.edge !== undefined))
-  )
-    throw new TaskLifecycleContractError("invalid_graph", [
-      lifecycleContractIssue(
-        "invalid_return_atomicity",
-        "changes_requested must record its verdict and leave the cut at the review gate; only the owner's " +
-          "adjudication returns work",
-      ),
-    ]);
-  if (command.type === "AdjudicateSubmission") {
-    if (command.decision === "forward") {
-      if (
-        result.event.type !== "submission_forwarded" ||
-        result.snapshot.task?.status !== "in_review" ||
-        result.snapshot.task.currentNode !== "review" ||
-        result.snapshot.task.iteration !== snapshot.task?.iteration ||
-        result.snapshot.lease !== snapshot.lease ||
-        stableStringify(changed) !== stableStringify(execution(snapshot, command.executionId))
-      )
-        throw new TaskLifecycleContractError("invalid_transition", [
-          lifecycleContractIssue(
-            "invalid_adjudication_atomicity",
-            "a forward order must move the task to in_review and touch nothing else",
-          ),
-        ]);
-    } else if (
-      result.event.type !== "submission_returned" ||
-      result.snapshot.task?.status !== "active" ||
-      result.snapshot.task.currentNode !== "implementation" ||
-      result.snapshot.task.iteration !== (snapshot.task?.iteration ?? -1) + 1 ||
-      changed?.state !== "changes_requested" ||
-      changed.closedAt !== command.occurredAt ||
-      result.snapshot.lease !== null
+  if (command.type === "RecordReview") {
+    const reopen =
+        command.verdict === "changes_requested" &&
+        snapshot.executions.filter((value) => value.state === "changes_requested").length <
+          (proof as ReviewProof).reworkBudget,
+      reopened =
+        result.event.type === "review_recorded" &&
+        result.snapshot.task?.status === "active" &&
+        result.snapshot.task.currentNode === "implementation" &&
+        result.snapshot.task.iteration === (snapshot.task?.iteration ?? -1) + 1 &&
+        changed?.state === "changes_requested" &&
+        changed.closedAt === command.occurredAt &&
+        result.snapshot.lease === null &&
+        result.event.payload.edge !== undefined;
+    if (
+      (reopen && !reopened) ||
+      (!reopen &&
+        (result.event.type !== "review_recorded" ||
+          result.snapshot.task !== snapshot.task ||
+          changed !== execution(snapshot, command.executionId) ||
+          result.snapshot.lease !== snapshot.lease ||
+          result.event.payload.edge !== undefined))
     )
-      throw new TaskLifecycleContractError("invalid_transition", [
+      throw new TaskLifecycleContractError("invalid_graph", [
         lifecycleContractIssue(
-          "invalid_adjudication_atomicity",
-          "a return order must close the cut and reopen the implementation iteration atomically",
+          "invalid_return_atomicity",
+          reopen
+            ? "a changes_requested verdict below the rework budget must reopen the implementation iteration atomically"
+            : "a verdict that does not reopen rework must record its review and leave the cut untouched",
         ),
       ]);
   }

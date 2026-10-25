@@ -106,15 +106,6 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       "All checks passed.",
     );
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reviewer: "closeout-reviewer", reason: "Owner forwards the work." },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
     const beforeMissingMerge = store().read().revision,
       missingMerge = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
         string,
@@ -584,10 +575,10 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
       "Role-bound delivery complete.",
     );
     assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth("writer", 4102))).outcome, "applied");
-    // Having created the task grants no authority to command its cut: the creator holds the contributor tier only.
-    const creatorAdjudicates = await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reviewer: "closeout-reviewer", reason: "The creator forwards its own cut." }, auth("writer", 4102));
-    assert.deepEqual({ outcome: creatorAdjudicates.outcome, code: creatorAdjudicates.code }, { outcome: "op_rejected", code: "authorization_denied" });
-    assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reviewer: "closeout-reviewer", reason: "A maintainer forwards the RBAC fixture." }, auth("arbiter", 4103))).outcome, "applied");
+    // Having created the task grants no authority to command its cut: the creator holds the
+    // contributor tier only (repo-write verdict commands stay above it).
+    const creatorCommands = await host.run("rbac", { kind: "task-review-consent", taskId: "task-rbac", executionId, reviewId: "review-none", consentId: "consent-none", reviewDigest: `sha256:${"0".repeat(64)}`, contentDigest: `sha256:${"0".repeat(64)}` }, auth("writer", 4102));
+    assert.deepEqual({ outcome: creatorCommands.outcome, code: creatorCommands.code }, { outcome: "op_rejected", code: "authorization_denied" });
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
     const rbacReportDir = path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "artifacts", "reports"); mkdirSync(rbacReportDir, { recursive: true }); writeFileSync(path.join(rbacReportDir, "rbac.md"), "# Review rbac\n\nPhysical review findings.\n");
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth("arbiter", 4103)); assert.equal(review.outcome, "applied", JSON.stringify(review));
@@ -795,18 +786,7 @@ async function prepareReadyCompletion(
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
-  const forwarded = await cell.run(
-    {
-      kind: "task-adjudicate",
-      taskId,
-      executionId,
-      forward: true,
-      reviewer: "closeout-reviewer",
-      reason: "Owner forwards the ready completion fixture for independent review.",
-    },
-    binding,
-  );
-  assert.equal((await waitForAcceptedReceipt(cell, forwarded, binding)).wait?.state, "satisfied");
+  assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),

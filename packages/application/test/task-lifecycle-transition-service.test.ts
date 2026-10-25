@@ -47,7 +47,6 @@ test("completion blocker matrix returns one canonical next for every substantive
       submitted = await harness.submit("execution-1", "op-submit-report-only", "implemented", "a".repeat(40), [
         "tasks/task-1-audit/artifacts/report.md",
       ]),
-      forwarded = await harness.adjudicate("execution-1", "forward"),
       reviewed = await harness.review("execution-1", "acceptance", "approved"),
       consented = await harness.consent("execution-1");
     const ready = {
@@ -108,9 +107,8 @@ test("completion blocker matrix returns one canonical next for every substantive
     };
     const cases = [
       ["not_in_review", started.snapshot, ready],
-      // A submitted cut the owner has not forwarded is still outside review.
-      ["not_in_review", submitted.snapshot, ready],
-      ["review_missing", forwarded.snapshot, ready],
+      // A review-required cut enters in_review at submit; the verdict is the next thing owed.
+      ["review_missing", submitted.snapshot, ready],
       ["consent_missing", reviewed.snapshot, ready],
       [
         "delivery_missing",
@@ -446,7 +444,6 @@ test("reinstate rolls a cancelled task back to planned and rejects other targets
     await transition("planned", "Restart the cancelled task through its canonical entry");
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.adjudicate("execution-1", "forward");
     await harness.review("execution-1", "acceptance", "approved");
     await harness.consent("execution-1");
     await harness.complete("execution-1");
@@ -482,7 +479,6 @@ test("review coordinates reject block and return-to-planned transitions", async 
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.adjudicate("execution-1", "forward");
     for (const status of ["blocked", "planned"] as const)
       await assert.rejects(
         transition(status, `Attempted review to ${status}`),
@@ -524,7 +520,6 @@ test("terminal lifecycle states clear a prior task pin", async () => {
 
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.adjudicate("execution-1", "forward");
     await harness.review("execution-1", "acceptance", "approved");
     const consented = await harness.consent("execution-1");
     const completed = applyTransition(
@@ -881,12 +876,9 @@ test("transition service replays reject through a new Execution before completio
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.adjudicate("execution-1", "forward");
-    const rejected = await harness.review("execution-1", "anti_entropy", "changes_requested");
-    await harness.adjudicate("execution-1", "return", rejected.snapshot.reviews.at(-1)?.reviewId);
+    await harness.review("execution-1", "anti_entropy", "changes_requested");
     await harness.start("execution-2");
     await harness.submit("execution-2");
-    await harness.adjudicate("execution-2", "forward");
     await harness.review("execution-2", "anti_entropy", "approved");
     await harness.consent("execution-2");
     const completed = await harness.complete("execution-2");
@@ -899,8 +891,9 @@ test("transition service replays reject through a new Execution before completio
     );
     assert.deepEqual(
       completed.snapshot.edgesTaken.map((edge) => edge.on),
-      // A return is the owner's adjudication (submission_returned), not a review-driven graph edge.
-      ["submitted", "submitted"],
+      // The rework reopen rides the changes_requested review (review_recorded), not a separate
+      // owner return order (dec_E369B861 CH3).
+      ["submitted", "changes_requested", "submitted"],
     );
   } finally {
     await harness.cleanup();
@@ -913,9 +906,7 @@ test("second lifecycle claim uses monotonic lease CAS", async () => {
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.adjudicate("execution-1", "forward");
-    const rejected = await harness.review("execution-1", "anti_entropy", "changes_requested");
-    await harness.adjudicate("execution-1", "return", rejected.snapshot.reviews.at(-1)?.reviewId);
+    await harness.review("execution-1", "anti_entropy", "changes_requested");
     await harness.start("execution-2");
 
     const claims = harness.eventStore.read().events.filter((candidate) => candidate.type === "execution_started");

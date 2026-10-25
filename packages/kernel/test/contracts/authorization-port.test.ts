@@ -45,8 +45,11 @@ test("retired People mutations are absent from the durable authorization invento
   // the durable policy inventory therefore grows from the prior 154 to 165.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
   // Owner 2026-10-24 (task_a242ec14) makes the supersedes relation drive proposed/in_effect -> superseded and
-  // deletes decision-supersede: the inventory shrinks from 166 to 165.
-  assert.equal(durablePolicyActions.length, 165);
+  // deletes decision-supersede.
+  // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate: the manual forward/return
+  // commands retire with the automatic review loop. Both deletions land in one inventory.
+  assert.equal(durablePolicyActions.length, 164);
+  assert.equal(durablePolicyActions.includes("task-adjudicate"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);
   assert.equal(durablePolicyActions.includes("ci-observe-pull"), false);

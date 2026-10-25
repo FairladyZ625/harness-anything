@@ -30,13 +30,6 @@ export interface TaskDetailEntryWires {
   readonly onProgress: (task: TaskRow, input: Parameters<OnProgress>[0]) => Promise<unknown>;
   readonly onSubmit: (task: TaskRow) => Promise<unknown>;
   readonly onComplete: (task: TaskRow) => Promise<unknown>;
-  readonly onAdjudicate: (
-    task: TaskRow,
-    decision: "forward" | "return",
-    reason: string,
-    reviewId?: string,
-  ) => Promise<unknown>;
-  readonly onReturnNote: (task: TaskRow, reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview: (task: TaskRow, reviewId: string) => Promise<unknown>;
   readonly onAttest: OnAttest;
   readonly onSetPin: (task: TaskRow, pinned: boolean) => void;
@@ -75,8 +68,6 @@ export function taskDetailEntry(
       onProgress={(input) => wires.onProgress(task, input)}
       onSubmit={() => wires.onSubmit(task)}
       onComplete={() => wires.onComplete(task)}
-      onAdjudicate={(decision, reason, reviewId) => wires.onAdjudicate(task, decision, reason, reviewId)}
-      onReturnNote={(reason, reviewId) => wires.onReturnNote(task, reason, reviewId)}
       onConsentReview={(reviewId) => wires.onConsentReview(task, reviewId)}
       onAttest={wires.onAttest}
       onSetPin={wires.onSetPin}
