@@ -68,7 +68,20 @@ export function summarizeEventLoopLines(lines, windows) {
   return { summary, parseErrors, records: parsed.filter((row) => row.atMs !== null) };
 }
 
-export function hostSnapshot() {
+export async function hostSnapshot() {
+  const cpuTotals = () => {
+    const totals = { idle: 0, total: 0 };
+    for (const cpu of os.cpus() ?? []) {
+      totals.idle += cpu.times.idle;
+      totals.total += Object.values(cpu.times).reduce((sum, value) => sum + value, 0);
+    }
+    return totals;
+  };
+  const before = cpuTotals();
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const after = cpuTotals();
+  const idleDelta = after.idle - before.idle;
+  const totalDelta = after.total - before.total;
   return {
     node: process.version,
     platform: process.platform,
@@ -76,5 +89,8 @@ export function hostSnapshot() {
     cpuModel: os.cpus()?.[0]?.model ?? null,
     parallelism: os.availableParallelism?.() ?? null,
     totalMemMib: bytesToMib(os.totalmem?.()),
+    freeMemMib: bytesToMib(os.freemem?.()),
+    cpuIdlePercent: totalDelta > 0 ? round3((idleDelta / totalDelta) * 100) : null,
+    loadAverage: os.loadavg().map((value) => round3(value)),
   };
 }
