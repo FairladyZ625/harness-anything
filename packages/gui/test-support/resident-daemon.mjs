@@ -1,18 +1,25 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
-import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes, registerDaemonRepo } from "@harness-anything/kernel";
 import { serveKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { copyHarnessLedgerWithCow, copyHarnessRuntimeLedgerWithCow } from "./harness-copy.mjs";
 
 export async function startGuiResidentDaemonFixture({
   prefix = "ha-gui-resident-daemon-",
   daemonId = "gui-integration",
   repoId = "gui-test",
+  displayName = "GUI Test",
+  sourceLedgerRoot,
+  sourceProjectRoot,
+  attachTimeoutMs,
+  shutdownDeadlineMs,
   task,
   keycloakSetup,
   beforeStop,
@@ -24,6 +31,17 @@ export async function startGuiResidentDaemonFixture({
   const parent = mkdtempSync(path.join(tmpdir(), prefix));
   const rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
+  try {
+    if (sourceLedgerRoot) {
+      mkdirSync(rootDir, { recursive: true });
+      copyHarnessLedgerWithCow(sourceLedgerRoot, path.join(rootDir, "harness"));
+      execFileSync("git", ["init", "--quiet", rootDir], { stdio: "pipe" });
+      if (sourceProjectRoot) copyHarnessRuntimeLedgerWithCow(sourceProjectRoot, rootDir);
+    }
+  } catch (error) {
+    rmSync(parent, { recursive: true, force: true });
+    throw error;
+  }
   const runtimeDiscover = runtimeInstance
     ? () => [
         {
@@ -37,6 +55,7 @@ export async function startGuiResidentDaemonFixture({
     : undefined;
   let realm;
   let daemon;
+  let attachDurationMs;
   const runtimeCredentialPort = decisionProviderCredentials
     ? (() => {
         const credentials = new Map();
@@ -58,6 +77,16 @@ export async function startGuiResidentDaemonFixture({
     realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
     realm.bind(userRoot);
     signInAt(userRoot, "person-gui");
+    if (sourceLedgerRoot) {
+      registerDaemonRepo({
+        canonicalRoot: rootDir,
+        repoId,
+        displayName,
+        mode: "local",
+        userRoot,
+        createConvenienceLinks: false,
+      });
+    }
     // 场景自备的额外账号/节点(如协作种子的指派对象)在 daemon 起来前登记。
     if (keycloakSetup) keycloakSetup(realm.keycloak);
   } catch (error) {
@@ -74,12 +103,16 @@ export async function startGuiResidentDaemonFixture({
   const ambientExecutionCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
   delete process.env.HARNESS_EXECUTION_CREDENTIAL;
   try {
+    const startedAt = Date.now();
     daemon = await startDaemon({
       daemonId,
       userRoot,
+      ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
+      ...(shutdownDeadlineMs === undefined ? {} : { shutdownDeadlineMs }),
       runtimeDiscover,
       ...(runtimeCredentialPort ? { runtimeCredentialPort } : {}),
     });
+    attachDurationMs = Date.now() - startedAt;
   } catch (error) {
     try {
       await realm.close();
@@ -101,6 +134,8 @@ export async function startGuiResidentDaemonFixture({
       daemon = await startDaemon({
         daemonId,
         userRoot,
+        ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
+        ...(shutdownDeadlineMs === undefined ? {} : { shutdownDeadlineMs }),
         runtimeDiscover,
         ...(runtimeCredentialPort ? { runtimeCredentialPort } : {}),
       });
@@ -126,13 +161,15 @@ export async function startGuiResidentDaemonFixture({
     }
   };
   try {
-    const bootstrapped = await requestDaemonJsonRpcAt(
-      daemon.endpoint,
-      "daemon.repo.bootstrap",
-      { rootDir, repoId, displayName: "GUI Test" },
-      1_000,
-    );
-    if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
+    if (!sourceLedgerRoot) {
+      const bootstrapped = await requestDaemonJsonRpcAt(
+        daemon.endpoint,
+        "daemon.repo.bootstrap",
+        { rootDir, repoId, displayName },
+        1_000,
+      );
+      if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
+    }
     if (runtimeInstance) {
       const created = await requestDaemonJsonRpcAt(
         daemon.endpoint,
@@ -218,6 +255,7 @@ export async function startGuiResidentDaemonFixture({
       userRoot,
       daemonId,
       repoId,
+      attachDurationMs,
       packagePath,
       endpoint: daemon.endpoint,
       env: { HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: daemonId, HARNESS_DAEMON_REPO_ID: repoId },

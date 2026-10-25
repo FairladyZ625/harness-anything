@@ -16,12 +16,15 @@
 // 重复复现同一条会话,按可见文字点会被截断文案或同名行带偏(2026-10-22 两次点到别行)。
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { startGuiDriver } from "./driver.mjs";
 import { openProject, navLocator } from "./capture-nav.mjs";
 import { resolveScrollTarget, scrollTargetToTop } from "./capture-scroll.mjs";
+import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
+import { readDaemonPid } from "../../packages/daemon/src/daemon-singleton.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..", "..");
 // 单页 6s 与项目切换等待同源;可用 --settle-ms 覆盖单页等待。
@@ -33,6 +36,7 @@ function usage(error) {
   --page <侧栏导航文字> [--click <文字>]... [--scroll-to <文字>]...   (可重复多页)
 options:
   --project <name>    快速切换面板里的项目显示名,精确匹配;必须是 canonical 项目
+  --branch-daemon     用当前 checkout 的 daemon + canonical harness/ CoW 副本验收
   --show             显式展示窗口(仅用户要求现场演示时使用)
   --out <dir>         截图输出目录(默认 artifacts/screenshots)
   --page <nav>        侧栏导航按钮文字;--click/--scroll-to 作用于它前面最近的 --page
@@ -52,6 +56,7 @@ function parseArgs(argv) {
     out: "artifacts/screenshots",
     pages: [],
     show: false,
+    branchDaemon: false,
     settleMs: DEFAULT_PAGE_SETTLE_MS,
     windowSize: { width: 1440, height: 900 },
     theme: null,
@@ -61,6 +66,7 @@ function parseArgs(argv) {
     const value = () => argv[++index];
     if (arg === "--project") options.project = value();
     else if (arg === "--show") options.show = true;
+    else if (arg === "--branch-daemon") options.branchDaemon = true;
     else if (arg === "--out") options.out = value();
     else if (arg === "--settle-ms") options.settleMs = Number(value());
     else if (arg === "--theme") {
@@ -166,31 +172,83 @@ async function capturePage(driver, entry, filePath, settleMs) {
   return title || `(页面无 h1,按侧栏导航「${entry.nav}」核对)`;
 }
 
+function canonicalLedgerRootForWorkspace(rootDir) {
+  const gitDirectory = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: rootDir,
+    encoding: "utf8",
+  }).trim();
+  return path.join(path.dirname(path.resolve(gitDirectory)), "harness");
+}
+
+function canonicalEvidence(ledgerRoot) {
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: ledgerRoot, encoding: "utf8" }).trim(),
+    pid = readDaemonPid(process.env.HARNESS_DAEMON_USER_ROOT ?? path.join(homedir(), ".harness"), "default");
+  return { head, pid };
+}
+
+async function waitForBranchRepository(endpoint, repoId, timeoutMs) {
+  const startedAt = Date.now(),
+    deadline = startedAt + timeoutMs;
+  let lastStatus;
+  while (Date.now() < deadline) {
+    lastStatus = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 5_000);
+    const repo = lastStatus.repos?.find((entry) => entry.repoId === repoId);
+    if (repo?.state === "attached") return Date.now() - startedAt;
+    if (repo?.state === "unavailable" || repo?.state === "closed")
+      throw new Error(`Branch daemon repository ${repo.state}: ${repo.lastError ?? JSON.stringify(repo)}`);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`Branch daemon repository did not attach within ${timeoutMs}ms: ${JSON.stringify(lastStatus)}`);
+}
+
 async function main(argv) {
   const options = parseArgs(argv);
   const outDir = path.resolve(options.out);
   mkdirSync(outDir, { recursive: true });
   const port = 5300 + (process.pid % 200);
-  const vite = await startViteRenderer(port);
   // 窗口状态证据与 profile 一样是本次运行自有的临时物,收尾时一并移除,不在产物目录留垃圾。
   const runRoot = mkdtempSync(path.join(tmpdir(), "gui-capture-"));
   let driver;
+  let vite;
+  let branchFixture;
+  let branchEvidenceBefore;
   try {
+    if (options.branchDaemon) {
+      const ledgerRoot = canonicalLedgerRootForWorkspace(workspaceRoot);
+      branchEvidenceBefore = canonicalEvidence(ledgerRoot);
+      const attachStartedAt = Date.now();
+      branchFixture = await startGuiResidentDaemonFixture({
+        prefix: "ha-gui-capture-branch-",
+        daemonId: "gui-capture-branch",
+        repoId: "canonical",
+        displayName: options.project,
+        sourceLedgerRoot: ledgerRoot,
+        sourceProjectRoot: path.dirname(ledgerRoot),
+        attachTimeoutMs: 180_000,
+        shutdownDeadlineMs: 900_000,
+      });
+      const readyDurationMs = await waitForBranchRepository(branchFixture.endpoint, "canonical", 900_000);
+      console.log(
+        `[capture] branch daemon attached in ${Date.now() - attachStartedAt}ms ` +
+          `(readiness=${readyDurationMs}ms) | source=${ledgerRoot} | ` +
+          `canonicalHead=${branchEvidenceBefore.head} | residentPid=${branchEvidenceBefore.pid ?? "unavailable"}`,
+      );
+    }
+    vite = await startViteRenderer(port);
     driver = await startGuiDriver({
       workspaceRoot,
-      rootDir: workspaceRoot,
-      env: { ...process.env, ELECTRON_RENDERER_URL: `http://127.0.0.1:${port}` },
+      rootDir: branchFixture?.rootDir ?? workspaceRoot,
+      env: {
+        ...process.env,
+        ...(branchFixture ? branchFixture.env : {}),
+        ...(branchFixture ? { HARNESS_DAEMON_ENDPOINT: branchFixture.endpoint } : {}),
+        ELECTRON_RENDERER_URL: `http://127.0.0.1:${port}`,
+      },
       runRoot,
       headless: !options.show,
     });
-  } catch (error) {
-    rmSync(runRoot, { recursive: true, force: true });
-    vite.kill();
-    throw error;
-  }
-  const { page, app } = driver;
-  const usedNames = new Set();
-  try {
+    const { page, app } = driver;
+    const usedNames = new Set();
     // setSize 的回调在 Electron 主进程里求值,取不到 Node 侧闭包,尺寸经第二参传入。
     await app.evaluate(({ BrowserWindow }, size) => {
       BrowserWindow.getAllWindows()[0].setSize(size.width, size.height);
@@ -229,15 +287,30 @@ async function main(argv) {
       );
     }
   } catch (error) {
-    if (driver.consoleFailures.length > 0) {
+    if (driver?.consoleFailures.length > 0) {
       console.error(`[capture] renderer console errors(失败现场):\n${driver.consoleFailures.join("\n")}`);
     }
     throw error;
   } finally {
-    await driver.close?.().catch(() => {});
-    await app.close().catch(() => {});
-    rmSync(runRoot, { recursive: true, force: true });
-    vite.kill();
+    try {
+      await driver?.close?.().catch(() => {});
+      await driver?.app?.close().catch(() => {});
+      await branchFixture?.stop().catch((error) => console.error(`[capture] branch daemon cleanup failed: ${error}`));
+      if (branchFixture && branchEvidenceBefore) {
+        const ledgerRoot = canonicalLedgerRootForWorkspace(workspaceRoot),
+          after = canonicalEvidence(ledgerRoot);
+        console.log(
+          `[capture] canonical after: head=${after.head} residentPid=${after.pid ?? "unavailable"} ` +
+            `unchanged=${after.head === branchEvidenceBefore.head && after.pid === branchEvidenceBefore.pid}`,
+        );
+      }
+    } finally {
+      try {
+        rmSync(runRoot, { recursive: true, force: true });
+      } finally {
+        vite?.kill();
+      }
+    }
   }
 }
 
