@@ -15,7 +15,7 @@ import {
   type FactProjectionRow,
   type FactSearchPage,
 } from "./fact-event-projection.ts";
-import type { ProjectionPage, TaskRelationProjectionRow } from "./task-query-projection.ts";
+import type { ProjectionPage, RelationCycleAudit, TaskRelationProjectionRow } from "./task-query-projection.ts";
 
 export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
@@ -110,6 +110,8 @@ export interface ProjectionApplyReceipt {
 }
 export interface ProjectionRebuildReceipt extends ProjectionCatchUpReceipt {
   readonly stateDigest: `sha256:${string}`;
+  /** Read-only stock cycle audit over the rebuilt projection; issues never mutate the ledger. */
+  readonly relationCycleAudit: RelationCycleAudit;
 }
 export interface ProjectionCatchUpReceipt {
   readonly watermark: number;

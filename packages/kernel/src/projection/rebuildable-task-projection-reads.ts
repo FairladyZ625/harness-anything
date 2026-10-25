@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { type DocumentState } from "../domain/doc-sync.contract.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import {
+  auditRelationCycles,
   listTaskRowsNarrow,
   readTaskPresentationStatus,
   taskCompletedAtSql,
@@ -314,13 +315,14 @@ export function rebuildProjection(
       const current = watermark(db),
         digest = readStateDigest(db, readHead()?.revision ?? 0);
       if (digest === null) throw new Error("projection rebuild did not reach a source-complete state digest");
-      return { current, digest };
+      return { current, digest, audit: auditRelationCycles(db) };
     }),
   );
   transactions += 1;
   return {
     watermark: result.current,
     stateDigest: result.digest,
+    relationCycleAudit: result.audit,
     metrics: { sqliteTransactions: transactions, reducedItems, maxBatchItems },
   };
 }

@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import { findRelationCycleWitnesses, type RelationCycleWitness } from "../domain/relation-cycle.ts";
 import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 
@@ -100,8 +99,4 @@ export function buildRelationGraphProjection(
     coverageRows: truth.coverageRows,
     factAnchors: [...truth.factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)),
   };
-}
-
-export function detectRelationGraphCycles(edges: readonly RelationGraphEdgeRow[]): readonly RelationCycleWitness[] {
-  return findRelationCycleWitnesses(edges);
 }

@@ -225,7 +225,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-import-boundaries": "packages/daemon/package.json",
     "check-bypass-write-boundary": "packages/kernel/src/store/task-event-store.ts",
     "check-kernel-dead-exports": "packages/daemon/src/repo-cell.ts",
-    "check-relation-cycle-substrate": "packages/kernel/src/projection/relation-graph-projection.ts",
+    "check-relation-cycle-substrate": "packages/kernel/src/domain/relation-cycle.ts",
     "check-domain-judgment-single-definition": "packages/gui/src/renderer/task-adapter.ts",
     "check-relation-canonical-direction": "packages/daemon/src/repo-cell.ts",
     "check-task-event-aggregate-entry": "packages/application/src/task-lifecycle-service.ts",

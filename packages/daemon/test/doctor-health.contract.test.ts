@@ -31,7 +31,7 @@ function initRepo(rootDir: string): void {
   git("commit", "--quiet", "-m", "fixture base");
 }
 
-test("doctor health reports the seven checks and degrades to indeterminate without origin/main", async (t) => {
+test("doctor health reports the eight checks and degrades to indeterminate without origin/main", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-health-")),
     repoId = workspaceId("doctor-health");
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -51,6 +51,7 @@ test("doctor health reports the seven checks and degrades to indeterminate witho
         "wip-pressure",
         "local-root-residue",
         "doc-debt",
+        "relation-cycles",
         "build-drift",
       ],
     );
@@ -59,12 +60,59 @@ test("doctor health reports the seven checks and degrades to indeterminate witho
     // cannot be judged, so both checks report indeterminate rather than guessing.
     assert.equal(byId.get("stale-delivered")?.status, "indeterminate");
     assert.equal(byId.get("build-drift")?.status, "indeterminate");
-    for (const id of ["executor-undeclared", "orphan-lease", "wip-pressure"])
+    for (const id of ["executor-undeclared", "orphan-lease", "wip-pressure", "relation-cycles"])
       assert.equal(byId.get(id)?.status, "ok", id);
     assert.ok(["ok", "warn"].includes(String(byId.get("doc-debt")?.status)));
     for (const check of checks) assert.ok(["ok", "warn", "fail", "indeterminate"].includes(check.status), check.id);
   } finally {
     await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
+test("doctor reports active typed relation cycles with type, node chain, and relation ids", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-relation-cycles-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const cell = {
+    rootDir,
+    mode: "local",
+    input: { repoId: "doctor-relation-cycles" },
+    now: () => "2026-09-15T00:00:00.000Z",
+    projection: {
+      getEntity: () => undefined,
+      list: () => ({ rows: [] }),
+      readTaskChildCounts: () => ({}),
+      currentLease: () => null,
+      readCut: () => ({ sourceRevision: 1 }),
+      readRelationCycleAudit: () => ({
+        status: "ready",
+        scannedEdges: 2,
+        watermark: 1,
+        sourceRevision: 1,
+        issues: [
+          {
+            code: "relation_cycle_detected",
+            relationType: "depends-on",
+            nodeRefs: ["task/a", "task/b", "task/a"],
+            relationIds: ["rel_ab", "rel_ba"],
+          },
+        ],
+      }),
+    },
+    operationId: () => "doctor-relation-cycles",
+    readResult: () => ({ outcome: "applied" }),
+  };
+  try {
+    const receipt = (await doctorHealth(cell as never, { kind: "doctor-health" }, binding)) as Record<string, unknown>,
+      checks = receipt.checks as { id: string; status: string; count: number; summary: string }[],
+      check = checks.find((entry) => entry.id === "relation-cycles");
+    assert.equal(check?.status, "fail");
+    assert.equal(check?.count, 1);
+    assert.match(check!.summary, /depends-on task\/a -> task\/b -> task\/a/u);
+    assert.match(check!.summary, /relations: rel_ab, rel_ba/u);
+    assert.match(check!.next, /Retire one edge/u);
+  } finally {
     await removeTemporaryDirectory(rootDir);
   }
 });
@@ -117,7 +165,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string }[];
-      assert.equal(checks.length, 8);
+      assert.equal(checks.length, 9);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
       // The fixture repository has no origin remote, so the hosted-credential check cannot
@@ -208,6 +256,13 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
           ? { phase: "orphaned", executionId: "exe_500", expiresAt: "2026-09-14T00:00:00.000Z" }
           : null,
       readCut: () => ({ sourceRevision: 1 }),
+      readRelationCycleAudit: () => ({
+        status: "ready",
+        scannedEdges: 0,
+        watermark: 1,
+        sourceRevision: 1,
+        issues: [],
+      }),
     },
     operationId: () => "doctor-read",
     readResult: () => ({ outcome: "applied" }),

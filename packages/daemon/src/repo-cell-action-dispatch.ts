@@ -107,6 +107,13 @@ export function executeRepoAction(
       sourceRevision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, sourceRevision),
       visible = rebuilt.watermark === sourceRevision,
+      evidence = JSON.stringify({
+        watermark: rebuilt.watermark,
+        sourceRevision,
+        stateDigest: rebuilt.stateDigest,
+        metrics: rebuilt.metrics,
+        relationCycleAudit: rebuilt.relationCycleAudit,
+      }),
       proof = {
         committedRevision: sourceRevision,
         appliedCut: rebuilt.watermark,
@@ -119,12 +126,7 @@ export function executeRepoAction(
           outcome: "applied",
           opId,
           revision: sourceRevision,
-          evidence: JSON.stringify({
-            watermark: rebuilt.watermark,
-            sourceRevision,
-            stateDigest: rebuilt.stateDigest,
-            metrics: rebuilt.metrics,
-          }),
+          evidence,
           visibility: "center",
           proof,
         }
@@ -132,12 +134,7 @@ export function executeRepoAction(
           outcome: "pending",
           opId,
           revision: sourceRevision,
-          evidence: JSON.stringify({
-            watermark: rebuilt.watermark,
-            sourceRevision,
-            stateDigest: rebuilt.stateDigest,
-            metrics: rebuilt.metrics,
-          }),
+          evidence,
           visibility: "center",
           proof,
         };
