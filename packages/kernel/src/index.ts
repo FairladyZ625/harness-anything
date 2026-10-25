@@ -50,7 +50,6 @@ export {
   requiredGateWitnessCount,
   reviewDigest,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
-  validateCurrentTaskEvent,
   validateTaskEvent,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
