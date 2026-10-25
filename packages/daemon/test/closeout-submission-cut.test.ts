@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { validateSubmissionV1 } from "../../kernel/src/domain/execution.ts";
 import {
   deriveCloseoutSubmission,
   readCloseoutSubmission,
@@ -15,6 +14,7 @@ import {
   submissionAnchorDriftWarnings,
   submissionStopped,
 } from "../src/repo-cell-submit.ts";
+import { validateGuiSubmission } from "../src/protocol/daemon-protocol.contract.ts";
 import { reviewLaneHits, reviewPathLanes } from "../src/review-path-lanes.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 
@@ -247,7 +247,7 @@ test("same-cut closeout restore strips the retired GUI assessment key before val
   assert.ok(result.submission.riskTierAssessment);
   assert.deepEqual(result.submission.riskTierAssessment.reasons, ["frozen legacy assessment"]);
   assert.equal(Object.hasOwn(result.submission.riskTierAssessment, "guiAcceptanceRequired"), false);
-  assert.deepEqual(validateSubmissionV1(result.submission), []);
+  assert.deepEqual(validateGuiSubmission(result.submission), []);
 });
 
 test("explicit structured commit derives mixed deletion evidence without a dispatch", (t) => {
