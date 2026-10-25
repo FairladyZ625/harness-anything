@@ -49,7 +49,6 @@ import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
 import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
-import taskReturnChoice from "./scenarios/task-return-choice.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewLaneBlockOpenTask from "./scenarios/overview-lane-block-open-task.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
@@ -66,7 +65,6 @@ import workLineageTaskExecution from "./scenarios/work-lineage-task-execution.mj
 
 export const catalog = [
   decisionPoints,
-  taskReturnChoice,
   myDevices,
   edgeReadFreshness,
   runtimeHandoff,
