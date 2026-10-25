@@ -10,6 +10,7 @@ import {
   type EntityRelationRecord,
   type RelationType,
 } from "../domain/entity-relation.ts";
+import { findRelationCycleWitnesses } from "../domain/relation-cycle.ts";
 import {
   keycloakPersonIdentityWitness,
   relationFreshnessAtCut,
@@ -96,6 +97,22 @@ export interface TaskRelationProjectionRow {
   readonly ownerRef: string;
   readonly sourcePath: string;
   readonly recordIndex: number;
+}
+/** One read-only finding from the canonical typed-cycle audit; never an automatic ledger repair. */
+export interface RelationCycleIssue {
+  readonly code: "relation_cycle_detected";
+  readonly relationType: RelationType;
+  readonly nodeRefs: readonly string[];
+  readonly relationIds: readonly string[];
+}
+export interface RelationCycleAudit {
+  readonly scannedEdges: number;
+  readonly issues: readonly RelationCycleIssue[];
+}
+export interface RelationCycleAuditRead extends RelationCycleAudit {
+  readonly status: "ready" | "pending";
+  readonly watermark: number;
+  readonly sourceRevision: number;
 }
 export interface NarrowTaskRow {
   readonly task_id: string;
@@ -927,6 +944,22 @@ export function readTaskRelationPage(
       cursor: query.cursor ?? null,
       nextCursor: filtered.length > pageLimit && last ? encodePageCursor([last.relationId]) : null,
     },
+  };
+}
+
+/**
+ * Read-only stock audit over every projected relation edge. This is the projection layer's
+ * adapter to the one typed-cycle algorithm; it never writes and is only called from rebuild
+ * and doctor, never from a write or hot read path.
+ */
+export function auditRelationCycles(db: DatabaseSync): RelationCycleAudit {
+  const rows = readTaskRelationPage(db, {}).rows;
+  return {
+    scannedEdges: rows.length,
+    issues: findRelationCycleWitnesses(rows).map((witness) => ({
+      code: "relation_cycle_detected",
+      ...witness,
+    })),
   };
 }
 

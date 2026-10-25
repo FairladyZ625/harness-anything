@@ -166,6 +166,8 @@ export interface TaskProjection {
   } | null;
   readonly readTaskRuntimeBatch: (query: TaskRuntimeBatchQuery) => TaskRuntimeBatchRead;
   readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead;
+  /** Read-only typed-cycle stock audit at this projection cut; rebuild and doctor only. */
+  readonly readRelationCycleAudit: () => import("./task-query-projection.ts").RelationCycleAuditRead;
   readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readRelationEdge: (relationId: string) => VersionedRelationProjectionRow | null;
   readonly readEntityVersionWitness: (entityRef: string) => EntityVersionWitness;
