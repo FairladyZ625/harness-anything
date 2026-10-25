@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   truncateSync,
@@ -22,11 +23,13 @@ import {
   copyTreeMethod,
   cliInvocation,
   forensicEnv,
+  harnessCloneArgs,
   parseArgs,
   parseLastJsonObject,
   parsePeakRssBytes,
   planDaemonDistSteps,
   resolveSourceRoot,
+  snapshotRepository,
 } from "./old-data-copy-evidence.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -48,6 +51,13 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   assert.deepEqual(copyTreeArgs("linux"), ["-a", "--reflink=auto"]);
   assert.deepEqual(copyTreeArgs("freebsd"), ["-a"]);
   assert.equal(copyTreeMethod("darwin"), "-cR");
+  assert.deepEqual(harnessCloneArgs("/src/harness", "/tmp/ws/harness"), [
+    "clone",
+    "--quiet",
+    "--no-checkout",
+    "/src/harness",
+    "/tmp/ws/harness",
+  ]);
   const env = forensicEnv({
     HARNESS_DAEMON_ID: "default",
     HARNESS_EXECUTION_CREDENTIAL: "dispatched",
@@ -135,6 +145,47 @@ test("copy layout: the source harness.yaml decides the local root, not a default
   }
 });
 
+test("snapshot: the harness clone carries objects and config, not the authored tree", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-snapshot-"));
+  try {
+    const source = createSourceFixture(parent),
+      harness = path.join(source, "harness");
+    // A committed authored file of the kind the old checkout materialized. Attach and the cold
+    // rebuild read projected documents and the live config, never a task package file.
+    mkdirSync(path.join(harness, "tasks", "task_fixture"), { recursive: true });
+    writeFileSync(path.join(harness, "tasks", "task_fixture", "task_plan.md"), "# fixture task package\n", "utf8");
+    git(harness, "add", "tasks");
+    git(harness, "commit", "--quiet", "-m", "fixture task package");
+    const workspace = path.join(parent, "ws"),
+      snapshot = await snapshotRepository(source, workspace),
+      copiedHarness = path.join(workspace, "harness");
+    assert.deepEqual(
+      snapshot.steps.find((step) => step.item === "harness"),
+      {
+        item: "harness",
+        method: "git local clone --no-checkout (no working tree)",
+      },
+    );
+    assert.ok(existsSync(path.join(copiedHarness, ".git")), "the clone keeps the git metadata attach probes");
+    assert.ok(existsSync(path.join(copiedHarness, "harness.yaml")), "the live config is still materialized");
+    assert.equal(
+      existsSync(path.join(copiedHarness, "tasks", "task_fixture", "task_plan.md")),
+      false,
+      "tracked task packages are not checked out",
+    );
+    assert.equal(copyLayout(workspace).localRootRelative, ".harness", "the copied config still resolves the layout");
+    assert.equal(
+      realpathSync(
+        execFileSync("git", ["-C", copiedHarness, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(),
+      ),
+      realpathSync(copiedHarness),
+      "attach's ledger-git probe still resolves the copy",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
 function runCommand(args) {
   return spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: repoRoot, timeout: 300_000 });
 }
@@ -159,6 +210,11 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
     assert.deepEqual(receipt.failures, []);
     assert.equal(receipt.copy.generation, "3");
+    assert.equal(
+      receipt.copy.steps.find((step) => step.item === "harness")?.method,
+      "git local clone --no-checkout (no working tree)",
+      "the snapshot transfers harness objects without checking out the authored tree",
+    );
     assert.equal(receipt.copy.sourceRevision, 1, "one seeded event");
     const cacheStep = receipt.copy.steps.find((step) => step.item === "cache/task.sqlite");
     assert.ok(cacheStep, "the cache database is part of the snapshot steps");
