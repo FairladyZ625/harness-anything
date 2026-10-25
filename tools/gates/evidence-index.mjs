@@ -47,6 +47,7 @@ export const EVIDENCE_INDEX = Object.freeze({
     "task_6d847ff57bf88357cfd7c64f8e",
     "task_6dc29e76828cbad9820bf6a2f7",
     "task_6e3a253ed79c2c458543c7d3d7",
+    "task_799ca104a7af7b18432b2ded54",
     "task_94cac93e5083d72bb45f5f9577",
     "task_aceaabaedfedcf9cb062ccf883",
     "task_b79a4d997e73987b0a42c62433",

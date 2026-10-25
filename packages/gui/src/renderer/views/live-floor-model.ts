@@ -377,7 +377,7 @@ export type LiveFloorAskKind =
   | "decision"
   | "decision_review"
   | "rework"
-  | "adjudicate";
+  | "legacySubmitted";
 
 export interface LiveFloorAskRow {
   readonly key: string;
@@ -542,8 +542,8 @@ export function liveFloorAskLanes(input: {
         .filter(Boolean)
         .join(" · ");
     rows.push({
-      key: `adjudicate:${execution.taskId}`,
-      kind: "adjudicate",
+      key: `legacySubmitted:${execution.taskId}`,
+      kind: "legacySubmitted",
       title: execution.title,
       detail,
       at: null,

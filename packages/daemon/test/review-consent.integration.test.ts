@@ -325,6 +325,7 @@ test("only the task owner can consent to a changes_requested review, and overrid
     repoId = workspaceId("owner-review-override"),
     taskId = "task-owner-review-override",
     executionId = "execution-owner-review-override",
+    secondExecutionId = "execution-owner-review-override-2",
     ownerBinding = withPolicyGroup({ actor, source: "local" as const }, "maintainer"),
     reviewer = withPolicyGroup(
       {
@@ -374,16 +375,16 @@ test("only the task owner can consent to a changes_requested review, and overrid
     assert.equal(returnedEvent.payload.task.status, "active");
     assert.equal(returnedEvent.payload.task.iteration, 1);
 
-    await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner);
-    writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, ownerBinding);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
+      (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, ownerBinding)).outcome,
       "applied",
     );
 
     // The transition guards make a second concurrent submitted execution unreachable, so ambiguity
     // cannot be constructed through the lifecycle: starting is refused while a submitted cut exists.
-    const refusedStart = await cell.run({ kind: "task-start", taskId, executionId: "exec-selection-r3" }, owner);
+    const refusedStart = await cell.run({ kind: "task-start", taskId, executionId: "exec-selection-r3" }, ownerBinding);
     assert.equal(refusedStart.outcome, "op_rejected", JSON.stringify(refusedStart));
     assert.equal(refusedStart.code, "invalid_transition", JSON.stringify(refusedStart));
 
@@ -435,7 +436,7 @@ test("review-execution without --execution-id names the resubmission command whi
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, owner);
-    writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
@@ -504,7 +505,7 @@ test("review-execution and review-consent require a substantive physical report 
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     await cell.run({ kind: "task-start", taskId, executionId }, owner);
-    writeSelectionCloseout(rootDir, packagePath);
+    writeCloseout(rootDir, packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, owner)).outcome, "applied");
 
     writeFileSync(

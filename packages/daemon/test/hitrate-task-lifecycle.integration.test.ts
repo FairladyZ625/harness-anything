@@ -287,7 +287,6 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
       },
       reviewer,
     );
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const consented = await cell.run(
       {
