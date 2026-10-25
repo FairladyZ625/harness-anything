@@ -82,6 +82,17 @@ export interface RuntimeInstallationWitness {
   readonly defaultModel?: string;
 }
 
+/** What a registry lookup needs from a witness: the two fields that identify an installation. */
+export type RuntimeInstallationIdentity = Pick<RuntimeInstallationWitness, "installationId" | "kindId">;
+
+/** A witness as the node records it. Host paths are not part of the record: the list receipt
+ *  deliberately reports installations "without secrets or host paths", and no read needs the
+ *  absolute executable of an observation that already happened. */
+export type RecordedRuntimeInstallation = Pick<
+  RuntimeInstallationWitness,
+  "installationId" | "kindId" | "version" | "observedAt" | "models" | "defaultModel"
+>;
+
 export interface RuntimeAuthReadiness {
   readonly status: "ready" | "not-ready";
   readonly code: string | null;

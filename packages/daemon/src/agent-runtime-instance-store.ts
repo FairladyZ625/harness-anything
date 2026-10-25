@@ -13,6 +13,7 @@ import {
 import { userInfo } from "node:os";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { writeFileDurably } from "./durable-file.ts";
 import { credentialPort } from "./agent-runtime-credential-port.ts";
 import type { FlatRuntimeInstanceConfig, LegacyRuntimeInstanceConfig } from "./agent-runtime-instance-config.ts";
 import {
@@ -51,7 +52,9 @@ import {
 import type {
   PreparedRuntimeAuthCommand,
   PreparedRuntimeLaunch,
+  RecordedRuntimeInstallation,
   RuntimeAuthReadiness,
+  RuntimeInstallationIdentity,
   RuntimeInstallationWitness,
   RuntimeInstanceConfig,
   RuntimeInstanceKind,
@@ -80,6 +83,16 @@ import { runtimeVersionGate } from "./runtime-version.ts";
  *  here: adopted dispatch-stream headers read the id back from disk, and the stream write
  *  boundary does not validate it. */
 const runtimeTempSessionPattern = /^runtime_[0-9a-f]{24}$/u;
+
+/** The receipt's installation row: a witness minus the host paths the command contract keeps
+ *  out of every runtime-instance reply. */
+function withoutHostPaths({
+  executableEntryPath: _entry,
+  executablePath: _path,
+  ...installation
+}: RuntimeInstallationWitness): RecordedRuntimeInstallation {
+  return installation;
+}
 
 function runtimeTempDirectory(instancesRoot: string, instanceId: string, runtimeSessionId: string): string {
   if (!runtimeTempSessionPattern.test(runtimeSessionId))
@@ -113,9 +126,12 @@ export function openRuntimeInstanceStore(input: {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
     target = path.join(input.userRoot, "runtime-instances.json"),
+    installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
     readiness = new Map<string, RuntimeAuthReadiness>();
-  let cachedInstances: readonly RuntimeInstanceConfig[] | null = null;
+  let cachedInstances: readonly RuntimeInstanceConfig[] | null = null,
+    recordedInstallationsCache: readonly RecordedRuntimeInstallation[] | null = null,
+    recordedInstallationsRead = false;
   function create(
     candidate: RuntimeInstanceConfig | LegacyRuntimeInstanceConfig | FlatRuntimeInstanceConfig,
   ): RuntimeInstanceConfig {
@@ -489,12 +505,17 @@ export function openRuntimeInstanceStore(input: {
       };
     }
     if (kind === "runtime-instance-list") {
+      // A probe is the caller saying "observe this machine now", so it reads the live snapshot the
+      // host just refreshed. Every other list reads this node's recorded observations: the read
+      // never runs a provider CLI, and what it reports is what has actually been witnessed.
       const all = action.all === true,
-        witnessed = input.discover(),
-        configs = read(witnessed).filter((config) => all || config.enabled),
-        installations = witnessed.map(
-          ({ executableEntryPath: _entry, executablePath: _path, ...installation }) => installation,
-        );
+        probe = action.probe === true,
+        recorded = probe ? null : recordedInstallations(),
+        // The live snapshot is only consulted when there is no record to read, or when the caller
+        // asked to probe; both are the daemon's own memory, never a new observation.
+        live = recorded === null ? input.discover() : null,
+        configs = read(recorded ?? live ?? []).filter((config) => all || config.enabled),
+        installations = recorded ?? (live ?? []).map(withoutHostPaths);
       const listed = (instances: readonly RuntimeInstanceSummary[]) => {
         const summary = [
           "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE",
@@ -534,10 +555,10 @@ export function openRuntimeInstanceStore(input: {
           summary,
         };
       };
-      if (action.probe === true)
+      if (probe)
         return Promise.all(
           configs.map(async (config) =>
-            publicConfig(config, await authStatus(config.instanceId, { witnessed, config })),
+            publicConfig(config, await authStatus(config.instanceId, { witnessed: live ?? [], config })),
           ),
         ).then(listed);
       const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
@@ -754,10 +775,43 @@ export function openRuntimeInstanceStore(input: {
     reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment,
     refreshInstallations,
+    recordedInstallations,
     command,
   };
   async function refreshInstallations(): Promise<readonly RuntimeInstallationWitness[]> {
-    return input.refreshDiscovery ? input.refreshDiscovery() : input.discover();
+    const witnessed = input.refreshDiscovery ? await input.refreshDiscovery() : input.discover();
+    recordInstallations(witnessed);
+    return witnessed;
+  }
+  /** The installation observations this node last recorded, or null when it has never recorded
+   *  any. Obtaining a witness means executing each provider CLI (`--version`, then its model
+   *  probe), so an observation cannot be produced by a read; the record is what a read reports.
+   *  The caller decides whether "never recorded" is worth one observation — this read never
+   *  spawns. */
+  function recordedInstallations(): readonly RecordedRuntimeInstallation[] | null {
+    if (recordedInstallationsRead) return recordedInstallationsCache;
+    recordedInstallationsRead = true;
+    if (!existsSync(installationsTarget)) return null;
+    const value: unknown = JSON.parse(readFileSync(installationsTarget, "utf8"));
+    if (
+      !isRuntimeInstanceRecord(value) ||
+      value.schema !== "runtime-installations/v1" ||
+      !Array.isArray(value.installations) ||
+      Object.keys(value).some((key) => !["schema", "installations"].includes(key))
+    )
+      throw runtimeInstanceError("invalid_runtime_installation_store", "Recorded runtime installations are invalid.");
+    recordedInstallationsCache = value.installations as readonly RecordedRuntimeInstallation[];
+    return recordedInstallationsCache;
+  }
+  function recordInstallations(witnessed: readonly RuntimeInstallationWitness[]): void {
+    const installations = witnessed.map(withoutHostPaths);
+    writeFileDurably(
+      installationsTarget,
+      `${JSON.stringify({ schema: "runtime-installations/v1", installations }, null, 2)}\n`,
+      0o600,
+    );
+    recordedInstallationsCache = installations;
+    recordedInstallationsRead = true;
   }
   function findInstallation(
     config: RuntimeInstanceConfig,
@@ -776,7 +830,7 @@ export function openRuntimeInstanceStore(input: {
       realpathSync.native(installation.executableEntryPath) === installation.executablePath
     );
   }
-  function read(witnessed?: readonly RuntimeInstallationWitness[]): RuntimeInstanceConfig[] {
+  function read(witnessed?: readonly RuntimeInstallationIdentity[]): RuntimeInstanceConfig[] {
     if (cachedInstances) {
       if (existsSync(target)) chmodSync(target, 0o600);
       return [...cachedInstances];

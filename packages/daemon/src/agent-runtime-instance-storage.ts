@@ -17,6 +17,7 @@ import { writeFileDurably } from "./durable-file.ts";
 import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-config.ts";
 import type {
   RuntimeAuthReadiness,
+  RuntimeInstallationIdentity,
   RuntimeInstallationWitness,
   RuntimeInstanceConfig,
   RuntimeInstanceKind,
@@ -27,7 +28,7 @@ import { runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
 
 export function migrateLegacyInstallationIdentities(
   instances: readonly RuntimeInstanceConfig[],
-  witnessed: readonly RuntimeInstallationWitness[],
+  witnessed: readonly RuntimeInstallationIdentity[],
 ): RuntimeInstanceConfig[] {
   return instances.map((config) => {
     if (config.installationIdentity === "path-entry/v1") return config;
