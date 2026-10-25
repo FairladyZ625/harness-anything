@@ -12,7 +12,11 @@ export interface DayPathStep {
 
 export interface DayPath {
   readonly time?: string;
-  readonly name: string;
+  /**
+   * 行主文字。字符串是可读名/人话短语;身份本身是可寻址实体时(决策时间线的
+   * 提出人/裁决人),调用方传 EntityRefLink 节点——显示的实体 ID 必须是路(G10)。
+   */
+  readonly name: ReactNode;
   readonly steps: readonly DayPathStep[];
   readonly onClick?: () => void;
   /** 外部列表(如放大层)的选中态,与 DenseRow 同一高亮语汇;平铺场景不传。 */
