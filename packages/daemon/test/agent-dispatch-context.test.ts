@@ -12,6 +12,7 @@ import {
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
 import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -465,7 +466,14 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
 test("artifact task dispatch confines writes to its package despite bypass declarations and cwd overrides", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-package-"));
   let cell: Cell | undefined;
-  let prepared: { readonly cwd: string; readonly permissionMode?: string; readonly prompt: string } | undefined;
+  let prepared:
+    | {
+        readonly cwd: string;
+        readonly permissionMode?: string;
+        readonly prompt: string;
+        readonly additionalWritableDirectories?: readonly string[];
+      }
+    | undefined;
   let launches = 0;
   let useZcode = false;
   try {
@@ -477,7 +485,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       runtimeDaemonRoute: {
         userRoot: path.join(root, ".daemon-user"),
         daemonId: "dispatch-package-test",
-        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+        endpoint: localUserDaemonEndpoint(path.join(root, ".daemon-user"), "dispatch-package-test"),
       },
       runtimeInstances: () => [{ ...instance(), kindId: useZcode ? "zcode" : "codex", permissionMode: "bypass" }],
       prepareRuntimeLaunch: (_instanceId, request) => {
@@ -539,6 +547,10 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(prepared?.cwd, path.join(root, "harness", packagePath));
       assert.equal(prepared?.permissionMode, override === "read-only" ? "read-only" : "workspace-write");
+      assert.deepEqual(
+        prepared?.additionalWritableDirectories,
+        override === "read-only" ? undefined : [path.join("/tmp", `harness-anything-${process.getuid?.() ?? 0}`)],
+      );
       assert.ok(prepared?.prompt.includes(`Worker repository root: ${prepared.cwd}`));
     }
     assert.equal(launches, 3);
@@ -559,6 +571,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(prepared?.cwd, workerRoot);
     assert.equal(prepared?.permissionMode, "bypass");
+    assert.equal(prepared?.additionalWritableDirectories, undefined);
     useZcode = true;
     await createTask(cell, root, {
       taskId: "task_package_zcode",

@@ -66,6 +66,7 @@ export function launchArgs(
   effort: string | null = null,
   permissionMode: RuntimePermissionMode | undefined = undefined,
   fast = false,
+  additionalWritableDirectories: readonly string[] = [],
 ): string[] {
   const declaration = runtimeKindForId(config.kindId),
     launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
@@ -77,6 +78,15 @@ export function launchArgs(
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
     if (token === "$permission") return permission;
+    if (token === "$additional-writable-dirs")
+      return config.kindId === "codex" &&
+        permissionMode === "workspace-write" &&
+        additionalWritableDirectories.length > 0
+        ? [
+            "--config",
+            `sandbox_workspace_write.writable_roots=[${additionalWritableDirectories.map(tomlString).join(",")}]`,
+          ]
+        : [];
     if (token === "$resume-command" || token === "$resume") {
       // A resume token with no flag to expand would silently launch a fresh session on a
       // resume request, so the mismatch fails the launch instead.
