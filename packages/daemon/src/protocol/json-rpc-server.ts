@@ -146,6 +146,7 @@ export function createJsonRpcProtocolServer(options: {
     if (request.jsonrpc !== "2.0" || typeof request.method !== "string") {
       traffic(
         typeof request.method === "string" ? request.method : null,
+        null,
         frameReceivedAt,
         startedAt,
         Date.now(),
@@ -156,7 +157,7 @@ export function createJsonRpcProtocolServer(options: {
       return rpcError(id, -32600, "Invalid Request");
     }
     if (!isContractedDaemonRpcMethod(request.method)) {
-      traffic(request.method, frameReceivedAt, startedAt, Date.now(), false, "-32601", "Method not found");
+      traffic(request.method, null, frameReceivedAt, startedAt, Date.now(), false, "-32601", "Method not found");
       return rpcError(id, -32601, "Method not found");
     }
     const reply = <Method extends DaemonRpcMethod>(
@@ -179,6 +180,7 @@ export function createJsonRpcProtocolServer(options: {
         recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
       traffic(
         method,
+        observed.repoId || null,
         frameReceivedAt,
         startedAt,
         repliedAt,
@@ -203,7 +205,12 @@ export function createJsonRpcProtocolServer(options: {
     if (options.buildObserver?.status().drifted) options.onBuildDriftObserved?.();
     // The parked-wait predicate is the same one that parks the reply in one(): direct methods
     // resolve to no action here, so this is the only place their wait classification is set.
-    observed = { ...observed, repoId: repoIdFromParams(params), wait: isDaemonParkedWaitMethod(method) };
+    observed = {
+      ...observed,
+      repoId:
+        method === "daemon.rbac.manage" && typeof params.repoId === "string" ? params.repoId : repoIdFromParams(params),
+      wait: isDaemonParkedWaitMethod(method),
+    };
     if (request.method === "protocol.hello" && method === request.method) {
       if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
         const mismatch = {
@@ -959,6 +966,7 @@ export function createJsonRpcProtocolServer(options: {
   // line, so connection-level forensics never depends on repo binding.
   function traffic(
     method: string | null,
+    repoId: string | null,
     frameReceivedAt: number,
     handlerStartedAt: number,
     repliedAt: number,
@@ -974,6 +982,7 @@ export function createJsonRpcProtocolServer(options: {
       conn: connectionId,
       transport: options.authContext.transportKind,
       method,
+      repoId,
       frameReceivedAt,
       handlerStartedAt,
       repliedAt,
@@ -986,9 +995,23 @@ export function createJsonRpcProtocolServer(options: {
       detail,
       command,
       wait,
-      actor: agentActorForLog(executor, options.authContext.sessionEnvironment),
+      actor: trafficActorForLog(executor, options.authContext),
     });
   }
+}
+
+function trafficActorForLog(
+  executor: DaemonRequestLogEntry["executor"],
+  auth: DaemonAuthenticationContext,
+): string | null {
+  return (
+    agentActorForLog(executor, auth.sessionEnvironment) ??
+    auth.executionPrincipal?.personId ??
+    auth.oidcPrincipal?.personId ??
+    auth.nodePrincipal?.personId ??
+    auth.replicaReadPrincipal?.personId ??
+    (auth.unixSocketOwnerBoundary ? `local-user-${auth.unixSocketOwnerBoundary.ownerUid}` : null)
+  );
 }
 
 function protocolFailure(command: string, error: unknown) {

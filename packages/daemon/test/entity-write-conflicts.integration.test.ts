@@ -11,6 +11,10 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 import { fatalCellError } from "../src/repo-cell-errors.ts";
 import { ArtifactEntityServiceError } from "@harness-anything/application/internal/artifact-entity-service";
+import {
+  SettingsActionError,
+  SettingsProjectionError,
+} from "@harness-anything/kernel/internal/domain/settings-action-contract";
 import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import {
   openBootstrappedRepoCell,
@@ -227,6 +231,43 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
     );
     assert.equal(entity?.title, "RPC winner");
     assert.equal(entity?.revision, winner.revision);
+
+    const settingsBefore = await rpc.request("repo.settings.read", { repo: { repoId } });
+    assert.ok(Number(settingsBefore.revision) > 0, JSON.stringify(settingsBefore));
+    const settingsApplied = await rpc.request("repo.settings.update", {
+      repo: { repoId },
+      payload: {
+        reviewReturnBudget: 8,
+        expectedVersion: Number(settingsBefore.revision),
+        idempotencyKey: "settings-rpc-first",
+      },
+    });
+    assert.equal(settingsApplied.outcome, "applied", JSON.stringify(settingsApplied));
+    const staleSettings = await rpc.request("repo.settings.update", {
+      repo: { repoId },
+      payload: { reviewReturnBudget: 9, expectedVersion: 0, idempotencyKey: "settings-rpc-stale" },
+    });
+    assert.equal(staleSettings.code, "revision_conflict", JSON.stringify(staleSettings));
+    const statusAfterSettings = await rpc.request("daemon.status", {}),
+      settingsRow = (statusAfterSettings.repos as { repoId: string; state: string }[]).find(
+        (row) => row.repoId === repoId,
+      );
+    t.diagnostic(`settings stale=${JSON.stringify(staleSettings)} status=${JSON.stringify(statusAfterSettings.repos)}`);
+    assert.equal(settingsRow?.state, "attached", JSON.stringify(statusAfterSettings.repos));
+    const subsequentSettings = await rpc.request("repo.settings.update", {
+      repo: { repoId },
+      payload: {
+        reviewReturnBudget: 10,
+        expectedVersion: Number(settingsApplied.revision),
+        idempotencyKey: "settings-rpc-after-stale",
+      },
+    });
+    assert.equal(subsequentSettings.outcome, "applied", JSON.stringify(subsequentSettings));
+    const settledSettingsStatus = await rpc.request("daemon.status", {}),
+      settledSettingsRow = (settledSettingsStatus.repos as { repoId: string; state: string }[]).find(
+        (row) => row.repoId === repoId,
+      );
+    assert.equal(settledSettingsRow?.state, "attached", JSON.stringify(settledSettingsStatus.repos));
   } finally {
     client?.close();
     await daemon?.stop();
@@ -245,6 +286,9 @@ test("real SQLite writer divergence remains fatal while rejected entity CAS is r
         error instanceof Error && "code" in error && error.code === "revision_conflict" && fatalCellError(error),
     );
     assert.equal(fatalCellError(new ArtifactEntityServiceError("revision_conflict", "stale entity revision")), false);
+    assert.equal(fatalCellError(new SettingsActionError("revision_conflict", "stale settings revision")), false);
+    assert.equal(fatalCellError(new SettingsActionError("invalid_command", "invalid settings input")), false);
+    assert.equal(fatalCellError(new SettingsProjectionError("canonical settings projection is unavailable")), true);
     assert.equal(
       fatalCellError(Object.assign(new Error("unclassified revision divergence"), { code: "revision_conflict" })),
       true,
