@@ -12,6 +12,10 @@ import { processPortOnlyBaseline } from "./process-port-only-baseline.mjs";
 
 const allowlistSchema = "harness-anything/gate-allowlist/v1";
 const jsonPolicies = Object.freeze({
+  "action-catalog-null.json": {
+    pathSections: {},
+    nonPathSections: ["catalogNulls"],
+  },
   "check-bypass-write-boundary.json": {
     pathSections: {},
     nonPathSections: [

@@ -898,7 +898,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["tools/test-tier-manifest.mjs", "package.json:scripts.test:fast"]
+        "protectedSurfaces": ["tools/test-tier-manifest.mjs", "package.json:scripts.test:fast", "packages/daemon/test/local-json-rpc.test.ts", "tools/gate-allowlists/action-catalog-null.json"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
