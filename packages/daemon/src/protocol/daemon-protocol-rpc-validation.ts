@@ -29,6 +29,14 @@ import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonO
 
 export { DaemonProtocolContractError, validateSessionEnvironment };
 
+const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u;
+
+function validateDaemonWorkTopologyPayload(value: unknown): string[] {
+  if (!isJsonObject(value) || Object.keys(value).length !== 1 || typeof value.workRootTaskId !== "string")
+    return ["work topology requires only workRootTaskId"];
+  return TASK_ID.test(value.workRootTaskId) ? [] : ["work topology workRootTaskId is invalid"];
+}
+
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonMethodNameSets.guiRead.has(method);
 }
@@ -71,6 +79,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.work.topology.read")
+    errors.push(...validateDaemonWorkTopologyPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.task.dispatches")
     errors.push(...validateTaskDispatchesPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agentRuntime.sessions.read")

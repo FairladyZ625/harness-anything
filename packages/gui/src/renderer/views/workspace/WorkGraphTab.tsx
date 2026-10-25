@@ -1,44 +1,25 @@
 import { useCallback, useMemo, useState } from "react";
 import { EgoNeighborhood } from "../../graph/EgoNeighborhood.tsx";
-import { egoFactRefOf } from "../../graph/egoCanvas.ts";
-import { workspaceGraphSlice } from "../../model/workspace-evidence.ts";
-import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../../model/types.ts";
+import { useWorkTopologyQuery } from "../../task-data.ts";
+import type { WorkTopologyRead } from "../../../api/renderer-dto.ts";
+import type { RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
 
-/**
- * 关系图页(S5 补回):本工作成员 + 直接外部边界的 ego 画布,单击展开、双击设为画布
- * 中心。宿主保持本组件挂载、只在离开页签时置 active=false —— 焦点与展开累积在页签
- * 切换间保留(画布 DOM 卸载,累积态在 hooks 里)。
- */
-
+/** 工作图完全消费 daemon 的单 cut 拓扑；画布仍复用通用 ego 交互与布局。 */
 export interface WorkGraphTabProps {
-  /** 会话归属仓:透传给 EgoNeighborhood(egoSession 按 repoId 隔离)。 */
   readonly repoId: string;
-  /** 工作成员引用,首位是工作根任务(焦点初值)。 */
-  readonly memberTaskIds: readonly string[];
-  readonly tasks: readonly TaskRow[];
-  readonly decisions: readonly DecisionRow[];
-  readonly facts: readonly FactRef[];
-  readonly relations: readonly RelationEdge[];
+  readonly workRootTaskId: string;
   readonly onNavigateEntity?: (ref: string) => void;
   readonly onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
-  /** false = 隐藏但保持挂载(保留画布累积态)。 */
+  /** false 时暂停隐藏页签的专属读取，但保留画布交互状态。 */
   readonly active: boolean;
 }
 
-export function WorkGraphTab({
-  repoId,
-  memberTaskIds,
-  tasks,
-  decisions,
-  facts,
-  relations,
-  onNavigateEntity,
-  onSetTaskPin,
-  active,
-}: WorkGraphTabProps) {
-  const [focusRef, setFocusRef] = useState(`task/${memberTaskIds[0]}`);
+export function WorkGraphTab({ repoId, workRootTaskId, onNavigateEntity, onSetTaskPin, active }: WorkGraphTabProps) {
+  const [focusRef, setFocusRef] = useState(`task/${workRootTaskId}`);
   const [graphStats, setGraphStats] = useState({ nodes: 0, edges: 0, focusLabel: null as string | null });
+  const topologyQuery = useWorkTopologyQuery(repoId, workRootTaskId, active),
+    topology = topologyQuery.data;
   const onGraphStats = useCallback((next: typeof graphStats) => {
     setGraphStats((current) =>
       current.nodes === next.nodes && current.edges === next.edges && current.focusLabel === next.focusLabel
@@ -47,15 +28,29 @@ export function WorkGraphTab({
     );
   }, []);
   const graph = useMemo(() => {
-    const slice = workspaceGraphSlice(memberTaskIds, relations);
-    const refs = new Set(slice.nodeRefs);
+    if (!topology) return { tasks: [], relations: [] as RelationEdge[] };
+    const frontier = new Set(topology.frontier),
+      criticalPathPositions = new Map((topology.criticalPath ?? []).map((taskId, index) => [taskId, index + 1]));
     return {
-      tasks: tasks.filter(({ taskId }) => refs.has(`task/${taskId}`)),
-      decisions: decisions.filter(({ decisionId }) => refs.has(`decision/${decisionId}`)),
-      facts: facts.filter((fact) => refs.has(egoFactRefOf(fact))),
-      relations: [...slice.edges],
+      tasks: [...topology.members, ...topology.boundaryTasks].map((node) =>
+        topologyNodeToTaskRow(node, frontier.has(node.taskId), criticalPathPositions.get(node.taskId)),
+      ),
+      relations: topology.edges.map(
+        (edge): RelationEdge => ({
+          relationId: edge.relationId,
+          from: edge.from,
+          to: edge.to,
+          kind: "depends-on",
+          direction: edge.direction as RelationEdge["direction"],
+          state: edge.state as RelationEdge["state"],
+          provenance: "local-document",
+          rationale: edge.rationale,
+        }),
+      ),
     };
-  }, [memberTaskIds, tasks, decisions, facts, relations]);
+  }, [topology]);
+  const inFlight = topology?.members.filter(({ topologyState }) => topologyState === "in-flight").length ?? 0,
+    awaitingRuling = topology?.members.filter(({ topologyState }) => topologyState === "awaiting-ruling").length ?? 0;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2" aria-labelledby="workspace-graph">
@@ -64,32 +59,72 @@ export function WorkGraphTab({
       </h2>
       <p className="text-text-muted ui-meta">
         {t("views.workspace.localGraphNote")} ·{" "}
-        {t("views.workspace.graphStats", { nodes: graphStats.nodes, edges: graphStats.edges })}
+        {t("views.workspace.graphStats", {
+          nodes: graphStats.nodes,
+          edges: graphStats.edges,
+        })}
+        {topology
+          ? ` · 前沿 ${topology.frontier.length} / ${topology.members.length} · ${inFlight} 在飞 · ${awaitingRuling} 待裁决 · 关键路径 ${topology.criticalPath === null ? "未知" : `${topology.criticalPath.length} 个任务`} · revision ${topology.sourceRevision}`
+          : topologyQuery.isPending
+            ? " · 正在读取拓扑"
+            : topologyQuery.error
+              ? " · 拓扑读取失败"
+              : ""}
         {graphStats.focusLabel === null
           ? ""
           : ` · ${t("views.workspace.graphFocus", { label: graphStats.focusLabel })}`}
         。{t("views.workspace.graphHint")}
+        {topology?.completeness === "partial" ? ` · 部分状态：${topology.warnings.join("；")}` : ""}
       </p>
-      {/* 画布高度由 flex 分配、宽度跟随容器(原则 9①/9②):ReactFlow 自己按容器实测尺寸
-          布局,画布内容靠平移/缩放浏览,不需要横向滚动条与最小宽度。 */}
       <div
         data-testid="workspace-graph-scroll"
         className="min-h-0 flex-1 overflow-hidden rounded-sm border border-border"
       >
         <div data-testid="workspace-graph-canvas" className="h-full w-full">
-          <EgoNeighborhood
-            {...graph}
-            repoId={repoId}
-            focusRef={focusRef}
-            factAnchors={[]}
-            onNavigateEntity={onNavigateEntity}
-            onSetTaskPin={onSetTaskPin}
-            onRefocus={setFocusRef}
-            onLayoutStats={onGraphStats}
-            active={active}
-          />
+          {topology ? (
+            <EgoNeighborhood
+              {...graph}
+              repoId={repoId}
+              focusRef={focusRef}
+              decisions={[]}
+              facts={[]}
+              factAnchors={[]}
+              onNavigateEntity={onNavigateEntity}
+              onSetTaskPin={onSetTaskPin}
+              onRefocus={setFocusRef}
+              onLayoutStats={onGraphStats}
+              active={active}
+            />
+          ) : (
+            <div data-testid="workspace-graph-loading" role="status" className="p-3 ui-meta text-text-muted">
+              {topologyQuery.error ? "拓扑读取失败" : "正在读取拓扑"}
+            </div>
+          )}
         </div>
       </div>
     </section>
   );
+}
+
+function topologyNodeToTaskRow(
+  node: WorkTopologyRead["members"][number],
+  topologyFrontier: boolean,
+  topologyCriticalPathPosition: number | undefined,
+): TaskRow {
+  const canonicalStatus = node.canonicalStatus ?? "unknown";
+  // The reusable canvas only needs task identity, title, status and pin state. These topology-only
+  // rows deliberately do not borrow a possibly older full task list for their presentation.
+  return {
+    taskId: node.taskId,
+    title: node.title,
+    coordinationStatus: canonicalStatus,
+    canonicalStatus: node.canonicalStatus ?? undefined,
+    rawStatus: canonicalStatus,
+    parentTaskId: node.parentTaskId ?? undefined,
+    pinned: node.pinned,
+    topologyState: node.topologyState,
+    topologyFrontier,
+    topologyCriticalPathPosition,
+    topologyOnly: true,
+  } as unknown as TaskRow;
 }

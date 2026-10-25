@@ -487,7 +487,11 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         hop: level.get(id) ?? 0,
         degree: (adj.get(id) ?? []).filter((entry) => axisOn(entry.axis)).length,
         hiddenCount,
-        color: meta.entity === "task" ? STATUS_META[(meta.row as TaskRow).coordinationStatus]?.color : undefined,
+        color:
+          meta.entity !== "task"
+            ? undefined
+            : (topologyColor((meta.row as TaskRow).topologyState) ??
+              STATUS_META[(meta.row as TaskRow).coordinationStatus]?.color),
         navRef: meta.entity === "task" ? `task/${id}` : id,
       },
       draggable: false,
@@ -537,6 +541,25 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     focusEntity: focusMeta.entity,
     neighborCount: vis.size - 1,
   };
+}
+
+function topologyColor(state: TaskRow["topologyState"]): string | undefined {
+  if (state === undefined) return undefined;
+  const status =
+    state === "done"
+      ? "done"
+      : state === "cancelled"
+        ? "cancelled"
+        : state === "in-flight"
+          ? "active"
+          : state === "awaiting-ruling"
+            ? "in_review"
+            : state === "blocked"
+              ? "blocked"
+              : state === "ready"
+                ? "planned"
+                : "unknown";
+  return STATUS_META[status].color;
 }
 
 /**
