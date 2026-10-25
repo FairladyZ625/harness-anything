@@ -1,6 +1,7 @@
 import { currentExecutionCuts, type TaskProjection } from "@harness-anything/kernel";
 import { runProcessText } from "./process-port.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { EMPTY_TREE_SHA } from "./task-delivery-containment.ts";
 import type {
   DaemonTaskDeliveryDiffFile,
   DaemonTaskDeliveryDiffLine,
@@ -11,7 +12,6 @@ export {
   validateDaemonTaskDeliveryDiff,
 } from "./protocol/daemon-protocol-task-delivery-diff.ts";
 
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const MAX_DIFF_LINES = 2_000;
 const MAX_DIFF_BYTES = 2 * 1024 * 1024;
 
@@ -90,7 +90,8 @@ export function readTaskDeliveryDiff(
   const execution = cuts.length === 1 ? cuts[0] : undefined;
   const commitSha = execution?.submission?.commitSha ?? null;
   const baseline = execution?.deliveryBaseline;
-  const baselineRef = baseline === undefined ? null : baseline.kind === "empty-tree" ? EMPTY_TREE : baseline.commitSha;
+  const baselineRef =
+    baseline === undefined ? null : baseline.kind === "empty-tree" ? EMPTY_TREE_SHA : baseline.commitSha;
   if (commitSha === null || baselineRef === null) {
     return {
       ok: true,
