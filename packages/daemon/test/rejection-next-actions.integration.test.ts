@@ -281,7 +281,7 @@ test("executor declaration rejection names its eligibility rule and review comma
   }
 });
 
-test("executor declaration and completion context refusals name projection rebuild and the exact retry", async () => {
+test("executor declaration refusal answers task_not_found naming the repository; completion refusals name projection rebuild", async () => {
   const rootDir = workspace("projection-exits"),
     repoId = workspaceId("projection-exits"),
     taskId = "task-projection-exits",
@@ -341,7 +341,13 @@ test("executor declaration and completion context refusals name projection rebui
       { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
       declarer,
     );
-    assert.equal(declaration.code, "content_not_ready", JSON.stringify(declaration));
+    // A current projection without the task row answers through the shared task_not_found judgment
+    // (same as task show), naming the repository that was searched; projection rebuild still recovers.
+    assert.equal(declaration.code, "task_not_found", JSON.stringify(declaration));
+    assert.match(
+      String(declaration.rejectionExplanation),
+      /Task task-projection-exits does not exist in the canonical event stream of repository projection-exits at /u,
+    );
     assert.equal((await cell.run({ kind: "projection-rebuild" }, declarer)).outcome, "applied");
     const withoutDispatch = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
