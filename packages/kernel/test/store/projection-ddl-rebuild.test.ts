@@ -9,6 +9,7 @@ import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-e
 import { listDecisionRowsPage } from "../../src/projection/decision-event-projection.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { taskCreatedAtSql } from "../../src/projection/task-query-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
@@ -208,6 +209,57 @@ test("an owner adds the relation owner index to a current-version cache in place
     const current = new DatabaseSync(projectionPath, { readOnly: true });
     try {
       assert.equal(indexed(current), true);
+    } finally {
+      current.close();
+    }
+  });
+});
+
+test("a cache built before the task-list event indexes gains them in place without a replay", async (t) => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "task-list-index", rootDir }),
+      events = lifecycleFixture().events,
+      projection = makeTaskProjection({ rootDir, eventStore });
+    for (const event of events) {
+      const plan = taskLifecycleWritePlan(event);
+      eventStore.append({ event, plan, blobs: [] });
+      projection.apply(event, plan);
+    }
+    projection.close();
+    const indexed = (db: DatabaseSync, name: string) =>
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?").get(name) !== undefined;
+    // A cache written before this change carries neither index. Dropping them models that cache;
+    // the schema version stays current, so reopening must not discard or replay anything.
+    const stale = new DatabaseSync(projection.path);
+    try {
+      stale.exec("DROP INDEX IF EXISTS event_index_task_created; DROP INDEX IF EXISTS event_index_task_completed");
+      assert.equal(indexed(stale, "event_index_task_created"), false);
+      assert.equal(indexed(stale, "event_index_task_completed"), false);
+    } finally {
+      stale.close();
+    }
+    const logged = t.mock.method(console, "error", () => undefined),
+      reopened = makeTaskProjection({ rootDir, eventStore });
+    try {
+      reopened.catchUp();
+      assert.equal(reopened.list({ limit: 5 }).rows.length > 0, true);
+      assert.equal(logged.mock.callCount(), 0, "an index-only addition must not discard and replay the cache");
+    } finally {
+      reopened.close();
+    }
+    const current = new DatabaseSync(projection.path, { readOnly: true });
+    try {
+      assert.equal(indexed(current, "event_index_task_created"), true);
+      assert.equal(indexed(current, "event_index_task_completed"), true);
+      // The derive-time reads must ride the revision-ordered indexes, not sort a task's history.
+      const plan = current
+        .prepare(`EXPLAIN QUERY PLAN SELECT ${taskCreatedAtSql("task_snapshot.task_id")} FROM task_snapshot`)
+        .all()
+        .map((row) => (row as { readonly detail: string }).detail)
+        .join("\n");
+      assert.match(plan, /USING (?:COVERING )?INDEX event_index_task_created/u);
+      assert.doesNotMatch(plan, /USE TEMP B-TREE/u);
     } finally {
       current.close();
     }
