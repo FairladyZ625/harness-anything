@@ -656,14 +656,48 @@ export function readRelationCycleWitnessAtCut(input: {
   readonly headRevision: number;
   readonly candidate: RelationCycleEdge;
 }): RelationCycleWitness | null {
-  const cut = input.projection.readRelationQuery({ relationType: input.candidate.relationType, state: "active" });
-  if (cut.status !== "ready" || cut.watermark !== input.headRevision || cut.sourceRevision !== input.headRevision)
-    reject(
-      "content_not_ready",
-      `Relation cycle check requires the current canonical cut: status ${cut.status}, ` +
-        `watermark ${cut.watermark}, source revision ${cut.sourceRevision}, write head ${input.headRevision}.`,
-    );
-  return findRelationCycleWitnesses(cut.rows, input.candidate)[0] ?? null;
+  return (
+    findRelationCycleWitnesses(
+      {
+        readOutgoing: (relationType, sourceRef) => {
+          const rows: RelationCycleEdge[] = [];
+          let cursor: string | undefined;
+          const seenCursors = new Set<string>();
+          do {
+            const cut = input.projection.readRelationQuery({
+              source: sourceRef,
+              relationType,
+              state: "active",
+              direction: "directed",
+              limit: 100,
+              ...(cursor === undefined ? {} : { cursor }),
+            });
+            if (
+              cut.status !== "ready" ||
+              cut.watermark !== input.headRevision ||
+              cut.sourceRevision !== input.headRevision
+            )
+              reject(
+                "content_not_ready",
+                `Relation cycle check requires the current canonical cut: status ${cut.status}, ` +
+                  `watermark ${cut.watermark}, source revision ${cut.sourceRevision}, write head ${input.headRevision}.`,
+              );
+            if (!cut.page)
+              reject("content_not_ready", "Relation cycle check requires pagination metadata for every source page.");
+            rows.push(...cut.rows);
+            cursor = cut.page.nextCursor ?? undefined;
+            if (cursor !== undefined) {
+              if (seenCursors.has(cursor))
+                reject("content_not_ready", "Relation cycle check received a repeated source-page cursor.");
+              seenCursors.add(cursor);
+            }
+          } while (cursor !== undefined);
+          return rows;
+        },
+      },
+      input.candidate,
+    )[0] ?? null
+  );
 }
 
 export function publicationKillpoints(killpoint: ((point: EventPublicationKillpoint) => void) | undefined): void {

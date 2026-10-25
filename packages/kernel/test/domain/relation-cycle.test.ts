@@ -49,6 +49,43 @@ test("write admission checks every declared acyclic type for target-to-source re
   }
 });
 
+test("write admission reads only reachable source adjacency from the candidate target", () => {
+  const sourcesRead: string[] = [],
+    edgesRead: string[] = [],
+    adjacency = new Map<string, RelationCycleEdge[]>([
+      ["task/target", [edge("reachable-1", "task/target", "task/middle", "depends-on")]],
+      ["task/middle", [edge("reachable-2", "task/middle", "task/source", "depends-on")]],
+      ...Array.from({ length: 2_000 }, (_, index) => {
+        const sourceRef = `task/unreachable-${String(index)}`;
+        return [
+          sourceRef,
+          [edge(`unreachable-${String(index)}`, sourceRef, `task/other-${String(index)}`, "depends-on")],
+        ] as const;
+      }),
+    ]);
+  const witnesses = findRelationCycleWitnesses(
+    {
+      readOutgoing: (_relationType: RelationType, sourceRef: string) => {
+        sourcesRead.push(sourceRef);
+        const outgoing = adjacency.get(sourceRef) ?? [];
+        edgesRead.push(...outgoing.map(({ relationId }) => relationId));
+        return outgoing;
+      },
+    },
+    edge("candidate", "task/source", "task/target", "depends-on"),
+  );
+
+  assert.deepEqual(witnesses, [
+    {
+      relationType: "depends-on",
+      nodeRefs: ["task/source", "task/target", "task/middle", "task/source"],
+      relationIds: ["candidate", "reachable-1", "reachable-2"],
+    },
+  ]);
+  assert.deepEqual(sourcesRead, ["task/target", "task/middle"]);
+  assert.deepEqual(edgesRead, ["reachable-1", "reachable-2"]);
+});
+
 test("self edges are cycles and retired, undirected, or cross-type paths do not participate", () => {
   const candidate = edge("candidate", "task/a", "task/b", "depends-on");
   assert.deepEqual(findRelationCycleWitnesses([], edge("self", "task/a", "task/a", "derives"))[0]?.nodeRefs, [

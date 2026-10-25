@@ -17,13 +17,23 @@ export interface RelationCycleWitness {
   readonly relationIds: readonly string[];
 }
 
+export interface RelationCycleAdjacencyReader {
+  /** Return active and retired outgoing rows for one source; the algorithm applies the typed filters. */
+  readonly readOutgoing: (relationType: RelationType, sourceRef: string) => readonly RelationCycleEdge[];
+}
+
 /**
  * The canonical typed-cycle algorithm for both write admission and projection audit.
  * With a candidate, it looks for target → source reachability in the existing graph;
  * without one, it returns one deterministic cycle witness for each cyclic relation type.
  */
+export function findRelationCycleWitnesses(edges: readonly RelationCycleEdge[]): readonly RelationCycleWitness[];
 export function findRelationCycleWitnesses(
-  edges: readonly RelationCycleEdge[],
+  adjacency: RelationCycleAdjacencyReader,
+  candidate: RelationCycleEdge,
+): readonly RelationCycleWitness[];
+export function findRelationCycleWitnesses(
+  edgesOrAdjacency: readonly RelationCycleEdge[] | RelationCycleAdjacencyReader,
   candidate?: RelationCycleEdge,
 ): readonly RelationCycleWitness[] {
   if (candidate) {
@@ -33,15 +43,27 @@ export function findRelationCycleWitnesses(
       candidate.direction !== "directed"
     )
       return [];
-    const typedEdges = orderedEdges(
-      edges.filter(
-        (edge) =>
-          edge.relationType === candidate.relationType && edge.state === "active" && edge.direction === "directed",
-      ),
-    );
     if (candidate.sourceRef === candidate.targetRef)
       return [witness(candidate.relationType, [candidate.sourceRef, candidate.sourceRef], [candidate.relationId])];
-    const path = walk(typedEdges, candidate.targetRef, candidate.sourceRef);
+    const readOutgoing =
+      "readOutgoing" in edgesOrAdjacency
+        ? edgesOrAdjacency.readOutgoing
+        : (() => {
+            const bySource = new Map<string, RelationCycleEdge[]>();
+            for (const edge of edgesOrAdjacency) {
+              if (
+                edge.relationType !== candidate.relationType ||
+                edge.state !== "active" ||
+                edge.direction !== "directed"
+              )
+                continue;
+              const outgoing = bySource.get(edge.sourceRef) ?? [];
+              outgoing.push(edge);
+              bySource.set(edge.sourceRef, outgoing);
+            }
+            return (_relationType: RelationType, sourceRef: string) => bySource.get(sourceRef) ?? [];
+          })();
+    const path = walkReachable(readOutgoing, candidate.relationType, candidate.targetRef, candidate.sourceRef);
     return path
       ? [
           witness(
@@ -52,6 +74,9 @@ export function findRelationCycleWitnesses(
         ]
       : [];
   }
+
+  if ("readOutgoing" in edgesOrAdjacency) return [];
+  const edges = edgesOrAdjacency;
 
   const relationTypes = [...new Set(edges.map(({ relationType }) => relationType))]
     .filter(isAcyclicRelationType)
@@ -100,37 +125,45 @@ export function findRelationCycleWitnesses(
   });
 }
 
-function walk(
-  edges: readonly RelationCycleEdge[],
+function walkReachable(
+  readOutgoing: RelationCycleAdjacencyReader["readOutgoing"],
+  relationType: RelationType,
   startRef: string,
   goalRef: string,
 ): { readonly nodeRefs: readonly string[]; readonly relationIds: readonly string[] } | null {
-  const visited = new Set<string>(),
-    active = new Set<string>(),
-    nodePath: string[] = [],
-    edgePath: RelationCycleEdge[] = [];
-  const visit = (
-    sourceRef: string,
-  ): { readonly nodeRefs: readonly string[]; readonly relationIds: readonly string[] } | null => {
-    if (sourceRef === goalRef)
-      return { nodeRefs: [...nodePath, sourceRef], relationIds: edgePath.map(({ relationId }) => relationId) };
-    if (active.has(sourceRef)) return null;
-    if (visited.has(sourceRef)) return null;
-    visited.add(sourceRef);
-    active.add(sourceRef);
-    nodePath.push(sourceRef);
-    for (const edge of edges) {
-      if (edge.sourceRef !== sourceRef) continue;
-      edgePath.push(edge);
-      const path = visit(edge.targetRef);
-      if (path) return path;
-      edgePath.pop();
+  const visited = new Set<string>([startRef]),
+    previous = new Map<string, { readonly sourceRef: string; readonly edge: RelationCycleEdge }>(),
+    frontier = [startRef];
+  for (let index = 0; index < frontier.length; index += 1) {
+    const sourceRef = frontier[index]!;
+    for (const edge of orderedEdges(
+      readOutgoing(relationType, sourceRef).filter(
+        (row) =>
+          row.sourceRef === sourceRef &&
+          row.relationType === relationType &&
+          row.state === "active" &&
+          row.direction === "directed",
+      ),
+    )) {
+      if (visited.has(edge.targetRef)) continue;
+      visited.add(edge.targetRef);
+      previous.set(edge.targetRef, { sourceRef, edge });
+      if (edge.targetRef === goalRef) {
+        const nodeRefs = [goalRef],
+          relationIds: string[] = [];
+        let currentRef = goalRef;
+        while (currentRef !== startRef) {
+          const step = previous.get(currentRef)!;
+          relationIds.push(step.edge.relationId);
+          currentRef = step.sourceRef;
+          nodeRefs.push(currentRef);
+        }
+        return { nodeRefs: nodeRefs.reverse(), relationIds: relationIds.reverse() };
+      }
+      frontier.push(edge.targetRef);
     }
-    nodePath.pop();
-    active.delete(sourceRef);
-    return null;
-  };
-  return visit(startRef);
+  }
+  return null;
 }
 
 function orderedEdges(edges: readonly RelationCycleEdge[]): RelationCycleEdge[] {
