@@ -308,7 +308,10 @@ test("a live worker may publish and read CI after submission releases the lease"
     },
     projection = {
       read: () => ({
-        snapshot: { executions: [{ executionId: p.executionId, submission: { commitSha: "a".repeat(40) } }] },
+        snapshot: {
+          task: { status: "in_review", currentNode: "review" },
+          executions: [{ executionId: p.executionId, state: "submitted", submission: { commitSha: "a".repeat(40) } }],
+        },
       }),
       readRuntimeSession: () => ({
         liveness,
@@ -336,6 +339,80 @@ test("a live worker may publish and read CI after submission releases the lease"
   assert.throws(() => bindVerifiedExecutorClaim({ ...input, action: { ...action, taskId: "task-other" } }), {
     code: "execution_credential_rejected",
   });
+});
+
+test("the submitting worker may push and amend its current cut after a successful runtime exits", () => {
+  const p = principal(),
+    actor = {
+      principal: { personId: p.personId },
+      executor: { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
+    },
+    amend = {
+      kind: "task-submit",
+      taskId: p.taskId,
+      executionId: p.executionId,
+      amend: true,
+      executor: actor.executor,
+    },
+    implicitAmend = {
+      kind: "task-submit",
+      taskId: p.taskId,
+      amend: true,
+      executor: actor.executor,
+    },
+    push = { kind: "task-push", taskId: p.taskId, executionId: p.executionId, executor: actor.executor },
+    projection = {
+      read: () => ({
+        snapshot: {
+          task: { status: "in_review", currentNode: "review" },
+          executions: [{ executionId: p.executionId, state: "submitted", submission: { commitSha: "a".repeat(40) } }],
+        },
+      }),
+      readRuntimeSession: () => ({
+        liveness: "exited",
+        outcome: "succeeded",
+        taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+      }),
+      readRuntimeDispatch: () => ({ actor, source: "local", payload: { dispatchId: p.dispatchId } }),
+      currentLease: () => null,
+    } as never,
+    binding = { executionPrincipal: p, actor, source: "local" as const };
+  for (const action of [push, amend, implicitAmend]) {
+    assert.doesNotThrow(() =>
+      requireCurrentExecutionScope({ action, binding, projection, now: new Date().toISOString() }),
+    );
+    assert.doesNotThrow(() =>
+      bindVerifiedExecutorClaim({ action, binding, projection, now: new Date().toISOString() }),
+    );
+  }
+  assert.throws(
+    () =>
+      requireCurrentExecutionScope({
+        action: { ...amend, executionId: "execution-other" },
+        binding,
+        projection,
+        now: new Date().toISOString(),
+      }),
+    { code: "execution_credential_rejected" },
+  );
+  const failedSessionProjection = {
+    ...projection,
+    readRuntimeSession: () => ({
+      liveness: "exited",
+      outcome: "failed",
+      taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+    }),
+  } as never;
+  assert.throws(
+    () =>
+      requireCurrentExecutionScope({
+        action: amend,
+        binding,
+        projection: failedSessionProjection,
+        now: new Date().toISOString(),
+      }),
+    { code: "execution_credential_rejected" },
+  );
 });
 
 test("queued node executions recheck current Keycloak node ownership", async () => {
