@@ -17,7 +17,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { taskNotFoundCodedError } from "./projection-readiness.ts";
+import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
 
 type Execution = Snapshot["executions"][number];
 
@@ -120,11 +120,14 @@ export function attestGateWitness(
       "actor_unauthorized",
       `Gate attestation records a human principal; executor ${binding.actor.executor.id} cannot attest.`,
     );
-  if (!cell.projectionReady(read))
-    throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for attestation.`);
-  // A current cut without the task is not a readiness problem: settle it with the shared
-  // task_not_found judgment naming the repository that was searched, as task show does.
-  if (!snapshot.task) throw taskNotFoundCodedError(taskId, { repoId: cell.input.repoId, rootDir: cell.rootDir });
+  if (!cell.projectionReady(read) || !snapshot.task)
+    throw projectedTaskWriteRefusal(
+      cell.projection,
+      read,
+      taskId,
+      { repoId: cell.input.repoId, rootDir: cell.rootDir },
+      cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for attestation.`),
+    );
   const execution = snapshot.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
     ),

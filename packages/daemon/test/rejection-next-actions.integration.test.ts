@@ -281,7 +281,7 @@ test("executor declaration rejection names its eligibility rule and review comma
   }
 });
 
-test("executor declaration refusal answers task_not_found naming the repository; completion refusals name projection rebuild", async () => {
+test("executor declaration and completion context refusals name projection rebuild and the exact retry", async () => {
   const rootDir = workspace("projection-exits"),
     repoId = workspaceId("projection-exits"),
     taskId = "task-projection-exits",
@@ -341,13 +341,9 @@ test("executor declaration refusal answers task_not_found naming the repository;
       { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
       declarer,
     );
-    // A current projection without the task row answers through the shared task_not_found judgment
-    // (same as task show), naming the repository that was searched; projection rebuild still recovers.
-    assert.equal(declaration.code, "task_not_found", JSON.stringify(declaration));
-    assert.match(
-      String(declaration.rejectionExplanation),
-      /Task task-projection-exits does not exist in the canonical event stream of repository projection-exits at /u,
-    );
+    // The task exists in the canonical event stream; only its snapshot row is gone, so the
+    // refusal stays the readiness answer whose next action is the projection rebuild below.
+    assert.equal(declaration.code, "content_not_ready", JSON.stringify(declaration));
     assert.equal((await cell.run({ kind: "projection-rebuild" }, declarer)).outcome, "applied");
     const withoutDispatch = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
@@ -387,6 +383,46 @@ test("executor declaration refusal answers task_not_found naming the repository;
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("attest for a task of another repository answers task_not_found naming the resolved repository", async () => {
+  const taskId = "task-attest-elsewhere",
+    ownerRoot = workspace("attest-elsewhere-owner"),
+    elsewhereRoot = workspace("attest-elsewhere-run"),
+    elsewhereRepoId = workspaceId("attest-elsewhere-run"),
+    owner = withPolicyGroup(
+      { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+  let ownerCell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    elsewhereCell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    ownerCell = await openRepoCell({
+      repoId: workspaceId("attest-elsewhere-owner"),
+      rootDir: canonicalRoot(ownerRoot),
+      ownerId: "attest-elsewhere-owner",
+    });
+    const created = await ownerCell.run({ kind: "task-create", taskId, title: "Attested elsewhere" }, owner);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(ownerCell, created.opId, owner);
+
+    elsewhereCell = await openRepoCell({
+      repoId: elsewhereRepoId,
+      rootDir: canonicalRoot(elsewhereRoot),
+      ownerId: "attest-elsewhere-run",
+    });
+    const attested = await elsewhereCell.run({ kind: "task-attest", taskId, gateId: "signoff", result: "pass" }, owner);
+    assert.equal(attested.code, "task_not_found", JSON.stringify(attested));
+    assert.match(
+      String(attested.rejectionExplanation),
+      /Task task-attest-elsewhere does not exist in the canonical event stream of repository attest-elsewhere-run at /u,
+    );
+  } finally {
+    await elsewhereCell?.close();
+    await ownerCell?.close();
+    rmSync(ownerRoot, { recursive: true, force: true });
+    rmSync(elsewhereRoot, { recursive: true, force: true });
   }
 });
 

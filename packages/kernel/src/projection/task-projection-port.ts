@@ -155,6 +155,10 @@ export interface TaskProjection {
     readonly sourceRevision: number;
   };
   readonly readTaskExists: (taskId: string) => boolean;
+  /** Canonical-stream existence from the event index, not the snapshot rows: a snapshot row lost
+   * to cache damage still has its events here, so a not-found judgment can tell a task the
+   * repository never had from a task whose projection alone went missing. */
+  readonly readTaskEventExists: (taskId: string) => boolean;
   readonly readTaskByIdempotencyKey: (idempotencyKey: string) => {
     readonly taskId: string;
     readonly status: string;

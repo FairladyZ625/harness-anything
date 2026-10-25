@@ -352,15 +352,16 @@ test("task completion read settles lagging, absent, and unpackaged tasks via the
   );
 });
 
-// Task-id write commands settle the same shared judgment as the read faces: an id absent from a
-// current projection answers task_not_found naming the repository that was searched — a
-// wrong-directory invocation sees which repository resolved — while a projection merely behind
-// keeps each command's own content_not_ready readiness answer.
-function writeCommandCell(read: TaskRead) {
+// Task-id write commands settle through one judgment: an id absent from both the current
+// projection and the canonical event stream answers task_not_found naming the repository that was
+// searched — a wrong-directory invocation sees which repository resolved — while a projection
+// merely behind, and a snapshot row lost while its canonical events remain, keep each command's
+// own content_not_ready readiness answer.
+function writeCommandCell(read: TaskRead, taskEventExists = false) {
   return {
     rootDir: "/repos/canonical-checkout",
     input: { repoId: "canonical" },
-    projection: { read: () => read },
+    projection: { read: () => read, readTaskEventExists: () => taskEventExists },
     projectionReady,
     requiredCellText,
     explicitExecutionId: () => null,
@@ -394,6 +395,13 @@ test("task-id write commands answer a missing id with task_not_found naming the 
 test("a projection merely behind keeps the write commands' content_not_ready answer", () => {
   const cell = writeCommandCell({ ...readyTaskRead(), status: "pending", watermark: 1, sourceRevision: 2 });
   for (const run of writeCommandRuns(cell, "task_ready")) {
+    assert.throws(run, (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready");
+  }
+});
+
+test("a snapshot row lost while its canonical events remain keeps the write commands' content_not_ready answer", () => {
+  const cell = writeCommandCell(missingTaskRead(), true);
+  for (const run of writeCommandRuns(cell, "task_missing")) {
     assert.throws(run, (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready");
   }
 });

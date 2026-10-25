@@ -53,6 +53,22 @@ export function projectedTaskNotFound(
   return read.snapshot.task ? null : taskNotFoundCodedError(taskId);
 }
 
+/** The task-id write commands' (attest, declare-executor, annotate) one judgment for a tripped
+ * projection guard, called only when the cut lags or the snapshot row is missing: a lagging cut
+ * keeps the command's own content_not_ready refusal, and so does a current cut whose missing row
+ * still has canonical events — that row loss is projection damage the rebuild path recovers, not a
+ * missing task. Only an id with no canonical event in the resolved repository is task_not_found. */
+export function projectedTaskWriteRefusal(
+  source: Pick<TaskProjection, "readTaskEventExists">,
+  read: Pick<ReturnType<TaskProjection["read"]>, "status">,
+  taskId: string,
+  scope: TaskRepositoryScope,
+  notReady: Error,
+): Error {
+  if (read.status !== "ready") return notReady;
+  return source.readTaskEventExists(taskId) ? notReady : taskNotFoundCodedError(taskId, scope);
+}
+
 function projectionNotReady(
   label: string,
   cut: { readonly watermark: number; readonly sourceRevision: number },

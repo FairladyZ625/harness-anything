@@ -73,6 +73,7 @@ const REPLICA_EVENTS_SQL = [
   "ORDER BY workspace_revision LIMIT 64",
 ].join(" ");
 const EVENT_BY_OP_SQL = "SELECT event_json FROM event_index WHERE op_id = ?";
+const TASK_EVENT_EXISTS_SQL = "SELECT 1 FROM event_index WHERE task_id = ? LIMIT 1";
 
 // Task relations, task status, document, replica, and progress query API.
 export function taskQueryApi(
@@ -91,6 +92,7 @@ export function taskQueryApi(
   | "readTaskRelationsBySources"
   | "readTaskStatuses"
   | "readTaskExists"
+  | "readTaskEventExists"
   | "readTaskByIdempotencyKey"
   | "readTaskRuntimeBatch"
   | "readRelationQuery"
@@ -229,6 +231,8 @@ export function taskQueryApi(
         };
       }),
     readTaskExists: (taskId) => withDatabase(projectionPath, readHead, (db) => readTaskExists(db, taskId)),
+    readTaskEventExists: (taskId) =>
+      withDatabase(projectionPath, readHead, (db) => queryRows(db, TASK_EVENT_EXISTS_SQL, taskId).length > 0),
     readTaskByIdempotencyKey: (idempotencyKey) =>
       withDatabase(projectionPath, readHead, (db) => readTaskByIdempotencyKey(db, idempotencyKey)),
     readTaskRuntimeBatch: (query) =>

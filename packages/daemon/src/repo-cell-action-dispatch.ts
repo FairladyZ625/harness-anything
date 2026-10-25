@@ -37,7 +37,7 @@ import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
-import { taskNotFoundCodedError } from "./projection-readiness.ts";
+import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
 import { applyTaskWorktreeLifecycle, presetSnapshotReader, type TaskWorktreeLifecycleInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
@@ -474,21 +474,26 @@ export function declareExecutionExecutor(
     current = cell.projection.read(taskId),
     snapshot = current.snapshot,
     requestedExecutionId = cell.explicitExecutionId(action);
-  if (!cell.projectionReady(current))
-    throw cell.cellCodedError(
-      "content_not_ready",
-      [
-        "Task ",
-        `${taskId}`,
-        " is not ready for executor declaration; run ha daemon projection ",
-        "rebuild, then retry ha task declare-executor ",
-        `${taskId}`,
-        " --execution-id ",
-        `${requestedExecutionId ?? "<execution-id>"}`,
-        " --reason <reason>.",
-      ].join(""),
+  if (!cell.projectionReady(current) || !snapshot.task)
+    throw projectedTaskWriteRefusal(
+      cell.projection,
+      current,
+      taskId,
+      { repoId: cell.input.repoId, rootDir: cell.rootDir },
+      cell.cellCodedError(
+        "content_not_ready",
+        [
+          "Task ",
+          `${taskId}`,
+          " is not ready for executor declaration; run ha daemon projection ",
+          "rebuild, then retry ha task declare-executor ",
+          `${taskId}`,
+          " --execution-id ",
+          `${requestedExecutionId ?? "<execution-id>"}`,
+          " --reason <reason>.",
+        ].join(""),
+      ),
     );
-  if (!snapshot.task) throw taskNotFoundCodedError(taskId, { repoId: cell.input.repoId, rootDir: cell.rootDir });
   const candidates = executionExecutorDeclarationCandidates(snapshot, taskId, binding.actor),
     executionId =
       requestedExecutionId ??
@@ -557,13 +562,18 @@ export function annotateExecution(
     annotationKind = action.annotationKind ?? "correction",
     current = cell.projection.read(taskId),
     snapshot = current.snapshot;
-  if (!cell.projectionReady(current))
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} is not ready for execution annotation; run ha daemon projection rebuild, then retry ` +
-        `ha task annotate ${taskId} --execution-id ${executionId} --note <note>.`,
+  if (!cell.projectionReady(current) || !snapshot.task)
+    throw projectedTaskWriteRefusal(
+      cell.projection,
+      current,
+      taskId,
+      { repoId: cell.input.repoId, rootDir: cell.rootDir },
+      cell.cellCodedError(
+        "content_not_ready",
+        `Task ${taskId} is not ready for execution annotation; run ha daemon projection rebuild, then retry ` +
+          `ha task annotate ${taskId} --execution-id ${executionId} --note <note>.`,
+      ),
     );
-  if (!snapshot.task) throw taskNotFoundCodedError(taskId, { repoId: cell.input.repoId, rootDir: cell.rootDir });
   if (!(executionAnnotationKinds as readonly string[]).includes(String(annotationKind)))
     throw cell.cellCodedError(
       "invalid_field",
