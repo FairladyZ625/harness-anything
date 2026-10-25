@@ -168,6 +168,8 @@ test(
           : null,
       );
     assert.ok(env.HARNESS_EXECUTION_CREDENTIAL);
+    assert.equal(env.HARNESS_DAEMON_RELAY, "1");
+    assert.match(String(env.HARNESS_DAEMON_ENDPOINT), /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
     const cli = async (args: string[]) => {
       const response = await spawnCli(["--root", root, "--json", ...args], { ...process.env, ...env });
       assert.ok(response.stdout.trim(), response.stderr);
@@ -184,6 +186,20 @@ test(
     const plan = await cli(["doc", "show", "--path", `${packagePath}/task_plan.md`]);
     assert.equal(plan.receipt.outcome, "applied", JSON.stringify(plan.receipt));
     assert.ok(String(plan.receipt.evidence).includes("Worker catalog reads"));
+
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      "# Closeout\n\n## Summary\n\nThe worker submitted its own docs-task delivery through the daemon relay.\n\n" +
+        "## Verification\n\nThe task-bound CLI submission completed from the dispatched worker environment.\n\n" +
+        "## Residual Risk\n\nThe provider is a deterministic Codex fixture.\n\n" +
+        "## Same Mechanism Elsewhere\n\nThe relay root is granted only to sealed workspace-write artifact dispatches.\n",
+    );
+    const closeout = await cli(["doc", "sync", "--submit", "--path", `${packagePath}/closeout.md`]);
+    assert.equal(closeout.status, 0, JSON.stringify(closeout.receipt));
+    assert.equal(closeout.receipt.outcome, "applied", JSON.stringify(closeout.receipt));
+    const submitted = await cli(["task", "submit", taskId, "--execution-id", "execution-reads"]);
+    assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
+    assert.equal(submitted.receipt.outcome, "applied", JSON.stringify(submitted.receipt));
 
     // dec_CF96A3C910B31D2D7498F32DDD/CH2: foreign reads reach document lookup; foreign writes stay denied.
     const otherPlan = await cli(["doc", "show", "--path", "tasks/task-other/task_plan.md"]);

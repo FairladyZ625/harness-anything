@@ -521,6 +521,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(selectedEffort ? { effort: selectedEffort } : {}),
                   ...(fast === undefined ? {} : { fast }),
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
+                  ...(taskPackageRoot && callbackRelay && declaredPermissionMode === "workspace-write"
+                    ? { additionalWritableDirectories: [path.dirname(callbackRelay.path)] }
+                    : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),
                   runtimeSessionId,
                   handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,

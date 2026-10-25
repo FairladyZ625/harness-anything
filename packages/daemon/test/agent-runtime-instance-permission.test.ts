@@ -95,6 +95,49 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "-",
     ]);
+    const relayEnabled = await store.prepareLaunch("codex-open", {
+      cwd: "/workspace/repo",
+      prompt: "Relay enabled",
+      additionalWritableDirectories: ["/tmp/harness-anything-501"],
+    });
+    assert.deepEqual(relayEnabled.args, [
+      "exec",
+      "--json",
+      "--sandbox",
+      "workspace-write",
+      "--config",
+      "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+      "--config",
+      "sandbox_workspace_write.exclude_slash_tmp=true",
+      "--config",
+      'sandbox_workspace_write.writable_roots=["/tmp/harness-anything-501"]',
+      "--model",
+      "gpt-5.6-sol",
+      "-",
+    ]);
+    const resumedRelay = await store.prepareLaunch("codex-open", {
+      cwd: "/workspace/repo",
+      prompt: "Resume relay",
+      providerSessionId: "session-relay",
+      additionalWritableDirectories: ["/tmp/harness-anything-501"],
+    });
+    assert.deepEqual(resumedRelay.args, [
+      "exec",
+      "resume",
+      "--json",
+      "--config",
+      'sandbox_mode="workspace-write"',
+      "--config",
+      "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+      "--config",
+      "sandbox_workspace_write.exclude_slash_tmp=true",
+      "--config",
+      'sandbox_workspace_write.writable_roots=["/tmp/harness-anything-501"]',
+      "--model",
+      "gpt-5.6-sol",
+      "session-relay",
+      "-",
+    ]);
     assert.equal(store.read("codex-open")?.permissionMode, "workspace-write");
     const dispatched = await store.prepareLaunch("codex-open", {
         cwd: "/workspace/repo",

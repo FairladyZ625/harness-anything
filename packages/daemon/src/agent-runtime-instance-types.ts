@@ -105,6 +105,8 @@ export type RuntimeInstanceSummary = AgentRuntimeInstanceDto;
 export interface RuntimeLaunchRequest {
   readonly cwd: string;
   readonly prompt: string;
+  /** Additional roots granted only when the daemon has already narrowed the dispatch boundary. */
+  readonly additionalWritableDirectories?: readonly string[];
   readonly model?: string;
   readonly effort?: string;
   readonly fast?: boolean;

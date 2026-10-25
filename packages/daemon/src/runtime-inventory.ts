@@ -304,6 +304,7 @@ export const runtimeKinds = [
         "$resume-command",
         "--json",
         "$permission",
+        "$additional-writable-dirs",
         "--model",
         "$model",
         "$effort-config",
