@@ -18,6 +18,7 @@ import {
   restateLegacyTaskEvents,
   restateTaskContractBody,
 } from "../src/migration-import-task-restatement.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 // Fragment from migration-import-oracle.test.ts. Block-scoped so its `actor` fixture stays separate
 // from the task-restatement fragment below.
@@ -228,6 +229,42 @@ import {
     });
     assert.equal(restated.get("task_pinned")?.pinned, true);
     assert.equal(restated.get("task_pinned")?.pinnedWasPresent, true);
+  });
+
+  test("Task/v1 event restatement rejects a retired GUI assessment field on the new-write path", () => {
+    const submitted = lifecycleFixture({ complete: false }).events.find(
+      (event) => event.type === "execution_submitted",
+    );
+    assert.ok(submitted?.type === "execution_submitted");
+    const riskTierAssessment = {
+        schema: "task-risk-tier-assessment/v1",
+        declaredTier: "low",
+        effectiveTier: "low",
+        deliveryBaseSha: null,
+        deliveryHeadSha: null,
+        matchedPathReviewers: [],
+        reasons: [],
+        guiAcceptanceRequired: true,
+      },
+      value = {
+        ...submitted,
+        eventId: "event-restated-submission",
+        opId: "op-restated-submission",
+        workspaceRevision: 1,
+        payload: {
+          ...submitted.payload,
+          task: { ...submitted.payload.task, schema: "task/v1" },
+          execution: {
+            ...submitted.payload.execution,
+            submission: { ...submitted.payload.execution.submission!, riskTierAssessment },
+          },
+        },
+      };
+
+    assert.throws(
+      () => restateLegacyTaskEvents([{ sourcePath: "harness/events/1.json", value }]),
+      /legacy Task\/v1 event is invalid: Submission must name a commit or accepted artifact revisions/u,
+    );
   });
 
   test("Task/v1 restatement rejects a row missing any non-migrated required field", () => {

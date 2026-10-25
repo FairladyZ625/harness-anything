@@ -309,12 +309,15 @@ function validTaskRiskTierAssessment(value: unknown, historical = false): value 
     "matchedPathReviewers",
     "reasons",
   ];
+  const allowedFields = historical ? [...fields, "guiAcceptanceRequired"] : fields;
   return (
     isRecord(value) &&
-    hasOnlyFields(value, historical ? [...fields, "guiAcceptanceRequired"] : fields) &&
     (historical
-      ? value.guiAcceptanceRequired === undefined || typeof value.guiAcceptanceRequired === "boolean"
-      : !Object.hasOwn(value, "guiAcceptanceRequired")) &&
+      ? hasRequiredFields(value, fields) && Object.keys(value).every((field) => allowedFields.includes(field))
+      : hasOnlyFields(value, fields)) &&
+    (!historical ||
+      !Object.hasOwn(value, "guiAcceptanceRequired") ||
+      typeof value.guiAcceptanceRequired === "boolean") &&
     value.schema === "task-risk-tier-assessment/v1" &&
     ["low", "medium", "high"].includes(String(value.declaredTier)) &&
     ["low", "medium", "high"].includes(String(value.effectiveTier)) &&

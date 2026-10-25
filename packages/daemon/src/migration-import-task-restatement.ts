@@ -10,6 +10,7 @@ import {
   validateMigrationImportEvent,
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
+  validateCurrentTaskEvent,
   validateTaskEvent,
   validateTaskV2,
   taskClasses,
@@ -466,7 +467,11 @@ function validateRestatedEvent(eventValue: unknown, task: Readonly<Record<string
     ...eventValue,
     payload: { ...payload, task },
   } as unknown as PersistedCanonicalEventV1);
-  if (eventValue.schema === "task-event/v1") return validateTaskEvent(restated).map(({ message }) => message);
+  if (eventValue.schema === "task-event/v1") {
+    const historicalIssues = validateTaskEvent(restated);
+    if (historicalIssues.length) return historicalIssues.map(({ message }) => message);
+    return validateCurrentTaskEvent(restated).map(({ message }) => message);
+  }
   if (eventValue.schema === "task-bootstrap-event/v1") return validateTaskBootstrapEvent(restated);
   if (eventValue.schema === "preset-snapshot-upgrade-event/v1") return validatePresetSnapshotUpgradeEvent(restated);
   return ["Task/v1 is carried by an unsupported canonical event schema"];

@@ -12,11 +12,11 @@ import {
   currentTaskForWrite,
   lifecycleDocumentPaths,
   reduceTaskEvent,
-  validateCurrentTaskEvent,
   validateTaskEvent,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
+import { validateCurrentTaskEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
 import { validateSubmissionV1 } from "../../src/domain/execution.ts";
@@ -74,11 +74,19 @@ test("the retired GUI assessment flag is boolean history only and never current 
   });
 
   const historicalSubmission = historical(true).payload.execution.submission;
+  assert.deepEqual(validateTaskEvent(submitted), [], "an assessment without the retired field remains replayable");
+  assert.deepEqual(validateSubmissionV1(submission, true, true), []);
   assert.deepEqual(validateTaskEvent(historical(true)), []);
   assert.notDeepEqual(validateCurrentTaskEvent(historical(true)), []);
   assert.notDeepEqual(validateTaskEvent(historical("true")), []);
+  assert.notDeepEqual(
+    validateTaskEvent(historical(undefined)),
+    [],
+    "an own undefined value is not historical boolean data",
+  );
   assert.notDeepEqual(validateSubmissionV1(historicalSubmission, true), []);
   assert.deepEqual(validateSubmissionV1(historicalSubmission, true, true), []);
+  assert.notDeepEqual(validateSubmissionV1(historical(undefined).payload.execution.submission, true, true), []);
 });
 
 test("retired CI is omitted from completion receipt cuts even when an old receipt exists", () => {
