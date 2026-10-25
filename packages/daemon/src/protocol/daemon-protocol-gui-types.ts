@@ -362,6 +362,7 @@ type DaemonGuiReadDataMap = {
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
   readonly "repo.tasks.wip": DaemonTaskWipResult;
   readonly "repo.works.index": ReturnType<typeof import("../work-read.ts").workIndexFromProjection>;
+  readonly "repo.work.topology.read": import("../work-topology-read.ts").WorkTopologyRead;
   readonly "repo.works.briefs.read": import("../work-briefs-read.ts").WorkBriefsReadResult;
   readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
@@ -457,6 +458,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
   readonly "repo.tasks.wip": Readonly<Record<string, never>>;
   readonly "repo.works.index": Readonly<Record<string, never>>;
+  readonly "repo.work.topology.read": { readonly workRootTaskId: string };
   readonly "repo.works.briefs.read": Readonly<Record<string, never>>;
   readonly "repo.projection.read": DaemonUseCaseProjectionPayload;
   readonly "repo.entity.actions.explain": {

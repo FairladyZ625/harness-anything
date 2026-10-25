@@ -46,7 +46,7 @@ test("daemon close waits for managed RBAC resume before stopping its services", 
   }
 });
 
-test("daemon startup defers runtime discovery until a runtime-instance request", async () => {
+test("daemon startup defers runtime discovery, and a catalog read does not repeat it", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-runtime-discovery-lazy-")),
     userRoot = path.join(parent, "user");
   let discoveries = 0;
@@ -63,7 +63,15 @@ test("daemon startup defers runtime discovery until a runtime-instance request",
     assert.equal(discoveries, 0, "opening a daemon must not scan provider executables");
     const listed = await host.runtimeInstance("daemon.runtimeInstance.list", { all: true }, auth);
     assert.equal(listed.ok, true, JSON.stringify(listed));
-    assert.equal(discoveries, 1, "runtime-instance commands still refresh their installation snapshot");
+    assert.equal(discoveries, 1, "the first catalog read records the machine's installations once");
+    // Observed and recorded: every later catalog read is a local read, so the GUI's polling does
+    // not execute a provider CLI per request.
+    const again = await host.runtimeInstance("daemon.runtimeInstance.list", { all: true }, auth);
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(discoveries, 1, "a recorded catalog is not re-witnessed");
+    // --probe remains the explicit observation lane.
+    await host.runtimeInstance("daemon.runtimeInstance.list", { all: true, probe: true }, auth);
+    assert.equal(discoveries, 2, "--probe still refreshes the witness snapshot");
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

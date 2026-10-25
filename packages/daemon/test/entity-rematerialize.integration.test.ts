@@ -219,7 +219,7 @@ test("entity rematerialize renders relative graph links and is idempotent at one
         kind: "relation-relate",
         sourceRef: `decision/${secondDecisionId}`,
         targetRef: `decision/${decisionId}`,
-        relationType: "refines",
+        relationType: "relates",
         rationale: "An incoming edge makes the dirty document stale relative to the canonical render.",
         expectedVersion: 0,
       },

@@ -20,6 +20,7 @@ export { daemonGuiActionMethods, daemonGuiInvokeFacets, daemonGuiStreamFacets } 
 export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 export { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
+export { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
 export { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
 export { runtimeEffortValues } from "./runtime-effort.ts";
 export type { RuntimeEffort } from "./runtime-effort.ts";

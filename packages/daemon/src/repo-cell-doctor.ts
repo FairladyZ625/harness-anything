@@ -24,7 +24,7 @@ export interface DoctorCheck {
 }
 
 /**
- * `ha doctor` health: seven read-only checks over the canonical projection, local Git state and
+ * `ha doctor` health: eight read-only checks over the canonical projection, local Git state and
  * the local ledger roots. Nothing here appends, scans for writes, or mutates; every check degrades
  * to `indeterminate` rather than guessing when its data source cannot answer (a missing
  * default-branch ref on an unfetched clone, a Git-less edge node, an unreachable object).
@@ -47,6 +47,7 @@ export async function doctorHealth(
       wipPressureCheck(cell),
       doctorLocalRootResidue(cell.rootDir),
       await docDebtCheck(cell, binding),
+      relationCyclesCheck(cell),
       doctorBuildDrift(null),
     ],
     cut = cell.projection.readCut(),
@@ -300,6 +301,47 @@ async function docDebtCheck(cell: RepoCellOperationalContext, binding: RepoCellB
       next: "Repair the repository working tree or run ha daemon projection rebuild, then rerun ha doctor.",
     };
   }
+}
+
+// A typed relation cycle is a canonical-data defect that no automatic repair may rewrite. The
+// check reports every witness and leaves retirement to the authorized operator.
+function relationCyclesCheck(cell: RepoCellOperationalContext): DoctorCheck {
+  let audit: ReturnType<RepoCellOperationalContext["projection"]["readRelationCycleAudit"]>;
+  try {
+    audit = cell.projection.readRelationCycleAudit();
+  } catch (error) {
+    return {
+      id: "relation-cycles",
+      status: "indeterminate",
+      summary: `Typed relation cycles could not be audited: ${error instanceof Error ? error.message : String(error)}`,
+      count: 0,
+      next: "Repair the repository working tree or run ha daemon projection rebuild, then rerun ha doctor.",
+    };
+  }
+  if (audit.status !== "ready")
+    return {
+      id: "relation-cycles",
+      status: "indeterminate",
+      summary: `Typed relation cycles could not be judged at watermark ${String(audit.watermark)} of source ${String(audit.sourceRevision)}; the projection cut is pending.`,
+      count: 0,
+      next: "Run ha daemon projection rebuild, then rerun ha doctor.",
+    };
+  return {
+    id: "relation-cycles",
+    status: audit.issues.length ? "fail" : "ok",
+    summary: audit.issues.length
+      ? `Active typed relation cycles: ${audit.issues
+          .map(
+            (issue) =>
+              `${issue.relationType} ${issue.nodeRefs.join(" -> ")} (relations: ${issue.relationIds.join(", ")})`,
+          )
+          .join("; ")}`
+      : `No active typed relation cycles across ${String(audit.scannedEdges)} relation edges.`,
+    count: audit.issues.length,
+    next: audit.issues.length
+      ? "Retire one edge of each cycle through the normal Relation retire write after deciding which semantic edge is wrong; the audit never edits the ledger."
+      : "Nothing to do.",
+  };
 }
 
 // Host composition supplies the observed process build pair in the same health response.

@@ -6,7 +6,7 @@
 //
 //   node tools/perf/baseline-suite.mjs --out <dir>                       # all arms
 //   node tools/perf/baseline-suite.mjs --out <dir> --arms cli,daemon     # subset
-//   node tools/perf/baseline-suite.mjs --out <dir> --sizes 1000,10000,100000
+//   node tools/perf/baseline-suite.mjs --out <dir> --sizes 217107,1000000,5000000
 //
 // Requires the compiled CLI (npm run build -w @harness-anything/cli). The kernel arm reuses
 // tools/scale/b5-real.mjs; the cli arm reuses tools/measure-cli-command-timing.mjs; the gui arm
@@ -107,7 +107,7 @@ export async function runSuite(options) {
     measuredAt: new Date().toISOString(),
     basisRevision: sha,
     sourceState: { dirty: sourceStatus.length > 0, status: sourceStatus },
-    host: hostSnapshot(),
+    host: await hostSnapshot(),
     parameters: {
       arms: options.arms,
       coldCycles: options.coldCycles,
@@ -179,7 +179,7 @@ export function renderMarkdown(report) {
     "# 性能基线（CLI · daemon · kernel · GUI）",
     "",
     `- 测量时间：${report.measuredAt}；基线 revision：\`${report.basisRevision}\`；源码状态：${report.sourceState.dirty ? `dirty（${report.sourceState.status.join(", ")}）` : "clean"}。`,
-    `- 主机：${[report.host.cpuModel, `${report.host.parallelism} 并行度`, `${report.host.totalMemMib} MiB`, report.host.platform, report.host.arch, report.host.node].filter(Boolean).join(" · ")}。`,
+    `- 主机：${[report.host.cpuModel, `${report.host.parallelism} 并行度`, `${report.host.totalMemMib} MiB`, report.host.platform, report.host.arch, report.host.node].filter(Boolean).join(" · ")}；CPU idle ${report.host.cpuIdlePercent ?? "—"}%；load average ${report.host.loadAverage?.join("/") ?? "—"}；free RAM ${report.host.freeMemMib ?? "—"} MiB。`,
     `- 复跑：先 \`${report.reproduction.build}\`，再 \`${report.reproduction.command}\`。各臂口径：`,
     ...Object.entries(report.reproduction.arms).map(([arm, shape]) => `  - ${arm}: ${shape}`),
     "",
@@ -249,13 +249,28 @@ export function renderMarkdown(report) {
     lines.push("## kernel（规模曲线）", "");
     lines.push(`种子 ${report.kernel.seed}；每规模一轮账本构建 + 投影冷追平 + 每查询 10 次采样（b5-real 口径）。`, "");
     lines.push(
-      "| 规模（tasks） | events | 账本构建 ms | 投影冷追平 ms | taskList p50 | singleTask p50 | factSearch p50 | relationGraph p50 |",
+      "| 规模（events / tasks） | ledger build ms | projection catch-up ms | taskList p50/p95 | singleTask p50/p95 | factSearch p50/p95 | relationGraph p50/p95 | fixture MiB |",
       "|---:|---:|---:|---:|---:|---:|---:|---:|",
     );
     for (const run of report.kernel.runs) {
       lines.push(
-        `| ${run.entities.toLocaleString()} | ${run.events.toLocaleString()} | ${run.ledgerBuildMs} | ${run.catchUpMs} | ${ms2(run.reads.taskList?.p50Ms)} | ${ms2(run.reads.singleTaskRead?.p50Ms)} | ${ms2(run.reads.factSearch?.p50Ms)} | ${ms2(run.reads.relationGraph?.p50Ms)} |`,
+        `| ${run.events.toLocaleString()} / ${run.tasks.toLocaleString()} | ${run.ledgerBuildMs} | ${run.catchUpMs} | ${ms2(run.reads.taskList?.p50Ms)} / ${ms2(run.reads.taskList?.p95Ms)} | ${ms2(run.reads.singleTaskRead?.p50Ms)} / ${ms2(run.reads.singleTaskRead?.p95Ms)} | ${ms2(run.reads.factSearch?.p50Ms)} / ${ms2(run.reads.factSearch?.p95Ms)} | ${ms2(run.reads.relationGraph?.p50Ms)} / ${ms2(run.reads.relationGraph?.p95Ms)} | ${ms2(run.fixtureDirectoryBytes / (1024 * 1024))} |`,
       );
+    }
+    lines.push("", "Linear least-squares slopes from the requested event sizes (ms/event; query slopes use p95):", "");
+    for (const [metric, fit] of Object.entries(report.kernel.metricSlopes ?? {}))
+      lines.push(
+        `- ${metric}: ${fit.points} points; ${fit.slopePerUnit === null ? "slope unavailable" : `${fit.slopePerUnit.toExponential(4)} ms/event`}.`,
+      );
+    lines.push(
+      "",
+      "Controlled fits (three points each; event count changes with tasks held at 4,469, or task count changes with events held at 217,107):",
+      "",
+    );
+    for (const [metric, axes] of Object.entries(report.kernel.controlledSlopes ?? {})) {
+      const show = (fit) =>
+        fit.slopePerUnit === null ? "unavailable" : `${fit.slopePerUnit.toExponential(4)} ms/unit`;
+      lines.push(`- ${metric}: events ${show(axes.eventsAtFixedTasks)}; tasks ${show(axes.tasksAtFixedEvents)}.`);
     }
     lines.push("");
   }

@@ -60,9 +60,9 @@ test("relation cycle substrate check allows wrappers that delegate to the canoni
     writeFileSync(
       path.join(root, "packages/cli/src/commands/relation-cycle.ts"),
       [
-        "import { detectRelationGraphCycles, type RelationGraphEdgeRow } from '@harness-anything/kernel';",
+        "import { findRelationCycleWitnesses, type RelationGraphEdgeRow } from '@harness-anything/kernel';",
         "export function detectPendingRelationCycle(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
-        "  return detectRelationGraphCycles(edges)[0] ?? null;",
+        "  return findRelationCycleWitnesses(edges)[0] ?? null;",
         "}",
       ].join("\n"),
       "utf8",
@@ -81,17 +81,17 @@ function makeFixtureRoot() {
   // excludesFile pin keeps the host user's global ignores out of the test.
   spawnSync("git", ["init", "--quiet"], { cwd: root });
   spawnSync("git", ["config", "core.excludesFile", "/dev/null"], { cwd: root });
-  mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
+  mkdirSync(path.join(root, "packages/kernel/src/domain"), { recursive: true });
   mkdirSync(path.join(root, "tools"), { recursive: true });
   return root;
 }
 
 function writeCanonicalDetector(root) {
   writeFileSync(
-    path.join(root, "packages/kernel/src/projection/relation-graph-projection.ts"),
+    path.join(root, "packages/kernel/src/domain/relation-cycle.ts"),
     [
       "export interface RelationGraphEdgeRow { readonly sourceRef: string; readonly targetRef: string; readonly relationType: string; readonly state: string; }",
-      "export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
+      "export function findRelationCycleWitnesses(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
       "  return edges.length > 0 ? [] : [];",
       "}",
     ].join("\n"),

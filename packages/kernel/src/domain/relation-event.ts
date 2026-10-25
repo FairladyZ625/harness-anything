@@ -17,6 +17,7 @@ import {
 import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
+import { isAcyclicRelationType } from "./relation-type-registry.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import type { DecisionDocumentClaim } from "./decision-event-types.ts";
 import { factRef, type FactEventV1, type FactsDocumentClaim } from "./fact-event.ts";
@@ -583,11 +584,19 @@ function replayCreatedEvent(
  * an already written edge unreplayable (governed-entity-design §5).
  */
 export function assertRelationAdmission(
-  record: Pick<EntityRelationRecord, "source" | "target" | "type" | "rationale">,
+  record: Pick<EntityRelationRecord, "source" | "target" | "type" | "rationale"> &
+    Partial<Pick<EntityRelationRecord, "direction">>,
   directions: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): void {
   const kinds = relationEndpointKinds(record);
   if (isAllowedRelationKindTriple(kinds.source, record.type, kinds.target, directions)) {
+    if (record.direction === "undirected" && isAcyclicRelationType(record.type))
+      relationAdmissionError(
+        "relation_direction_invalid",
+        record,
+        kinds,
+        `Relation type ${record.type} is acyclic and must be directed`,
+      );
     if (record.type === "awaits" && parseAwaitsRequest(record.rationale) === null)
       throw Object.assign(new Error("An awaits Relation rationale must read <ask-kind>: <question>"), {
         code: "relation_awaits_request_invalid",

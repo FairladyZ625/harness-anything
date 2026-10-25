@@ -4,15 +4,15 @@ import path from "node:path";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
-const canonicalPath = "packages/kernel/src/projection/relation-graph-projection.ts";
-const canonicalFunction = "detectRelationGraphCycles";
+const canonicalPath = "packages/kernel/src/domain/relation-cycle.ts";
+const canonicalFunction = "findRelationCycleWitnesses";
 const sourceFilePattern = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
 const findings = [];
 
 const canonicalText = readText(canonicalPath);
 const canonicalDefinitions = countMatches(
   canonicalText,
-  new RegExp(`\\bexport\\s+function\\s+${canonicalFunction}\\s*\\(`, "gu"),
+  new RegExp(`\\bexport\\s+function\\s+${canonicalFunction}\\s*\\([^)]*\\)[^{]*\\{`, "gu"),
 );
 if (canonicalDefinitions !== 1) {
   findings.push(

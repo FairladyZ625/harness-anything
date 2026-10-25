@@ -6,6 +6,7 @@ import { isTaskEvent } from "../domain/doc-sync.contract.ts";
 import { repositoryEventQueries, readDocumentRows } from "./repository-event-queries.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import {
+  auditRelationCycles,
   readTaskDependencyClosureRows,
   readTaskRelationNeighborhoodRows,
   readTaskRelationNeighborhoodWindow,
@@ -96,6 +97,7 @@ export function taskQueryApi(
   | "readTaskByIdempotencyKey"
   | "readTaskRuntimeBatch"
   | "readRelationQuery"
+  | "readRelationCycleAudit"
   | "readOperation"
   | "readRelationEdge"
   | "readEntityVersionWitness"
@@ -256,6 +258,16 @@ export function taskQueryApi(
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           ...(page.page ? { page: page.page } : {}),
+        };
+      }),
+    readRelationCycleAudit: () =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return {
+          status: cut.status,
+          ...auditRelationCycles(db),
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readOperation: (opId) =>

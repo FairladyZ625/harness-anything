@@ -29,6 +29,8 @@ import {
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
 import { validateDaemonTaskDeliveryDiff } from "./daemon-protocol-task-delivery-diff.ts";
+import { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
+export { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
 import { validateDaemonTaskSnapshotListServed } from "./daemon-protocol-validate-task.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
@@ -165,6 +167,7 @@ const resultValidators = {
   "repo.tasks.runtimeContext.read": validateTaskRuntimeContextRead,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.works.index": validateDaemonWorkIndex,
+  "repo.work.topology.read": validateDaemonWorkTopology,
   "repo.works.briefs.read": validateDaemonWorkBriefs,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,

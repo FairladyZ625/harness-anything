@@ -100,31 +100,3 @@ export function buildRelationGraphProjection(
     factAnchors: [...truth.factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)),
   };
 }
-
-export function detectRelationGraphCycles(edges: readonly RelationGraphEdgeRow[]): readonly (readonly string[])[] {
-  const graph = new Map<string, string[]>();
-  for (const edge of edges)
-    if (edge.state === "active") {
-      graph.set(edge.sourceRef, [...(graph.get(edge.sourceRef) ?? []), edge.targetRef]);
-      if (!graph.has(edge.targetRef)) graph.set(edge.targetRef, []);
-    }
-  const visiting = new Set<string>(),
-    visited = new Set<string>(),
-    stack: string[] = [],
-    cycles: string[][] = [];
-  const visit = (ref: string): void => {
-    if (visiting.has(ref)) {
-      cycles.push(stack.slice(stack.indexOf(ref)).concat(ref));
-      return;
-    }
-    if (visited.has(ref) || cycles.length) return;
-    visiting.add(ref);
-    stack.push(ref);
-    for (const target of graph.get(ref) ?? []) visit(target);
-    stack.pop();
-    visiting.delete(ref);
-    visited.add(ref);
-  };
-  for (const ref of graph.keys()) visit(ref);
-  return cycles;
-}

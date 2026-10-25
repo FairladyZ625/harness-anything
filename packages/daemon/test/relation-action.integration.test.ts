@@ -208,6 +208,33 @@ test("immediate relate observes all newly created endpoints across twenty writer
       );
     assert.equal(relatedDecisions.outcome, "applied", JSON.stringify(relatedDecisions));
     assert.equal((await waitForAcceptedReceipt(cell, relatedDecisions)).wait?.state, "satisfied");
+    const reverseRefines = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${targetDecisionId}`,
+        targetRef: `decision/${decisionId}`,
+        relationType: "refines",
+        rationale: "A reverse refinement would introduce a typed cycle.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(reverseRefines.outcome, "op_rejected", JSON.stringify(reverseRefines));
+    assert.equal(reverseRefines.code, "relation_cycle");
+    assert.match(String(reverseRefines.rejectionExplanation), /relations: rel_[0-9a-f]{16}, rel_[0-9a-f]{16}/u);
+    const decisionBlocks = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}`,
+        targetRef: `decision/${targetDecisionId}`,
+        relationType: "blocks",
+        rationale: "Decision blocks are not a writable relation declaration.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(decisionBlocks.outcome, "op_rejected", JSON.stringify(decisionBlocks));
+    assert.equal(decisionBlocks.code, "relation_triple_undeclared");
     const targetBody = readFileSync(
         path.join(rootDir, "harness", `decisions/decision-${targetDecisionId}/decision.md`),
         "utf8",
@@ -434,6 +461,19 @@ test("supersedes-fact relation create and final retirement publish current Fact 
     assert.equal(thirdRelated.outcome, "applied", JSON.stringify(thirdRelated));
     assert.equal((await waitForAcceptedReceipt(cell, secondRelated)).wait?.state, "satisfied");
     assert.equal((await waitForAcceptedReceipt(cell, thirdRelated)).wait?.state, "satisfied");
+    const reverseSupersession = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `fact/${firstId}`,
+        targetRef: `fact/${secondId}`,
+        relationType: "supersedes-fact",
+        rationale: "A fact cannot supersede the fact that already supersedes it.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(reverseSupersession.outcome, "op_rejected", JSON.stringify(reverseSupersession));
+    assert.equal(reverseSupersession.code, "relation_cycle");
     const firstPath = path.join(rootDir, "harness", `facts/${firstId}.md`),
       superseded = readFileSync(firstPath, "utf8");
     assert.match(superseded, /State: superseded_fact/u);
@@ -610,6 +650,21 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     );
     assert.equal(cycle.outcome, "op_rejected");
     assert.equal(cycle.code, "relation_cycle");
+
+    const undirected = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: identity.source,
+        targetRef: "task/task_relation_c",
+        relationType: "depends-on",
+        direction: "undirected",
+        rationale: "Acyclic relations require one directed order.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(undirected.outcome, "op_rejected", JSON.stringify(undirected));
+    assert.equal(undirected.code, "relation_direction_invalid");
 
     const stale = await cell.run(
       {

@@ -38,6 +38,7 @@ export type TaskSnapshotProjectionRow = DaemonGuiReadResultMap["repo.tasks.list"
 export type TaskSnapshotInvalidRow = DaemonGuiReadResultMap["repo.tasks.list"]["invalidRows"][number];
 export type TaskWipRead = DaemonGuiReadResultMap["repo.tasks.wip"];
 export type WorkIndexRead = DaemonGuiReadResultMap["repo.works.index"];
+export type WorkTopologyRead = DaemonGuiReadResultMap["repo.work.topology.read"];
 /** `repo.works.briefs.read`: per-work-root status bucket and progress sentence parts (redesign zone). */
 export type WorkBriefsRead = DaemonGuiReadResultMap["repo.works.briefs.read"];
 export type WorkBrief = WorkBriefsRead["briefs"][number];

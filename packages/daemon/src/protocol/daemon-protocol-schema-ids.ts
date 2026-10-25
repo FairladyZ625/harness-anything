@@ -22,6 +22,25 @@ export const DAEMON_WORK_INDEX_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "ok", "status", "works", "watermark", "sourceRevision", "warnings"]),
 });
 
+export const DAEMON_WORK_TOPOLOGY_SCHEMA = Object.freeze({
+  id: "daemon.work-topology/v1",
+  required: Object.freeze([
+    "schema",
+    "ok",
+    "status",
+    "workRootTaskId",
+    "members",
+    "boundaryTasks",
+    "edges",
+    "frontier",
+    "criticalPath",
+    "completeness",
+    "warnings",
+    "watermark",
+    "sourceRevision",
+  ]),
+});
+
 export const DAEMON_WORK_BRIEFS_SCHEMA = Object.freeze({
   id: "daemon.work-briefs/v1",
   required: Object.freeze(["schema", "ok", "status", "briefs", "watermark", "sourceRevision", "warnings"]),

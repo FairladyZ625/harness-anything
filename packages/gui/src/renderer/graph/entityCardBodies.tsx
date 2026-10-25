@@ -14,17 +14,38 @@ import { t } from "../i18n/index.tsx";
  */
 
 export function EgoTaskSummaryBody({ task }: { task: TaskRow }) {
+  const topologyTone =
+    task.topologyState === "done"
+      ? "done"
+      : task.topologyState === "cancelled"
+        ? "cancel"
+        : task.topologyState === "in-flight"
+          ? "active"
+          : task.topologyState === "awaiting-ruling"
+            ? "wait"
+            : task.topologyState === "blocked"
+              ? "bad"
+              : task.topologyState === "ready"
+                ? "plan"
+                : "neutral";
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusTag status={task.coordinationStatus} />
-        <CloseoutBadge value={task.closeoutReadiness} />
+        {task.topologyState && <StatusTag tone={topologyTone} label={task.topologyState} mono />}
+        {task.topologyFrontier && <StatusTag tone="active" label="前沿" />}
+        {task.topologyCriticalPathPosition !== undefined && (
+          <StatusTag tone="wait" label={`关键路径 ${task.topologyCriticalPathPosition}`} mono />
+        )}
+        {!task.topologyOnly && <CloseoutBadge value={task.closeoutReadiness} />}
       </div>
-      <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
-      <div className="flex gap-3 font-mono ui-micro text-text-muted">
-        <span>{t("graph.graphDrawer.rawValue", { raw: task.rawStatus })}</span>
-      </div>
-      {(task.riskTier || task.urgency) && (
+      {!task.topologyOnly && <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />}
+      {!task.topologyOnly && (
+        <div className="flex gap-3 font-mono ui-micro text-text-muted">
+          <span>{t("graph.graphDrawer.rawValue", { raw: task.rawStatus })}</span>
+        </div>
+      )}
+      {!task.topologyOnly && (task.riskTier || task.urgency) && (
         <div className="font-mono ui-micro text-text-muted">
           {t("graph.graphDrawer.riskUrgency", {
             risk: task.riskTier ?? t("graph.graphDrawer.unknown"),

@@ -5,6 +5,7 @@ import type {
   RelationState,
   RelationType,
   TaskSnapshotProjectionRow,
+  WorkTopologyRead,
 } from "../../api/renderer-dto.ts";
 import type { WorkStepKind } from "./workspace-narrative.ts";
 
@@ -203,6 +204,12 @@ interface TaskRowFields {
    * 与 spawningDecisionIds 不同:这是 task→task 的层级关系,不是 decision 派生。
    */
   parentTaskId?: string;
+  /** Work topology overlay; the canonical task status stays in coordinationStatus. */
+  topologyState?: WorkTopologyRead["members"][number]["topologyState"];
+  topologyFrontier?: boolean;
+  topologyCriticalPathPosition?: number;
+  /** This graph row has no fields beyond the bounded topology read. */
+  topologyOnly?: boolean;
   /**
    * 所属工作的根 taskId(dec_5F7E74F1),来自 daemon 工作索引 `repo.works.index`;工作根的
    * workId=自身。不属于任何工作(独立任务)时缺省。renderer 不沿父链自己判定。
