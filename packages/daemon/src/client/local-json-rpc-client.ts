@@ -179,6 +179,11 @@ export class JsonRpcLineClient {
   private readonly waiters: ResponseWaiter[] = [];
   private closed = false;
   private failure: Error | null = null;
+  // Whether the daemon ever answered on this connection. A long parked wait writes its request and
+  // then waits minutes or hours for the answer; the daemon can end that connection while the
+  // request is still outstanding (build-drift restart, connection recycling). The re-issuing caller
+  // has to tell that apart from a socket that never produced a frame, and only this reader knows.
+  private answered = false;
   private readonly handleOutputError = (error: Error) => this.onOutputError(error);
   constructor(input: Readable, output: Writable) {
     this.output = output;
@@ -235,12 +240,13 @@ export class JsonRpcLineClient {
     }
     const index = this.waiters.findIndex((waiter) => waiter.id === response.id);
     if (index < 0) return;
+    this.answered = true;
     const [waiter] = this.waiters.splice(index, 1);
     waiter.resolve(response);
   }
   private onClosed(): void {
     this.closed = true;
-    for (const waiter of this.waiters.splice(0)) waiter.reject(daemonClosedError(waiter.id));
+    for (const waiter of this.waiters.splice(0)) waiter.reject(daemonClosedError(waiter.id, this.answered));
   }
   private onOutputError(error: Error): void {
     this.closed = true;
@@ -387,8 +393,13 @@ export function jsonRpcRecord(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function daemonClosedError(id: number): Error & { readonly code: string } {
-  return Object.assign(new Error(`daemon closed before JSON-RPC response ${id}`), { code: "daemon_closed" });
+function daemonClosedError(id: number, answered = false): Error & { readonly code: string } {
+  return Object.assign(new Error(`daemon closed before JSON-RPC response ${id}`), {
+    code: "daemon_closed",
+    // The daemon served this connection before the close, so a caller retrying the request can
+    // count the attempt as reachability rather than as an unreachable daemon.
+    ...(answered ? { daemonAnsweredConnection: true } : {}),
+  });
 }
 
 /** All local hello producers must carry the worker credential, including streams and shutdown. */
