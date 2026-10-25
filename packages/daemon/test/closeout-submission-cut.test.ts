@@ -7,9 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
+import { validateSubmissionV1 } from "../../kernel/src/domain/execution.ts";
 import {
   deriveCloseoutSubmission,
   readCloseoutSubmission,
+  sameFrozenSubmissionCut,
   submissionAnchorDriftWarnings,
   submissionStopped,
 } from "../src/repo-cell-submit.ts";
@@ -216,6 +218,37 @@ function dispatch(root: string, cwd: string, dispatchId = "dispatch_111111111111
     cwd,
   });
 }
+
+test("same-cut closeout restore strips the retired GUI assessment key before validation", async (t) => {
+  const { root } = fixture(t);
+  put(root, "src/live.ts", "export const liveValue = 2;\n");
+  const sha = commit(root),
+    summary = "Frozen assessment with a retired field.",
+    derived = derive(root, summary, undefined, ["lint"], undefined, undefined, sha),
+    riskTierAssessment = {
+      schema: "task-risk-tier-assessment/v1",
+      declaredTier: "low",
+      effectiveTier: "low",
+      deliveryBaseSha: null,
+      deliveryHeadSha: sha,
+      matchedPathReviewers: [],
+      reasons: ["frozen legacy assessment"],
+      guiAcceptanceRequired: true,
+    } as NonNullable<typeof derived.riskTierAssessment>,
+    frozen = { ...derived, riskTierAssessment };
+
+  assert.equal(sameFrozenSubmissionCut(derived, frozen), true);
+  const result = await readCloseoutSubmission(
+    ...deriveInput(root, summary, undefined, ["lint"], undefined, undefined, sha, "repository-diff", undefined, frozen),
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.ok(result.submission.riskTierAssessment);
+  assert.deepEqual(result.submission.riskTierAssessment.reasons, ["frozen legacy assessment"]);
+  assert.equal(Object.hasOwn(result.submission.riskTierAssessment, "guiAcceptanceRequired"), false);
+  assert.deepEqual(validateSubmissionV1(result.submission), []);
+});
 
 test("explicit structured commit derives mixed deletion evidence without a dispatch", (t) => {
   const { root } = fixture(t);

@@ -433,6 +433,17 @@ export function riskTierCompletionContract(
   return { ...contract, closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment) };
 }
 
+function currentRiskTierAssessment(
+  assessment: NonNullable<SubmissionV1["riskTierAssessment"]>,
+): NonNullable<SubmissionV1["riskTierAssessment"]> {
+  const { guiAcceptanceRequired: _retired, ...current } = assessment as NonNullable<
+    SubmissionV1["riskTierAssessment"]
+  > & {
+    readonly guiAcceptanceRequired?: unknown;
+  };
+  return current;
+}
+
 export function sameFrozenSubmissionCut(derived: SubmissionV1, frozen: SubmissionV1 | null | undefined): boolean {
   if (frozen === null || frozen === undefined) return false;
   const { riskTierAssessment: _assessment, ...frozenCut } = frozen;
@@ -907,7 +918,7 @@ export async function readCloseoutSubmission(
       riskTierAssessment = legacyFrozenCut
         ? undefined
         : sameCut && frozen?.riskTierAssessment
-          ? frozen.riskTierAssessment
+          ? currentRiskTierAssessment(frozen.riskTierAssessment)
           : await assessTaskRiskTier({
               rootDir: cell.rootDir,
               task: taskRiskIdentity(snapshot, taskId),

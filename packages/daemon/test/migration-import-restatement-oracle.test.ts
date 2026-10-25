@@ -11,6 +11,7 @@ import {
   makeTaskProjection,
   serializeEventHead,
   sha256Text,
+  validateTaskEvent,
 } from "@harness-anything/kernel";
 import { readMigrationProjectionOracle } from "../src/migration-import-oracle.ts";
 import {
@@ -231,7 +232,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
     assert.equal(restated.get("task_pinned")?.pinnedWasPresent, true);
   });
 
-  test("Task/v1 event restatement rejects a retired GUI assessment field on the new-write path", () => {
+  test("Task/v1 event restatement rejects a retired GUI assessment field after historical validation", () => {
     const submitted = lifecycleFixture({ complete: false }).events.find(
       (event) => event.type === "execution_submitted",
     );
@@ -261,10 +262,43 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
         },
       };
 
+    assert.deepEqual(
+      validateTaskEvent({
+        ...value,
+        payload: { ...value.payload, task: { ...submitted.payload.task, packageDisposition: "active" } },
+      }),
+      [],
+      "the event remains valid under the historical reader before the retired-field boundary",
+    );
     assert.throws(
       () => restateLegacyTaskEvents([{ sourcePath: "harness/events/1.json", value }]),
-      /legacy Task\/v1 event is invalid: Submission must name a commit or accepted artifact revisions/u,
+      /legacy Task\/v1 event is invalid: riskTierAssessment\.guiAcceptanceRequired is retired/u,
     );
+  });
+
+  test("Task/v1 import keeps retired task classes and assignment event shapes readable", () => {
+    const assignedTask = {
+        ...legacyTask("task_assigned"),
+        assignment: {
+          assignee: { kind: "person", personId: "person-a" },
+          expiresAt: "2026-12-01T00:00:00.000Z",
+        },
+      },
+      unassignedTask = { ...legacyTask("task_unassigned"), assignment: null },
+      restated = restateLegacyTaskEvents([
+        input(1, "task_milestone", { ...legacyTask("task_milestone"), taskClass: "milestone" }),
+        input(2, "task_epic", { ...legacyTask("task_epic"), taskClass: "epic" }),
+        input(3, "task_assigned", assignedTask, "task_assigned", {
+          mutation: { command: "assign", reason: "Task assigned.", fields: ["assignment"] },
+          documentClaims: [],
+        }),
+        input(4, "task_unassigned", unassignedTask, "task_unassigned", {
+          mutation: { command: "unassign", reason: "Task assignment removed.", fields: ["assignment"] },
+          documentClaims: [],
+        }),
+      ]);
+
+    assert.deepEqual([...restated.keys()], ["task_milestone", "task_epic", "task_assigned", "task_unassigned"]);
   });
 
   test("Task/v1 restatement rejects a row missing any non-migrated required field", () => {
@@ -609,6 +643,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
     taskId: string,
     task: Readonly<Record<string, unknown>>,
     type = "task_created",
+    payloadFields: Readonly<Record<string, unknown>> = {},
   ) {
     return {
       sourcePath: `harness/events/${workspaceRevision}.json`,
@@ -622,7 +657,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
         actor,
         source: "migration-import/v1",
         occurredAt: `2026-01-01T00:00:0${workspaceRevision}.000Z`,
-        payload: { task },
+        payload: { task, ...payloadFields },
       },
     };
   }

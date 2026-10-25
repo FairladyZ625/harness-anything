@@ -10,7 +10,6 @@ import {
   validateMigrationImportEvent,
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
-  validateCurrentTaskEvent,
   validateTaskEvent,
   validateTaskV2,
   taskClasses,
@@ -470,7 +469,13 @@ function validateRestatedEvent(eventValue: unknown, task: Readonly<Record<string
   if (eventValue.schema === "task-event/v1") {
     const historicalIssues = validateTaskEvent(restated);
     if (historicalIssues.length) return historicalIssues.map(({ message }) => message);
-    return validateCurrentTaskEvent(restated).map(({ message }) => message);
+    const eventPayload = (restated as { readonly payload: Readonly<Record<string, unknown>> }).payload,
+      execution = eventPayload.execution,
+      submission = migrationImportRecord(execution) ? execution.submission : undefined,
+      assessment = migrationImportRecord(submission) ? submission.riskTierAssessment : undefined;
+    if (migrationImportRecord(assessment) && Object.hasOwn(assessment, "guiAcceptanceRequired"))
+      return ["riskTierAssessment.guiAcceptanceRequired is retired"];
+    return [];
   }
   if (eventValue.schema === "task-bootstrap-event/v1") return validateTaskBootstrapEvent(restated);
   if (eventValue.schema === "preset-snapshot-upgrade-event/v1") return validatePresetSnapshotUpgradeEvent(restated);
