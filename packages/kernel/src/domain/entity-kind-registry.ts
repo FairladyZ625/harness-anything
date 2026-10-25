@@ -614,11 +614,16 @@ const relationExecutableAction = (
         failureCode: id === "reconfirm" ? "version_conflict" : "revision_conflict",
         explain: "The expected Relation aggregate revision must equal the projected revision at the canonical cut.",
       },
-      {
-        ref: "relation/acyclic-dependency",
-        failureCode: "relation_cycle",
-        explain: "A depends-on Relation must not introduce a cycle in the canonical Relation projection.",
-      },
+      ...(id === "relate"
+        ? [
+            {
+              ref: "relation/acyclic-type",
+              failureCode: "relation_cycle",
+              explain:
+                "An acyclic Relation type must not introduce a cycle in the current canonical Relation projection.",
+            },
+          ]
+        : []),
     ]),
     concurrency: Object.freeze({
       expectedVersion: Object.freeze({ authority: "relation-aggregate-revision", required: true }),

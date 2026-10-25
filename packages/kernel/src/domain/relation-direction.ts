@@ -105,14 +105,6 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     reads: "the decision supports the target decision",
     registration: "ratified",
   },
-  // Allowed by the ratified sentence grammar; zero stored edges and no registered semantics.
-  {
-    type: "blocks",
-    sourceKind: "decision",
-    targetKind: "decision",
-    reads: "the decision blocks the target decision",
-    registration: "unregistered",
-  },
   // decision → task
   {
     type: "derives",

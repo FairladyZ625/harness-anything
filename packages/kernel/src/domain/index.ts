@@ -228,6 +228,9 @@ export {
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
 export { composeCanonicalRelationDirections, declaredRelationTriples } from "./relation-direction.ts";
 export type { CanonicalRelationDirection } from "./relation-direction.ts";
+export { findRelationCycleWitnesses } from "./relation-cycle.ts";
+export type { RelationCycleEdge, RelationCycleWitness } from "./relation-cycle.ts";
+export { isAcyclicRelationType } from "./relation-type-registry.ts";
 export type {
   EntityActionCriterionFailure,
   EntityActionCompileInput,
