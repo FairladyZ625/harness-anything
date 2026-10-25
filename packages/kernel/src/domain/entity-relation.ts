@@ -6,37 +6,16 @@ import { canonicalRelationDirections, type CanonicalRelationDirection } from "./
 import type { RelationFreshness, RelationFreshnessAnchor } from "./entity-freshness.ts";
 import { isRecord } from "./write-chain.contract.ts";
 import { relationStates } from "./relation-state.ts";
+import { relationTypes } from "./relation-type-registry.ts";
+import type { RelationType } from "./relation-type-registry.ts";
 export { relationStates } from "./relation-state.ts";
-
-export const relationTypes = [
-  "supports",
-  "supersedes",
-  "refines",
-  "narrows",
-  "derives",
-  "blocks",
-  "relates",
-  "implements",
-  "depends-on",
-  "produces",
-  "evidences",
-  "evidenced-by",
-  "refuted-by",
-  "invalidated-by",
-  "supersedes-fact",
-  "executes",
-  "reviews",
-  "owns",
-  "dispatches",
-  "awaits",
-  "assigned-to",
-] as const;
+export { relationTypes } from "./relation-type-registry.ts";
+export type { RelationType } from "./relation-type-registry.ts";
 
 export const relationStrengths = ["strong", "weak"] as const;
 export const relationDirections = ["directed", "undirected"] as const;
 export const relationOrigins = ["declared", "imported_snapshot", "generated", "inferred"] as const;
 
-export type RelationType = (typeof relationTypes)[number];
 export type RelationStrength = (typeof relationStrengths)[number];
 export type RelationDirection = (typeof relationDirections)[number];
 export type RelationOrigin = (typeof relationOrigins)[number];

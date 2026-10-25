@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assertRelationAdmission } from "../../src/domain/relation-event.ts";
 import { isAllowedRelationKindTriple, parseAwaitsRequest, relationTypes } from "../../src/domain/entity-relation.ts";
+import { isAcyclicRelationType, relationTypeDeclarations } from "../../src/domain/relation-type-registry.ts";
 import {
   canonicalRelationDirections,
   declaredRelationTriples,
@@ -53,6 +54,23 @@ test("declared relation triples project the canonical registry without derived r
   );
 });
 
+test("each relation type has one explicit acyclic declaration", () => {
+  assert.deepEqual(
+    relationTypes,
+    relationTypeDeclarations.map(({ type }) => type),
+  );
+  assert.equal(new Set(relationTypeDeclarations.map(({ type }) => type)).size, relationTypes.length);
+  assert.ok(relationTypeDeclarations.every(({ acyclic }) => typeof acyclic === "boolean"));
+  assert.deepEqual(
+    relationTypeDeclarations
+      .filter(({ acyclic }) => acyclic)
+      .map(({ type }) => type)
+      .sort(),
+    ["depends-on", "derives", "narrows", "refines", "supersedes", "supersedes-fact"],
+  );
+  assert.equal(isAcyclicRelationType("blocks"), false);
+});
+
 test("every reversed-direction pair keeps exactly one canonical writable side", () => {
   // Evidence: decision --evidenced-by--> fact is canonical; fact --supports--> decision is retired.
   assert.equal(isAllowedRelationKindTriple("decision", "evidenced-by", "fact"), true);
@@ -97,17 +115,53 @@ test("the reverse query agrees with the canonical direction for every registry r
   }
 });
 
-test("semantics with no registered reading are flagged, not silently ratified", () => {
+test("decision-to-decision blocks is absent from writable relation declarations", () => {
   const unregistered = canonicalRelationDirections.filter(({ registration }) => registration === "unregistered");
-  assert.deepEqual(
-    unregistered.map(({ type }) => type).sort(),
-    ["blocks"],
-    "only the decision->decision blocks cell lacks registered semantics",
+  assert.deepEqual(unregistered, []);
+  assert.equal(isAllowedRelationKindTriple("decision", "blocks", "decision"), false);
+  assert.equal(
+    declaredRelationTriples({ sourceKind: "decision", targetKind: "decision" }).some(({ type }) => type === "blocks"),
+    false,
   );
-  for (const direction of unregistered) {
-    assert.equal(direction.sourceKind, "decision");
-    assert.equal(direction.targetKind, "decision");
+});
+
+test("acyclic relation types reject undirected and decision blocks writes at admission", () => {
+  for (const { type } of relationTypeDeclarations.filter(({ acyclic }) => acyclic)) {
+    const direction = canonicalRelationDirections.find(({ type: candidateType }) => candidateType === type)!,
+      endpoint = (kind: string, side: "source" | "target") =>
+        kind === "decision"
+          ? `decision/dec_${side === "source" ? "SOURCE" : "TARGET"}`
+          : kind === "fact"
+            ? `fact/F-${side === "source" ? "AAAAAAAA" : "BBBBBBBB"}`
+            : kind === "task"
+              ? `task/task_${side}`
+              : `${kind}/${side}`;
+    assert.throws(
+      () =>
+        assertRelationAdmission(
+          {
+            source: endpoint(direction.sourceKind, "source"),
+            target: endpoint(direction.targetKind, "target"),
+            type,
+            direction: "undirected",
+            rationale: "Undirected ordering is ambiguous.",
+          },
+          canonicalRelationDirections,
+        ),
+      (error: unknown) => (error as { code?: string }).code === "relation_direction_invalid",
+      type,
+    );
   }
+  assert.throws(
+    () =>
+      assertRelationAdmission({
+        source: "decision/dec_source",
+        target: "decision/dec_target",
+        type: "blocks",
+        rationale: "Decision blocking is not writable.",
+      }),
+    (error: unknown) => (error as { code?: string }).code === "relation_triple_undeclared",
+  );
 });
 
 test("a non-canonical active edge is refused at the write boundary", () => {
