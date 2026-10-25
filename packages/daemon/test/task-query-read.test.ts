@@ -194,6 +194,7 @@ test("GUI task projection removes the retired assessment key before strict proto
       snapshot: {
         ...fixture.snapshot,
         task: { ...fixture.snapshot.task!, packageDisposition: "active" },
+        decisionRelations: [],
         executions: [legacyExecution],
       },
     },
