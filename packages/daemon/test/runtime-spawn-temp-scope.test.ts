@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -69,6 +69,96 @@ test("a dispatch hands its runtime session id to the launch preparation", async 
     /stop at the launch boundary/u,
   );
   assert.deepEqual(launches, [{ instanceId: "worker", runtimeSessionId: expectedSessionId }]);
+});
+
+test("a launch refused after preparation returns the temp scope prepareLaunch minted", async () => {
+  const repoId = "repository",
+    dispatchKey = "prepared-refusal",
+    hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex"),
+    runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
+    tempRoot = mkdtempSync(path.join(tmpdir(), "runtime-prepared-refusal-")),
+    reclaimed: string[] = [];
+  try {
+    const spawner = makeRuntimeSpawner({
+      repoId,
+      rootDir: tempRoot,
+      store: () => ({ readEvent: () => null }),
+      projection: () =>
+        ({
+          readRuntimeSessions: () => [],
+          currentLease: () => null,
+          getEntity: () => ({ value: { runtime: { allowedInstances: ["worker"] } } }),
+          read: () => assert.fail("a taskless dispatch reads no task projection"),
+        }) as never,
+      runtimeInstances: () => [
+        {
+          instanceId: "worker",
+          name: "Worker",
+          kindId: "codex",
+          models: ["gpt-5.6-sol"],
+          defaultModel: "gpt-5.6-sol",
+          enabled: true,
+          authMode: "subscription",
+          authReadiness: { status: "ready", code: null, hint: null },
+          permissionMode: "bypass",
+        },
+      ],
+      prepareLaunch: async (instanceId, request) => {
+        mkdirSync(path.join(tempRoot, request.runtimeSessionId!), { recursive: true });
+        return {
+          // The prepared snapshot names a different instance than the selected one, so the
+          // closed-request assertion refuses before any stream or process exists.
+          definition: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId: "other-instance",
+            installationId: "installation-codex",
+            kindId: "codex",
+            providerId: "openai",
+            model: "gpt-5.6-sol",
+            reasoningEffort: null,
+            fast: false,
+            baseUrl: null,
+            authMode: "subscription",
+          },
+          installation: {
+            installationId: "installation-codex",
+            kindId: "codex",
+            executablePath: "/usr/bin/false",
+            version: "0.147.0",
+          },
+          executablePath: "/usr/bin/false",
+          args: [],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      reclaimRuntimeTempDirectory: (_instanceId, runtimeSessionId) => {
+        reclaimed.push(runtimeSessionId);
+        rmSync(path.join(tempRoot, runtimeSessionId), { recursive: true, force: true });
+        return null;
+      },
+      now: () => "2026-10-25T00:00:00.000Z",
+    } as unknown as RuntimeSpawnerInput);
+    await assert.rejects(
+      spawner.spawn(
+        {
+          runtimeInstanceId: "worker",
+          cwd: { scope: "repo-root" },
+          prompt: "Refused after preparation",
+          taskId: null,
+          dispatchKey,
+        },
+        binding,
+      ),
+      { code: "invalid_runtime_launch" },
+    );
+    assert.deepEqual(reclaimed, [runtimeSessionId], "the refusal still hands the minted scope back");
+    assert.equal(existsSync(path.join(tempRoot, runtimeSessionId)), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("a failed launch's temp reclaim surfaces its refusal instead of swallowing it", async () => {

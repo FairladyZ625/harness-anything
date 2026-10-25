@@ -547,25 +547,31 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
       launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
-    assertPreparedRuntimeLaunch(prepared, {
-      instanceId: runtimeInstanceId,
-      kindId: runtimeInstance?.kindId,
-      cwd,
-      prompt,
-      permissionMode: launchedPermissionMode,
-      agentId: agent?.id,
-    });
     const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition),
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
       protocolFamily = runtimeKind.protocolFamily;
-    if (taskId || trustedSchedule || reviewerBinding)
-      await configureWorkerGitIdentity(cwd, binding.actor.principal.personId);
-    if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
-    // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
-    // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
-    const taskLeaseHandoff =
-        taskId && !input.remote && !reviewerBinding && !readOnlyAttach ? input.handoffTaskLease : undefined,
+    let activeBinding: RuntimeBinding,
+      taskLeaseHandoff: RuntimeSpawnerInput["handoffTaskLease"],
+      taskBinding: ActiveRuntime["task"] = null;
+    // prepareLaunch already minted this run's temp scope. Every refusal in this admission window
+    // happens before a stream or process exists, so the scope is the only resource to hand back.
+    try {
+      assertPreparedRuntimeLaunch(prepared, {
+        instanceId: runtimeInstanceId,
+        kindId: runtimeInstance?.kindId,
+        cwd,
+        prompt,
+        permissionMode: launchedPermissionMode,
+        agentId: agent?.id,
+      });
+      if (taskId || trustedSchedule || reviewerBinding)
+        await configureWorkerGitIdentity(cwd, binding.actor.principal.personId);
+      if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
+      // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
+      // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
+      taskLeaseHandoff =
+        taskId && !input.remote && !reviewerBinding && !readOnlyAttach ? input.handoffTaskLease : undefined;
       activeBinding = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
@@ -574,14 +580,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             binding,
           })
         : binding;
-    const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
-    if (
-      taskId &&
-      taskLeaseHandoff &&
-      (lease?.phase !== "held" || lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}`)
-    )
-      throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
-    const taskBinding = taskId
+      const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
+      if (
+        taskId &&
+        taskLeaseHandoff &&
+        (lease?.phase !== "held" || lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}`)
+      )
+        throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
+      taskBinding = taskId
         ? {
             taskId,
             executionId:
@@ -596,8 +602,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             // binding check.
             leaseVersion: reviewerBinding || readOnlyAttach ? null : (lease?.version ?? null),
           }
-        : null,
-      streamStartedAt = input.now();
+        : null;
+    } catch (error) {
+      reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
+      throw error;
+    }
+    const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
     let stream: DispatchStreamWriter | undefined;
@@ -669,13 +679,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    assertRuntimeHandoffLaunch(
-      handoffEnabled,
-      handoff,
-      { taskId, agentId, role, trustedSchedule },
-      definition.kindId,
-      installation.version,
-    );
+    const cleanupCallbackRelay = (): void => {
+      if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
+    };
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
       process?.terminate();
       process?.release?.();
@@ -694,9 +700,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding: activeBinding,
       });
     };
-    const cleanupCallbackRelay = (): void => {
-      if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
-    };
+    try {
+      assertRuntimeHandoffLaunch(
+        handoffEnabled,
+        handoff,
+        { taskId, agentId, role, trustedSchedule },
+        definition.kindId,
+        installation.version,
+      );
+    } catch (error) {
+      await cleanupFailedLaunch(error);
+      throw error;
+    }
     // The handoff rollout is installed only after the target launch is prepared and admitted —
     // into the directory that launch actually resolved — and before any process or event, so a
     // resumed provider always reads the state selected for it and no earlier mutable-config
@@ -793,8 +808,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       }
     }
     if (onPrepared) {
-      openStream();
-      onPrepared(newDispatchId, runtimeSessionId);
+      try {
+        openStream();
+        onPrepared(newDispatchId, runtimeSessionId);
+      } catch (error) {
+        await cleanupFailedLaunch(error);
+        throw error;
+      }
     }
     let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     try {
