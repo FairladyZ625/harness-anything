@@ -255,6 +255,9 @@ test("wide GUI read contracts accept only their explicit narrow and page facets"
   assert.equal(graph({ relationType: "derives" }).ok, false);
   assert.equal(decisions({ projection: "summary" }).ok, true);
   assert.equal(decisions({ projection: "full" }).ok, true);
+  assert.equal(decisions({ state: "proposed" }).ok, true);
+  assert.equal(decisions({ state: "outcome_retired" }).ok, true);
+  assert.equal(decisions({ state: "unknown" }).ok, false);
   assert.equal(decisions({ projection: "compact" }).ok, false);
   assert.equal(decisions({ projection: "summary", extra: true }).ok, false);
 });

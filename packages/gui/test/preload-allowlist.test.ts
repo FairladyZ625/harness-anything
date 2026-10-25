@@ -50,6 +50,9 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", {}), /repoId/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "" }), /repoId/u);
   assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a" }), true);
+  assert.equal(assertPreloadPayload("getDecisions", { repoId: "repo-a", state: "proposed" }), true);
+  assert.equal(assertPreloadPayload("getDecisions", { repoId: "repo-a", state: "outcome_retired" }), true);
+  assert.throws(() => assertPreloadPayload("getDecisions", { repoId: "repo-a", state: "unknown" }), /invalid/u);
   assert.equal(assertPreloadPayload("getSettings", { repoId: "repo-a" }), true);
   assert.equal(
     assertPreloadPayload("updateSettings", {

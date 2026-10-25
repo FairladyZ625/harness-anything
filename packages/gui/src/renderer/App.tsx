@@ -2,7 +2,8 @@ import { PageEntryBoundary } from "./components/primitives/EntryBoundary.tsx";
 import { pageEntryIdentity } from "./components/primitives/page-entry-identity.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { TaskRow } from "./model/types.ts";
+import type { DecisionState, TaskRow } from "./model/types.ts";
+import type { WorkspaceSummaryRead } from "../api/renderer-dto.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
@@ -97,6 +98,7 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
+type DecisionPoolGroupId = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
   // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):本窗口若是「在新窗口打开」
@@ -104,6 +106,7 @@ function AppShell() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(
     () => hostProjectWindowApi()?.initialProjectId ?? null,
   );
+  const [decisionPoolGroup, setDecisionPoolGroup] = useState<DecisionPoolGroupId>("proposed");
   const queryClient = useQueryClient();
   const systemQuery = useSystemStatusQuery();
   const enabledRepos = useMemo(
@@ -296,9 +299,24 @@ function AppShell() {
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
     enabled: !fullProjectionMounted && (view === "cadence" || selectedId !== null || paletteOpen),
   });
+  const focusedDecisionId = focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null;
+  const focusedDecisionGroup = focusedDecisionId
+    ? workspaceSummaryQuery.data?.decisions.groups.find(({ decisionIds }) => decisionIds.includes(focusedDecisionId))
+    : undefined;
+  const activeDecisionPoolGroup = focusedDecisionGroup?.id ?? decisionPoolGroup;
+  const decisionPoolStates =
+    view === "decisionPool"
+      ? (workspaceSummaryQuery.data?.decisions.groups.find(({ id }) => id === activeDecisionPoolGroup)?.states ?? [
+          "proposed",
+        ])
+      : undefined;
   const triadicQuery = useTriadicProjectionQuery(activeRepoId, {
     enabled: fullProjectionMounted,
     graphEnabled: fullGraphProjectionMounted,
+    // Start the default proposed read with the summary request. Waiting for summary first
+    // serializes two independent daemon reads on the decision pool's first mount.
+    decisionsEnabled: true,
+    decisionStates: decisionPoolStates as ReadonlyArray<Exclude<DecisionState, "unknown">> | undefined,
   });
   // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读取;
   // 三条既有读(agent 目录/Schedule 列表/关系图切面)与各自入口共享
@@ -374,6 +392,7 @@ function AppShell() {
           status: tasksQuery.data.status,
         }
       : null,
+    projectionLoading: tasksQuery.isLoading,
     projectTasks,
   });
 
@@ -845,9 +864,10 @@ function AppShell() {
                     onNavigateTask={openTaskDetail}
                     poolTab={location.poolTab ?? "decisions"}
                     onPoolTabChange={setPoolTab}
-                    focusedDecisionId={
-                      focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null
-                    }
+                    focusedDecisionId={focusedDecisionId}
+                    decisionsLoading={triadicQuery.decisionsPending}
+                    decisionGroup={activeDecisionPoolGroup}
+                    onDecisionGroupChange={setDecisionPoolGroup}
                     onFocusGraph={focusEntityInGraph}
                     onNavigateDecision={navigateToDecision}
                     onNavigateEntity={navigateToEntity}

@@ -36,6 +36,8 @@ export interface RuntimeHealthCell {
 export interface RuntimeHealthProjection {
   /** sourceRevision − watermark;null = 投影尚未读到。 */
   readonly lag: number | null;
+  /** 首次 tasksQuery 尚未返回;与读完后仍未知的 projection 区分。 */
+  readonly loading: boolean;
   readonly status: "ready" | "pending" | null;
 }
 
@@ -68,6 +70,8 @@ export interface RuntimeHealthInput {
     readonly sourceRevision: number;
     readonly status: "ready" | "pending";
   } | null;
+  /** TanStack isLoading: pending 且正在请求,不会把未选仓的 disabled query 算成加载。 */
+  readonly projectionLoading?: boolean;
   readonly lastSnapshotAt: string | null;
   readonly now: string;
 }
@@ -104,9 +108,10 @@ export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
     },
     projection:
       input.projection === null
-        ? { lag: null, status: null }
+        ? { lag: null, loading: input.projectionLoading === true, status: null }
         : {
             lag: Math.max(0, input.projection.sourceRevision - input.projection.watermark),
+            loading: false,
             status: input.projection.status,
           },
     ledgerChange: { at: input.lastSnapshotAt, ageSec: ageSec(input.lastSnapshotAt, input.now) },

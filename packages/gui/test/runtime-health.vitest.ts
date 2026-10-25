@@ -114,6 +114,19 @@ describe("deriveRuntimeHealth (fourth grid, existing read surface only)", () => 
     expect(health.daemon.state).toBe("unknown");
     expect(health.daemon.observedAgeSec).toBeNull();
     expect(health.ledgerChange.at).toBeNull();
+    expect(health.projection.loading).toBe(false);
     expect(runtimeHealthWorst(health)).toBe("degraded");
+  });
+
+  it("distinguishes a pending first projection read from an unknown settled result", () => {
+    const health = deriveRuntimeHealth({
+      daemon: null,
+      repo: null,
+      projection: null,
+      projectionLoading: true,
+      lastSnapshotAt: null,
+      now: NOW,
+    });
+    expect(health.projection).toEqual({ lag: null, loading: true, status: null });
   });
 });

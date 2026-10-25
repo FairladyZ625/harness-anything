@@ -24,6 +24,7 @@ import { isSquadControlCommand, isSquadControlResult, squadControlRejected } fro
 import type { RepoCellCore } from "./repo-cell.ts";
 import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
+import { decisionStateWords } from "./protocol/daemon-protocol-vocabulary.ts";
 import { settingsLastChanged, settingsSingletonRevision } from "./repo-cell-settings-state.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
 import { repoCellStatus, repoCellStatusCuts } from "./repo-cell-status.ts";
@@ -42,6 +43,7 @@ import {
   type DaemonRepoMode,
   type EventPublicationKillpoint,
   type TaskProjection,
+  type DecisionProjectionRow,
   type TaskProjectionListQuery,
   type ScheduleV1,
   type WriteReceipt,
@@ -471,11 +473,16 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   } satisfies DaemonGuiReadHandlers;
   function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
     if (
-      Object.keys(payload).some((field) => field !== "projection") ||
-      (payload.projection !== undefined && payload.projection !== "summary" && payload.projection !== "full")
+      Object.keys(payload).some((field) => field !== "projection" && field !== "state") ||
+      (payload.projection !== undefined && payload.projection !== "summary" && payload.projection !== "full") ||
+      (payload.state !== undefined &&
+        (typeof payload.state !== "string" || !(decisionStateWords as readonly string[]).includes(payload.state)))
     )
-      throw context.cellCodedError("invalid_command", "Decision list projection must be summary or full.");
-    const read = context.projection.listDecisions({ withBody: payload.projection !== "summary" });
+      throw context.cellCodedError("invalid_command", "Decision list projection or state filter is invalid.");
+    const read = context.projection.listDecisions({
+      withBody: payload.projection !== "summary",
+      ...(typeof payload.state === "string" ? { state: payload.state as DecisionProjectionRow["state"] } : {}),
+    });
     if (payload.projection === "summary")
       return {
         ok: true,

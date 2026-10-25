@@ -174,6 +174,9 @@ async function mountPool(
           facts: [],
           relations: [],
           tasks,
+          decisionsLoading: false,
+          decisionGroup: "proposed",
+          onDecisionGroupChange: vi.fn(),
           onAttest: (task, gateId, mode, rationale) => {
             harness.attestCalls.push({ taskId: task.taskId, gateId, mode, ...(rationale ? { rationale } : {}) });
             return Promise.resolve({

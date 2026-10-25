@@ -341,6 +341,7 @@
   "views.presetsView.provenanceAncestry": "provenance.ancestry",
   "views.decisionPoolView.allGroup": "all",
   "views.decisionPoolView.emptyFilter": "There are no decisions under the current filter.",
+  "views.decisionPoolView.loading": "Loading decisions…",
   "views.decisionPoolView.groupCount": "· {count} rows",
   "views.decisionPoolView.advancedFilters": "Advanced filters",
   "views.entitiesView.tagline": "What each entity kind is, what its fields mean, and how they connect",

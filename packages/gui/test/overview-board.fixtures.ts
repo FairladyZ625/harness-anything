@@ -66,7 +66,7 @@ export function setupOverviewBoardEnvironment(): void {
 export const HEALTH: RuntimeHealth = {
   daemon: { state: "responsive", observedAgeSec: 1, uptimeMs: 1000 },
   cell: { state: "mounted", queueDepth: 0, problem: null },
-  projection: { lag: 0, status: "ready" },
+  projection: { lag: 0, loading: false, status: "ready" },
   ledgerChange: { at: AT, ageSec: 60 },
 };
 

@@ -460,6 +460,41 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
     });
   });
 
+  it("shows the pending first ledger read instead of unknown or never-read states", async () => {
+    const loadingHealth = deriveRuntimeHealth({
+      daemon: null,
+      repo: null,
+      projection: null,
+      projectionLoading: true,
+      lastSnapshotAt: null,
+      now: NOW,
+    });
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: {
+          revision: null,
+          refreshedAgoSec: null,
+          connected: true,
+          refreshing: true,
+          empty: true,
+          error: null,
+        },
+        health: loadingHealth,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    expect(panel.textContent).toContain("正在读取事件");
+    expect(panel.textContent).toContain("正在读取台账");
+    expect(panel.textContent).toContain("正在读取投影");
+    expect(panel.textContent).not.toContain("尚未读到台账");
+    expect(panel.textContent).not.toContain("投影未知");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("carries the four health signals that left the overview into the hover tooltip", () => {
     const detail = systemHealthDetail(healthy);
     expect(detail).toContain("台账服务");
