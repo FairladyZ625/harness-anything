@@ -283,6 +283,93 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
   }
 });
 
+test("runtime status --wait rides out repeated parked-connection teardowns without spending its budget", async () => {
+  // The 2026-10-25 field failure: the daemon stays up and the dispatch stays running, but the
+  // parked sessions.await connection is torn down every so often (build-drift restart, connection
+  // recycle, any peer close). The daemon closes the socket after the request was written, so the
+  // client sees daemon_closed — a connection that existed and parked. A single failure count over
+  // the whole wait treats those as failed reconnects and ends a healthy wait as daemon_gone.
+  const fixture = await openFixtureDaemon("parked-teardown-budget");
+  let awaitRequests = 0,
+    statusReads = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [],
+    teardowns = 6;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      if (awaitRequests <= teardowns) {
+        // Parked, then torn down: the request reached this daemon and this connection held it.
+        setTimeout(() => socket.destroy(), 20);
+        return;
+      }
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.ok(!invocation.closed, "a daemon that keeps answering must never end the wait as daemon_gone");
+    assert.equal(pendingAwait.length, 1, "the wait must re-park after every teardown");
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(hangGuardMs);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(
+      awaitRequests,
+      teardowns + 1,
+      `every teardown must re-issue the await: observed ${awaitRequests} requests over ${teardowns} teardowns`,
+    );
+    assert.equal(statusReads, 1, "the probe read happens once");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait still reports daemon_gone within a bounded time after a parked teardown", async () => {
+  // The negative control for the ride-out: once the daemon is really gone (pid and socket removed),
+  // the budget must still run out and answer daemon_gone instead of parking forever. The teardown
+  // before it proves the budget is spent on unreachability, not on connections that did park.
+  const fixture = await openFixtureDaemon("parked-teardown-then-gone");
+  let awaitRequests = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      if (awaitRequests === 1) {
+        setTimeout(() => {
+          fixture.die();
+        }, 20);
+      }
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(hangGuardMs);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "daemon_gone");
+    assert.match(String((result.receipt.error as Record<string, unknown>).hint), /reconnect budget/u);
+    assert.deepEqual((result.receipt.lastKnownDispatch as Record<string, unknown>).status, "running");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("runtime status --wait bridges a daemon_stopping handoff whose successor pid is already written", async () => {
   // The pid baseline must come from before the request: a build-superseded handoff answers a
   // parked request and its successor rewrites the pid file within milliseconds, so a baseline read
