@@ -66,6 +66,7 @@ function fixture(
     archive?: Record<string, unknown>;
     successor?: Dispatch;
     metrics?: Record<string, unknown>;
+    attemptFallbackState?: "scheduled" | "exhausted";
     title?: string | null;
   } = {},
 ) {
@@ -117,12 +118,15 @@ function fixture(
     readRuntimeDispatchesBySession: () => [{ event }],
     readRuntimeDispatchesByAttemptGroup: () => events.map((event) => ({ event })),
     readRuntimeSessionEvents: () =>
-      options.metrics
+      options.metrics || options.attemptFallbackState
         ? [
             {
               schema: "agent-runtime-event/v1",
               type: "runtime_session_outcome_observed",
-              payload: { runtimeMetrics: options.metrics },
+              payload: {
+                ...(options.metrics ? { runtimeMetrics: options.metrics } : {}),
+                ...(options.attemptFallbackState ? { attempt: { fallbackState: options.attemptFallbackState } } : {}),
+              },
             },
           ]
         : [],
@@ -280,6 +284,63 @@ test("resume is derived from canonical provider identity and withdrawn by an acc
   assert.equal(resumed.rows()[0]?.nextDispatchId, successor.payload.dispatchId);
   assert.equal(resumed.rows()[0]?.fallbackState, "dispatched");
   assert.equal(readRuntimeAttemptChain(runtimeSessionId, resumed.projection)?.attempts.length, 2);
+});
+
+test("a canonical fallback successor outranks a stale scheduled stream state", (t) => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-fallback-read-"));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const f = fixture(session("exited", "failed"), {
+    successor: {
+      ...fixture().event,
+      payload: {
+        ...fixture().event.payload,
+        dispatchId: "dispatch_fedcba987654321001234567",
+        runtimeSessionId: "runtime-2",
+        attemptIndex: 1,
+      },
+    },
+  });
+  const stream = openDispatchStream(rootDir, {
+    dispatchId,
+    taskId,
+    executionId: "execution-1",
+    runtimeSessionId,
+    instanceId: "instance-1",
+    kindId: "codex",
+    startedAt: "2026-08-23T00:00:00.000Z",
+  });
+  stream.appendFallbackState(
+    {
+      state: "scheduled",
+      delayMs: 5_000,
+      notBeforeAt: "2026-08-23T00:00:05.000Z",
+      nextProvider: { instance: "instance-2", model: "model-2" },
+    },
+    "2026-08-23T00:00:00.000Z",
+  );
+
+  const row = readTaskDispatches({ projection: f.projection, taskId, rootDir }).dispatches[0]!;
+  assert.equal(row.nextDispatchId, "dispatch_fedcba987654321001234567");
+  assert.equal(row.fallbackState, "dispatched");
+});
+
+test("a canonical fallback successor outranks a scheduled outcome snapshot", () => {
+  const f = fixture(session("exited", "failed"), {
+    successor: {
+      ...fixture().event,
+      payload: {
+        ...fixture().event.payload,
+        dispatchId: "dispatch_fedcba987654321001234567",
+        runtimeSessionId: "runtime-2",
+        attemptIndex: 1,
+      },
+    },
+    attemptFallbackState: "scheduled",
+  });
+
+  const row = readTaskDispatches({ projection: f.projection, taskId }).dispatches[0]!;
+  assert.equal(row.nextDispatchId, "dispatch_fedcba987654321001234567");
+  assert.equal(row.fallbackState, "dispatched");
 });
 
 test("only accepted outcome metrics appear and unknown live telemetry stays absent", () => {
