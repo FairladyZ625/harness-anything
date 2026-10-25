@@ -542,7 +542,7 @@ test("merge evidence retires only the CI gate and does not lift review or consen
   assert.equal(results.find(({ gateId }) => gateId === "quality")?.status, "missing");
   assert.equal(taskCompletionNext(strictSubmitted, { ...context, delivery }).blocker?.code, "review_missing");
 
-  const approvedWithoutConsent = lifecycleFixture().events.slice(0, 5).reduce(reduceTaskEvent, {
+  const approvedWithoutConsent = lifecycleFixture().events.slice(0, 4).reduce(reduceTaskEvent, {
     revision: 0,
     task: null,
     executions: [],

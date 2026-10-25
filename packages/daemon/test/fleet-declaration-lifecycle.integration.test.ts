@@ -181,17 +181,9 @@ test(
       `# Closeout\n\n## Summary\n\nDelivery ${delivery}.\n\n## Verification\n\nThe isolated remote-edge CLI lifecycle reaches complete.\n\n## Residual Risk\n\nReal Keycloak deployment unverified.\n\n## Same Mechanism Elsewhere\n\nTransport consumes command declarations.\n`,
     );
     const beforeSubmit = locateFleetMirrorView(path.join(edgeUser, "view"), repoId)!;
+    // Submit enters review and dispatches the frozen reviewer in the same write (dec_E369B861 CH3);
+    // no owner forward step remains.
     await invoke(["task", "submit", taskId, "--commit", delivery]);
-    await invoke([
-      "task",
-      "adjudicate",
-      taskId,
-      "--forward",
-      "--reviewer",
-      "closeout-reviewer",
-      "--note",
-      "Owner forwards the submitted cut.",
-    ]);
     const reviewerRoot = path.join(fixture.root, "reviewer-edge"),
       reviewerUser = path.join(fixture.root, "reviewer-user");
     mkdirSync(reviewerRoot);

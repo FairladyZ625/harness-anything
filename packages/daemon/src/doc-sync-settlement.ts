@@ -301,7 +301,7 @@ function leaseRecoveryNext(scan: DocCandidateScan): string {
     ? "next: the submitted cut on " +
         scan.frozenTaskIds.join(", ") +
         " is frozen — doc-sync task package files BEFORE ha task submit; if artifacts must still land, " +
-        "the owner returns the cut with ha task adjudicate <task-id> --return and the work is resubmitted with them"
+        "a changes_requested review verdict returns the cut for rework and the work is resubmitted with them"
     : scan.lease
       ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
         "submit through the lease holder or use the repository prose channel"

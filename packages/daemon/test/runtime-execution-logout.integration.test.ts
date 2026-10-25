@@ -312,15 +312,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   submittedProjection.close();
   // Owner forwards the frozen cut; the worker credential cannot perform this action.
   signInAt(userRoot, "owner");
-  const forward = await run({
-    kind: "task-adjudicate",
-    taskId,
-    executionId,
-    forward: true,
-    reviewer: "closeout-reviewer",
-    reason: "Review isolated logout evidence.",
-  });
-  assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+
   const reviewer = await launch("reviewer");
   assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
   assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");

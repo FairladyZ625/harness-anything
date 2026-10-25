@@ -275,21 +275,15 @@ function authoredInitializationOf(settings: SettingsV1, documentBody: string): A
 }
 
 /**
- * The effective review return budget for one task: the task-scoped override when the contract
- * carries one, else the repository setting (or the bootstrap default before it is projected).
+ * The one automatic rework round limit: the repository `reviewReturnBudget` setting, or the
+ * bootstrap default before Settings are projected. A changes_requested verdict below it reopens
+ * the implementation round; at or beyond it the cut awaits the owner.
  */
-export function readEffectiveReviewReturnBudget(
-  projection: Pick<TaskProjectionQueries, "getEntity">,
-  task: { readonly reviewReturnBudget?: number } | null | undefined,
-): { readonly value: number; readonly source: "task" | "repository" } {
-  if (task?.reviewReturnBudget !== undefined) return { value: task.reviewReturnBudget, source: "task" };
+export function readEffectiveReviewReturnBudget(projection: Pick<TaskProjectionQueries, "getEntity">): number {
   const projected = projection.getEntity("settings", "repository")?.value as
     | { readonly reviewReturnBudget?: number }
     | undefined;
-  return {
-    value: projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
-    source: "repository",
-  };
+  return projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget;
 }
 
 /**

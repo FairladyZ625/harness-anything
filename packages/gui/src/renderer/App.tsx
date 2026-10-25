@@ -30,8 +30,6 @@ import { CollaborationView } from "./views/CollaborationView.tsx";
 import { useFleetOverview } from "./collaboration-data.ts";
 import { collaborationSummaryOf } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
-import { TaskReturnDialog } from "./components/taskDetail/TaskReturnDialog.tsx";
-import { useTaskReturnWorkflow } from "./components/taskDetail/task-return-workflow.ts";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -171,8 +169,6 @@ function AppShell() {
   const lastLedgerCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
-  const taskReturn = useTaskReturnWorkflow(projectId, taskActions.adjudicateTask);
-  const { adjudicateTask, openTaskReturnWithNote } = taskReturn;
   const decisionActions = useDecisionActions(projectId);
   // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
   // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
@@ -462,8 +458,6 @@ function AppShell() {
       onProgress: (target, input) => taskActions.appendProgress(target, input),
       onSubmit: (target) => taskActions.submitTask(target),
       onComplete: (target) => taskActions.completeTask(target),
-      onAdjudicate: adjudicateTask,
-      onReturnNote: openTaskReturnWithNote,
       onConsentReview: (target, reviewId) => taskActions.consentReview(target, reviewId),
       onAttest: taskActions.attestGate,
       onSetPin: handleSetPin,
@@ -703,9 +697,6 @@ function AppShell() {
                     }}
                     onConsent={(task, reviewId) => {
                       void taskActions.consentReview(task, reviewId);
-                    }}
-                    onAdjudicate={(task, decision, reason, reviewId) => {
-                      void adjudicateTask(task, decision, reason, reviewId);
                     }}
                     feedback={feedbackOf}
                     onLoadMore={() => {
@@ -1057,7 +1048,6 @@ function AppShell() {
             openTaskDetail(taskId);
           }}
         />
-        <TaskReturnDialog {...taskReturn.dialogProps} />
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}

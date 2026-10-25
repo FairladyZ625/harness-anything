@@ -13,5 +13,7 @@ export type DaemonTaskRuntimeContextResult = {
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: RuntimeContinuationSeed | null;
+  /** The reviewer note the worker mission names (dec_E369B861 CH3); null for reviewer bindings. */
+  readonly reviewerNote: string | null;
   readonly snapshot: Snapshot & { readonly workspace: TaskWorkspaceView | null };
 };

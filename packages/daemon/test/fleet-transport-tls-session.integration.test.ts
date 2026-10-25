@@ -280,14 +280,6 @@ test(
     );
     await applied({ kind: "doc-submit", paths: [`${fixture.packagePath}/closeout.md`] }, localAuthFixture());
     await applied({ kind: "task-submit", taskId, executionId, commitSha: delivery });
-    await applied({
-      kind: "task-adjudicate",
-      taskId,
-      executionId,
-      forward: true,
-      reviewer: "closeout-reviewer",
-      reason: "Owner forwards the cut.",
-    });
     mkdirSync(path.join(packageDir, "artifacts", "reports"), { recursive: true });
     writeFileSync(
       path.join(packageDir, "artifacts", "reports", "fleet.md"),

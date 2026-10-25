@@ -276,39 +276,25 @@ describe("overview narrative", () => {
     ],
   });
 
-  it("puts submitted cuts in the hero with real adjudication actions", async () => {
-    const onAdjudicate = vi.fn(),
-      host = await mount(
-        <WorkspaceView
-          scope={baseScope}
-          projectName="Harness"
-          tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
-          onOpenTask={() => {}}
-          onPreviewTask={() => {}}
-          rootTaskOpen={false}
-          onOpenRootTask={() => {}}
-          onCloseRootTask={() => {}}
-          onAdjudicate={onAdjudicate}
-        />,
-      );
+  it("keeps submitted cuts in the hero as review awaits, with no manual triage actions", async () => {
+    const host = await mount(
+      <WorkspaceView
+        scope={baseScope}
+        projectName="Harness"
+        tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
     const hero = host.querySelector('[data-testid="work-hero"]')!;
     expect(hero.textContent).toContain("等你裁决");
-    expect(hero.textContent).toContain("1");
     expect(hero.textContent).toContain("T task_wait");
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>('[data-testid="work-hero-forward-task_wait"]')!.click(),
-    );
-    expect(onAdjudicate).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: "task_wait" }),
-      "forward",
-      expect.any(String),
-    );
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="work-hero-return-task_wait"]')!.click());
-    expect(onAdjudicate).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: "task_wait" }),
-      "return",
-      expect.any(String),
-    );
+    // The manual forward/return commands retired with the automatic review loop.
+    expect(host.querySelector('[data-testid="work-hero-forward-task_wait"]')).toBeNull();
+    expect(host.querySelector('[data-testid="work-hero-return-task_wait"]')).toBeNull();
   });
 
   it("renders single-action attest rows without crashing and attests on click", async () => {

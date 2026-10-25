@@ -441,10 +441,10 @@ describe("CadenceView", () => {
     // 摩擦雷达:门禁失败 1 · 评审打回 1;产出:今日 Fact 1。
     expect(textOf(container, "cadence-friction")).toContain("门禁失败 1");
     expect(textOf(container, "cadence-yield-facts")).toContain("1");
-    // 堵点:待裁决策与待裁决执行两组都在,整组铺开不截断。
+    // 堵点:待裁决策与待业主处置的存量提交两组都在,整组铺开不截断。
     const blockers = container.querySelector('[data-testid="cadence-blockers-groups"]');
     expect(blockers?.textContent).toContain("探针决策:切换读取形态");
-    expect(blockers?.textContent).toContain("待裁决执行 1");
+    expect(blockers?.textContent).toContain("待业主处置的存量提交 1");
   });
 
   it("frames all four blocks as Regions on the shared board, task rhythm in the rightmost column", async () => {

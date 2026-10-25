@@ -57,7 +57,6 @@ export interface WorkOverviewProps {
   readonly feedback?: (
     taskId: string,
   ) => { readonly state: string; readonly hint?: string; readonly code?: string } | undefined;
-  readonly onAdjudicate?: (task: TaskRow, decision: "forward" | "return", reason: string) => void;
   readonly onAttest?: (task: Pick<TaskRow, "taskId">, gateId: string, mode: "approve" | "override") => void;
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
@@ -78,7 +77,6 @@ export function WorkOverview({
   lanes,
   agoOf,
   feedback,
-  onAdjudicate,
   onAttest,
   onConsent,
   onOpenTask,
@@ -178,28 +176,7 @@ export function WorkOverview({
             reason={t("views.workspace.hero.waited", { ago: agoOf(task.lastKnownAt) })}
             onOpen={onOpenTask}
             state={feedback?.(task.taskId)}
-          >
-            <button
-              type="button"
-              data-testid={`work-hero-forward-${task.taskId}`}
-              disabled={!onAdjudicate}
-              onClick={() =>
-                onAdjudicate?.(task, "forward", "Owner initial review accepted this cut for independent review.")
-              }
-              className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
-            >
-              {t("views.workspace.hero.forward")}
-            </button>
-            <button
-              type="button"
-              data-testid={`work-hero-return-${task.taskId}`}
-              disabled={!onAdjudicate}
-              onClick={() => onAdjudicate?.(task, "return", "Owner initial review returned this cut for rework.")}
-              className={`${actionButton} border-border bg-text/5 text-text-muted`}
-            >
-              {t("views.workspace.hero.return")}
-            </button>
-          </ActionRow>
+          ></ActionRow>
         ))}
         {[...lanes.gates, ...lanes.breakGlass].map((item) => (
           <ActionRow

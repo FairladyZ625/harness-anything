@@ -102,22 +102,7 @@ test("review-consent derives the recorded Review digests without a packet and re
     await cell.run({ kind: "task-start", taskId, executionId }, binding);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards the cut.",
-          },
-          closer,
-        )
-      ).outcome,
-      "applied",
-    );
+
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
@@ -302,22 +287,7 @@ test("review-consent derives the recorded Review digests without a packet and re
         .outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId: ambiguousTaskId,
-            executionId: ambiguousExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards the ambiguous-review fixture.",
-          },
-          closer,
-        )
-      ).outcome,
-      "applied",
-    );
+
     for (const reviewId of ["review-a", "review-b"]) {
       writeReviewReport(rootDir, (ambiguousCreated as Record<string, unknown>).packagePath, reviewId);
       assert.equal(
@@ -355,6 +325,7 @@ test("only the task owner can consent to a changes_requested review, and overrid
     repoId = workspaceId("owner-review-override"),
     taskId = "task-owner-review-override",
     executionId = "execution-owner-review-override",
+    secondExecutionId = "execution-owner-review-override-2",
     ownerBinding = withPolicyGroup({ actor, source: "local" as const }, "maintainer"),
     reviewer = withPolicyGroup(
       {
@@ -376,147 +347,7 @@ test("only the task owner can consent to a changes_requested review, and overrid
     await cell.run({ kind: "task-start", taskId, executionId }, ownerBinding);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, ownerBinding)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Review this cut.",
-          },
-          ownerBinding,
-        )
-      ).outcome,
-      "applied",
-    );
-    writeFileSync(
-      path.join(rootDir, "review.json"),
-      JSON.stringify({
-        verdict: "changes_requested",
-        reason: "The delivery has a finding.",
-        evidenceChecked: ["submitted cut"],
-      }),
-    );
-    writeReviewReport(rootDir, created.packagePath, "review-owner-override");
-    const reviewed = await cell.run(
-      {
-        kind: "task-review-execution",
-        taskId,
-        executionId,
-        reviewId: "review-owner-override",
-        fromFile: "review.json",
-      },
-      reviewer,
-    );
-    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
 
-    const missingRationale = await cell.run(
-      {
-        kind: "task-review-consent",
-        taskId,
-        executionId,
-        reviewId: "review-owner-override",
-        dispose: ["review-owner-override"],
-      },
-      ownerBinding,
-    );
-    assert.deepEqual(
-      { outcome: missingRationale.outcome, code: missingRationale.code },
-      { outcome: "op_rejected", code: "invalid_proof" },
-    );
-    const nonOwner = await cell.run(
-      {
-        kind: "task-review-consent",
-        taskId,
-        executionId,
-        reviewId: "review-owner-override",
-        dispose: ["review-owner-override"],
-        rationale: "The finding is pre-existing and does not block this delivery.",
-      },
-      withPolicyGroup({ actor: outsider, source: "local" }, "maintainer"),
-    );
-    assert.deepEqual(
-      { outcome: nonOwner.outcome, code: nonOwner.code },
-      { outcome: "op_rejected", code: "invalid_proof" },
-    );
-
-    const consented = await cell.run(
-      {
-        kind: "task-review-consent",
-        taskId,
-        executionId,
-        reviewId: "review-owner-override",
-        dispose: ["review-owner-override"],
-        rationale: "The finding is pre-existing and does not block this delivery.",
-      },
-      ownerBinding,
-    );
-    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
-    const event = store().readEvent(String(consented.opId));
-    if (event?.type !== "review_consent_overridden") throw new Error("owner override event missing");
-    assert.equal(event.payload.disposition.actor.principal.personId, actor.principal.personId);
-    assert.equal(event.payload.disposition.rationale, "The finding is pre-existing and does not block this delivery.");
-    assert.deepEqual(event.payload.disposition.disposedReviewIds, ["review-owner-override"]);
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-function writeSelectionCloseout(rootDir: string, packagePath: unknown): void {
-  writeFileSync(
-    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
-    `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
-      "## Verification\n\nIntegration assertions exercise the execution selection.\n\n" +
-      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared lifecycle authorization.\n",
-  );
-}
-
-test("review-execution without --execution-id derives the sole current submitted execution across a changes_requested round", async () => {
-  const rootDir = workspace("selection-round"),
-    taskId = "task-selection-round",
-    firstExecutionId = "exec-selection-r1",
-    secondExecutionId = "exec-selection-r2",
-    owner = binding("selection-owner"),
-    reviewer = withPolicyGroup(binding("selection-reviewer"), "maintainer");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    cell = await openRepoCell({
-      repoId: workspaceId("selection-round"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "selection-round",
-    });
-    const store = () => makeTaskEventReader({ repoId: workspaceId("selection-round"), rootDir }),
-      created = await cell.run({ kind: "task-create", taskId, title: "Selection round" }, owner);
-    await waitForFixturePublication(cell, created.opId, owner);
-    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
-      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
-    );
-    await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, owner);
-    writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
-    assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
-      "applied",
-    );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards round one.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review-changes.json"),
       JSON.stringify({
@@ -530,7 +361,7 @@ test("review-execution without --execution-id derives the sole current submitted
       {
         kind: "task-review-execution",
         taskId,
-        executionId: firstExecutionId,
+        executionId,
         reviewId: "review-selection-r1",
         fromFile: "review-changes.json",
       },
@@ -539,49 +370,21 @@ test("review-execution without --execution-id derives the sole current submitted
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     const returnedEvent = store().readEvent(String(returned.opId));
     if (returnedEvent?.type !== "review_recorded") throw new Error("returned review event missing");
-    assert.equal(returnedEvent.payload.execution.state, "submitted");
-    assert.equal(returnedEvent.payload.execution.iteration, 0);
-    assert.equal(returnedEvent.payload.task.iteration, 0);
-    const ownerReturn = (await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId,
-        executionId: firstExecutionId,
-        return: true,
-        workerMode: "none",
-        reason: "Owner accepts the review findings and returns the cut.",
-      },
-      owner,
-    )) as Record<string, unknown>;
-    assert.equal(ownerReturn.outcome, "applied", JSON.stringify(ownerReturn));
-    assert.equal(ownerReturn.reviewId, "review-selection-r1");
+    // Below the budget the verdict itself reopens the round: one write, closed cut, new iteration.
+    assert.equal(returnedEvent.payload.execution.state, "changes_requested");
+    assert.equal(returnedEvent.payload.task.status, "active");
+    assert.equal(returnedEvent.payload.task.iteration, 1);
 
-    await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner);
-    writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, ownerBinding);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
-      "applied",
-    );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: secondExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards round two.",
-          },
-          owner,
-        )
-      ).outcome,
+      (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, ownerBinding)).outcome,
       "applied",
     );
 
     // The transition guards make a second concurrent submitted execution unreachable, so ambiguity
     // cannot be constructed through the lifecycle: starting is refused while a submitted cut exists.
-    const refusedStart = await cell.run({ kind: "task-start", taskId, executionId: "exec-selection-r3" }, owner);
+    const refusedStart = await cell.run({ kind: "task-start", taskId, executionId: "exec-selection-r3" }, ownerBinding);
     assert.equal(refusedStart.outcome, "op_rejected", JSON.stringify(refusedStart));
     assert.equal(refusedStart.code, "invalid_transition", JSON.stringify(refusedStart));
 
@@ -605,20 +408,9 @@ test("review-execution without --execution-id derives the sole current submitted
     assert.equal(reviewedEvent.payload.review.executionId, secondExecutionId);
     assert.equal(reviewedEvent.payload.review.iteration, 1);
 
-    // An approved cut can still be returned (for example when CI is red); the latest review on the cut is used.
-    const approvedReturn = (await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId,
-        executionId: secondExecutionId,
-        return: true,
-        workerMode: "none",
-        reason: "Owner returns an approved cut after red CI.",
-      },
-      owner,
-    )) as Record<string, unknown>;
-    assert.equal(approvedReturn.outcome, "applied", JSON.stringify(approvedReturn));
-    assert.equal(approvedReturn.reviewId, "review-selection-r2");
+    // An approved cut stays at the gate: the manual return retired with the automatic loop, so
+    // the owner's lanes are consent (or supersede) only.
+    assert.equal(reviewedEvent.payload.task.status, "in_review");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -644,27 +436,12 @@ test("review-execution without --execution-id names the resubmission command whi
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, owner);
-    writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards the selection fixture.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
+
     writeFileSync(
       path.join(rootDir, "review-changes.json"),
       JSON.stringify({
@@ -689,23 +466,7 @@ test("review-execution without --execution-id names the resubmission command whi
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            return: true,
-            workerMode: "none",
-            reviewId: "review-selection-empty",
-            reason: "Owner returns the cut before resubmission.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
+
     writeFileSync(
       path.join(rootDir, "review-approved.json"),
       JSON.stringify({ verdict: "approved", reason: "No cut to review yet.", evidenceChecked: ["none"] }),
@@ -744,24 +505,9 @@ test("review-execution and review-consent require a substantive physical report 
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     await cell.run({ kind: "task-start", taskId, executionId }, owner);
-    writeSelectionCloseout(rootDir, packagePath);
+    writeCloseout(rootDir, packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, owner)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Owner forwards the cut.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
+
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),

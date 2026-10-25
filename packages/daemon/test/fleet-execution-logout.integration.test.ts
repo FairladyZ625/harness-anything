@@ -435,19 +435,6 @@ test(
     const submitted = await cli(["task", "submit", taskId]);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     signInAt(path.join(f.root, "user"), "person-owner");
-    const forwarded = await f.host.run(
-      repoId,
-      {
-        kind: "task-adjudicate",
-        taskId,
-        executionId: f.subject.executionId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Review the isolated edge delivery.",
-      },
-      localAuthFixture(),
-    );
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,

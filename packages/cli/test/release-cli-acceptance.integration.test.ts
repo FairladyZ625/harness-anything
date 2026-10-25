@@ -280,32 +280,13 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       reviewer,
     );
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
-    run(
-      root,
-      userRoot,
-      [
-        "task",
-        "adjudicate",
-        taskId,
-        "--return",
-        "--worker-mode",
-        "fresh",
-        "--message",
-        "Revise the report.",
-        "--instance",
-        "missing-return-worker",
-        "--review-id",
-        "review-release-acc-rework",
-        "--note",
-        "Return the first release cut for rework.",
-      ],
-      worker,
-    );
+    // dec_E369B861 CH3: the adverse verdict itself reopens the second round; the manual return
+    // command retired with the corridor.
     const afterReturn = JSON.parse(String(run(root, userRoot, ["task", "show", taskId]).evidence)) as {
       task: { status: string; iteration: number };
     };
     assert.equal(afterReturn.task.status, "active");
-    assert.equal(afterReturn.task.iteration, 1, "a returned review opens the second round");
+    assert.equal(afterReturn.task.iteration, 1, "the adverse verdict opens the second round");
 
     run(root, userRoot, ["task", "start", taskId, "--execution-id", secondExecutionId], worker);
     writeFileSync(reportFile, secondBody);

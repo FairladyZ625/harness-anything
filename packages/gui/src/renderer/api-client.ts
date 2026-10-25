@@ -487,21 +487,6 @@ export const harnessClient = {
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.complete", payload, "completeTask"));
   },
-  /** CEO 初审/终审裁决:与 `ha task adjudicate` 同一条 daemon 动作。 */
-  async adjudicateTask(
-    payload: RepoScope & {
-      readonly taskId: string;
-      readonly executionId?: string;
-      readonly reviewId?: string;
-      readonly forward?: boolean;
-      readonly return?: boolean;
-      readonly reason?: string;
-      readonly workerMode?: "resume" | "fresh";
-      readonly followUp?: string;
-    },
-  ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.adjudicate", payload, "adjudicateTask"));
-  },
   /** CEO 终审批准:与 `ha task review-consent` 同一条 daemon 动作。 */
   async consentReview(
     payload: RepoScope & { readonly taskId: string; readonly executionId: string; readonly reviewId: string },

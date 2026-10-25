@@ -556,6 +556,27 @@ export default {
       assert.equal(started.ok, true, JSON.stringify(started));
     }
 
+    // 返工轮由 changes_requested 评审自动重开(dec_E369B861 CH3);上限必须覆盖三轮夹具。
+    const settings = await requestDaemonJsonRpcAt(
+      endpoint,
+      "repo.settings.read",
+      { repo: { repoId }, payload: {} },
+      1000,
+      30000,
+    );
+    const budget = await requestDaemonJsonRpcAt(
+      endpoint,
+      "repo.task.run",
+      {
+        repo: { repoId },
+        payload: {
+          action: { kind: "settings-update", reviewReturnBudget: 5, expectedVersion: settings.revision },
+        },
+      },
+      1000,
+      30000,
+    );
+    assert.equal(budget.ok, true, JSON.stringify(budget).slice(0, 300));
     // Submit/return creates real lifecycle history; releasing a lease does not end an execution.
     for (const [taskId, taskPackage] of [
       [CHILD_TASK_ID, packagePath],
@@ -576,19 +597,11 @@ export default {
       assert.equal(authored.ok, true, JSON.stringify(authored));
       for (let index = 0; index < 3; index += 1) {
         const executionId = index === 0 ? `execution-layout-${taskId}` : `execution-layout-${taskId}-${index - 1}`;
-        for (const action of [
+        const actions = [
           { kind: "task-submit", taskId, executionId, commitSha },
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            return: true,
-            reason: "Continue the isolated layout fixture round",
-            // 9ceab8bb1 起 return 必须显式选续派模式;夹具只要返工状态转移。
-            workerMode: "none",
-          },
           { kind: "task-start", taskId, executionId: `execution-layout-${taskId}-${index}` },
-        ]) {
+        ];
+        for (const action of actions) {
           const receipt = await requestDaemonJsonRpcAt(
             endpoint,
             "repo.task.run",
@@ -598,6 +611,36 @@ export default {
           );
           assert.equal(receipt.ok, true, JSON.stringify(receipt));
         }
+        // changes_requested 评审在返工上限内自动重开下一轮(dec_E369B861 CH3);评审员用
+        // 独立 agent actor,报告落在包内 reports 目录。
+        writeFileSync(
+          path.join(rootDir, "harness", taskPackage, "artifacts", "reports", `layout-${taskId}-${index}.md`),
+          `# Layout fixture round ${index}\n\nFixture review requested changes to continue the round chain.\n`,
+        );
+        const reviewed = await requestDaemonJsonRpcAt(
+          endpoint,
+          "repo.task.run",
+          {
+            repo: { repoId },
+            payload: {
+              action: {
+                kind: "task-review-execution",
+                taskId,
+                executionId,
+                reviewId: `review-layout-${taskId}-${index}`,
+                jsonInput: JSON.stringify({
+                  verdict: "changes_requested",
+                  reason: "Continue the isolated layout fixture round",
+                  evidenceChecked: [`${taskPackage}/closeout.md`],
+                }),
+              },
+            },
+          },
+          1000,
+          30000,
+          { HARNESS_ACTOR: "agent:layout-reviewer" },
+        );
+        assert.equal(reviewed.ok, true, JSON.stringify(reviewed).slice(0, 400));
       }
     }
     try {

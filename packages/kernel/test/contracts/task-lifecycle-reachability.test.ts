@@ -31,7 +31,11 @@ const owner: ActorAxes = {
     executor: { kind: "agent", id: "reviewer-agent" },
   },
   commitSha = "a".repeat(40),
-  completionContract = emptyCompletionContract;
+  // A review-required cut enters in_review at submit directly; the corridor needs no forward.
+  completionContract = {
+    ...emptyCompletionContract,
+    closeoutGates: { review: true, consent: true, factDisposition: true },
+  };
 
 function command(snapshot: TaskLifecycleSnapshot, actor: ActorAxes, intent: TaskLifecycleCommandIntent) {
   const revision = snapshot.revision + 1;
@@ -100,31 +104,28 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
       },
       { actorBinding: owner, leaseVersion: 0, sessionDisposition: "complete" },
     ),
-    adjudications = (["forward", "return"] as const).map((decision) =>
+    // Both verdicts explore the corridor: approved stays at the gate, changes_requested reopens
+    // the implementation round below the budget.
+    review = (["approved", "changes_requested"] as const).map((verdict) =>
       make(
-        owner,
-        { type: "AdjudicateSubmission", taskId, executionId, decision, reason: "reachability" },
-        { actorBinding: owner, capability: "task-adjudicate@v1", capabilityRef: "cap-adjudicate" },
+        reviewer,
+        {
+          type: "RecordReview",
+          taskId,
+          executionId,
+          reviewId: `review-${iteration}-${verdict}`,
+          verdict,
+          reason: verdict,
+          evidenceChecked: ["reachability"],
+          commitSha,
+          iteration,
+          contentDigest: `sha256:${"b".repeat(64)}`,
+          submissionDigest: currentExecution?.submission
+            ? submissionDigest(currentExecution.submission)
+            : `sha256:${"c".repeat(64)}`,
+        },
+        { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review", reworkBudget: 2 },
       ),
-    ),
-    review = make(
-      reviewer,
-      {
-        type: "RecordReview",
-        taskId,
-        executionId,
-        reviewId: `review-${iteration}`,
-        verdict: "approved",
-        reason: "approved",
-        evidenceChecked: ["reachability"],
-        commitSha,
-        iteration,
-        contentDigest: `sha256:${"b".repeat(64)}`,
-        submissionDigest: currentExecution?.submission
-          ? submissionDigest(currentExecution.submission)
-          : `sha256:${"c".repeat(64)}`,
-      },
-      { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review" },
     ),
     consent = make(
       owner,
@@ -132,7 +133,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
         type: "RecordReviewConsent",
         taskId,
         executionId,
-        reviewId: currentReview?.reviewId ?? `review-${iteration}`,
+        reviewId: currentReview?.reviewId ?? `review-${iteration}-approved`,
         consentId: `consent-${iteration}`,
         reviewDigest: currentReview ? reviewDigest(currentReview) : `sha256:${"d".repeat(64)}`,
         contentDigest: currentReview?.contentDigest ?? `sha256:${"b".repeat(64)}`,
@@ -168,8 +169,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
     start,
     ...transitions,
     submit,
-    ...adjudications,
-    review,
+    ...review,
     consent,
     complete,
   ];

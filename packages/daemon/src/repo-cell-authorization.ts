@@ -489,8 +489,6 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "task-reopen":
       return authorizeRepoCellAction(input);
-    case "task-adjudicate":
-      return authorizeRepoCellAction(input);
     case "task-review-consent":
       return authorizeRepoCellAction(input);
     case "task-review-execution":
@@ -885,8 +883,7 @@ function invalidExecutorBindingFor(
                     ? claimantTaskStatus === "submitted" || claimantTaskStatus === "in_review"
                       ? `Expected a held execution lease, but task ${leaseTargetTaskId} already left implementation: the ` +
                         `round was submitted and its cut is frozen — worker writes happen BEFORE ha task submit; if ` +
-                        `artifacts must still land, the owner returns the cut with ha task adjudicate ` +
-                        `${leaseTargetTaskId} --return and the work is resubmitted with them`
+                        `artifacts must still land, a changes_requested review verdict returns the cut for rework`
                       : `Expected a held execution lease, but the lease on task ${leaseTargetTaskId} is ` +
                         `${claimantLease!.phase}; reacquire it with ha task start ${leaseTargetTaskId}, then retry ${retry}`
                     : expected

@@ -508,6 +508,8 @@ test(
         continuationContext: null,
       },
     );
+    // The edge assembles the same worker mission from this read, so the reviewer note must cross it.
+    assert.match(context.reviewerNote, /closeout-reviewer/u);
     await assert.rejects(
       fixture.host.read(repoId, "repo.tasks.causalContext.read" as never, { taskId }, fixture.auth),
       "the superseded read name is gone, not aliased",

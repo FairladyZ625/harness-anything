@@ -91,22 +91,6 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     await commitDelivery(cell, rootDir);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward review-axis cut.",
-          },
-          agent,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
@@ -201,22 +185,6 @@ test("principal review independence rejects a different executor owned by the su
     await commitDelivery(cell, rootDir);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward principal-review cut.",
-          },
-          agent,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
@@ -400,22 +368,6 @@ test("a lightweight child bare-invocation execution closes without a review disp
       `ha task complete ${taskId}`,
     );
     return;
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: priorExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward prior bare-invocation cut.",
-          },
-          bare,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
       JSON.stringify({
@@ -452,41 +404,9 @@ test("a lightweight child bare-invocation execution closes without a review disp
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: priorExecutionId,
-            return: true,
-            workerMode: "none",
-            reviewId: "review-prior-changes",
-            reason: "Return prior bare-invocation cut.",
-          },
-          bare,
-        )
-      ).outcome,
-      "applied",
-    );
+    // The changes_requested verdict above reopened the rework round automatically.
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, bare)), "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward recovered cut.",
-          },
-          bare,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
@@ -731,22 +651,6 @@ test("a low-risk child skips automatic review and waits for merge evidence", asy
       false,
     );
     return;
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward bare reviewed cut.",
-          },
-          bare,
-        )
-      ).outcome,
-      "applied",
-    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({
@@ -1071,23 +975,14 @@ test("review binding permits independent runtimes but still rejects the executio
       submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, resumedImplementer)),
       "applied",
     );
-    const forwarded = await cell.run(
-      {
-        kind: "task-adjudicate",
-        taskId,
-        executionId,
-        forward: true,
-        reviewer: "closeout-reviewer",
-        reason: "Forward runtime-bound cut.",
-      },
-      operator,
-    );
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-    // The forward order's own reviewer lane must conclude before the owner can consent to the cut.
-    const forwardDispatch = (forwarded as unknown as { steps?: { runtimeSessionId?: string }[] }).steps?.at(-1);
-    if (forwardDispatch?.runtimeSessionId) {
-      await cell.cancelRuntime({ runtimeSessionId: forwardDispatch.runtimeSessionId }, operator);
-      await cell.awaitRuntimeOutcome(forwardDispatch.runtimeSessionId);
+    // The submit's own auto-dispatched reviewer lane must conclude before the owner can consent
+    // to the cut; settle it from the live dispatch the submit recorded.
+    const submittedDispatch = makeTaskEventReader({ repoId: "review-runtime-bound", rootDir })
+      .read()
+      .events.findLast((event) => event.type === "runtime_dispatch_requested");
+    if (submittedDispatch?.type === "runtime_dispatch_requested" && submittedDispatch.payload.role === "reviewer") {
+      await cell.cancelRuntime({ runtimeSessionId: submittedDispatch.payload.runtimeSessionId }, operator);
+      await cell.awaitRuntimeOutcome(submittedDispatch.payload.runtimeSessionId);
     }
     const submittedCut = makeTaskEventReader({ repoId: "review-runtime-bound", rootDir })
       .read()
@@ -1199,22 +1094,6 @@ test("review binding permits independent runtimes but still rejects the executio
       submissionOutcome(
         await cell.run({ kind: "task-submit", taskId: directTaskId, executionId: directExecutionId }, implementer),
       ),
-      "applied",
-    );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId: directTaskId,
-            executionId: directExecutionId,
-            forward: true,
-            reviewer: "closeout-reviewer",
-            reason: "Forward direct review cut.",
-          },
-          operator,
-        )
-      ).outcome,
       "applied",
     );
     writeFileSync(

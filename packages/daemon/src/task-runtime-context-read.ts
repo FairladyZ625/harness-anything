@@ -3,6 +3,7 @@ import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { openTaskWorktreeBinding, presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import { latestRuntimeContinuationSeed } from "./runtime-continuation-context.ts";
 import { assignmentFromRelations } from "./entity-assignment-runtime.ts";
+import { taskReviewerNote } from "./runtime-spawn-mission.ts";
 
 /** Runtime preparation reads the same task context at the selected center or replica cut. */
 export function readTaskRuntimeContext(
@@ -27,6 +28,8 @@ export function readTaskRuntimeContext(
     profileId: task?.metadata?.profileId ?? null,
     worktree: openTaskWorktreeBinding(task, presetSnapshotReader(projection)),
     continuationContext: latestRuntimeContinuationSeed(projection, taskId, executionIds),
+    // The same note every local worker mission carries, served to an edge that has no settings projection.
+    reviewerNote: taskReviewerNote(projection, snapshot),
     snapshot: {
       ...snapshot,
       workspace: taskWorkspaceView(

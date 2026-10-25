@@ -5,6 +5,7 @@ import { reviewDigest } from "./review.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
+import type { TaskEdgeTaken } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type {
@@ -34,6 +35,7 @@ import {
   lifecycleContractIssue,
   replaceExecution,
   revisionIssues,
+  takeEdge,
 } from "./task-lifecycle-contract-support.ts";
 
 // Review, consent, and completion transition definitions.
@@ -67,10 +69,15 @@ function reviewIssues(
     !isNonEmptyString(command.reviewId) ||
     !isNonEmptyString(command.reason) ||
     !Array.isArray(command.evidenceChecked) ||
-    !digest(command.contentDigest)
+    !digest(command.contentDigest) ||
+    !Number.isSafeInteger(proof.reworkBudget) ||
+    (proof.reworkBudget as number) < 1
   )
     issues.push(
-      lifecycleContractIssue("invalid_proof", "transport-bound execution review proof and content digest are required"),
+      lifecycleContractIssue(
+        "invalid_proof",
+        "transport-bound execution review proof, content digest, and repository rework budget are required",
+      ),
     );
   return issues;
 }
@@ -108,24 +115,67 @@ export const review: Transition = {
   reduce: (snapshot, raw, rawProof) => {
     const command = raw as RecordReviewCommand,
       current = execution(snapshot, command.executionId) as ExecutionV1,
-      recorded = reviewFrom(command, rawProof as ReviewProof);
-    // A changes_requested verdict is a report to the adjudicating owner, not a command to the
-    // worker: the cut stays at the review gate in in_review until the owner's return order
-    // (AdjudicateSubmission return) reopens the implementation iteration (owner ruling 2026-09-19).
+      recorded = reviewFrom(command, rawProof as ReviewProof),
+      rework = reworkReopen(snapshot, command, recorded, rawProof as ReviewProof);
+    // A changes_requested verdict is the return order itself: below the repository rework budget the
+    // same transition that records the review reopens the implementation iteration, and the daemon
+    // continues the submitting worker with the report (dec_E369B8616F50A6208B293997E7 CH3). At or
+    // beyond the budget the verdict only records — the cut stays at the review gate for the owner.
     return {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
+        ...(rework
+          ? {
+              task: rework.task,
+              executions: replaceExecution(snapshot.executions, rework.execution),
+              edgesTaken: [...snapshot.edgesTaken, rework.edge],
+            }
+          : {}),
         reviews: [...snapshot.reviews, recorded],
       },
       event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
-        task: snapshot.task as TaskV2,
-        execution: current,
+        task: rework ? rework.task : (snapshot.task as TaskV2),
+        execution: rework ? rework.execution : current,
         review: recorded,
+        ...(rework ? { edge: rework.edge } : {}),
       }),
     };
   },
 };
+
+/**
+ * The automatic rework round a changes_requested verdict reopens, or null when the repository
+ * rework budget is exhausted. The budget counts every returned cut this task has already taken
+ * (executions closed as changes_requested), so legacy owner returns consume it too.
+ */
+function reworkReopen(
+  snapshot: TaskLifecycleSnapshot,
+  command: RecordReviewCommand,
+  recorded: ReviewV1,
+  proof: ReviewProof,
+): { readonly task: TaskV2; readonly execution: ExecutionV1; readonly edge: TaskEdgeTaken } | null {
+  if (command.verdict !== "changes_requested") return null;
+  const returned = snapshot.executions.filter((value) => value.state === "changes_requested").length;
+  if (returned >= proof.reworkBudget) return null;
+  const current = execution(snapshot, command.executionId) as ExecutionV1;
+  return {
+    task: {
+      ...(snapshot.task as TaskV2),
+      status: "active",
+      currentNode: "implementation",
+      iteration: (snapshot.task?.iteration ?? 0) + 1,
+    },
+    execution: { ...current, state: "changes_requested", closedAt: command.occurredAt },
+    edge: takeEdge(
+      snapshot.task as TaskV2,
+      "changes_requested",
+      recorded.reason,
+      recorded.commitSha,
+      current.iteration,
+    ),
+  };
+}
 export const consent: Transition = {
   actionId: "consent",
   matches: (command) => command.type === "RecordReviewConsent",

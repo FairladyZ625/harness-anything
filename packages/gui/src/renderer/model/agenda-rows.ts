@@ -23,7 +23,7 @@ type AgendaGroup =
   | DecisionReviewGroup
   | "answered"
   | "rework"
-  | "adjudicate"
+  | "legacySubmitted"
   | "taskReviewing"
   | "audit"
   | "unsubmitted";
@@ -32,7 +32,7 @@ type AgendaGroup =
 const GROUP_ORDER: readonly AgendaGroup[] = [
   "dispose",
   "rework",
-  "adjudicate",
+  "legacySubmitted",
   "review",
   "judge",
   "reviewing",
@@ -45,7 +45,7 @@ const GROUP_ORDER: readonly AgendaGroup[] = [
 const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
   dispose: "views.workspace.decisionReviewGroupDispose",
   rework: "views.agenda.groupRework",
-  adjudicate: "views.agenda.groupAdjudicate",
+  legacySubmitted: "views.agenda.groupLegacySubmitted",
   review: "views.workspace.decisionReviewGroupReview",
   judge: "views.workspace.decisionReviewGroupJudge",
   reviewing: "views.workspace.decisionReviewGroupReviewing",
@@ -59,7 +59,7 @@ const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
 const GROUP_TONE: Readonly<Record<AgendaGroup, StatusTone>> = {
   dispose: "bad",
   rework: "bad",
-  adjudicate: "bad",
+  legacySubmitted: "bad",
   review: "wait",
   judge: "wait",
   reviewing: "wait",
@@ -75,7 +75,7 @@ export type AgendaFilter = "attn" | "follow" | "all";
 export const GROUP_BUCKET: Readonly<Record<AgendaGroup, AgendaFilter>> = {
   dispose: "attn",
   rework: "attn",
-  adjudicate: "attn",
+  legacySubmitted: "attn",
   review: "attn",
   judge: "attn",
   reviewing: "follow",
@@ -129,7 +129,7 @@ export function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
       since: row.updatedAt,
       scoreRef: `task/${row.taskId}`,
     })),
-    ...taskReviewRows(agenda.awaitingAdjudication, "adjudicate", "views.agenda.hintAdjudicate", (row) => ({
+    ...taskReviewRows(agenda.awaitingAdjudication, "legacySubmitted", "views.agenda.hintLegacySubmitted", (row) => ({
       since: row.submittedAt,
       scoreRef: `execution/${row.executionId}`,
     })),
@@ -170,10 +170,10 @@ const GROUP_HINTS: Readonly<Record<DecisionReviewGroup, MessageKey>> = {
 export { GROUP_HINTS, GROUP_LABEL, GROUP_ORDER, GROUP_TONE };
 export type { AgendaGroup };
 
-/** 评审返回 / 待初审 / 任务评审中:行只取读面的 taskId 与标题,落任务详情的收口页签。 */
+/** 评审返回 / 历史提交待处理 / 任务评审中:行只取读面的 taskId 与标题,落任务详情的收口页签。 */
 function taskReviewRows<T extends { readonly taskId: string; readonly title: string }>(
   rows: readonly T[],
-  group: "rework" | "adjudicate" | "taskReviewing",
+  group: "rework" | "legacySubmitted" | "taskReviewing",
   hint: MessageKey,
   metaOf: (row: T) => { readonly since: string | null; readonly scoreRef: string },
 ): AgendaRow[] {

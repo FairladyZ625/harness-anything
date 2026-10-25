@@ -115,8 +115,8 @@ export function attentionEntries(
 /**
  * 首块「需要你处理」的两类:真实要本人动手的 awaits 边(question/acceptance/consent/
  * reopen 问的人)与待点头的 decision(裁决带人工同意通道)。待初审的 execution 不在此:
- * `ha task adjudicate --forward/--return` 是 owning CEO 的机器双闸(CLI 帮助原文),不是
- * 用户动作,住「跟进与返工」。已答复跟进(answered)、评审打回(rework)与阻塞/停滞
+ * 提交自动派评审,changes_requested 自动重开返工,只有预算耗尽的切面才等业主处置
+ * (dec_E369B861 CH3),都住「跟进与返工」。已答复跟进(answered)与阻塞/停滞
  * (blocked/stalled)同样不冒充需要用户。
  */
 export type DecisionKind = "awaiting-you" | "decision" | "ruling";

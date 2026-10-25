@@ -99,7 +99,6 @@ export const taskCapabilityIdWords = Object.freeze([
   "start",
   "progress",
   "submit",
-  "adjudicate",
   "review",
   "complete",
 ] as const satisfies readonly TaskCapabilityId[]);

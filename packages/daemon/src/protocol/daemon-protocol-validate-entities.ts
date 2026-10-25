@@ -288,7 +288,9 @@ export function task(value: unknown): boolean {
       "packageDisposition",
       "supersededBy",
       "contractVersion",
+      // Legacy read-only history: snapshots written before the rework budget moved to repository Settings.
       "reviewReturnBudget",
+      "reviewer",
       "closeoutOverrides",
       "archiveOnComplete",
       "presetSnapshotGap",
@@ -342,6 +344,7 @@ export function task(value: unknown): boolean {
     (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0)) &&
     (value.reviewReturnBudget === undefined ||
       (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
+    (value.reviewer === undefined || typeof value.reviewer === "string") &&
     (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides)) &&
     (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
   );

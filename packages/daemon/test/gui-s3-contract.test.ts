@@ -76,6 +76,7 @@ test("runtime task context v3 requires tier policy and rejects the retired v2 sh
     riskTier: "medium",
     riskTierFlowVersion: 1,
     profileId: null,
+    reviewerNote: null,
     worktree: null,
     continuationContext: null,
     snapshot: {},

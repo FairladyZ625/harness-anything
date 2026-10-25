@@ -175,26 +175,6 @@ export const taskCompletionGuiActions = Object.freeze([
     "/api/tasks/:taskId/complete",
     "repo-write",
   ),
-  // The owner's triage gate onto the same `task-adjudicate` action as `ha task adjudicate`.
-  guiAction(
-    "task.adjudicate",
-    "repo.task.adjudicate",
-    "task-adjudicate",
-    shape({
-      taskId: "string",
-      executionId: "string?",
-      reviewer: "string?",
-      reviewId: "string?",
-      forward: "boolean?",
-      return: "boolean?",
-      reason: "string?",
-      workerMode: "string?",
-      followUp: "string?",
-    }),
-    "adjudicateTask",
-    "/api/tasks/:taskId/adjudicate",
-    "repo-write",
-  ),
   // The owner's verdict accept onto the same `task-review-consent` action as the CLI. The
   // execution is a stated id (the reviewed cut's own execution), never an inferred one.
   guiAction(

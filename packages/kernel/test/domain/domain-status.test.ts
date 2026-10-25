@@ -77,8 +77,8 @@ test("domain owns canonical lifecycle status transition semantics", () => {
   assert.deepEqual(explainStatusTransition("done", "planned"), { allowed: false, reason: "terminal_status" });
   assert.deepEqual(explainStatusTransition("cancelled", "blocked"), { allowed: false, reason: "terminal_status" });
   assert.deepEqual(explainStatusTransition("planned", "done"), { allowed: false, reason: "unsupported_transition" });
-  // The adjudication corridor (owner ruling 2026-09-19): done is reachable only through
-  // in_review, and only the owner's adjudication moves a submitted cut.
+  // The review corridor (dec_E369B861 CH3): done is reachable only through in_review, and
+  // review verdicts — not status moves — carry a submitted cut.
   assert.deepEqual(explainStatusTransition("active", "done"), { allowed: false, reason: "unsupported_transition" });
   assert.deepEqual(explainStatusTransition("active", "in_review"), {
     allowed: false,

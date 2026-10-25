@@ -30,7 +30,7 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
-  ["task-adjudicate", renderAdjudication],
+  ["task-review-execution", renderReviewRework],
   ["task-dispatch-review", renderReviewDispatches],
   ["task-show", renderTaskShow],
   ["decision-propose", renderDecisionPropose],
@@ -127,26 +127,19 @@ function renderCliReceiptBase(
   return { stream: "stdout", text: renderSuccessfulReceipt(receipt) };
 }
 
-function renderAdjudication(receipt: Record<string, unknown>): string {
+function renderReviewRework(receipt: Record<string, unknown>): string {
   const steps = Array.isArray(receipt.steps) ? receipt.steps.filter(isRecord) : [],
     continuation = isRecord(receipt.continuation) ? receipt.continuation : null,
-    // A `none` return dispatches no worker, so there is no dispatch outcome to echo; the
-    // receipt's `next` entries carry the manual continuation lanes instead.
-    workerLine =
-      continuation?.mode === "none"
-        ? "worker: none (no dispatch)"
-        : continuation
-          ? `worker: ${String(continuation.mode)}; ${String(continuation.outcome)}${typeof continuation.dispatchId === "string" ? `; dispatch: ${continuation.dispatchId}` : ""}`
-          : null;
+    // The rework worker dispatch the changes_requested verdict triggered rides the continuation.
+    workerLine = continuation
+      ? `worker: ${String(continuation.mode)}; ${String(continuation.outcome)}${typeof continuation.dispatchId === "string" ? `; dispatch: ${continuation.dispatchId}` : ""}`
+      : null;
   return [
     renderSuccessfulReceipt(receipt),
-    ...(typeof receipt.reviewerId === "string"
-      ? [`reviewer: ${receipt.reviewerId} (source: ${String(receipt.reviewerSource)})`]
-      : []),
     ...(workerLine === null ? [] : [workerLine]),
     ...steps
       .filter((step) => step.outcome === "failed" || step.outcome === "op_rejected")
-      .map((step) => `${continuation ? "worker" : "review"} dispatch failed: ${humanError(step).hint}`),
+      .map((step) => `worker dispatch failed: ${humanError(step).hint}`),
   ].join("\n");
 }
 
@@ -192,7 +185,7 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
     `packageDisposition: ${String(payload.task.packageDisposition ?? "active")}`,
     ...(isRecord(payload.workspace) ? [workspaceLine(payload.workspace, payload.worktreeSetup)] : []),
     ...(typeof payload.returnBudget === "number"
-      ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
+      ? [`returnBudget=${String(payload.returnBudget)} (repository rework round limit)`]
       : []),
   ].join("\n");
 }
@@ -210,7 +203,7 @@ function executionLines(payload: Record<string, unknown>): readonly string[] {
       : [],
   );
   return [
-    `execution: ${rows.length ? rows.join(", ") : "none"} (pass as --execution-id to review-consent/adjudicate/complete)`,
+    `execution: ${rows.length ? rows.join(", ") : "none"} (pass as --execution-id to review/review-consent/complete)`,
   ];
 }
 

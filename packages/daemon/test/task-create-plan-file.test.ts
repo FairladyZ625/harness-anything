@@ -95,7 +95,7 @@ test("create rejects a plan file missing a template section", async () => {
 });
 
 test("a task-bound commander creates a planned child with its authored plan and no lease", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     const commander = await f.cell().spawnRuntime(

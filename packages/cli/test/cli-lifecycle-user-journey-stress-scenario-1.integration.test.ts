@@ -165,26 +165,8 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
       reviewerEnvironment,
     );
     assert.equal(requested.outcome, "applied");
-    await expectApplied(
-      fixture,
-      [
-        "task",
-        "adjudicate",
-        taskId,
-        "--return",
-        "--worker-mode",
-        "fresh",
-        "--message",
-        "Clarify the verification note.",
-        "--instance",
-        "missing-return-worker",
-        "--review-id",
-        "review-cli-changes-requested",
-        "--note",
-        "Return the first stress cut for rework.",
-      ],
-      workerEnvironment,
-    );
+    // dec_E369B861 CH3: the adverse verdict itself reopens the round; the manual return
+    // command retired with the corridor.
     const afterRequest = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
       afterRequestEvidence = JSON.parse(String(afterRequest.evidence)) as {
         readonly task?: { readonly status?: string; readonly iteration?: number };

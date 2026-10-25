@@ -622,7 +622,6 @@ const READ_METHOD_SEGMENTS = new Set(["read", "list", "tail", "status", "snapsho
     "amend",
     "record",
     "confirm",
-    "adjudicate",
     "pin",
     "control",
   ]);

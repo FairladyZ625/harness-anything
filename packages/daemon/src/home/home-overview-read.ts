@@ -259,7 +259,7 @@ async function readSingleRepoOverviewWithTimeout(
     matters.push({
       key: `adjudicate-${adjudication.taskId}`,
       tag: "待签发",
-      text: `${adjudication.title} · 提交待你派审`,
+      text: `${adjudication.title} · 历史提交切面待处理`,
       tone: "danger",
       taskId: adjudication.taskId,
     });

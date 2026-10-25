@@ -18,6 +18,7 @@ import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.t
 import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
+import { continueReviewRework } from "./task-return-dispatch.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
@@ -306,14 +307,21 @@ export async function runTaskActionCatalogRuntime(
         ...(cell.input.killpoint ? { killpoint: cell.input.killpoint } : {}),
       },
     });
-  if (result.outcome === "applied" && result.event && result.proof)
-    return cell.lifecycleReceipt(
+  if (result.outcome === "applied" && result.event && result.proof) {
+    const receipt = cell.lifecycleReceipt(
       result.event,
       result.snapshot,
       cell.publicPublication(cell.store.publication(result.event)),
       result.proof,
       authorityProof.authorizationDecision,
     );
+    // The automatic review loop: a changes_requested verdict that just reopened the implementation
+    // round continues the submitting worker with the review report; an exhausted rework budget
+    // names the owner's disposition lanes. Every other verdict returns the receipt unchanged.
+    return action.kind === "task-review-execution"
+      ? await continueReviewRework(cell, action, binding, receipt)
+      : receipt;
+  }
   if (result.outcome === "pending")
     return {
       outcome: "pending",
