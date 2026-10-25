@@ -1,5 +1,11 @@
 import { replayGateRunChange } from "./gate-run-publication.ts";
-import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
+import {
+  currentExecution,
+  executionAnnotationKinds,
+  isNativeExecution,
+  submissionDigest,
+  submissionId,
+} from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
@@ -727,7 +733,11 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
               }),
             )
           : previous;
-      if (stableStringify(expected) !== stableStringify(event.payload.execution)) return true;
+      if (
+        stableStringify(expected && currentExecution(expected)) !==
+        stableStringify(currentExecution(event.payload.execution))
+      )
+        return true;
       if (witness.historicalAcceptance)
         return (
           !submission ||

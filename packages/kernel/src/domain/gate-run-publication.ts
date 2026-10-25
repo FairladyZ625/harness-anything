@@ -17,12 +17,14 @@ import { TaskLifecycleContractError } from "./task-lifecycle.contract.ts";
 import type { ActorAxes } from "./task.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
+import { currentExecution, submissionDigest } from "./execution.ts";
 
 export function replayGateRunChange(
   snapshot: TaskLifecycleSnapshot,
   event: GateRunChangedEvent,
 ): TaskLifecycleSnapshot {
-  const current = execution(snapshot, event.payload.execution.executionId),
+  const currentValue = execution(snapshot, event.payload.execution.executionId),
+    current = currentValue ? currentExecution(currentValue) : currentValue,
     run = event.payload.execution.gateRuns.find((candidate) => candidate.runId === event.payload.runId);
   if (
     !snapshot.task ||
@@ -90,12 +92,14 @@ export function replayGateRunChange(
     };
   }
   const updated = replaceClaimedRun(current, expected, event.actor);
-  if (stableStringify(updated) !== stableStringify(event.payload.execution))
+  if (stableStringify(updated) !== stableStringify(currentExecution(event.payload.execution)))
     throw gateRunError("gate_run_conflict", "Gate run event changed fields outside the accepted transition.");
   return {
     ...snapshot,
     revision: event.workspaceRevision,
-    executions: snapshot.executions.map((value) => (value.executionId === updated.executionId ? updated : value)),
+    executions: snapshot.executions.map((value) =>
+      value.executionId === updated.executionId ? event.payload.execution : value,
+    ),
   };
 }
 export function compileGateRunChange(input: {
@@ -112,12 +116,20 @@ export function compileGateRunChange(input: {
   readonly packagePath: string | null;
   readonly currentDocuments: readonly LifecycleDocumentState[];
 }) {
-  const current = execution(input.snapshot, input.executionId);
+  const currentValue = execution(input.snapshot, input.executionId),
+    current = currentValue ? currentExecution(currentValue) : currentValue;
   if (!current || !input.snapshot.task || input.workspaceRevision <= input.snapshot.revision)
     throw gateRunError("gate_run_stale", "The gate run's aggregate cut is no longer current.");
   const event = envelope<GateRunChangedEvent>({ ...input, taskId: input.snapshot.task.taskId }, "gate_run_changed", {
     task: input.snapshot.task,
-    execution: replaceClaimedRun(current, input.run, input.actor),
+    execution: replaceClaimedRun(
+      current,
+      {
+        ...input.run,
+        submissionDigest: current.submission ? submissionDigest(current.submission) : input.run.submissionDigest,
+      },
+      input.actor,
+    ),
     runId: input.run.runId,
     operation: input.operation,
   });

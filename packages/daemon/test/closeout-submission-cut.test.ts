@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { sha256Bytes } from "@harness-anything/kernel";
+import { currentSubmission, sha256Bytes, submissionDigest } from "@harness-anything/kernel";
 import {
   deriveCloseoutSubmission,
   readCloseoutSubmission,
@@ -247,6 +247,7 @@ test("same-cut closeout restore strips the retired GUI assessment key before val
   assert.ok(result.submission.riskTierAssessment);
   assert.deepEqual(result.submission.riskTierAssessment.reasons, ["frozen legacy assessment"]);
   assert.equal(Object.hasOwn(result.submission.riskTierAssessment, "guiAcceptanceRequired"), false);
+  assert.equal(submissionDigest(result.submission), submissionDigest(currentSubmission(frozen)));
   assert.deepEqual(validateGuiSubmission(result.submission), []);
 });
 
@@ -637,6 +638,36 @@ test("anchor drift warning fires only when the delivery cut moved under unchange
   assert.deepEqual(submissionAnchorDriftWarnings(null, submitted), []);
   assert.deepEqual(submissionAnchorDriftWarnings(submitted, submitted), []);
   assert.deepEqual(submissionAnchorDriftWarnings(submitted, { ...submitted, completionClaim: "Revised claim." }), []);
+  assert.deepEqual(
+    submissionAnchorDriftWarnings(
+      {
+        ...submitted,
+        riskTierAssessment: {
+          schema: "task-risk-tier-assessment/v1",
+          declaredTier: "low",
+          effectiveTier: "low",
+          deliveryBaseSha: null,
+          deliveryHeadSha: submitted.commitSha,
+          matchedPathReviewers: [],
+          reasons: [],
+          guiAcceptanceRequired: true,
+        },
+      },
+      {
+        ...submitted,
+        riskTierAssessment: {
+          schema: "task-risk-tier-assessment/v1",
+          declaredTier: "low",
+          effectiveTier: "low",
+          deliveryBaseSha: null,
+          deliveryHeadSha: submitted.commitSha,
+          matchedPathReviewers: [],
+          reasons: [],
+        },
+      },
+    ),
+    [],
+  );
 });
 
 // -- comparison-cut anchor (F-70FB11C4): the manifest belongs to the commit, not the clock ------

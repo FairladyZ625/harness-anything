@@ -7,6 +7,7 @@ import { TaskLifecycleContractError, type TaskLifecycleSnapshot } from "./task-l
 import { type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CompletionEvidenceV1 } from "./completion-evidence.ts";
 import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
+import { currentExecution, submissionDigest } from "./execution.ts";
 
 /**
  * The witness source the frozen contract admits for this evidence: the declared adapter itself, or a
@@ -46,9 +47,11 @@ export function compileCompletionGateWitness(input: {
   readonly currentDocuments: readonly LifecycleDocumentState[];
 }) {
   const task = input.snapshot.task,
-    execution = input.snapshot.executions.find(
+    historicalExecution = input.snapshot.executions.find(
       (value) => value.executionId === input.executionId && value.iteration === task?.iteration,
     ),
+    execution =
+      historicalExecution?.schema === "execution/v1" ? currentExecution(historicalExecution) : historicalExecution,
     requirement = execution?.submission?.completionContract?.gates.find((gate) => gate.gateId === input.gateId);
   if (
     !task ||
@@ -70,26 +73,30 @@ export function compileCompletionGateWitness(input: {
     throw new TaskLifecycleContractError("invalid_proof", [
       { code: "invalid_gate_witness", message: "checker receipt must bind the current submitted execution cut" },
     ]);
+  const evidence = input.evidence!;
   const acceptedExecution =
-    input.evidence!.provenance.source === "runner"
+    evidence.provenance.source === "runner"
       ? replaceGateRun(
           execution,
           settleGateRun({
             execution,
-            runId: input.evidence!.provenance.runId,
-            claimFence: input.evidence!.provenance.claimFence!,
+            runId: evidence.provenance.runId,
+            claimFence: evidence.provenance.claimFence!,
             actor: input.actor,
             occurredAt: input.occurredAt,
-            outcome: { availability: "available", result: input.result, diagnostic: input.evidence!.diagnostic },
+            outcome: { availability: "available", result: input.result, diagnostic: evidence.diagnostic },
           }),
         )
       : execution;
+  const evidenceBasis = evidence.basis
+    ? { ...evidence.basis, submissionDigest: submissionDigest(execution.submission) }
+    : undefined;
   const witness: CompletionGateWitnessV1 = {
       schema: "completion-gate-witness/v1",
-      subjects: input.evidence!.subjects,
-      predicateType: input.evidence!.predicateType,
-      predicate: input.evidence!.predicate,
-      diagnostic: input.evidence!.diagnostic,
+      subjects: evidence.subjects,
+      predicateType: evidence.predicateType,
+      predicate: evidence.predicate,
+      diagnostic: evidence.diagnostic,
       witnessId: `gate-${input.receiptId}`,
       receiptId: input.receiptId,
       checkerId: input.checkerId,
@@ -104,10 +111,10 @@ export function compileCompletionGateWitness(input: {
       verifiedAt: input.occurredAt,
       ...(input.evidence
         ? {
-            observed: input.evidence.observed,
-            basis: input.evidence.basis,
-            provenance: input.evidence.provenance,
-            ...(input.evidence.override ? { override: input.evidence.override } : {}),
+            observed: evidence.observed,
+            ...(evidenceBasis ? { basis: evidenceBasis } : {}),
+            provenance: evidence.provenance,
+            ...(evidence.override ? { override: evidence.override } : {}),
           }
         : {}),
     },

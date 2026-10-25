@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { submissionDigest, type SubmissionV1 } from "@harness-anything/kernel";
+import { currentSubmission, submissionDigest, type SubmissionV1 } from "@harness-anything/kernel";
 import {
   riskTierCompletionContract,
   sameFrozenSubmissionCut,
@@ -35,9 +35,14 @@ test("a legacy cut keeps its bytes only when the caller explicitly resumes it", 
       },
     } as SubmissionV1,
     frozenWithAssessment = { ...derived, riskTierAssessment: assessment },
+    historicalFrozen = {
+      ...frozenWithAssessment,
+      riskTierAssessment: { ...assessment, guiAcceptanceRequired: true },
+    } as SubmissionV1,
     { riskTierAssessment: _assessment, ...legacyFrozen } = frozenWithAssessment,
     frozen = legacyFrozen as SubmissionV1;
   assert.equal(sameFrozenSubmissionCut(derived, frozenWithAssessment), true);
+  assert.equal(sameFrozenSubmissionCut(derived, historicalFrozen), true);
   let rebuiltContract = false;
   const retry = submissionForRiskTierRetry(
     derived,
@@ -52,6 +57,17 @@ test("a legacy cut keeps its bytes only when the caller explicitly resumes it", 
   assert.equal(rebuiltContract, false);
   assert.equal(retry.riskTierAssessment, undefined);
   assert.equal(submissionDigest(retry), submissionDigest(frozen));
+  const restoredHistorical = submissionForRiskTierRetry(
+    derived,
+    historicalFrozen,
+    assessment,
+    () => derived.completionContract,
+  );
+  assert.equal(
+    submissionDigest(currentSubmission(restoredHistorical)),
+    submissionDigest(currentSubmission(historicalFrozen)),
+    "same-cut resume compares the historical frozen bytes and restored current shape consistently",
+  );
   rebuiltContract = false;
   const submission = submissionForRiskTierRetry(derived, frozen, assessment, () => {
     rebuiltContract = true;

@@ -2,6 +2,7 @@ import path from "node:path";
 import { realpathSync } from "node:fs";
 import {
   completionGuidance,
+  currentSubmission,
   currentExecutionCuts,
   heldLeaseForExecutionActor,
   isNativeExecution,
@@ -433,17 +434,6 @@ export function riskTierCompletionContract(
   return { ...contract, closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment) };
 }
 
-function currentRiskTierAssessment(
-  assessment: NonNullable<SubmissionV1["riskTierAssessment"]>,
-): NonNullable<SubmissionV1["riskTierAssessment"]> {
-  const { guiAcceptanceRequired: _retired, ...current } = assessment as NonNullable<
-    SubmissionV1["riskTierAssessment"]
-  > & {
-    readonly guiAcceptanceRequired?: unknown;
-  };
-  return current;
-}
-
 export function sameFrozenSubmissionCut(derived: SubmissionV1, frozen: SubmissionV1 | null | undefined): boolean {
   if (frozen === null || frozen === undefined) return false;
   const { riskTierAssessment: _assessment, ...frozenCut } = frozen;
@@ -579,10 +569,12 @@ export function submissionAnchorDriftWarnings(
   previous: SubmissionV1 | null | undefined,
   submission: SubmissionV1,
 ): readonly string[] {
+  const currentPrevious = previous ? currentSubmission(previous) : previous,
+    current = currentSubmission(submission);
   if (
-    !previous ||
-    submissionDigest(previous) === submissionDigest(submission) ||
-    submissionDigest(closeoutProse(previous)) !== submissionDigest(closeoutProse(submission))
+    !currentPrevious ||
+    submissionDigest(currentPrevious) === submissionDigest(current) ||
+    submissionDigest(closeoutProse(currentPrevious)) !== submissionDigest(closeoutProse(current))
   )
     return [];
   return [
@@ -782,7 +774,7 @@ export async function submitTask(
   const anchorDriftWarnings = submissionAnchorDriftWarnings(selected.submission, submission);
   // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
   if (selected.submission && action.amend !== true) {
-    if (submissionDigest(selected.submission) !== submissionDigest(submission))
+    if (submissionDigest(currentSubmission(selected.submission)) !== submissionDigest(currentSubmission(submission)))
       return {
         ...cell.rejected(
           cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
@@ -808,7 +800,10 @@ export async function submitTask(
       steps: review.steps,
     } as WriteReceiptDraft;
   }
-  if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
+  if (
+    selected.submission &&
+    submissionDigest(currentSubmission(selected.submission)) === submissionDigest(currentSubmission(submission))
+  )
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
@@ -918,7 +913,7 @@ export async function readCloseoutSubmission(
       riskTierAssessment = legacyFrozenCut
         ? undefined
         : sameCut && frozen?.riskTierAssessment
-          ? currentRiskTierAssessment(frozen.riskTierAssessment)
+          ? currentSubmission(frozen).riskTierAssessment
           : await assessTaskRiskTier({
               rootDir: cell.rootDir,
               task: taskRiskIdentity(snapshot, taskId),

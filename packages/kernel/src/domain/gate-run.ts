@@ -2,7 +2,7 @@ import { validateActorAxes, type ActorAxes } from "./task.ts";
 import { timestamp } from "./timestamp.ts";
 import { isNonEmptyString, isRecord, hasOnlyFields } from "./contract-validation.ts";
 import type { ArtifactDelivery, ExecutionV1 } from "./execution.ts";
-import { submissionDigest } from "./execution.ts";
+import { currentSubmission, submissionDigest } from "./execution.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type { FrozenGateRequirement } from "./completion-contract.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
@@ -63,8 +63,11 @@ export function currentGateRun(
   gateId: string,
 ): GateRun | undefined {
   if (!execution.submission) return undefined;
-  const digest = submissionDigest(execution.submission);
-  return execution.gateRuns.findLast((run) => run.gateId === gateId && run.submissionDigest === digest);
+  const digest = submissionDigest(execution.submission),
+    currentDigest = submissionDigest(currentSubmission(execution.submission));
+  return execution.gateRuns.findLast(
+    (run) => run.gateId === gateId && (run.submissionDigest === digest || run.submissionDigest === currentDigest),
+  );
 }
 export function claimGateRun(input: {
   readonly execution: ExecutionV1;

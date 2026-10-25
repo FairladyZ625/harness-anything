@@ -7,6 +7,7 @@ import { claimGateRun } from "../../src/domain/gate-run.ts";
 import {
   REPLAY_TASK_GRAPH,
   compileCompletionGateWitness,
+  compileGateRunChange,
   compileExecutionAnnotation,
   compileTaskLifecycleWrite,
   currentTaskForWrite,
@@ -17,9 +18,9 @@ import {
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
 import { validateCurrentTaskEvent } from "../../src/domain/task-lifecycle.contract.ts";
-import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
+import { commitSha, lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
-import { validateSubmissionV1 } from "../../src/domain/execution.ts";
+import { submissionDigest, validateSubmissionV1 } from "../../src/domain/execution.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
 import { canonicalGateReceipts } from "../../src/domain/task-lifecycle-contract-support.ts";
 import { validateTaskGraph } from "../../src/domain/task-graph.ts";
@@ -87,6 +88,175 @@ test("the retired GUI assessment flag is boolean history only and never current 
   assert.notDeepEqual(validateSubmissionV1(historicalSubmission, true), []);
   assert.deepEqual(validateSubmissionV1(historicalSubmission, true, true), []);
   assert.notDeepEqual(validateSubmissionV1(historical(undefined).payload.execution.submission, true, true), []);
+});
+
+test("publication strips the retired GUI assessment while preserving a historical completion cut", () => {
+  const gate = {
+      gateId: "manual",
+      appliesTo: "code" as const,
+      witness: {
+        kind: "manual" as const,
+        predicateType: "human/v1",
+        resultSchema: { type: "object" },
+        adapterId: "manual-attest",
+        adapterOptions: {},
+      },
+    },
+    fixture = lifecycleFixture({ gates: [gate], complete: false }),
+    original = fixture.snapshot.executions[0]! as Extract<
+      (typeof fixture.snapshot.executions)[number],
+      { schema: "execution/v1" }
+    >,
+    historicalExecution = {
+      ...original,
+      submission: {
+        ...original.submission!,
+        riskTierAssessment: {
+          schema: "task-risk-tier-assessment/v1" as const,
+          declaredTier: "low" as const,
+          effectiveTier: "low" as const,
+          deliveryBaseSha: null,
+          deliveryHeadSha: commitSha,
+          matchedPathReviewers: [],
+          reasons: ["historical GUI assessment"],
+          guiAcceptanceRequired: true,
+        },
+      },
+    };
+  const snapshot: TaskLifecycleSnapshot = {
+    ...fixture.snapshot,
+    executions: fixture.snapshot.executions.map((value) =>
+      value.executionId === original.executionId ? historicalExecution : value,
+    ),
+  };
+  const compiled = compileCompletionGateWitness({
+    snapshot,
+    taskId: snapshot.task!.taskId,
+    executionId: original.executionId,
+    gateId: gate.gateId,
+    result: "pass",
+    receiptId: "op-historical-assessment",
+    checkerId: "manual-attest",
+    commitSha: historicalExecution.submission!.commitSha,
+    iteration: historicalExecution.iteration,
+    reviewGate: true,
+    actor: implementer,
+    source: "local",
+    opId: "op-historical-assessment",
+    eventId: "event-historical-assessment",
+    workspaceRevision: snapshot.revision + 1,
+    occurredAt: "2026-08-11T00:07:00.000Z",
+    packagePath: null,
+    currentDocuments: [],
+    evidence: {
+      schema: "completion-evidence/v1",
+      subjects: [],
+      predicateType: "human/v1",
+      predicate: {},
+      diagnostic: "Manual gate attested",
+      checkerId: "manual-attest",
+      gateId: gate.gateId,
+      result: "pass",
+      observed: true,
+      basis: completionEvidenceBasis(historicalExecution),
+      provenance: { source: "human", adapterId: "manual-attest", runId: "attest:owner", rawResult: "pass" },
+    },
+  });
+  assert.equal(
+    Object.hasOwn(compiled.event.payload.execution.submission!.riskTierAssessment!, "guiAcceptanceRequired"),
+    false,
+  );
+  assert.equal(
+    compiled.event.payload.witness.basis?.submissionDigest,
+    completionEvidenceBasis(compiled.event.payload.execution).submissionDigest,
+  );
+  assert.deepEqual(validateCurrentTaskEvent(compiled.event), []);
+  assert.doesNotThrow(() => reduceTaskEvent(snapshot, compiled.event));
+});
+
+test("gate-run publication accepts a historical assessment and emits the current run digest", () => {
+  const gate = {
+      gateId: "ci",
+      appliesTo: "code" as const,
+      witness: {
+        kind: "github-actions" as const,
+        predicateType: "ci/v1",
+        resultSchema: { type: "object" },
+        adapterId: "github-actions",
+        adapterOptions: {
+          workflows: ["rewrite-ci"],
+          branch: "main",
+          event: "push",
+          coverage: "exact" as const,
+          selection: "newest" as const,
+        },
+      },
+    },
+    fixture = lifecycleFixture({ gates: [gate], complete: false }),
+    original = fixture.snapshot.executions[0]! as Extract<
+      (typeof fixture.snapshot.executions)[number],
+      { schema: "execution/v1" }
+    >,
+    historicalExecution = {
+      ...original,
+      submission: {
+        ...original.submission!,
+        riskTierAssessment: {
+          schema: "task-risk-tier-assessment/v1" as const,
+          declaredTier: "low" as const,
+          effectiveTier: "low" as const,
+          deliveryBaseSha: null,
+          deliveryHeadSha: commitSha,
+          matchedPathReviewers: [],
+          reasons: ["historical GUI assessment"],
+          guiAcceptanceRequired: true,
+        },
+      },
+    };
+  const snapshot: TaskLifecycleSnapshot = {
+      ...fixture.snapshot,
+      executions: fixture.snapshot.executions.map((value) =>
+        value.executionId === original.executionId ? historicalExecution : value,
+      ),
+    },
+    sourceActor = {
+      principal: implementer.principal,
+      executor: { kind: "agent" as const, id: "completion-source:github-actions" },
+    },
+    run = claimGateRun({
+      execution: historicalExecution,
+      repoId: "repo-1",
+      requirement: gate,
+      runId: "run-historical-assessment",
+      claimFence: snapshot.revision + 1,
+      actor: sourceActor,
+      occurredAt: "2026-08-11T00:07:00.000Z",
+      expiresAt: "2026-08-11T01:07:00.000Z",
+    }),
+    compiled = compileGateRunChange({
+      snapshot,
+      executionId: historicalExecution.executionId,
+      run,
+      operation: "claim",
+      actor: sourceActor,
+      source: "local",
+      opId: "op-gate-run-historical-assessment",
+      eventId: "event-gate-run-historical-assessment",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-08-11T00:07:00.000Z",
+      packagePath: null,
+      currentDocuments: [],
+    });
+  assert.equal(
+    Object.hasOwn(compiled.event.payload.execution.submission!.riskTierAssessment!, "guiAcceptanceRequired"),
+    false,
+  );
+  assert.equal(
+    compiled.event.payload.execution.gateRuns[0]?.submissionDigest,
+    submissionDigest(compiled.event.payload.execution.submission!),
+  );
+  assert.deepEqual(validateCurrentTaskEvent(compiled.event), []);
+  assert.doesNotThrow(() => reduceTaskEvent(snapshot, compiled.event));
 });
 
 test("retired CI is omitted from completion receipt cuts even when an old receipt exists", () => {

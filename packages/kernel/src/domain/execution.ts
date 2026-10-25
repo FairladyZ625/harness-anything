@@ -81,6 +81,38 @@ export function submissionDigest(value: SubmissionV1): SubmissionDigest {
   return `sha256:${sha256Text(stableStringify(value))}`;
 }
 
+/**
+ * Remove fields that are accepted only while reading historical submissions. New lifecycle events
+ * and daemon-facing snapshots must carry the current submission shape, while the stored history
+ * remains byte-for-byte unchanged.
+ */
+export function currentRiskTierAssessment(value: TaskRiskTierAssessmentV1): TaskRiskTierAssessmentV1 {
+  if (!Object.hasOwn(value as object, "guiAcceptanceRequired")) return value;
+  const { guiAcceptanceRequired: _retired, ...current } = value as TaskRiskTierAssessmentV1 & {
+    readonly guiAcceptanceRequired?: unknown;
+  };
+  return current;
+}
+
+export function currentSubmission(value: SubmissionV1): SubmissionV1 {
+  const assessment = value.riskTierAssessment;
+  if (!assessment) return value;
+  const current = currentRiskTierAssessment(assessment);
+  return current === assessment ? value : { ...value, riskTierAssessment: current };
+}
+
+export function currentExecution(value: ExecutionV1): ExecutionV1 {
+  if (!value.submission) return value;
+  const submission = currentSubmission(value.submission);
+  if (submission === value.submission) return value;
+  const historicalDigest = submissionDigest(value.submission),
+    currentDigest = submissionDigest(submission),
+    gateRuns = value.gateRuns.map((run) =>
+      run.submissionDigest === historicalDigest ? { ...run, submissionDigest: currentDigest } : run,
+    );
+  return { ...value, submission, gateRuns };
+}
+
 export function submissionId(value: SubmissionV1): SubmissionId {
   return `submission:${submissionDigest(value)}`;
 }

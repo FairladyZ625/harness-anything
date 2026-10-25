@@ -5,6 +5,8 @@ import { isDeepStrictEqual } from "node:util";
 import {
   blockingOf,
   closeoutReadiness,
+  currentRiskTierAssessment,
+  currentSubmission,
   deriveRelationId,
   freshnessReasonOf,
   isTerminalDecisionState,
@@ -981,7 +983,7 @@ export function makeTaskQueryReadModel(input: {
 }
 
 function daemonTaskSnapshot(snapshot: TaskLifecycleSnapshot): TaskLifecycleSnapshot {
-  const withoutRetiredAssessmentField = <T extends { readonly riskTierAssessment?: unknown }>(
+  const currentArchivedSubmission = <T extends { readonly riskTierAssessment?: unknown }>(
     submission: T | null,
   ): T | null => {
     const assessment = submission?.riskTierAssessment;
@@ -992,16 +994,18 @@ function daemonTaskSnapshot(snapshot: TaskLifecycleSnapshot): TaskLifecycleSnaps
       !Object.hasOwn(assessment, "guiAcceptanceRequired")
     )
       return submission;
-    const { guiAcceptanceRequired: _retired, ...currentAssessment } = assessment as Record<string, unknown>;
-    return { ...submission, riskTierAssessment: currentAssessment } as T;
+    return {
+      ...submission,
+      riskTierAssessment: currentRiskTierAssessment(assessment as Parameters<typeof currentRiskTierAssessment>[0]),
+    } as T;
   };
 
   return {
     ...snapshot,
     executions: snapshot.executions.map((execution) =>
       execution.schema === "execution/v1"
-        ? { ...execution, submission: withoutRetiredAssessmentField(execution.submission) }
-        : { ...execution, archivedSubmission: withoutRetiredAssessmentField(execution.archivedSubmission) },
+        ? { ...execution, submission: execution.submission ? currentSubmission(execution.submission) : null }
+        : { ...execution, archivedSubmission: currentArchivedSubmission(execution.archivedSubmission) },
     ),
   };
 }
