@@ -64,6 +64,22 @@ ha settings read                                              # 显示 worktree.
 
 旧命名（`codex/<slug>-<id8>`）下建立的工作树，由 `ha task contract migrate --apply` 一次性改名。有未提交改动或仍有在飞执行者的工作树不会被移动，而是列出来交给你处理。
 
+## 派工记录保留期
+
+每次派工都会在 daemon 上写一份完整记录（JSONL 流式转录）；派工结束后记录归档在那台
+机器上。两条 Settings 上限决定归档记录保留多久——任一超出就从最旧开始删除，每条都
+可以用 0 关闭：
+
+```bash
+ha settings update --dispatch-archive-retention-days 60        # 默认：超过 60 天删除；0 表示不限天数
+ha settings update --dispatch-archive-retention-bytes 53687091200  # 总量 50 GiB 上限；0（默认）表示不限容量
+ha settings read                                               # 查看 settings.dispatchArchive
+```
+
+每条记录从派工开始时刻起算年龄（不受归档压缩重写时间影响）。清理在仓库于 daemon
+上打开时执行。仍在运行的派工绝不会被删；被 Fact 证据来源直接引用的归档记录也会保留。
+已删除的记录只是不再出现在历史视图里。
+
 ## 发布任务分支
 
 工作树里的被派工 worker 经 daemon 发布分支，不用个人 Git 登录：

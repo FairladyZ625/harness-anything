@@ -355,6 +355,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       worktree: { setup: [], setupStepTimeoutMs: 20 * 60 * 1000 },
       schedule: { admissionWindowMs: 60_000 },
       storage: { backupExecutionLimitMs: 30 * 60_000 },
+      // task_40b31221b5b2a7eb539515dcf2: archived dispatch records default to 60 days, no size cap.
+      dispatchArchive: { retentionDays: 60, retentionBytes: 0 },
       gui: { connectTimeoutMs: 2_000, requestTimeoutMs: 30_000 },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(
