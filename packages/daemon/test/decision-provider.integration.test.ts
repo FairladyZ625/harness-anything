@@ -346,3 +346,112 @@ test("DecisionPort rejects malformed distributions as protocol failures", async 
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+test("DecisionPort retries a transient rate limit and returns the later real decision", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-rate-limit-retry-")),
+    calls: number[] = [],
+    delays: number[] = [],
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => "test-key",
+      remove: async () => undefined,
+    },
+    service = openDecisionProviderService({
+      userRoot: parent,
+      vault,
+      sleep: async (delayMs) => void delays.push(delayMs),
+      invokeDecision: async () => {
+        calls.push(calls.length + 1);
+        if (calls.length === 1) throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+        return {
+          model: "model-a",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          answers: { decision: { type: "noul", noul: 0.75 } },
+        };
+      },
+    });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-a",
+      credentialRef: "credential:v1:test-key",
+    });
+    const result = await service.port.decide({
+      subjectRef: "dispatch/rate-limit",
+      providerId: "decision-a",
+      questionSetVersion: "noul/v1",
+      state: ["text"],
+      question: {
+        type: "noul",
+        prompt: "Choose",
+        criteria: { true: "yes", false: "no" },
+      },
+    });
+    assert.equal(result.result.type, "noul");
+    assert.equal(calls.length, 2);
+    assert.deepEqual(delays, [250]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("DecisionPort exhausts transient retries without hiding the rate-limit reason", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-rate-limit-exhausted-")),
+    calls: number[] = [],
+    delays: number[] = [],
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => "test-key",
+      remove: async () => undefined,
+    },
+    service = openDecisionProviderService({
+      userRoot: parent,
+      vault,
+      sleep: async (delayMs) => void delays.push(delayMs),
+      invokeDecision: async () => {
+        calls.push(calls.length + 1);
+        throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+      },
+    });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-a",
+      credentialRef: "credential:v1:test-key",
+    });
+    await assert.rejects(
+      service.port.decide({
+        subjectRef: "dispatch/rate-limit",
+        providerId: "decision-a",
+        questionSetVersion: "noul/v1",
+        state: ["text"],
+        question: {
+          type: "noul",
+          prompt: "Choose",
+          criteria: { true: "yes", false: "no" },
+        },
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "decision_rate_limited" &&
+        "retries" in error &&
+        error.retries === 3 &&
+        error instanceof Error &&
+        error.message.includes("重试 3 次后仍限流"),
+    );
+    assert.equal(calls.length, 4);
+    assert.deepEqual(delays, [250, 500, 1_000]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});

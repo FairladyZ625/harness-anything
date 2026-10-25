@@ -291,7 +291,18 @@ export function openDecisionPointExecutor(input: {
               ? error.code
               : "decision_error";
           await annotations.fail(key, code, input.now());
-          if (executable) await escalate(`the Decisions provider failed with ${code}.`);
+          const retries =
+            typeof error === "object" && error !== null && "retries" in error && typeof error.retries === "number"
+              ? error.retries
+              : null;
+          if (executable)
+            await escalate(
+              `the Decisions provider failed with ${code}${
+                retries === null
+                  ? ""
+                  : ` after ${String(retries)} retries: ${error instanceof Error ? error.message : ""}`
+              }.`,
+            );
           consumeKnownError(error);
           continue;
         }
