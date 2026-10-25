@@ -18,6 +18,7 @@ import {
 } from "./daemon-protocol-validate-entities.ts";
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
+import { validateDaemonWorkTopologyPayload } from "./daemon-protocol-work-topology.ts";
 import {
   allDaemonProtocolMethods,
   type DaemonRpcCall,
@@ -71,6 +72,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.work.topology.read")
+    errors.push(...validateDaemonWorkTopologyPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.task.dispatches")
     errors.push(...validateTaskDispatchesPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agentRuntime.sessions.read")

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { WorkIndexRead } from "../api/renderer-dto.ts";
+import type { WorkIndexRead, WorkTopologyRead } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
 import { eventsQueryKeys } from "./overview-data.ts";
@@ -31,6 +31,7 @@ export const taskQueryKeys = {
   activeSlice: (repoId: string) => ["tasks", repoId, "active-slice"] as const,
   wip: (repoId: string) => ["tasks", repoId, "wip"] as const,
   works: (repoId: string) => ["tasks", repoId, "works"] as const,
+  topology: (repoId: string, workRootTaskId: string) => ["tasks", repoId, "topology", workRootTaskId] as const,
   briefs: (repoId: string) => ["tasks", repoId, "briefs"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
@@ -54,6 +55,21 @@ export function useWorkIndexQuery(repoId: string | null): UseQueryResult<WorkInd
     queryKey: taskQueryKeys.works(selectedRepoId),
     queryFn: () => harnessClient.getWorkIndex({ repoId: selectedRepoId }),
     enabled: repoId !== null,
+    staleTime: 10_000,
+  });
+}
+
+/** One work's topology is refreshed by the same accepted-ledger-cut invalidation as task reads. */
+export function useWorkTopologyQuery(
+  repoId: string | null,
+  workRootTaskId: string,
+  enabled = true,
+): UseQueryResult<WorkTopologyRead, Error> {
+  const selectedRepoId = repoId ?? "unselected";
+  return useQuery({
+    queryKey: taskQueryKeys.topology(selectedRepoId, workRootTaskId),
+    queryFn: () => harnessClient.getWorkTopology({ repoId: selectedRepoId, workRootTaskId }),
+    enabled: repoId !== null && workRootTaskId.length > 0 && enabled,
     staleTime: 10_000,
   });
 }

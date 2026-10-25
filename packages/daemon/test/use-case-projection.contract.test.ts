@@ -90,15 +90,16 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // per-work-root status bucket and progress sentence derived daemon-side for the「你交代的事」page.
   // dec_4C06F7F902E91C4210020A9E75/CH2 then removed the CI observation read.
   // task_26aae3adfea4acfc71a9763dad adds the task delivery diff read used by closeout review.
+  // task_2b66dad4 adds the bounded per-work topology read used by the work graph.
   assert.equal(
     daemonGuiReadMethods.length,
-    45,
+    46,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
       "plus 1 token usage aggregate read plus 1 token usage member detail read plus 1 workspace scope read " +
       "plus 1 work index read plus 1 claimable read plus 1 assignment directory read plus 1 fleet overview read " +
       "plus 1 cross-repository home overview read (S8 CH4) " +
-      "plus 1 work briefs read (redesign zone) minus the retired CI observation read",
+      "plus 1 work briefs read (redesign zone) plus 1 bounded work topology read minus the retired CI observation read",
   );
 });
 

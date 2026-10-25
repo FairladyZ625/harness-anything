@@ -5,17 +5,16 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
-import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
+import type { WorkTopologyRead, WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { clearEgoSession } from "../src/renderer/graph/egoSession.ts";
+import { taskQueryKeys } from "../src/renderer/task-data.ts";
 
 /**
- * 工作详情页「关系图」页签(S5 补回):复用聚光灯的 ego 画布,数据面用
- * workspaceGraphSlice 圈定本工作成员与直接外部边界;焦点与选中在页签切换间
- * 保留(画布组件保持挂载,active=false 只卸画布 DOM)。
+ * 工作详情页「关系图」页签消费 daemon 单 cut 拓扑,复用聚光灯的 ego 画布与跨页签焦点。
  */
 
 beforeAll(() => {
@@ -65,6 +64,73 @@ const fact = (anchor: string): FactRef => ({
 });
 const edge = (from: string, to: string, kind = "relates"): RelationEdge =>
   ({ from, to, kind, provenance: "local-document" }) as RelationEdge;
+const topology: WorkTopologyRead = {
+  schema: "daemon.work-topology/v1",
+  ok: true,
+  status: "ready",
+  workRootTaskId: "root",
+  members: [
+    {
+      taskId: "root",
+      title: "任务 root",
+      canonicalStatus: "active",
+      topologyState: "in-flight",
+      parentTaskId: null,
+      pinned: false,
+      boundary: false,
+      blockers: [],
+      warnings: [],
+    },
+    {
+      taskId: "member",
+      title: "任务 member",
+      canonicalStatus: "planned",
+      topologyState: "blocked",
+      parentTaskId: "root",
+      pinned: false,
+      boundary: false,
+      blockers: [
+        { relationId: "rel-member-boundary", kind: "depends-on", sourceTaskId: "member", targetTaskId: "boundary" },
+      ],
+      warnings: [],
+    },
+  ],
+  boundaryTasks: [
+    {
+      taskId: "boundary",
+      title: "任务 boundary",
+      canonicalStatus: "planned",
+      topologyState: "boundary",
+      parentTaskId: null,
+      pinned: false,
+      boundary: true,
+      blockers: [],
+      warnings: [],
+    },
+  ],
+  edges: [
+    {
+      relationId: "rel-member-boundary",
+      from: "task/member",
+      to: "task/boundary",
+      kind: "depends-on",
+      direction: "directed",
+      state: "active",
+      rationale: "must ship first",
+    },
+  ],
+  frontier: ["root"],
+  criticalPath: ["member"],
+  completeness: "complete",
+  warnings: [],
+  watermark: 1,
+  sourceRevision: 1,
+};
+function queryClientForTopology() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(taskQueryKeys.topology("repo", "root"), topology);
+  return client;
+}
 const scope: WorkspaceScopeRead = {
   schema: "daemon.workspace-scope/v1",
   ok: true,
@@ -95,16 +161,17 @@ const scope: WorkspaceScopeRead = {
   warnings: [],
 };
 
-it("reuses the ego canvas with scoped full rows, navigates entities and preserves local refocus across tabs", async () => {
+it("uses daemon topology nodes and edges, navigates entities and preserves focus across tabs", async () => {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host),
     navigate = vi.fn();
   await act(async () =>
     root.render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClientForTopology()}>
         <WorkspaceView
           scope={scope}
+          repoId="repo"
           projectName="Project"
           tasks={[task("root"), task("member", "root"), task("boundary"), task("outside")]}
           decisions={[decision("d1"), decision("unrelated")]}
@@ -135,22 +202,23 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
   expect(host.querySelectorAll('[data-testid="ego-card"]').length).toBe(1);
   expect(host.querySelector('.react-flow__node[data-id="root"] [data-testid="ego-card"]')).not.toBeNull();
   expect([...host.querySelectorAll(".react-flow__node")].map((n) => n.getAttribute("data-id")).sort()).toEqual(
-    ["root", "member", "boundary", "decision/d1", "fact/F-BARE", "fact/F-PREFIX"].sort(),
+    ["root", "member", "boundary"].sort(),
   );
-  expect(host.textContent).toContain("6 节点 / 5 关系");
+  expect(host.textContent).toContain("3 节点 / 2 关系");
+  expect(host.textContent).toContain("前沿 1 / 2");
+  expect(host.textContent).toContain("revision 1");
   expect(node("member").textContent).toContain("任务 member");
-  expect(node("decision/d1").textContent).toContain("决策 d1");
-  // 卡片「详情」按钮逐类报 onNavigateEntity(完整详情走实体页,不在节点里造面板)。
-  for (const [id, ref] of [
-    ["member", "task/member"],
-    ["decision/d1", "decision/d1"],
-    ["fact/F-BARE", "fact/F-BARE"],
-  ]) {
+  expect(node("outside")).toBeNull();
+  expect(node("decision/d1")).toBeNull();
+  expect(node("fact/F-BARE")).toBeNull();
+  // 卡片「详情」仍走现有实体导航。
+  for (const [id, ref] of [["member", "task/member"]]) {
     await act(async () =>
       node(id)
         .querySelector<HTMLElement>("[data-testid='ego-chip']")!
         .dispatchEvent(new MouseEvent("click", { bubbles: true })),
     );
+    expect(node(id).querySelector('[data-testid="ego-card"]')?.textContent).toContain("blocked");
     const open = node(id).querySelector<HTMLButtonElement>("[data-testid='ego-card-open']")!;
     expect(open).not.toBeNull();
     await act(async () => open.click());
@@ -158,7 +226,7 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
     await act(async () => node(id).querySelector<HTMLElement>("[data-testid='ego-card-collapse']")!.click());
   }
   navigate.mockClear();
-  // 双击 = 以它为中心重排邻域,不跳页;切片外实体仍不出现。
+  // 双击 = 以它为中心重排邻域,不跳页;与拓扑响应无关的页面边仍不进入工作图。
   await act(async () => node("boundary").dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 })));
   expect(navigate).not.toHaveBeenCalled();
   expect(node("outside")).toBeNull();
@@ -188,9 +256,10 @@ it("hands the canvas its pin toggle, so the workspace canvas offers the same act
     setPin = vi.fn();
   await act(async () =>
     root.render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClientForTopology()}>
         <WorkspaceView
           scope={scope}
+          repoId="repo"
           projectName="Project"
           tasks={[task("root"), task("member", "root")]}
           decisions={[]}

@@ -1,0 +1,15 @@
+{
+  "schema": "daemon.work-topology/v1",
+  "ok": true,
+  "status": "ready",
+  "workRootTaskId": "task_root",
+  "members": [{ "taskId": 42 }],
+  "boundaryTasks": [],
+  "edges": [],
+  "frontier": [],
+  "criticalPath": [],
+  "completeness": "complete",
+  "warnings": [],
+  "watermark": 10,
+  "sourceRevision": 10
+}

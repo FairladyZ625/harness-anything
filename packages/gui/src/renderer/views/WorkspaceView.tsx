@@ -500,11 +500,7 @@ export function WorkspaceView({
           <div hidden={activeTab !== "graph"} className="flex min-h-0 flex-1 flex-col">
             <WorkGraphTab
               repoId={repoId}
-              memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
-              tasks={tasks}
-              decisions={decisions}
-              facts={facts}
-              relations={relations}
+              workRootTaskId={scope.root.taskId}
               onNavigateEntity={navigateEntity}
               onSetTaskPin={onSetTaskPin}
               active={activeTab === "graph"}

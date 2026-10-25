@@ -2,7 +2,7 @@ import type { DaemonHomeOverviewResult, DaemonTaskDispatchesPayload } from "@har
 import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
 import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
 import { repositoryReadFrame } from "./repository-read-frame.ts";
-import { validateDaemonTaskCompletion } from "@harness-anything/daemon/protocol";
+import { validateDaemonTaskCompletion, validateDaemonWorkTopology } from "@harness-anything/daemon/protocol";
 import type {
   AgendaRead,
   AgendaTaskRow,
@@ -32,6 +32,7 @@ import type {
   TaskSnapshotInvalidRow,
   TaskWipRead,
   WorkIndexRead,
+  WorkTopologyRead,
   WorkBriefsRead,
   TaskCompletionRead,
   TaskDeliveryDiffRead,
@@ -314,6 +315,12 @@ export const harnessClient = {
     if (!result || result.schema !== "daemon.work-index/v1" || result.ok !== true || !Array.isArray(result.works))
       throw new Error(localErrorHint(result, "Work index bridge returned an invalid result."));
     return result;
+  },
+  async getWorkTopology(payload: RepoScope & { readonly workRootTaskId: string }): Promise<WorkTopologyRead> {
+    const result = await invoke("repo.work.topology.read", payload, "getWorkTopology");
+    if (validateDaemonWorkTopology(result).length)
+      throw new Error(localErrorHint(result, "Work topology bridge returned an invalid result."));
+    return result as WorkTopologyRead;
   },
   /** `repo.works.briefs.read`:每工作根的状态桶、分句与抽屉行,daemon 侧唯一推导。 */
   async getWorkBriefs(payload: RepoScope): Promise<WorkBriefsRead> {

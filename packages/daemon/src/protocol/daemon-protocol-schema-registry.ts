@@ -40,6 +40,7 @@ import {
   DAEMON_TASK_COMPLETION_SCHEMA,
   DAEMON_TASK_WIP_SCHEMA,
   DAEMON_WORK_INDEX_SCHEMA,
+  DAEMON_WORK_TOPOLOGY_SCHEMA,
   DAEMON_WORK_BRIEFS_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
@@ -209,6 +210,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/work-read.ts#workIndexFromProjection",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-work-index-invalid.json"]),
+  },
+  {
+    id: DAEMON_WORK_TOPOLOGY_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_WORK_TOPOLOGY_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol-work-topology.ts#validateDaemonWorkTopology",
+    writer: "packages/daemon/src/work-topology-read.ts#workTopologyFromProjection",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-work-topology-invalid.json"]),
   },
   {
     id: DAEMON_WORK_BRIEFS_SCHEMA.id,
