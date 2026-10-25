@@ -408,6 +408,42 @@ export const localGitObjectRefStore = Object.freeze({
       return false;
     }
   },
+  pathsMatch: (repoRoot: string, left: string, right: string, targets: readonly string[]): boolean => {
+    let batch: string[] = [],
+      bytes = 0;
+    const compare = (): boolean => {
+      if (batch.length === 0) return true;
+      try {
+        runGit(
+          repoRoot,
+          "--literal-pathspecs",
+          "diff",
+          "--quiet",
+          "--no-ext-diff",
+          "--no-renames",
+          left,
+          right,
+          "--",
+          ...batch,
+        );
+        return true;
+      } catch (error) {
+        if (error instanceof VcsCommandError && error.exitCode === 1) return false;
+        throw error;
+      }
+    };
+    for (const target of targets) {
+      const size = Buffer.byteLength(target) + 1;
+      if (batch.length > 0 && bytes + size > gitTreeArgumentBytes) {
+        if (!compare()) return false;
+        batch = [];
+        bytes = 0;
+      }
+      batch.push(target);
+      bytes += size;
+    }
+    return compare();
+  },
   readPaths: (
     repoRoot: string,
     commit: string,

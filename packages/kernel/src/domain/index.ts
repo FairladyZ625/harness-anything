@@ -70,6 +70,7 @@ export type { DomainStatus } from "./lifecycle-status.ts";
 export {
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
+  deliveryTargetRef,
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,
@@ -240,6 +241,7 @@ export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
   deriveRelationId,
+  derivesRelationClause,
   assignmentRationale,
   parseAssignmentExpiry,
   parseAwaitsRequest,

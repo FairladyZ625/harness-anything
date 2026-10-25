@@ -262,7 +262,6 @@ export const commandTable = [
       "bench judgment",
     ],
   ],
-  ["decision-supersede", (c, s) => ["decision", "supersede", c.id("decision-propose~b", s), "--reason", "bench"]],
   ["decision-retire", (c, s) => ["decision", "retire", c.id("decision-propose", s), "--reason", "bench"]],
   [
     "decision-repin",

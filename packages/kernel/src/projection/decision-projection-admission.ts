@@ -21,8 +21,14 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   }
   if (!row) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
   const transition = decisionTransitionDefinitions.find(({ eventType }) => eventType === event.type);
-  if (transition && row.state !== transition.sourceState)
+  const supersedingProposedDecision = event.type === "decision_superseded" && row.state === "proposed";
+  if (transition && row.state !== transition.sourceState && !supersedingProposedDecision)
     fail("invalid_transition", `${event.type} requires ${transition.sourceState} state.`);
+  if (supersedingProposedDecision && !hasActiveSupersedesRelation(db, event.decisionId))
+    fail(
+      "invalid_transition",
+      `Decision ${event.decisionId} can leave proposed for superseded only with an active supersedes Relation from another Decision.`,
+    );
   if (["decision_accepted", "decision_rejected", "decision_deferred"].includes(event.type)) {
     const current = readDecisionDocumentState(db, event.decisionId);
     if (!current) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
@@ -167,6 +173,16 @@ function assertAmendment(
     );
   if (JSON.stringify(event.payload.amendment.fields) !== JSON.stringify(event.payload.fields))
     fail("invalid_transition", "Amendment history does not match the declared field set.");
+}
+
+function hasActiveSupersedesRelation(db: DatabaseSync, decisionId: string): boolean {
+  return Boolean(
+    prepareQuery(
+      db,
+      "SELECT 1 FROM relation_edge WHERE target_ref=? AND relation_type='supersedes' AND state='active' " +
+        "AND source_ref GLOB 'decision/*' AND source_ref<>? AND source_ref NOT GLOB ? LIMIT 1",
+    ).get(`decision/${decisionId}`, `decision/${decisionId}`, `decision/${decisionId}/*`),
+  );
 }
 
 export function decisionState(

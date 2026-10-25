@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import {
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { repoCellTaskQueryJudgmentsFor } from "../src/repo-cell.ts";
 import { readCompletionContext, readCompletionDeliveryStatus } from "../src/task-completion-read.ts";
+import { EMPTY_TREE_SHA } from "../src/task-delivery-containment.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -27,12 +28,14 @@ function codeDelivery(
   snapshot: TaskLifecycleSnapshot,
   commitSha: string | null,
   mergeSha?: string,
+  baselineSha?: string,
 ): TaskLifecycleSnapshot {
   return {
     ...snapshot,
     executions: snapshot.executions.map((execution) => ({
       ...execution,
       submission: execution.submission ? { ...execution.submission, commitSha } : null,
+      ...(baselineSha ? { deliveryBaseline: { kind: "commit" as const, commitSha: baselineSha } } : {}),
       ...(mergeSha
         ? {
             annotations: [
@@ -218,7 +221,7 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
     projection = shape("repository-diff") as unknown as TaskProjectionQueries,
     read = (snapshot: TaskLifecycleSnapshot, shapeProjection = projection) =>
       readCompletionDeliveryStatus(shapeProjection, snapshot, root),
-    code = codeDelivery(strictSubmitted, merge, merge);
+    code = codeDelivery(strictSubmitted, merge, merge, base);
 
   git(root, "update-ref", "refs/remotes/origin/release", merge);
   assert.deepEqual(read(code), { required: true, merged: true, targetBranch: "release", mergeSha: merge });
@@ -246,6 +249,188 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
       .required,
     false,
     "a task-package-artifact delivery never enters the merge check, recorded commit or not",
+  );
+});
+
+test("delivery merge evidence proves the annotated commit contains the frozen delivery", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-containment-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  writeFileSync(path.join(root, "delivery.txt"), "base\n");
+  writeFileSync(path.join(root, "removed.txt"), "remove me\n");
+  git(root, "add", "-A");
+  git(root, "commit", "-qm", "base");
+  const baseline = git(root, "rev-parse", "HEAD");
+
+  git(root, "switch", "-qc", "delivery");
+  writeFileSync(path.join(root, "delivery.txt"), "delivered\n");
+  writeFileSync(path.join(root, "new.bin"), Buffer.from([0, 1, 2, 255]));
+  writeFileSync(path.join(root, "bin-tool"), "#!/bin/sh\nexit 0\n");
+  chmodSync(path.join(root, "bin-tool"), 0o755);
+  git(root, "rm", "-q", "removed.txt");
+  git(root, "add", "-A");
+  git(root, "commit", "-qm", "submitted delivery");
+  const deliverySha = git(root, "rev-parse", "HEAD");
+
+  git(root, "switch", "-q", "main");
+  writeFileSync(path.join(root, "unrelated.txt"), "unrelated\n");
+  git(root, "add", "unrelated.txt");
+  git(root, "commit", "-qm", "unrelated target commit");
+  const unrelatedSha = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/heads/release", unrelatedSha);
+
+  const deliverySettings = {
+      ...INITIAL_SETTINGS_V1.delivery,
+      targetRef: "refs/heads/release",
+    } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+    deliveryProjection = {
+      getEntity: () => ({ value: { delivery: deliverySettings } }),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+    } as unknown as TaskProjectionQueries,
+    lifted = frozenCut({ profile: "standard" }, { review: false, consent: false }),
+    cut = (mergeSha: string) =>
+      codeDelivery(
+        { ...lifted, task: { ...lifted.task!, closeoutOverrides: { review: false, consent: false } } },
+        deliverySha,
+        mergeSha,
+        baseline,
+      ),
+    read = (mergeSha: string) => readCompletionDeliveryStatus(deliveryProjection, cut(mergeSha), root);
+
+  const unrelated = read(unrelatedSha);
+  assert.equal(unrelated.merged, false, "a target commit unrelated to the submitted diff must be rejected");
+  const rejected = taskCompletionNext(cut(unrelatedSha), {
+    closeout: "ready",
+    closeoutPath: "tasks/task-1/closeout.md",
+    closeoutGates: { review: false, consent: false, factDisposition: false },
+    eligibleDirtyPaths: [],
+    delivery: unrelated,
+  });
+  assert.equal(rejected.blocker?.code, "delivery_missing");
+  assert.match(rejected.next!.reason, /does not contain the submitted delivery/u);
+  assert.match(rejected.next!.action, /merge_commit_sha:<sha>/u);
+
+  const cutWithoutBaseline = cut(unrelatedSha),
+    withoutBaseline = {
+      ...cutWithoutBaseline,
+      executions: cutWithoutBaseline.executions.map(({ deliveryBaseline: _baseline, ...execution }) => execution),
+    } as TaskLifecycleSnapshot,
+    unavailable = readCompletionDeliveryStatus(deliveryProjection, withoutBaseline, root);
+  assert.equal(unavailable.merged, null, "a missing frozen baseline remains unverified");
+  assert.equal(unavailable.deliveryIssue, "delivery-evidence-unavailable");
+  const unavailableNext = taskCompletionNext(withoutBaseline, {
+    closeout: "ready",
+    closeoutPath: "tasks/task-1/closeout.md",
+    closeoutGates: { review: false, consent: false, factDisposition: false },
+    eligibleDirtyPaths: [],
+    delivery: unavailable,
+  });
+  assert.equal(unavailableNext.blocker?.code, "delivery_missing");
+  assert.match(unavailableNext.next!.action, /Make the frozen delivery commit and baseline available/u);
+
+  git(root, "switch", "-qc", "partial", unrelatedSha);
+  writeFileSync(path.join(root, "delivery.txt"), "delivered\n");
+  git(root, "add", "delivery.txt");
+  git(root, "commit", "-qm", "partial delivery");
+  const partialSha = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/heads/release", partialSha);
+  assert.equal(read(partialSha).merged, false, "matching one changed path does not prove the whole delivery");
+
+  git(root, "update-ref", "refs/heads/release", deliverySha);
+  assert.equal(read(deliverySha).merged, true, "fast-forward delivery is accepted by ancestry");
+
+  git(root, "switch", "-q", "main");
+  git(root, "merge", "--no-ff", "-qm", "merge delivery", "delivery");
+  const mergeSha = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/heads/release", mergeSha);
+  assert.equal(read(mergeSha).merged, true, "a merge commit containing the delivery is accepted");
+
+  git(root, "switch", "-qc", "squash", unrelatedSha);
+  const squashPatch = execFileSync("git", ["-C", root, "diff", "--binary", baseline, deliverySha], {
+    encoding: "utf8",
+  });
+  execFileSync("git", ["-C", root, "apply"], { input: squashPatch, encoding: "utf8" });
+  git(root, "add", "-A");
+  git(root, "commit", "-qm", "squash delivery");
+  const squashSha = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/heads/release", squashSha);
+  assert.equal(read(squashSha).merged, true, "a squash with the same delivered tree entries is accepted");
+
+  git(root, "switch", "-qc", "cherry-pick", unrelatedSha);
+  git(root, "cherry-pick", deliverySha);
+  const cherryPickSha = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/heads/release", cherryPickSha);
+  assert.equal(read(cherryPickSha).merged, true, "a cherry-pick with the delivered tree entries is accepted");
+});
+
+test("an explicit local delivery ref verifies a local-only repository baseline", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-local-only-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  writeFileSync(path.join(root, "delivery.txt"), "merged\n");
+  git(root, "add", "delivery.txt");
+  git(root, "commit", "-qm", "delivery merge");
+  const merge = git(root, "rev-parse", "HEAD"),
+    delivery = {
+      ...INITIAL_SETTINGS_V1.delivery,
+      targetRef: "refs/heads/main",
+    } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+    projection = {
+      getEntity: () => ({ value: { delivery } }),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+    } as unknown as TaskProjectionQueries;
+
+  assert.equal(
+    readCompletionDeliveryStatus(projection, codeDelivery(strictSubmitted, merge, merge), root).merged,
+    true,
+    "a configured local branch is the delivery target even when no origin exists",
+  );
+  assert.equal(
+    readCompletionDeliveryStatus(projection, codeDelivery(strictSubmitted, merge, merge), root).targetRef,
+    "refs/heads/main",
+  );
+});
+
+test("an empty-tree delivery baseline proves an identical root tree without commit ancestry", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-empty-tree-baseline-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  writeFileSync(path.join(root, "first-delivery.txt"), "delivered from an unborn repository\n");
+  git(root, "add", "first-delivery.txt");
+  git(root, "commit", "-qm", "first delivery");
+  const deliveryCommit = git(root, "rev-parse", "HEAD"),
+    deliveryTree = git(root, "rev-parse", "HEAD^{tree}"),
+    mergeCommit = git(root, "commit-tree", deliveryTree, "-m", "independent commit with the delivered tree");
+  git(root, "update-ref", "refs/heads/release", mergeCommit);
+
+  const delivery = {
+      ...INITIAL_SETTINGS_V1.delivery,
+      targetRef: "refs/heads/release",
+    } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+    projection = {
+      getEntity: () => ({ value: { delivery } }),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+    } as unknown as TaskProjectionQueries,
+    cut = codeDelivery(strictSubmitted, deliveryCommit, mergeCommit),
+    emptyTreeCut = {
+      ...cut,
+      executions: cut.executions.map((execution) => ({
+        ...execution,
+        deliveryBaseline: { kind: "empty-tree" as const },
+      })),
+    } as TaskLifecycleSnapshot;
+
+  assert.notEqual(deliveryCommit, mergeCommit, "the matching tree is held by another commit");
+  assert.equal(
+    readCompletionDeliveryStatus(projection, emptyTreeCut, root).merged,
+    true,
+    `the canonical empty tree (${EMPTY_TREE_SHA}) is a valid comparison baseline`,
   );
 });
 

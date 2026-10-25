@@ -61,7 +61,7 @@ export function parseDecision(
       { decisionId },
       id === "decision-accept" ? { judgmentOnlyRationale: null } : {},
     );
-  if (id === "decision-supersede" || id === "decision-retire")
+  if (id === "decision-retire")
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       decisionId,
     });

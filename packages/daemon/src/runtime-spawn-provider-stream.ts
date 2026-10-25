@@ -7,6 +7,7 @@ import type { SessionIdentity } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
 import { deepSeekSessionUsageTotals } from "./runtime-spawn-deepseek-session.ts";
+import { observeRuntimeSpendCap } from "./runtime-spend-cap.ts";
 import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
@@ -248,6 +249,7 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
   // cache-write field accumulate zero here, never an estimate.
   active.cacheWriteTokens += cacheCreation ?? 0;
   active.outputTokens += output ?? 0;
+  observeRuntimeSpendCap(active);
 }
 
 /** Cache-write tokens as the provider reported them, or null when its usage dialect carries no

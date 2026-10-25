@@ -3,6 +3,7 @@ import {
   assessFactRetirement,
   consumeKnownError,
   currentExecutionCuts,
+  deliveryTargetRef,
   INITIAL_SETTINGS_V1,
   localGitObjectRefStore,
   type CloseoutSnapshot,
@@ -20,6 +21,7 @@ import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
+import { deliveryContainment, EMPTY_TREE_SHA } from "./task-delivery-containment.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -92,19 +94,41 @@ export function readCompletionDeliveryStatus(
             ?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))
             ?.note.slice(17)
         : undefined,
-    targetRef = `refs/remotes/origin/${delivery.targetBranch}`;
+    deliveryCommitSha = execution?.submission?.commitSha ?? undefined,
+    baseline = execution?.deliveryBaseline,
+    baselineRef = baseline === undefined ? null : baseline.kind === "empty-tree" ? EMPTY_TREE_SHA : baseline.commitSha,
+    targetRef = deliveryTargetRef(delivery);
+  let merged: boolean | null = null,
+    deliveryIssue: "merge-not-on-target" | "delivery-not-contained" | "delivery-evidence-unavailable" | undefined;
+  if (
+    required &&
+    rootDir !== undefined &&
+    mergeSha !== undefined &&
+    localGitObjectRefStore.hasCommit(rootDir, mergeSha) &&
+    localGitObjectRefStore.hasCommit(rootDir, targetRef)
+  ) {
+    if (!localGitObjectRefStore.isAncestor(rootDir, mergeSha, targetRef)) {
+      merged = false;
+      deliveryIssue = "merge-not-on-target";
+    } else if (deliveryCommitSha === undefined || !localGitObjectRefStore.hasCommit(rootDir, deliveryCommitSha)) {
+      deliveryIssue = "delivery-evidence-unavailable";
+    } else {
+      const containment = deliveryContainment(rootDir, baselineRef, deliveryCommitSha, mergeSha);
+      if (containment === "unavailable") deliveryIssue = "delivery-evidence-unavailable";
+      else {
+        merged = containment === "contained";
+        if (!merged) deliveryIssue = "delivery-not-contained";
+      }
+    }
+  }
   return {
     required,
-    merged:
-      !required ||
-      rootDir === undefined ||
-      mergeSha === undefined ||
-      !localGitObjectRefStore.hasCommit(rootDir, mergeSha) ||
-      !localGitObjectRefStore.hasCommit(rootDir, targetRef)
-        ? null
-        : localGitObjectRefStore.isAncestor(rootDir, mergeSha, targetRef),
+    merged,
     targetBranch: delivery.targetBranch,
+    ...(delivery.targetRef !== undefined ? { targetRef: delivery.targetRef } : {}),
     ...(mergeSha !== undefined ? { mergeSha } : {}),
+    ...(deliveryIssue === "delivery-not-contained" && deliveryCommitSha !== undefined ? { deliveryCommitSha } : {}),
+    ...(deliveryIssue !== undefined ? { deliveryIssue } : {}),
   };
 }
 

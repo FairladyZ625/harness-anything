@@ -324,7 +324,7 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
     for (const sample of [
       { report: true, role: null, expected: "succeeded" },
       { report: false, role: null, expected: "stopped" },
-      { report: true, role: "reviewer", expected: "stopped" },
+      { report: true, role: "reviewer", expected: "failed" },
     ] as const) {
       const outcomes: Record<string, unknown>[] = [],
         runtime = {
@@ -369,6 +369,13 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
         } as unknown as RuntimeSpawnerContext;
       await publishExit(context, runtime, 0);
       assert.equal(outcomes[0]?.outcome, sample.expected, JSON.stringify(sample));
+      if (sample.role === "reviewer") {
+        assert.equal(outcomes[0]?.reasonCode, "review_result_missing");
+        assert.match(
+          String((outcomes[0]?.attempt as { readonly reason?: string })?.reason),
+          /review-.*was not registered/u,
+        );
+      }
     }
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

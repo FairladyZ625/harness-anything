@@ -54,6 +54,11 @@ error code=terminal_status_requires_task_complete
 要求最低 Fact 数量：Fact 是 `0..N` 的显式晋升，submit、review 或 complete 都不会
 自动生成 Fact（依据 `dec_mrg3z1we/CH4`、ADR-0027 D7）。
 
+代码交付默认校验 `origin/<交付目标分支>`。没有 origin 的仓库可以显式设置
+`ha settings update --delivery-target-ref refs/heads/main`；完成门随后针对这个
+本地 ref 校验记录的合入提交。该设置必须显式声明，因此有远端仓库仍保持
+origin/main 的交付门。
+
 从 checkout 安装 0.0.1 CLI 候选版：
 
 ```bash

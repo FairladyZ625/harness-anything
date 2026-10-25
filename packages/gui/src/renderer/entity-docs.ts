@@ -107,7 +107,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "accept",
       "reject",
       "defer",
-      "supersede",
       "retire",
       "amend",
       "repin",

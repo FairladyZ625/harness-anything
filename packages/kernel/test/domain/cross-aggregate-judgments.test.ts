@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockingLabels, blockingOf } from "../../src/domain/task-blocking.ts";
+import { blockingLabels, blockingOf, dispatchPrerequisitesOf } from "../../src/domain/task-blocking.ts";
 import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
@@ -143,6 +143,20 @@ test("closeout readiness interprets a frozen CI gate through merged delivery", (
   assert.equal(closeoutReadiness(closeout("fail"), undefined, undefined, unmerged).readiness, "incomplete");
   assert.deepEqual(closeoutReadiness(closeout("fail"), undefined, undefined, unmerged).gates, [
     { gateId: "ci", status: "missing", ok: false, detail: "delivery merge is not on origin/main" },
+  ]);
+  const deliveryNotContained = {
+    ...unmerged,
+    mergeSha: "a".repeat(40),
+    deliveryCommitSha: "b".repeat(40),
+    deliveryIssue: "delivery-not-contained" as const,
+  };
+  assert.deepEqual(closeoutReadiness(closeout("fail"), undefined, undefined, deliveryNotContained).gates, [
+    {
+      gateId: "ci",
+      status: "missing",
+      ok: false,
+      detail: `annotated merge commit does not contain delivery ${"b".repeat(40)}`,
+    },
   ]);
   const stale = closeout();
   assert.equal(
@@ -699,6 +713,28 @@ test("blocking applies depends-on to the source and releases it only when the ta
     blockingLabels.filter((label) => registered.has(label)),
     [],
   );
+});
+
+test("dispatch prerequisites refuse a derives edge that names no decision clause", () => {
+  const tasks = [{ taskId: "task_work", status: "active" as const }],
+    edge = (sourceRef: string) => ({
+      relationId: "rel_derives",
+      sourceRef,
+      targetRef: "task/task_work",
+      relationType: "derives",
+      direction: "directed",
+      state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
+      rationale: "derives",
+    }),
+    decisions = [{ decisionId: "dec_gate", state: "accepted" }],
+    invalid = dispatchPrerequisitesOf("task_work", tasks, [edge("decision/dec_gate")], decisions),
+    valid = dispatchPrerequisitesOf("task_work", tasks, [edge("decision/dec_gate/CH1")], decisions);
+  assert.equal(invalid.state, "unknown");
+  assert.deepEqual(invalid.warnings, ["invalid derives relation rel_derives"]);
+  assert.equal(valid.state, "clear");
+  assert.deepEqual(valid.warnings, []);
 });
 
 test("an active awaits edge holds its source task until it is retired with the answer", () => {

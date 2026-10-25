@@ -102,7 +102,7 @@ test("a CLI-shaped agenda invocation is attributed by command name and actor in 
     assert.equal(agendaLines.length, 2);
     for (const line of agendaLines) assert.equal(line.command, "agenda");
     assert.equal(agendaLines[0]?.actor, "runtime-session:runtime_positive_control");
-    assert.equal(agendaLines[1]?.actor, null);
+    assert.equal(agendaLines[1]?.actor, `local-user-${process.getuid?.() ?? 0}`);
     const hello = traffic.find((record) => record.method === "protocol.hello");
     assert.equal(hello?.command, "agenda", "the declaring connection's hello names its command");
   } finally {

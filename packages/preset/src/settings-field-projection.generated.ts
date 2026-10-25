@@ -12,6 +12,7 @@ export const settingsFieldProtocolProjection = {
     { id: "capacity-agenda", title: "Capacity and agenda" },
     { id: "worktree", title: "Task worktree setup" },
     { id: "schedules-nodes", title: "Schedules" },
+    { id: "dispatch-storage", title: "Dispatch records", advanced: true },
     { id: "storage-backup", title: "Backup", advanced: true },
     { id: "presentation", title: "Presentation" },
   ],
@@ -135,6 +136,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "deliveryTargetRef",
+      description: "Optional complete Git ref used to verify delivery instead of the default origin target branch.",
+      type: "string",
+      required: false,
+    },
+    {
       field: "hostingProvider",
       description:
         "Hosting provider for repositories whose remote host does not identify GitHub or GitLab automatically.",
@@ -223,6 +230,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "runtimeDispatchUsageLimit",
+      description: "Maximum total tokens (input plus output) one dispatch may consume; 0 disables the limit.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "runtimeProviderMaxRetries",
       description: "Maximum additional provider retry rounds for one dispatch attempt group.",
       type: "number",
@@ -291,6 +304,18 @@ export const settingsFieldProtocolProjection = {
     {
       field: "restoreDrillRetention",
       description: "How many successful restore drills are kept. A drill restores a backup to prove it works.",
+      type: "number",
+      required: false,
+    },
+    {
+      field: "dispatchArchiveRetentionDays",
+      description: "How many days a finished dispatch's archived record is kept before the daemon deletes it.",
+      type: "number",
+      required: false,
+    },
+    {
+      field: "dispatchArchiveRetentionBytes",
+      description: "Total bytes the archived dispatch records may occupy before the oldest are deleted.",
       type: "number",
       required: false,
     },
@@ -481,6 +506,15 @@ export const settingsFieldProtocolProjection = {
       regex: "^(?!.*(?:\\.\\.|//|\\.$|/$))[A-Za-z0-9][A-Za-z0-9._/-]*$",
     },
     {
+      field: "deliveryTargetRef",
+      description: "Optional complete Git ref used to verify delivery instead of the default origin target branch.",
+      group: "delivery",
+      effect: "When set, the merge annotation is accepted only when its commit is an ancestor of this ref.",
+      name: "--delivery-target-ref",
+      kind: "single",
+      regex: "^refs/(heads|remotes)/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+    },
+    {
       field: "closeoutProfile",
       description: "How strict closeout is. Closeout is the final set of checks before a task is marked complete.",
       group: "review-closeout",
@@ -603,6 +637,17 @@ export const settingsFieldProtocolProjection = {
       format: "runtime instance ids, or none to block all machine instances",
     },
     {
+      field: "runtimeDispatchUsageLimit",
+      description: "Maximum total tokens (input plus output) one dispatch may consume; 0 disables the limit.",
+      group: "schedules-nodes",
+      effect:
+        "The owning node stops the provider and settles the dispatch as failed once consumption exceeds this limit.",
+      name: "--runtime-dispatch-usage-limit",
+      kind: "single",
+      regex: "^[0-9]+$",
+      projection: "number",
+    },
+    {
       field: "runtimeProviderMaxRetries",
       description: "Maximum additional provider retry rounds for one dispatch attempt group.",
       group: "schedules-nodes",
@@ -722,6 +767,26 @@ export const settingsFieldProtocolProjection = {
       name: "--restore-drill-retention",
       kind: "single",
       regex: "^[1-9][0-9]*$",
+      projection: "number",
+    },
+    {
+      field: "dispatchArchiveRetentionDays",
+      description: "How many days a finished dispatch's archived record is kept before the daemon deletes it.",
+      group: "dispatch-storage",
+      effect: "Older archived records are deleted when the repository opens on the daemon; 0 disables age deletion.",
+      name: "--dispatch-archive-retention-days",
+      kind: "single",
+      regex: "^[0-9]+$",
+      projection: "number",
+    },
+    {
+      field: "dispatchArchiveRetentionBytes",
+      description: "Total bytes the archived dispatch records may occupy before the oldest are deleted.",
+      group: "dispatch-storage",
+      effect: "Once the archive grows past this, the oldest archived records are deleted; 0 sets no size limit.",
+      name: "--dispatch-archive-retention-bytes",
+      kind: "single",
+      regex: "^[0-9]+$",
       projection: "number",
     },
   ],

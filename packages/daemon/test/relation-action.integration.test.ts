@@ -253,7 +253,7 @@ test("immediate relate observes all newly created endpoints across twenty writer
     const dirtyRelation = await cell.run(
       {
         kind: "relation-relate",
-        sourceRef: `decision/${decisionId}`,
+        sourceRef: `decision/${decisionId}/CH1`,
         targetRef: "task/task_immediate_target_19",
         relationType: "derives",
         rationale: "The accepted relation remains durable while the draft blocks materialization.",
@@ -276,6 +276,76 @@ test("immediate relate observes all newly created endpoints across twenty writer
     assert.equal(dirtyReceipt.outcome, "pending", JSON.stringify(dirtyReceipt));
   } finally {
     projection.close();
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("derives rejects a whole-decision source before writing and names its clauses", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-derives-clause-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("relation-derives-clause"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-derives-clause-test" }),
+    reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    const decision = await cell.run(
+      {
+        kind: "decision-propose",
+        body: "# Derives clause anchors\n\n## 背景\n\nA task derives from one chosen clause.\n\n## 权衡\n\nCompare whole-decision and clause anchors.\n\n## 结论\n\nName the clause.\n",
+        jsonInput: JSON.stringify({
+          title: "Derives clause anchors",
+          question: "Which source anchor proves a task derives from a decision?",
+          riskTier: "medium",
+          urgency: "medium",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Derive from a chosen clause" }],
+          rejected: [{ id: "RJ1", text: "Derive from the whole decision", whyNot: "It names no clause" }],
+          claims: [{ id: "C1", text: "One clause is enough to dispatch.", loadBearing: true }],
+          fulfillments: [],
+        }),
+      },
+      binding,
+    );
+    assert.equal(decision.outcome, "applied", JSON.stringify(decision));
+    const decisionId = (JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId;
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task_derives_clause", title: "Derives clause" }, binding))
+        .outcome,
+      "applied",
+    );
+    const before = reader.readHead()?.revision;
+    const invalid = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}`,
+        targetRef: "task/task_derives_clause",
+        relationType: "derives",
+        rationale: "The task derives from the whole decision.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(invalid.outcome, "op_rejected", JSON.stringify(invalid));
+    assert.equal(invalid.code, "relation_source_anchor_invalid", JSON.stringify(invalid));
+    assert.match(JSON.stringify(invalid), new RegExp(`decision/${decisionId}/CH1`, "u"));
+    assert.match(JSON.stringify(invalid), new RegExp(`decision/${decisionId}/C1`, "u"));
+    assert.equal(reader.readHead()?.revision, before, "the refused derivation writes no relation event");
+    const valid = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}/CH1`,
+        targetRef: "task/task_derives_clause",
+        relationType: "derives",
+        rationale: "The task derives from the chosen clause.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(valid.outcome, "applied", JSON.stringify(valid));
+  } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }

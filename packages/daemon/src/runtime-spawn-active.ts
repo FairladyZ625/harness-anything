@@ -19,6 +19,7 @@ type ActiveRuntimeBase = Omit<
   | "cancelRequested"
   | "cancelBinding"
   | "cancelOpId"
+  | "spendCapExceeded"
   | "lossReason"
   | "lossSignal"
   | "lossExitCode"
@@ -62,6 +63,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     cancelRequested: false,
     cancelBinding: null,
     cancelOpId: null,
+    spendCapExceeded: false,
     lossReason: null,
     lossSignal: null,
     lossExitCode: null,
@@ -98,6 +100,8 @@ export function attachActiveRuntime(
             if (context.processes.get(runtimeSessionId) === active) {
               active.stdoutObserved ||= chunk.length > 0;
               await context.consumeChunk(active, chunk, false, persisted);
+              if (active.spendCapExceeded && !context.exiting.has(runtimeSessionId))
+                await context.enforceSpendCap(active);
             }
           }, active.binding);
       },

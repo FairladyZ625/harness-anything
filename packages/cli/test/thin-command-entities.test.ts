@@ -551,11 +551,12 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "pattern",
     ]);
   assert.equal(
-    [validate, verifyAll, repin, active, superseded, alias, amend, candidate, entityCandidate, promote].every(
+    [validate, verifyAll, repin, active, superseded, amend, candidate, entityCandidate, promote].every(
       (result) => result.ok,
     ),
     true,
   );
+  assert.equal(alias.ok, false, "the deprecated decision supersede alias is removed");
   if (validate.ok)
     assert.deepEqual(validate.command.action, {
       kind: "decision-validate",

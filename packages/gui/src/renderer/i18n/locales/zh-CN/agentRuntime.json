@@ -755,6 +755,7 @@
   "agentRuntime.facts.instance": "实例",
   "agentRuntime.facts.model": "模型",
   "agentRuntime.facts.outcome": "结果",
+  "agentRuntime.facts.reasonCode": "原因码",
   "agentRuntime.facts.missingEvidence": "缺失证据",
   "agentRuntime.facts.exitCode": "退出码",
   "agentRuntime.facts.holder": "持有人",

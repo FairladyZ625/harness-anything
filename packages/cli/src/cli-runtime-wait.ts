@@ -270,7 +270,15 @@ async function readDaemonSubscription(
   read: () => Promise<JsonObject>,
   stopped: () => Promise<string | null> = async () => null,
 ): Promise<JsonObject | DaemonWaitFailure> {
-  let attempt = 0;
+  // The budget counts consecutive unreachability, not the wait's lifetime. A wait parks for hours
+  // on one daemon-side sessions.await, and that connection can be torn down repeatedly (build-drift
+  // restart, a recycled connection, any peer close). A teardown on a connection the daemon answered
+  // is reachability, so it clears the budget instead of spending it: otherwise a healthy daemon
+  // reads as gone after the fifth teardown, however far apart they were. Everything that means the
+  // daemon could not serve the request still counts — absence (ENOENT), refusal (ECONNREFUSED), a
+  // socket that closes without a word, and an unanswered request deadline.
+  let unreachable = 0,
+    retry = 0;
   for (;;) {
     try {
       return await read();
@@ -279,14 +287,31 @@ async function readDaemonSubscription(
       const stoppedAt = await stopped();
       if (stoppedAt !== null) return { kind: "daemon-stopped", stoppedAt };
       if (!recoverableSubscriptionFailure(error)) throw error;
-      if (attempt >= subscriptionReconnectAttemptLimit)
-        return {
-          kind: "daemon-gone",
-          cause: `reconnect budget exhausted after ${String(attempt)} attempts: ${cliErrorMessage(error)}`,
-        };
-      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
+      if (daemonAnsweredThenClosed(error)) unreachable = 0;
+      else {
+        if (unreachable >= subscriptionReconnectAttemptLimit)
+          return {
+            kind: "daemon-gone",
+            cause:
+              `reconnect budget exhausted after ${String(unreachable)} consecutive unreachable attempts: ` +
+              cliErrorMessage(error),
+          };
+        unreachable += 1;
+      }
+      // The retry ordinal deliberately outlives the budget: a daemon that keeps accepting and then
+      // closing must not turn into a connection storm, so the spacing grows to the same 5 s ceiling
+      // however long the wait runs.
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** Math.min(retry++, 5), 5_000)));
     }
   }
+}
+
+/** The daemon answered on this connection and then closed it. The daemon client's single line reader
+ * sets the flag, because only it knows whether any frame arrived; `daemon_closed` alone cannot tell
+ * a served connection from a socket that closed before saying anything. */
+function daemonAnsweredThenClosed(error: unknown): boolean {
+  const failure = error as { readonly code?: unknown; readonly daemonAnsweredConnection?: unknown } | null | undefined;
+  return failure?.code === "daemon_closed" && failure.daemonAnsweredConnection === true;
 }
 
 function recoverableSubscriptionFailure(error: unknown): boolean {

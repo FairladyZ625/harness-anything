@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import {
   compileRelationDocumentWrite,
   compileRelationRetiredEvent,
   DECISION_DOCUMENT_POLICY_ID,
   deriveRelationId,
+  derivesRelationClause,
   FACT_DOCUMENT_POLICY_ID,
   factLiveness,
   isRelationEvent,
@@ -15,6 +17,7 @@ import {
   renderDecisionDocument,
   renderFactsDocument,
   type AuthorizationDecision,
+  type CanonicalWriteBundle,
   type CanonicalEventStore,
   type EntityActionContract,
   type EntityActionExecutionContract,
@@ -45,6 +48,13 @@ export function executeRelationAction(input: {
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
+  readonly compileSupersededDecision?: (input: {
+    readonly decisionId: string;
+    readonly opId: string;
+    readonly occurredAt: string;
+    readonly workspaceRevision: number;
+    readonly relationBundle: CanonicalWriteBundle | null;
+  }) => CanonicalWriteBundle;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
 }): WriteReceipt {
   const { action, authorizationDecision, binding, contract, opId, occurredAt } = input,
@@ -91,6 +101,16 @@ export function executeRelationAction(input: {
               })
             : (activeAssignment?.relationId ?? (replay && isRelationEvent(replay) ? replay.relationId : ""))
           : requiredRelationText(action.relationId, "relationId"),
+    supersedingDecisionTargetId = supersedesDecisionTargetId(action),
+    supersedingReplay =
+      replay?.schema === "decision-event/v1" &&
+      replay.type === "decision_superseded" &&
+      replay.decisionId === supersedingDecisionTargetId,
+    supersededDecisionId =
+      supersedingDecisionTargetId &&
+      (input.projection.readDecision(supersedingDecisionTargetId).decision?.state === "proposed" || supersedingReplay)
+        ? supersedingDecisionTargetId
+        : null,
     current = input.projection.readRelationEdge(requestedRelationId),
     targetRef = requestedTargetRef ?? current?.targetRef,
     source = sourceRef ? input.projection.readEntityVersionWitness(sourceRef) : null,
@@ -98,6 +118,43 @@ export function executeRelationAction(input: {
     headRevision = input.store.readHead()?.revision ?? 0,
     lookupCut = input.projection.readCut(),
     lookupNote = ` (looked up at projection watermark ${lookupCut.watermark}, write head ${headRevision}).`;
+  if (supersedingReplay) {
+    if (
+      !supersededDecisionId ||
+      current?.state !== "active" ||
+      current.sourceRef !== sourceRef ||
+      current.targetRef !== targetRef ||
+      current.relationType !== "supersedes"
+    )
+      reject(
+        "invalid_store",
+        `Decision ${supersededDecisionId ?? "<unknown>"} supersession replay has no active Relation.`,
+      );
+    const transitionEvent = replay!;
+    return {
+      outcome: "applied",
+      opId,
+      revision: transitionEvent.workspaceRevision,
+      evidence: JSON.stringify({
+        schema: "relation-action-history/v1",
+        relationId: requestedRelationId,
+        eventType: "relation_created",
+        aggregateRevision: transitionEvent.workspaceRevision,
+        executor: binding.actor.executor,
+        executionId: null,
+      }),
+      visibility: "center",
+      proof: {
+        committedRevision: transitionEvent.workspaceRevision,
+        appliedCut: input.projection.readCut().watermark,
+        durable: true,
+        canonicalVisible: input.projection.readCut().watermark >= transitionEvent.workspaceRevision,
+        worktreeVisible: null,
+      },
+      authorizationDecision,
+      relationId: requestedRelationId,
+    } as WriteReceipt;
+  }
   if (action.kind === "relation-relate") {
     if (!assignment && action.relationType === "assigned-to")
       reject("invalid_command", "assigned-to is managed by the entity assign Action; use ha <kind> assign.");
@@ -105,6 +162,28 @@ export function executeRelationAction(input: {
       reject("entity_not_found", `Relation source ${sourceRef} does not exist${lookupNote}`);
     if (target?.currentVersion === null && !assignment)
       reject("entity_not_found", `Relation target ${targetRef} does not exist${lookupNote}`);
+    // The dispatch gate's own clause judgment, applied at the write boundary: a task derives from a decision clause,
+    // never from the decision as a whole. Other derives targets are not dispatch prerequisites and keep their shape.
+    if (
+      !replay &&
+      action.relationType === "derives" &&
+      requestedTargetRef?.startsWith("task/") &&
+      derivesRelationClause(sourceRef!) === null
+    ) {
+      const ref = parseEntityRef(sourceRef!),
+        decision = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision : null,
+        hint =
+          ref?.kind === "decision"
+            ? [...(decision?.chosen ?? []), ...(decision?.claims ?? [])].map(({ id }) => `decision/${ref.id}/${id}`)
+            : [];
+      reject(
+        "relation_source_anchor_invalid",
+        `derives requires a decision clause source of the form decision/<decision-id>/<clause-id>; ` +
+          `${sourceRef} is not one. Use --source-ref ${
+            hint.join(" or ") || `decision/${ref?.kind === "decision" ? ref.id : "<decision-id>"}/<clause-id>`
+          }.`,
+      );
+    }
     if (!replay && action.relationType === "evidenced-by") {
       const ref = parseEntityRef(sourceRef!),
         claims = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision?.claims : undefined;
@@ -144,6 +223,10 @@ export function executeRelationAction(input: {
       activeAssignment !== null &&
       (activeAssignment.targetRef !== targetRef || activeAssignment.rationale !== requestedRationale),
     eventRevision = headRevision + (replacing ? 2 : 1),
+    relationOpId =
+      supersededDecisionId && replay === null
+        ? derivedRelationOperationId(opId, "supersedes-relation", requestedRelationId)
+        : opId,
     draft = replay
       ? null
       : contract.execution.compile?.({
@@ -151,7 +234,7 @@ export function executeRelationAction(input: {
           actor: binding.actor,
           source: binding.source,
           session: input.sessionIdentity(binding),
-          opId,
+          opId: relationOpId,
           occurredAt,
           workspaceRevision: eventRevision,
           priorTargetVersion: current?.targetObservedVersion ?? null,
@@ -172,6 +255,7 @@ export function executeRelationAction(input: {
   const aggregateRevision = assignment
     ? Math.max(assignmentRevision, typeof source?.currentVersion === "number" ? source.currentVersion : 0)
     : (current?.workspaceRevision ?? 0);
+  let sameActiveRelation = false;
   if (!replay && compiled.type === "relation_created" && current?.state === "active") {
     const candidate = compiled.payload.relation,
       same =
@@ -189,7 +273,8 @@ export function executeRelationAction(input: {
           `To ask again, retire it first (ha relation unrelate ${relationId} --reason <text> ` +
           `--expected-version ${current.workspaceRevision}), then relate with --expected-version <its retired revision>.`,
       );
-    if (!assignment)
+    sameActiveRelation = same;
+    if (!assignment && !supersededDecisionId)
       return relationNoChanges({
         relationId,
         revision: current.workspaceRevision,
@@ -230,7 +315,8 @@ export function executeRelationAction(input: {
     hasRelationPath(input.projection, compiled.payload.relation.target, compiled.payload.relation.source)
   )
     reject("relation_cycle", "The requested depends-on Relation would create a blocking cycle.");
-  const bundle = replay
+  const relationWriteNeeded = replay === null && !sameActiveRelation,
+    bundle = replay
       ? relationReplayBundle(input.store, compiled)
       : assignment
         ? { event: compiled, plan: relationEventWritePlan(compiled), blobs: [] }
@@ -240,15 +326,36 @@ export function executeRelationAction(input: {
     replacement = replacing
       ? compileRelationRetirementForReplacement(input, activeAssignment!.relationId, headRevision + 1)
       : null,
+    superseding = supersededDecisionId
+      ? (input.compileSupersededDecision?.({
+          decisionId: supersededDecisionId,
+          opId,
+          occurredAt,
+          workspaceRevision: headRevision + (relationWriteNeeded ? 2 : 1),
+          relationBundle: sameActiveRelation || replay !== null ? null : bundle,
+        }) ?? null)
+      : null;
+  if (supersededDecisionId && !superseding)
+    reject("invalid_command", "Decision supersession has no Decision lifecycle compiler.");
+  let appended: ReturnType<CanonicalEventStore["append"]>;
+  if (superseding) {
+    appended = input.store.append({
+      ...superseding,
+      ...(relationWriteNeeded ? { preceding: [bundle] } : {}),
+    });
+    if (relationWriteNeeded) input.projection.apply(bundle.event, bundle.plan);
+    input.projection.apply(superseding.event, superseding.plan);
+  } else {
     appended = input.store.append({
       event: published,
       plan,
       blobs: bundle.blobs,
       ...(replacement === null ? {} : { preceding: [replacement] }),
     });
-  if (replay === null) {
-    if (replacement !== null) input.projection.apply(replacement.event, replacement.plan);
-    input.projection.apply(published, plan);
+    if (replay === null) {
+      if (replacement !== null) input.projection.apply(replacement.event, replacement.plan);
+      input.projection.apply(published, plan);
+    }
   }
   publicationKillpoints(input.killpoint);
   const projected = input.projection.readRelationEdge(relationId),
@@ -480,6 +587,17 @@ function relationNoChanges(input: {
 function requiredRelationText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   reject("invalid_command", `${field} is required.`);
+}
+
+function supersedesDecisionTargetId(action: RepoTaskAction): string | null {
+  if (action.kind !== "relation-relate" || action.relationType !== "supersedes") return null;
+  const source = parseEntityRef(typeof action.sourceRef === "string" ? action.sourceRef : ""),
+    target = parseEntityRef(typeof action.targetRef === "string" ? action.targetRef : "");
+  return source?.kind === "decision" && target?.kind === "decision" && source.id !== target.id ? target.id : null;
+}
+
+function derivedRelationOperationId(parentOpId: string, purpose: string, relationId: string): string {
+  return `op_${createHash("sha256").update(`${parentOpId}:${purpose}:${relationId}`).digest("hex")}`;
 }
 
 function assignmentTargetRef(action: RepoTaskAction): string {

@@ -209,6 +209,83 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
   }
 });
 
+test("a close after the daemon answered marks the rejection as an answered connection", async () => {
+  // A parked --wait holds one request open on one connection for minutes or hours. When the daemon
+  // ends that connection (build-drift restart, recycling), the caller must be able to tell "this
+  // daemon answered here and then closed" from "the socket never spoke": the first is reachability
+  // and must not spend a reconnect budget, the second is an unreachable daemon. Only the reader
+  // knows which happened, so the rejection carries it.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")),
+    socketPath = localUserDaemonEndpoint(parent, "json-rpc-client-answered");
+  const server = net.createServer((socket) => {
+    socket.on("data", (chunk: Buffer) => {
+      for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
+        const request = JSON.parse(line) as { readonly id: number; readonly method: string };
+        if (request.method === "protocol.hello")
+          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+        else socket.destroy();
+      }
+    });
+    socket.on("error", () => undefined);
+  });
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  try {
+    const socket = await connectSocket(socketPath, 2_000),
+      client = new JsonRpcLineClient(socket, socket);
+    try {
+      await client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000);
+      await assert.rejects(
+        () => client.request("repo.agentRuntime.sessions.await", {}, 5_000),
+        (error: unknown) =>
+          (error as { readonly code?: string }).code === "daemon_closed" &&
+          (error as { readonly daemonAnsweredConnection?: boolean }).daemonAnsweredConnection === true,
+      );
+    } finally {
+      clientClose(client);
+    }
+  } finally {
+    await closeServer(server);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a close before the daemon answered any frame leaves the rejection unmarked", async () => {
+  // The negative control: an endpoint that accepts and immediately closes must stay counted as an
+  // unreachable daemon, or the wait would retry it forever instead of reporting daemon_gone.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")),
+    socketPath = localUserDaemonEndpoint(parent, "json-rpc-client-silent");
+  const server = net.createServer((socket) => {
+    socket.on("error", () => undefined);
+    socket.once("data", () => socket.destroy());
+  });
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  try {
+    const socket = await connectSocket(socketPath, 2_000),
+      client = new JsonRpcLineClient(socket, socket);
+    try {
+      await assert.rejects(
+        () => client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000),
+        (error: unknown) =>
+          (error as { readonly code?: string }).code === "daemon_closed" &&
+          (error as { readonly daemonAnsweredConnection?: boolean }).daemonAnsweredConnection === undefined,
+      );
+    } finally {
+      clientClose(client);
+    }
+  } finally {
+    await closeServer(server);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("a socket write failure rejects the request as daemon unavailable", async () => {
   const input = new PassThrough(),
     failure = Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
@@ -510,7 +587,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // assignment-capable kind, adding eleven catalog declarations to the former
   // 155-entry inventory.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
-  assert.equal(actionDeclarations.length, 167);
+  // decision-supersede's deprecated Action declaration is removed with its CLI command.
+  assert.equal(actionDeclarations.length, 166);
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
     false,
@@ -690,7 +768,6 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "decision-reject": "arbiter",
     "decision-defer": "repo-write",
     "decision-retire": "repo-write",
-    "decision-supersede": "repo-write",
     "decision-amend": "repo-write",
     "decision-claim-add": "repo-write",
     "decision-claim-fulfill": "repo-write",

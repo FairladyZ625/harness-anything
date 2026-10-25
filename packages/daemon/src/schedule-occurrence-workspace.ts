@@ -188,7 +188,9 @@ function firstCommitRef(rootDir: string, candidates: readonly (string | null)[])
 /**
  * dec_BBA713052997C3EF5F5D3DD952 CH2: uncommitted changes keep the worktree; otherwise it is removed with its
  * branch, and commits whose patches are not upstream yet (`git cherry` "+", so merge, rebase and squash
- * merges all count as upstream) first stay reachable from an archive/wt-<name> tag. Nothing is forced.
+ * merges all count as upstream) first stay reachable from an archive/wt-<name> tag. A worktree that initialized
+ * submodules is removed with `--force` only after that clean check: git refuses a plain removal of any worktree
+ * holding submodules, and the check has already established there is no uncommitted work to lose.
  */
 export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedWorktree): Promise<WorktreeReclaim> {
   if (!existsSync(worktree.cwd)) return { outcome: "absent" };
@@ -196,19 +198,36 @@ export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedW
     // What the setup adapters made is theirs to remove, not the work in the worktree.
     await cleanupWorktreeSetup(worktree.cwd);
     unlinkWorktreeLedger(rootDir, worktree.cwd);
-    if ((await git(worktree.cwd, "status", "--porcelain")).length > 0)
+    // `--ignore-submodules=none` makes a dirty submodule visible here whatever the repository config prefers.
+    if ((await git(worktree.cwd, "status", "--porcelain", "--ignore-submodules=none")).length > 0)
       return { outcome: "retained", reason: "uncommitted changes" };
     const unmergedCommits = (await git(worktree.cwd, "cherry", worktree.baseRef, "HEAD"))
         .split("\n")
         .filter((line) => line.startsWith("+")).length,
       archiveTag = unmergedCommits > 0 ? `archive/wt-${path.basename(worktree.cwd)}` : null;
     if (archiveTag) await git(worktree.cwd, "tag", archiveTag, "HEAD");
-    await git(rootDir, "worktree", "remove", worktree.cwd);
+    await git(
+      rootDir,
+      "worktree",
+      "remove",
+      ...((await hasInitializedSubmodules(worktree.cwd)) ? ["--force"] : []),
+      worktree.cwd,
+    );
     await git(rootDir, "branch", "-D", worktree.branch);
     return { outcome: "removed", archiveTag, unmergedCommits };
   } catch (error) {
     return { outcome: "retained", reason: `cleanup failed: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+/**
+ * Whether this worktree initialized any submodule checkout. `git worktree remove` refuses such a worktree even when it
+ * is clean; one whose submodules were never initialized is removed normally.
+ */
+async function hasInitializedSubmodules(cwd: string): Promise<boolean> {
+  return (await git(cwd, "submodule", "status", "--recursive"))
+    .split("\n")
+    .some((line) => line.length > 0 && !line.startsWith("-"));
 }
 
 /** What a reclaim left for a person to know about; a plain removal says nothing. */

@@ -4,6 +4,7 @@ import {
   currentExecutionCuts,
   gateSatisfied,
   isRetiredCiRequirement,
+  deliveryTargetLabel,
   lineageOrphan,
   type CloseoutGateStatus,
   type CompletionDeliveryStatus,
@@ -348,20 +349,39 @@ function evaluateCompletion(
     // The daemon's readCompletionDeliveryStatus is the one parser of merge_commit_sha annotations;
     // this judgment only reads the mergeSha it already extracted into delivery status.
     const hasMergeAnnotation = Boolean(context.delivery.mergeSha);
+    if (
+      context.delivery.merged === null &&
+      hasMergeAnnotation &&
+      context.delivery.deliveryIssue === "delivery-evidence-unavailable"
+    )
+      return one(
+        "delivery_missing",
+        "delivery",
+        `Make the frozen delivery commit and baseline available in the repository, then run ha task complete ${task.taskId}; if the baseline was not frozen, resubmit the cut first.`,
+        `The annotated merge commit is on ${deliveryTargetLabel(context.delivery)}, but the frozen delivery diff could not be inspected locally.`,
+      );
     if (context.delivery.merged === null && hasMergeAnnotation)
       return one(
         "delivery_missing",
         "delivery",
-        `git fetch origin ${context.delivery.targetBranch}, then run ha task complete ${task.taskId}.`,
-        `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
+        context.delivery.targetRef
+          ? `Check repository Settings for the configured target ref ${context.delivery.targetRef}, then run ha task complete ${task.taskId}.`
+          : `If this repository has origin, run git fetch origin ${context.delivery.targetBranch}; if it has no origin, run ha settings update --delivery-target-ref refs/heads/${context.delivery.targetBranch}. Then run ha task complete ${task.taskId}.`,
+        context.delivery.targetRef
+          ? `The delivery merge could not be verified locally; the configured delivery ref ${context.delivery.targetRef} is not visible; update that ref and retry.`
+          : `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry when origin exists, or configure an explicit local delivery ref in repository Settings when it does not.`,
       );
     return one(
       "delivery_missing",
       "delivery",
-      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url> (or ha task annotate ${task.taskId} --execution-id ${executionId} --kind correction --note merge_commit_sha:<sha>), then run ha task complete ${task.taskId}.`,
-      context.delivery.merged === false
-        ? `The delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
-        : `The delivery execution has no merge commit annotation; run node tools/pr-merge.mjs <PR-number-or-url> or record merge_commit_sha:<sha>.`,
+      context.delivery.deliveryIssue === "delivery-not-contained"
+        ? `Merge the submitted delivery, or correct the annotation with ha task annotate ${task.taskId} --execution-id ${executionId} --kind correction --note merge_commit_sha:<sha>, then run ha task complete ${task.taskId}.`
+        : `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url> (or ha task annotate ${task.taskId} --execution-id ${executionId} --kind correction --note merge_commit_sha:<sha>), then run ha task complete ${task.taskId}.`,
+      context.delivery.deliveryIssue === "delivery-not-contained"
+        ? `The annotated merge commit ${context.delivery.mergeSha} is on ${deliveryTargetLabel(context.delivery)} but does not contain the submitted delivery ${context.delivery.deliveryCommitSha}; use the commit that actually contains that delivery.`
+        : context.delivery.merged === false
+          ? `The delivery merge commit is not present on ${deliveryTargetLabel(context.delivery)}.`
+          : `The delivery execution has no merge commit annotation; run node tools/pr-merge.mjs <PR-number-or-url> or record merge_commit_sha:<sha>.`,
     );
   }
   return [];

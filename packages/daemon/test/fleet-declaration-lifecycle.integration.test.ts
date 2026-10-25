@@ -227,12 +227,11 @@ test(
       ["stale-submission", "invalid_proof"],
       ["empty-report", "review_report_invalid"],
       ["self-review", "actor_unauthorized"],
-      ["unauthorized", "authorization_denied"],
     ] as const) {
       const reviewId = `review-${negative}`,
         reportPath = `${fixture.packagePath}/artifacts/reports/${negative}.md`,
         carriedPath = negative === "wrong-path" ? `${fixture.packagePath}/closeout.md` : reportPath,
-        nodeId = negative === "self-review" ? "node-one" : negative === "unauthorized" ? "node-slow" : "node-two",
+        nodeId = negative === "self-review" ? "node-one" : "node-two",
         descriptors = await runFleetUploadClient({
           readAccessToken: async () => `device-token-${nodeId}`,
           port: center.port,
@@ -300,6 +299,27 @@ test(
       t.diagnostic(`${negative}: ${code}; no canonical event or report`);
       peer.close();
     }
+    // The unauthorized reviewer is refused at the upload gate itself: staging a review claim now
+    // crosses the repository-read admission (task_0fc6a2dc26bbebac1e73b8b18f), so the review
+    // command is unreachable instead of being the place that reports authorization_denied.
+    await assert.rejects(
+      runFleetUploadClient({
+        readAccessToken: async () => "device-token-node-slow",
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: "node-slow",
+        credential: "machine-secret",
+        repoId,
+        changes: [
+          {
+            path: `${fixture.packagePath}/artifacts/reports/unauthorized.md`,
+            body: Buffer.from("# Review\n\nChecked this cut.\n"),
+            mediaType: "text/markdown",
+          },
+        ],
+      }),
+      (error: unknown) => (error as { code?: string }).code === "authorization_denied",
+    );
     const reviewerPackage = path.join(reviewerRoot, "harness", fixture.packagePath);
     mkdirSync(path.join(reviewerPackage, "artifacts", "reports"), { recursive: true });
     writeFileSync(

@@ -554,21 +554,24 @@ const decisionActionCatalog = Object.freeze({
     // Accept is the one Decision write whose guard failure must guide the operator: settlement
     // attributes review-required rejections to this criterion and forwards the dispatch-review
     // command as receipt nextActions.
-    ...decisionTransitionDefinitions.map(({ action }) =>
-      action === "accept"
-        ? Object.freeze({
-            ...decisionWriteAction(action, `decision-${action}`),
-            criteria: Object.freeze([
-              {
-                ref: DECISION_ACCEPT_REVIEW_CRITERION_REF,
-                failureCode: "review_required",
-                explain:
-                  "Acceptance requires an approved review of the current content whenever repository review policy covers the Decision's risk tier.",
-              },
-            ]),
-          })
-        : decisionWriteAction(action, `decision-${action}`),
-    ),
+    ...decisionTransitionDefinitions.flatMap(({ action }) => {
+      if (action === "supersede") return [entityAction("decision", decisionIdentity, action, decisionExposure)];
+      return [
+        action === "accept"
+          ? Object.freeze({
+              ...decisionWriteAction(action, `decision-${action}`),
+              criteria: Object.freeze([
+                {
+                  ref: DECISION_ACCEPT_REVIEW_CRITERION_REF,
+                  failureCode: "review_required",
+                  explain:
+                    "Acceptance requires an approved review of the current content whenever repository review policy covers the Decision's risk tier.",
+                },
+              ]),
+            })
+          : decisionWriteAction(action, `decision-${action}`),
+      ];
+    }),
     ...Object.values(decisionAuxiliaryActions).map(([id, ingress]) => decisionWriteAction(id, ingress)),
     decisionWriteAction("review", "decision-review"),
     decisionWriteAction("respond-review", "decision-respond-review"),

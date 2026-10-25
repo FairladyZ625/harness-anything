@@ -268,7 +268,17 @@ export function copyRepoId(sourceRoot) {
   };
 }
 
-async function snapshotRepository(sourceRoot, workspace) {
+/** A harness sub-repository in the copy serves exactly two consumers: `resolveHarnessLayout`
+ *  reads the working-tree `harness.yaml` (the live config is copied verbatim below, uncommitted
+ *  values included), and the daemon's ledger probes run `git rev-parse`/`config`/hook writes
+ *  inside the repository. Neither opens a tracked source file, so the clone transfers objects
+ *  without materializing the authored tree — the checkout was 1.92 GB and 17-21 s of every
+ *  snapshot (cow-compare.md §5), all of it unread. */
+export function harnessCloneArgs(sourceRoot, targetRoot) {
+  return ["clone", "--quiet", "--no-checkout", sourceRoot, targetRoot];
+}
+
+export async function snapshotRepository(sourceRoot, workspace) {
   const layout = copyLayout(sourceRoot),
     sourceProjectRoot = layout.projectRoot,
     sourceLocalRoot = layout.localRoot,
@@ -281,8 +291,8 @@ async function snapshotRepository(sourceRoot, workspace) {
   const steps = [];
   const harnessSource = path.join(sourceProjectRoot, "harness");
   if (existsSync(harnessSource)) {
-    await runText("git", ["clone", "--quiet", harnessSource, path.join(workspace, "harness")]);
-    steps.push({ item: "harness", method: "git local clone" });
+    await runText("git", harnessCloneArgs(harnessSource, path.join(workspace, "harness")));
+    steps.push({ item: "harness", method: "git local clone --no-checkout (no working tree)" });
   }
   // The clone carries committed state only, but the live daemon resolves the config from the
   // working tree. A repository whose localRoot rename is not committed yet (the motivating

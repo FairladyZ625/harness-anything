@@ -12,6 +12,8 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 interface ConnRecord {
   readonly event: string;
   readonly conn?: string;
+  readonly repoId?: string | null;
+  readonly actor?: string | null;
   readonly method?: string | null;
   readonly ok?: boolean;
   readonly code?: string | null;
@@ -64,8 +66,14 @@ test("a live daemon logs hello, dispatched requests, rejections, and connection 
       JSON.stringify(hello),
       JSON.stringify({ jsonrpc: "2.0", id: 2, method: "daemon.status" }),
       JSON.stringify({ jsonrpc: "2.0", id: 3, method: "no.such.method" }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "repo.settings.read",
+        params: { repo: { repoId: "connlog-repo" } },
+      }),
     ]);
-    assert.equal(first.length, 3);
+    assert.equal(first.length, 4);
     await new Promise((resolve) => setTimeout(resolve, 25));
     const second = await session(daemon.endpoint, [JSON.stringify(hello)]);
     assert.equal(second.length, 1);
@@ -86,14 +94,18 @@ test("a live daemon logs hello, dispatched requests, rejections, and connection 
     const firstRequests = records.filter((record) => record.event === "request" && record.conn === "c-1");
     assert.deepEqual(
       firstRequests.map((record) => record.method),
-      ["protocol.hello", "daemon.status", "no.such.method"],
+      ["protocol.hello", "daemon.status", "no.such.method", "repo.settings.read"],
     );
     assert.deepEqual(
       firstRequests.map((record) => record.ok),
-      [true, true, false],
+      [true, true, false, false],
     );
-    assert.equal((firstRequests.at(-1) as ConnRecord).code, "-32601");
-    assert.equal((firstRequests.at(-1) as ConnRecord).detail, "Method not found");
+    assert.equal(firstRequests[1]?.repoId, null);
+    assert.equal(firstRequests[1]?.actor, `local-user-${process.getuid?.() ?? 0}`);
+    assert.equal(firstRequests[3]?.repoId, "connlog-repo");
+    assert.equal(firstRequests[3]?.actor, `local-user-${process.getuid?.() ?? 0}`);
+    assert.equal((firstRequests[2] as ConnRecord).code, "-32601");
+    assert.equal((firstRequests[2] as ConnRecord).detail, "Method not found");
     const closes = records.filter((record) => record.event === "conn_close");
     assert.deepEqual(
       closes.map((record) => record.conn),
@@ -101,7 +113,7 @@ test("a live daemon logs hello, dispatched requests, rejections, and connection 
     );
     // Sequential sessions: each socket is fully closed before the next dials in, so the count
     // drains to zero at every close; the unit suite covers the overlapping-connection shape.
-    assert.equal((closes[0] as ConnRecord).requests, 3);
+    assert.equal((closes[0] as ConnRecord).requests, 4);
     assert.equal((closes[0] as ConnRecord).active, 0);
     assert.equal((closes[1] as ConnRecord).requests, 1);
     assert.equal((closes[1] as ConnRecord).active, 0);

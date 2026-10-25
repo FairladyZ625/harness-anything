@@ -9,6 +9,7 @@ import {
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
+import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import {
   pushTaskWorkerBranch,
   squadWorkerBranchHasDelivery,
@@ -111,12 +112,6 @@ export async function publishExit(
       (await runtimeDeliveryWitness(context, active))
     )
       outcome = "succeeded";
-    if (outcome === "succeeded" && active.decisionReviewTarget) {
-      if (!decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId)) {
-        outcome = "failed";
-        reviewResultMissing = true;
-      }
-    }
     const reviewSuperseded =
       outcome !== "succeeded" && active.role === "reviewer" && active.task && context.input.projection
         ? (() => {
@@ -126,6 +121,30 @@ export async function publishExit(
               : { superseded: false };
           })()
         : { superseded: false };
+    const reviewId = `review-${active.dispatchId}`;
+    const providerAlreadyFailed = outcome === "failed";
+    // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
+    // the event on the node that owns the projection so normal exit without registration cannot
+    // look complete. Remote edges have no local projection and keep their existing unknown path.
+    if (
+      !cancelled &&
+      ruling === null &&
+      !reviewSuperseded.superseded &&
+      (active.role === "reviewer" ||
+        (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
+      context.input.projection &&
+      (active.task !== null || (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
+      !(active.task
+        ? context
+            .requiredRuntimeProjection(context.input)
+            .read(active.task.taskId)
+            .snapshot.reviews.some((review) => review.reviewId === reviewId)
+        : active.decisionReviewTarget !== null &&
+          decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))
+    ) {
+      if (!providerAlreadyFailed) outcome = "failed";
+      reviewResultMissing = true;
+    }
     const attemptOutcome = {
       ...classifiedAttempt,
       // Provider failures are the classifications a fallback continuation carries forward, and
@@ -133,11 +152,13 @@ export async function publishExit(
       // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
       reason: reviewSuperseded.superseded
         ? reviewSuperseded.reason!
-        : isProviderFailureClassification(classifiedAttempt.classification)
-          ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
-          : outcome === "succeeded"
-            ? "Worker completed the attempt successfully."
-            : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+        : reviewResultMissing && !providerAlreadyFailed
+          ? `Review ${reviewId} was not registered before reviewer settlement.`
+          : isProviderFailureClassification(classifiedAttempt.classification)
+            ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
+            : outcome === "succeeded"
+              ? "Worker completed the attempt successfully."
+              : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
     };
     const endedAt = context.input.now(),
       exitHead = active.task ? await currentWorktreeHead(active.cwd) : null,
@@ -164,6 +185,7 @@ export async function publishExit(
     // usage read side picks it up.
     const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
+    if (reviewResultMissing) body = `${body}\n\nReview ${reviewId} was not registered before reviewer settlement.`;
     // The question and its options ride the persisted result. The receipt body is what
     // `ha runtime wait`, the dispatch row and the archived report all render, and a provider's exit
     // diagnostic alone never tells the owner what was asked.
@@ -233,11 +255,14 @@ export async function publishExit(
     if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
     const exitGuidance = unsubmittedExitGuidance(active, outcome);
     if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
-    let reasonCode: string | null = reviewSuperseded.superseded
-        ? "review_cut_superseded"
-        : reviewResultMissing
-          ? "review_result_missing"
-          : null,
+    let reasonCode: string | null =
+        active.spendCapExceeded && !cancelled
+          ? runtimeSpendCapReasonCode
+          : reviewSuperseded.superseded
+            ? "review_cut_superseded"
+            : reviewResultMissing
+              ? "review_result_missing"
+              : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
@@ -333,7 +358,7 @@ export async function publishExit(
               decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId));
         if (!reviewRegistered && !reviewSuperseded.superseded) {
           outcome = cancelled ? "cancelled" : "failed";
-          reasonCode = "runtime_archive_failed";
+          reasonCode = reviewResultMissing ? "review_result_missing" : "runtime_archive_failed";
         }
         // The worker result is independently durable input to this settlement.
         // Preserve it in the terminal content while appending the reason that
@@ -657,6 +682,7 @@ export function runtimeResultText(
   code: number | null,
   outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
 ): string {
+  if (active.spendCapExceeded && outcome !== "cancelled") return runtimeSpendCapReason(active);
   if (active.lossReason)
     return `Runtime session lost: ${active.lossReason}${active.lossSignal ? ` (${active.lossSignal})` : ""}.`;
   if (code === 0 || code === null)
