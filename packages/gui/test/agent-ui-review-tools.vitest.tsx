@@ -410,9 +410,27 @@ describe("AnnotateDiffViewer", () => {
     act(() => byTestId("annotate-composer-save").click());
   };
 
-  it("renders unified rows with gutter add triggers", () => {
+  it("without onBatchSend renders a pure viewer: diff rows only, no annotate or packaging chrome", () => {
     mount(<AnnotateDiffViewer files={files} />);
+    // 差异本身仍完整可查看(收口契约:W2-2 起返工走自动评审循环,无手动回送)。
     expect(byTestId("annotate-file-0").textContent).toContain("src/renderer/App.tsx");
+    expect(byTestId("annotate-file-0").textContent).toContain("const config = loadConfig();");
+    expect(byTestId("annotate-add-new-2")).toBeNull();
+    expect(byTestId("annotate-actionbar-top")).toBeNull();
+    expect(byTestId("annotate-actionbar-bottom")).toBeNull();
+    expect(byTestId("annotate-send")).toBeNull();
+    expect(byTestId("annotate-clear")).toBeNull();
+    expect(byTestId("annotate-pending-count")).toBeNull();
+    expect(byTestId("annotate-drafts")).toBeNull();
+    // 查看器里聚焦行按 c 不再打开批注 composer。
+    const row = container.querySelector('[data-diff-line="new-3"]')!;
+    act(() => row.focus());
+    press(row, "c");
+    expect(byTestId("annotate-composer")).toBeNull();
+  });
+
+  it("renders gutter add triggers in the annotator shape", () => {
+    mount(<AnnotateDiffViewer files={files} onBatchSend={vi.fn()} />);
     expect(byTestId("annotate-add-new-2")).not.toBeNull();
     expect(byTestId("annotate-add-old-2")).not.toBeNull();
     expect(byTestId("annotate-add-new-3")).not.toBeNull();
@@ -445,7 +463,7 @@ describe("AnnotateDiffViewer", () => {
   });
 
   it("opens the composer from the focused row with the c key and cancels with Esc", () => {
-    mount(<AnnotateDiffViewer files={files} />);
+    mount(<AnnotateDiffViewer files={files} onBatchSend={vi.fn()} />);
     const row = container.querySelector('[data-diff-line="new-3"]')!;
     act(() => row.focus());
     press(row, "c");
@@ -469,7 +487,7 @@ describe("AnnotateDiffViewer", () => {
   });
 
   it("deletes a stashed draft", () => {
-    mount(<AnnotateDiffViewer files={files} />);
+    mount(<AnnotateDiffViewer files={files} onBatchSend={vi.fn()} />);
     addDraft("annotate-add-new-2", "待删除");
     expect(byTestId("annotate-pending-count").textContent).toBe("1");
     act(() => byTestId("annotate-draft-ann-0-delete").click());
@@ -531,7 +549,7 @@ describe("agentUi i18n (en-US)", () => {
       ),
     );
     expect(byTestId("toolcall-group-summary").textContent).toBe("Tool calls: 1 · 120ms");
-    act(() => root.render(<AnnotateDiffViewer files={[]} />));
+    act(() => root.render(<AnnotateDiffViewer files={[]} onBatchSend={vi.fn()} />));
     expect(byTestId("annotate-mode-split").textContent).toBe("Split");
     expect(byTestId("annotate-send").textContent).toContain("Batch send to agent");
   });

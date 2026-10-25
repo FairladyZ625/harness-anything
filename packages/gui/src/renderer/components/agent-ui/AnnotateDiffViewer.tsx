@@ -8,9 +8,11 @@ import { t } from "../../i18n/index.tsx";
 
 /**
  * agent-ui 批量差异批注器(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Orca「Annotate AI Diff」契约):
- * Unified/Split 行级 Diff,行号槽点 + 或聚焦行按 c 添加行级 Markdown 批注;
- * 批注只进暂存列表,点「打包回送 Agent」才经 formatBatchReviewPrompt 聚合为
- * 单轮修订 Prompt(文件路径 + 行锚点 + 代码片段 + 批注正文)一次性回调。
+ * Unified/Split 行级 Diff。传 onBatchSend 时是批注器:行号槽点 + 或聚焦行按 c 添加行级
+ * Markdown 批注,批注只进暂存列表,点「打包回送 Agent」才经 formatBatchReviewPrompt 聚合为
+ * 单轮修订 Prompt(文件路径 + 行锚点 + 代码片段 + 批注正文)一次性回调(决策裁决把聚合
+ * Prompt 并入 rationale)。不传 onBatchSend 即纯差异查看器:任务返工已由自动评审循环驱动
+ * (dec_E369B8616F50A6208B293997E7 CH5),收口页签不再手动回送,批注触发与打包区一并不渲染。
  * 纯 UI 层 Prompt 编排,产物仍走标准 dispatch/runtime 通道,不越权改台账。
  */
 
@@ -139,18 +141,23 @@ function UnifiedRow({
 }: {
   readonly filePath: string;
   readonly line: DiffLine;
-  readonly onAdd: (filePath: string, line: DiffLine) => void;
+  /** 查看器形状(无 onBatchSend)下缺省:不渲染批注触发器,行不可聚焦。 */
+  readonly onAdd?: (filePath: string, line: DiffLine) => void;
 }): ReactNode {
   return (
     <div
       data-diff-line={lineKey(line)}
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key === "c") {
-          event.preventDefault();
-          onAdd(filePath, line);
-        }
-      }}
+      tabIndex={onAdd === undefined ? undefined : -1}
+      onKeyDown={
+        onAdd === undefined
+          ? undefined
+          : (event) => {
+              if (event.key === "c") {
+                event.preventDefault();
+                onAdd(filePath, line);
+              }
+            }
+      }
       className={`flex min-w-0 items-center gap-1.5 px-1 py-px ${KIND_ROW_CLASS[line.kind]}`}
     >
       <span className="w-9 shrink-0 text-right font-mono ui-micro tabular-nums text-text-faint">
@@ -159,7 +166,7 @@ function UnifiedRow({
       <span className="w-9 shrink-0 text-right font-mono ui-micro tabular-nums text-text-faint">
         {line.newLineNo ?? ""}
       </span>
-      <AddAnnotationTrigger filePath={filePath} line={line} onAdd={onAdd} />
+      {onAdd !== undefined && <AddAnnotationTrigger filePath={filePath} line={line} onAdd={onAdd} />}
       <span aria-hidden className="shrink-0 font-mono ui-micro text-text-faint">
         {KIND_MARKER[line.kind]}
       </span>
@@ -176,26 +183,30 @@ function SplitCell({
 }: {
   readonly filePath: string;
   readonly line: DiffLine | undefined;
-  readonly onAdd: (filePath: string, line: DiffLine) => void;
+  readonly onAdd?: (filePath: string, line: DiffLine) => void;
   readonly side: "old" | "new";
 }): ReactNode {
   if (line === undefined) return <div className="min-w-0 flex-1 bg-surface/40 px-1 py-px" aria-hidden />;
   return (
     <div
       data-diff-line={lineKey(line)}
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key === "c") {
-          event.preventDefault();
-          onAdd(filePath, line);
-        }
-      }}
+      tabIndex={onAdd === undefined ? undefined : -1}
+      onKeyDown={
+        onAdd === undefined
+          ? undefined
+          : (event) => {
+              if (event.key === "c") {
+                event.preventDefault();
+                onAdd(filePath, line);
+              }
+            }
+      }
       className={`flex min-w-0 flex-1 items-center gap-1.5 px-1 py-px ${KIND_ROW_CLASS[line.kind]}`}
     >
       <span className="w-9 shrink-0 text-right font-mono ui-micro tabular-nums text-text-faint">
         {side === "old" ? (line.oldLineNo ?? "") : (line.newLineNo ?? "")}
       </span>
-      <AddAnnotationTrigger filePath={filePath} line={line} onAdd={onAdd} />
+      {onAdd !== undefined && <AddAnnotationTrigger filePath={filePath} line={line} onAdd={onAdd} />}
       <span aria-hidden className="shrink-0 font-mono ui-micro text-text-faint">
         {KIND_MARKER[line.kind]}
       </span>
@@ -351,7 +362,7 @@ export function AnnotateDiffViewer({
   readonly files: readonly DiffFile[];
   readonly mode?: DiffViewMode;
   readonly onModeChange?: (mode: DiffViewMode) => void;
-  /** 唯一的对外回调:点「打包回送」时一次触发,收到聚合 Prompt 与结构化批注。 */
+  /** 缺省即纯差异查看器(收口页签):返工走自动评审循环,GUI 不再手动回送。 */
   readonly onBatchSend?: (prompt: string, annotations: readonly DiffAnnotation[]) => void;
   readonly testId?: string;
 }) {
@@ -360,6 +371,8 @@ export function AnnotateDiffViewer({
   const [composer, setComposer] = useState<{ filePath: string; line: DiffLine } | null>(null);
   const nextIdRef = useRef(0);
   const viewMode = onModeChange === undefined ? activeMode : mode;
+  // 批注器 / 查看器两种形状的分界:查看器不渲染批注触发与打包区(见组件头注)。
+  const interactive = onBatchSend !== undefined;
 
   const openComposer = (filePath: string, line: DiffLine) => setComposer({ filePath, line });
 
@@ -387,12 +400,14 @@ export function AnnotateDiffViewer({
           ]}
         />
       </div>
-      <ActionBar
-        testId="annotate-actionbar-top"
-        count={annotations.length}
-        onSend={send}
-        onClear={() => setAnnotations([])}
-      />
+      {interactive && (
+        <ActionBar
+          testId="annotate-actionbar-top"
+          count={annotations.length}
+          onSend={send}
+          onClear={() => setAnnotations([])}
+        />
+      )}
       {files.length === 0 && <Empty>{t("agentUi.diff.filesEmpty")}</Empty>}
       {files.map((file, fileIndex) => {
         const fileCount = annotations.filter((annotation) => annotation.filePath === file.filePath).length;
@@ -417,16 +432,31 @@ export function AnnotateDiffViewer({
               {viewMode === "unified" ? (
                 <div role="region" aria-label={t("agentUi.diff.unifiedAria", { file: file.filePath })}>
                   {renderedLines.map((line, index) => (
-                    <UnifiedRow key={index} filePath={file.filePath} line={line} onAdd={openComposer} />
+                    <UnifiedRow
+                      key={index}
+                      filePath={file.filePath}
+                      line={line}
+                      onAdd={interactive ? openComposer : undefined}
+                    />
                   ))}
                 </div>
               ) : (
                 <div role="region" aria-label={t("agentUi.diff.splitAria", { file: file.filePath })}>
                   {pairSplitRows(renderedLines).map((row, index) => (
                     <div key={index} className="flex min-w-0 gap-1">
-                      <SplitCell filePath={file.filePath} line={row.old} side="old" onAdd={openComposer} />
+                      <SplitCell
+                        filePath={file.filePath}
+                        line={row.old}
+                        side="old"
+                        onAdd={interactive ? openComposer : undefined}
+                      />
                       <div aria-hidden className="w-px shrink-0 bg-border" />
-                      <SplitCell filePath={file.filePath} line={row.new} side="new" onAdd={openComposer} />
+                      <SplitCell
+                        filePath={file.filePath}
+                        line={row.new}
+                        side="new"
+                        onAdd={interactive ? openComposer : undefined}
+                      />
                     </div>
                   ))}
                 </div>
@@ -462,21 +492,25 @@ export function AnnotateDiffViewer({
           </section>
         );
       })}
-      <div className="flex flex-col gap-2">
-        <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
-          {t("agentUi.diff.pendingLabel")}
-        </span>
-        <DraftList
-          annotations={annotations}
-          onDelete={(id) => setAnnotations((prev) => prev.filter((annotation) => annotation.id !== id))}
+      {interactive && (
+        <div className="flex flex-col gap-2">
+          <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
+            {t("agentUi.diff.pendingLabel")}
+          </span>
+          <DraftList
+            annotations={annotations}
+            onDelete={(id) => setAnnotations((prev) => prev.filter((annotation) => annotation.id !== id))}
+          />
+        </div>
+      )}
+      {interactive && (
+        <ActionBar
+          testId="annotate-actionbar-bottom"
+          count={annotations.length}
+          onSend={send}
+          onClear={() => setAnnotations([])}
         />
-      </div>
-      <ActionBar
-        testId="annotate-actionbar-bottom"
-        count={annotations.length}
-        onSend={send}
-        onClear={() => setAnnotations([])}
-      />
+      )}
     </div>
   );
 }
