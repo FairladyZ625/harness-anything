@@ -153,7 +153,6 @@ function validRiskTierAssessment(value: unknown): boolean {
       "deliveryHeadSha",
       "matchedPathReviewers",
       "reasons",
-      "guiAcceptanceRequired",
     ]) &&
     value.schema === "task-risk-tier-assessment/v1" &&
     ["low", "medium", "high"].includes(String(value.declaredTier)) &&
@@ -164,8 +163,7 @@ function validRiskTierAssessment(value: unknown): boolean {
     value.matchedPathReviewers.every(
       (lane) => exactRecord(lane, ["agentId", "paths"]) && nonEmpty(lane.agentId) && stringArray(lane.paths),
     ) &&
-    stringArray(value.reasons) &&
-    typeof value.guiAcceptanceRequired === "boolean"
+    stringArray(value.reasons)
   );
 }
 

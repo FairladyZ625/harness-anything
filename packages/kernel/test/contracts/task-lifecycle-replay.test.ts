@@ -12,11 +12,14 @@ import {
   currentTaskForWrite,
   lifecycleDocumentPaths,
   reduceTaskEvent,
+  validateCurrentTaskEvent,
+  validateTaskEvent,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
 import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
+import { validateSubmissionV1 } from "../../src/domain/execution.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
 import { canonicalGateReceipts } from "../../src/domain/task-lifecycle-contract-support.ts";
 import { validateTaskGraph } from "../../src/domain/task-graph.ts";
@@ -41,6 +44,42 @@ const metadata = {
   surfaces: [] as readonly string[],
   fromLegacyId: null,
 };
+
+test("the retired GUI assessment flag is boolean history only and never current input", () => {
+  const fixture = lifecycleFixture({ complete: false }),
+    submitted = fixture.events.find((event) => event.type === "execution_submitted");
+  assert.ok(submitted?.type === "execution_submitted");
+  const submission = submitted.payload.execution.submission!;
+  const historical = (flag: unknown) => ({
+    ...submitted,
+    payload: {
+      ...submitted.payload,
+      execution: {
+        ...submitted.payload.execution,
+        submission: {
+          ...submission,
+          riskTierAssessment: {
+            schema: "task-risk-tier-assessment/v1",
+            declaredTier: "low",
+            effectiveTier: "low",
+            deliveryBaseSha: "b".repeat(40),
+            deliveryHeadSha: "c".repeat(40),
+            matchedPathReviewers: [],
+            reasons: [],
+            guiAcceptanceRequired: flag,
+          },
+        },
+      },
+    },
+  });
+
+  const historicalSubmission = historical(true).payload.execution.submission;
+  assert.deepEqual(validateTaskEvent(historical(true)), []);
+  assert.notDeepEqual(validateCurrentTaskEvent(historical(true)), []);
+  assert.notDeepEqual(validateTaskEvent(historical("true")), []);
+  assert.notDeepEqual(validateSubmissionV1(historicalSubmission, true), []);
+  assert.deepEqual(validateSubmissionV1(historicalSubmission, true, true), []);
+});
 
 test("retired CI is omitted from completion receipt cuts even when an old receipt exists", () => {
   const gates = [

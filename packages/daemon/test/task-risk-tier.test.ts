@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assessTaskRiskTier } from "../src/task-risk-tier.ts";
+import { assessTaskRiskTier, readTaskRiskManifest } from "../src/task-risk-tier.ts";
 
 const task = {
     taskId: "task-risk-tier",
@@ -73,7 +73,6 @@ test("risk assessment freezes the real diff anchors and path reviewer hits", asy
   assert.equal(assessment.deliveryHeadSha, delivery.headSha);
   assert.deepEqual(assessment.matchedPathReviewers, [lane]);
   assert.match(assessment.reasons.join("\n"), /packages\/app\/src\/main\.ts/u);
-  assert.equal(assessment.guiAcceptanceRequired, false);
 });
 
 test("script floors and prior effective tiers can only raise the declared tier", async (t) => {
@@ -101,27 +100,8 @@ test("script floors and prior effective tiers can only raise the declared tier",
   assert.equal(assessment.effectiveTier, "high");
 });
 
-test("configured GUI acceptance survives a risk-tier increase", async (t) => {
-  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const assessment = await assessTaskRiskTier({
-    rootDir: root,
-    task: { ...task, declaredTier: "medium" },
-    delivery: {
-      ...delivery,
-      files: [{ ...delivery.files[0]!, path: "packages/gui/src/App.tsx" }],
-    },
-    matchedPathReviewers: [],
-    previousEffectiveTier: "high",
-  });
-
-  assert.equal(assessment.effectiveTier, "high");
-  assert.equal(assessment.guiAcceptanceRequired, true);
-});
-
-test("missing scripts use the declared tier and GUI acceptance follows repository configuration", async (t) => {
-  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
+test("GUI delivery paths do not add a special assessment field", async (t) => {
+  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [] });
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const assessment = await assessTaskRiskTier({
@@ -135,7 +115,14 @@ test("missing scripts use the declared tier and GUI acceptance follows repositor
   });
 
   assert.equal(assessment.effectiveTier, "low");
-  assert.equal(assessment.guiAcceptanceRequired, true);
+  assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
+});
+
+test("the removed GUI acceptance manifest key is rejected", (t) => {
+  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  assert.throws(() => readTaskRiskManifest(root), /must use task-risk-manifest\/v1/u);
 });
 
 test("failed and malformed configured scripts reject assessment with their own output", async (t) => {

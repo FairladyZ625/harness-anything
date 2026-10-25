@@ -19,6 +19,7 @@ import {
   canonicalRoot,
   validateDaemonAgenda,
   validateDaemonRelationGraph,
+  validateDaemonTaskSnapshotList,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
@@ -167,6 +168,35 @@ test("task control narrows graph, status, and decision reads to the selected lif
   ]);
   assert.deepEqual(statusCalls, [["task_event", "task_blocker"]]);
   assert.deepEqual(decisionCalls, [["dec_event"]]);
+});
+
+test("GUI task projection removes the retired assessment key before strict protocol validation", () => {
+  const fixture = lifecycleFixture({ complete: false }),
+    execution = fixture.snapshot.executions[0]!;
+  assert.ok(execution.submission);
+  const assessment = {
+      schema: "task-risk-tier-assessment/v1",
+      declaredTier: "low",
+      effectiveTier: "low",
+      deliveryBaseSha: "b".repeat(40),
+      deliveryHeadSha: "c".repeat(40),
+      matchedPathReviewers: [],
+      reasons: [],
+      guiAcceptanceRequired: true,
+    } as unknown as NonNullable<typeof execution.submission.riskTierAssessment>,
+    legacyExecution = {
+      ...execution,
+      submission: { ...execution.submission, riskTierAssessment: assessment },
+    },
+    taskId = fixture.snapshot.task!.taskId,
+    row = { ...protocolTaskRow(taskId), snapshot: { ...fixture.snapshot, executions: [legacyExecution] } },
+    result = queryRead(process.cwd(), projectionStub({ taskRows: [row] })).guiTasks();
+
+  assert.deepEqual(result.invalidRows, []);
+  assert.deepEqual(validateDaemonTaskSnapshotList(result), []);
+  const projectedAssessment = result.rows[0]?.snapshot.executions[0]?.submission?.riskTierAssessment;
+  assert.ok(projectedAssessment);
+  assert.equal(Object.hasOwn(projectedAssessment, "guiAcceptanceRequired"), false);
 });
 
 test("an unparameterized guiTasks read serves one default-bounded page, never the full ledger", () => {

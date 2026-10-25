@@ -29,6 +29,7 @@ import {
   type TaskRelationProjectionRead,
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
+  type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
 import {
   decisionReviewAwaitRationale,
@@ -375,7 +376,7 @@ export function makeTaskQueryReadModel(input: {
           blockingAssessment,
           deliveryStage,
           placement,
-          snapshot,
+          snapshot: daemonTaskSnapshot(snapshot),
           executionEvidence: snapshot.executions.map((execution) =>
             projectExecutionEvidence(row.taskId, execution, origin),
           ),
@@ -977,6 +978,32 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
+}
+
+function daemonTaskSnapshot(snapshot: TaskLifecycleSnapshot): TaskLifecycleSnapshot {
+  const withoutRetiredAssessmentField = <T extends { readonly riskTierAssessment?: unknown }>(
+    submission: T | null,
+  ): T | null => {
+    const assessment = submission?.riskTierAssessment;
+    if (
+      typeof assessment !== "object" ||
+      assessment === null ||
+      Array.isArray(assessment) ||
+      !Object.hasOwn(assessment, "guiAcceptanceRequired")
+    )
+      return submission;
+    const { guiAcceptanceRequired: _retired, ...currentAssessment } = assessment as Record<string, unknown>;
+    return { ...submission, riskTierAssessment: currentAssessment } as T;
+  };
+
+  return {
+    ...snapshot,
+    executions: snapshot.executions.map((execution) =>
+      execution.schema === "execution/v1"
+        ? { ...execution, submission: withoutRetiredAssessmentField(execution.submission) }
+        : { ...execution, archivedSubmission: withoutRetiredAssessmentField(execution.archivedSubmission) },
+    ),
+  };
 }
 
 function projectedRuntimeHeaders(rootDir: string, projection: TaskProjection): DispatchStreamHeader[] {

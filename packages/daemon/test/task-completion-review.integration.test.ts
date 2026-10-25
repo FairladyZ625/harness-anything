@@ -125,7 +125,7 @@ test("submit enters independent review automatically and completion still requir
   }
 });
 
-test("a low declaration raised to high freezes the assessed tier, consent, and configured GUI acceptance", async () => {
+test("a low-risk GUI delivery submits without a GUI acceptance gate", async () => {
   const f = await fixture(false, true, true, false, false, {
     autoSubmit: false,
     guiDelivery: true,
@@ -134,26 +134,6 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
   });
   try {
     await f.install();
-    const tools = path.join(f.root, "tools");
-    mkdirSync(tools, { recursive: true });
-    writeFileSync(
-      path.join(tools, "task-risk-manifest.json"),
-      JSON.stringify({
-        schema: "task-risk-manifest/v1",
-        lowGuiAcceptance: true,
-        scripts: [
-          {
-            id: "fixture-high-floor",
-            command: [
-              process.execPath,
-              "-e",
-              "process.stdout.write(JSON.stringify({ schema: 'task-risk-tier-result/v1', minimumTier: 'high', reasons: ['fixture high floor'] }));",
-            ],
-          },
-        ],
-      }),
-    );
-
     const submitted = await f.submit();
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const event = f.events().find((candidate) => candidate.type === "execution_submitted");
@@ -163,18 +143,12 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
     const assessment = submission.riskTierAssessment;
     assert.ok(assessment, "the accepted submission freezes its risk assessment");
     assert.equal(assessment.declaredTier, "low");
-    assert.equal(assessment.effectiveTier, "high");
+    assert.equal(assessment.effectiveTier, "low");
     assert.match(assessment.deliveryBaseSha ?? "", /^[0-9a-f]{40}$/u);
     assert.match(assessment.deliveryHeadSha ?? "", /^[0-9a-f]{40}$/u);
     assert.deepEqual(assessment.matchedPathReviewers, []);
-    assert.equal(
-      submission.completionContract.closeoutGates.consent,
-      false,
-      "risk-floor escalation changes review only",
-    );
-    assert.equal(assessment.guiAcceptanceRequired, true);
-    assert.ok(submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
-    assert.match(assessment.reasons.join("\n"), /fixture high floor/u);
+    assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
+    assert.ok(!submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
     console.info(`SUBMISSION_RISK_TIER_ASSESSMENT ${JSON.stringify(assessment)}`);
   } finally {
     await f.close();

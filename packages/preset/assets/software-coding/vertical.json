@@ -310,12 +310,8 @@
   ],
   "templateSelections": [],
   "completion": {
-    "sources": {
-      "manual-attest": { "kind": "manual", "predicateType": "harness/attestation/v1", "resultSchema": { "type": "object", "additionalProperties": false } }
-    },
-    "gates": {
-      "gui-acceptance": { "source": "manual-attest", "appliesTo": "code" }
-    },
+    "sources": {},
+    "gates": {},
     "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false }
   },
   "projectionSchemas": [

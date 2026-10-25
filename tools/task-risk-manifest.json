@@ -5,6 +5,5 @@
       "id": "repository-risk-floor",
       "command": ["node", "tools/task-risk-floor.mjs"]
     }
-  ],
-  "lowGuiAcceptance": true
+  ]
 }

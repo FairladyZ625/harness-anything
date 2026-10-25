@@ -11,7 +11,7 @@ import {
 import { envelope, execution } from "./task-lifecycle-contract-support.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
 import type { GateRunChangedEvent } from "./task-lifecycle-event.ts";
-import { validateTaskEvent } from "./task-lifecycle-event.ts";
+import { validateCurrentTaskEvent } from "./task-lifecycle-event.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle.contract.ts";
 import type { ActorAxes } from "./task.ts";
@@ -121,7 +121,7 @@ export function compileGateRunChange(input: {
     runId: input.run.runId,
     operation: input.operation,
   });
-  const issues = validateTaskEvent(event);
+  const issues = validateCurrentTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
   const snapshot = replayGateRunChange(input.snapshot, event);
   return compileTaskLifecycleWrite({

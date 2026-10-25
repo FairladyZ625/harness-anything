@@ -487,7 +487,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "lease_released",
     ].includes(String(value.type))
   )
-    issues.push(...validateExecutionV1(payload.execution, allowUnknownFields));
+    issues.push(...validateExecutionV1(payload.execution, allowUnknownFields, allowUnknownFields));
   if (
     value.type === "task_completion_generation_retired" &&
     payload.sourceGeneration !== 1 &&

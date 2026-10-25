@@ -2,7 +2,7 @@ import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type { ActorAxes } from "./task.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
-import { validateTaskEvent, type CompletionGateVerifiedEvent } from "./task-lifecycle-event.ts";
+import { validateCurrentTaskEvent, type CompletionGateVerifiedEvent } from "./task-lifecycle-event.ts";
 import { TaskLifecycleContractError, type TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CompletionEvidenceV1 } from "./completion-evidence.ts";
@@ -131,7 +131,7 @@ export function compileCompletionGateWitness(input: {
         value.executionId === acceptedExecution.executionId ? acceptedExecution : value,
       ),
     };
-  const issues = validateTaskEvent(event);
+  const issues = validateCurrentTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
   return compileTaskLifecycleWrite({
     event,

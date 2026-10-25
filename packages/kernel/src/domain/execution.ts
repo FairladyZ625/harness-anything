@@ -41,7 +41,6 @@ export interface TaskRiskTierAssessmentV1 {
   readonly deliveryHeadSha: string | null;
   readonly matchedPathReviewers: readonly { readonly agentId: string; readonly paths: readonly string[] }[];
   readonly reasons: readonly string[];
-  readonly guiAcceptanceRequired: boolean;
 }
 export type ProductionDeltaV1 = ProductionDeltaCounts & {
   readonly baseSha: string;
@@ -267,7 +266,11 @@ export function validExecutionDeliveryBaseline(value: unknown): value is Executi
   );
 }
 
-export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
+export function validateSubmissionV1(
+  value: unknown,
+  allowUnknownFields = false,
+  allowHistoricalGuiAcceptanceRequired = false,
+): readonly ContractValidationIssue[] {
   const required = SUBMISSION_V1_SCHEMA.required;
   if (
     !isRecord(value) ||
@@ -285,7 +288,8 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !stringArray(value.knownGaps) ||
     !stringArray(value.residualRisks) ||
     (value.changedFiles !== undefined && !stringArray(value.changedFiles)) ||
-    (value.riskTierAssessment !== undefined && !validTaskRiskTierAssessment(value.riskTierAssessment)) ||
+    (value.riskTierAssessment !== undefined &&
+      !validTaskRiskTierAssessment(value.riskTierAssessment, allowHistoricalGuiAcceptanceRequired)) ||
     !validSubmissionDelivery(value) ||
     (value.productionDelta !== undefined &&
       (value.commitSha === null || value.changedFiles === undefined || !validProductionDelta(value.productionDelta)))
@@ -295,19 +299,22 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
 }
 
-function validTaskRiskTierAssessment(value: unknown): value is TaskRiskTierAssessmentV1 {
+function validTaskRiskTierAssessment(value: unknown, historical = false): value is TaskRiskTierAssessmentV1 {
+  const fields = [
+    "schema",
+    "declaredTier",
+    "effectiveTier",
+    "deliveryBaseSha",
+    "deliveryHeadSha",
+    "matchedPathReviewers",
+    "reasons",
+  ];
   return (
     isRecord(value) &&
-    hasOnlyFields(value, [
-      "schema",
-      "declaredTier",
-      "effectiveTier",
-      "deliveryBaseSha",
-      "deliveryHeadSha",
-      "matchedPathReviewers",
-      "reasons",
-      "guiAcceptanceRequired",
-    ]) &&
+    hasOnlyFields(value, historical ? [...fields, "guiAcceptanceRequired"] : fields) &&
+    (historical
+      ? value.guiAcceptanceRequired === undefined || typeof value.guiAcceptanceRequired === "boolean"
+      : !Object.hasOwn(value, "guiAcceptanceRequired")) &&
     value.schema === "task-risk-tier-assessment/v1" &&
     ["low", "medium", "high"].includes(String(value.declaredTier)) &&
     ["low", "medium", "high"].includes(String(value.effectiveTier)) &&
@@ -321,11 +328,14 @@ function validTaskRiskTierAssessment(value: unknown): value is TaskRiskTierAsses
         isNonEmptyString(lane.agentId) &&
         stringArray(lane.paths),
     ) &&
-    stringArray(value.reasons) &&
-    typeof value.guiAcceptanceRequired === "boolean"
+    stringArray(value.reasons)
   );
 }
-export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
+export function validateExecutionV1(
+  value: unknown,
+  allowUnknownFields = false,
+  allowHistoricalGuiAcceptanceRequired = false,
+): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||
     !(allowUnknownFields
@@ -370,7 +380,8 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
     issues.push(...validateExecutionAnnotationV1s(value.annotations, allowUnknownFields));
   if (value.deliveryBaseline !== undefined && !validExecutionDeliveryBaseline(value.deliveryBaseline))
     issues.push({ code: "invalid_execution", message: "execution delivery baseline is invalid" });
-  if (value.submission !== null) issues.push(...validateSubmissionV1(value.submission, allowUnknownFields));
+  if (value.submission !== null)
+    issues.push(...validateSubmissionV1(value.submission, allowUnknownFields, allowHistoricalGuiAcceptanceRequired));
   return issues;
 }
 export function validateExecutionAnnotationV1s(

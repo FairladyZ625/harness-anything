@@ -14,7 +14,6 @@ export interface TaskRiskTierScript {
 
 export interface TaskRiskManifest {
   readonly scripts: readonly TaskRiskTierScript[];
-  readonly lowGuiAcceptance: boolean;
 }
 
 export interface TaskRiskTierScriptInput {
@@ -59,7 +58,7 @@ export function readTaskRiskManifest(rootDir: string): TaskRiskManifest {
   try {
     body = readFileSync(manifestPath, "utf8");
   } catch (error) {
-    if (isMissingFile(error)) return { scripts: [], lowGuiAcceptance: true };
+    if (isMissingFile(error)) return { scripts: [] };
     throw new TaskRiskTierConfigurationError(`Cannot read ${taskRiskManifestPath}: ${errorMessage(error)}`);
   }
   let value: unknown;
@@ -68,14 +67,8 @@ export function readTaskRiskManifest(rootDir: string): TaskRiskManifest {
   } catch (error) {
     throw new TaskRiskTierConfigurationError(`${taskRiskManifestPath} is not valid JSON: ${errorMessage(error)}`);
   }
-  if (
-    !isRecord(value) ||
-    !hasOnlyKeys(value, ["schema", "scripts", "lowGuiAcceptance"]) ||
-    value.schema !== "task-risk-manifest/v1"
-  )
+  if (!isRecord(value) || !hasOnlyKeys(value, ["schema", "scripts"]) || value.schema !== "task-risk-manifest/v1")
     throw new TaskRiskTierConfigurationError(`${taskRiskManifestPath} must use task-risk-manifest/v1.`);
-  if (value.lowGuiAcceptance !== undefined && typeof value.lowGuiAcceptance !== "boolean")
-    throw new TaskRiskTierConfigurationError(`${taskRiskManifestPath}.lowGuiAcceptance must be boolean.`);
   if (!Array.isArray(value.scripts))
     throw new TaskRiskTierConfigurationError(`${taskRiskManifestPath}.scripts must be an array.`);
   const scripts: TaskRiskTierScript[] = value.scripts.map((script, index) => {
@@ -94,7 +87,7 @@ export function readTaskRiskManifest(rootDir: string): TaskRiskManifest {
   });
   if (new Set(scripts.map(({ id }) => id)).size !== scripts.length)
     throw new TaskRiskTierConfigurationError(`${taskRiskManifestPath} script ids must be unique.`);
-  return { scripts, lowGuiAcceptance: value.lowGuiAcceptance ?? true };
+  return { scripts };
 }
 
 export async function assessTaskRiskTier(input: {
@@ -162,9 +155,6 @@ export async function assessTaskRiskTier(input: {
     deliveryHeadSha: input.delivery.headSha,
     matchedPathReviewers,
     reasons,
-    guiAcceptanceRequired:
-      manifest.lowGuiAcceptance &&
-      input.delivery.files.some(({ path: filePath }) => filePath.startsWith("packages/gui/")),
   };
 }
 
