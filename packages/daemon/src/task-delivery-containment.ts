@@ -13,7 +13,10 @@ export function deliveryContainment(
   mergeCommit: string,
 ): DeliveryContainment {
   if (localGitObjectRefStore.isAncestor(rootDir, deliveryCommit, mergeCommit)) return "contained";
-  if (baseline === null || !localGitObjectRefStore.hasCommit(rootDir, baseline)) return "unavailable";
+  // The canonical empty tree is a valid `git diff` endpoint, but it is a tree object rather than
+  // a commit, so `hasCommit` must not reject the baseline frozen for an unborn repository.
+  if (baseline === null || (baseline !== EMPTY_TREE_SHA && !localGitObjectRefStore.hasCommit(rootDir, baseline)))
+    return "unavailable";
 
   const changedPaths = runProcessText(
     "git",

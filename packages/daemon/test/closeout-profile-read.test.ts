@@ -18,6 +18,7 @@ import {
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { repoCellTaskQueryJudgmentsFor } from "../src/repo-cell.ts";
 import { readCompletionContext, readCompletionDeliveryStatus } from "../src/task-completion-read.ts";
+import { EMPTY_TREE_SHA } from "../src/task-delivery-containment.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -391,6 +392,45 @@ test("an explicit local delivery ref verifies a local-only repository baseline",
   assert.equal(
     readCompletionDeliveryStatus(projection, codeDelivery(strictSubmitted, merge, merge), root).targetRef,
     "refs/heads/main",
+  );
+});
+
+test("an empty-tree delivery baseline proves an identical root tree without commit ancestry", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-empty-tree-baseline-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  writeFileSync(path.join(root, "first-delivery.txt"), "delivered from an unborn repository\n");
+  git(root, "add", "first-delivery.txt");
+  git(root, "commit", "-qm", "first delivery");
+  const deliveryCommit = git(root, "rev-parse", "HEAD"),
+    deliveryTree = git(root, "rev-parse", "HEAD^{tree}"),
+    mergeCommit = git(root, "commit-tree", deliveryTree, "-m", "independent commit with the delivered tree");
+  git(root, "update-ref", "refs/heads/release", mergeCommit);
+
+  const delivery = {
+      ...INITIAL_SETTINGS_V1.delivery,
+      targetRef: "refs/heads/release",
+    } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+    projection = {
+      getEntity: () => ({ value: { delivery } }),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+    } as unknown as TaskProjectionQueries,
+    cut = codeDelivery(strictSubmitted, deliveryCommit, mergeCommit),
+    emptyTreeCut = {
+      ...cut,
+      executions: cut.executions.map((execution) => ({
+        ...execution,
+        deliveryBaseline: { kind: "empty-tree" as const },
+      })),
+    } as TaskLifecycleSnapshot;
+
+  assert.notEqual(deliveryCommit, mergeCommit, "the matching tree is held by another commit");
+  assert.equal(
+    readCompletionDeliveryStatus(projection, emptyTreeCut, root).merged,
+    true,
+    `the canonical empty tree (${EMPTY_TREE_SHA}) is a valid comparison baseline`,
   );
 });
 
