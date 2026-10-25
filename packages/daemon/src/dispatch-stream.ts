@@ -93,6 +93,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly model?: string;
   readonly reasoningEffort?: string | null;
   readonly fast?: boolean;
+  /** Total-token cap declared at launch; absent when the repository set no limit. */
+  readonly tokenLimit?: number;
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;
   readonly transcriptCompactionVersion?: 1;

@@ -24,7 +24,7 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
-import { cancelRuntime, closeRuntimes, steerRuntime } from "./runtime-spawn-control.ts";
+import { cancelRuntime, closeRuntimes, enforceRuntimeSpendCap, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
@@ -131,6 +131,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     launchExitNotification,
     publishExit: (active, code, resumePublishedExit) =>
       runtimeSpawnerDelegates.publishExit(extracted, active, code, resumePublishedExit),
+    enforceSpendCap: (active) => enforceRuntimeSpendCap(extracted, active),
     controlReceipt: (opId, runtimeSessionId, detail) =>
       runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail),
     captureErrorOutput: (active, chunk) => runtimeSpawnerDelegates.captureErrorOutput(extracted, active, chunk),
@@ -607,6 +608,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // The witness uses the module-level host platform; the local `process` is the launched
     // RuntimeProcess and carries no platform.
     const resolvedProviderDirectory = sharedProviderDirectory(prepared.env, declaredKindId, hostPlatform);
+    // Freeze the declared cap with the launch: a running dispatch keeps the limit it was admitted
+    // under, and an adopting daemon restores it from the stream header instead of re-reading a
+    // setting that may have changed. 0 is the declared "no limit" sentinel.
+    const declaredTokenLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0,
+      tokenLimit = declaredTokenLimit > 0 ? declaredTokenLimit : null;
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
@@ -642,6 +648,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         model: definition.model,
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
+        ...(tokenLimit === null ? {} : { tokenLimit }),
         resumeProviderSessionId: providerSessionId ?? null,
         ...(handoffEnabled ? { handoffEnabled: true } : {}),
         ...(handoff
@@ -941,6 +948,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       model: definition.model,
       reasoningEffort: definition.reasoningEffort,
       fast: definition.fast ?? false,
+      tokenLimit,
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,

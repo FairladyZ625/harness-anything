@@ -755,6 +755,7 @@
   "agentRuntime.facts.instance": "Instance",
   "agentRuntime.facts.model": "Model",
   "agentRuntime.facts.outcome": "Outcome",
+  "agentRuntime.facts.reasonCode": "Reason code",
   "agentRuntime.facts.missingEvidence": "Missing evidence",
   "agentRuntime.facts.exitCode": "Exit code",
   "agentRuntime.facts.holder": "Holder",

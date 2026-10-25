@@ -6,7 +6,7 @@ import { adoptRuntimes, ownedByRuntimeSpawner } from "./runtime-spawn-adoption.t
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
-import type { RuntimeBinding } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
 export async function cancelRuntime(
@@ -95,6 +95,15 @@ export async function cancelRuntime(
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+}
+
+export async function enforceRuntimeSpendCap(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
+  if (context.processes.get(active.runtimeSessionId) !== active) return;
+  if (!active.spendCapExceeded || active.cancelRequested || context.exiting.has(active.runtimeSessionId)) return;
+  if (active.process.terminateTree) await active.process.terminateTree();
+  else active.process.terminate();
+  await consumeDurableOutput(context, active);
+  await context.publishExit(active, null);
 }
 
 export async function steerRuntime(
