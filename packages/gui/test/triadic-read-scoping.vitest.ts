@@ -134,10 +134,15 @@ function startOnView(view: string) {
  * 挂 App,从 `options.view` 起步。`getTasks` 决定台账 cut:每次返回的 watermark/
  * sourceRevision 变化都会触发 `invalidateLedgerDependents`,这正是被测的失效面。
  */
-async function mountApp(options: { readonly view: string; readonly decisionResult?: unknown }): Promise<{
+async function mountApp(options: {
+  readonly view: string;
+  readonly decisionResult?: unknown;
+  readonly workspaceSummaryResult?: unknown;
+}): Promise<{
   readonly calls: () => readonly RecordedCall[];
   readonly container: HTMLElement;
   readonly navigate: (label: string) => Promise<void>;
+  readonly selectDecisionGroup: (label: string) => Promise<void>;
   readonly advanceLedger: () => Promise<void>;
   readonly mark: () => number;
   /** 把缓存里完整关系图的 dataUpdatedAt 回拨 ageMs:模拟「挂了一会儿再回来」,
@@ -180,21 +185,28 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
       sourceRevision: revision,
       warnings: [],
     }),
-    getWorkspaceSummary: async () => ({
-      schema: "daemon.workspace-summary/v1",
-      ok: true,
-      status: "ready",
-      tasks: { lastChangedAt: null, total: 1, byStatus: { planned: 1 } },
-      decisions: {
-        total: 0,
-        inboxCount: 0,
-        byState: {},
-        groups: [],
+    getWorkspaceSummary: async () =>
+      options.workspaceSummaryResult ?? {
+        schema: "daemon.workspace-summary/v1",
+        ok: true,
+        status: "ready",
+        tasks: { lastChangedAt: null, total: 1, byStatus: { planned: 1 } },
+        decisions: {
+          total: 0,
+          inboxCount: 0,
+          byState: { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
+          groups: [
+            { id: "proposed", states: ["proposed"], count: 0, decisionIds: [] },
+            { id: "in_effect", states: ["in_effect"], count: 0, decisionIds: [] },
+            { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
+            { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
+            { id: "retired", states: ["superseded", "outcome_retired"], count: 0, decisionIds: [] },
+          ],
+        },
+        watermark: 1,
+        sourceRevision: 1,
+        warnings: [],
       },
-      watermark: 1,
-      sourceRevision: 1,
-      warnings: [],
-    }),
     getCatalogSnapshot: async () => ({
       schema: "gui-catalog-snapshot/v2",
       ok: true,
@@ -308,7 +320,17 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
     });
     await flush();
   };
-  return { calls: () => calls.slice(), container, navigate, advanceLedger, mark, backdateGraph };
+  const selectDecisionGroup = async (label: string) => {
+    await act(async () => {
+      const target = [...container.querySelectorAll("[data-testid='decision-pool-group-chips'] button")].find(
+        (element) => element.textContent?.trim().startsWith(label),
+      );
+      expect(target, `决策分组缺失:${label}`).toBeTruthy();
+      target!.click();
+    });
+    await flush();
+  };
+  return { calls: () => calls.slice(), container, navigate, selectDecisionGroup, advanceLedger, mark, backdateGraph };
 }
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
@@ -336,6 +358,79 @@ const relationGraphCalls = (calls: readonly RecordedCall[]) =>
 const decisionCalls = (calls: readonly RecordedCall[]) => calls.filter(({ method }) => method === "getDecisions");
 
 describe("决策读失败不能冒充空台账", () => {
+  it("决策列表 pending 时显示加载态,不显示空态", async () => {
+    let resolveDecisionRead!: (value: unknown) => void;
+    const decisionResult = new Promise<unknown>((resolve) => {
+      resolveDecisionRead = resolve;
+    });
+    const { container } = await mountApp({ view: "decisionPool", decisionResult });
+    expect(container.textContent).toContain("正在读取决策…");
+    expect(container.textContent).not.toContain("当前过滤条件下没有 decision。");
+    await act(async () => {
+      resolveDecisionRead({ ok: true, decisions: [], warnings: [] });
+      await decisionResult;
+    });
+  });
+
+  it("决策待裁首读只取 proposed 状态", async () => {
+    const { calls } = await mountApp({ view: "decisionPool" });
+    expect(decisionCalls(calls()).map(({ payload }) => payload)).toContainEqual({
+      repoId: REPO_ID,
+      state: "proposed",
+    });
+  });
+
+  it("workspace summary pending 时已并行发出 proposed 决策读", async () => {
+    let resolveSummary!: (value: unknown) => void;
+    const workspaceSummaryResult = new Promise<unknown>((resolve) => {
+      resolveSummary = resolve;
+    });
+    const { calls } = await mountApp({ view: "decisionPool", workspaceSummaryResult });
+    expect(decisionCalls(calls()).map(({ payload }) => payload)).toContainEqual({
+      repoId: REPO_ID,
+      state: "proposed",
+    });
+    await act(async () => {
+      resolveSummary({
+        schema: "daemon.workspace-summary/v1",
+        ok: true,
+        status: "ready",
+        tasks: { lastChangedAt: null, total: 1, byStatus: { planned: 1 } },
+        decisions: {
+          total: 0,
+          inboxCount: 0,
+          byState: {},
+          groups: [{ id: "proposed", states: ["proposed"], count: 0, decisionIds: [] }],
+        },
+        watermark: 1,
+        sourceRevision: 1,
+        warnings: [],
+      });
+      await workspaceSummaryResult;
+    });
+  });
+
+  it("切换决策分组时只读取该组状态", async () => {
+    const { calls, selectDecisionGroup } = await mountApp({ view: "decisionPool" });
+    const atProposed = calls().length;
+    await selectDecisionGroup("生效中");
+    expect(decisionCalls(calls().slice(atProposed)).map(({ payload }) => payload)).toContainEqual({
+      repoId: REPO_ID,
+      state: "in_effect",
+    });
+  });
+
+  it("retired 分组读取 superseded 与 outcome_retired 两种状态", async () => {
+    const { calls, selectDecisionGroup } = await mountApp({ view: "decisionPool" });
+    const atProposed = calls().length;
+    await selectDecisionGroup("已退场");
+    expect(
+      decisionCalls(calls().slice(atProposed))
+        .map(({ payload }) => payload?.state)
+        .sort(),
+    ).toEqual(["outcome_retired", "superseded"]);
+  });
+
   it.each(["decisionPool", "graph"])("%s 显示拒绝码与原因", async (view) => {
     const { container } = await mountApp({
       view,

@@ -686,6 +686,7 @@ export type DaemonDecisionFullRow = DecisionProjectionRow & {
 
 export interface DaemonDecisionListPayload {
   readonly projection?: "summary" | "full";
+  readonly state?: DecisionProjectionRow["state"];
 }
 
 export type DaemonDecisionListResult =

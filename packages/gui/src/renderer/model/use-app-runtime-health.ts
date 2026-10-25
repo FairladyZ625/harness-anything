@@ -13,10 +13,12 @@ export function useAppRuntimeHealth(input: {
   readonly repo: RuntimeHealthInput["repo"];
   /** tasksQuery 折算:watermark/sourceRevision/status;没回来过给 null。 */
   readonly projection: RuntimeHealthInput["projection"];
+  /** 只在首次查询实际发出时显示加载,未选仓的 disabled query 仍是未知。 */
+  readonly projectionLoading: boolean;
   /** 当前仓任务行(只取 lastKnownAt 求最大,作 lastSnapshotAt)。 */
   readonly projectTasks: readonly { readonly lastKnownAt: string }[];
 }): RuntimeHealth {
-  const { daemon, repo, projection, projectTasks } = input;
+  const { daemon, repo, projection, projectionLoading, projectTasks } = input;
   return useMemo(() => {
     const lastSnapshotAt = projectTasks.reduce(
       (latest, task) => (task.lastKnownAt > latest ? task.lastKnownAt : latest),
@@ -26,8 +28,9 @@ export function useAppRuntimeHealth(input: {
       daemon,
       repo,
       projection,
+      projectionLoading,
       lastSnapshotAt: lastSnapshotAt || null,
       now: new Date().toISOString(),
     });
-  }, [daemon, projection, projectTasks, repo]);
+  }, [daemon, projection, projectionLoading, projectTasks, repo]);
 }

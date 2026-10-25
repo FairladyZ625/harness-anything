@@ -27,6 +27,7 @@ export {
   parseScheduleDuration,
   scheduleDurationUnitMs,
   scheduleDurationUnits,
+  decisionStateWords,
   splitScheduleDuration,
   taskDeliveryStageWords,
 } from "./daemon-protocol-vocabulary.ts";

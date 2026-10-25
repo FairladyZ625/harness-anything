@@ -39,6 +39,7 @@ import type {
   WorkspaceScopeRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
+import type { DecisionState } from "./model/types.ts";
 import {
   isFactDomainTypeSummaryRow,
   isRendererRecord,
@@ -374,7 +375,9 @@ export const harnessClient = {
   async getRelationFacts(payload: RepoScope & RelationFactFacetQuery): Promise<RelationFactFacetSuccess> {
     return readRelationFactFacetResult(await invoke("repo.triadic.relationGraph", payload, "getRelationGraph"));
   },
-  async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> {
+  async getDecisions(
+    payload: RepoScope & { readonly state?: Exclude<DecisionState, "unknown"> },
+  ): Promise<DecisionListSuccess> {
     return readDecisionListResult(await invoke("repo.decisions.list", payload, "getDecisions"));
   },
   async getDecisionSummaries(payload: RepoScope): Promise<DecisionSummaryListSuccess> {

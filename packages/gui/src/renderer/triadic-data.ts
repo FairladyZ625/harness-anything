@@ -51,7 +51,10 @@ export const triadicQueryKeys = {
   activeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "edgeset"] as const,
   facts: (repoId: string) => ["triadic", repoId, "relation-graph", "facts"] as const,
   runtimeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "runtime-edges"] as const,
-  decisions: (repoId: string) => ["triadic", repoId, "decisions"] as const,
+  decisions: (repoId: string, states?: ReadonlyArray<Exclude<DecisionState, "unknown">>) =>
+    states === undefined
+      ? (["triadic", repoId, "decisions"] as const)
+      : (["triadic", repoId, "decisions", "states", [...states].sort().join(",")] as const),
   decisionSummary: (repoId: string) => ["triadic", repoId, "decisions", "summary"] as const,
 };
 
@@ -274,15 +277,32 @@ export function useCompleteRelationGraphQuery(repoId: string, enabled: boolean) 
  */
 export function useTriadicProjectionQuery(
   repoId: string | null,
-  options: { readonly enabled?: boolean; readonly graphEnabled?: boolean; readonly decisionsEnabled?: boolean } = {},
+  options: {
+    readonly enabled?: boolean;
+    readonly graphEnabled?: boolean;
+    readonly decisionsEnabled?: boolean;
+    readonly decisionStates?: ReadonlyArray<Exclude<DecisionState, "unknown">>;
+  } = {},
 ) {
   const enabled = options.enabled !== false && repoId !== null;
   const graphEnabled = enabled && options.graphEnabled !== false;
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
+  const decisionStates = options.decisionStates;
   const graph = useCompleteRelationGraphQuery(repoId ?? "unselected", graphEnabled);
   const decisions = useQuery({
-    queryKey: triadicQueryKeys.decisions(repoId ?? "unselected"),
-    queryFn: () => harnessClient.getDecisions({ repoId: repoId! }),
+    queryKey: triadicQueryKeys.decisions(repoId ?? "unselected", decisionStates),
+    queryFn: async () => {
+      if (decisionStates === undefined) return harnessClient.getDecisions({ repoId: repoId! });
+      if (decisionStates.length === 0) return { ok: true as const, decisions: [], warnings: [] };
+      const reads = await Promise.all(
+        decisionStates.map((state) => harnessClient.getDecisions({ repoId: repoId!, state })),
+      );
+      return {
+        ...reads[0]!,
+        decisions: reads.flatMap((read) => read.decisions),
+        warnings: reads.flatMap((read) => read.warnings),
+      };
+    },
     enabled: decisionsEnabled,
     staleTime: 10_000,
   });
@@ -296,6 +316,7 @@ export function useTriadicProjectionQuery(
   );
   const isLoading = (graphEnabled && graph.isLoading) || (decisionsEnabled && decisions.isLoading);
   const isError = (graphEnabled && graph.isError) || (decisionsEnabled && decisions.isError);
+  const decisionsPending = decisionsEnabled && decisions.isPending;
   /** 缓存里是否已有完整图(含之前挂载时读到的):有就不再读边切面。 */
   const graphAvailable = graph.data !== undefined && graph.data.page?.nextCursor == null;
   /** 挂载方需要它而它还没到位(禁用且无缓存时为 false,不冒充加载态)。 */
@@ -305,6 +326,7 @@ export function useTriadicProjectionQuery(
     () => ({
       isLoading,
       isPending,
+      decisionsPending,
       isError,
       decisionError: decisionsEnabled ? decisions.error : null,
       graphAvailable,
@@ -319,6 +341,7 @@ export function useTriadicProjectionQuery(
     [
       isLoading,
       isPending,
+      decisionsPending,
       isError,
       graphAvailable,
       decisionsEnabled,

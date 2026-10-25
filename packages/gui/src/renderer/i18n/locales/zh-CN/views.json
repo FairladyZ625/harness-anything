@@ -341,6 +341,7 @@
   "views.presetsView.provenanceAncestry": "provenance.ancestry",
   "views.decisionPoolView.allGroup": "全部",
   "views.decisionPoolView.emptyFilter": "当前过滤条件下没有 decision。",
+  "views.decisionPoolView.loading": "正在读取决策…",
   "views.decisionPoolView.groupCount": "· {count} 条",
   "views.decisionPoolView.advancedFilters": "高级筛选",
   "views.entitiesView.tagline": "每个实体是什么、字段什么含义、彼此什么关系，在这里说清楚",

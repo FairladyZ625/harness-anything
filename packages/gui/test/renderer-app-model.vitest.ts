@@ -393,6 +393,9 @@ describe("renderer app model", () => {
           facts: [],
           relations: [],
           focusedDecisionId: focused.decisionId,
+          decisionsLoading: false,
+          decisionGroup: "proposed",
+          onDecisionGroupChange: () => undefined,
           summary: {
             total: decisions.length,
             inboxCount: decisions.length,

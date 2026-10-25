@@ -1,6 +1,6 @@
 import type { TaskAssignment, TaskClaimScope } from "@harness-anything/kernel";
 import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
-import { useCaseProjectionNameWords } from "./daemon-protocol-vocabulary.ts";
+import { decisionStateWords, useCaseProjectionNameWords } from "./daemon-protocol-vocabulary.ts";
 
 export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   id: "daemon.task-snapshot-list/v1",
@@ -374,6 +374,7 @@ export const daemonRelationQueryPayloadShape = shape({
 
 export const daemonDecisionListPayloadShape = shape({
   projection: optionalEnum(["summary", "full"]),
+  state: optionalEnum(decisionStateWords),
 });
 
 /** 时间线默认面是 html;md(体量 ~77×)与 raw(二进制产物)是显式 opt-in,absent 字段即 html。 */

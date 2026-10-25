@@ -35,6 +35,7 @@ test("full decision lists reuse Git calculation across unrelated cuts and invali
   let rows = [decision("dec_a")],
     revision = 1,
     lists = 0;
+  const requestedStates: Array<DecisionProjectionRow["state"] | undefined> = [];
   const cell = createRepoCellApi({
     extracted: {},
     mode: "local",
@@ -43,12 +44,17 @@ test("full decision lists reuse Git calculation across unrelated cuts and invali
     state: "attached",
     rootDir,
     settings: { readRepository: () => ({ decisionReviewRequirement: "all" }) },
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     dispatchRead,
     projection: {
       listDecisions: (filters: DecisionListFilters) => {
         lists += 1;
+        requestedStates.push(filters.state);
         assert.equal(filters.withBody, true);
-        return { decisions: rows, sourceRevision: revision };
+        return {
+          decisions: rows.filter((row) => filters.state === undefined || row.state === filters.state),
+          sourceRevision: revision,
+        };
       },
       readDecisions: () => {
         throw new Error("duplicate hydration");
@@ -84,5 +90,12 @@ test("full decision lists reuse Git calculation across unrelated cuts and invali
   const changedCut = (await read()).decisions[0]!.readiness;
   assert.notEqual(changedCut, previous, "new canonical Git cut invalidates readiness");
   assert.equal(changedCut?.basisCommitSha, git("rev-parse", "HEAD"));
-  assert.equal(lists, 11);
+  const proposed = await cell.read("repo.decisions.list", { projection: "full", state: "proposed" });
+  assert.deepEqual(proposed.decisions, []);
+  assert.equal(requestedStates.at(-1), "proposed");
+  await assert.rejects(
+    cell.read("repo.decisions.list", { projection: "full", state: "unknown" }),
+    /Decision list projection or state filter is invalid/u,
+  );
+  assert.equal(lists, 12);
 });

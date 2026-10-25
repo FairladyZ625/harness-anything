@@ -162,6 +162,9 @@ export function DecisionPoolSection({
   relations,
   coverageRows = [],
   relationState = "ready",
+  loading = false,
+  selectedGroup,
+  onSelectedGroupChange,
   focusedDecisionId,
   onFocusGraph,
   onNavigateDecision,
@@ -178,6 +181,9 @@ export function DecisionPoolSection({
   relations: RelationEdge[];
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   relationState?: RelationState;
+  loading?: boolean;
+  selectedGroup: PoolGroupTab;
+  onSelectedGroupChange: (group: PoolGroupTab) => void;
   focusedDecisionId?: string | null;
   onFocusGraph?: (ref: string) => void;
   onNavigateDecision: (decisionId: string) => void;
@@ -191,7 +197,7 @@ export function DecisionPoolSection({
   mutationFeedback?: (decisionId: string) => DecisionMutationFeedback | undefined;
   onCheckReceipt?: (key: string) => void;
 }) {
-  const [tab, setTab] = useState<PoolGroupTab>("proposed");
+  const tab = selectedGroup;
   const [stateFilter, setStateFilter] = useState<DecisionState | "all">("all");
   const [riskFilter, setRiskFilter] = useState<NonNullable<DecisionRow["riskTier"]> | "unknown" | "all">("all"),
     [urgencyFilter, setUrgencyFilter] = useState<NonNullable<DecisionRow["urgency"]> | "unknown" | "all">("all");
@@ -220,7 +226,7 @@ export function DecisionPoolSection({
       group = summary.groups.find((candidate) => candidate.decisionIds.includes(focusedDecisionId));
     if (!decision || !group) return;
     handledFocusRef.current = focusedDecisionId;
-    setTab(group.id);
+    onSelectedGroupChange(group.id);
     setStateFilter("all");
     setRiskFilter("all");
     setUrgencyFilter("all");
@@ -235,7 +241,7 @@ export function DecisionPoolSection({
       document.getElementById(`decision-card-${focusedDecisionId}`)?.scrollIntoView({ block: "center" }),
     );
     return () => window.cancelAnimationFrame(frame);
-  }, [decisions, focusedDecisionId, summary.groups]);
+  }, [decisions, focusedDecisionId, onSelectedGroupChange, summary.groups]);
 
   const verticals = useMemo(
     () => [...new Set(decisions.flatMap((decision) => (decision.vertical ? [decision.vertical] : [])))].sort(),
@@ -437,7 +443,7 @@ export function DecisionPoolSection({
         <FilterChips
           value={tab}
           onChange={(key) => {
-            setTab(key);
+            onSelectedGroupChange(key);
             setStateFilter("all");
           }}
           chips={summary.groups.map((item) => ({
@@ -484,9 +490,13 @@ export function DecisionPoolSection({
             ))}
           </section>
         ))}
-        {rows.length === 0 && (!remoteEnabled || remote.data?.status === "ready") && (
+        {loading && rows.length === 0 ? (
+          <p role="status" className="py-3 text-text-muted ui-body">
+            {t("views.decisionPoolView.loading")}
+          </p>
+        ) : rows.length === 0 && (!remoteEnabled || remote.data?.status === "ready") ? (
           <p className="py-3 text-text-faint ui-body">{t("views.decisionPoolView.emptyFilter")}</p>
-        )}
+        ) : null}
       </div>
       <Drawer
         open={drawerDecision !== null}

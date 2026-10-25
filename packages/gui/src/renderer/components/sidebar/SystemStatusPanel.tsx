@@ -30,6 +30,7 @@ function ageText(seconds: number | null): string {
 }
 
 function projectionText(health: RuntimeHealth): string {
+  if (health.projection.loading) return t("components.appSidebar.healthLagLoading");
   if (health.projection.lag === null) return t("components.appSidebar.healthLagUnknown");
   return t("components.appSidebar.healthLagRevs", { lag: String(health.projection.lag) });
 }
@@ -96,11 +97,13 @@ export function LedgerStatusBar({
   const headline =
     status.error !== null
       ? `${t("components.appSidebar.failedReadLedgerBridge")}: ${status.error}`
-      : status.empty
-        ? t("components.appSidebar.noTaskRowsFromLocalBridge")
-        : t("components.appSidebar.ledgerEvents", {
-            count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
-          });
+      : status.revision === null && status.refreshing
+        ? t("components.appSidebar.ledgerReadingEvents")
+        : status.empty
+          ? t("components.appSidebar.noTaskRowsFromLocalBridge")
+          : t("components.appSidebar.ledgerEvents", {
+              count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
+            });
   return (
     <span
       data-testid={testId}
@@ -117,7 +120,9 @@ export function LedgerStatusBar({
       <span className="min-w-0 flex-1 truncate">
         ·{" "}
         {status.refreshedAgoSec === null
-          ? t("components.appSidebar.ledgerNeverRefreshed")
+          ? status.refreshing
+            ? t("components.appSidebar.ledgerReading")
+            : t("components.appSidebar.ledgerNeverRefreshed")
           : t("components.appSidebar.ledgerRefreshedAgo", { ago: ageText(status.refreshedAgoSec) })}
       </span>
       <button

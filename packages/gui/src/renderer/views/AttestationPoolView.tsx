@@ -58,6 +58,9 @@ export function AttestationPoolView({
   relations,
   coverageRows = [],
   relationState = "ready",
+  decisionsLoading = false,
+  decisionGroup,
+  onDecisionGroupChange,
   focusedDecisionId,
   onFocusGraph,
   onNavigateDecision,
@@ -82,6 +85,9 @@ export function AttestationPoolView({
   relations: RelationEdge[];
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   relationState?: RelationState;
+  decisionsLoading?: boolean;
+  decisionGroup: WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
+  onDecisionGroupChange: (group: WorkspaceSummaryRead["decisions"]["groups"][number]["id"]) => void;
   focusedDecisionId?: string | null;
   onFocusGraph?: (ref: string) => void;
   /** G10 实体互链:卡头/supersede 链的 decision ID 必须有路。 */
@@ -387,6 +393,9 @@ export function AttestationPoolView({
               relations={relations}
               coverageRows={coverageRows}
               relationState={relationState}
+              loading={decisionsLoading}
+              selectedGroup={decisionGroup}
+              onSelectedGroupChange={onDecisionGroupChange}
               focusedDecisionId={focusedDecisionId}
               onFocusGraph={onFocusGraph}
               onNavigateDecision={onNavigateDecision}

@@ -1,4 +1,4 @@
-import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
+import { daemonGuiInvokeFacets, daemonGuiStreamFacets, decisionStateWords } from "@harness-anything/daemon/protocol";
 import { admitUseCaseProjectionSelector } from "@harness-anything/daemon/protocol";
 import { isUtcTimestamp } from "@harness-anything/daemon/protocol";
 import { validateDaemonQueryPayload } from "@harness-anything/daemon/protocol";
@@ -463,8 +463,12 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
 /** Selectors exist only on the edge facet, and `state` there shares the edge-state vocabulary. */
 /** `repo.decisions.list` carries one selector: the summary projection the mounted chrome reads. */
 function validDecisionListPayload(value: Record<string, unknown>): boolean {
-  if (!closed(value, ["repoId", "projection"])) return false;
-  return value.projection === undefined || ["summary", "full"].includes(String(value.projection));
+  if (!closed(value, ["repoId", "projection", "state"])) return false;
+  return (
+    (value.projection === undefined || ["summary", "full"].includes(String(value.projection))) &&
+    (value.state === undefined ||
+      (typeof value.state === "string" && (decisionStateWords as readonly string[]).includes(value.state)))
+  );
 }
 /** The preload closure only adds the transport key; the accepted task/batch/member shapes come
  * from the daemon's own request validator, so the two boundaries cannot drift apart. */
