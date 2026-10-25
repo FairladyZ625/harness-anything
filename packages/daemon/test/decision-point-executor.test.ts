@@ -14,8 +14,10 @@ import {
   type VerticalDefinition,
 } from "@harness-anything/kernel";
 import type { RepoCell } from "../src/repo-cell-types.ts";
+import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { incidentDispositionQuestionVersion } from "../src/decision-incident-action.ts";
+import { openDecisionProviderService } from "../src/decision-provider.ts";
 import {
   decisionPointBindingDigestForVertical,
   openDecisionPointExecutor,
@@ -573,6 +575,53 @@ function seedIncidentStream(rootDir: string, target = dispatchId): void {
   });
 }
 
+function openTestDecisionProvider(
+  rootDir: string,
+  invokeDecision: Parameters<typeof openDecisionProviderService>[0]["invokeDecision"],
+) {
+  const vault: CredentialPort = {
+    issue: () => "credential:v1:decision-test",
+    store: async () => undefined,
+    resolve: async () => "decision-test-key",
+    remove: async () => undefined,
+  };
+  return openDecisionProviderService({
+    userRoot: rootDir,
+    vault,
+    sleep: async () => undefined,
+    invokeDecision,
+  });
+}
+
+async function configureTestDecisionProvider(service: ReturnType<typeof openDecisionProviderService>): Promise<void> {
+  await service.command({
+    kind: "provider-create",
+    type: "decisions",
+    providerId: provider.providerId,
+    name: provider.name,
+    model: provider.model,
+    credentialRef: "credential:v1:decision-test",
+  });
+}
+
+const providerChoiceResponse = (choice: string) => ({
+  model: provider.model,
+  usage: { inputTokens: 1, outputTokens: 1 },
+  answers: {
+    decision: {
+      type: "choice" as const,
+      choice,
+      probabilities: {
+        resume_original: choice === "resume_original" ? 1 : 0,
+        rerun_same_identity: choice === "rerun_same_identity" ? 1 : 0,
+        switch_declared_next: choice === "switch_declared_next" ? 1 : 0,
+        needs_attention: choice === "needs_attention" ? 1 : 0,
+        no_action: choice === "no_action" ? 1 : 0,
+      },
+    },
+  },
+});
+
 test("an admissible resume choice launches one successor through the existing spawn port", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -626,6 +675,57 @@ test("an admissible resume choice launches one successor through the existing sp
   assert.match(requests[0]!, /head_status: no-previous-run/u);
   assert.match(requests[0]!, /rework_budget: used=0 limit=3 source=repository/u);
   assert.match(requests[0]!, /rounds_used: 1/u);
+});
+
+test("a transient Decisions rate limit retries in the provider and settles the real incident choice", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  let calls = 0;
+  const decisionProvider = openTestDecisionProvider(rootDir, async () => {
+    calls++;
+    if (calls === 1) throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+    return providerChoiceResponse("resume_original");
+  });
+  await configureTestDecisionProvider(decisionProvider);
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: { list: decisionProvider.list, port: decisionProvider.port },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir, resume: { dispatchId, agentId: "terra" } });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(calls, 2);
+  assert.equal(spawns.length, 1);
+  assert.equal(relates.length, 0);
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.action, "resume");
+  assert.notEqual(stored[0]?.action?.action, "needs_attention");
+});
+
+test("an exhausted Decisions rate limit uses the escalation path with its retry count", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  let calls = 0;
+  const decisionProvider = openTestDecisionProvider(rootDir, async () => {
+    calls++;
+    throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+  });
+  await configureTestDecisionProvider(decisionProvider);
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: { list: decisionProvider.list, port: decisionProvider.port },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(calls, 4);
+  assert.equal(spawns.length, 0);
+  assert.equal(relates.length, 0);
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.match(String(stored[0]?.action?.reason), /重试 3 次后仍限流/u);
 });
 
 test("two concurrent outcome callbacks reserve once, ask once and launch once", async (t) => {

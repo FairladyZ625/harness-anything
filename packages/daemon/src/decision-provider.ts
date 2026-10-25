@@ -19,6 +19,9 @@ const fileSchema = "decision-providers/v1" as const;
 const providerIdPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u;
 const apiKeyPattern = /^[^\r\n\u0000-\u001f\u007f]{1,1280}$/u;
 const requestTimeoutMs = 30_000;
+const decisionRetryMaxRetries = 3;
+const decisionRetryBaseDelayMs = 250;
+const decisionRetryMaxDelayMs = 4_000;
 /** Sent through the real Decisions operation so a probe cannot pass on an endpoint decisions never use. */
 const probeState = "probe";
 const probeQuestion = {
@@ -52,6 +55,7 @@ type DecisionInvoker = (input: {
   readonly state: readonly string[];
   readonly question: OpenRouterQuestion;
 }) => Promise<DecisionsResponse>;
+type DecisionSleep = (delayMs: number) => Promise<void>;
 
 export type DecisionPort = {
   readonly decide: (request: DecisionRequest) => Promise<AdvisoryDecision>;
@@ -63,9 +67,12 @@ export function openDecisionProviderService(input: {
   readonly invokeDecision?: DecisionInvoker;
   readonly now?: () => string;
   readonly isCredentialInUse?: (reference: string) => boolean;
+  /** Injectable only to make bounded retry timing deterministic in tests. */
+  readonly sleep?: DecisionSleep;
 }) {
   const vault = input.vault ?? credentialPort();
   const invokeDecision = input.invokeDecision ?? openRouterDecision;
+  const sleep = input.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const now = input.now ?? (() => new Date().toISOString());
   const target = path.join(input.userRoot, "decision-providers.json");
   let cached: readonly DecisionProviderRecord[] | null = null;
@@ -250,7 +257,9 @@ export function openDecisionProviderService(input: {
         throw providerError("provider_credential_unavailable", `The credential for ${id} is unavailable.`);
       }
       try {
-        await invokeDecision({
+        await invokeDecisionWithRetry({
+          invokeDecision,
+          sleep,
           apiKey,
           serverURL: serverUrl(current),
           model: current.model,
@@ -301,22 +310,73 @@ export function openDecisionProviderService(input: {
         return { provider, apiKey };
       });
       const startedAt = Date.now();
-      let response: DecisionsResponse;
-      try {
-        response = await invokeDecision({
-          apiKey: selected.apiKey,
-          serverURL: serverUrl(selected.provider),
-          model: selected.provider.model,
-          state: request.state,
-          question: toOpenRouterQuestion(request.question),
-        });
-      } catch (error) {
-        throw mapOpenRouterFailure(error);
-      }
+      const response = await invokeDecisionWithRetry({
+        invokeDecision,
+        sleep,
+        apiKey: selected.apiKey,
+        serverURL: serverUrl(selected.provider),
+        model: selected.provider.model,
+        state: request.state,
+        question: toOpenRouterQuestion(request.question),
+      });
       return decodeDecision(response, request, selected.provider, Math.max(0, Date.now() - startedAt));
     },
   };
   return { command, list: () => read().map(publicProvider), read, port };
+}
+
+function invokeDecisionWithRetry(
+  input: Parameters<DecisionInvoker>[0] & {
+    readonly invokeDecision: DecisionInvoker;
+    readonly sleep: DecisionSleep;
+  },
+  retries = 0,
+): Promise<DecisionsResponse> {
+  return input
+    .invokeDecision({
+      apiKey: input.apiKey,
+      serverURL: input.serverURL,
+      model: input.model,
+      state: input.state,
+      question: input.question,
+    })
+    .catch((error: unknown) => {
+      const code = decisionFailureCode(error),
+        mapped = mapOpenRouterFailure(error),
+        retryable = retryableDecisionFailure(error, code);
+      if (!retryable || retries >= decisionRetryMaxRetries) {
+        if (retryable && retries > 0)
+          return Promise.reject(
+            providerError(
+              code,
+              `${mapped.message} Retried ${String(retries)} time(s); ${
+                code === "decision_rate_limited"
+                  ? `重试 ${String(retries)} 次后仍限流。`
+                  : `重试 ${String(retries)} 次后仍为瞬时 ${code} 错误。`
+              }`,
+              retries,
+            ),
+          );
+        return Promise.reject(mapped);
+      }
+      const delayMs = Math.min(decisionRetryMaxDelayMs, decisionRetryBaseDelayMs * 2 ** retries);
+      return input.sleep(delayMs).then(() => invokeDecisionWithRetry(input, retries + 1));
+    });
+}
+
+function retryableDecisionFailure(error: unknown, code: DecisionPortFailureCode): boolean {
+  if (code === "decision_rate_limited" || code === "decision_timeout") return true;
+  if (code !== "decision_transport" || typeof error !== "object" || error === null) return false;
+  const row = error as {
+      readonly code?: unknown;
+      readonly name?: unknown;
+      readonly statusCode?: unknown;
+      readonly status?: unknown;
+    },
+    status = typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null,
+    name = typeof row.name === "string" ? row.name : "";
+  if (status !== null) return status >= 500;
+  return row.code === "decision_transport" || name.includes("Connection") || name.includes("Network");
 }
 
 function takeCredential(
@@ -635,8 +695,12 @@ function isErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-function providerError(code: string, message: string): Error & { readonly code: string } {
-  return Object.assign(new Error(message), { code });
+function providerError(
+  code: string,
+  message: string,
+  retries?: number,
+): Error & { readonly code: string; readonly retries?: number } {
+  return Object.assign(new Error(message), { code, ...(retries === undefined ? {} : { retries }) });
 }
 
 export type { DecisionPortFailureCode };
