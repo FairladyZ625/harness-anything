@@ -33,6 +33,8 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     "zh-CN",
     "--task-scaffold",
     "governance/task-scaffold.json",
+    "--delivery-target-ref",
+    "refs/heads/main",
     "--closeout-review",
     "true",
     "--agenda-pin-limit",
@@ -58,6 +60,7 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
       reviewIndependence: "principal",
       locale: "zh-CN",
       taskScaffold: "governance/task-scaffold.json",
+      deliveryTargetRef: "refs/heads/main",
       closeoutReview: true,
       agendaPinLimit: 40,
       wipLimit: 12,
@@ -67,6 +70,13 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
       expectedVersion: 42,
       idempotencyKey: "settings-one",
     });
+});
+
+test("Settings CLI accepts complete local delivery refs and rejects branch-shaped values", () => {
+  const local = parseThinCommand(["settings", "update", "--delivery-target-ref", "refs/heads/main"]);
+  assert.equal(local.ok, true);
+  assert.equal(parseThinCommand(["settings", "update", "--delivery-target-ref", "main"]).ok, false);
+  assert.equal(parseThinCommand(["settings", "update", "--delivery-target-ref", "refs/tags/v1"]).ok, false);
 });
 
 test("Settings CLI rejects unknown and unsupported locale fields", () => {

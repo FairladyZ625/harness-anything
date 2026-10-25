@@ -64,6 +64,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "repositoryScaffold",
       "deliveryRequireMerged",
       "deliveryTargetBranch",
+      "deliveryTargetRef",
       "hostingProvider",
       "hostingHost",
       "closeoutProfile",

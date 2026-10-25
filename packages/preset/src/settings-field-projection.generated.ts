@@ -135,6 +135,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "deliveryTargetRef",
+      description: "Optional complete Git ref used to verify delivery instead of the default origin target branch.",
+      type: "string",
+      required: false,
+    },
+    {
       field: "hostingProvider",
       description:
         "Hosting provider for repositories whose remote host does not identify GitHub or GitLab automatically.",
@@ -485,6 +491,15 @@ export const settingsFieldProtocolProjection = {
       name: "--delivery-target-branch",
       kind: "single",
       regex: "^(?!.*(?:\\.\\.|//|\\.$|/$))[A-Za-z0-9][A-Za-z0-9._/-]*$",
+    },
+    {
+      field: "deliveryTargetRef",
+      description: "Optional complete Git ref used to verify delivery instead of the default origin target branch.",
+      group: "delivery",
+      effect: "When set, the merge annotation is accepted only when its commit is an ancestor of this ref.",
+      name: "--delivery-target-ref",
+      kind: "single",
+      regex: "^refs/(heads|remotes)/[A-Za-z0-9][A-Za-z0-9._/-]*$",
     },
     {
       field: "closeoutProfile",

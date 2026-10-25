@@ -249,6 +249,36 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
   );
 });
 
+test("an explicit local delivery ref verifies a local-only repository baseline", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-local-only-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  writeFileSync(path.join(root, "delivery.txt"), "merged\n");
+  git(root, "add", "delivery.txt");
+  git(root, "commit", "-qm", "delivery merge");
+  const merge = git(root, "rev-parse", "HEAD"),
+    delivery = {
+      ...INITIAL_SETTINGS_V1.delivery,
+      targetRef: "refs/heads/main",
+    } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+    projection = {
+      getEntity: () => ({ value: { delivery } }),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+    } as unknown as TaskProjectionQueries;
+
+  assert.equal(
+    readCompletionDeliveryStatus(projection, codeDelivery(strictSubmitted, merge, merge), root).merged,
+    true,
+    "a configured local branch is the delivery target even when no origin exists",
+  );
+  assert.equal(
+    readCompletionDeliveryStatus(projection, codeDelivery(strictSubmitted, merge, merge), root).targetRef,
+    "refs/heads/main",
+  );
+});
+
 /** A review/consent-lifted submitted cut whose submission carries a recorded delivery commit:
  * the shape a stale artifact-only submit left behind (submit once recorded the then main HEAD). */
 function liftedCutWithCommit(sha: string): TaskLifecycleSnapshot {

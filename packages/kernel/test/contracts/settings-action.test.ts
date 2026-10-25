@@ -60,6 +60,23 @@ test("Settings updates populate an empty settings mapping", () => {
   assert.match(written, /^settings:\n  agenda:\n    pinLimit: 3$/mu);
 });
 
+test("delivery target ref uses the single Settings write path", () => {
+  const settings = SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(SETTINGS_DECLARATION_RUNTIME.read(documentBody), {
+      deliveryTargetRef: "refs/heads/main",
+    }),
+    written = SETTINGS_DECLARATION_RUNTIME.writeRepository(documentBody, settings),
+    reread = repositorySettings(readSettingsFacet(written));
+  assert.equal(reread.delivery.targetRef, "refs/heads/main");
+  assert.match(written, /targetRef: refs\/heads\/main/u);
+  assert.throws(
+    () =>
+      SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(SETTINGS_DECLARATION_RUNTIME.read(documentBody), {
+        deliveryTargetRef: "main",
+      }),
+    /deliveryTargetRef/u,
+  );
+});
+
 test("Settings updates create a missing settings mapping for a non-default field", () => {
   const authoredBody = [
       "schema: harness-anything/v1",
@@ -560,7 +577,7 @@ test("Settings update rejects invalid or duplicate worktree setup steps", () => 
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
   const populated = repositorySettings(
     readSettingsFacet(
-      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  decisions:\n    provider: dp-openrouter-mercury\n    enabledPoints: [dispatch-stop-reason@0123456789ab]\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n`,
+      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  decisions:\n    provider: dp-openrouter-mercury\n    enabledPoints: [dispatch-stop-reason@0123456789ab]\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n  delivery:\n    targetRef: refs/heads/main\n`,
     ),
   );
   const values = repositorySettingsActionValues(populated),

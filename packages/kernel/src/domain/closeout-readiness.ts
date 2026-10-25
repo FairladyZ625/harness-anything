@@ -40,7 +40,17 @@ export interface CompletionDeliveryStatus {
   readonly required: boolean;
   readonly merged: boolean | null;
   readonly targetBranch: string;
+  readonly targetRef?: string;
   readonly mergeSha?: string;
+}
+
+/** One delivery baseline resolver shared by completion reads and closeout gate details. */
+export function deliveryTargetRef(delivery: Pick<CompletionDeliveryStatus, "targetBranch" | "targetRef">): string {
+  return delivery.targetRef ?? `refs/remotes/origin/${delivery.targetBranch}`;
+}
+
+export function deliveryTargetLabel(delivery: Pick<CompletionDeliveryStatus, "targetBranch" | "targetRef">): string {
+  return delivery.targetRef ?? `origin/${delivery.targetBranch}`;
 }
 export interface CloseoutSnapshot {
   readonly task: {
@@ -269,10 +279,10 @@ function retiredGateResult(
     ? gateResult(gateId, "unknown", "repository delivery configuration is unavailable")
     : delivery.required
       ? delivery.merged === null
-        ? gateResult(gateId, "unknown", `unable to verify delivery merge on origin/${delivery.targetBranch}`)
+        ? gateResult(gateId, "unknown", `unable to verify delivery merge on ${deliveryTargetLabel(delivery)}`)
         : delivery.merged
-          ? gateResult(gateId, "passed", `delivery merge is on origin/${delivery.targetBranch}`)
-          : gateResult(gateId, "missing", `delivery merge is not on origin/${delivery.targetBranch}`)
+          ? gateResult(gateId, "passed", `delivery merge is on ${deliveryTargetLabel(delivery)}`)
+          : gateResult(gateId, "missing", `delivery merge is not on ${deliveryTargetLabel(delivery)}`)
       : gateResult(gateId, "not_applicable", "the repository does not require code delivery to be merged");
 }
 

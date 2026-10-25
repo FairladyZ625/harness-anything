@@ -4,6 +4,7 @@ import {
   currentExecutionCuts,
   gateSatisfied,
   isRetiredCiRequirement,
+  deliveryTargetLabel,
   lineageOrphan,
   type CloseoutGateStatus,
   type CompletionDeliveryStatus,
@@ -352,15 +353,19 @@ function evaluateCompletion(
       return one(
         "delivery_missing",
         "delivery",
-        `git fetch origin ${context.delivery.targetBranch}, then run ha task complete ${task.taskId}.`,
-        `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
+        context.delivery.targetRef
+          ? `Check repository Settings for the configured target ref ${context.delivery.targetRef}, then run ha task complete ${task.taskId}.`
+          : `If this repository has origin, run git fetch origin ${context.delivery.targetBranch}; if it has no origin, run ha settings update --delivery-target-ref refs/heads/${context.delivery.targetBranch}. Then run ha task complete ${task.taskId}.`,
+        context.delivery.targetRef
+          ? `The delivery merge could not be verified locally; the configured delivery ref ${context.delivery.targetRef} is not visible; update that ref and retry.`
+          : `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry when origin exists, or configure an explicit local delivery ref in repository Settings when it does not.`,
       );
     return one(
       "delivery_missing",
       "delivery",
       `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url> (or ha task annotate ${task.taskId} --execution-id ${executionId} --kind correction --note merge_commit_sha:<sha>), then run ha task complete ${task.taskId}.`,
       context.delivery.merged === false
-        ? `The delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
+        ? `The delivery merge commit is not present on ${deliveryTargetLabel(context.delivery)}.`
         : `The delivery execution has no merge commit annotation; run node tools/pr-merge.mjs <PR-number-or-url> or record merge_commit_sha:<sha>.`,
     );
   }
