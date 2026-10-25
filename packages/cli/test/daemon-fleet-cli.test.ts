@@ -431,7 +431,7 @@ test(
 // here holds no people document and no roster copy; its node owner has no entry in the center's people
 // document either, so nothing about the local uid can explain the outcome.
 test(
-  "a clean edge node completes its first sync with its registered device and owner session",
+  "a clean edge node reaches center machine auth before user-session and grant checks",
   { timeout: 180_000 },
   async () => {
     const fixture = setup(),
@@ -559,6 +559,11 @@ test(
       const unsigned = sync(credential);
       assert.equal(unsigned.status, 1);
       assert.equal(unsigned.receipt.code, "authentication_required");
+      // The center must accept the machine credential before it can report the missing user session.
+      assert.deepEqual(await logins(), [
+        { clientId: "harness-node-edge-one", ok: false },
+        { clientId: "harness-node-edge-one", ok: true },
+      ]);
       await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
       realm.bind(fixture.edgeUser);
       signInAt(fixture.edgeUser, "edge-operator");
