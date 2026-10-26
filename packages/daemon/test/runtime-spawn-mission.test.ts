@@ -210,7 +210,7 @@ test("the mission protocol follows risk tier when a low task keeps a full preset
 
 test("an explicit task prompt names the reviewer unless the binding is a reviewer", () => {
   const note =
-      "本任务的提交将由评审员 reviewer-a 审查（任务指定）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。",
+      "本任务的提交将由评审员 reviewer-a 审查（任务指定）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。",
     worker = explicitPromptMission("task_x", null, "Go.", "medium", "standard", null, false, null, null, null, note),
     reviewer = explicitPromptMission("task_x", null, "Go.", "medium", "standard", null, true, null, null, null, note);
   assert.match(worker, /reviewer-a/u);

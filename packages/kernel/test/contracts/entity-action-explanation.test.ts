@@ -139,9 +139,9 @@ test("catalog and object modes share one strict schema with four honest criterio
   );
   assert.equal(
     actions.reduce((count, action) => count + action.criteria.length, 0),
-    37, // dec_4190D5EA63D9DD208CE946F133: four GateRun criteria, alongside S8 assignment criteria.
+    40, // dec_4190D5EA63D9DD208CE946F133: four GateRun criteria, alongside S8 assignment criteria.
     // 41 → 37: every code/doc criterion left with its Action (owner 2026-10-21 B3).
-    // 37 is the current task action catalog after task/respond-review was added.
+    // 37 → 40: task/rework adds three owner-return criteria to the task catalog.
   );
 
   const dishonestAvailability = structuredClone(object) as unknown as {
