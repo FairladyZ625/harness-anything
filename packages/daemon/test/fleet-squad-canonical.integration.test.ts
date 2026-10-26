@@ -29,6 +29,22 @@ import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
+  // Temporary CI diagnosis only: remove these stages once the timeout's root cause is fixed in
+  // the same PR. They identify a stalled recovery await without changing its timeout or behavior.
+  const recoveryStage = async <T>(name: string, action: () => Promise<T>): Promise<T> => {
+    const startedAt = performance.now();
+    t.diagnostic(`[owner recovery] ${name}: started`);
+    try {
+      const result = await action();
+      t.diagnostic(`[owner recovery] ${name}: completed in ${Math.round(performance.now() - startedAt)}ms`);
+      return result;
+    } catch (error) {
+      t.diagnostic(
+        `[owner recovery] ${name}: failed after ${Math.round(performance.now() - startedAt)}ms (${String(error)})`,
+      );
+      throw error;
+    }
+  };
   const witness = {
     installationId: "squad-install",
     kindId: "codex",
@@ -657,7 +673,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);
-  await a.host.close();
+  await recoveryStage("owner edge host close", () => a.host.close());
   const persisted = latestSquadStates(a.edgeRoot).get(runId)!;
   assert.ok(persisted);
   const pending = { ...persisted, revision: 5, phase: "cancelled" as const, error: "Owner recovered terminal report" };
@@ -668,27 +684,32 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     state: pending,
     observation: squadRunObservation(pending),
   });
-  await f.closeHost(restartedHost);
-  const recoveryHost = await f.openHost(),
-    recoveryCenter = await f.openCenter(recoveryHost, f.center.port);
+  await recoveryStage("center host close", () => f.closeHost(restartedHost));
+  const recoveryHost = await recoveryStage("center host open", () => f.openHost({ waitForAttachments: false }));
+  await recoveryStage("center host attachments settle", () => recoveryHost.attachmentsSettled());
+  const recoveryCenter = await recoveryStage("center listener open", () => f.openCenter(recoveryHost, f.center.port));
   const beforeRecovery = f.eventCount();
-  const restoredOwner = await openDaemonHost({
-    daemonId: "owner-daemon",
-    userRoot: a.edgeUser,
-    runtimeLaunch: () => {
-      throw new Error("terminal recovery must not launch models");
-    },
-  });
-  t.after(() => restoredOwner.close());
-  await restoredOwner.attachmentsSettled();
-  await waitForState(() => f.eventCount() > beforeRecovery, "the restored owner to publish the pending terminal");
+  const restoredOwner = await recoveryStage("owner daemon open", () =>
+    openDaemonHost({
+      daemonId: "owner-daemon",
+      userRoot: a.edgeUser,
+      runtimeLaunch: () => {
+        throw new Error("terminal recovery must not launch models");
+      },
+    }),
+  );
+  t.after(() => recoveryStage("owner daemon fixture close", () => restoredOwner.close()));
+  await recoveryStage("owner daemon attachments settle", () => restoredOwner.attachmentsSettled());
+  await recoveryStage("pending terminal publication wait (30s bound)", () =>
+    waitForState(() => f.eventCount() > beforeRecovery, "the restored owner to publish the pending terminal"),
+  );
   const recovered = makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo }).read().events.at(-1)!;
   assert.equal(recovered.type, "runtime_squad_run_observed");
   assert.equal(recovered.payload.runRevision, 5);
   assert.equal(recovered.payload.phase, "cancelled");
   assert.deepEqual(recovered.payload.subject, observed.payload.subject);
-  await restoredOwner.close();
-  await recoveryCenter.close();
+  await recoveryStage("owner daemon close", () => restoredOwner.close());
+  await recoveryStage("center listener close", () => recoveryCenter.close());
   t.diagnostic(
     "owner daemon restart -> existing replica confirmation callback -> pending terminal revision5 accepted without a runtime request",
   );
