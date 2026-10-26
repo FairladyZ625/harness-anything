@@ -16,6 +16,7 @@ import {
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
+  testChildEnvironment,
 } from "./node-test-runner-lib.mjs";
 import { discoverTestFileTimeouts, discoverTestTierManifest } from "./test-tier-manifest.mjs";
 import { renderToolHelp, runNodeTestsCommand } from "./tool-command-contract.mjs";
@@ -171,9 +172,11 @@ const daemonOwnerUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-dae
 const coveragePath = options.coverage === undefined ? undefined : resolve(options.coverage);
 if (coveragePath !== undefined) mkdirSync(dirname(coveragePath), { recursive: true });
 
-const childEnvironment = { ...process.env, HARNESS_TEST_TEMP_ROOT: testTemporaryRoot };
-
-for (const name of WORKER_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
+const childEnvironment = testChildEnvironment({
+  parent: process.env,
+  temporaryRoot: testTemporaryRoot,
+  variableNames: WORKER_ENVIRONMENT_VARIABLES,
+});
 const child = spawn(
   process.execPath,
   [
