@@ -6,7 +6,7 @@ vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
 });
 
-import { invalidateLedgerDependents, taskDocumentQuery } from "../src/renderer/task-data.ts";
+import { invalidateLedgerDependents, taskDocumentQuery, taskQueryKeys } from "../src/renderer/task-data.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
 import { workspaceScopeQueryKeys } from "../src/renderer/workspace-scope-data.ts";
 
@@ -94,6 +94,46 @@ describe("ledger invalidation scope", () => {
       expect(observer.getCurrentResult().data?.pages[0]?.root.title).toBe("after");
     } finally {
       unsubscribe();
+      client.clear();
+    }
+  });
+
+  // dec_17A863CC CH3:工作拓扑的重读只走这条既有 cut 扇出(不新增轮询/订阅)。拓扑键挂在
+  // ["tasks", repoId, ...] 下,所以同一份失效把它一起重读;没挂载时只标脏、不偷跑字节。
+  it("refreshes a mounted work-topology read on the same cut change", async () => {
+    let revision = 1;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const observer = new QueryObserver(client, {
+      queryKey: taskQueryKeys.topology("repo-a", "work-root"),
+      queryFn: async () => ({ sourceRevision: revision, frontier: [`ready-${revision}`] }),
+      staleTime: 10_000,
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    try {
+      await observer.refetch();
+      expect(observer.getCurrentResult().data?.sourceRevision).toBe(1);
+      revision = 2;
+      await invalidateLedgerDependents(client, "repo-a");
+      expect(observer.getCurrentResult().data?.sourceRevision).toBe(2);
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
+  });
+
+  it("leaves an unmounted work-topology read stale instead of refetching it", async () => {
+    const readTopology = vi.fn(async () => ({ sourceRevision: 7 }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await client.fetchQuery({
+        queryKey: taskQueryKeys.topology("repo-a", "work-idle"),
+        queryFn: readTopology,
+      });
+      expect(readTopology).toHaveBeenCalledOnce();
+      await invalidateLedgerDependents(client, "repo-a");
+      expect(readTopology).toHaveBeenCalledOnce();
+      expect(client.getQueryState(taskQueryKeys.topology("repo-a", "work-idle"))?.isInvalidated).toBe(true);
+    } finally {
       client.clear();
     }
   });

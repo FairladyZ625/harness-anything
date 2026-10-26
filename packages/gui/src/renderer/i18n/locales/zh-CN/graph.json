@@ -38,5 +38,7 @@
   "graph.egoCard.collapse": "收起(已展开的邻居保留)",
   "graph.egoCard.setFocus": "设为焦点,以它为中心重排邻域",
   "graph.egoCard.openDetail": "打开完整详情",
-  "graph.egoCard.hiddenHint": "还有 {count} 个邻居未铺开 —— 单击展开这张卡片会长出它们"
+  "graph.egoCard.hiddenHint": "还有 {count} 个邻居未铺开 —— 单击展开这张卡片会长出它们",
+  "graph.egoCard.frontier": "前沿",
+  "graph.egoCard.criticalPath": "关键路径第 {position} 段"
 }

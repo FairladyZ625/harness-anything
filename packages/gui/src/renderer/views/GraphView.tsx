@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   MiniMap,
@@ -12,19 +12,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
-import { parseEndpoint } from "../graph/endpoint";
 import { TerritoryZoneNode, TerritoryChipNode } from "../graph/nodes/TerritoryNode";
 import { GraphFilterPanel, type EntityTypeOption, type GraphFilters } from "../components/GraphFilterPanel";
 import type { GovernedEntityRow } from "../graph/governedEntities";
 import { GraphLegend } from "../components/GraphLegend.tsx";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { GraphRelationBasis, GraphRelationReadGate } from "../components/GraphRelationState.tsx";
-import { FocusHistoryBar } from "../components/FocusHistoryBar";
-import { FocusSwitcher } from "../components/FocusSwitcher";
 import type { PaletteEntry } from "../components/CommandPalette.tsx";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
 import { useColorMode, minimapMaskColor } from "../graph/colorMode";
-import { EgoNeighborhood } from "../graph/EgoNeighborhood";
+import { RelationCanvas } from "../graph/RelationCanvas";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
 import { mergeEgoSession, readEgoSessionFor } from "../graph/egoSession";
@@ -39,7 +36,6 @@ import {
 } from "../graph/entityStatusFilter";
 import { selectGraphFocusSet } from "../graph/focusSet";
 import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities";
-import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
 import { isTaskArchiveNoise } from "../model/taskFilters";
 import { applyFactArchiveVisibility } from "../model/triadic";
 import { useFactArchiveVisibility } from "../fact-archive-preferences.tsx";
@@ -238,39 +234,14 @@ function GraphViewInner({
     setRevealedZones(new Set());
   }, [density]);
 
-  // ---- 焦点历史(stable reducer,无自触发循环) ----
-  const [histState, histDispatch] = useReducer(focusHistoryReducer, EMPTY_HISTORY);
-
-  useEffect(() => {
-    if (focusRef) {
-      histDispatch({ type: "push", ref: focusRef });
-    }
-  }, [focusRef]);
-
+  // 焦点历史(reducer + 前后退 + 面包屑)随画布宿主一起收进 RelationCanvas;
+  // 本页只持有「当前焦点」这一项导航态,与工作页同一契约。
   const openFocus = useCallback(
     (ref: string | null) => {
       onFocusEntityChange?.(ref ?? null);
     },
     [onFocusEntityChange],
   );
-
-  const goBack = useCallback(() => {
-    histDispatch({ type: "back" });
-    const prev = histState.stack[histState.index - 1];
-    if (prev) onFocusEntityChange?.(prev);
-  }, [histState, onFocusEntityChange]);
-
-  const goForward = useCallback(() => {
-    histDispatch({ type: "forward" });
-    const next = histState.stack[histState.index + 1];
-    if (next) onFocusEntityChange?.(next);
-  }, [histState, onFocusEntityChange]);
-
-  const clearFocus = useCallback(() => {
-    histDispatch({ type: "clear" });
-    onFocusEntityChange?.(null);
-    // ego 画布累积态由 EgoNeighborhood 在 focusRef→null 时自清。
-  }, [onFocusEntityChange]);
 
   // ---- 进入聚光灯(territory chip 单击) ----
   const enterSpotlight = useCallback(
@@ -433,17 +404,6 @@ function GraphViewInner({
     return () => cancelAnimationFrame(frame);
   }, [setViewport, viewMode, skel]);
 
-  const breadcrumb = useMemo(() => {
-    if (!focusRef) return null;
-    const parsed = parseEndpoint(focusRef);
-    if (!parsed) return null;
-    return {
-      kindLabel: parsed.entity,
-      title: spotlightStats.focusLabel ?? parsed.id,
-      nodeId: parsed.id,
-    };
-  }, [focusRef, spotlightStats.focusLabel]);
-
   if (relationState !== "ready") {
     return <GraphRelationReadGate state={relationState} />;
   }
@@ -551,28 +511,49 @@ function GraphViewInner({
         </span>
       </header>
 
-      {viewMode === "spotlight" && (
-        <FocusHistoryBar
-          canBack={canBack(histState)}
-          canForward={canForward(histState)}
-          breadcrumb={breadcrumb}
-          onBack={goBack}
-          onForward={goForward}
-          onClear={clearFocus}
-        />
-      )}
-
-      <div className="flex min-h-0 flex-1">
-        <FocusSwitcher
-          recentRefs={recentRefs}
-          entries={entries}
-          focusRef={focusRef}
-          onFocus={(ref) => (viewMode === "territory" ? enterSpotlight(ref) : openFocus(ref))}
-          onOpenPalette={onOpenPalette}
-          onSearchActiveChange={onSearchActiveChange}
-        />
-        <div ref={canvasHostRef} className="flex min-h-0 min-w-0 flex-1 relative">
-          {viewMode === "territory" && (
+      <RelationCanvas
+        repoId={repoId}
+        scope="global"
+        graph={{
+          tasks,
+          decisions,
+          facts: graphFeed.facts,
+          relations: graphRelations,
+          factAnchors: graphFeed.factAnchors,
+          agents,
+          schedules,
+          governed: governedEntities,
+        }}
+        focusRef={focusRef}
+        onFocusChange={openFocus}
+        // 聚光灯才显示焦点历史(领地面不显示,与改造前一致)。
+        historyVisible={viewMode === "spotlight"}
+        rail={{
+          recentRefs,
+          entries,
+          onFocus: (ref) => (viewMode === "territory" ? enterSpotlight(ref) : openFocus(ref)),
+          onOpenPalette,
+          ...(onSearchActiveChange ? { onSearchActiveChange } : {}),
+        }}
+        filters={{
+          axes: filters.axes,
+          kinds: filters.kinds,
+          types: entityKinds.length === 0 ? null : filters.types,
+          statusFilter: filters.entityStatus,
+        }}
+        focusSet={focusSelection}
+        densityFocus={density === "focus"}
+        hops={hops}
+        rememberSession
+        {...(cardHeightCap === undefined ? {} : { cardHeightCap })}
+        canvasRef={canvasHostRef}
+        onNavigateEntity={onNavigateEntity}
+        onSetTaskPin={onSetTaskPin}
+        onLayoutStats={setSpotlightStats}
+        panelSlot={filterPanel}
+        active={viewMode === "spotlight"}
+        overlay={
+          viewMode === "territory" ? (
             <ReactFlow
               nodes={territoryNodes}
               nodeTypes={nodeTypes}
@@ -627,38 +608,9 @@ function GraphViewInner({
                 </div>
               </Panel>
             </ReactFlow>
-          )}
-          <EgoNeighborhood
-            repoId={repoId}
-            rememberSession
-            cardHeightCap={cardHeightCap}
-            focusRef={focusRef}
-            tasks={tasks}
-            decisions={decisions}
-            facts={graphFeed.facts}
-            relations={graphRelations}
-            factAnchors={graphFeed.factAnchors}
-            agents={agents}
-            schedules={schedules}
-            governed={governedEntities}
-            focusSet={focusSelection}
-            densityFocus={density === "focus"}
-            filters={{
-              axes: filters.axes,
-              kinds: filters.kinds,
-              types: entityKinds.length === 0 ? null : filters.types,
-              statusFilter: filters.entityStatus,
-            }}
-            hops={hops}
-            onNavigateEntity={onNavigateEntity}
-            onSetTaskPin={onSetTaskPin}
-            onRefocus={openFocus}
-            onLayoutStats={setSpotlightStats}
-            panelSlot={filterPanel}
-            active={viewMode === "spotlight"}
-          />
-        </div>
-      </div>
+          ) : null
+        }
+      />
     </div>
   );
 }

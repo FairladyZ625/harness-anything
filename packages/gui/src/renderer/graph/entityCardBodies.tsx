@@ -33,19 +33,21 @@ export function EgoTaskSummaryBody({ task }: { task: TaskRow }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusTag status={task.coordinationStatus} />
         {task.topologyState && <StatusTag tone={topologyTone} label={task.topologyState} mono />}
-        {task.topologyFrontier && <StatusTag tone="active" label="前沿" />}
+        {task.topologyFrontier && <StatusTag tone="active" label={t("graph.egoCard.frontier")} />}
         {task.topologyCriticalPathPosition !== undefined && (
-          <StatusTag tone="wait" label={`关键路径 ${task.topologyCriticalPathPosition}`} mono />
+          <StatusTag
+            tone="wait"
+            label={t("graph.egoCard.criticalPath", { position: task.topologyCriticalPathPosition })}
+            mono
+          />
         )}
-        {!task.topologyOnly && <CloseoutBadge value={task.closeoutReadiness} />}
+        <CloseoutBadge value={task.closeoutReadiness} />
       </div>
-      {!task.topologyOnly && <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />}
-      {!task.topologyOnly && (
-        <div className="flex gap-3 font-mono ui-micro text-text-muted">
-          <span>{t("graph.graphDrawer.rawValue", { raw: task.rawStatus })}</span>
-        </div>
-      )}
-      {!task.topologyOnly && (task.riskTier || task.urgency) && (
+      <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
+      <div className="flex gap-3 font-mono ui-micro text-text-muted">
+        <span>{t("graph.graphDrawer.rawValue", { raw: task.rawStatus })}</span>
+      </div>
+      {(task.riskTier || task.urgency) && (
         <div className="font-mono ui-micro text-text-muted">
           {t("graph.graphDrawer.riskUrgency", {
             risk: task.riskTier ?? t("graph.graphDrawer.unknown"),

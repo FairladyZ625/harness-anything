@@ -501,6 +501,7 @@ export function WorkspaceView({
             <WorkGraphTab
               repoId={repoId}
               workRootTaskId={scope.root.taskId}
+              tasks={tasks}
               onNavigateEntity={navigateEntity}
               onSetTaskPin={onSetTaskPin}
               active={activeTab === "graph"}

@@ -204,9 +204,21 @@ it("uses daemon topology nodes and edges, navigates entities and preserves focus
   expect([...host.querySelectorAll(".react-flow__node")].map((n) => n.getAttribute("data-id")).sort()).toEqual(
     ["root", "member", "boundary"].sort(),
   );
-  expect(host.textContent).toContain("3 节点 / 2 关系");
-  expect(host.textContent).toContain("前沿 1 / 2");
-  expect(host.textContent).toContain("revision 1");
+  // 工作页渲染的是全局关系图同一个画布宿主:同一份 relation-canvas,只把 scope 预设成 work。
+  const canvas = host.querySelector('[data-testid="relation-canvas"]')!;
+  expect(canvas).not.toBeNull();
+  expect(canvas.getAttribute("data-scope")).toBe("work");
+  expect(canvas.querySelectorAll(".react-flow").length).toBe(1);
+  // 状态层逐格等于 daemon 返回值,不是 GUI 自己数的:前沿 1/2、在飞 1、阻塞 1、关键路径 1。
+  const statusLayer = host.querySelector('[data-testid="workspace-graph-topology"]')!;
+  expect(statusLayer.textContent).toContain("3 节点 / 2 关系");
+  expect(statusLayer.textContent).toContain("前沿 1 / 2");
+  expect(statusLayer.textContent).toContain("1 在飞");
+  expect(statusLayer.textContent).toContain("1 阻塞");
+  expect(statusLayer.textContent).toContain("0 待裁决");
+  expect(statusLayer.textContent).toContain("关键路径 1 个任务");
+  expect(statusLayer.textContent).toContain("外部边界 1");
+  expect(statusLayer.textContent).toContain("revision 1");
   expect(node("member").textContent).toContain("任务 member");
   expect(node("outside")).toBeNull();
   expect(node("decision/d1")).toBeNull();

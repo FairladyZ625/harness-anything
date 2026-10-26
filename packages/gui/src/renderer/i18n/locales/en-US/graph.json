@@ -38,5 +38,7 @@
   "graph.egoCard.collapse": "Collapse (expanded neighbors stay)",
   "graph.egoCard.setFocus": "Set as focus (relayout around it)",
   "graph.egoCard.openDetail": "Open full details",
-  "graph.egoCard.hiddenHint": "{count} neighbors not laid out yet — expanding this card grows them"
+  "graph.egoCard.hiddenHint": "{count} neighbors not laid out yet — expanding this card grows them",
+  "graph.egoCard.frontier": "Frontier",
+  "graph.egoCard.criticalPath": "Critical path leg {position}"
 }
