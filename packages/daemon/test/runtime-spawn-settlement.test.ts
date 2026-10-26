@@ -88,6 +88,42 @@ test("taskless settlement requires the provider's completed turn and final resul
   }
 });
 
+test("completed provider turn without final text stays unknown without a protocol error", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-empty-final-turn-"));
+  try {
+    const outcomes: Record<string, unknown>[] = [],
+      runtime = tasklessSettlementRuntime(rootDir, null),
+      protocolErrors: string[] = [];
+    runtime.toolCallObserved = true;
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-09-29T00:01:00.000Z",
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "",
+      markProtocolError: (activeRuntime: ActiveRuntime) => protocolErrors.push(activeRuntime.runtimeSessionId),
+      publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+        if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+        return {};
+      },
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+
+    await publishExit(context, runtime, 0);
+
+    assert.equal(outcomes[0]?.outcome, "unknown");
+    assert.deepEqual(protocolErrors, []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("reviewer exit on superseded cut settles as superseded instead of failed", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-reviewer-superseded-"));
   try {
