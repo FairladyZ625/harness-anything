@@ -23,7 +23,7 @@ import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSe
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
-import { readReviewTriageRecords } from "./review-finding-triage.ts";
+import { readReviewTriageRecords, type ReviewTriageStoreRecord } from "./review-finding-triage.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
@@ -55,15 +55,23 @@ const coldAttachCatchUpLimit = 32;
  * the journal is the one writer for them (`review-finding-triage.ts`), so a read must not invent a
  * second copy on the projection. Without a rootDir the read yields no records, which keeps the
  * judgment fail-closed — a categorized finding then has no triage and escalates.
+ *
+ * The journal is read once per judgment set, not once per task. An agenda/task-list read asks this
+ * closeout judgment for every row it renders, and each pass re-read and re-hashed the same file —
+ * a per-task cost that grows with the board rather than with the journal (G38 measured it as 18
+ * hashes/8172 bytes against a 12/7044 budget). Memoizing one read per set keeps the judgment
+ * identical while making the board pay for the journal once.
  */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries, rootDir?: string): TaskQueryJudgments {
+  let triages: readonly ReviewTriageStoreRecord[] | null = null;
+  const reviewFindingTriages = (): readonly ReviewTriageStoreRecord[] => {
+    if (triages === null) triages = rootDir === undefined ? [] : readReviewTriageRecords(rootDir);
+    return triages;
+  };
   return {
     closeout: (snapshot, availability) =>
       closeoutReadiness(
-        {
-          ...snapshot,
-          reviewFindingTriages: rootDir === undefined ? [] : readReviewTriageRecords(rootDir),
-        },
+        { ...snapshot, reviewFindingTriages: reviewFindingTriages() },
         availability,
         readEffectiveCloseoutGates(projection, snapshot),
         readCompletionDeliveryStatus(projection, snapshot, rootDir),
