@@ -655,6 +655,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-rematerialize",
       "task-rename",
       "task-reopen",
+      "task-respond-review",
       "task-review",
       "task-review-consent",
       "task-review-execution",

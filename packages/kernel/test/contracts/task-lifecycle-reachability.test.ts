@@ -99,6 +99,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
           knownGaps: [],
           residualRisks: [],
           commitSha,
+          reviewResponses: snapshot.reviewResponses ?? [],
           completionContract,
         },
       },
@@ -123,9 +124,36 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
           submissionDigest: currentExecution?.submission
             ? submissionDigest(currentExecution.submission)
             : `sha256:${"c".repeat(64)}`,
+          ...(verdict === "changes_requested"
+            ? {
+                findings: [{ findingId: "finding-1", blocking: true, text: "Reachability fixture finding" }],
+                resolutions: [],
+              }
+            : { findings: [], resolutions: [] }),
         },
         { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review", reworkBudget: 2 },
       ),
+    ),
+    respond = make(
+      owner,
+      {
+        type: "RespondReview",
+        taskId,
+        executionId,
+        responses: [
+          {
+            reviewId: currentReview?.reviewId ?? `review-${iteration}-changes_requested`,
+            findingId: "finding-1",
+            disposition: "adopt",
+            rationale: "Reachability fixture response",
+          },
+        ],
+      },
+      {
+        actorBinding: owner,
+        capability: "execution-review-response@v1",
+        capabilityRef: "cap-review-response",
+      },
     ),
     consent = make(
       owner,
@@ -170,6 +198,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
     ...transitions,
     submit,
     ...review,
+    respond,
     consent,
     complete,
   ];
