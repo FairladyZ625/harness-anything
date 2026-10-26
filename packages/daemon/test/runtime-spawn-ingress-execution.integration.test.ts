@@ -124,14 +124,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       appendix,
     );
   };
-  const writeCloseout = (taskId: string, summary: string): void => {
+  const writeCloseout = (taskId: string, summary: string): string => {
     const projection = makeTaskProjection({
       rootDir: root,
       eventStore: makeTaskEventReader({ repoId, rootDir: root }),
     });
+    const closeoutPath = `${projection.read(taskId).packagePath!}/closeout.md`;
     try {
       writeFileSync(
-        path.join(root, "harness", projection.read(taskId).packagePath!, "closeout.md"),
+        path.join(root, "harness", closeoutPath),
         `## Summary\n${summary} Commit ${deliveryCommit}.\n` +
           "## Verification\nRuntime dispatch and holder assertions exercised by this integration fixture.\n" +
           "## Residual Risk\nNo remaining runtime fixture gaps.\n" +
@@ -140,6 +141,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     } finally {
       projection.close();
     }
+    return closeoutPath;
   };
   const writeReviewReport = (taskId: string, reviewId: string): void => {
     const projection = makeTaskProjection({
@@ -465,7 +467,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(rebound.type, "runtime_session_task_bound");
       if (rebound.type !== "runtime_session_task_bound") throw new Error("missing owner-return worker binding");
       assert.equal(rebound.payload.taskId, taskId);
-      writeCloseout(taskId, "The owner-returned runtime execution is ready for independent review.");
+      const ownerCloseoutPath = writeCloseout(
+        taskId,
+        "The owner-returned runtime execution is ready for independent review.",
+      );
       const ownerReturnResponse = await host.run(
         repoId,
         {
@@ -490,6 +495,19 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         auth,
       );
       assert.equal(ownerReturnResponse.outcome, "applied", JSON.stringify(ownerReturnResponse));
+      const ownerCloseoutSubmission = await host.run(
+        repoId,
+        {
+          kind: "doc-submit",
+          paths: [ownerCloseoutPath],
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(manualContinuation.runtimeSessionId)}`,
+          },
+        },
+        auth,
+      );
+      assert.equal(ownerCloseoutSubmission.outcome, "applied", JSON.stringify(ownerCloseoutSubmission));
       const ownerReturnSubmission = await host.run(
         repoId,
         {
@@ -562,6 +580,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
         "reviewer dispatches carry no worker delivery protocols",
       );
+      // The fixture seeds a dirty worker package tree to exercise task-bound dispatch. The owner
+      // return scenario publishes a second cut through that same worktree; remove the seed before
+      // later subtests create independent tasks so their publication wait is not held by the
+      // intentionally unrelated untracked directory.
+      rmSync(path.join(workerRoot, "packages"), { recursive: true, force: true });
     });
     await t.test("a submitted or in-review task rejects an implementation dispatch at admission", async () => {
       const taskId = "task-runtime-frozen-cut",
