@@ -23,6 +23,7 @@ import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSe
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
+import { readReviewTriageRecords } from "./review-finding-triage.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
@@ -47,12 +48,22 @@ export type {
  * this size lets the supervisor observe advancing watermarks during reconstruction, before ready. */
 const coldAttachCatchUpLimit = 32;
 
-/** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
+/**
+ * Read judgments bound to one projection cut: the closeout verdict follows the effective gate set.
+ *
+ * The triage records are read from the center's journal here rather than carried on the snapshot:
+ * the journal is the one writer for them (`review-finding-triage.ts`), so a read must not invent a
+ * second copy on the projection. Without a rootDir the read yields no records, which keeps the
+ * judgment fail-closed — a categorized finding then has no triage and escalates.
+ */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries, rootDir?: string): TaskQueryJudgments {
   return {
     closeout: (snapshot, availability) =>
       closeoutReadiness(
-        snapshot,
+        {
+          ...snapshot,
+          reviewFindingTriages: rootDir === undefined ? [] : readReviewTriageRecords(rootDir),
+        },
         availability,
         readEffectiveCloseoutGates(projection, snapshot),
         readCompletionDeliveryStatus(projection, snapshot, rootDir),

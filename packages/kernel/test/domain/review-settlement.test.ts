@@ -7,7 +7,7 @@ import {
   type ReviewFindingDisposition,
   type ReviewFindingTriageV1,
   type SettleableReviewFinding,
-} from "@harness-anything/kernel";
+} from "../../src/domain/review-settlement.ts";
 
 const digest = `sha256:${"a".repeat(64)}` as const;
 

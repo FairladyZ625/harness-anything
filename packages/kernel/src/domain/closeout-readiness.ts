@@ -11,7 +11,12 @@ import {
 import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
-import { settleReviewFindings, type ReviewFindingSettlement, type ReviewFindingTriageV1 } from "./review-settlement.ts";
+import {
+  settleReviewFindings,
+  type ReviewFindingSettlement,
+  type ReviewFindingTriageV1,
+  type SettleableReviewFinding,
+} from "./review-settlement.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
@@ -183,15 +188,17 @@ export function closeoutReadiness(
 }
 
 /**
- * The per-finding settlement of one cut, or null for a cut that raised no categorized finding. Only
- * findings bound to this execution/iteration enter, so a prior cut's settlement cannot pass a new one.
+ * The findings of one cut that enter per-finding settlement, in review order. A finding without a
+ * recorded category is not settled: the pre-triage review path keeps owning it (a category is only
+ * written by a reviewer that answered the triage question). The center's triage producer asks about
+ * exactly these findings, so the question it pays for and the judgment that reads the answer cannot
+ * drift apart.
  */
-export function currentCutSettlement(
+export function cutReviewFindings(
   reviews: readonly ReviewV1[],
   execution: ExecutionV1,
-  triages: readonly ReviewFindingTriageV1[],
-): ReviewFindingSettlement | null {
-  const findings = reviewsForExecution(reviews, execution).flatMap((review) =>
+): readonly SettleableReviewFinding[] {
+  return reviewsForExecution(reviews, execution).flatMap((review) =>
     (review.findings ?? []).flatMap((finding) =>
       finding.category === undefined
         ? []
@@ -211,6 +218,18 @@ export function currentCutSettlement(
           ],
     ),
   );
+}
+
+/**
+ * The per-finding settlement of one cut, or null for a cut that raised no categorized finding. Only
+ * findings bound to this execution/iteration enter, so a prior cut's settlement cannot pass a new one.
+ */
+export function currentCutSettlement(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  triages: readonly ReviewFindingTriageV1[],
+): ReviewFindingSettlement | null {
+  const findings = cutReviewFindings(reviews, execution);
   return findings.length === 0 ? null : settleReviewFindings({ findings, triages });
 }
 

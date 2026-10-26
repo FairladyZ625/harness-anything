@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   closeoutReadiness,
-  currentCutSettlement,
   type CloseoutSnapshot,
   type ExecutionV1,
-  type ReviewFindingTriageV1,
   type ReviewV1,
   submissionDigest,
 } from "@harness-anything/kernel";
+import { currentCutSettlement } from "../../src/domain/closeout-readiness.ts";
+import type { ReviewFindingTriageV1 } from "../../src/domain/review-settlement.ts";
 
 const digest = `sha256:${"b".repeat(64)}` as const,
   commit = "c".repeat(40);
