@@ -36,16 +36,18 @@ test("dependency consumers remain fail-closed when the shared install fails", ()
     .filter((section) => section.includes("needs: install"));
   assert.ok(consumers.length > 0);
   for (const job of consumers) {
-    assert.match(job, /^    if: always\(\) && .*github\.event_name/mu);
+    if (job.startsWith("crlf-checkout:")) assert.match(job, /^    if: always\(\)$/mu);
+    else assert.match(job, /^    if: always\(\) && .*github\.event_name/mu);
   }
 });
 
-test("crlf checkout retains its nightly lane outside the PR-only artifact dependency", () => {
+test("crlf checkout orders PR artifact consumption and retains its nightly lane", () => {
   const section = workflow
     .split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu)
     .find((candidate) => candidate.startsWith("crlf-checkout:"));
   assert.ok(section);
-  assert.doesNotMatch(section, /^    needs: install/mu);
+  assert.match(section, /^    needs: install/mu);
+  assert.match(section, /^    if: always\(\)$/mu);
   assert.match(section, /- run: npm ci\n\s+if: github\.event_name != 'pull_request' && github\.event_name != 'push'/u);
   assert.match(
     section,

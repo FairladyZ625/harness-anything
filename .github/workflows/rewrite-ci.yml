@@ -120,7 +120,10 @@ jobs:
     # not platform defects: they reproduce anywhere git is told to convert. Catching them costs a
     # Linux runner and one config line, so they should never again be found by a person on Windows.
     # This job keeps its own nightly/manual install because the shared install job is only consumed
-    # by PR/push lanes; on PR/push, a failed or missing artifact makes this required context fail.
+    # by PR/push lanes. The dependency still orders PR/push artifact consumption; always() lets the
+    # nightly/manual lane run after the PR-only install is skipped.
+    needs: install
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Convert line endings on checkout the way a Windows host does
