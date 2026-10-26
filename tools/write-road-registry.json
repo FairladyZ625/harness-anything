@@ -3,7 +3,7 @@
   "rows": [
     {
       "id": "lifecycle.event-publication",
-      "actions": ["task-complete", "task-create", "task-review-execution", "task-submit"],
+      "actions": ["task-complete", "task-create", "task-review-execution", "task-respond-review", "task-submit"],
       "authority": "packages/daemon/src/repo-cell.ts",
       "store": "packages/kernel/src/store/task-event-store.ts",
       "leasePolicy": "domain-contract",
@@ -15,7 +15,15 @@
     },
     {
       "id": "workspace.bootstrap",
-      "actions": ["ledger-backup", "ledger-restore-drill", "daemon-repo-register", "repo-purge", "repo-unbind", "rbac-bootstrap", "repo-bootstrap"],
+      "actions": [
+        "ledger-backup",
+        "ledger-restore-drill",
+        "daemon-repo-register",
+        "repo-purge",
+        "repo-unbind",
+        "rbac-bootstrap",
+        "repo-bootstrap"
+      ],
       "authority": "packages/daemon/src/daemon-host.ts",
       "evidence": [
         "packages/daemon/src/daemon-host.ts",
@@ -59,10 +67,7 @@
         "fleet.upload.finish/v1"
       ],
       "authority": "packages/daemon/src/fleet-edge-write.ts",
-      "evidence": [
-        "packages/daemon/src/fleet-edge-write.ts",
-        "packages/daemon/src/fleet/peer.ts"
-      ]
+      "evidence": ["packages/daemon/src/fleet-edge-write.ts", "packages/daemon/src/fleet/peer.ts"]
     },
     {
       "id": "fleet.center-write",
@@ -77,10 +82,7 @@
         "fleet.upload.finish/v1"
       ],
       "authority": "packages/daemon/src/fleet/center-listener.ts",
-      "evidence": [
-        "packages/daemon/src/fleet/center-listener.ts",
-        "packages/daemon/src/fleet/command-protocol.ts"
-      ]
+      "evidence": ["packages/daemon/src/fleet/center-listener.ts", "packages/daemon/src/fleet/command-protocol.ts"]
     }
   ],
   "physicalWriteFiles": [

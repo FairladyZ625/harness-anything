@@ -70,6 +70,7 @@ function deriveCloseoutSubmissionData(
     }),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = parsed,
+    frozenReviewResponses = snapshot.reviewResponses?.length ? snapshot.reviewResponses : undefined,
     readPresetSnapshot = presetSnapshotReader(cell.projection),
     privateDelivery = taskOutputShape(snapshot.task, readPresetSnapshot) !== "repository-diff",
     artifactPaths = automaticSubmissionArtifactPaths(
@@ -121,6 +122,7 @@ function deriveCloseoutSubmissionData(
         artifacts,
         deliverables: artifacts.map((anchor) => anchor.path),
         outputs: [],
+        ...(frozenReviewResponses === undefined ? {} : { reviewResponses: frozenReviewResponses }),
         completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
       },
       rootDir: cell.rootDir,
@@ -332,6 +334,7 @@ function deriveCloseoutSubmissionData(
     ...(changedFiles ? { changedFiles } : {}),
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
     ...(productionDelta ? { productionDelta } : {}),
+    ...(frozenReviewResponses === undefined ? {} : { reviewResponses: frozenReviewResponses }),
   };
   const contractBase = frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
     assessedDelivery: SubmissionV1 = { ...delivery, completionContract: contractBase };

@@ -63,6 +63,7 @@ export {
   reviewVerdicts,
   settledApprovedReviewsForExecution,
 } from "./review.ts";
+export type { ReviewV1 } from "./review.ts";
 
 export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
 export type { DomainStatus } from "./lifecycle-status.ts";

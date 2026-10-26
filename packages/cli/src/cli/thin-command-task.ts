@@ -47,6 +47,7 @@ export function parseTask(
     id === "task-submit" ||
     id === "task-settle" ||
     id === "task-review-execution" ||
+    id === "task-respond-review" ||
     id === "task-complete" ||
     id === "task-release" ||
     id === "task-reopen" ||

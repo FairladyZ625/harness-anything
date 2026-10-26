@@ -82,6 +82,27 @@ export async function continueReviewRework(
         : {}),
     } as WriteReceiptDraft;
   }
+  const upheld = (review.resolutions ?? []).some((resolution) => resolution.resolution === "upheld"),
+    newBlocking = (review.findings ?? []).some(
+      (finding) =>
+        finding.blocking &&
+        !(review.resolutions ?? []).some(
+          (resolution) => resolution.findingId === finding.findingId && resolution.resolution === "withdrawn",
+        ),
+    );
+  if (review.findings !== undefined || review.resolutions !== undefined) {
+    return {
+      ...receipt,
+      warnings: [
+        ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
+        upheld
+          ? `Review ${reviewId} upheld a prior blocking finding; the cut stays at the review gate for CEO disposition.`
+          : newBlocking
+            ? `Review ${reviewId} has a new blocking finding; automatic rework dispatch was unavailable.`
+            : `Review ${reviewId} withdrew prior findings and has no new blocking finding; the cut stays at the review gate.`,
+      ],
+    } as WriteReceiptDraft;
+  }
   return {
     ...receipt,
     warnings: [

@@ -8,8 +8,13 @@ import {
   validateLeaseV1,
 } from "./execution.ts";
 import type { ExecutionAnnotationV1, ExecutionV1, LeaseHolder, LeaseV1, SubmissionV1 } from "./execution.ts";
-import { validateReviewConsentV1, validateReviewDispositionV1, validateReviewV1 } from "./review.ts";
-import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
+import {
+  validateReviewConsentV1,
+  validateReviewDispositionV1,
+  validateReviewV1,
+  validateTaskReviewResponseV1,
+} from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
 import { validateActorAxes, validateTaskV2 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
@@ -51,6 +56,7 @@ export const taskEventTypes = [
   "execution_executor_declared",
   "execution_annotated",
   "review_recorded",
+  "task_review_responded",
   "review_consent_recorded",
   "review_consent_overridden",
   "completion_gate_verified",
@@ -184,6 +190,14 @@ export type ReviewRecordedEvent = TaskEventEnvelope<
     readonly edge?: TaskEdgeTaken;
   }
 >;
+export type TaskReviewRespondedEvent = TaskEventEnvelope<
+  "task_review_responded",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly responses: readonly TaskReviewResponseV1[];
+  }
+>;
 export type ReviewConsentRecordedEvent = TaskEventEnvelope<
   "review_consent_recorded",
   {
@@ -291,6 +305,7 @@ export type TaskMutationEventType = Exclude<
   | "execution_executor_declared"
   | "execution_annotated"
   | "review_recorded"
+  | "task_review_responded"
   | "review_consent_recorded"
   | "review_consent_overridden"
   | "completion_gate_verified"
@@ -313,6 +328,7 @@ export type TaskEventV1 =
   | ExecutionExecutorDeclaredEvent
   | ExecutionAnnotatedEvent
   | ReviewRecordedEvent
+  | TaskReviewRespondedEvent
   | ReviewConsentRecordedEvent
   | ReviewConsentOverrideRecordedEvent
   | RetiredCodeDocReconciledEvent
@@ -548,6 +564,13 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       issues.push(invalidEventPayloadIssue("execution annotation must be pinned to its canonical event envelope"));
   }
   if (value.type === "review_recorded") issues.push(...validateReviewV1(payload.review, allowUnknownFields));
+  if (value.type === "task_review_responded") {
+    if (!Array.isArray(payload.responses) || payload.responses.length === 0)
+      issues.push(invalidEventPayloadIssue("task review response event requires a non-empty responses array"));
+    else
+      for (const response of payload.responses)
+        issues.push(...validateTaskReviewResponseV1(response, allowUnknownFields));
+  }
   if (value.type === "review_consent_recorded" || value.type === "review_consent_overridden")
     issues.push(
       ...validateReviewV1(payload.review, allowUnknownFields),
@@ -657,6 +680,7 @@ function lifecyclePayloadFields(
   if (type === "gate_run_changed") return [...common, "runId", "operation"];
   if (type === "execution_annotated") return [...common, "annotation"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
+  if (type === "task_review_responded") return [...common, "responses"];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
   if (type === "review_consent_overridden") return [...common, "review", "consent", "disposition"];
   if (type === "completion_gate_verified") return [...common, "witness"];

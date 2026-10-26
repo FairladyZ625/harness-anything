@@ -129,7 +129,7 @@ test("review input accepts the dispatched field contract and rejects persisted-r
     reviewPacket("/unused", { kind: "task-review-execution", jsonInput: JSON.stringify(value) }).value,
     value,
   );
-  for (const metadata of [{ schema: "review/v1" }, { taskId: "task_1" }, { executionId: "exe_1" }, { findings: [] }])
+  for (const metadata of [{ schema: "review/v1" }, { taskId: "task_1" }, { executionId: "exe_1" }])
     assert.throws(
       () =>
         reviewPacket("/unused", {
@@ -138,6 +138,13 @@ test("review input accepts the dispatched field contract and rejects persisted-r
         }),
       /Review JSON requires exactly/u,
     );
+  assert.deepEqual(
+    reviewPacket("/unused", {
+      kind: "task-review-execution",
+      jsonInput: JSON.stringify({ ...value, findings: [], resolutions: [] }),
+    }).value,
+    { ...value, findings: [], resolutions: [] },
+  );
 });
 
 test("resolved fleet review packets preserve the local packet validation and digest", () => {

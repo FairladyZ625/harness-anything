@@ -454,6 +454,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["approved", "changes_requested", "dismissed"],
   },
   {
+    id: "review.response.disposition",
+    entity: "Review",
+    field: "response disposition",
+    module: "packages/kernel/src/domain/review.ts",
+    anchor: "ReviewResponseDisposition",
+    words: ["adopt", "rebut"],
+  },
+  {
     id: "decision.review.verdict",
     entity: "Review",
     field: "verdict",

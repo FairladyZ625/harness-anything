@@ -51,6 +51,11 @@ const reviewFields = Object.freeze(
     }),
   ),
 );
+const reviewPacketFields = Object.freeze([
+  ...reviewFields,
+  field("findings", "json-object-array"),
+  field("resolutions", "json-object-array"),
+]);
 const createPacketFields = Object.freeze([
   field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
   field("title", "string", true),
@@ -214,6 +219,17 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "review_recorded",
     proof: ["independentActor", "execution-review@v1", "contentCut"],
+  },
+  respondReview: {
+    ingress: "task-respond-review",
+    commandType: "RespondReview",
+    transitionId: "respond_review",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
+    coordination: "execute",
+    eventType: "task_review_responded",
+    proof: ["actorBinding", "execution-review-response@v1", "contentCut"],
   },
   consent: {
     ingress: "task-review-consent",
@@ -431,7 +447,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
         wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         wire(cli("reviewId", "string", true, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         ...optionalPacketFields(reviewFields),
-        ...packetSources(REVIEW_V1_SCHEMA.id, reviewFields),
+        ...packetSources(REVIEW_V1_SCHEMA.id, reviewPacketFields),
       ],
       [["fromFile", "jsonInput"]],
     ),
@@ -453,6 +469,31 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "operation-id", semanticKey: "reviewId" },
     ),
     explain: "Record an independent, content-pinned review; changes_requested below the rework budget reopens rework.",
+  }),
+  lifecycle("respondReview", {
+    input: input([
+      taskId,
+      expectedVersion,
+      wire(cli("executionId", "string", true, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+      ...packetSources("TaskReviewRespondInput/v1", [field("responses", "json-object-array", true)]),
+    ]),
+    criteria: Object.freeze([
+      criterion(
+        "task-lifecycle-review-transitions/respond.validate",
+        "invalid_transition",
+        "The worker response targets every named blocking finding on a prior returned cut exactly once.",
+      ),
+      criterion(
+        "repo-cell-proof/proofFor.RespondReview",
+        "actor_unauthorized",
+        "The response is written by the current implementation execution actor.",
+      ),
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "held-current-execution" },
+      { authority: "operation-id", semanticKey: "reviewId/findingId" },
+    ),
+    explain: "Respond to each blocking review finding before the next task submission freezes the responses.",
   }),
   lifecycle("consent", {
     input: input([

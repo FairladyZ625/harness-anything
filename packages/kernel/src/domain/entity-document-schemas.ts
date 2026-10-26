@@ -127,7 +127,36 @@ export const reviewSchema: EntityDocumentJsonSchema = {
     contentDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
     submissionDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
     reviewedAt: { type: "string", minLength: 1 },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          findingId: { type: "string", minLength: 1 },
+          blocking: { type: "boolean" },
+          text: { type: "string", minLength: 1 },
+          anchor: { type: "string", minLength: 1 },
+        },
+        required: ["findingId", "blocking", "text"],
+        additionalProperties: false,
+      },
+    },
+    resolutions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          reviewId: { type: "string", minLength: 1 },
+          findingId: { type: "string", minLength: 1 },
+          resolution: { type: "string", enum: ["upheld", "withdrawn"] },
+        },
+        required: ["reviewId", "findingId", "resolution"],
+        additionalProperties: false,
+      },
+    },
   },
-  required: REVIEW_V1_SCHEMA.required,
+  // Findings and resolutions were added after Review/v1 launched; retaining them as
+  // optional here keeps historical reviews readable while new records still carry them.
+  required: REVIEW_V1_SCHEMA.required.filter((field) => field !== "findings" && field !== "resolutions"),
   additionalProperties: false,
 };

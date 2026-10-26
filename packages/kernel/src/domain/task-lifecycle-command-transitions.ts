@@ -1,7 +1,7 @@
 import { isNativeExecution, submissionId, validExecutionDeliveryBaseline, validateSubmissionV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
-import type { TaskV2 } from "./task.ts";
+import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
@@ -12,6 +12,7 @@ import type {
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { validateTaskReviewResponseV1 } from "./review.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
@@ -454,6 +455,7 @@ export const submit: Transition = {
         ),
       );
     issues.push(...validateSubmissionV1(command.submission));
+    issues.push(...reviewResponseSubmissionIssues(snapshot, command.submission));
     return issues;
   },
   reduce: (snapshot, raw) => {
@@ -496,3 +498,44 @@ export const submit: Transition = {
     };
   },
 };
+
+function reviewResponseSubmissionIssues(
+  snapshot: TaskLifecycleSnapshot,
+  submission: SubmitExecutionCommand["submission"],
+): ContractValidationIssue[] {
+  const responses = submission.reviewResponses ?? [],
+    keys = new Set<string>(),
+    issues: ContractValidationIssue[] = [];
+  for (const response of responses) {
+    const key = `${response.reviewId}\0${response.findingId}`;
+    if (keys.has(key))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_submission",
+          `duplicate review response ${response.reviewId}/${response.findingId}`,
+        ),
+      );
+    keys.add(key);
+  }
+  for (const review of snapshot.reviews) {
+    const returned = snapshot.executions.find(
+      (candidate) => candidate.executionId === review.executionId && candidate.state === "changes_requested",
+    );
+    if (!returned || review.verdict !== "changes_requested") continue;
+    for (const finding of review.findings ?? []) {
+      if (!finding.blocking) continue;
+      const matches = responses.filter(
+        (response) => response.reviewId === review.reviewId && response.findingId === finding.findingId,
+      );
+      if (matches.length !== 1)
+        issues.push(
+          lifecycleContractIssue(
+            "invalid_submission",
+            `submission must include exactly one response for blocking finding ${review.reviewId}/${finding.findingId}`,
+          ),
+        );
+    }
+  }
+  for (const response of responses) issues.push(...validateTaskReviewResponseV1(response));
+  return issues;
+}

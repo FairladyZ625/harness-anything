@@ -355,7 +355,8 @@ function taskCatalogAuthorization(rootDir, analysis, authority) {
     const ingress = fields.get("ingress");
     if (!ingress || !ts.isStringLiteral(ingress)) continue;
     const id = spec.name.getText(),
-      kind = ingress.text;
+      kind = ingress.text,
+      catalogPath = `task/${id.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}`;
     const registered =
       registrations &&
       ts.isArrayLiteralExpression(registrations) &&
@@ -379,7 +380,7 @@ function taskCatalogAuthorization(rootDir, analysis, authority) {
           node.arguments[0].text === kind &&
           node.arguments[1] &&
           ts.isStringLiteral(node.arguments[1]) &&
-          node.arguments[1].text === `task/${id}` &&
+          node.arguments[1].text === catalogPath &&
           (node.expression.getText() === "closure" ||
             ['"repo-write"', '"arbiter"'].includes(node.arguments[2]?.getText())),
       );

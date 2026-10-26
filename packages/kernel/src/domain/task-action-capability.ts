@@ -97,6 +97,9 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("review", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("review", "task-lifecycle-review-transitions/review.validate"), reviewValidation],
     [key("review", "repo-cell-proof/proofFor.RecordReview"), reviewIndependence],
+    [key("respondReview", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("respondReview", "task-lifecycle-review-transitions/respond.validate"), responseValidation],
+    [key("respondReview", "repo-cell-proof/proofFor.RespondReview"), responseLease],
     [key("consent", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("consent", "task-lifecycle-review-transitions/consent.validate"), mutationInvocation],
     [key("complete", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
@@ -252,6 +255,20 @@ function reviewValidation(input: TaskActionCapabilityInput): PredicateEvaluation
       ].join(""),
     ],
   };
+}
+
+function responseValidation(input: TaskActionCapabilityInput): PredicateEvaluation | "invocation-required" {
+  if (input.snapshot.task?.status !== "active" || input.snapshot.task.currentNode !== "implementation")
+    return { status: "unmet" };
+  return input.snapshot.executions.some(
+    (execution) => execution.iteration === input.snapshot.task?.iteration && execution.state === "active",
+  )
+    ? "invocation-required"
+    : { status: "unmet" };
+}
+
+function responseLease({ snapshot, actor }: TaskActionCapabilityInput): "met" | "unmet" {
+  return heldLeaseForExecutionActor(snapshot, undefined, actor) ? "met" : "unmet";
 }
 
 function reviewIndependence(input: TaskActionCapabilityInput): PredicateEvaluation | "met" {

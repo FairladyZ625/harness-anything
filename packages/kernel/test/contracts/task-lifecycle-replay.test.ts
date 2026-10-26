@@ -15,7 +15,8 @@ import {
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
-import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
+import { lifecycleFixture, implementer, reviewer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
+import { submissionDigest } from "../../src/domain/execution.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
 import { canonicalGateReceipts } from "../../src/domain/task-lifecycle-contract-support.ts";
@@ -349,6 +350,200 @@ test("a late changes_requested review may reopen a consented cut for a fresh ite
     resubmitted.snapshot.reviews.some((value) => value.executionId === secondExecutionId),
     false,
   );
+});
+
+test("blocking task findings require one response before the next submit", () => {
+  const rounds = twoRoundLifecycleEvents(),
+    second = rounds.snapshot.executions.at(-1)! as TaskLifecycleSnapshot["executions"][number],
+    reviewRequiredCompletionContract = {
+      ...emptyCompletionContract,
+      closeoutGates: { review: true, consent: true, factDisposition: true },
+    },
+    secondSubmission = {
+      completionClaim: "reworked implementation",
+      deliverables: [],
+      outputs: [],
+      verificationNotes: ["tests"],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: "b".repeat(40),
+      completionContract: reviewRequiredCompletionContract,
+    },
+    submitted = applyTransition(
+      rounds.snapshot,
+      {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: rounds.snapshot.revision,
+          },
+          {
+            type: "SubmitExecution",
+            taskId: second.taskId,
+            executionId: second.executionId,
+            submission: secondSubmission,
+          },
+        ),
+        eventId: "event-findings-submit",
+        workspaceRevision: rounds.snapshot.revision + 1,
+        occurredAt: "2026-08-11T00:06:00.000Z",
+      },
+      { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+    ),
+    review = applyTransition(
+      submitted.snapshot,
+      {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: reviewer,
+            source: "local",
+            expectedRevision: submitted.snapshot.revision,
+          },
+          {
+            type: "RecordReview",
+            taskId: second.taskId,
+            executionId: second.executionId,
+            reviewId: "review-blocking-finding",
+            verdict: "changes_requested",
+            reason: "Address the blocking finding.",
+            evidenceChecked: ["contract"],
+            commitSha: secondSubmission.commitSha,
+            iteration: submitted.snapshot.task!.iteration,
+            contentDigest: `sha256:${"c".repeat(64)}`,
+            submissionDigest: submissionDigest(secondSubmission),
+            findings: [{ findingId: "F-1", blocking: true, text: "The cut needs a correction." }],
+          },
+        ),
+        eventId: "event-findings-review",
+        workspaceRevision: submitted.snapshot.revision + 1,
+        occurredAt: "2026-08-11T00:07:00.000Z",
+      },
+      { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review", reworkBudget: 2 },
+    ),
+    thirdExecutionId = "execution-round-three",
+    started = applyTransition(
+      review.snapshot,
+      {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: review.snapshot.revision,
+          },
+          { type: "StartExecution", taskId: second.taskId, executionId: thirdExecutionId },
+        ),
+        eventId: "event-findings-start",
+        workspaceRevision: review.snapshot.revision + 1,
+        occurredAt: "2026-08-11T00:08:00.000Z",
+      },
+      {
+        actorBinding: implementer,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
+        reservation: {
+          taskId: second.taskId,
+          executionId: thirdExecutionId,
+          expiresAt: "2026-08-11T01:08:00.000Z",
+          ttlMs: 1_800_000,
+          previousHolder: null,
+          reason: "initial_claim",
+          version: 0,
+        },
+      },
+    );
+
+  assert.throws(
+    () =>
+      applyTransition(
+        started.snapshot,
+        {
+          ...normalizeTaskLifecycleCommand(
+            {
+              workspaceId: "workspace-1",
+              actor: implementer,
+              source: "local",
+              expectedRevision: started.snapshot.revision,
+            },
+            {
+              type: "SubmitExecution",
+              taskId: second.taskId,
+              executionId: thirdExecutionId,
+              submission: { ...secondSubmission, commitSha: "d".repeat(40) },
+            },
+          ),
+          eventId: "event-findings-submit-missing-response",
+          workspaceRevision: started.snapshot.revision + 1,
+          occurredAt: "2026-08-11T00:09:00.000Z",
+        },
+        { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+      ),
+    /exactly one response for blocking finding review-blocking-finding\/F-1/u,
+  );
+
+  const responded = applyTransition(
+      started.snapshot,
+      {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: started.snapshot.revision,
+          },
+          {
+            type: "RespondReview",
+            taskId: second.taskId,
+            executionId: thirdExecutionId,
+            responses: [
+              {
+                reviewId: "review-blocking-finding",
+                findingId: "F-1",
+                disposition: "rebut",
+                rationale: "The correction is addressed.",
+              },
+            ],
+          },
+        ),
+        eventId: "event-findings-response",
+        workspaceRevision: started.snapshot.revision + 1,
+        occurredAt: "2026-08-11T00:09:30.000Z",
+      },
+      { actorBinding: implementer, capability: "execution-review-response@v1", capabilityRef: "cap-response" },
+    ),
+    response = responded.snapshot.reviewResponses?.[0];
+  assert.equal(responded.event.type, "task_review_responded");
+  assert.equal(response?.reviewId, "review-blocking-finding");
+  const accepted = applyTransition(
+    responded.snapshot,
+    {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: responded.snapshot.revision,
+        },
+        {
+          type: "SubmitExecution",
+          taskId: second.taskId,
+          executionId: thirdExecutionId,
+          submission: {
+            ...secondSubmission,
+            commitSha: "d".repeat(40),
+            reviewResponses: responded.snapshot.reviewResponses,
+          },
+        },
+      ),
+      eventId: "event-findings-submit-answered",
+      workspaceRevision: responded.snapshot.revision + 1,
+      occurredAt: "2026-08-11T00:10:00.000Z",
+    },
+    { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+  );
+  assert.equal(accepted.snapshot.executions.at(-1)?.submission?.reviewResponses?.length, 1);
 });
 
 test("a historical owner return still publishes its instruction as a managed task document", () => {

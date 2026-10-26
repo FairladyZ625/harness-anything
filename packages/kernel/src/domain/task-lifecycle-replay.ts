@@ -135,8 +135,20 @@ function assertAtomic<C extends TaskLifecycleCommand>(
       ]);
   }
   if (command.type === "RecordReview") {
+    const reviewFindings = command.findings ?? [],
+      reviewResolutions = command.resolutions ?? [],
+      hasStructuredReview = command.findings !== undefined || command.resolutions !== undefined,
+      upheld = reviewResolutions.some((resolution) => resolution.resolution === "upheld"),
+      newBlocking = reviewFindings.some(
+        (finding) =>
+          finding.blocking &&
+          !reviewResolutions.some(
+            (resolution) => resolution.findingId === finding.findingId && resolution.resolution === "withdrawn",
+          ),
+      );
     const reopen =
         command.verdict === "changes_requested" &&
+        (!hasStructuredReview || (!upheld && newBlocking)) &&
         snapshot.executions.filter((value) => value.state === "changes_requested").length <
           (proof as ReviewProof).reworkBudget,
       reopened =
@@ -163,6 +175,25 @@ function assertAtomic<C extends TaskLifecycleCommand>(
           reopen
             ? "a changes_requested verdict below the rework budget must reopen the implementation iteration atomically"
             : "a verdict that does not reopen rework must record its review and leave the cut untouched",
+        ),
+      ]);
+  }
+  if (command.type === "RespondReview") {
+    const responses = result.event.type === "task_review_responded" ? result.event.payload.responses : [],
+      current = execution(snapshot, command.executionId),
+      expected = [...(snapshot.reviewResponses ?? []), ...responses];
+    if (
+      result.event.type !== "task_review_responded" ||
+      !current ||
+      stableStringify(result.event.payload.execution) !== stableStringify(current) ||
+      result.snapshot.task !== snapshot.task ||
+      result.snapshot.lease !== snapshot.lease ||
+      stableStringify(result.snapshot.reviewResponses ?? []) !== stableStringify(expected)
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue(
+          "invalid_response_atomicity",
+          "review responses must append to the active execution atomically",
         ),
       ]);
   }
@@ -396,6 +427,12 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       edgesTaken: event.payload.edge ? [...snapshot.edgesTaken, event.payload.edge] : snapshot.edgesTaken,
       lease: null,
     };
+  else if (event.type === "task_review_responded")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      reviewResponses: [...(snapshot.reviewResponses ?? []), ...event.payload.responses],
+    };
   else if (event.type === "review_consent_recorded" || event.type === "review_consent_overridden")
     next = {
       ...snapshot,
@@ -598,6 +635,28 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue("invalid_transition", "replayed append-only Review reused an existing review id"),
     ]);
+  if (event.type === "task_review_responded") {
+    const current = execution(snapshot, event.payload.execution.executionId),
+      existing = snapshot.reviewResponses ?? [],
+      keys = new Set(existing.map((response) => `${response.reviewId}\0${response.findingId}`));
+    if (
+      !current ||
+      current.state !== "active" ||
+      !sameReplayTask(event.payload.task, snapshot.task) ||
+      stableStringify(event.payload.execution) !== stableStringify(current) ||
+      event.payload.responses.some((response) => {
+        const key = `${response.reviewId}\0${response.findingId}`;
+        if (keys.has(key)) return true;
+        keys.add(key);
+        const review = snapshot.reviews.find((candidate) => candidate.reviewId === response.reviewId),
+          finding = review?.findings?.find((candidate) => candidate.findingId === response.findingId);
+        return review?.verdict !== "changes_requested" || finding?.blocking !== true;
+      })
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue("invalid_response", "replayed review response must target a new blocking finding"),
+      ]);
+  }
   if (event.type === "review_recorded" && event.payload.review.verdict === "changes_requested") {
     // History: the verdict itself returned the task (edge taken, execution closed, iteration+1).
     // Current: the verdict reports to the owner; the cut stays at the review gate unchanged.

@@ -24,6 +24,11 @@ function taskActionPacketFields(id: "review") {
 }
 
 export const reviewJsonFields = taskActionPacketFields("review");
+export const reviewJsonAllowedFields = Object.freeze(
+  generatedTaskActionProtocolDeclarations
+    .find((action) => action.id === "review")
+    ?.input.fields.find((field) => field.field === "fromFile")?.cli?.jsonAllowedFields ?? reviewJsonFields,
+);
 
 function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
   return Object.freeze(
