@@ -279,6 +279,9 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       replica: "object",
       ledgerAccess: "optional-string",
       reportDelivery: "optional-string",
+      // Which instance was chosen and which selection rule decided it; the CLI renders the
+      // reason so a same-kind sibling skip is explainable from the receipt alone.
+      runtimeSelection: "optional-object",
       // Operator notices appended by the host layer (e.g. the missing hosting-credential
       // warning); the CLI renders them through its generic warnings channel.
       warnings: "optional-array",

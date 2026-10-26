@@ -29,6 +29,9 @@ export interface AgentDeclarationV1 {
   readonly instructions: string;
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance?: string;
+  /** Ordered soft preference among the instances one runtimes row admits; unlike `instance` it
+   *  never fails a dispatch when a more preferred instance is unavailable on this node. */
+  readonly preferredInstances?: readonly string[];
   readonly permissionMode?: AgentPermissionMode;
   readonly role?: AgentRole;
   readonly skills?: readonly AgentSkillDeclarationV1[];
@@ -91,6 +94,20 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     instance: {
       ...slug("Optional node-local runtime instance selection."),
       "x-error": "must be a lowercase instance id.",
+    },
+    preferredInstances: {
+      type: "array",
+      uniqueItems: true,
+      description:
+        "Ordered instance preference for the runtimes rows this Agent declares. A preferred instance " +
+        "is used when it is enabled, compatible, and ready on this node; otherwise dispatch falls " +
+        "back to the remaining compatible instances by runtime row, then repository allowed-instance " +
+        "order. Unlike `instance`, this never blocks a dispatch on this node.",
+      items: {
+        ...slug("Preferred runtime instance id."),
+        "x-error": "must be lowercase instance ids.",
+      },
+      "x-error": "must be an ordered array of unique lowercase instance ids.",
     },
     permissionMode: {
       type: "string",

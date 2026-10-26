@@ -92,10 +92,21 @@ export function renderCliReceipt(
       ...(Array.isArray(receipt.warnings)
         ? receipt.warnings.filter((entry): entry is string => nonEmptyText(entry) !== null)
         : []),
+      // A dispatch receipt states which instance the selection rule chose and why; the reason is
+      // the operator's only evidence that a same-kind sibling was skipped on purpose.
+      ...(runtimeSelectionReason(receipt) === null ? [] : [runtimeSelectionReason(receipt)!]),
     ];
   return warnings.length
     ? { ...rendered, text: `${rendered.text}\n${warnings.map((warning) => `warning: ${warning}`).join("\n")}` }
     : rendered;
+}
+
+/** The dispatch receipt's instance-choice sentence, when the action selected a runtime instance. */
+function runtimeSelectionReason(receipt: Record<string, unknown>): string | null {
+  const selection = receipt.runtimeSelection;
+  if (!isRecord(selection) || typeof selection.reason !== "string" || selection.reason.length === 0) return null;
+  const basis = typeof selection.basis === "string" ? ` (${selection.basis})` : "";
+  return `runtime instance: ${String(selection.instanceId)}${basis} — ${selection.reason}`;
 }
 
 function renderCliReceiptBase(

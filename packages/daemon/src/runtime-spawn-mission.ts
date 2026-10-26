@@ -3,7 +3,17 @@ import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
-import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeModelMatches,
+  agentRuntimeModelTier,
+  agentRuntimeTargetSummary,
+  agentRuntimeKindMatches,
+} from "./agent-runtime-contract.ts";
+import {
+  compareRuntimeInstanceRank,
+  runtimeInstanceRank,
+  type RuntimeInstanceRank,
+} from "./runtime-instance-selection.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { RuntimeProviderHealth } from "./runtime-provider-health.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
@@ -209,7 +219,7 @@ export function resolveRuntimeInstanceCandidates(input: {
         ? "runtime_instance_disabled"
         : healthBlocked
           ? `runtime_provider_unavailable (${providerHealth?.reason ?? "cooldown"}; recover at ${healthUntil})`
-          : model !== undefined && !instance.models.includes(model)
+          : model !== undefined && !agentRuntimeModelMatches(instance.models, model)
             ? `agent_model_unavailable (${model})`
             : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
               ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
@@ -223,11 +233,14 @@ export function resolveRuntimeInstanceCandidates(input: {
       (declaredType === undefined || declaredType === instance.kindId) &&
       (declaredTargets === undefined || agentRuntimeKindMatches(declaredTargets, instance.kindId)),
   );
+  // Membership admits a case-insensitive spelling because providers publish `Deepseek-V4.1-Flash`
+  // where a declaration writes `deepseek-v4.1-flash`; the ranking below still puts the verbatim
+  // spelling first, so tolerance never reorders a catalog that lists both.
   const declared = declaredModel
-    ? typed.filter((instance) => instance.models.includes(declaredModel))
+    ? typed.filter((instance) => agentRuntimeModelMatches(instance.models, declaredModel))
     : typed.filter((instance) => {
         const target = declaredTargets?.find((row) => row.type === instance.kindId);
-        return target?.model === undefined || instance.models.includes(target.model);
+        return target?.model === undefined || agentRuntimeModelMatches(instance.models, target.model);
       });
   const targetSummary =
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
@@ -295,11 +308,20 @@ export function resolveRuntimeInstanceCandidates(input: {
         : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`) + detail,
     );
   const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index])),
-    runtimeRank = new Map(declaredTargets?.map((target, index) => [target.type, index]));
+    runtimeRank = new Map(declaredTargets?.map((target, index) => [target.type, index])),
+    preferredRank = new Map((input.agent?.preferredInstances ?? []).map((instanceId, index) => [instanceId, index]));
+  // The one ranking rule (`runtime-instance-selection.ts`) decides between same-kind instances:
+  // declared runtime row, then declared instance preference, then exact-over-case-insensitive
+  // model spelling. The allowlist order is the final tiebreak, so an unchanged repository keeps
+  // its previous choice whenever no higher key separates the candidates.
   return [...ready]
     .sort(
       (a, b) =>
         (runtimeRank.get(a.kindId) ?? runtimeRank.size) - (runtimeRank.get(b.kindId) ?? runtimeRank.size) ||
+        (preferredRank.get(a.instanceId) ?? Number.MAX_SAFE_INTEGER) -
+          (preferredRank.get(b.instanceId) ?? Number.MAX_SAFE_INTEGER) ||
+        agentRuntimeModelTier(b.models, declaredModel ?? declaredTargets?.find((r) => r.type === b.kindId)?.model) -
+          agentRuntimeModelTier(a.models, declaredModel ?? declaredTargets?.find((r) => r.type === a.kindId)?.model) ||
         (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
     )
     .map((instance) => instance.instanceId);
@@ -312,20 +334,19 @@ export async function prepareRuntimeInstance<T>(
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
   const reasons: string[] = [],
     candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons }),
-    runtimeRank = new Map(input.agent?.runtimes.map((target, index) => [target.type, index])),
-    kindById = new Map(input.instances.map((instance) => [instance.instanceId, instance.kindId])),
     liveLoad = new Map<string, number>(),
-    // The declaration's row is the primary key; kinds outside it (an unbound dispatch declares
-    // none) share one trailing row so they keep the previous cross-kind load spreading.
-    rankOf = (instanceId: string): number => runtimeRank.get(kindById.get(instanceId) ?? "") ?? runtimeRank.size;
+    // Every non-load key of the one selection rule, read from the shared helper so prepare cannot
+    // drift from the resolver that produced this list. The resolver already applied row order,
+    // preference, and model tier; re-applying them here keeps a stable sort on load alone from
+    // letting an idle later row outrank a candidate a higher key had already preferred.
+    rankOf = (instanceId: string): RuntimeInstanceRank => runtimeInstanceRank(input, instanceId);
   for (const session of input.sessions)
     if (session.liveness === "live") liveLoad.set(session.instanceId, (liveLoad.get(session.instanceId) ?? 0) + 1);
-  // Load is a secondary key only inside one declared row. Ties keep the resolver's order (a stable
-  // sort), which is the configured order the resolver already ranked; an instance-id tiebreak here
-  // would silently re-rank an unbound dispatch whose candidates all share the trailing row.
-  // Sorting the whole list by load let an idle later row outrank a busy first row, undoing the
-  // priority the Agent author declared.
-  candidates.sort((a, b) => rankOf(a) - rankOf(b) || (liveLoad.get(a) ?? 0) - (liveLoad.get(b) ?? 0));
+  // Load spreads capacity only among candidates the deterministic keys cannot separate; equal
+  // ranks keep the resolver's configured order (a stable sort), which is the allowlist order.
+  candidates.sort(
+    (a, b) => compareRuntimeInstanceRank(rankOf(a), rankOf(b)) || (liveLoad.get(a) ?? 0) - (liveLoad.get(b) ?? 0),
+  );
   for (const instanceId of candidates) {
     try {
       return { instanceId, launch: await prepare(instanceId) };

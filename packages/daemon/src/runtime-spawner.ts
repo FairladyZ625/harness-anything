@@ -9,7 +9,8 @@ import {
   submissionDigest,
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
-import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
+import { agentRuntimeModelSpelling, agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
+import { selectedRuntimeInstance } from "./runtime-instance-selection.ts";
 import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
@@ -415,12 +416,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 fallbackAttemptForDispatch.candidateIndex ?? fallbackAttemptForDispatch.attemptIndex
               ],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            selectedModel =
+            // The instance store validates model membership verbatim, so a declaration that
+            // differs from the catalog only by letter case must launch the catalog spelling.
+            requestedSelectedModel =
               fallbackCandidate?.model ??
               model ??
               (agent && runtimeInstance
                 ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
                 : undefined),
+            selectedModel =
+              requestedSelectedModel === undefined || runtimeInstance === undefined
+                ? requestedSelectedModel
+                : (agentRuntimeModelSpelling(runtimeInstance.models, requestedSelectedModel) ?? requestedSelectedModel),
             selectedEffort =
               effort ??
               (agent && runtimeInstance
@@ -562,7 +569,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
       ),
       runtimeInstanceId = selection.instanceId,
-      { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview } = selection.launch;
+      { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview } = selection.launch,
+      // The rule that decided this instance, computed from the same inputs dispatch used. It rides
+      // the receipt so an operator reads why a same-kind sibling was skipped instead of guessing.
+      runtimeSelection = selectedRuntimeInstance({
+        agent,
+        ...(model === undefined ? {} : { model }),
+        instances: runtimeInstances,
+        selected: runtimeInstanceId,
+        ...(explicitRuntimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
+        ...(providerSessionId === null || providerSessionId === undefined ? {} : { resumedSession: true }),
+      });
     if (preview) return preview;
     const prepared = selection.launch.prepared!,
       fallbackAttempt = selection.launch.fallbackAttempt,
@@ -1018,16 +1035,28 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     attachActiveRuntime(extracted, active, resumeObservation);
     if (!requested.event || (!requested.receipt && !requested.publication))
       throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
+    // The receipt states which instance was chosen and which rule decided it; without this the
+    // operator sees only an id and has to infer why a same-kind sibling was skipped.
+    const selectionFields = {
+      runtimeSelection: {
+        instanceId: runtimeSelection.instanceId,
+        basis: runtimeSelection.basis,
+        reason: runtimeSelection.reason,
+        model: definition.model,
+      },
+    };
     return requested.receipt
       ? {
           ...requested.receipt,
           runtimeSessionId,
           dispatchId: newDispatchId,
+          ...selectionFields,
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         }
       : {
           ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+          ...selectionFields,
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };

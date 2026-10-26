@@ -19,10 +19,12 @@ import {
   type ProjectedAgentDeclaration,
 } from "./agent-declaration-resolution.ts";
 import {
+  agentRuntimeModelMatches,
   agentRuntimeTargetForKind,
   agentRuntimeTargetSummary,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
+import { agentRuntimeAmbiguityWarning } from "./runtime-instance-selection.ts";
 
 export {
   agentDeclarationInvalidCode,
@@ -126,6 +128,8 @@ export interface EntityValidationReport {
   readonly kind?: AgentEntityKind;
   readonly entity?: { readonly id: string };
   readonly issues: readonly { readonly code: string; readonly message: string }[];
+  /** Non-blocking notices: a valid declaration whose dispatch target is still ambiguous. */
+  readonly warnings?: readonly { readonly code: string; readonly message: string }[];
 }
 export interface PreparedAgentEntityInstall {
   readonly kind: AgentEntityKind;
@@ -138,6 +142,8 @@ export interface PreparedAgentEntityInstall {
     readonly changed: boolean;
     readonly source: string;
     readonly issues: readonly unknown[];
+    /** Non-blocking notices: a valid install whose future dispatch target stays ambiguous. */
+    readonly warnings?: readonly { readonly code: string; readonly message: string }[];
   };
 }
 
@@ -504,10 +510,28 @@ function validateEntityDeclarationSource(input: {
   if ("issues" in decoded) return { schema: "entity-validate-report/v1", valid: false, source, issues: decoded.issues };
   if (input.kind === "agent") {
     const issue =
-      agentRuntimeSelectionIssue(decoded.declaration, input.runtimeInstances) ??
-      // Dispatch resolves the same paths at spawn time; validate answers before install instead.
-      agentSkillResolutionIssue(input.rootDir, decoded.declaration);
-    if (issue) return { schema: "entity-validate-report/v1", valid: false, source, issues: [issue] };
+        agentRuntimeSelectionIssue(decoded.declaration, input.runtimeInstances) ??
+        // Dispatch resolves the same paths at spawn time; validate answers before install instead.
+        agentSkillResolutionIssue(input.rootDir, decoded.declaration),
+      warnings =
+        input.runtimeInstances === undefined
+          ? []
+          : [
+              agentRuntimeAmbiguityWarning({
+                agent: decoded.declaration,
+                runtimeInstances: input.runtimeInstances,
+              }),
+            ].filter((warning): warning is { readonly code: string; readonly message: string } => warning !== null);
+    if (issue) return { schema: "entity-validate-report/v1", valid: false, source, issues: [issue], warnings };
+    return {
+      schema: "entity-validate-report/v1",
+      valid: true,
+      source,
+      kind: input.kind,
+      entity: { id: decoded.declaration.id },
+      issues: [],
+      warnings,
+    };
   }
   return {
     schema: "entity-validate-report/v1",
@@ -590,7 +614,18 @@ export function prepareAgentEntityInstall(input: {
     if (issue) throw agentInstallError("agent", issue.code, issue.message, "agent/runtime-compatibility");
   }
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
-    changed = current.value === null || `${JSON.stringify(current.value, null, 2)}\n` !== body;
+    changed = current.value === null || `${JSON.stringify(current.value, null, 2)}\n` !== body,
+    // Install is the last moment the author can state a preference before dispatch guesses, so the
+    // ambiguity rides the receipt as a warning instead of failing an otherwise valid declaration.
+    warnings =
+      kind !== "agent" || input.runtimeInstances === undefined
+        ? []
+        : [
+            agentRuntimeAmbiguityWarning({
+              agent: declaration as AgentDeclarationV1,
+              runtimeInstances: input.runtimeInstances,
+            }),
+          ].filter((warning): warning is { readonly code: string; readonly message: string } => warning !== null);
   return {
     kind,
     declaration,
@@ -602,6 +637,7 @@ export function prepareAgentEntityInstall(input: {
       changed,
       source,
       issues: [],
+      ...(warnings.length > 0 ? { warnings } : {}),
     },
   };
 }
@@ -854,9 +890,11 @@ export function agentRuntimeSelectionIssue(
   if (runtimeInstances === undefined) return null;
   const available = (runtimeInstances ?? []).filter((instance) => instance.enabled),
     kindCompatible = available.filter((instance) => agentRuntimeKindMatches(agent.runtimes, instance.kindId)),
+    // A case-insensitive catalog spelling is compatible: the resolver admits it and ranks the
+    // verbatim spelling first. Validation must not demand more than dispatch accepts.
     compatible = kindCompatible.filter((instance) => {
       const target = agentRuntimeTargetForKind(agent.runtimes, instance.kindId);
-      return target?.model === undefined || instance.models.includes(target.model);
+      return target?.model === undefined || agentRuntimeModelMatches(instance.models, target.model);
     });
   if (agent.instance !== undefined) {
     const selected = available.find((instance) => instance.instanceId === agent.instance);
@@ -875,9 +913,10 @@ export function agentRuntimeSelectionIssue(
     return null;
   }
   // Ambiguity between enabled compatible instances is not an install-time fault: dispatch ranks
-  // the candidates deterministically (runtimes row order, then live load, then the configured
-  // allowlist order the resolver already emits) and the declaration only pins `instance` when the
-  // author wants that node-local binding.
+  // the candidates deterministically (runtimes row order, then the declaration's preferredInstances,
+  // then exact-over-case-insensitive model spelling, then live load, then the configured allowlist
+  // order) and the declaration only pins `instance` when the author wants that node-local binding.
+  // `agentRuntimeAmbiguityWarning` reports the unstated choice separately as a non-blocking warning.
   if (compatible.length > 0) return null;
   if (kindCompatible.length === 0)
     return {

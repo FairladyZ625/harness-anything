@@ -72,6 +72,36 @@ export const agentRuntimeTargetForKind = <T extends { readonly type: string }>(
 ): T | undefined => runtimes.find((target) => target.type === kindId);
 export const agentRuntimeTargetSummary = (runtimes: readonly { readonly type: string }[]): string =>
   runtimes.length === 0 ? "any" : runtimes.map((target) => target.type).join(", ");
+/**
+ * How well one instance's model catalog answers a declared model: 2 when the exact string is
+ * listed, 1 when only a case-insensitive spelling is (providers publish `Deepseek-V4.1-Flash`
+ * where a declaration writes `deepseek-v4.1-flash`), 0 when absent.
+ *
+ * Model ids are provider identifiers, so this is deliberately the ONLY tolerant comparison in the
+ * resolver: matching case-insensitively everywhere would let two distinct catalog entries collapse
+ * into one candidate, while matching nowhere strands a declaration on a same-kind instance it did
+ * not name. Ranking by tier keeps the exact spelling ahead of a case variant, so the choice is
+ * explainable instead of depending on catalog order.
+ */
+export const agentRuntimeModelTier = (models: readonly string[], requested: string | undefined): 0 | 1 | 2 => {
+  if (requested === undefined) return 2;
+  if (models.includes(requested)) return 2;
+  const folded = requested.toLowerCase();
+  return models.some((model) => model.toLowerCase() === folded) ? 1 : 0;
+};
+/** Whether an instance's catalog can serve the requested model at all (any tier above zero). */
+export const agentRuntimeModelMatches = (models: readonly string[], requested: string | undefined): boolean =>
+  agentRuntimeModelTier(models, requested) > 0;
+/**
+ * The catalog's own spelling of a requested model. The instance store validates `models` membership
+ * verbatim, so a declaration that differs only by letter case must launch the instance's spelling —
+ * never its own — or `selectRuntimeModel` rejects a pairing the resolver just accepted.
+ */
+export const agentRuntimeModelSpelling = (models: readonly string[], requested: string): string | null => {
+  if (models.includes(requested)) return requested;
+  const folded = requested.toLowerCase();
+  return models.find((model) => model.toLowerCase() === folded) ?? null;
+};
 /** Every declared runtime row pins a model, so no dispatch can land on an instance default. */
 export const agentDeclaresExplicitModels = (
   runtimes: readonly { readonly type: string; readonly model?: string }[],
