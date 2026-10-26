@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { zstdCompressSync } from "node:zlib";
-import { attachActiveRuntime, createActiveRuntime } from "../src/runtime-spawn-active.ts";
+import {
+  attachActiveRuntime,
+  createActiveRuntime,
+  disposeActiveRuntimeObservations,
+} from "../src/runtime-spawn-active.ts";
 import { observeResumeProcess } from "../src/runtime-spawn-process.ts";
 import {
   consumeDurableOutput,
@@ -96,6 +100,9 @@ test("resume observation preserves durable provider output provenance", async ()
   await Promise.all(scheduled);
 
   assert.deepEqual(consumed, [{ chunk: frame, persisted: true }]);
+  // The attach owns a recursive watcher for the fixture workspace; an undisposed one is the open
+  // handle that keeps this test process from exiting.
+  disposeActiveRuntimeObservations(runtime);
 });
 
 test("runtime callbacks enqueue output before a subsequently observed exit", async () => {
@@ -137,6 +144,7 @@ test("runtime callbacks enqueue output before a subsequently observed exit", asy
   assert.equal(scheduled.length, 2);
   for (const effect of scheduled) await effect();
   assert.deepEqual(observed, ["output:last-frame", "flush", "exit:0"]);
+  disposeActiveRuntimeObservations(runtime);
 });
 
 test("Codex stream normalizes usage, ten tool calls, compaction, and preserves raw usage", async () => {
