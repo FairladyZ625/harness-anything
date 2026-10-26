@@ -1,12 +1,24 @@
 #!/usr/bin/env node
 import { decisionAmendableFields, entityFieldContracts } from "../packages/kernel/src/domain/entity-field-contracts.ts";
+import { loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
-const defaultExpectedFields = Object.fromEntries(
-  Object.entries(entityFieldContracts).map(([entityKind, fields]) => [entityKind, Object.keys(fields).sort()]),
-);
-
-export function checkEntityFieldCoverage(contracts = entityFieldContracts, expectedFields = defaultExpectedFields) {
+// The expected field lists are an external authority
+// (tools/gate-allowlists/check-schema-field-coverage.json): this gate used to
+// derive expectedFields from entityFieldContracts itself, which made the
+// default coverage comparison tautological (ADR-0022:123;
+// dec_F5B2CBF8B45042B6DA2824A7FA/CH2b). Both arguments are required so no
+// call path can rebuild the self-comparison.
+export function checkEntityFieldCoverage(contracts, expectedFields) {
+  if (contracts === null || typeof contracts !== "object") throw new Error("contracts must be an object");
+  if (expectedFields === null || typeof expectedFields !== "object") {
+    throw new Error("expectedFields must be an object");
+  }
   const violations = [];
+  for (const entityKind of Object.keys(contracts)) {
+    if (!Object.hasOwn(expectedFields, entityKind)) {
+      violations.push(`${entityKind}: field contracts exist without an external expected field list`);
+    }
+  }
   for (const [entityKind, expected] of Object.entries(expectedFields)) {
     const fields = contracts[entityKind];
     if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
@@ -73,8 +85,35 @@ export function checkEntityFieldCoverage(contracts = entityFieldContracts, expec
   return violations;
 }
 
+export function loadExpectedFieldLists() {
+  const allowlist = loadGateAllowlist("check-schema-field-coverage", { requiredSections: ["expectedFields"] });
+  const expectedFields = {};
+  for (const entry of allowlist.expectedFields) {
+    if (
+      entry === null ||
+      typeof entry !== "object" ||
+      typeof entry.entityKind !== "string" ||
+      entry.entityKind.trim() === ""
+    ) {
+      throw new Error("expectedFields entries must name a non-empty entityKind");
+    }
+    if (Object.hasOwn(expectedFields, entry.entityKind)) {
+      throw new Error(`expectedFields declares entityKind ${entry.entityKind} more than once`);
+    }
+    if (
+      !Array.isArray(entry.fields) ||
+      entry.fields.length === 0 ||
+      entry.fields.some((field) => typeof field !== "string" || field.trim() === "")
+    ) {
+      throw new Error(`expectedFields entry for ${entry.entityKind} must be a non-empty list of field names`);
+    }
+    expectedFields[entry.entityKind] = [...entry.fields].sort();
+  }
+  return expectedFields;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const violations = checkEntityFieldCoverage();
+  const violations = checkEntityFieldCoverage(entityFieldContracts, loadExpectedFieldLists());
   if (violations.length > 0) {
     console.error("Schema field coverage check failed:");
     for (const violation of violations) console.error(`- ${violation}`);

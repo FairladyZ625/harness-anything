@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 
+// @canonical-substrate sha256Text sha256Bytes stablePayloadHash stableStringify
+// Single canonical implementation authority (ADR-0022 D6); duplicate
+// definitions anywhere else in packages/ fail check-integrity-single-source.
 export function sha256Text(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }

@@ -67,9 +67,9 @@ const jsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["intentionalTestDeletions"],
   },
-  "check-integrity-single-source.json": {
-    pathSections: { authorities: "path" },
-    nonPathSections: [],
+  "check-schema-field-coverage.json": {
+    pathSections: {},
+    nonPathSections: ["expectedFields"],
   },
   "check-kernel-dead-exports.json": {
     pathSections: {},

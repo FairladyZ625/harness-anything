@@ -1,0 +1,92 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-schema-field-coverage",
+  "entries": {
+    "expectedFields": [
+      {
+        "entityKind": "decision",
+        "fields": [
+          "appliesTo",
+          "arbiter",
+          "body",
+          "chosen",
+          "claims",
+          "decisionClass",
+          "decisionId",
+          "judgmentConsents",
+          "preset",
+          "proposer",
+          "provenance",
+          "question",
+          "rejected",
+          "relations",
+          "riskTier",
+          "schema",
+          "state",
+          "title",
+          "urgency",
+          "vertical"
+        ],
+        "ref": "ADR-0022#D6",
+        "reason": "External expected field list; the live contract table must match it exactly. Replaces the tautological self-derived default (ADR-0022:123; dec_F5B2CBF8B45042B6DA2824A7FA/CH2b)."
+      },
+      {
+        "entityKind": "task",
+        "fields": [
+          "createdBy",
+          "lifecycle",
+          "packageDisposition",
+          "parent",
+          "preset",
+          "profile",
+          "provenance",
+          "riskTier",
+          "schema",
+          "task_id",
+          "title",
+          "urgency",
+          "vertical",
+          "workKind"
+        ],
+        "ref": "ADR-0022#D6",
+        "reason": "External expected field list; the live contract table must match it exactly. Replaces the tautological self-derived default (ADR-0022:123; dec_F5B2CBF8B45042B6DA2824A7FA/CH2b)."
+      },
+      {
+        "entityKind": "fact",
+        "fields": [
+          "confidence",
+          "domainTypes",
+          "evidenceSource",
+          "factId",
+          "memoryClass",
+          "memoryTags",
+          "observedAt",
+          "observedCommit",
+          "provenance",
+          "reclassificationRationale",
+          "registersDomainType",
+          "statement",
+          "supersedes"
+        ],
+        "ref": "ADR-0022#D6",
+        "reason": "External expected field list; the live contract table must match it exactly. Replaces the tautological self-derived default (ADR-0022:123; dec_F5B2CBF8B45042B6DA2824A7FA/CH2b)."
+      },
+      {
+        "entityKind": "relation",
+        "fields": [
+          "direction",
+          "origin",
+          "rationale",
+          "relation_id",
+          "source",
+          "state",
+          "strength",
+          "target",
+          "type"
+        ],
+        "ref": "ADR-0022#D6",
+        "reason": "External expected field list; the live contract table must match it exactly. Replaces the tautological self-derived default (ADR-0022:123; dec_F5B2CBF8B45042B6DA2824A7FA/CH2b)."
+      }
+    ]
+  }
+}
