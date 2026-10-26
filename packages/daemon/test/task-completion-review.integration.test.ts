@@ -125,7 +125,7 @@ test("submit enters independent review automatically and completion still requir
   }
 });
 
-test("a low declaration raised to high freezes the assessed tier, consent, and configured GUI acceptance", async () => {
+test("a low declaration raised to high freezes the assessed tier and consent without GUI acceptance", async () => {
   const f = await fixture(false, true, true, false, false, {
     autoSubmit: false,
     guiDelivery: true,
@@ -140,7 +140,6 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
       path.join(tools, "task-risk-manifest.json"),
       JSON.stringify({
         schema: "task-risk-manifest/v1",
-        lowGuiAcceptance: true,
         scripts: [
           {
             id: "fixture-high-floor",
@@ -172,10 +171,33 @@ test("a low declaration raised to high freezes the assessed tier, consent, and c
       false,
       "risk-floor escalation changes review only",
     );
-    assert.equal(assessment.guiAcceptanceRequired, true);
-    assert.ok(submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
+    assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
+    assert.ok(!submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
     assert.match(assessment.reasons.join("\n"), /fixture high floor/u);
     console.info(`SUBMISSION_RISK_TIER_ASSESSMENT ${JSON.stringify(assessment)}`);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a low-tier packages/gui delivery freezes no GUI acceptance gate", async () => {
+  const f = await fixture(false, true, true, false, false, {
+    autoSubmit: false,
+    guiDelivery: true,
+    submitCommit: true,
+    create: { riskTier: "low" },
+  });
+  try {
+    await f.install();
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = f.events().find((candidate) => candidate.type === "execution_submitted");
+    assert.ok(event?.type === "execution_submitted");
+    const submission = event.payload.execution.submission;
+    assert.ok(submission);
+    assert.equal(submission.riskTierAssessment?.effectiveTier, "low");
+    assert.equal(Object.hasOwn(submission.riskTierAssessment!, "guiAcceptanceRequired"), false);
+    assert.ok(!submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));
   } finally {
     await f.close();
   }

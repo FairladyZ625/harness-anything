@@ -266,6 +266,54 @@ test("a submission carries its frozen completion contract as a required field", 
   assert.equal(validateSubmissionV1({ ...submission, completionContract: { gates: [], reviewer: "x" } }).length, 1);
 });
 
+test("historical GUI risk assessment fields remain optional booleans", () => {
+  const assessment = {
+      schema: "task-risk-tier-assessment/v1",
+      declaredTier: "low",
+      effectiveTier: "low",
+      deliveryBaseSha: null,
+      deliveryHeadSha: "a".repeat(40),
+      matchedPathReviewers: [],
+      reasons: [],
+    },
+    submission = {
+      completionClaim: "Delivered.",
+      deliverables: ["packages/gui/src/App.tsx"],
+      outputs: [],
+      verificationNotes: ["Tests passed."],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: "a".repeat(40),
+      riskTierAssessment: assessment,
+      completionContract: historicalContract,
+    };
+
+  assert.deepEqual(
+    validateSubmissionV1({
+      ...submission,
+      riskTierAssessment: { ...assessment, guiAcceptanceRequired: true },
+    }),
+    [],
+    "the historical boolean value remains valid",
+  );
+  assert.deepEqual(validateSubmissionV1(submission), [], "new assessments omit the retired field");
+  assert.deepEqual(
+    validateSubmissionV1({
+      ...submission,
+      riskTierAssessment: { ...assessment, guiAcceptanceRequired: false },
+    }),
+    [],
+    "either historical boolean value remains valid",
+  );
+  assert.equal(
+    validateSubmissionV1({
+      ...submission,
+      riskTierAssessment: { ...assessment, guiAcceptanceRequired: "true" },
+    }).length,
+    1,
+  );
+});
+
 test("unconverted history never infers requirements from the current settings", () => {
   assert.equal(validateFrozenCompletionContract({ gates: historicalContract.gates }, true).length, 1);
   assert.equal(

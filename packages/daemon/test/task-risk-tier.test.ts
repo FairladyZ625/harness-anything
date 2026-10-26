@@ -73,7 +73,7 @@ test("risk assessment freezes the real diff anchors and path reviewer hits", asy
   assert.equal(assessment.deliveryHeadSha, delivery.headSha);
   assert.deepEqual(assessment.matchedPathReviewers, [lane]);
   assert.match(assessment.reasons.join("\n"), /packages\/app\/src\/main\.ts/u);
-  assert.equal(assessment.guiAcceptanceRequired, false);
+  assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
 });
 
 test("script floors and prior effective tiers can only raise the declared tier", async (t) => {
@@ -101,8 +101,8 @@ test("script floors and prior effective tiers can only raise the declared tier",
   assert.equal(assessment.effectiveTier, "high");
 });
 
-test("configured GUI acceptance survives a risk-tier increase", async (t) => {
-  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
+test("GUI paths never add GUI-specific policy to an elevated risk assessment", async (t) => {
+  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [] });
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const assessment = await assessTaskRiskTier({
@@ -117,11 +117,11 @@ test("configured GUI acceptance survives a risk-tier increase", async (t) => {
   });
 
   assert.equal(assessment.effectiveTier, "high");
-  assert.equal(assessment.guiAcceptanceRequired, true);
+  assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
 });
 
-test("missing scripts use the declared tier and GUI acceptance follows repository configuration", async (t) => {
-  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
+test("missing scripts use the declared tier without GUI-specific assessment fields", async (t) => {
+  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [] });
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const assessment = await assessTaskRiskTier({
@@ -135,7 +135,17 @@ test("missing scripts use the declared tier and GUI acceptance follows repositor
   });
 
   assert.equal(assessment.effectiveTier, "low");
-  assert.equal(assessment.guiAcceptanceRequired, true);
+  assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
+});
+
+test("the retired lowGuiAcceptance manifest switch is rejected", async (t) => {
+  const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  await assert.rejects(
+    assessTaskRiskTier({ rootDir: root, task, delivery, matchedPathReviewers: [] }),
+    /must use task-risk-manifest\/v1/u,
+  );
 });
 
 test("failed and malformed configured scripts reject assessment with their own output", async (t) => {
