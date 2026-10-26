@@ -902,6 +902,7 @@ export async function dispatchTaskReview(
       // A reviewer whose stored declaration fails the current schema (the rewrite window) rejects
       // the task with the reinstall command; the raw contract message never surfaces.
       if (!isAgentDeclarationInvalid(error)) throw error;
+      consumeKnownError(error);
       fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
       continue;
     }

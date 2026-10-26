@@ -1,14 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readSubmissionFacts, type ExecutionV1, type SubmissionV1 } from "@harness-anything/kernel";
-import {
-  reviewPathHits,
-  reviewPathMatches,
-  reviewPathRules,
-  reviewPathSeatPrompt,
-  reviewPathSeats,
-} from "../src/review-path-matching.ts";
+import { readSubmissionFacts, type SubmissionV1 } from "@harness-anything/kernel";
+import { reviewPathHits, reviewPathRules, reviewPathSeatPrompt, reviewPathSeats } from "../src/review-path-matching.ts";
 
 const submission = (
   deliverables: readonly string[],
