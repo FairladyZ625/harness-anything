@@ -37,20 +37,25 @@ export function AgentVersionPanel({
   readonly onSave: (declaration: AgentDeclarationV1, expectedVersion: number) => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
+  // `revision` is the detail's declaration revision: it is the fallback the panel stands on when
+  // the history page has not answered yet, so the current version is readable immediately.
   const history = useQuery({
       queryKey: ["agent-history", repoId, agentId],
       queryFn: () => agentEntityClient.readAgentHistory(repoId, agentId),
       staleTime: 4_000,
     }),
     version = useQuery({
-      queryKey: ["agent-version", repoId, agentId, selected],
-      queryFn: () => agentEntityClient.readAgentVersion(repoId, agentId, selected ?? 0),
-      enabled: selected !== null,
+      queryKey: ["agent-version", repoId, agentId, selected ?? "current"],
+      queryFn: () => agentEntityClient.readAgentVersion(repoId, agentId, selected ?? revision),
+      enabled: selected !== null || revision > 0,
       staleTime: 4_000,
     });
   const versions = history.data?.versions ?? [],
     current = versions.find((row) => row.current) ?? versions[0],
-    chosen = selected === null ? null : (versions.find((row) => row.revision === selected) ?? null);
+    // 未选中时默认站在当前版本上:空右栏对「这一版和现在差在哪」没有回答,而当前版本
+    // 的字段差异恒为空,是唯一不会误导读者的入口。
+    chosen =
+      selected === null ? (current ?? null) : (versions.find((row) => row.revision === selected) ?? current ?? null);
   return (
     <Sect title={t("agentRuntime.versions")} desc={t("agentRuntime.versionsDesc")}>
       {history.isPending ? (
@@ -70,10 +75,10 @@ export function AgentVersionPanel({
                 <button
                   type="button"
                   data-testid={`agent-version-row-${row.revision}`}
-                  aria-current={row.revision === (chosen?.revision ?? current?.revision) ? "true" : undefined}
+                  aria-current={row.revision === chosen?.revision ? "true" : undefined}
                   onClick={() => setSelected(row.revision)}
                   className={`flex w-full flex-col gap-0.5 border-b border-border px-2 py-1.5 text-left last:border-b-0 hover:bg-surface-raised ${
-                    row.revision === (chosen?.revision ?? current?.revision) ? "bg-surface-raised" : ""
+                    row.revision === chosen?.revision ? "bg-surface-raised" : ""
                   }`}
                 >
                   <span className="flex items-center gap-1.5 ui-micro">

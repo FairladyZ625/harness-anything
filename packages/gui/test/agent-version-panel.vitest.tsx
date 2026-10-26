@@ -188,6 +188,27 @@ describe("agent version panel", () => {
     expect(onSave.mock.calls[0]![1]).toBe(3);
   });
 
+  it("stands on the current version before any click, so the panel is never an empty right column", async () => {
+    vi.spyOn(agentEntityClient, "readAgentHistory").mockResolvedValue(historyFixture(3));
+    const read = vi.spyOn(agentEntityClient, "readAgentVersion").mockResolvedValue(versionFixture(3, 3));
+    mount(
+      createElement(AgentVersionPanel, {
+        repoId: "repo-a",
+        agentId: "terra",
+        revision: 3,
+        retired: false,
+        busy: false,
+        onSave: () => undefined,
+      }),
+    );
+    await flushQueries();
+    // No click: the detail revision is what the panel stands on, and the version read already ran.
+    expect(read).toHaveBeenCalledWith("repo-a", "terra", 3);
+    expect(byTestId("agent-version-row-3")!.getAttribute("aria-current")).toBe("true");
+    expect(byTestId("agent-version-detail")).not.toBeNull();
+    expect((byTestId("agent-version-rollback") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("disables rollback on the current version instead of offering a no-op write", async () => {
     vi.spyOn(agentEntityClient, "readAgentHistory").mockResolvedValue(historyFixture(3));
     vi.spyOn(agentEntityClient, "readAgentVersion").mockResolvedValue(versionFixture(3, 3));
