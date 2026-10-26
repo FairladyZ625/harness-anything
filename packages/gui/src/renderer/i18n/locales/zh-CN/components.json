@@ -253,7 +253,7 @@
   "components.taskCloseout.resolvedByPrefix": "由 ",
   "components.taskCloseout.resolvedBySuffix": " 解决",
   "components.taskCloseout.completionTitle": "完成销账",
-  "components.taskCloseout.stageReviewDesc": "独立评审尚未记录结论:评审员只查验;changes_requested 会自动重开返工,仅预算耗尽的切面等业主处置;获批前完成不可用。",
+  "components.taskCloseout.stageReviewDesc": "独立评审尚未记录结论:评审员只查验;预算未耗尽时 changes_requested 会自动重开返工;预算耗尽后业主可运行 ha task rework <task-id> --reason <why> 退回;获批前完成不可用。",
   "components.taskCloseout.stageConsentDesc": "独立评审已批准:owner 终审批准即按已评审内容记录同意;同意后完成是纯机械动作。",
   "components.taskCloseout.stageReadyDesc": "终审批准已记录:结项是纯机械动作,立即封存。",
   "components.taskCloseout.completionConsent": "终审批准",

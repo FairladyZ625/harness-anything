@@ -936,7 +936,7 @@ test(
       await f.waitForProviderBinding(first.payload.dispatchId, "review-provider-session");
       f.failPending();
       await f.awaitOutcome(first.payload.runtimeSessionId);
-      // The changes_requested verdict reopens the round itself; no owner return command exists.
+      // Below the budget the changes_requested verdict reopens the round itself.
       const reviewed = await requestChanges(f, first.payload.runtimeSessionId, reviewId);
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
       const nextExecution = "execution-review-resume-next";

@@ -63,6 +63,7 @@ type LifecyclePublicationAction =
   | "task-submit"
   | "task-review-execution"
   | "task-respond-review"
+  | "task-rework"
   | "task-complete";
 
 export function parseThinCommand(

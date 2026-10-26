@@ -315,10 +315,9 @@ export async function runTaskActionCatalogRuntime(
       result.proof,
       authorityProof.authorizationDecision,
     );
-    // The automatic review loop: a changes_requested verdict that just reopened the implementation
-    // round continues the submitting worker with the review report; an exhausted rework budget
-    // names the owner's disposition lanes. Every other verdict returns the receipt unchanged.
-    return action.kind === "task-review-execution"
+    // Both automatic and owner-authorized returns use the same continuation: locate the authoring
+    // dispatch for this execution, carry the registered report, and let the spawner own admission.
+    return action.kind === "task-review-execution" || action.kind === "task-rework"
       ? await continueReviewRework(cell, action, binding, receipt)
       : receipt;
   }

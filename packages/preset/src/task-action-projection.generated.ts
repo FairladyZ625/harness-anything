@@ -316,6 +316,38 @@ export const taskActionDescriptorProjection = {
       },
     },
     {
+      id: "rework",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", type: "string", required: true },
+          { field: "expectedVersion", type: "number", required: false },
+          { field: "executionId", type: "string", required: false },
+          { field: "reviewId", type: "string", required: false },
+          {
+            field: "reason",
+            type: "string",
+            required: true,
+            cli: { name: "--reason", kind: "single", error: "missing_field" },
+          },
+          { field: "commandType", type: "string", required: false, enum: ["ReworkTask"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Return an exhausted review cut to rework with an owner reason and continue its original worker.",
+      execution: {
+        ingress: "task-rework",
+        topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
+        lifecycle: {
+          transitionId: "rework_task",
+          commandType: "ReworkTask",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
       id: "consent",
       input: {
         schema: "entity-action-input/v1",

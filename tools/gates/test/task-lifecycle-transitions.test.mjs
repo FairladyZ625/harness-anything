@@ -166,6 +166,28 @@ function reviewProof(actor = reviewer, reworkBudget = 2) {
     reworkBudget,
   };
 }
+function rework(revision, executionId = "execution-1", reviewId = "review-reject-1", actor = owner) {
+  return command(
+    actor,
+    revision,
+    {
+      type: "ReworkTask",
+      taskId: "task-1",
+      executionId,
+      reviewId,
+      reason: "Owner is returning the exhausted review cut for another implementation round.",
+    },
+    `rework-${executionId}-${reviewId}`,
+  );
+}
+function reworkProof(actor = owner, reworkBudget = 1) {
+  return {
+    actorBinding: actor,
+    capability: "task-rework@v1",
+    capabilityRef: "capability:owner-rework",
+    reworkBudget,
+  };
+}
 function consent(revision, recorded, actor = owner) {
   return command(
     actor,
@@ -260,11 +282,17 @@ test("G10 block, unblock, and cancel are catalog transitions while unrelated act
   // owns every exit, so blocked->active can never skip the audited rework round.
   assert.throws(
     () => applyTransition(submitted.snapshot, transition(4, "blocked"), {}),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
+    (error) =>
+      error instanceof TaskLifecycleContractError &&
+      error.code === "invalid_transition" &&
+      /ha task rework task-1 --reason <why>/u.test(error.message),
   );
   assert.throws(
     () => applyTransition(submitted.snapshot, transition(4, "active"), {}),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
+    (error) =>
+      error instanceof TaskLifecycleContractError &&
+      error.code === "invalid_transition" &&
+      /ha task rework task-1 --reason <why>/u.test(error.message),
   );
 });
 
@@ -575,6 +603,45 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
     { status: "in_review", node: "review", iteration: 1, execution: "submitted", reviews: 2, edges: 3 },
   );
   assert.deepEqual(reduceTaskEvent(resubmitted.snapshot, capped.event), capped.snapshot);
+  const ownerReturned = applyTransition(capped.snapshot, rework(8), reworkProof());
+  assert.deepEqual(
+    {
+      status: ownerReturned.snapshot.task.status,
+      node: ownerReturned.snapshot.task.currentNode,
+      iteration: ownerReturned.snapshot.task.iteration,
+      execution: ownerReturned.snapshot.executions[1].state,
+      lease: ownerReturned.snapshot.lease,
+      eventType: ownerReturned.event.type,
+      reason: ownerReturned.event.payload.reason,
+      reviewId: ownerReturned.event.payload.reviewId,
+      actor: ownerReturned.event.actor,
+    },
+    {
+      status: "active",
+      node: "implementation",
+      iteration: 2,
+      execution: "changes_requested",
+      lease: null,
+      eventType: "submission_returned",
+      reason: "Owner is returning the exhausted review cut for another implementation round.",
+      reviewId: "review-reject-1",
+      actor: owner,
+    },
+  );
+  assert.deepEqual(reduceTaskEvent(capped.snapshot, ownerReturned.event), ownerReturned.snapshot);
+  assert.throws(
+    () => applyTransition(capped.snapshot, rework(8), reworkProof(owner, 0)),
+    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
+  );
+  assert.throws(
+    () =>
+      applyTransition(capped.snapshot, rework(8, "execution-1", "review-reject-1", outsider), reworkProof(outsider)),
+    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
+  );
+  assert.throws(
+    () => applyTransition(capped.snapshot, rework(8, "execution-1", "review-missing"), reworkProof()),
+    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
+  );
   // The proof without a usable budget is refused before any write.
   assert.throws(
     () =>
@@ -585,6 +652,43 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
         reworkBudget: 0,
       }),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
+  );
+});
+
+test("G10 a consent conflict prints the existing --dispose recovery command", () => {
+  const { submitted } = firstRound(),
+    firstReturn = applyTransition(
+      submitted.snapshot,
+      review(4, { verdict: "changes_requested", reviewId: "review-reject-1" }),
+      reviewProof(reviewer, 1),
+    ),
+    restarted = applyTransition(firstReturn.snapshot, start(5, "execution-1"), startProof("execution-1")),
+    secondSubmission = applyTransition(restarted.snapshot, submit(6, "execution-1"), submitProof()),
+    adverse = applyTransition(
+      secondSubmission.snapshot,
+      review(7, {
+        verdict: "changes_requested",
+        executionId: "execution-1",
+        iteration: 1,
+        reviewId: "review-reject-2",
+      }),
+      reviewProof(reviewer, 1),
+    ),
+    approved = applyTransition(
+      adverse.snapshot,
+      review(8, { executionId: "execution-1", iteration: 1, reviewId: "review-approved" }),
+      reviewProof(),
+    ),
+    selected = approved.snapshot.reviews.at(-1);
+  assert.ok(selected);
+  assert.throws(
+    () => applyTransition(approved.snapshot, consent(9, selected), consentProof()),
+    (error) =>
+      error instanceof TaskLifecycleContractError &&
+      error.code === "invalid_proof" &&
+      /ha task review-consent task-1 --execution-id execution-1 --review-id review-approved --dispose review-reject-2 --rationale <why>/u.test(
+        error.message,
+      ),
   );
 });
 

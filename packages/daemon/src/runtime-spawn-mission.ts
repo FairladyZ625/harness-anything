@@ -470,7 +470,7 @@ export function taskReviewerNote(
   const taskReviewer = snapshot.task?.reviewer,
     repositoryReviewer = projectedRepositorySettings(projection)?.roles?.defaultReviewer,
     agentId = taskReviewer ?? repositoryReviewer ?? "closeout-reviewer";
-  return `本任务的提交将由评审员 ${agentId} 审查（${taskReviewer ? "任务指定" : repositoryReviewer ? "仓库默认" : "内置默认"}）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。`;
+  return `本任务的提交将由评审员 ${agentId} 审查（${taskReviewer ? "任务指定" : repositoryReviewer ? "仓库默认" : "内置默认"}）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。`;
 }
 
 /**

@@ -321,7 +321,7 @@ test("a recorded changes_requested review guides the owner's disposition instead
   // changes_requested verdict itself (allowSelectedChangesRequested), never a placeholder.
   assert.equal(
     result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
+    "ha task rework task-1 --reason <why the owner is returning this cut>; or ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   assert.equal(result.next?.authority, "person-owner");
   assert.doesNotMatch(result.next!.reason, /no recorded review/u);
@@ -352,7 +352,7 @@ test("a changes request on the current cut comes before missing merge evidence",
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
+    "ha task rework task-1 --reason <why the owner is returning this cut>; or ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   // Without the changes request, the old frozen CI gate is interpreted through merge evidence.
   assert.equal(taskCompletionNext(reviewed, { ...context, delivery }).blocker?.code, "delivery_missing");
@@ -440,7 +440,7 @@ test("an undisposed changes request prevents an approved review from reaching co
   // adverse verdict beside it.
   assert.equal(
     result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution --dispose review-changes --rationale <why the adverse verdict is overruled>",
+    "ha task rework task-1 --reason <why the owner is returning this cut>; or ha task review-consent task-1 --execution-id execution-1 --review-id review-execution --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
 });
 

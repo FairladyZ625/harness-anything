@@ -1,4 +1,10 @@
-import { isNativeExecution, submissionId, validExecutionDeliveryBaseline, validateSubmissionV1 } from "./execution.ts";
+import {
+  isNativeExecution,
+  submissionDigest,
+  submissionId,
+  validExecutionDeliveryBaseline,
+  validateSubmissionV1,
+} from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
@@ -8,6 +14,7 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import type {
   ExecutionStartedEvent,
   ExecutionSubmittedEvent,
+  SubmissionReturnedEvent,
   TaskCreatedEvent,
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
@@ -23,6 +30,8 @@ import type {
   StartExecutionProof,
   SubmitExecutionCommand,
   SubmitExecutionProof,
+  ReworkTaskCommand,
+  ReworkTaskProof,
   TaskLifecycleSnapshot,
   Transition,
   TransitionResult,
@@ -269,7 +278,8 @@ export const block: Transition = {
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "BlockTask requires an unleased planned or active implementation task",
+          `BlockTask requires an unleased planned or active implementation task; an in_review cut must use ` +
+            `ha task rework ${command.taskId} --reason <why> or ha task review-consent ${command.taskId}`,
         ),
       );
     return issues;
@@ -370,7 +380,13 @@ export const unblock: Transition = {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
     if (snapshot.task?.status !== "blocked" || !allowsTaskStatusMove(snapshot, "active"))
-      issues.push(lifecycleContractIssue("invalid_transition", "UnblockTask requires an unleased blocked task"));
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          `UnblockTask requires an unleased blocked task; an in_review cut must use ha task rework ${command.taskId} ` +
+            "--reason <why> or ha task review-consent",
+        ),
+      );
     return issues;
   },
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "active"),
@@ -498,7 +514,6 @@ export const submit: Transition = {
     };
   },
 };
-
 function reviewResponseSubmissionIssues(
   snapshot: TaskLifecycleSnapshot,
   submission: SubmitExecutionCommand["submission"],
@@ -539,3 +554,98 @@ function reviewResponseSubmissionIssues(
   for (const response of responses) issues.push(...validateTaskReviewResponseV1(response));
   return issues;
 }
+/** The owner's only manual escape hatch: return an exhausted review cut to implementation. */
+export const rework: Transition = {
+  actionId: "rework",
+  matches: (command) => command.type === "ReworkTask",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as ReworkTaskCommand,
+      proof = rawProof as Partial<ReworkTaskProof>,
+      issues = revisionIssues(snapshot, command),
+      task = snapshot.task,
+      current = execution(snapshot, command.executionId),
+      review = snapshot.reviews.find(
+        (value) =>
+          value.reviewId === command.reviewId &&
+          value.executionId === command.executionId &&
+          value.iteration === current?.iteration,
+      ),
+      returned = snapshot.executions.filter((value) => value.state === "changes_requested").length;
+    if (
+      !task ||
+      task.status !== "in_review" ||
+      task.currentNode !== "review" ||
+      snapshot.lease !== null ||
+      current?.state !== "submitted" ||
+      !current.submission
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "Task rework requires an unleased in_review task with a current submitted execution",
+        ),
+      );
+    if (
+      !review ||
+      review.verdict !== "changes_requested" ||
+      review.submissionDigest !== (current?.submission ? submissionDigest(current.submission) : null)
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "Task rework requires the named current changes_requested review; use --dispose with review-consent for an override",
+        ),
+      );
+    if (
+      !Number.isSafeInteger(proof.reworkBudget) ||
+      (proof.reworkBudget as number) < 1 ||
+      returned < (proof.reworkBudget as number)
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "Task rework is available only after the repository rework budget is exhausted",
+        ),
+      );
+    if (!isNonEmptyString(command.reason))
+      issues.push(lifecycleContractIssue("missing_field", "Task rework requires an auditable reason"));
+    if (
+      !proof.actorBinding ||
+      !isSameExecution(proof.actorBinding, command.actor) ||
+      proof.capability !== "task-rework@v1" ||
+      !isNonEmptyString(proof.capabilityRef) ||
+      !task ||
+      !isSamePerson(task.createdBy, command.actor)
+    )
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "only the task-owning principal may return exhausted rework"),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) => {
+    const command = raw as ReworkTaskCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      nextExecution: ExecutionV1 = { ...current, state: "changes_requested", closedAt: command.occurredAt },
+      task: TaskV2 = {
+        ...(snapshot.task as TaskV2),
+        status: "active",
+        currentNode: "implementation",
+        iteration: (snapshot.task?.iteration ?? 0) + 1,
+      };
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        task,
+        executions: replaceExecution(snapshot.executions, nextExecution),
+        lease: null,
+      },
+      event: envelope<SubmissionReturnedEvent>(command, "submission_returned", {
+        task,
+        execution: nextExecution,
+        reason: command.reason,
+        reviewId: command.reviewId,
+      }),
+    };
+  },
+};

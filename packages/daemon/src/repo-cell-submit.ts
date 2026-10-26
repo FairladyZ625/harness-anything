@@ -594,7 +594,8 @@ function ownerResumeLanes(snapshot: Snapshot, taskId: string, actor: RepoCellBin
   if (!task || !isSamePerson(task.createdBy, actor)) return "";
   return (
     ` The owning creator may instead replace the cut with ha task submit ${taskId} --amend --as-owner, ` +
-    "or wait for the reviewer verdict: changes_requested reopens the rework round automatically."
+    "or wait for the reviewer verdict: changes_requested reopens rework only while the automatic rework budget " +
+    `remains; after it is exhausted, the owner can return the cut with ha task rework ${taskId} --reason <why>.`
   );
 }
 

@@ -103,7 +103,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assertSubmitHintsParse(String(otherHolder.rejectionExplanation));
     assert.match(
       String(otherHolder.rejectionExplanation),
-      /wait for the reviewer verdict: changes_requested reopens the rework round automatically/u,
+      /changes_requested reopens rework only while the automatic rework budget remains; after it is exhausted, the owner can return the cut with ha task rework task-submit-exit --reason <why>/u,
     );
     const otherSettle = await cell.run({ kind: "task-settle", taskId }, binding("other-holder"));
     assert.equal(otherSettle.code, "lease_required", JSON.stringify(otherSettle));
@@ -152,7 +152,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(ownerRejoin.code, "lease_required", JSON.stringify(ownerRejoin));
     assert.match(
       String(ownerRejoin.rejectionExplanation),
-      /wait for the reviewer verdict: changes_requested reopens the rework round automatically/u,
+      /changes_requested reopens rework only while the automatic rework budget remains; after it is exhausted, the owner can return the cut with ha task rework task-submit-exit --reason <why>/u,
     );
   } finally {
     await cell?.close();

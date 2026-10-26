@@ -17,11 +17,13 @@ export function runtimeTaskExecutionFrozenError(taskId: string, status: string):
       field: "taskId",
       actual: status,
       expectation:
-        `Expected a task in implementation; wait for the cut's review verdict: changes_requested ` +
-        `reopens the rework round automatically. Review it with ha task dispatch-review ${taskId} --agent ` +
-        `<reviewer-agent-id>, ` +
-        `or attach a read-only Agent (permissionMode read-only in its declaration) with ` +
-        `ha agent run <read-only-agent-id> --task ${taskId}`,
+        status === "in_review"
+          ? `The implementation is frozen at the review gate. If the latest review is changes_requested and the ` +
+            `automatic rework budget is exhausted, the owner must run ha task rework ${taskId} --reason <why>; ` +
+            `an approved review uses ha task review-consent ${taskId}. ` +
+            `A read-only Agent may inspect the frozen cut with ha agent run <read-only-agent-id> --task ${taskId}.`
+          : `Expected a task in implementation; wait for the cut's review verdict or attach a read-only Agent ` +
+            `(permissionMode read-only in its declaration) with ha agent run <read-only-agent-id> --task ${taskId}`,
     },
   );
 }

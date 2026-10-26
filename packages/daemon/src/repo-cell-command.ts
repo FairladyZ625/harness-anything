@@ -94,6 +94,33 @@ export function buildCommand(
       force: action.force === true,
     });
   }
+  if (lifecycleAction?.commandType === "ReworkTask") {
+    const submitted = snapshot.executions.find(
+        (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted" && value.submission,
+      ),
+      review = submitted
+        ? snapshot.reviews.findLast(
+            (value) =>
+              value.executionId === submitted.executionId &&
+              value.iteration === submitted.iteration &&
+              value.verdict === "changes_requested" &&
+              value.submissionDigest === submissionDigest(submitted.submission!),
+          )
+        : undefined;
+    if (!submitted || !review)
+      throw cellCodedError(
+        "invalid_transition",
+        `Task ${taskId} has no current changes_requested review to return; use ha task review-consent ${taskId} ` +
+          "for an approved or disposed review, or wait for the current review.",
+      );
+    return normalizeTaskLifecycleCommand(bound, {
+      type: "ReworkTask",
+      taskId,
+      executionId: submitted.executionId,
+      reviewId: review.reviewId,
+      reason: requiredCellText(action.reason, "reason"),
+    });
+  }
   if (lifecycleAction?.commandType === "SubmitExecution") {
     const amendment = action.amend === true,
       ownerAmendment = action.asOwner === true,

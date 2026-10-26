@@ -431,7 +431,10 @@ export const consent: Transition = {
       issues.push(
         lifecycleContractIssue(
           "invalid_proof",
-          `review consent conflicts: ${describeReviewConsentConflicts(conflicts)}`,
+          `review consent conflicts: ${describeReviewConsentConflicts(conflicts)}; dispose the conflicting review(s) ` +
+            `with ha task review-consent ${command.taskId} --execution-id ${command.executionId} ` +
+            `--review-id ${command.reviewId} ${conflicts.map((value) => `--dispose ${value.reviewId}`).join(" ")} ` +
+            "--rationale <why>",
         ),
       );
     if (

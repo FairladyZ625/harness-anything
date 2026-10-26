@@ -127,7 +127,7 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   assert.match(prompt, /For a Task use ha task review-execution; for a Decision use ha decision review/u);
   assert.match(prompt, /stop if that cut changes/u);
   assert.match(prompt, /Do not amend the target/u);
-  assert.match(prompt, /changes_requested verdict automatically returns the cut/u);
+  assert.match(prompt, /changes_requested verdict returns the cut for rework while the automatic budget remains/u);
   assert.match(prompt, /# Required Skills.*review: \/skills\/review\/SKILL.md/su);
   assert.match(prompt, /Honor declared gates/u);
   // The CI wait is the reviewer's one write-family reach; publication stays delivery-only.
