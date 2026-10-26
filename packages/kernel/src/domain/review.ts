@@ -8,6 +8,8 @@ import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.t
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { timestamp } from "./timestamp.ts";
 import { reviewConsentConflicts } from "./review-consent-validity.ts";
+import { reviewFindingCategories, reviewFindingLabels } from "./review-settlement.ts";
+import type { ReviewFindingCategory, ReviewFindingLabel } from "./review-settlement.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
 export type ReviewResponseDisposition = "adopt" | "rebut";
@@ -16,6 +18,14 @@ export interface ReviewFindingV1 {
   readonly blocking: boolean;
   readonly text: string;
   readonly anchor?: string;
+  /** One settled or discarded category (dec_6A77D43B8523823ABA1F5E4D3C CH2); absent on history. */
+  readonly category?: ReviewFindingCategory;
+  /** The Anthropic-aligned label the reviewer claims; input to triage, never the verdict. */
+  readonly label?: ReviewFindingLabel;
+  /** Hash of the minimal evidence this finding rests on. */
+  readonly evidenceDigest?: `sha256:${string}`;
+  /** Same opinion carried from an earlier cut. */
+  readonly priorFindingRefs?: readonly string[];
 }
 export interface ReviewResolutionV1 {
   readonly reviewId: string;
@@ -212,7 +222,8 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
   const seen = new Set<string>();
   for (const finding of value) {
     const fields = ["findingId", "blocking", "text"] as const,
-      allowedFields = [...fields, "anchor"] as const;
+      optional = ["anchor", "category", "label", "evidenceDigest", "priorFindingRefs"] as const,
+      allowedFields = [...fields, ...optional];
     if (
       !isRecord(finding) ||
       !hasRequiredFields(finding, fields) ||
@@ -231,6 +242,20 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
     )
       issues.push(invalidReviewIssue("review findings require unique ids, blocking flags, and text"));
     else seen.add(finding.findingId);
+    if (
+      (finding.category !== undefined &&
+        !(reviewFindingCategories as readonly string[]).includes(String(finding.category))) ||
+      (finding.label !== undefined && !(reviewFindingLabels as readonly string[]).includes(String(finding.label))) ||
+      (finding.evidenceDigest !== undefined && !digest(finding.evidenceDigest)) ||
+      (finding.priorFindingRefs !== undefined &&
+        (!Array.isArray(finding.priorFindingRefs) ||
+          finding.priorFindingRefs.some((reference) => !isNonEmptyString(reference))))
+    )
+      issues.push(
+        invalidReviewIssue(
+          "review finding category, label, evidence digest, or prior finding refs are invalid when present",
+        ),
+      );
   }
   return issues;
 }

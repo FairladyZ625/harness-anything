@@ -63,7 +63,34 @@ export {
   reviewVerdicts,
   settledApprovedReviewsForExecution,
 } from "./review.ts";
-export type { ReviewV1 } from "./review.ts";
+export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
+
+export {
+  discardedFindingCategories,
+  hardRuleFindingCategories,
+  isDiscardedCategory,
+  isSettledFindingCategory,
+  reviewFindingCategories,
+  reviewFindingDispositions,
+  reviewFindingLabels,
+  reviewFindingThresholds,
+  settledFindingCategories,
+  settleReviewFindings,
+  validateReviewFindingTriageV1,
+} from "./review-settlement.ts";
+export type {
+  ReviewFindingCategory,
+  ReviewFindingDisposition,
+  ReviewFindingLabel,
+  ReviewFindingOutcome,
+  ReviewFindingSettlement,
+  ReviewFindingSettlementInput,
+  ReviewFindingThresholds,
+  ReviewFindingTriageV1,
+  SettleableReviewFinding,
+  SettledFindingCategory,
+  SettledReviewFinding,
+} from "./review-settlement.ts";
 
 export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
 export type { DomainStatus } from "./lifecycle-status.ts";
