@@ -11,6 +11,7 @@ import {
   getTaskActionForTransition,
   isNativeExecution,
   isSameExecution,
+  isSamePerson,
   localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -402,6 +403,25 @@ export async function proofFor(
       reworkBudget: readEffectiveReviewReturnBudget(projection),
       authorizationDecision,
     };
+  }
+  if (command.type === "ReworkTask") {
+    const authorizationDecision = requiredAuthorizationDecision(binding),
+      task = snapshot.task;
+    if (!task || !isSamePerson(task.createdBy, command.actor))
+      throw cellCriterionError(
+        "invalid_proof",
+        "Only the task-owning principal may return an exhausted review cut to rework.",
+        "rework",
+        "repo-cell-proof/proofFor.ReworkTask",
+        [`ha task rework ${command.taskId} --reason <why the owner is returning this cut>`],
+      );
+    return {
+      actorBinding: command.actor,
+      capability: "task-rework@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      reworkBudget: readEffectiveReviewReturnBudget(projection),
+      authorizationDecision,
+    } as TaskLifecycleServiceProof<typeof command>;
   }
   if (command.type === "RecordReviewConsent") {
     // Consent is a person's own confirmation. A fleet assignment authenticates a machine: the owner the

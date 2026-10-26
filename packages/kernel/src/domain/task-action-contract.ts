@@ -231,6 +231,17 @@ const lifecycleSpecs = Object.freeze({
     eventType: "task_review_responded",
     proof: ["actorBinding", "execution-review-response@v1", "contentCut"],
   },
+  rework: {
+    ingress: "task-rework",
+    commandType: "ReworkTask",
+    transitionId: "rework_task",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
+    coordination: "execute",
+    eventType: "submission_returned",
+    proof: ["ownerActor", "task-rework@v1", "exhaustedBudget", "auditableReason"],
+  },
   consent: {
     ingress: "task-review-consent",
     commandType: "RecordReviewConsent",
@@ -494,6 +505,32 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "operation-id", semanticKey: "reviewId/findingId" },
     ),
     explain: "Respond to each blocking review finding before the next task submission freezes the responses.",
+  }),
+  lifecycle("rework", {
+    input: input([
+      taskId,
+      expectedVersion,
+      field("executionId", "string", false),
+      field("reviewId", "string", false),
+      cli("reason", "string", true, "--reason"),
+    ]),
+    criteria: Object.freeze([
+      criterion(
+        "task-lifecycle-command-transitions/rework.validate",
+        "invalid_transition",
+        "The owner returns only an unleased in_review cut whose current changes_requested review exhausted the automatic rework budget.",
+      ),
+      criterion(
+        "repo-cell-proof/proofFor.ReworkTask",
+        "invalid_proof",
+        "The authenticated task-owning principal supplies the effective exhausted rework budget and an auditable reason.",
+      ),
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "must-be-released" },
+      { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
+    ),
+    explain: "Return an exhausted review cut to rework with an owner reason and continue its original worker.",
   }),
   lifecycle("consent", {
     input: input([

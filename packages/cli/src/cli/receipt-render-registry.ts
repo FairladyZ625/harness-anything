@@ -31,6 +31,7 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
   ["task-review-execution", renderReviewRework],
+  ["task-rework", renderReviewRework],
   ["task-dispatch-review", renderReviewDispatches],
   ["task-show", renderTaskShow],
   ["decision-propose", renderDecisionPropose],

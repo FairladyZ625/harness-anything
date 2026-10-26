@@ -92,6 +92,11 @@ export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
   readonly amend?: true;
   readonly asOwner?: true;
 }
+export interface ReworkTaskIntent extends Intent<"ReworkTask"> {
+  readonly executionId: string;
+  readonly reviewId: string;
+  readonly reason: string;
+}
 export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly executionId: string;
   readonly reviewId: string;
@@ -149,6 +154,7 @@ export type TaskLifecycleCommandIntent =
   | StartExecutionIntent
   | TransitionTaskIntent
   | SubmitExecutionIntent
+  | ReworkTaskIntent
   | RecordReviewIntent
   | RespondReviewIntent
   | RecordReviewConsentIntent
@@ -167,6 +173,7 @@ export type UnassignTaskCommand = NormalizedTaskLifecycleCommand<UnassignTaskInt
 export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutionIntent> & Meta;
 export type TransitionTaskCommand = NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta;
 export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta;
+export type ReworkTaskCommand = NormalizedTaskLifecycleCommand<ReworkTaskIntent> & Meta;
 export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & Meta;
 export type RespondReviewCommand = NormalizedTaskLifecycleCommand<RespondReviewIntent> & Meta;
 export type RecordReviewConsentCommand = NormalizedTaskLifecycleCommand<RecordReviewConsentIntent> & Meta;
@@ -179,6 +186,7 @@ export type TaskLifecycleCommand =
   | StartExecutionCommand
   | TransitionTaskCommand
   | SubmitExecutionCommand
+  | ReworkTaskCommand
   | RecordReviewCommand
   | RespondReviewCommand
   | RecordReviewConsentCommand
@@ -206,6 +214,13 @@ export interface SubmitExecutionProof {
   readonly actorBinding: ActorAxes;
   readonly leaseVersion: number | null;
   readonly sessionDisposition: "complete" | "partial" | "unavailable";
+}
+export interface ReworkTaskProof {
+  readonly actorBinding: ActorAxes;
+  readonly capability: "task-rework@v1";
+  readonly capabilityRef: string;
+  /** The effective repository budget at this owner write; the transition only accepts exhaustion. */
+  readonly reworkBudget: number;
 }
 export interface ReviewProof {
   readonly actorBinding: ActorAxes;
@@ -259,11 +274,15 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
             ? ReviewProof
             : C extends RespondReviewCommand
               ? ReviewResponseProof
-              : C extends RecordReviewConsentCommand
-                ? ReviewConsentProof
-                : C extends CompleteTaskCommand
-                  ? CompleteTaskProof
-                  : never;
+              : C extends ReworkTaskCommand
+                ? ReworkTaskProof
+                : C extends RecordReviewCommand
+                  ? ReviewProof
+                  : C extends RecordReviewConsentCommand
+                    ? ReviewConsentProof
+                    : C extends CompleteTaskCommand
+                      ? CompleteTaskProof
+                      : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;

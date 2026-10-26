@@ -28,11 +28,12 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // Owner 2026-10-21 B3 (task_8ebc730e board) deletes task-code-doc-reconcile/repoint with the mechanism.
   // Owner 2026-10-23 (task_45b896d2) makes assign/unassign generic Actions for every assignable Entity kind;
   // the declaration inventory therefore grows from the prior 155 to 167; the two 2026-10-24
-  // deletions (decision-supersede, task-adjudicate) land it at 165, then CH1 adds task-respond-review.
+  // deletions (decision-supersede, task-adjudicate) land it at 165, then CH1 adds task-respond-review
+  // and task-rework adds the owner return action.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
   // Owner 2026-10-24 (task_a242ec14) deletes decision-supersede: supersede is driven by the relation.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual forward/return commands.
-  assert.equal(actionDeclarations.length, 166);
+  assert.equal(actionDeclarations.length, 167);
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),

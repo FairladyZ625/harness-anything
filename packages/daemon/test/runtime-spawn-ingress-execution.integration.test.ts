@@ -124,14 +124,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       appendix,
     );
   };
-  const writeCloseout = (taskId: string, summary: string): void => {
+  const writeCloseout = (taskId: string, summary: string): string => {
     const projection = makeTaskProjection({
       rootDir: root,
       eventStore: makeTaskEventReader({ repoId, rootDir: root }),
     });
+    const closeoutPath = `${projection.read(taskId).packagePath!}/closeout.md`;
     try {
       writeFileSync(
-        path.join(root, "harness", projection.read(taskId).packagePath!, "closeout.md"),
+        path.join(root, "harness", closeoutPath),
         `## Summary\n${summary} Commit ${deliveryCommit}.\n` +
           "## Verification\nRuntime dispatch and holder assertions exercised by this integration fixture.\n" +
           "## Residual Risk\nNo remaining runtime fixture gaps.\n" +
@@ -140,6 +141,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     } finally {
       projection.close();
     }
+    return closeoutPath;
   };
   const writeReviewReport = (taskId: string, reviewId: string): void => {
     const projection = makeTaskProjection({
@@ -198,6 +200,20 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     await t.test("changes requested admits implementation and reviewer redispatch", async () => {
       const taskId = "task-runtime-redispatch",
         firstExecutionId = "exec-runtime-redispatch-r1";
+      const settings = (await host.read(repoId, "repo.settings.read", {}, auth)) as {
+        readonly revision: number;
+      };
+      const budget = await host.run(
+        repoId,
+        {
+          kind: "settings-update",
+          reviewReturnBudget: 1,
+          expectedVersion: settings.revision,
+          idempotencyKey: "runtime-redispatch-budget-one",
+        },
+        auth,
+      );
+      assert.equal(budget.outcome, "applied", JSON.stringify(budget));
       await createReadyTask(taskId, "Runtime changes-requested redispatch");
       assert.equal(
         (await host.run(repoId, { kind: "task-start", taskId, executionId: firstExecutionId }, auth)).outcome,
@@ -415,10 +431,16 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       writeFileSync(
         path.join(root, "redispatch-review.json"),
         JSON.stringify({
-          verdict: "approved",
-          reason: "Second round reviewed.",
+          verdict: "changes_requested",
+          reason: "The exhausted cut still needs one concrete correction.",
           evidenceChecked: ["second round"],
-          findings: [],
+          findings: [
+            {
+              findingId: "fixture-finding-2",
+              blocking: true,
+              text: "The exhausted cut still needs one concrete correction.",
+            },
+          ],
           resolutions: [],
         }),
       );
@@ -442,6 +464,157 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.match(
         String((staleReviewer.diagnostic as { expectation?: unknown } | undefined)?.expectation),
         new RegExp(`ha task dispatch-review ${taskId} --agent <reviewer-agent-id>`, "u"),
+      );
+
+      const secondReviewer = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: ingressDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Review the second round.",
+          role: "reviewer",
+          taskId,
+          dispatchKey: "runtime-changes-requested-second-reviewer",
+        },
+      });
+      assert.equal(secondReviewer.outcome, "applied", JSON.stringify(secondReviewer));
+      await eventuallyValue(
+        async () =>
+          makeTaskEventReader({ repoId, rootDir: root })
+            .read()
+            .events.find(
+              (event) =>
+                event.type === "runtime_session_task_bound" &&
+                event.payload.runtimeSessionId === secondReviewer.runtimeSessionId,
+            ) ?? null,
+      );
+      writeReviewReport(taskId, "redispatch-review");
+      const exhausted = (await host.run(
+        repoId,
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId: secondExecutionId,
+          reviewId: "redispatch-review",
+          fromFile: "redispatch-review.json",
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(secondReviewer.runtimeSessionId)}`,
+          },
+        },
+        auth,
+      )) as Record<string, unknown>;
+      assert.equal(exhausted.outcome, "applied", JSON.stringify(exhausted));
+      assert.match(JSON.stringify(exhausted), /rework budget is exhausted/u);
+      assert.match(JSON.stringify(exhausted), new RegExp(`ha task rework ${taskId} --reason <why>`, "u"));
+      assert.equal(exhausted.continuation, undefined, "exhaustion must not dispatch rework automatically");
+      const ownerReturn = (await host.run(
+        repoId,
+        { kind: "task-rework", taskId, reason: "The owner authorizes one more implementation round." },
+        auth,
+      )) as Record<string, unknown>;
+      assert.equal(ownerReturn.outcome, "applied", JSON.stringify(ownerReturn));
+      const manualContinuation = ownerReturn.continuation as Record<string, unknown>;
+      assert.ok(manualContinuation, JSON.stringify(ownerReturn));
+      assert.equal(manualContinuation.outcome, "applied", JSON.stringify(manualContinuation));
+      assert.match(launchedPrompt, /Review redispatch-review on your submitted cut requested changes/u);
+      const afterOwnerReturn = makeTaskEventReader({ repoId, rootDir: root }).read().events,
+        returnEvent = afterOwnerReturn.find(
+          (event) => event.type === "submission_returned" && event.payload.reviewId === "redispatch-review",
+        );
+      assert.ok(returnEvent && returnEvent.type === "submission_returned");
+      assert.equal(returnEvent.payload.reason, "The owner authorizes one more implementation round.");
+      assert.equal(returnEvent.actor.principal.personId, "owner");
+      assert.ok(returnEvent.occurredAt, "the owner return event records when it happened");
+      assert.equal(returnEvent.payload.task.iteration, 2, "owner return advances the task's implementation iteration");
+      const rebound = await eventuallyValue(
+        async () =>
+          makeTaskEventReader({ repoId, rootDir: root })
+            .read()
+            .events.find(
+              (event) =>
+                event.type === "runtime_session_task_bound" &&
+                event.payload.runtimeSessionId === manualContinuation.runtimeSessionId,
+            ) ?? null,
+      );
+      assert.equal(rebound.type, "runtime_session_task_bound");
+      if (rebound.type !== "runtime_session_task_bound") throw new Error("missing owner-return worker binding");
+      assert.equal(rebound.payload.taskId, taskId);
+      const ownerCloseoutPath = writeCloseout(
+        taskId,
+        "The owner-returned runtime execution is ready for independent review.",
+      );
+      const ownerReturnResponse = await host.run(
+        repoId,
+        {
+          kind: "task-respond-review",
+          taskId,
+          executionId: rebound.payload.executionId,
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(manualContinuation.runtimeSessionId)}`,
+          },
+          jsonInput: JSON.stringify({
+            responses: [
+              {
+                reviewId: "redispatch-review",
+                findingId: "fixture-finding-2",
+                disposition: "adopt",
+                rationale: "The owner-returned cut addresses the exhausted review finding.",
+              },
+            ],
+          }),
+        },
+        auth,
+      );
+      assert.equal(ownerReturnResponse.outcome, "applied", JSON.stringify(ownerReturnResponse));
+      const ownerCloseoutSubmission = await host.run(
+        repoId,
+        {
+          kind: "doc-submit",
+          paths: [ownerCloseoutPath],
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(manualContinuation.runtimeSessionId)}`,
+          },
+        },
+        auth,
+      );
+      assert.equal(ownerCloseoutSubmission.outcome, "applied", JSON.stringify(ownerCloseoutSubmission));
+      const ownerReturnSubmission = await host.run(
+        repoId,
+        {
+          kind: "task-submit",
+          taskId,
+          executionId: rebound.payload.executionId,
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(manualContinuation.runtimeSessionId)}`,
+          },
+        },
+        auth,
+      );
+      assert.equal(ownerReturnSubmission.outcome, "applied", JSON.stringify(ownerReturnSubmission));
+      const previousWorkerDispatch = afterOwnerReturn.findLast(
+          (event) =>
+            event.type === "runtime_dispatch_requested" &&
+            event.payload.taskId === taskId &&
+            event.payload.executionId === secondExecutionId,
+        ),
+        returnedWorkerDispatch = makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.find(
+            (event) =>
+              event.type === "runtime_dispatch_requested" &&
+              event.payload.taskId === taskId &&
+              event.payload.executionId === rebound.payload.executionId,
+          );
+      assert.ok(previousWorkerDispatch && previousWorkerDispatch.type === "runtime_dispatch_requested");
+      assert.ok(returnedWorkerDispatch && returnedWorkerDispatch.type === "runtime_dispatch_requested");
+      assert.equal(
+        returnedWorkerDispatch.payload.agentId,
+        previousWorkerDispatch.payload.agentId,
+        "owner return dispatches the worker assigned to the submitted implementation cut",
       );
 
       const installed = await host.run(
@@ -480,6 +653,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
         "reviewer dispatches carry no worker delivery protocols",
       );
+      // The fixture seeds a dirty worker package tree to exercise task-bound dispatch. The owner
+      // return scenario publishes a second cut through that same worktree; remove the seed before
+      // later subtests create independent tasks so their publication wait is not held by the
+      // intentionally unrelated untracked directory.
+      rmSync(path.join(workerRoot, "packages"), { recursive: true, force: true });
     });
     await t.test("a submitted or in-review task rejects an implementation dispatch at admission", async () => {
       const taskId = "task-runtime-frozen-cut",
@@ -505,7 +683,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
         assert.equal(receipt.code, "execution_frozen", JSON.stringify(receipt));
         assert.match(String(receipt.rejectionExplanation), /round was submitted and its cut is frozen/u);
-        assert.match(JSON.stringify(receipt), /changes_requested reopens the rework round automatically/u);
+        assert.match(JSON.stringify(receipt), /automatic rework budget is exhausted/u);
+        assert.match(JSON.stringify(receipt), /ha task rework task-runtime-frozen-cut --reason <why>/u);
         assert.equal(launchCount, launchesBefore, "a frozen cut must not launch a runtime");
         assert.equal(
           makeTaskEventReader({ repoId, rootDir: root })

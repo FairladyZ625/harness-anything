@@ -361,6 +361,26 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
   );
 });
 
+test("task rework requires an owner-provided audit reason", () => {
+  const returned = parseThinCommand([
+      "task",
+      "rework",
+      "task-1",
+      "--reason",
+      "Owner authorizes one more implementation round.",
+    ]),
+    missingReason = parseThinCommand(["task", "rework", "task-1"]);
+  assert.equal(returned.ok, true, JSON.stringify(returned));
+  if (returned.ok)
+    assert.deepEqual(returned.command.action, {
+      kind: "task-rework",
+      commandType: "ReworkTask",
+      taskId: "task-1",
+      reason: "Owner authorizes one more implementation round.",
+    });
+  assert.equal(missingReason.ok, false, "owner return must require an auditable reason");
+});
+
 test("the retired adjudicate command no longer routes", () => {
   // dec_E369B8616F50A6208B293997E7 CH5: the manual forward/return commands retired with the
   // automatic review loop; the CLI rejects the verb before any flag is parsed.

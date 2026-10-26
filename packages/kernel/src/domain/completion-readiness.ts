@@ -302,10 +302,11 @@ function evaluateCompletion(
     return one(
       "review_missing",
       "review",
-      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${consentReviewId} ` +
+      `ha task rework ${task.taskId} --reason <why the owner is returning this cut>; or ` +
+        `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${consentReviewId} ` +
         `--dispose ${changes.reviewId} --rationale <why the adverse verdict is overruled>`,
       `Review ${changes.reviewId} requested changes and the rework budget is exhausted; the owner ` +
-        "decides: dispose the verdict with consent, or supersede the task.",
+        "can return the cut to implementation, dispose the verdict with consent, or supersede the task.",
     );
   }
   const gate = assessment.gates.find(({ gateId, status }) => {

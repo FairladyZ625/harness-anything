@@ -493,6 +493,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "task-review-consent":
       return authorizeRepoCellAction(input);
+    case "task-rework":
+      return authorizeRepoCellAction(input);
     case "task-review-execution":
       return authorizeRepoCellAction(input);
     case "task-settle":

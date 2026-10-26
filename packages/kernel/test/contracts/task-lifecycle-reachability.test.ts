@@ -134,6 +134,22 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
         { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-review", reworkBudget: 2 },
       ),
     ),
+    rework = make(
+      owner,
+      {
+        type: "ReworkTask",
+        taskId,
+        executionId,
+        reviewId: currentReview?.reviewId ?? `review-${iteration}-changes_requested`,
+        reason: "Reachability fixture owner return",
+      },
+      {
+        actorBinding: owner,
+        capability: "task-rework@v1",
+        capabilityRef: "cap-rework",
+        reworkBudget: 2,
+      },
+    ),
     respond = make(
       owner,
       {
@@ -198,6 +214,7 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
     ...transitions,
     submit,
     ...review,
+    rework,
     respond,
     consent,
     complete,

@@ -190,6 +190,7 @@ export const actionPresentation = {
   "task-release": { domain: "task", name: "释放任务领用", description: "释放当前任务的领用租约。" },
   "task-reopen": { domain: "task", name: "重新打开任务", description: "将已关闭任务重新打开。" },
   "task-review-consent": { domain: "task", name: "确认任务交付", description: "记录业主对交付的确认。" },
+  "task-rework": { domain: "task", name: "退回任务返工", description: "在自动返工次数用完后由业主带理由退回任务。" },
   "task-review-execution": { domain: "task", name: "审查任务执行", description: "提交对任务执行的独立审查意见。" },
   "task-respond-review": { domain: "task", name: "回应任务审查", description: "逐条回应任务审查意见。" },
   "task-settle": { domain: "task", name: "结算任务执行", description: "记录执行的结算结果。" },
@@ -465,6 +466,7 @@ export const actionDeclarations = Object.freeze([
   canonical("task-release", "task/release", "repo-write"),
   canonical("task-reopen", "task/reopen", "repo-write"),
   closure("task-review-consent", "task/consent"),
+  closure("task-rework", "task/rework", "lifecycle.event-publication"),
   canonical("task-review-execution", "task/review", "arbiter", undefined, undefined, "lifecycle.event-publication"),
   canonical(
     "task-respond-review",

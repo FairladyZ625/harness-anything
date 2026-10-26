@@ -56,11 +56,18 @@ export async function continueReviewRework(
   receipt: WriteReceiptDraft,
 ): Promise<WriteReceiptDraft> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    reviewId = cell.requiredCellText(action.reviewId, "reviewId"),
     read = cell.projection.read(taskId),
-    review = read.snapshot.reviews.find((value) => value.reviewId === reviewId),
+    executionId = typeof action.executionId === "string" ? action.executionId : undefined,
+    requestedReviewId = typeof action.reviewId === "string" ? action.reviewId : undefined,
+    review = read.snapshot.reviews.findLast(
+      (value) =>
+        value.verdict === "changes_requested" &&
+        (requestedReviewId === undefined || value.reviewId === requestedReviewId) &&
+        (executionId === undefined || value.executionId === executionId),
+    ),
+    reviewId = review?.reviewId,
     execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined;
-  if (!review || review.verdict !== "changes_requested" || !execution?.submission) return receipt;
+  if (!review || reviewId === undefined || !execution?.submission) return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
     const reportPath = read.packagePath ? reviewReportRelativePath(read.packagePath, reviewId) : null;
     if (reportPath === null) return receipt;
@@ -100,7 +107,8 @@ export async function continueReviewRework(
         warnings: [
           ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
           `Review ${reviewId} requested changes and the repository rework budget is exhausted; the cut stays at the ` +
-            `review gate for the owner: dispose the verdict with ha task review-consent ${taskId} ` +
+            `review gate. The owner can return it with ha task rework ${taskId} --reason <why>, ` +
+            `dispose the verdict with ha task review-consent ${taskId} ` +
             `--execution-id ${execution.executionId} --review-id ${reviewId} --dispose ${reviewId} ` +
             "--rationale <why>, or supersede the task.",
         ],
@@ -121,8 +129,9 @@ export async function continueReviewRework(
     ...receipt,
     warnings: [
       ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
-      `Review ${reviewId} requested changes and the repository rework budget is exhausted; the cut stays at the ` +
-        `review gate for the owner: dispose the verdict with ha task review-consent ${taskId} ` +
+      `Review ${reviewId} requested changes and the repository rework budget is exhausted; the task stays at the ` +
+        `review gate. The owner can return it with ha task rework ${taskId} --reason <why>, ` +
+        `or dispose the verdict with ha task review-consent ${taskId} ` +
         `--execution-id ${execution.executionId} --review-id ${reviewId} --dispose ${reviewId} ` +
         "--rationale <why>, or supersede the task.",
     ],
