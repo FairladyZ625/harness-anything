@@ -150,6 +150,14 @@ export function classifyRuntimeExit(
   // fallback chain from spending the next provider's budget on the same runaway attempt.
   if (active.spendCapExceeded)
     return { ...classified("worker_stop", runtimeSpendCapReason(active)), outcome: "failed" };
+  if (active.stalledAt !== null && active.stalledAt !== undefined)
+    return {
+      ...classified(
+        "provider_fault",
+        `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`,
+      ),
+      outcome: "failed",
+    };
   // A requested stop for a ruling is never a provider fault: the worker wrote the question and
   // stopped, which is exactly what the unattended contract asks for. It settles `stopped` rather
   // than `failed` so the receipt and agenda read "waiting on the owner", not "the run broke".
@@ -161,6 +169,15 @@ export function classifyRuntimeExit(
       ...classified(providerFault.faultClass ? "provider_quota" : "provider_fault", providerFault.reason),
       ...(providerFault.faultClass ? { faultClass: providerFault.faultClass } : {}),
       ...(providerFault.resetAt ? { resetAt: providerFault.resetAt } : {}),
+    };
+  if (exitCode === 0 && active.providerOutcome === "succeeded" && !active.finalText?.trim())
+    return {
+      ...classified(
+        "completed_without_final_text",
+        `Provider completed without final text (${String(active.toolCallCount)} tool calls; ` +
+          `${String(active.workspaceActivityCount ?? 0)} workspace change events). Dispatch transcript: ${active.stream?.ref ?? "unavailable"}`,
+      ),
+      outcome: "unknown",
     };
   if (active.lossReason)
     return classified("worker_stop", `Worker process stopped before settlement: ${active.lossReason}`);

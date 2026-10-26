@@ -77,6 +77,8 @@ export interface RuntimeDispatchArchive {
    * them yet; publishing here is what makes the ask visible to the projection-backed read faces.
    */
   readonly ruling?: { readonly path: string; readonly body: string };
+  /** A reviewer report that exists only in the worker worktree is carried into the normal archive. */
+  readonly reviewReport?: { readonly path: string; readonly body: string };
 }
 
 export function archiveRuntimeDispatch(
@@ -151,7 +153,8 @@ export function archiveRuntimeDispatch(
     // still reachable through resultRef, so it is not archived over the report and cannot collide.
     reportAuthored =
       input.projection.readDocument(reportRef).document !== null ||
-      existsSync(path.join(layout.authoredRoot, ...reportRef.split("/"))),
+      existsSync(path.join(layout.authoredRoot, ...reportRef.split("/"))) ||
+      value.reviewReport?.path === reportRef,
     dispatch = {
       schema: "runtime-dispatch/v1",
       dispatchId: value.dispatchId,
@@ -220,6 +223,15 @@ export function archiveRuntimeDispatch(
             {
               path: reportRef,
               body: runtimeArchiveText(value.resultText),
+              mediaType: "text/markdown" as const,
+            },
+          ]),
+      ...(value.reviewReport === undefined
+        ? []
+        : [
+            {
+              path: value.reviewReport.path,
+              body: value.reviewReport.body,
               mediaType: "text/markdown" as const,
             },
           ]),

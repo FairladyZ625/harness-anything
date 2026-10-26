@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -56,7 +57,8 @@ export async function adoptRuntimes(
       continue;
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
-      stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+      streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId),
+      stream = fullStream ?? streamSummary;
     if (!stream) continue;
     const processState = stream.process,
       processPid = processState?.pid ?? 0;
@@ -121,6 +123,10 @@ export async function adoptRuntimes(
       reasoningEffort: metadata.reasoningEffort,
       fast: metadata.fast,
       tokenLimit: stream.header.tokenLimit ?? null,
+      stallTimeoutMs: stream.header.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+      lastProgressAtMs: Date.parse(streamSummary?.lastProgressAt ?? stream.header.startedAt),
+      workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
+      stalledAt: streamSummary?.stalledAt ?? null,
       startedAt: stream.header.startedAt,
       stream: reopenDispatchStream(context.input.rootDir, stream.header),
       fallbackAttempt: stream.header.fallbackAttempt ?? null,

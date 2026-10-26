@@ -1,4 +1,5 @@
 import type { SquadDispatchContext } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -641,8 +642,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // Freeze the declared cap with the launch: a running dispatch keeps the limit it was admitted
     // under, and an adopting daemon restores it from the stream header instead of re-reading a
     // setting that may have changed. 0 is the declared "no limit" sentinel.
-    const declaredTokenLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0,
-      tokenLimit = declaredTokenLimit > 0 ? declaredTokenLimit : null;
+    const currentSettings = input.readSettings?.(),
+      declaredTokenLimit = currentSettings?.runtime.dispatchUsageLimit ?? 0,
+      tokenLimit = declaredTokenLimit > 0 ? declaredTokenLimit : null,
+      stallTimeoutMs = currentSettings?.runtime.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS;
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
@@ -679,6 +682,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
         ...(tokenLimit === null ? {} : { tokenLimit }),
+        stallTimeoutMs,
         resumeProviderSessionId: providerSessionId ?? null,
         ...(handoffEnabled ? { handoffEnabled: true } : {}),
         ...(handoff
@@ -989,6 +993,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       reasoningEffort: definition.reasoningEffort,
       fast: definition.fast ?? false,
       tokenLimit,
+      stallTimeoutMs,
+      lastProgressAtMs: Date.parse(streamStartedAt),
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,

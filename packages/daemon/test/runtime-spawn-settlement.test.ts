@@ -52,6 +52,50 @@ test("exit zero without final output remains unknown despite an internal plan he
   );
 });
 
+test("a stalled dispatch is classified as a provider fault for the fallback policy", () => {
+  const result = classifyRuntimeExit(
+    active({
+      stalledAt: "2026-10-24T00:05:00.000Z",
+      stallTimeoutMs: 30_000,
+      lastProgressAtMs: Date.parse("2026-10-24T00:04:30.000Z"),
+    }),
+    null,
+  );
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.classification, "provider_fault");
+  assert.match(result.reason, /30,?000 ms/u);
+});
+
+test("stalled settlement hands the attempt to the normal fallback hook", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-fallback-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "partial work");
+    Object.assign(runtime, { stalledAt: "2026-10-24T00:05:00.000Z", stallTimeoutMs: 30_000 });
+    const attempts: Record<string, unknown>[] = [],
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-24T00:05:01.000Z",
+          stream: { publish: () => ({}) },
+          remote: { archive: async () => ({ outcome: "applied" }) },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "partial work",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async (_active: unknown, attempt: Record<string, unknown>) => attempts.push(attempt),
+      } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, null);
+    assert.equal(attempts[0]?.classification, "provider_fault");
+    assert.match(String(attempts[0]?.reason), /30,?000 ms/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("taskless settlement requires the provider's completed turn and final result", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-taskless-witness-"));
   try {
@@ -92,9 +136,14 @@ test("completed provider turn without final text stays unknown without a protoco
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-empty-final-turn-"));
   try {
     const outcomes: Record<string, unknown>[] = [],
+      bodies: string[] = [],
       runtime = tasklessSettlementRuntime(rootDir, null),
       protocolErrors: string[] = [];
+    runtime.providerSessionId = "provider-session";
+    runtime.providerOutcome = "succeeded";
     runtime.toolCallObserved = true;
+    runtime.toolCallCount = 4;
+    runtime.workspaceActivityCount = 2;
     const context = {
       exiting: new Set<string>(),
       processes: new Map([[runtime.runtimeSessionId, runtime]]),
@@ -108,8 +157,15 @@ test("completed provider turn without final text stays unknown without a protoco
       resultMediaType: "text/markdown",
       runtimeResultText: () => "",
       markProtocolError: (activeRuntime: ActiveRuntime) => protocolErrors.push(activeRuntime.runtimeSessionId),
-      publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+      publishRuntimeEvent: async (
+        type: string,
+        payload: Record<string, unknown>,
+        _opId: string,
+        _binding: unknown,
+        body?: string,
+      ) => {
         if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+        if (typeof body === "string") bodies.push(body);
         return {};
       },
       settleFallback: async () => undefined,
@@ -118,6 +174,10 @@ test("completed provider turn without final text stays unknown without a protoco
     await publishExit(context, runtime, 0);
 
     assert.equal(outcomes[0]?.outcome, "unknown");
+    assert.equal((outcomes[0]?.attempt as Record<string, unknown>)?.classification, "completed_without_final_text");
+    assert.match(String(outcomes[0]?.resultRef), /sha256/u);
+    assert.match(bodies[0] ?? "", /4 tool calls and 2 workspace change events/u);
+    assert.match(bodies[0] ?? "", /Dispatch transcript:/u);
     assert.deepEqual(protocolErrors, []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

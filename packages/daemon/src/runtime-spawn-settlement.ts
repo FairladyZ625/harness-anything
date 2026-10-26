@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
@@ -18,7 +19,12 @@ import {
 } from "./runtime-worker-push.ts";
 import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
-import { readDispatchRuling, readDispatchRulingFromWorker, rulingReceiptText } from "./runtime-ruling.ts";
+import {
+  readDispatchRuling,
+  readDispatchRulingFromWorker,
+  readFileIfPresent,
+  rulingReceiptText,
+} from "./runtime-ruling.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
@@ -28,6 +34,7 @@ import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
+import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -37,6 +44,7 @@ export async function publishExit(
 ): Promise<void> {
   if (context.exiting.has(active.runtimeSessionId)) return;
   context.exiting.add(active.runtimeSessionId);
+  disposeActiveRuntimeObservations(active);
   // Every terminal path — success, failure, cancellation, and the daemon-restart loss
   // settlement — flows through here, so the run's own temp directory goes with it. A
   // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
@@ -102,6 +110,7 @@ export async function publishExit(
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
     // from the projection.
     const ruling = runtimeRulingRequest(context, active),
+      reviewReport = runtimeReviewReport(context, active),
       { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
     let outcome = initialOutcome,
       reviewResultMissing = false;
@@ -185,6 +194,20 @@ export async function publishExit(
     const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
     if (reviewResultMissing) body = `${body}\n\nReview ${reviewId} was not registered before reviewer settlement.`;
+    if (
+      !active.finalText?.trim() &&
+      (active.toolCallObserved ||
+        Number(active.toolCallCount ?? 0) > 0 ||
+        Number(active.workspaceActivityCount ?? 0) > 0)
+    )
+      body = [
+        body,
+        `Work observed before final text was absent: ${String(active.toolCallCount ?? 0)} tool calls and ` +
+          `${String(active.workspaceActivityCount ?? 0)} workspace change events. Dispatch transcript: ${active.stream?.ref ?? "unavailable"}` +
+          (reviewReport ? ` Reviewer report: ${reviewReport.path}.` : ""),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
     // The question and its options ride the persisted result. The receipt body is what
     // `ha runtime wait`, the dispatch row and the archived report all render, and a provider's exit
     // diagnostic alone never tells the owner what was asked.
@@ -305,6 +328,7 @@ export async function publishExit(
       classification: attemptOutcome.classification,
       reason: attemptOutcome.reason,
       ...(ruling === null ? {} : { ruling: { path: ruling.path, body: ruling.body } }),
+      ...(reviewReport === null ? {} : { reviewReport }),
     };
     // A Decision review dispatch owns no task execution; its archive binds the reviewed Decision.
     const archive: RuntimeDispatchArchive | null = active.task
@@ -590,6 +614,30 @@ function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRunt
       active.dispatchId,
     )
   );
+}
+
+function runtimeReviewReport(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (active.role !== "reviewer") return null;
+  if (context.input.remote) return null;
+  const packagePath = active.task
+    ? context.requiredRuntimeProjection(context.input).read(active.task.taskId).packagePath
+    : active.decisionReviewTarget
+      ? `decisions/decision-${active.decisionReviewTarget.decisionId}`
+      : null;
+  if (typeof packagePath !== "string") return null;
+  const reportPath = `${packagePath}/artifacts/reports/${active.dispatchId}.md`,
+    packageRelative = reportPath.split("/");
+  const candidates = [
+    path.join(active.cwd, "harness", ...packageRelative),
+    path.join(active.cwd, ...packageRelative),
+    path.join(active.cwd, "artifacts", "reports", `${active.dispatchId}.md`),
+    path.join(context.input.rootDir, "harness", ...packageRelative),
+  ];
+  for (const candidate of new Set(candidates)) {
+    const body = readFileIfPresent(candidate, 2 * 1024 * 1024);
+    if (body !== null && body.trim() !== "") return { path: reportPath, body };
+  }
+  return null;
 }
 
 /** The registration witness for a dispatched Decision review: the Decision carries a review by

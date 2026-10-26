@@ -77,7 +77,7 @@ export interface TaskDispatchRow {
   /** Latest canonical or local dispatch observation, projected beside the dispatch row. */
   readonly lastObservedAt?: string;
   /** Daemon-owned activity judgment for the live-floor page. */
-  readonly activityStatus?: "thinking" | "tool" | "waiting" | "silent" | "unknown";
+  readonly activityStatus?: "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown";
   /** Observation used to calculate the activity age shown by the live-floor page. */
   readonly activityObservedAt?: string;
   /** Whole minutes since activityObservedAt; only meaningful for a live dispatch. */
@@ -87,7 +87,14 @@ export interface TaskDispatchRow {
   readonly attemptGroupId: string;
   readonly attemptIndex: number;
   readonly provider: { readonly instance: string; readonly model: string | null };
-  readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "awaiting_ruling" | "gate_red" | null;
+  readonly classification:
+    | "provider_fault"
+    | "provider_quota"
+    | "worker_stop"
+    | "awaiting_ruling"
+    | "gate_red"
+    | "completed_without_final_text"
+    | null;
   /** Worker-authored ruling from its artifact; daemon incident escalations are in `decisionAction`. */
   readonly ruling?: {
     readonly question: string;

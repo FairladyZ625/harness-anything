@@ -98,7 +98,10 @@ export async function consumeProviderLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-    if (!persisted) active.stream.appendProviderEvent(value, context.input.now());
+    if (!persisted) {
+      active.stream.appendProviderEvent(value, context.input.now());
+      active.recordProviderProgress?.();
+    }
     active.durableOutputCount += 1;
   } catch (error) {
     if (persisted) active.durableOutputCount += 1;

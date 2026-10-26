@@ -37,6 +37,18 @@
    "decision": null,
    "errors": "unreadable worker-side artifacts/rulings/<dispatch-id>.md candidate",
    "reason": "The same read, per candidate path on the worker's own filesystem (worktree ledger mirror, package root, canonical package). A missing or unreadable candidate just moves to the next one, and all-missing keeps the dispatch's ordinary classification; the file is an advisory classification input only. Task-authorized entry, 2026-10-21."
+  },
+  "packages/daemon/src/runtime-spawn-active.ts#settleStalledRuntime": {
+   "task": "task_955c1d35fdbdbf558a02443609",
+   "decision": null,
+   "errors": "terminateTree failure while settling a stalled dispatch",
+   "reason": "A stalled dispatch must still reach the existing terminal settlement path when process-tree termination races with provider exit. The termination error is diagnostic only; the direct terminate fallback preserves the stalled classification and fallback evidence."
+  },
+  "packages/daemon/src/runtime-spawn-active.ts#attachRuntimeObservations": {
+   "task": "task_955c1d35fdbdbf558a02443609",
+   "decision": null,
+   "errors": "workspace watcher setup or watcher error",
+   "reason": "Workspace watching is liveness evidence, not delivery evidence. A platform that cannot provide recursive watching must leave provider-event progress and terminal settlement intact; the watcher is closed and the dispatch continues under the provider-only deadline."
   }
  },
  "entries": {
@@ -205,6 +217,8 @@
    "packages/daemon/src/runtime-spawn-provider-frames.ts#isStructuredSuccessResult",
    "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeProviderLine",
    "packages/daemon/src/runtime-spawn-settlement.ts#publishExit",
+   "packages/daemon/src/runtime-spawn-active.ts#attachRuntimeObservations",
+   "packages/daemon/src/runtime-spawn-active.ts#settleStalledRuntime",
    "packages/daemon/src/runtime-worker-acp.ts#cancel",
    "packages/daemon/src/runtime-worker-acp.ts#fail",
    "packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession",

@@ -43,20 +43,41 @@ test("review work keeps progressing even when its task has been submitted", () =
   );
 });
 
-test("a running dispatch with no recent activity becomes silent at the threshold", () => {
+test("a running dispatch with no progress becomes stalled at its configured threshold", () => {
   assert.equal(
     dispatchActivityStatus(
       {
         status: "running",
         taskStatus: "active",
         role: "implementation",
-        lastObservedAt: new Date(now - DISPATCH_SILENT_AFTER_MS).toISOString(),
+        lastObservedAt: new Date(now - 30_000).toISOString(),
+        lastProgressAt: new Date(now - 30_000).toISOString(),
         processAlive: true,
         providerActivity: "thinking",
+        stallTimeoutMs: 30_000,
       },
       now,
     ),
-    "silent",
+    "stalled",
+  );
+});
+
+test("a long dispatch with continuing provider events stays active beyond the old silence window", () => {
+  assert.equal(
+    dispatchActivityStatus(
+      {
+        status: "running",
+        taskStatus: "active",
+        role: "implementation",
+        lastObservedAt: new Date(now - DISPATCH_SILENT_AFTER_MS * 2).toISOString(),
+        lastProgressAt: new Date(now - 1_000).toISOString(),
+        processAlive: true,
+        providerActivity: "thinking",
+        stallTimeoutMs: 30_000,
+      },
+      now,
+    ),
+    "thinking",
   );
 });
 

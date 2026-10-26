@@ -271,7 +271,7 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-summary-"));
   try {
     const dispatchId = "dispatch_444444444444444444444444";
-    openDispatchStream(rootDir, {
+    const stream = openDispatchStream(rootDir, {
       dispatchId,
       taskId: "task-3",
       executionId: "execution-3",
@@ -291,19 +291,24 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       occurredAt: "2026-08-24T00:00:01.000Z",
       event: { type: "item.updated", item: { type: "command_execution" } },
     });
+    stream.appendWorkspaceActivity("2026-08-24T00:00:02.000Z");
+    stream.appendStalled("2026-08-24T00:00:32.000Z");
     const running = readDispatchStreamSummary(rootDir, dispatchId);
     assert.deepEqual(running?.process, { pid: 9876, exitCode: null, signal: null, exited: false });
     assert.deepEqual(running?.lastProviderActivity, { kind: "tool", observedAt: "2026-08-24T00:00:01.000Z" });
+    assert.equal(running?.lastProgressAt, "2026-08-24T00:00:02.000Z");
+    assert.equal(running?.workspaceActivityCount, 1);
+    assert.equal(running?.stalledAt, "2026-08-24T00:00:32.000Z");
     assert.deepEqual(
       running?.records.map((record) => record.kind),
-      ["process_started"],
+      ["process_started", "workspace_activity", "dispatch_stalled"],
     );
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
     const exited = readDispatchStreamSummary(rootDir, dispatchId);
     assert.deepEqual(exited?.process, { pid: 9876, exitCode: 0, signal: null, exited: true });
     assert.deepEqual(
       exited?.records.map((record) => record.kind),
-      ["process_started", "process_exit"],
+      ["process_started", "workspace_activity", "dispatch_stalled", "process_exit"],
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
