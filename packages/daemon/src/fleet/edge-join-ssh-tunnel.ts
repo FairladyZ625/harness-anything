@@ -11,7 +11,9 @@ export interface EdgeJoinTunnelPorts {
 export interface EdgeJoinSshTunnelInput {
   readonly target: string;
   readonly fleetServicePort: number;
+  readonly fleetServiceHost: string;
   readonly loginServicePort: number;
+  readonly loginServiceHost: string;
   readonly remotePorts?: EdgeJoinTunnelPorts;
 }
 
@@ -22,7 +24,7 @@ interface TunnelEntry extends Omit<EdgeJoinSshTunnelInput, "remotePorts"> {
   state: EdgeJoinTunnelState;
   process?: ChildProcess;
   output: string;
-  readyServices: Set<number>;
+  readyServices: Set<keyof EdgeJoinTunnelPorts>;
   allocatedPorts: { fleet?: number; login?: number };
   attempt?: {
     readonly promise: Promise<EdgeJoinTunnelPorts>;
@@ -172,36 +174,44 @@ export class EdgeJoinSshTunnelManager {
   }
 
   #readForwardLine(entry: TunnelEntry, line: string): void {
-    const allocated = /Allocated port (\d+) for remote forward to 127\.0\.0\.1:(\d+)/u.exec(line),
+    const allocated = /Allocated port (\d+) for remote forward to (.+):(\d+)/u.exec(line),
       fixed =
-        /(?:Remote connections from (?:LOCALHOST|127\.0\.0\.1):(\d+) forwarded to local address 127\.0\.0\.1:(\d+)|remote forward success for: listen 127\.0\.0\.1:(\d+), connect 127\.0\.0\.1:(\d+))/iu.exec(
+        /(?:Remote connections from (?:LOCALHOST|127\.0\.0\.1):(\d+) forwarded to local address (.+):(\d+)|remote forward success for: listen 127\.0\.0\.1:(\d+), connect (.+):(\d+))/iu.exec(
           line,
         );
     if (allocated) {
       const remotePort = Number(allocated[1]),
-        servicePort = Number(allocated[2]);
-      if (servicePort === entry.fleetServicePort) {
+        serviceHost = normalizeHost(allocated[2]!),
+        servicePort = Number(allocated[3]);
+      if (servicePort === entry.fleetServicePort && serviceHost === normalizeHost(entry.fleetServiceHost)) {
         this.#setRemotePort(entry, "fleet", remotePort);
-        entry.readyServices.add(servicePort);
+        entry.readyServices.add("fleet");
       }
-      if (servicePort === entry.loginServicePort) {
+      if (servicePort === entry.loginServicePort && serviceHost === normalizeHost(entry.loginServiceHost)) {
         this.#setRemotePort(entry, "login", remotePort);
-        entry.readyServices.add(servicePort);
+        entry.readyServices.add("login");
       }
     } else if (fixed && entry.remotePorts) {
-      const remotePort = Number(fixed[1] ?? fixed[3]),
-        servicePort = Number(fixed[2] ?? fixed[4]);
+      const remotePort = Number(fixed[1] ?? fixed[4]),
+        serviceHost = normalizeHost(fixed[2] ?? fixed[5]!),
+        servicePort = Number(fixed[3] ?? fixed[6]);
       if (
-        (servicePort === entry.fleetServicePort && remotePort === entry.remotePorts.fleet) ||
-        (servicePort === entry.loginServicePort && remotePort === entry.remotePorts.login)
+        (servicePort === entry.fleetServicePort &&
+          serviceHost === normalizeHost(entry.fleetServiceHost) &&
+          remotePort === entry.remotePorts.fleet) ||
+        (servicePort === entry.loginServicePort &&
+          serviceHost === normalizeHost(entry.loginServiceHost) &&
+          remotePort === entry.remotePorts.login)
       )
-        entry.readyServices.add(servicePort);
+        entry.readyServices.add(
+          servicePort === entry.fleetServicePort &&
+            serviceHost === normalizeHost(entry.fleetServiceHost) &&
+            remotePort === entry.remotePorts.fleet
+            ? "fleet"
+            : "login",
+        );
     }
-    if (
-      entry.remotePorts &&
-      entry.readyServices.has(entry.fleetServicePort) &&
-      entry.readyServices.has(entry.loginServicePort)
-    ) {
+    if (entry.remotePorts && entry.readyServices.has("fleet") && entry.readyServices.has("login")) {
       entry.state = "connected";
       entry.cancelStartupTimeout?.();
       entry.cancelStartupTimeout = undefined;
@@ -302,8 +312,9 @@ function sshTunnelArgs(entry: TunnelEntry): string[] {
   ];
   for (const service of ["fleet", "login"] as const) {
     const localPort = service === "fleet" ? entry.fleetServicePort : entry.loginServicePort,
+      localHost = service === "fleet" ? entry.fleetServiceHost : entry.loginServiceHost,
       remotePort = entry.remotePorts?.[service] ?? 0;
-    args.push("-R", `127.0.0.1:${remotePort}:127.0.0.1:${localPort}`);
+    args.push("-R", `127.0.0.1:${remotePort}:${openSshHost(localHost)}:${localPort}`);
   }
   args.push(entry.target);
   return args;
@@ -312,12 +323,23 @@ function sshTunnelArgs(entry: TunnelEntry): string[] {
 function assertSameServicePorts(entry: TunnelEntry, input: EdgeJoinSshTunnelInput): void {
   if (
     entry.fleetServicePort !== input.fleetServicePort ||
+    normalizeHost(entry.fleetServiceHost) !== normalizeHost(input.fleetServiceHost) ||
     entry.loginServicePort !== input.loginServicePort ||
+    normalizeHost(entry.loginServiceHost) !== normalizeHost(input.loginServiceHost) ||
     (input.remotePorts &&
       entry.remotePorts &&
       (input.remotePorts.fleet !== entry.remotePorts.fleet || input.remotePorts.login !== entry.remotePorts.login))
   )
-    throw tunnelError("An SSH target already has a tunnel for different service ports.");
+    throw tunnelError("An SSH target already has a tunnel for different service addresses.");
+}
+
+function normalizeHost(host: string): string {
+  return host.replace(/^\[|\]$/gu, "").toLowerCase();
+}
+
+function openSshHost(host: string): string {
+  const normalized = normalizeHost(host);
+  return normalized.includes(":") ? `[${normalized}]` : normalized;
 }
 
 function tunnelError(message: string): Error {
