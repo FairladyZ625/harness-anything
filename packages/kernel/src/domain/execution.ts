@@ -8,6 +8,8 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { validateFrozenCompletionContract, type FrozenCompletionContract } from "./completion-contract.ts";
 import type { ProductionDeltaCounts } from "./production-delta.ts";
+import { validateTaskReviewResponseV1 } from "./review.ts";
+import type { TaskReviewResponseV1 } from "./review.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -62,6 +64,8 @@ export type SubmissionV1 = SubmissionDelivery & {
   readonly productionDelta?: ProductionDeltaV1;
   /** Gate requirements frozen at the execution's first submission; YAML edits never reach this cut. */
   readonly completionContract: FrozenCompletionContract;
+  /** Worker responses frozen into the next submission after a returned review cut. */
+  readonly reviewResponses?: readonly TaskReviewResponseV1[];
 };
 export const SUBMISSION_V1_SCHEMA = Object.freeze({
   id: "Submission/v1",
@@ -278,6 +282,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
       ...(value.changedFiles !== undefined ? ["changedFiles"] : []),
       ...(value.productionDelta !== undefined ? ["productionDelta"] : []),
       ...(value.riskTierAssessment !== undefined ? ["riskTierAssessment"] : []),
+      ...(value.reviewResponses !== undefined ? ["reviewResponses"] : []),
     ]) ||
     !isNonEmptyString(value.completionClaim) ||
     !stringArray(value.deliverables) ||
@@ -289,7 +294,17 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     (value.riskTierAssessment !== undefined && !validTaskRiskTierAssessment(value.riskTierAssessment)) ||
     !validSubmissionDelivery(value) ||
     (value.productionDelta !== undefined &&
-      (value.commitSha === null || value.changedFiles === undefined || !validProductionDelta(value.productionDelta)))
+      (value.commitSha === null || value.changedFiles === undefined || !validProductionDelta(value.productionDelta))) ||
+    (value.reviewResponses !== undefined &&
+      (!Array.isArray(value.reviewResponses) ||
+        value.reviewResponses.some(
+          (response) => validateTaskReviewResponseV1(response, allowUnknownFields).length > 0,
+        ) ||
+        new Set(
+          value.reviewResponses.map((response) =>
+            isRecord(response) ? `${String(response.reviewId)}\0${String(response.findingId)}` : "",
+          ),
+        ).size !== value.reviewResponses.length))
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }

@@ -101,6 +101,43 @@ test("task snapshot protocol accepts audited gate witnesses", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
 });
 
+test("task snapshot protocol accepts historical reviews without findings and validates new review arrays", () => {
+  const historicalReview = {
+      schema: "review/v1",
+      reviewId: "review-historical",
+      taskId: "task-repoint",
+      executionId: "execution-repoint",
+      verdict: "approved",
+      actor,
+      capabilityRef: "default@1",
+      reason: "Historical review fixture.",
+      evidenceChecked: ["fixture"],
+      commitSha: "a".repeat(40),
+      iteration: 0,
+      contentDigest: `sha256:${"b".repeat(64)}`,
+      reviewedAt: "2026-08-25T00:00:00.000Z",
+    },
+    currentReview = {
+      ...historicalReview,
+      reviewId: "review-current",
+      findings: [{ findingId: "F-1", blocking: false, text: "No blocking issue." }],
+      resolutions: [],
+    },
+    withReviews = (reviews: readonly unknown[]) => ({
+      ...list,
+      rows: [{ ...row, snapshot: { ...row.snapshot, reviews } }],
+    });
+
+  assert.deepEqual(validateDaemonTaskSnapshotList(withReviews([historicalReview])), []);
+  assert.deepEqual(validateDaemonTaskSnapshotList(withReviews([currentReview])), []);
+  assert.notDeepEqual(
+    validateDaemonTaskSnapshotList(
+      withReviews([{ ...currentReview, findings: [{ findingId: "F-1", blocking: "false", text: "bad" }] }]),
+    ),
+    [],
+  );
+});
+
 test("task snapshots accept the tier-flow marker while preserving legacy metadata", () => {
   const metadata = {
       idempotencyKey: null,

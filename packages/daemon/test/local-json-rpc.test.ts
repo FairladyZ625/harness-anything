@@ -589,8 +589,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
   // decision-supersede's deprecated Action declaration is removed with its CLI command, and
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual
-  // forward/return commands.
-  assert.equal(actionDeclarations.length, 165);
+  // forward/return commands; CH1 adds task-respond-review.
+  assert.equal(actionDeclarations.length, 166);
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
     false,

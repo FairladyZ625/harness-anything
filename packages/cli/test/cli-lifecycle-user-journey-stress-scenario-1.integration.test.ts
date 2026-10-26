@@ -160,6 +160,8 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
           verdict: "changes_requested",
           reason: "The first iteration needs a clearer verification note.",
           evidenceChecked: [packagePathFor(packagePath, "closeout.md")],
+          findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+          resolutions: [],
         }),
       ],
       reviewerEnvironment,
@@ -174,6 +176,28 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     assert.equal(afterRequestEvidence.task?.status, "active");
     assert.equal(afterRequestEvidence.task?.iteration, 1);
     await expectApplied(fixture, ["task", "start", taskId, "--execution-id", secondExecutionId], workerEnvironment);
+    await expectApplied(
+      fixture,
+      [
+        "task",
+        "respond-review",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--json-input",
+        JSON.stringify({
+          responses: [
+            {
+              reviewId: "review-cli-changes-requested",
+              findingId: "fixture-finding",
+              disposition: "adopt",
+              rationale: "The second execution addresses the blocking fixture finding.",
+            },
+          ],
+        }),
+      ],
+      workerEnvironment,
+    );
     writeFileSync(
       closeoutPath,
       `# Closeout\n\n## Summary\n\nSecond execution addresses the verification note: artifact:${packagePath}/artifacts/recovery.txt@${artifactSync.revision}\n\n` +
@@ -200,6 +224,8 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
           verdict: "approved",
           reason: "The second execution includes the requested verification note.",
           evidenceChecked: [packagePathFor(packagePath, "closeout.md")],
+          findings: [],
+          resolutions: [],
         }),
       ],
       reviewerEnvironment,

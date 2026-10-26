@@ -219,7 +219,13 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Needs another pass.",
+        evidenceChecked: ["agenda"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, createdTasks.get("task_returned")!, "review-returned");
     const returned = await cell.run(
@@ -303,7 +309,13 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "dismissed", reason: "Superseded opinion.", evidenceChecked: ["agenda"] }),
+      JSON.stringify({
+        verdict: "dismissed",
+        reason: "Superseded opinion.",
+        evidenceChecked: ["agenda"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, createdTasks.get("task_review")!, "review-dismissed");
     assert.equal(
@@ -330,7 +342,13 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Current opinion.", evidenceChecked: ["agenda"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Current opinion.",
+        evidenceChecked: ["agenda"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, createdTasks.get("task_review")!, "review-approved");
     assert.equal(
@@ -417,7 +435,13 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Needs another pass.",
+        evidenceChecked: ["agenda"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, packagePath, "review-rework");
     assert.equal(
@@ -515,7 +539,13 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
 
       writeFileSync(
         path.join(rootDir, "review.json"),
-        JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
+        JSON.stringify({
+          verdict: "changes_requested",
+          reason: "Needs another pass.",
+          evidenceChecked: ["agenda"],
+          findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+          resolutions: [],
+        }),
       );
       writeReviewReport(rootDir, packagePath, `review_${taskId}`);
       assert.equal(

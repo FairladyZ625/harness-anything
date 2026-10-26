@@ -164,7 +164,13 @@ function taskChain(f, reader, index) {
     ["task", "review-execution", taskId, "--review-id", `review-${f.seed}-${index}`, "--json-input", "@-"],
     {
       actor: "agent:calibration-reviewer",
-      input: { verdict: "approved", reason: "Canonical artifact bytes checked.", evidenceChecked: [reportPath] },
+      input: {
+        verdict: "approved",
+        reason: "Canonical artifact bytes checked.",
+        evidenceChecked: [reportPath],
+        findings: [],
+        resolutions: [],
+      },
     },
   );
   f.check("task.review.independent", () => assert.equal(reviewed.outcome, "applied"));

@@ -177,7 +177,28 @@ export function lifecycleHarness() {
       gates: readonly FrozenGateRequirement[] = [],
     ) => {
       const next = revision() + 1;
-      const leaseVersion = (await service.read("task-1")).snapshot.lease?.version;
+      const snapshot = (await service.read("task-1")).snapshot,
+        leaseVersion = snapshot.lease?.version,
+        reviewResponses = snapshot.reviews
+          .filter(
+            (review) =>
+              review.verdict === "changes_requested" &&
+              snapshot.executions.some(
+                (execution) => execution.executionId === review.executionId && execution.state === "changes_requested",
+              ),
+          )
+          .flatMap((review) =>
+            (review.findings ?? [])
+              .filter((finding) => finding.blocking)
+              .map((finding) => ({
+                reviewId: review.reviewId,
+                findingId: finding.findingId,
+                disposition: "adopt" as const,
+                rationale: `Fixture worker addressed ${review.reviewId}/${finding.findingId}.`,
+                actor: owner,
+                respondedAt: `2026-08-11T00:${String(next).padStart(2, "0")}:00.000Z`,
+              })),
+          );
       if (leaseVersion === undefined) throw new Error(`execution ${executionId} has no active lease`);
       return service.execute(
         command(
@@ -200,6 +221,7 @@ export function lifecycleHarness() {
                 closeoutGates: { review: true, consent: true, factDisposition: true },
                 gates,
               },
+              ...(reviewResponses.length ? { reviewResponses } : {}),
             },
           },
           opId,
@@ -269,6 +291,11 @@ export function lifecycleHarness() {
             iteration: snapshot.task?.iteration ?? 0,
             contentDigest: `sha256:${"b".repeat(64)}`,
             submissionDigest: submissionDigest(submitted.submission),
+            findings:
+              verdict === "changes_requested"
+                ? [{ findingId: "fixture-finding", blocking: true, text: `${kind} requires another pass.` }]
+                : [],
+            resolutions: [],
           },
           opId,
         ),

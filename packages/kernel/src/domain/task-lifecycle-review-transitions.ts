@@ -2,7 +2,8 @@ import { submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
+import { validateReviewFindings, validateReviewResolutions, validateTaskReviewResponseV1 } from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
@@ -12,6 +13,7 @@ import type {
   ReviewConsentRecordedEvent,
   ReviewConsentOverrideRecordedEvent,
   ReviewRecordedEvent,
+  TaskReviewRespondedEvent,
   TaskCompletedEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
@@ -23,8 +25,10 @@ import type {
   CompleteTaskProof,
   RecordReviewCommand,
   RecordReviewConsentCommand,
+  RespondReviewCommand,
   ReviewConsentProof,
   ReviewProof,
+  ReviewResponseProof,
   TaskLifecycleSnapshot,
   Transition,
 } from "./task-lifecycle-contract-internal-types.ts";
@@ -79,7 +83,53 @@ function reviewIssues(
         "transport-bound execution review proof, content digest, and repository rework budget are required",
       ),
     );
+  if (!Array.isArray(command.findings))
+    issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
+  else issues.push(...validateReviewFindings(command.findings));
+  if (!Array.isArray(command.resolutions))
+    issues.push(lifecycleContractIssue("missing_field", "new Review records must include a resolutions array"));
+  else issues.push(...validateReviewResolutions(command.resolutions));
+  const priorRebuttedFindings = priorRebuttedFindingKeys(snapshot, command.iteration),
+    suppliedResolutionKeys = new Map<string, number>();
+  for (const resolution of command.resolutions ?? []) {
+    const key = `${resolution.reviewId}\0${resolution.findingId}`;
+    suppliedResolutionKeys.set(key, (suppliedResolutionKeys.get(key) ?? 0) + 1);
+    if (!priorRebuttedFindings.includes(key))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_review",
+          `resolution ${resolution.reviewId}/${resolution.findingId} does not address a rebutted finding from the prior review round`,
+        ),
+      );
+  }
+  for (const key of priorRebuttedFindings) {
+    if (suppliedResolutionKeys.get(key) !== 1)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_review",
+          `re-review must include exactly one resolution for rebutted finding ${key.replace("\0", "/")}`,
+        ),
+      );
+  }
+  if (
+    command.verdict === "changes_requested" &&
+    command.findings !== undefined &&
+    !command.findings.some((item) => item.blocking)
+  )
+    issues.push(lifecycleContractIssue("invalid_review", "changes_requested review requires a blocking finding"));
   return issues;
+}
+
+function priorRebuttedFindingKeys(snapshot: TaskLifecycleSnapshot, iteration: number): readonly string[] {
+  const priorReviews = snapshot.reviews.filter((review) => review.iteration < iteration);
+  if (priorReviews.length === 0) return [];
+  const priorIteration = Math.max(...priorReviews.map((review) => review.iteration)),
+    priorReviewIds = new Set(
+      priorReviews.filter((review) => review.iteration === priorIteration).map((review) => review.reviewId),
+    );
+  return (snapshot.reviewResponses ?? [])
+    .filter((response) => response.disposition === "rebut" && priorReviewIds.has(response.reviewId))
+    .map((response) => `${response.reviewId}\0${response.findingId}`);
 }
 function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 {
   const qualificationEvidence =
@@ -106,6 +156,8 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
     contentDigest: command.contentDigest,
     submissionDigest: command.submissionDigest,
     reviewedAt: command.occurredAt,
+    findings: [...(command.findings ?? [])],
+    resolutions: [...(command.resolutions ?? [])],
   };
 }
 export const review: Transition = {
@@ -156,6 +208,22 @@ function reworkReopen(
   proof: ReviewProof,
 ): { readonly task: TaskV2; readonly execution: ExecutionV1; readonly edge: TaskEdgeTaken } | null {
   if (command.verdict !== "changes_requested") return null;
+  const resolutions = recorded.resolutions ?? [],
+    upheld = resolutions.some((resolution) => resolution.resolution === "upheld"),
+    newBlocking = (recorded.findings ?? []).some(
+      (finding) =>
+        finding.blocking &&
+        !resolutions.some(
+          (resolution) =>
+            resolution.reviewId === recorded.reviewId &&
+            resolution.findingId === finding.findingId &&
+            resolution.resolution === "withdrawn",
+        ),
+    );
+  // A re-review that upholds an earlier finding belongs to CEO disposition. Only a newly blocking
+  // finding without an upheld resolution reopens the worker; legacy reviews without arrays retain
+  // the W2 automatic-return behavior.
+  if ((command.findings !== undefined || command.resolutions !== undefined) && (upheld || !newBlocking)) return null;
   const returned = snapshot.executions.filter((value) => value.state === "changes_requested").length;
   if (returned >= proof.reworkBudget) return null;
   const current = execution(snapshot, command.executionId) as ExecutionV1;
@@ -176,6 +244,89 @@ function reworkReopen(
     ),
   };
 }
+
+function responseIssues(
+  snapshot: TaskLifecycleSnapshot,
+  command: RespondReviewCommand,
+  proof: Partial<ReviewResponseProof>,
+): ContractValidationIssue[] {
+  const issues = revisionIssues(snapshot, command),
+    current = execution(snapshot, command.executionId),
+    currentResponses = snapshot.reviewResponses ?? [];
+  if (
+    snapshot.task?.status !== "active" ||
+    snapshot.task.currentNode !== "implementation" ||
+    current?.state !== "active"
+  )
+    issues.push(
+      lifecycleContractIssue("invalid_transition", "Review responses require the active implementation execution"),
+    );
+  if (
+    !current ||
+    !proof.actorBinding ||
+    !isSameExecution(proof.actorBinding, command.actor) ||
+    proof.capability !== "execution-review-response@v1" ||
+    !isNonEmptyString(proof.capabilityRef) ||
+    !Array.isArray(command.responses) ||
+    command.responses.length === 0
+  )
+    issues.push(
+      lifecycleContractIssue("invalid_proof", "review response proof and a non-empty response packet are required"),
+    );
+  const seen = new Set<string>();
+  for (const response of command.responses ?? []) {
+    issues.push(
+      ...validateTaskReviewResponseV1({ ...response, actor: command.actor, respondedAt: command.occurredAt }),
+    );
+    const key = `${response.reviewId}\0${response.findingId}`;
+    if (seen.has(key) || currentResponses.some((value) => `${value.reviewId}\0${value.findingId}` === key))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          `review response ${response.reviewId}/${response.findingId} already exists`,
+        ),
+      );
+    seen.add(key);
+    const review = snapshot.reviews.find((value) => value.reviewId === response.reviewId);
+    const finding = review?.findings?.find((value) => value.findingId === response.findingId);
+    if (!review || review.verdict !== "changes_requested" || !finding || !finding.blocking)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          `blocking finding ${response.reviewId}/${response.findingId} does not exist`,
+        ),
+      );
+  }
+  return issues;
+}
+
+export const respondReview: Transition = {
+  actionId: "respondReview",
+  matches: (command) => command.type === "RespondReview",
+  validate: (snapshot, raw, proof) =>
+    responseIssues(snapshot, raw as RespondReviewCommand, proof as Partial<ReviewResponseProof>),
+  reduce: (snapshot, raw) => {
+    const command = raw as RespondReviewCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      responses: readonly TaskReviewResponseV1[] = command.responses.map((response) => ({
+        ...response,
+        actor: command.actor,
+        respondedAt: command.occurredAt,
+      }));
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        reviewResponses: [...(snapshot.reviewResponses ?? []), ...responses],
+      },
+      event: envelope<TaskReviewRespondedEvent>(command, "task_review_responded", {
+        task: snapshot.task as TaskV2,
+        execution: current,
+        responses,
+      }),
+    };
+  },
+};
 export const consent: Transition = {
   actionId: "consent",
   matches: (command) => command.type === "RecordReviewConsent",

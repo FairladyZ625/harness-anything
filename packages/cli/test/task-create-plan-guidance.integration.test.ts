@@ -38,7 +38,14 @@ test("CLI plan-file rejection directs repair to its input and the same create su
     "--review-id",
     "review-invalid-fields",
     "--json-input",
-    JSON.stringify({ schema: "review/v1", verdict: "approved", reason: "Checked input.", evidenceChecked: [source] }),
+    JSON.stringify({
+      schema: "review/v1",
+      verdict: "approved",
+      reason: "Checked input.",
+      evidenceChecked: [source],
+      findings: [],
+      resolutions: [],
+    }),
   ]);
   assert.equal(review.status, 1);
   assert.equal(review.receipt.code, "invalid_command");

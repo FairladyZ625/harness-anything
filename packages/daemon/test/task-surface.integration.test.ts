@@ -650,7 +650,13 @@ test("a lifecycle rejection bound to a declared criterion reports the guard's ow
       commandType: "RecordReview",
       taskId: "task-reason",
       reviewId: "review-reason",
-      jsonInput: JSON.stringify({ verdict: "approved", reason: "Looks done.", evidenceChecked: ["read"] }),
+      jsonInput: JSON.stringify({
+        verdict: "approved",
+        reason: "Looks done.",
+        evidenceChecked: ["read"],
+        findings: [],
+        resolutions: [],
+      }),
     },
     withPolicyGroup({ actor, source: "local" }, "admin"),
   );

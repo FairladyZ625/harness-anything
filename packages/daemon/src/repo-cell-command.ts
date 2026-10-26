@@ -19,7 +19,12 @@ import {
   reviewConsentSelection,
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
-import { reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
+import {
+  reviewPacket,
+  reviewQualificationFields,
+  reviewResponsePacket,
+  submissionPacket,
+} from "./repo-cell-packets.ts";
 import { assertPhysicalReviewReport } from "./reviewer-artifact-publication.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
 import { reviewVerdict } from "./repo-cell-review-lint.ts";
@@ -135,6 +140,8 @@ export function buildCommand(
         iteration: selection.iteration,
         contentDigest: packet.digest,
         submissionDigest: selection.submissionDigest,
+        findings: reviewFindings(packet.value.findings, "findings"),
+        resolutions: reviewResolutions(packet.value.resolutions),
       };
     assertPhysicalReviewReport({
       rootDir,
@@ -227,6 +234,20 @@ export function buildCommand(
       ...(typeof action.rationale === "string" ? { rationale: action.rationale } : {}),
     });
   }
+  if (lifecycleAction?.commandType === "RespondReview") {
+    const packet = reviewResponsePacket(rootDir, action);
+    return normalizeTaskLifecycleCommand(bound, {
+      type: "RespondReview",
+      taskId,
+      executionId: requiredCellText(action.executionId, "executionId"),
+      responses: packet.value.map((response) => ({
+        reviewId: requiredCellText(response.reviewId, "reviewId"),
+        findingId: requiredCellText(response.findingId, "findingId"),
+        disposition: response.disposition as "adopt" | "rebut",
+        rationale: requiredCellText(response.rationale, "rationale"),
+      })),
+    });
+  }
   if (lifecycleAction?.commandType === "CompleteTask")
     return normalizeTaskLifecycleCommand(bound, {
       type: "CompleteTask",
@@ -254,6 +275,52 @@ export function buildCommand(
     "unsupported_command",
     "No domain contract exists for this write command; run the leaf --help and select a supported repair command.",
   );
+}
+
+function reviewFindings(
+  value: unknown,
+  field: string,
+): readonly {
+  readonly findingId: string;
+  readonly blocking: boolean;
+  readonly text: string;
+  readonly anchor?: string;
+}[] {
+  if (!Array.isArray(value)) throw cellCodedError("invalid_command", `${field} must be an array.`);
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw cellCodedError("invalid_command", `${field}[${index}] must be an object.`);
+    const row = item as Record<string, unknown>,
+      findingId = requiredCellText(row.findingId, `${field}[${index}].findingId`),
+      text = requiredCellText(row.text, `${field}[${index}].text`);
+    if (typeof row.blocking !== "boolean")
+      throw cellCodedError("invalid_command", `${field}[${index}].blocking must be boolean.`);
+    return {
+      findingId,
+      blocking: row.blocking,
+      text,
+      ...(row.anchor === undefined ? {} : { anchor: requiredCellText(row.anchor, `${field}[${index}].anchor`) }),
+    };
+  });
+}
+
+function reviewResolutions(value: unknown): readonly {
+  readonly reviewId: string;
+  readonly findingId: string;
+  readonly resolution: "upheld" | "withdrawn";
+}[] {
+  if (!Array.isArray(value)) throw cellCodedError("invalid_command", "resolutions must be an array.");
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw cellCodedError("invalid_command", `resolutions[${index}] must be an object.`);
+    const row = item as Record<string, unknown>,
+      reviewId = requiredCellText(row.reviewId, `resolutions[${index}].reviewId`),
+      findingId = requiredCellText(row.findingId, `resolutions[${index}].findingId`),
+      resolution = requiredCellText(row.resolution, `resolutions[${index}].resolution`);
+    if (resolution !== "upheld" && resolution !== "withdrawn")
+      throw cellCodedError("invalid_command", `resolutions[${index}].resolution must be upheld or withdrawn.`);
+    return { reviewId, findingId, resolution };
+  });
 }
 
 export function withServerMeta(

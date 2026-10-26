@@ -224,6 +224,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           verdict: "changes_requested",
           reason: "Exercise a second implementation round.",
           evidenceChecked: ["first-round receipt"],
+          findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+          resolutions: [],
         }),
       );
       const firstReviewer = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -305,6 +307,26 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           kind: "agent" as const,
           id: `runtime-session:${String(implementation.runtimeSessionId)}`,
         },
+        response = await host.run(
+          repoId,
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: secondExecutionId,
+            executor: runtimeExecutor,
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "redispatch-changes",
+                  findingId: "fixture-finding",
+                  disposition: "adopt",
+                  rationale: "The second runtime cut addresses the blocking fixture finding.",
+                },
+              ],
+            }),
+          },
+          auth,
+        ),
         secondSubmission = await host.run(
           repoId,
           {
@@ -315,10 +337,17 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           },
           auth,
         );
+      assert.equal(response.outcome, "applied", JSON.stringify(response));
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
       writeFileSync(
         path.join(root, "redispatch-review.json"),
-        JSON.stringify({ verdict: "approved", reason: "Second round reviewed.", evidenceChecked: ["second round"] }),
+        JSON.stringify({
+          verdict: "approved",
+          reason: "Second round reviewed.",
+          evidenceChecked: ["second round"],
+          findings: [],
+          resolutions: [],
+        }),
       );
       const staleReviewer = await host.run(
         repoId,
@@ -505,6 +534,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             verdict: "approved",
             reason: "The attach must not be able to register this.",
             evidenceChecked: ["attach boundary"],
+            findings: [],
+            resolutions: [],
           }),
         );
         const reviewClaim = await host.run(

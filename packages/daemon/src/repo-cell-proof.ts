@@ -45,6 +45,7 @@ import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./r
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
 const REVIEW_PROOF_CRITERION = "repo-cell-proof/proofFor.RecordReview";
+const REVIEW_RESPONSE_PROOF_CRITERION = "repo-cell-proof/proofFor.RespondReview";
 const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complete.validate";
 
 /**
@@ -229,6 +230,30 @@ export async function proofFor(
       actorBinding: command.actor,
       leaseVersion: lease.version,
       sessionDisposition: "unavailable",
+    };
+  }
+  if (command.type === "RespondReview") {
+    const current = snapshot.executions.find(
+      (candidate) => candidate.executionId === command.executionId && candidate.state === "active",
+    );
+    if (
+      !current ||
+      !heldLeaseForExecutionActor(snapshot, command.executionId, command.actor) ||
+      snapshot.task?.status !== "active" ||
+      snapshot.task.currentNode !== "implementation"
+    )
+      throw cellCriterionError(
+        "actor_unauthorized",
+        "Task review responses require the current implementation execution lease.",
+        "respond-review",
+        REVIEW_RESPONSE_PROOF_CRITERION,
+      );
+    const authorizationDecision = requiredAuthorizationDecision(binding);
+    return {
+      actorBinding: command.actor,
+      capability: "execution-review-response@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      authorizationDecision,
     };
   }
   if (command.type === "RecordReview") {

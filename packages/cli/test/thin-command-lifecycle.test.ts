@@ -85,6 +85,15 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--from-file",
       "review.json",
     ]),
+    respondReview = parseThinCommand([
+      "task",
+      "respond-review",
+      "task-1",
+      "--execution-id",
+      "execution-1",
+      "--from-file",
+      "responses.json",
+    ]),
     consent = parseThinCommand([
       "task",
       "review-consent",
@@ -103,7 +112,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--fact-holds",
       "F-ABCDEFGH:The upstream observation remains true after this task.",
     ]);
-  for (const parsed of [submit, declare, review, consent, complete])
+  for (const parsed of [submit, declare, review, respondReview, consent, complete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (submit.ok)
     assert.deepEqual(submit.command.action, {
@@ -129,6 +138,14 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       reviewId: "review-1",
       commandType: "RecordReview",
       fromFile: "review.json",
+    });
+  if (respondReview.ok)
+    assert.deepEqual(respondReview.command.action, {
+      kind: "task-respond-review",
+      taskId: "task-1",
+      executionId: "execution-1",
+      commandType: "RespondReview",
+      fromFile: "responses.json",
     });
   if (consent.ok)
     assert.deepEqual(consent.command.action, {
@@ -187,6 +204,15 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--from-file",
       "review.json",
     ]),
+    derivedRespondReview = parseThinCommand([
+      "task",
+      "respond-review",
+      "task-1",
+      "--execution-id",
+      "execution-1",
+      "--json-input",
+      '{"responses":[{"reviewId":"review-1","findingId":"F-1","disposition":"adopt","rationale":"fixed"}]}',
+    ]),
     inlineReview = parseThinCommand([
       "task",
       "review-execution",
@@ -209,7 +235,14 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "owner adjudicated both reports",
     ]),
     derivedComplete = parseThinCommand(["task", "complete", "task-1"]);
-  for (const parsed of [derivedDeclare, derivedSubmit, derivedReview, inlineReview, derivedComplete])
+  for (const parsed of [
+    derivedDeclare,
+    derivedSubmit,
+    derivedReview,
+    derivedRespondReview,
+    inlineReview,
+    derivedComplete,
+  ])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (derivedDeclare.ok)
     assert.deepEqual(derivedDeclare.command.action, {
@@ -231,6 +264,14 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       reviewId: "review-1",
       commandType: "RecordReview",
       fromFile: "review.json",
+    });
+  if (derivedRespondReview.ok)
+    assert.deepEqual(derivedRespondReview.command.action, {
+      kind: "task-respond-review",
+      taskId: "task-1",
+      executionId: "execution-1",
+      commandType: "RespondReview",
+      jsonInput: '{"responses":[{"reviewId":"review-1","findingId":"F-1","disposition":"adopt","rationale":"fixed"}]}',
     });
   if (inlineReview.ok)
     assert.deepEqual(inlineReview.command.action, {
@@ -292,6 +333,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       .ok,
     false,
   );
+  assert.equal(parseThinCommand(["task", "respond-review", "task-1", "--from-file", "responses.json"]).ok, false);
   assert.equal(
     parseThinCommand(["task", "review-consent", "task-1", "--execution-id", "execution-1", "--review-id", "review-1"])
       .ok,

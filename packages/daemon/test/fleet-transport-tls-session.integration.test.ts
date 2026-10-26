@@ -287,7 +287,13 @@ test(
     );
     writeFileSync(
       path.join(fixture.repo, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent review passed.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const review = { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" } as const;
     const selfReview = await fixture.host.run(repoId, review, localAuthFixture());

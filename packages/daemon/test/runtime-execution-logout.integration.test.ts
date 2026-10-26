@@ -331,6 +331,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
       verdict: "approved",
       reason: "The bounded runtime completed after device reauthentication.",
       evidenceChecked: ["isolated CLI receipts"],
+      findings: [],
+      resolutions: [],
     }),
   );
   writeFileSync(

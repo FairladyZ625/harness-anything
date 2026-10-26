@@ -57,7 +57,7 @@ export const availabilityFields = ["consents", "gateWitnesses"] as const,
   ] as const,
   // Snapshot fields only some snapshots carry: reviewDispositions arrives with overridden consents,
   // forwardedCuts with a journal that recorded the owner's forward adjudications.
-  snapshotOptionalFields = ["reviewDispositions", "forwardedCuts", "siblingResolution"] as const;
+  snapshotOptionalFields = ["reviewDispositions", "reviewResponses", "forwardedCuts", "siblingResolution"] as const;
 
 const artifactEntityImportProtocolInput = Object.freeze({
   schema: "entity-action-input/v1",
@@ -536,6 +536,21 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
     (!Array.isArray(value.reviewDispositions) || !value.reviewDispositions.every(reviewDisposition))
   )
     paths.push("snapshot.reviewDispositions");
+  if (
+    value.reviewResponses !== undefined &&
+    (!Array.isArray(value.reviewResponses) ||
+      value.reviewResponses.some(
+        (response) =>
+          !exactRecord(response, ["reviewId", "findingId", "disposition", "rationale", "actor", "respondedAt"]) ||
+          !nonEmpty(response.reviewId) ||
+          !nonEmpty(response.findingId) ||
+          !["adopt", "rebut"].includes(String(response.disposition)) ||
+          !nonEmpty(response.rationale) ||
+          !isJsonObject(response.actor) ||
+          !nonEmpty(response.respondedAt),
+      ))
+  )
+    paths.push("snapshot.reviewResponses");
   if (!integer(value.revision)) paths.push("snapshot.revision");
   if (
     value.siblingResolution !== undefined &&

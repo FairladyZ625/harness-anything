@@ -119,7 +119,19 @@ test(
       );
       writeFileSync(
         path.join(fixture.repo, "harness", `${stem}.json`),
-        JSON.stringify({ verdict, reason: `Round ${iteration} verdict.`, evidenceChecked: ["closeout.md"] }),
+        JSON.stringify({
+          verdict,
+          reason: `Round ${iteration} verdict.`,
+          evidenceChecked: ["closeout.md"],
+          findings:
+            verdict === "changes_requested"
+              ? [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }]
+              : [],
+          resolutions:
+            iteration > 0
+              ? [{ reviewId: `review-rework-${iteration - 1}`, findingId: "fixture-finding", resolution: "withdrawn" }]
+              : [],
+        }),
       );
       const reviewed = (await fixture.host.run(
         "dual-repo",
@@ -154,6 +166,22 @@ test(
         `${created.packagePath}/closeout.md`,
         `# Closeout\n\n## Summary\n\nIteration ${iteration} delivery.\n\n## Verification\n\nChecked iteration ${iteration} artifact.\n\n## Residual Risk\n\nReal provider unverified.\n\n## Same Mechanism Elsewhere\n\nCanonical review selection.\n`,
       );
+      if (iteration > 0) {
+        const responded = await fixture.edgeTask("node-one", {
+          kind: "task-respond-review",
+          taskId: created.taskId,
+          executionId,
+          responses: [
+            {
+              reviewId: `review-rework-${iteration - 1}`,
+              findingId: "fixture-finding",
+              disposition: "rebut",
+              rationale: `Iteration ${iteration} explains why the prior finding is not present in this cut.`,
+            },
+          ],
+        });
+        assert.equal(responded.ok, true, JSON.stringify(responded));
+      }
       const submitted = await fixture.edgeTask("node-one", {
         kind: "task-submit",
         taskId: created.taskId,

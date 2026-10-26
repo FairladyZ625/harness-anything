@@ -10,6 +10,26 @@ import { timestamp } from "./timestamp.ts";
 import { reviewConsentConflicts } from "./review-consent-validity.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
+export type ReviewResponseDisposition = "adopt" | "rebut";
+export interface ReviewFindingV1 {
+  readonly findingId: string;
+  readonly blocking: boolean;
+  readonly text: string;
+  readonly anchor?: string;
+}
+export interface ReviewResolutionV1 {
+  readonly reviewId: string;
+  readonly findingId: string;
+  readonly resolution: "upheld" | "withdrawn";
+}
+export interface TaskReviewResponseV1 {
+  readonly reviewId: string;
+  readonly findingId: string;
+  readonly disposition: ReviewResponseDisposition;
+  readonly rationale: string;
+  readonly actor: ActorAxes;
+  readonly respondedAt: string;
+}
 export interface ReviewV1 {
   readonly schema: "review/v1";
   readonly reviewId: string;
@@ -25,6 +45,9 @@ export interface ReviewV1 {
   readonly contentDigest: `sha256:${string}`;
   readonly submissionDigest: SubmissionDigest;
   readonly reviewedAt: string;
+  /** These arrays are absent only on historical records. New records always write both. */
+  readonly findings?: readonly ReviewFindingV1[];
+  readonly resolutions?: readonly ReviewResolutionV1[];
 }
 export interface ReviewConsentV1 {
   readonly schema: "review-consent/v1";
@@ -109,10 +132,18 @@ export const REVIEW_V1_SCHEMA = Object.freeze({
     "contentDigest",
     "submissionDigest",
     "reviewedAt",
+    "findings",
+    "resolutions",
   ]),
   verdicts: reviewVerdicts,
   inputRequired: Object.freeze(["verdict", "reason", "evidenceChecked"] as const),
 });
+/** Fields accepted from Review records written before findings and resolutions were durable. */
+export const REVIEW_V1_HISTORICAL_REQUIRED_FIELDS = Object.freeze(
+  REVIEW_V1_SCHEMA.required.filter(
+    (field) => field !== "submissionDigest" && field !== "findings" && field !== "resolutions",
+  ),
+);
 export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({
   id: "ReviewConsent/v1",
   required: Object.freeze([
@@ -130,10 +161,13 @@ export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({
   ]),
 });
 export function validateReviewV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  const historicalFields = REVIEW_V1_SCHEMA.required.filter((field) => field !== "submissionDigest");
+  const historicalFields = REVIEW_V1_HISTORICAL_REQUIRED_FIELDS,
+    allowedFields = REVIEW_V1_SCHEMA.required;
   if (
     !isRecord(value) ||
-    !(allowUnknownFields ? hasRequiredFields(value, historicalFields) : hasOnlyFields(value, REVIEW_V1_SCHEMA.required))
+    !(allowUnknownFields
+      ? hasRequiredFields(value, historicalFields)
+      : hasRequiredFields(value, allowedFields) && Object.keys(value).every((field) => allowedFields.includes(field)))
   )
     return [invalidReviewIssue("Review/v1 fields are incomplete or unknown")];
   const issues: ContractValidationIssue[] = [];
@@ -158,8 +192,81 @@ export function validateReviewV1(value: unknown, allowUnknownFields = false): re
     (value.submissionDigest !== undefined && !digest(value.submissionDigest))
   )
     issues.push(invalidReviewIssue("review content cut, evidence, commit, or iteration is invalid"));
+  if (value.findings !== undefined) issues.push(...validateReviewFindings(value.findings, allowUnknownFields));
+  if (value.resolutions !== undefined) issues.push(...validateReviewResolutions(value.resolutions, allowUnknownFields));
   issues.push(...validateActorAxes(value.actor, allowUnknownFields));
   return issues;
+}
+
+export function validateReviewFindings(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
+  if (!Array.isArray(value)) return [invalidReviewIssue("review findings must be an array")];
+  const issues: ContractValidationIssue[] = [];
+  const seen = new Set<string>();
+  for (const finding of value) {
+    const fields = ["findingId", "blocking", "text"] as const,
+      allowedFields = [...fields, "anchor"] as const;
+    if (
+      !isRecord(finding) ||
+      !hasRequiredFields(finding, fields) ||
+      (!allowUnknownFields &&
+        Object.keys(finding).some((field) => !allowedFields.includes(field as (typeof allowedFields)[number])))
+    ) {
+      issues.push(invalidReviewIssue("review finding fields are incomplete or unknown"));
+      continue;
+    }
+    if (
+      !isNonEmptyString(finding.findingId) ||
+      seen.has(finding.findingId) ||
+      typeof finding.blocking !== "boolean" ||
+      !isNonEmptyString(finding.text) ||
+      (finding.anchor !== undefined && !isNonEmptyString(finding.anchor))
+    )
+      issues.push(invalidReviewIssue("review findings require unique ids, blocking flags, and text"));
+    else seen.add(finding.findingId);
+  }
+  return issues;
+}
+
+export function validateReviewResolutions(
+  value: unknown,
+  allowUnknownFields = false,
+): readonly ContractValidationIssue[] {
+  if (!Array.isArray(value)) return [invalidReviewIssue("review resolutions must be an array")];
+  const issues: ContractValidationIssue[] = [];
+  const seen = new Set<string>();
+  for (const resolution of value) {
+    const fields = ["reviewId", "findingId", "resolution"] as const;
+    if (!isRecord(resolution) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(resolution, fields)) {
+      issues.push(invalidReviewIssue("review resolution fields are incomplete or unknown"));
+      continue;
+    }
+    const key = `${String(resolution.reviewId)}\0${String(resolution.findingId)}`;
+    if (
+      !isNonEmptyString(resolution.reviewId) ||
+      !isNonEmptyString(resolution.findingId) ||
+      seen.has(key) ||
+      !["upheld", "withdrawn"].includes(String(resolution.resolution))
+    )
+      issues.push(invalidReviewIssue("review resolutions require unique review/finding ids and a valid resolution"));
+    else seen.add(key);
+  }
+  return issues;
+}
+
+export function validateTaskReviewResponseV1(
+  value: unknown,
+  allowUnknownFields = false,
+  includeAuthority = true,
+): readonly ContractValidationIssue[] {
+  const fields = ["reviewId", "findingId", "disposition", "rationale", "actor", "respondedAt"] as const;
+  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, fields))
+    return [invalidReviewIssue("task review response fields are incomplete or unknown")];
+  const valid =
+    [value.reviewId, value.findingId, value.rationale].every(isNonEmptyString) &&
+    ["adopt", "rebut"].includes(String(value.disposition)) &&
+    (!includeAuthority ||
+      (timestamp(value.respondedAt) && validateActorAxes(value.actor, allowUnknownFields).length === 0));
+  return valid ? [] : [invalidReviewIssue("task review response must name a finding and disposition rationale")];
 }
 export function validateReviewConsentV1(
   value: unknown,

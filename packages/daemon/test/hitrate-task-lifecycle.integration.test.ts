@@ -283,6 +283,8 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
           verdict: "approved",
           reason: "Independent review passed.",
           evidenceChecked: ["tests"],
+          findings: [],
+          resolutions: [],
         }),
       },
       reviewer,

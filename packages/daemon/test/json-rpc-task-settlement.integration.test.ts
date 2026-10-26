@@ -132,14 +132,14 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     assert.deepEqual(missingReview.steps, []);
     assert.equal(store().read().revision, beforeReviewBlock);
     const reviewBinding = (id: string) => withPolicyGroup({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "maintainer");
-    const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const reportPath = `${packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`; mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true }); writeFileSync(path.join(rootDir, "harness", reportPath), `# Review ${reviewId}\n\nPhysical review findings.\n`); assert.equal((await cell!.run({ kind: "doc-submit", paths: [reportPath] }, binding)).outcome, "applied"); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
+    const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"], findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }], resolutions: [] })); const reportPath = `${packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`; mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true }); writeFileSync(path.join(rootDir, "harness", reportPath), `# Review ${reviewId}\n\nPhysical review findings.\n`); assert.equal((await cell!.run({ kind: "doc-submit", paths: [reportPath] }, binding)).outcome, "applied"); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
     await recordReview("review-dismissed", "dismissed");
     assert.match(String((await cell.read("repo.tasks.completion.read", { taskId })).completionNext.action), /ha task dispatch-review/u, "a dismissed Review must leave the execution awaiting review");
     await recordReview("review-unselected", "approved");
     await recordReview("review-complete", "approved");
     const reviewEvents = store().read().events.filter((event) => event.type === "review_recorded"); assert.deepEqual(reviewEvents.map((event) => event.payload.review.reviewId), ["review-dismissed", "review-unselected", "review-complete"]);
     const executionPath = path.join(rootDir, "harness", `${packagePath}/executions/${executionId}.md`); assert.match(readFileSync(executionPath, "utf8"), /Reviews: review-dismissed\/dismissed, review-unselected\/approved, review-complete\/approved[\s\S]*Selected review: pending/u);
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "duplicate id", evidenceChecked: ["tests"] })); const duplicateReview = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-complete", fromFile: "review.json" }, reviewBinding("duplicate-reviewer")); assert.equal(duplicateReview.outcome, "op_rejected"); assert.equal(duplicateReview.code, "invalid_transition"); assert.deepEqual(duplicateReview.diagnostic, { kind: "failure", code: "invalid_transition" });
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "duplicate id", evidenceChecked: ["tests"], findings: [], resolutions: [] })); const duplicateReview = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-complete", fromFile: "review.json" }, reviewBinding("duplicate-reviewer")); assert.equal(duplicateReview.outcome, "op_rejected"); assert.equal(duplicateReview.code, "invalid_transition"); assert.deepEqual(duplicateReview.diagnostic, { kind: "failure", code: "invalid_transition" });
     const missingConsent = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingConsent.outcome, code: missingConsent.code, steps: missingConsent.steps }, { outcome: "op_rejected", code: "consent_missing", steps: [] }); const rejectedShow = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence)) as { task: { status: string; currentNode: string } }; assert.deepEqual({ status: rejectedShow.task.status, currentNode: rejectedShow.task.currentNode }, { status: "in_review", currentNode: "review" });
     const consented = await cell.run(
       {
@@ -579,7 +579,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     // contributor tier only (repo-write verdict commands stay above it).
     const creatorCommands = await host.run("rbac", { kind: "task-review-consent", taskId: "task-rbac", executionId, reviewId: "review-none", consentId: "consent-none", reviewDigest: `sha256:${"0".repeat(64)}`, contentDigest: `sha256:${"0".repeat(64)}` }, auth("writer", 4102));
     assert.deepEqual({ outcome: creatorCommands.outcome, code: creatorCommands.code }, { outcome: "op_rejected", code: "authorization_denied" });
-    writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
+    writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [], findings: [], resolutions: [] }));
     const rbacReportDir = path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "artifacts", "reports"); mkdirSync(rbacReportDir, { recursive: true }); writeFileSync(path.join(rbacReportDir, "rbac.md"), "# Review rbac\n\nPhysical review findings.\n");
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth("arbiter", 4103)); assert.equal(review.outcome, "applied", JSON.stringify(review));
     const attached = await rpc(host, auth("admin", 4104), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
@@ -634,7 +634,13 @@ test("task mutation rejections name the missing field and current execution stat
     // CH2 made a Summary-only closeout submittable, so the submit moved to the end of this test.
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Premature review.", evidenceChecked: ["fixture"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Premature review.",
+        evidenceChecked: ["fixture"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const prematureReview = await cell.run(
       {
@@ -789,7 +795,13 @@ async function prepareReadyCompletion(
   assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
   writeFileSync(
     path.join(rootDir, "review.json"),
-    JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Approved.",
+      evidenceChecked: ["verified"],
+      findings: [],
+      resolutions: [],
+    }),
   );
   const readyReportPath = `${packagePath}/artifacts/reports/ready.md`;
   mkdirSync(path.dirname(path.join(rootDir, "harness", readyReportPath)), { recursive: true });

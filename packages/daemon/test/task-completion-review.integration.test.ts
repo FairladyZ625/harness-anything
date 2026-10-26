@@ -73,6 +73,8 @@ async function recordReview(
       verdict,
       reason: verdict === "approved" ? "The submitted cut is sound." : "The submitted cut needs revision.",
       evidenceChecked: ["closeout.md"],
+      findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+      resolutions: [],
     }),
   );
   return f.cell().run(
@@ -328,11 +330,7 @@ test("the rework budget stops the loop and leaves the cut to the owner", async (
     for (const [index, roundExecutionId] of ["execution-review-budget-2", "execution-review-budget-3"].entries()) {
       const started = (await f.run({ kind: "task-start", taskId, executionId: roundExecutionId })) as Receipt;
       assert.equal(started.outcome, "applied", `round ${String(index + 2)} start: ${JSON.stringify(started)}`);
-      const submitted = (await f.run({
-        kind: "task-submit",
-        taskId,
-        executionId: roundExecutionId,
-      })) as Receipt;
+      const submitted = (await f.submit(roundExecutionId)) as Receipt;
       assert.equal(submitted.outcome, "applied", `round ${String(index + 2)} submit: ${JSON.stringify(submitted)}`);
       capped = await dispatchReview(roundExecutionId, `review-budget-${index + 2}`);
     }

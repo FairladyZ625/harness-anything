@@ -130,6 +130,8 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
           verdict: "approved",
           reason: "Independent reviewer approved the chain fixture.",
           evidenceChecked: ["scripts/release-acc-probe.mjs"],
+          findings: [],
+          resolutions: [],
         }),
       ],
       reviewer,
@@ -277,6 +279,8 @@ test("release acceptance: changes_requested rework keeps both same-named reports
           verdict: "changes_requested",
           reason: "The report needs a second execution.",
           evidenceChecked: [reportLogical],
+          findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+          resolutions: [],
         }),
       ],
       reviewer,
@@ -291,6 +295,29 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     assert.equal(afterReturn.task.iteration, 1, "the adverse verdict opens the second round");
 
     run(root, userRoot, ["task", "start", taskId, "--execution-id", secondExecutionId], worker);
+    run(
+      root,
+      userRoot,
+      [
+        "task",
+        "respond-review",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--json-input",
+        JSON.stringify({
+          responses: [
+            {
+              reviewId: "review-release-acc-rework",
+              findingId: "fixture-finding",
+              disposition: "adopt",
+              rationale: "The second execution addresses the blocking fixture finding.",
+            },
+          ],
+        }),
+      ],
+      worker,
+    );
     writeFileSync(reportFile, secondBody);
     writeCloseout(root, packagePath, "The second execution addressed the returned review.");
     const secondPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
@@ -342,6 +369,8 @@ test("release acceptance: changes_requested rework keeps both same-named reports
           verdict: "approved",
           reason: "The second execution satisfied the requested changes.",
           evidenceChecked: [reportLogical],
+          findings: [],
+          resolutions: [],
         }),
       ],
       reviewer,

@@ -173,6 +173,8 @@ async function runChain(
         verdict: "approved",
         reason: "Independent synthetic reviewer checked the submitted execution.",
         evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
+        findings: [],
+        resolutions: [],
       }),
     ],
     reviewerEnvironment,

@@ -62,6 +62,8 @@ async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSes
       verdict: "changes_requested",
       reason: "The submitted cut needs another pass.",
       evidenceChecked: ["closeout.md"],
+      findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+      resolutions: [],
     }),
   );
   return f.cell().run(
@@ -145,6 +147,8 @@ test("expanded reviewer runtime publishes only its bound report atomically", asy
         verdict: "approved",
         reason: "Checked the submitted execution.",
         evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
         docChanges: [
           {
             path: report,
@@ -785,6 +789,74 @@ test(
       assert.equal(dispatchesOf(same)[0]!.outcome, "already_dispatched");
       assert.equal(dispatchesOf(same)[0]!.agentId, "closeout-reviewer");
       assert.equal(f.launches.length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "decision dispatch-review refuses an amended digest while the prior digest is still in flight",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+    const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
+    try {
+      await f.install();
+      const proposed = await runDecision({
+        kind: "decision-propose",
+        body: realizedDecisionBody("Cross digest dispatch exclusion"),
+        jsonInput: JSON.stringify({
+          title: "Cross digest dispatch exclusion",
+          question: "Should an amended Decision wait for its prior review?",
+          riskTier: "high",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Keep one review in flight per Decision." }],
+          rejected: [
+            { id: "RJ1", text: "Dispatch both digests", whyNot: "It permits concurrent verdicts for one Decision." },
+          ],
+          claims: [{ id: "C1", text: "An amended cut must wait for the prior review.", loadBearing: true }],
+          fulfillments: [],
+        }),
+      });
+      assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+      const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string,
+        first = await runDecision({ kind: "decision-dispatch-review", decisionId });
+      assert.equal(first.outcome, "applied", JSON.stringify(first));
+      assert.equal(f.launches.length, 1);
+
+      const amended = await runDecision({
+        kind: "decision-amend",
+        decisionId,
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        body: realizedDecisionBody("Cross digest dispatch exclusion amended"),
+      });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      const shown = await runDecision({ kind: "decision-show", decisionId, includeBody: true }),
+        amendedDigest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string;
+      const refused = await runDecision({
+        kind: "decision-dispatch-review",
+        decisionId,
+        expectedDigest: amendedDigest,
+      });
+      await expectCoded(Promise.resolve(refused), "review_dispatch_failed");
+      assert.match(
+        (refused as { rejectionExplanation?: string }).rejectionExplanation ?? JSON.stringify(refused),
+        /already has an unfinished review dispatch for digest/u,
+      );
+      assert.equal(f.launches.length, 1, "amending the Decision must not launch a second digest review");
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+        1,
+        "the old digest remains the sole in-flight dispatch",
+      );
     } finally {
       await f.close();
     }

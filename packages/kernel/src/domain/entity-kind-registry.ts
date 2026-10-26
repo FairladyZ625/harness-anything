@@ -812,6 +812,7 @@ export const entityKindContracts = withDeclaredEntityActions([
             "execution_executor_declared",
             "execution_annotated",
             "review_recorded",
+            "task_review_responded",
             "review_consent_recorded",
             "completion_gate_verified",
             "gate_run_changed",

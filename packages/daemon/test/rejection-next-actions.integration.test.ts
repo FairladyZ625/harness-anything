@@ -111,7 +111,13 @@ test("submit lease refusals name the state-specific command that advances the ex
     assertSubmitHintsParse(String(otherSettle.rejectionExplanation));
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent review.",
+        evidenceChecked: ["integration"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const reportDir = path.join(
       rootDir,
@@ -471,7 +477,13 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (review-execution before submit): 
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent review.",
+        evidenceChecked: ["integration"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const rejected = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "review-early", fromFile: "review.json" },
@@ -526,7 +538,13 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
     );
     writeFileSync(
       path.join(rootDir, "review-r1.json"),
-      JSON.stringify({ verdict: "changes_requested", reason: "Needs rework", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Needs rework",
+        evidenceChecked: ["tests"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, packagePath, "review-r1");
     assert.equal(
@@ -550,6 +568,29 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
       (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner)).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: secondExecutionId,
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "review-r1",
+                  findingId: "fixture-finding",
+                  disposition: "adopt",
+                  rationale: "The second cut addresses the blocking review finding.",
+                },
+              ],
+            }),
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
     writeCloseout(rootDir, taskId, packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
@@ -558,7 +599,13 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
     // Reviewer attempts to register review against firstExecutionId (superseded!)
     writeFileSync(
       path.join(rootDir, "review-stale.json"),
-      JSON.stringify({ verdict: "approved", reason: "Late review", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Late review",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, packagePath, "review-stale");
     const rejected = await cell.run(

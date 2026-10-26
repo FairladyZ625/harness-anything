@@ -155,7 +155,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       kind: "task-review-execution",
       taskId: "task_one",
       reviewId: "review_one",
-      jsonInput: '{"verdict":"approved","reason":"checked","evidenceChecked":["tests"]}',
+      jsonInput: '{"verdict":"approved","reason":"checked","evidenceChecked":["tests"],"findings":[],"resolutions":[]}',
       commandType: "RecordReview",
     }),
     env,
@@ -167,6 +167,8 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     verdict: "approved",
     reason: "checked",
     evidenceChecked: ["tests"],
+    findings: [],
+    resolutions: [],
   });
   writeFileSync(path.join(root, "task.json"), '{"title":"Structured edge task","riskTier":"high"}\n');
   const structured = await fleetTaskRoute(

@@ -2,7 +2,14 @@ import type { TaskAssignment, TaskClaimant } from "./task-assignment.ts";
 import { EXECUTION_V1_SCHEMA, LEASE_V1_SCHEMA } from "./execution.ts";
 import type { ExecutionDeliveryBaseline, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
-import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, ReviewVerdict } from "./review.ts";
+import type {
+  ReviewConsentV1,
+  ReviewDispositionV1,
+  ReviewResponseDisposition,
+  ReviewV1,
+  ReviewVerdict,
+  TaskReviewResponseV1,
+} from "./review.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { TASK_V2_SCHEMA } from "./task.ts";
@@ -31,6 +38,7 @@ export interface TaskLifecycleSnapshot {
   readonly executions: readonly ProjectedExecution[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
+  readonly reviewResponses?: readonly TaskReviewResponseV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly edgesTaken: readonly TaskEdgeTaken[];
@@ -98,6 +106,26 @@ export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly iteration: number;
   readonly contentDigest: `sha256:${string}`;
   readonly submissionDigest: `sha256:${string}`;
+  readonly findings?: readonly {
+    readonly findingId: string;
+    readonly blocking: boolean;
+    readonly text: string;
+    readonly anchor?: string;
+  }[];
+  readonly resolutions?: readonly {
+    readonly reviewId: string;
+    readonly findingId: string;
+    readonly resolution: "upheld" | "withdrawn";
+  }[];
+}
+export interface RespondReviewIntent extends Intent<"RespondReview"> {
+  readonly executionId: string;
+  readonly responses: readonly {
+    readonly reviewId: string;
+    readonly findingId: string;
+    readonly disposition: ReviewResponseDisposition;
+    readonly rationale: string;
+  }[];
 }
 export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent"> {
   readonly executionId: string;
@@ -122,6 +150,7 @@ export type TaskLifecycleCommandIntent =
   | TransitionTaskIntent
   | SubmitExecutionIntent
   | RecordReviewIntent
+  | RespondReviewIntent
   | RecordReviewConsentIntent
   | CompleteTaskIntent;
 export type NormalizedTaskLifecycleCommand<C extends TaskLifecycleCommandIntent = TaskLifecycleCommandIntent> = C &
@@ -139,6 +168,7 @@ export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutio
 export type TransitionTaskCommand = NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta;
 export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta;
 export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & Meta;
+export type RespondReviewCommand = NormalizedTaskLifecycleCommand<RespondReviewIntent> & Meta;
 export type RecordReviewConsentCommand = NormalizedTaskLifecycleCommand<RecordReviewConsentIntent> & Meta;
 export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
 export type TaskLifecycleCommand =
@@ -150,6 +180,7 @@ export type TaskLifecycleCommand =
   | TransitionTaskCommand
   | SubmitExecutionCommand
   | RecordReviewCommand
+  | RespondReviewCommand
   | RecordReviewConsentCommand
   | CompleteTaskCommand;
 export interface CreateReplayTaskProof {
@@ -187,6 +218,11 @@ export interface ReviewProof {
    */
   readonly reworkBudget: number;
 }
+export interface ReviewResponseProof {
+  readonly actorBinding: ActorAxes;
+  readonly capability: "execution-review-response@v1";
+  readonly capabilityRef: string;
+}
 export interface ReviewConsentProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "execution-consent@v1";
@@ -221,11 +257,13 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
           ? SubmitExecutionProof
           : C extends RecordReviewCommand
             ? ReviewProof
-            : C extends RecordReviewConsentCommand
-              ? ReviewConsentProof
-              : C extends CompleteTaskCommand
-                ? CompleteTaskProof
-                : never;
+            : C extends RespondReviewCommand
+              ? ReviewResponseProof
+              : C extends RecordReviewConsentCommand
+                ? ReviewConsentProof
+                : C extends CompleteTaskCommand
+                  ? CompleteTaskProof
+                  : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;

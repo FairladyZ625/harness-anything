@@ -32,7 +32,7 @@ test("review prompts reference the frozen submission without inlining artifacts 
     gates: [],
   });
   assert.match(prompt, /Independently review task task_review_bounds/u);
-  assert.match(prompt, /JSON required fields: verdict, reason, evidenceChecked/u);
+  assert.match(prompt, /JSON required fields: verdict, reason, evidenceChecked, findings, resolutions/u);
   assert.match(prompt, /verdict: approved\|changes_requested\|dismissed/u);
   assert.doesNotMatch(prompt, /Owner adjudication context/u);
   assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
@@ -124,12 +124,26 @@ test("review prompt size is independent of evidence bytes and artifact count", (
 });
 
 test("review input accepts the dispatched field contract and rejects persisted-record metadata", () => {
-  const value = { verdict: "approved", reason: "Checked the frozen delivery.", evidenceChecked: ["closeout.md"] };
+  const value = {
+    verdict: "approved",
+    reason: "Checked the frozen delivery.",
+    evidenceChecked: ["closeout.md"],
+    findings: [],
+    resolutions: [],
+  };
   assert.deepEqual(
     reviewPacket("/unused", { kind: "task-review-execution", jsonInput: JSON.stringify(value) }).value,
     value,
   );
-  for (const metadata of [{ schema: "review/v1" }, { taskId: "task_1" }, { executionId: "exe_1" }, { findings: [] }])
+  for (const field of ["findings", "resolutions"] as const) {
+    const missing = { ...value };
+    delete missing[field];
+    assert.throws(
+      () => reviewPacket("/unused", { kind: "task-review-execution", jsonInput: JSON.stringify(missing) }),
+      /Review JSON requires exactly/u,
+    );
+  }
+  for (const metadata of [{ schema: "review/v1" }, { taskId: "task_1" }, { executionId: "exe_1" }])
     assert.throws(
       () =>
         reviewPacket("/unused", {
@@ -138,10 +152,23 @@ test("review input accepts the dispatched field contract and rejects persisted-r
         }),
       /Review JSON requires exactly/u,
     );
+  assert.deepEqual(
+    reviewPacket("/unused", {
+      kind: "task-review-execution",
+      jsonInput: JSON.stringify({ ...value, findings: [], resolutions: [] }),
+    }).value,
+    value,
+  );
 });
 
 test("resolved fleet review packets preserve the local packet validation and digest", () => {
-  const value = { verdict: "approved", reason: "Checked the wire cut.", evidenceChecked: ["tests"] };
+  const value = {
+    verdict: "approved",
+    reason: "Checked the wire cut.",
+    evidenceChecked: ["tests"],
+    findings: [],
+    resolutions: [],
+  };
   const resolved = { kind: "task-review-execution", taskId: "task_one", reviewId: "review_one", ...value };
   assert.deepEqual(
     reviewPacket("/unused", resolved),

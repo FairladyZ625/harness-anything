@@ -82,6 +82,41 @@ export async function continueReviewRework(
         : {}),
     } as WriteReceiptDraft;
   }
+  const upheld = (review.resolutions ?? []).some((resolution) => resolution.resolution === "upheld"),
+    newBlocking = (review.findings ?? []).some(
+      (finding) =>
+        finding.blocking &&
+        !(review.resolutions ?? []).some(
+          (resolution) =>
+            resolution.reviewId === review.reviewId &&
+            resolution.findingId === finding.findingId &&
+            resolution.resolution === "withdrawn",
+        ),
+    );
+  if (review.findings !== undefined || review.resolutions !== undefined) {
+    if (read.snapshot.task?.status === "in_review" && execution.state === "submitted")
+      return {
+        ...receipt,
+        warnings: [
+          ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
+          `Review ${reviewId} requested changes and the repository rework budget is exhausted; the cut stays at the ` +
+            `review gate for the owner: dispose the verdict with ha task review-consent ${taskId} ` +
+            `--execution-id ${execution.executionId} --review-id ${reviewId} --dispose ${reviewId} ` +
+            "--rationale <why>, or supersede the task.",
+        ],
+      } as WriteReceiptDraft;
+    return {
+      ...receipt,
+      warnings: [
+        ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
+        upheld
+          ? `Review ${reviewId} upheld a prior blocking finding; the cut stays at the review gate for CEO disposition.`
+          : newBlocking
+            ? `Review ${reviewId} has a new blocking finding; automatic rework dispatch was unavailable.`
+            : `Review ${reviewId} withdrew prior findings and has no new blocking finding; the cut stays at the review gate.`,
+      ],
+    } as WriteReceiptDraft;
+  }
   return {
     ...receipt,
     warnings: [

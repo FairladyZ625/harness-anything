@@ -135,6 +135,8 @@ test("Task execution rejects with the exact Action criterion and performs no rej
         verdict: "approve",
         reason: "The invalid verdict must retain its specific diagnostic.",
         evidenceChecked: ["integration"],
+        findings: [],
+        resolutions: [],
       }),
     );
     const invalidVerdict = await assertRejectedWithoutMutation(
@@ -171,6 +173,8 @@ test("Task execution rejects with the exact Action criterion and performs no rej
         verdict: "approved",
         reason: "Self review must be rejected.",
         evidenceChecked: ["integration"],
+        findings: [],
+        resolutions: [],
       }),
     );
     // The physical report is present so the failure under test stays the independence proof.
@@ -343,7 +347,13 @@ test("holding every action in Keycloak does not lift self-review, lease, or huma
     };
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Checked.", evidenceChecked: ["integration"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Checked.",
+        evidenceChecked: ["integration"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     report("self");
     const selfReview = await assertRejectedWithoutMutation(

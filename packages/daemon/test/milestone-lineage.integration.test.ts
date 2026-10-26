@@ -97,7 +97,13 @@ async function reachGreenInReview(
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   writeFileSync(
     path.join(rootDir, "review.json"),
-    JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Approved.",
+      evidenceChecked: ["verified"],
+      findings: [],
+      resolutions: [],
+    }),
   );
   const lineageReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
   mkdirSync(lineageReportDir, { recursive: true });

@@ -271,6 +271,8 @@ test("a review node with no submitted execution recovers exclusively through Sta
         iteration: 0,
         contentDigest: `sha256:${"b".repeat(64)}`,
         submissionDigest: submissionDigest(submitIntent.submission),
+        findings: [],
+        resolutions: [],
       } as const,
       completeIntent = {
         type: "CompleteTask",

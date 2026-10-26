@@ -9,6 +9,7 @@ import {
   submissionDigest,
   decisionReviewContentDigest,
   type ExecutionV1,
+  type ReviewV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
@@ -80,6 +81,20 @@ export async function dispatchDecisionReview(
     );
   const baseKey = decisionReviewDispatchKey(decisionId, digest),
     revision = cell.store.readHead()?.revision ?? 0;
+  const activeDecisionDispatch = cell.projection.readRuntimeDispatchesByDecision(decisionId).find(({ event }) => {
+    const target = event.payload.reviewTarget;
+    return (
+      target?.kind === "decision" &&
+      target.decisionId === decisionId &&
+      !reviewAttemptEnded(cell, event.payload.runtimeSessionId)
+    );
+  });
+  if (activeDecisionDispatch && activeDecisionDispatch.event.payload.reviewTarget?.digest !== digest)
+    throw cell.cellCodedError(
+      "review_dispatch_failed",
+      `Decision ${decisionId} already has an unfinished review dispatch for digest ${activeDecisionDispatch.event.payload.reviewTarget?.digest}; ` +
+        "wait for it to finish before dispatching the amended digest.",
+    );
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
@@ -148,7 +163,12 @@ export async function dispatchDecisionReview(
       ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
       ...(typeof action.model === "string" ? { model: action.model } : {}),
       ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
-      prompt: decisionReviewDispatchPrompt({ decisionId, digest, dispatchId: ids.dispatchId }),
+      prompt: decisionReviewDispatchPrompt({
+        decisionId,
+        digest,
+        dispatchId: ids.dispatchId,
+        previousReview: current.reviews.filter((review) => review.reviewContentDigest !== digest).at(-1),
+      }),
     },
     authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
@@ -203,6 +223,7 @@ type ReviewerContinuation = {
   readonly dispatchId: string;
   readonly reportRef: string;
   readonly resume: boolean;
+  readonly review?: ReviewV1;
 };
 
 /** Find the latest completed reviewer round for exactly one task/lane. */
@@ -242,10 +263,18 @@ function previousReviewerContinuation(
     declaration = session === null ? null : runtimeKindForId(session.kindId),
     canResume = Boolean(session?.providerSessionId && declaration?.declaredCapabilities.includes("resume"));
   const reportRef = `${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`;
+  const review = cell.projection
+    .read(input.taskId)
+    .snapshot.reviews.find(
+      (candidate) =>
+        candidate.reviewId === `review-${payload.dispatchId}` ||
+        candidate.actor.executor?.id === `runtime-session:${payload.runtimeSessionId}`,
+    );
   return {
     dispatchId: payload.dispatchId,
     reportRef,
     resume: canResume,
+    ...(review === undefined ? {} : { review }),
   };
 }
 export function reviewDispatchIds(
@@ -271,6 +300,13 @@ export function decisionReviewDispatchPrompt(input: {
   readonly decisionId: string;
   readonly digest: string;
   readonly dispatchId: string;
+  readonly previousReview?: {
+    readonly reviewId: string;
+    readonly verdict: string;
+    readonly reason: string;
+    readonly findings: readonly { readonly findingId: string; readonly text: string; readonly anchor?: string }[];
+    readonly reportRef: string | null;
+  };
 }): string {
   const { decisionId, digest, dispatchId } = input,
     reports = `decisions/decision-${decisionId}/artifacts/reports`;
@@ -286,6 +322,15 @@ export function decisionReviewDispatchPrompt(input: {
       "Author only verdict, reason, findings, and evidenceChecked yourself.",
     decisionLifecycleProtocolCommands.find((command) => command.id === "decision-review")!.help,
     `Register with ha decision review ${decisionId} --from-file harness/${reports}/${dispatchId}.json.`,
+    ...(input.previousReview
+      ? [
+          "Previous registered review context (verify each item against the new digest; it does not waive newly visible blockers):",
+          `reviewId=${input.previousReview.reviewId} verdict=${input.previousReview.verdict} reason=${input.previousReview.reason}`,
+          `findings=${JSON.stringify(input.previousReview.findings)}`,
+          `reportRef=${input.previousReview.reportRef ?? "none"}`,
+          reviewFindingScopePrompt("re-review"),
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -346,6 +391,8 @@ export function reviewDispatchPrompt(input: {
     "Read the task plan, closeout, and submitted delivery yourself. " +
       `${reviewFindingScopePrompt("first")} ` +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
+    "For a re-review, include resolutions for prior findings as {reviewId, findingId, resolution: upheld|withdrawn}; " +
+      "upheld findings go to the CEO, while a new blocking finding without an upheld resolution returns to the worker.",
     `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
     derivedTaskActionProtocolCommands.find((command) => command.id === "task-review-execution")!.help,
@@ -477,6 +524,13 @@ export async function spawnCutReviewDispatch(
       ? [
           "This is a re-review of the same task and reviewer lane.",
           `Read the previous registered report at harness/${continuation.reportRef} with ha doc show --path ${continuation.reportRef} --raw.`,
+          ...(continuation.review
+            ? [
+                `Previous review ${continuation.review.reviewId}: verdict=${continuation.review.verdict}; reason=${continuation.review.reason}.`,
+                `Previous findings: ${JSON.stringify(continuation.review.findings ?? [])}.`,
+                `Previous resolutions: ${JSON.stringify(continuation.review.resolutions ?? [])}.`,
+              ]
+            : []),
           reviewFindingScopePrompt("re-review"),
         ].join("\n")
       : reviewFindingScopePrompt("first"),

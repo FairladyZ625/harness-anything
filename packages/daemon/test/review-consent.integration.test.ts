@@ -105,7 +105,13 @@ test("review-consent derives the recorded Review digests without a packet and re
 
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent review passed.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-derived");
     const reviewed = (await cell.run(
@@ -354,6 +360,8 @@ test("only the task owner can consent to a changes_requested review, and overrid
         verdict: "changes_requested",
         reason: "Exercise a second implementation round.",
         evidenceChecked: ["first-round receipt"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
       }),
     );
     writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-selection-r1");
@@ -376,6 +384,29 @@ test("only the task owner can consent to a changes_requested review, and overrid
     assert.equal(returnedEvent.payload.task.iteration, 1);
 
     await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, ownerBinding);
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: secondExecutionId,
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "review-selection-r1",
+                  findingId: "fixture-finding",
+                  disposition: "adopt",
+                  rationale: "The second cut addresses the blocking review finding.",
+                },
+              ],
+            }),
+          },
+          ownerBinding,
+        )
+      ).outcome,
+      "applied",
+    );
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, ownerBinding)).outcome,
@@ -390,7 +421,13 @@ test("only the task owner can consent to a changes_requested review, and overrid
 
     writeFileSync(
       path.join(rootDir, "review-approved.json"),
-      JSON.stringify({ verdict: "approved", reason: "Second round passes.", evidenceChecked: ["second round"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Second round passes.",
+        evidenceChecked: ["second round"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-selection-r2");
     const reviewed = await cell.run(
@@ -448,6 +485,8 @@ test("review-execution without --execution-id names the resubmission command whi
         verdict: "changes_requested",
         reason: "Return to implementation before any resubmission.",
         evidenceChecked: ["first-round receipt"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
       }),
     );
     writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-selection-empty");
@@ -469,7 +508,13 @@ test("review-execution without --execution-id names the resubmission command whi
 
     writeFileSync(
       path.join(rootDir, "review-approved.json"),
-      JSON.stringify({ verdict: "approved", reason: "No cut to review yet.", evidenceChecked: ["none"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "No cut to review yet.",
+        evidenceChecked: ["none"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const rejected = await cell.run(
       { kind: "task-review-execution", taskId, reviewId: "review-selection-early", fromFile: "review-approved.json" },
@@ -510,7 +555,13 @@ test("review-execution and review-consent require a substantive physical report 
 
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent review passed.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const record = (reviewId: string, extra: Record<string, unknown> = { fromFile: "review.json" }) =>
       cell!.run(
@@ -532,7 +583,13 @@ test("review-execution and review-consent require a substantive physical report 
     );
     assert.match(String(absent.rejectionExplanation), /artifacts\/reports\/absent\.md/u);
     const injected = await record("review-injected", {
-      jsonInput: JSON.stringify({ verdict: "approved", reason: "injected", evidenceChecked: ["none"] }),
+      jsonInput: JSON.stringify({
+        verdict: "approved",
+        reason: "injected",
+        evidenceChecked: ["none"],
+        findings: [],
+        resolutions: [],
+      }),
     });
     assert.deepEqual(
       { outcome: injected.outcome, code: injected.code },

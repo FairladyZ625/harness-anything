@@ -28,6 +28,7 @@ export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot 
     executions: [],
     reviews: [],
     consents: [],
+    reviewResponses: [],
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,

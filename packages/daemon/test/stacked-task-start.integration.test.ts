@@ -86,7 +86,13 @@ test("stack start checks out the approved delivery and freezes that exact baseli
   );
   writeFileSync(
     path.join(root, "review.json"),
-    JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["delivery.txt"] }),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Reviewed.",
+      evidenceChecked: ["delivery.txt"],
+      findings: [],
+      resolutions: [],
+    }),
   );
   const reports = path.join(root, "harness", packages.get("task_stack_base")!, "artifacts/reports");
   mkdirSync(reports, { recursive: true });

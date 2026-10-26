@@ -18,6 +18,7 @@ export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
   "packages/kernel/src/domain/task-lifecycle-command-transitions.ts|envelope-call|task_transitioned": 1,
   "packages/kernel/src/domain/task-lifecycle-contract-support.ts|dynamic-task-event|<dynamic>": 1,
   "packages/kernel/src/domain/task-lifecycle-review-transitions.ts|envelope-call|task_completed": 1,
+  "packages/kernel/src/domain/task-lifecycle-review-transitions.ts|envelope-call|task_review_responded": 1,
   "packages/kernel/src/domain/task-progress-event.ts|literal-type|task_progress_appended": 1,
   "packages/preset/src/preset-bootstrap.ts|literal-type|task_bootstrapped": 1,
 });

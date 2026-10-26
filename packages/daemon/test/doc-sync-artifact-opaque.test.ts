@@ -627,7 +627,13 @@ async function reachGreenInReview(
   // launch is possible — the recorded verdict below is the review evidence.
   writeFileSync(
     path.join(rootDir, "review.json"),
-    JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Approved.",
+      evidenceChecked: ["verified"],
+      findings: [],
+      resolutions: [],
+    }),
   );
   write(rootDir, `${packagePath}/artifacts/reports/opaque.md`, "# Review opaque\n\nPhysical review findings.\n");
   const reviewed = (await cell.run(

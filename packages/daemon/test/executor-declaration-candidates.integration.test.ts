@@ -205,7 +205,13 @@ test("declare-executor traces the authoring dispatch across executions and never
     writeFileSync(path.join(reviewReportDir, "cha.md"), "# Review cha\n\nPhysical review findings.\n");
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
-      JSON.stringify({ verdict: "changes_requested", reason: "Rework the cut.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Rework the cut.",
+        evidenceChecked: ["tests"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
+      }),
     );
     const cutReviewerActor = withPolicyGroup(
       withPolicyGroup(
@@ -245,6 +251,29 @@ test("declare-executor traces the authoring dispatch across executions and never
     const recoveryExecutionId = "exec-recovery";
     assert.equal(
       (await cell.run({ kind: "task-start", taskId, executionId: recoveryExecutionId }, owner)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: recoveryExecutionId,
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "cha",
+                  findingId: "fixture-finding",
+                  disposition: "adopt",
+                  rationale: "The recovery execution addresses the blocking fixture finding.",
+                },
+              ],
+            }),
+          },
+          owner,
+        )
+      ).outcome,
       "applied",
     );
     writeFileSync(path.join(workerRoot, "README.md"), "# Recovery delivery\n");

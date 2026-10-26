@@ -74,7 +74,13 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     // The packet parses before authorization runs, so the file must exist for the refusal to be the one under test.
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed independently.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
 
     const beforeSubmission = await cell.run(
@@ -93,7 +99,13 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed independently.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const reviewReportDir = path.join(
       rootDir,
@@ -187,7 +199,13 @@ test("principal review independence rejects a different executor owned by the su
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed independently.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const strictReportDir = path.join(
       rootDir,
@@ -374,6 +392,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
         verdict: "changes_requested",
         reason: "Exercise the audited recovery round.",
         evidenceChecked: ["historical dispatch"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
       }),
     );
     const priorReviewer = withPolicyGroup(
@@ -409,7 +429,13 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, bare)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
 
     const refused = await cell.run(
@@ -428,6 +454,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
         verdict: "approved",
         reason: "External delivery evidence was inspected.",
         evidenceChecked: ["merged delivery"],
+        findings: [],
+        resolutions: [],
         externalCompletionAnchor: "PR #2088",
         noDispatchReason: "The work was assigned through a legacy external channel.",
       }),
@@ -449,6 +477,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
         verdict: "approved",
         reason: "The delivery is ready to record.",
         evidenceChecked: ["authored documentation"],
+        findings: [],
+        resolutions: [],
         noIndependentReview: true,
         noIndependentReviewReason: "No independent reviewer was available.",
       }),
@@ -657,6 +687,8 @@ test("a low-risk child skips automatic review and waits for merge evidence", asy
         verdict: "approved",
         reason: "Independent review passed.",
         evidenceChecked: ["daemon integration"],
+        findings: [],
+        resolutions: [],
       }),
     );
     writeFileSync(
@@ -665,6 +697,8 @@ test("a low-risk child skips automatic review and waits for merge evidence", asy
         verdict: "approved",
         reason: "The origin/main delivery anchor was inspected.",
         evidenceChecked: ["origin/main"],
+        findings: [],
+        resolutions: [],
         externalCompletionAnchor: commitSha,
         noDispatchReason: "The repository owner implemented the delivery directly.",
       }),
@@ -688,6 +722,8 @@ test("a low-risk child skips automatic review and waits for merge evidence", asy
         verdict: "approved",
         reason: "The documentation-only delivery is ready to record.",
         evidenceChecked: ["authored documentation"],
+        findings: [],
+        resolutions: [],
         noIndependentReview: true,
         noIndependentReviewReason: "No independent reviewer was available for this documentation-only delivery.",
       }),
@@ -1001,7 +1037,13 @@ test("review binding permits independent runtimes but still rejects the executio
     assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const runtimeBoundReportDir = path.join(
       rootDir,
@@ -1098,7 +1140,13 @@ test("review binding permits independent runtimes but still rejects the executio
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed by another agent.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed by another agent.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const childReportDir = path.join(
       rootDir,

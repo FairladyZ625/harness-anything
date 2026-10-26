@@ -9,7 +9,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
-import { reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
+import { reviewJsonAllowedFields, reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -124,14 +124,23 @@ export function reviewPacket(
   let value: Record<string, unknown>;
   try {
     const parsed = JSON.parse(body) as unknown,
-      standardFields = [...reviewJsonFields].sort().join("\0"),
-      externalFields = [...reviewJsonFields, "externalCompletionAnchor", "noDispatchReason"].sort().join("\0"),
-      noIndependentReviewFields = [...reviewJsonFields, "noIndependentReview", "noIndependentReviewReason"]
-        .sort()
-        .join("\0");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
-    const fields = Object.keys(parsed).sort().join("\0");
-    if (fields !== standardFields && fields !== externalFields && fields !== noIndependentReviewFields)
+      requiredFields = new Set(reviewJsonFields),
+      allowedFields = new Set([
+        ...reviewJsonAllowedFields,
+        "externalCompletionAnchor",
+        "noDispatchReason",
+        "noIndependentReview",
+        "noIndependentReviewReason",
+      ]),
+      present = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.keys(parsed) : [],
+      hasRequired = [...requiredFields].every((field) => present.includes(field));
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      !hasRequired ||
+      present.some((field) => !allowedFields.has(field))
+    )
       throw new Error("unexpected fields");
     value = parsed as Record<string, unknown>;
   } catch {
@@ -145,6 +154,50 @@ export function reviewPacket(
     value,
     digest: packetDigest(body),
   };
+}
+
+export function reviewResponsePacket(
+  rootDir: string,
+  action: RepoTaskAction,
+): { readonly value: readonly Record<string, unknown>[]; readonly digest: `sha256:${string}` } {
+  // Fleet command frames carry the packet fields directly after the closed wire validator
+  // expands the declared JSON schema. Local CLI actions keep the file/stdin source instead.
+  const directResponses = action.responses,
+    body = Array.isArray(directResponses)
+      ? JSON.stringify({ responses: directResponses })
+      : readPacketSource(rootDir, action);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw cellCodedError("invalid_command", "Review response JSON must be an object with a responses array.");
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    !Object.keys(parsed).every((key) => key === "responses")
+  )
+    throw cellCodedError("invalid_command", "Review response JSON accepts only responses.");
+  const responses = (parsed as { readonly responses?: unknown }).responses;
+  if (!Array.isArray(responses) || responses.length === 0)
+    throw cellCodedError("missing_field", "Review response JSON requires a non-empty responses array.");
+  const allowed = new Set(["reviewId", "findingId", "disposition", "rationale"]);
+  for (const [index, response] of responses.entries()) {
+    if (
+      !response ||
+      typeof response !== "object" ||
+      Array.isArray(response) ||
+      Object.keys(response).some((key) => !allowed.has(key)) ||
+      !Object.keys(response).every((key) => Object.hasOwn(response, key)) ||
+      typeof (response as Record<string, unknown>).reviewId !== "string" ||
+      typeof (response as Record<string, unknown>).findingId !== "string" ||
+      typeof (response as Record<string, unknown>).rationale !== "string" ||
+      !["adopt", "rebut"].includes(String((response as Record<string, unknown>).disposition))
+    )
+      throw cellCodedError("invalid_command", `responses[${index}] must name a finding, disposition, and rationale.`);
+  }
+  return { value: responses as readonly Record<string, unknown>[], digest: packetDigest(body) };
 }
 
 function packetDigest(body: string): `sha256:${string}` {

@@ -453,7 +453,13 @@ function taskLifecycle(f, reader, label) {
     ["task", "review-execution", taskId, "--review-id", `review-${label}`, "--json-input", "@-"],
     {
       actor: "agent:v2-scale-reviewer",
-      input: { verdict: "approved", reason: "Canonical artifact bytes checked.", evidenceChecked: [reportPath] },
+      input: {
+        verdict: "approved",
+        reason: "Canonical artifact bytes checked.",
+        evidenceChecked: [reportPath],
+        findings: [],
+        resolutions: [],
+      },
     },
   );
   f.check(`task.${label}.review-independent`, () => assert.equal(reviewed.outcome, "applied"));
