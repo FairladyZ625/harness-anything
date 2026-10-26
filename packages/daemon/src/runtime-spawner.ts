@@ -463,15 +463,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     })
                   : mission,
             readOnlyDispatch = effectivePermissionMode === "read-only",
-            // The self-iteration closeout step is the last action of a delivery turn, so it rides the
-            // end of the mission: task-bound implementation dispatches whose declaration mounts the
-            // `self-iteration` skill, never reviewers and never read-only attaches (they cannot write
-            // the proposal, and a read-only attach is how a frozen cut is read, not delivered).
+            // The self-iteration step rides every task-bound dispatch whose declaration mounts the
+            // `self-iteration` skill — the skill mount is the only opt-in (`dec_43F5EA40143C5BD729EF90D030`
+            // CH1), and both audiences opt in the same way. What differs is where the proposal lands:
+            // a delivery turn owns its task package, while a reviewer may write nothing but its review
+            // report (`runtime-execution-scope.ts:101,251-261`), so its proposal is a section of that
+            // report. Read-only attaches cannot write either surface, so they stay excluded.
             selfIteration =
-              taskId !== null && !reviewerBinding && !readOnlyDispatch
+              taskId !== null && !readOnlyDispatch
                 ? selfIterationCloseoutSection(
                     taskId,
                     resolvedSkills.map((skill) => skill.id),
+                    reviewerBinding ? "review" : "delivery",
                   )
                 : null,
             dispatchMission = dispatchMissionForPermission(

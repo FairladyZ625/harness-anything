@@ -245,6 +245,79 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
         "reviewer dispatches carry no worker delivery protocols",
       );
+      assert.doesNotMatch(
+        launchedPrompt,
+        /# Self-iteration/u,
+        "an undeclared reviewer mounts no skill, so it owes no proposal",
+      );
+      // The skill mount is the only opt-in for a reviewer too, and its proposal has to land in the
+      // one report the reviewer may write (runtime-execution-scope.ts:101,251-261) — not in the
+      // worker's task-package path, which this role cannot reach.
+      mkdirSync(path.join(root, "harness", "skills", "self-iteration"), { recursive: true });
+      writeFileSync(
+        path.join(root, "harness", "skills", "self-iteration", "SKILL.md"),
+        "---\nname: self-iteration\ndescription: Fixture\n---\nFixture body.\n",
+      );
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "agent-install",
+              declaration: {
+                schema: "agent-declaration/v1",
+                id: "reflecting-reviewer",
+                name: "Reviewer that reflects",
+                instructions: "Independently review the pinned cut.",
+                role: "reviewer",
+                runtimes: [],
+                skills: [{ id: "self-iteration", path: "skills/self-iteration" }],
+              },
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      const reflecting = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: ingressDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          agentId: "reflecting-reviewer",
+          role: "reviewer",
+          taskId,
+          dispatchKey: "runtime-self-iteration-reviewer",
+          dryRun: true,
+        },
+      });
+      assert.equal(reflecting.outcome, "applied", JSON.stringify(reflecting));
+      const reflectingPrompt = String(reflecting.prompt);
+      assert.match(
+        reflectingPrompt,
+        /# Self-iteration proposal \(review\)/u,
+        "a reviewer that mounts the skill owes a proposal",
+      );
+      assert.match(
+        reflectingPrompt,
+        new RegExp(`review report`, "u"),
+        "the proposal lands in the report this dispatch already writes",
+      );
+      assert.match(
+        reflectingPrompt,
+        /在 `ha task review-execution` 之前/u,
+        "the proposal precedes the write that registers the report",
+      );
+      assert.doesNotMatch(
+        reflectingPrompt,
+        /artifacts\/reflections\//u,
+        "a reviewer must not be told to write a path its credential refuses",
+      );
+      assert.doesNotMatch(
+        reflectingPrompt,
+        /# Self-iteration closeout/u,
+        "the review audience never receives the delivery write point",
+      );
       await eventuallyValue(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })

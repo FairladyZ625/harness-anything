@@ -473,28 +473,57 @@ export function taskReviewerNote(
   return `本任务的提交将由评审员 ${agentId} 审查（${taskReviewer ? "任务指定" : repositoryReviewer ? "仓库默认" : "内置默认"}）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。`;
 }
 
+/** A proposal's author: the worker delivering a cut, or the reviewer judging someone else's cut. */
+export type SelfIterationAudience = "delivery" | "review";
+
 /**
- * The self-iteration closeout step: one delivery turn ends with an evidence-backed proposal against
- * the Agent's own declaration, including what it deletes. It rides only dispatches whose declaration
+ * The self-iteration closeout step: one dispatch ends with an evidence-backed proposal against the
+ * Agent's own declaration, including what it deletes. It rides only dispatches whose declaration
  * mounts the `self-iteration` skill, so an Agent that never opted in carries no extra prompt text.
+ * The skill mount is the whole opt-in (`dec_43F5EA40143C5BD729EF90D030` CH1): the framework adds no
+ * second switch and no new write path for it.
  *
- * The step has to happen BEFORE `ha task submit`: a submitted round is frozen, and the same
- * task-bound implementation dispatch is refused with `execution_frozen`; after `done` no lease
- * exists (`runtime-spawner.ts:266-305`). A proposal written after submit would never be produced.
- * The path is dispatch-owned so two edges running the same Agent never write one file.
+ * The two audiences differ only in WHERE the proposal lands, because the ledger already decides
+ * that: a delivery dispatch owns its task package (`artifacts/reflections/`), while a reviewer may
+ * write nothing but the review report it was dispatched to produce
+ * (`runtime-execution-scope.ts:101,251-261`). Writing the proposal into that same report keeps the
+ * reviewer's write surface unchanged and still freezes the proposal with the review the CEO reads.
+ *
+ * Timing follows from the same boundary: a delivery proposal must precede `ha task submit` (a
+ * submitted round is frozen — `runtime-spawner.ts:298-306`), and a review proposal must precede
+ * `ha task review-execution`, which is the write that registers the report.
  */
-export function selfIterationCloseoutSection(taskId: string, mountedSkillIds: readonly string[]): string | null {
+export function selfIterationCloseoutSection(
+  taskId: string,
+  mountedSkillIds: readonly string[],
+  audience: SelfIterationAudience = "delivery",
+): string | null {
   if (!mountedSkillIds.includes("self-iteration")) return null;
+  const shared = [
+    "按已挂载的 `self-iteration` skill 对**你自己的声明**提出一份有证据的改动提议，" +
+      "必须同时列出删除项——没有删除项的提议视为熵增，应放弃或改写成预算中性的重写。",
+    `- 你不能自己生效：提议由 owner/CEO 审核，再经中心单写 \`ha agent install --source <declaration> --expected-version <n>\` 落入声明。`,
+    `- 取证：\`ha agent inspect <agent-id>\` 读当前声明与 expected-version；\`ha task dispatches ${taskId}\` 取本次 dispatchId。`,
+    "- 范围：只改自己的声明面（instructions / prompts / skills / 工具脚本）；改他人声明、技能正文或门禁不在此授权内。",
+  ];
+  if (audience === "review")
+    return [
+      "# Self-iteration proposal (review)",
+      "评审结束前，作为本次评审的最后一个动作：" + shared[0]!,
+      "- 写入点：**本次评审本来就要写的那份 review report**，追加一节 `## Self-iteration proposal`；" +
+        "不要新建第二个文件，也不要写 `artifacts/reflections/`（评审员对它没有写权限）。",
+      "- 时机：**在 `ha task review-execution` 之前**——该命令登记的就是这份 report，之后本轮派工结束。",
+      "- 与 verdict 的关系：提议**不影响** approved / changes_requested，也不是 finding；" +
+        "不要因为要写提议而改变评审结论，也不要把提议写进 findings 表。",
+      ...shared.slice(1),
+    ].join("\n");
   return [
     "# Self-iteration closeout",
-    "本轮交付最后一个动作：按已挂载的 `self-iteration` skill 对**你自己的声明**提出一份有证据的改动提议，" +
-      "必须同时列出删除项——没有删除项的提议视为熵增，应放弃或改写成预算中性的重写。",
+    "本轮交付最后一个动作：" + shared[0]!,
     "- 写入点：本任务包 `artifacts/reflections/__HARNESS_DISPATCH_ID__.md`；一次派工一份，多节点并发不互相覆盖。",
     "- 时机：**在 `ha task submit` 之前**。提交后本轮 cut 冻结，同任务的实现派工会被 `execution_frozen` 拒绝；" +
       "`done` 后没有 lease 可派，所以这是唯一能产出该提议的时刻。",
-    `- 你不能自己生效：提议由 owner/CEO 审核，再经中心单写 \`ha agent install --source <declaration> --expected-version <n>\` 落入声明。`,
-    `- 取证：\`ha agent inspect <agent-id>\` 读当前声明与 expected-version；\`ha task dispatches ${taskId}\` 取本次 dispatchId 作为文件名。`,
-    "- 范围：只改自己的声明面（instructions / prompts / skills / 工具脚本）；改他人声明、技能正文或门禁不在此授权内。",
+    ...shared.slice(1),
   ].join("\n");
 }
 

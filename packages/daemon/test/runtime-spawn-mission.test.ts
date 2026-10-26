@@ -438,7 +438,7 @@ test("every task-bound mission tells the worker this session cannot ask, with on
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
 });
 
-test("the self-iteration closeout rides only a delivery dispatch whose declaration mounts the skill", () => {
+test("the self-iteration closeout rides only a dispatch whose declaration mounts the skill", () => {
   const taskId = "task_x",
     mounted = selfIterationCloseoutSection(taskId, ["harness-anything-worker", "self-iteration"]),
     absent = selfIterationCloseoutSection(taskId, ["harness-anything-worker"]);
@@ -449,4 +449,26 @@ test("the self-iteration closeout rides only a delivery dispatch whose declarati
   assert.match(mounted, /在 `ha task submit` 之前/u, "the step runs before the cut freezes");
   assert.match(mounted, /ha agent install --source <declaration> --expected-version <n>/u);
   assert.equal(absent, null, "an Agent that never opted in carries no extra prompt text");
+});
+
+test("a reviewer's self-iteration proposal lands in the report it may already write", () => {
+  // The reviewer's ledger surface is exactly one report per dispatch
+  // (runtime-execution-scope.ts:101,251-261); a proposal path in the task package would name a
+  // write it cannot make, so the review audience must name the report instead.
+  const review = selfIterationCloseoutSection("task_x", ["self-iteration"], "review");
+  assert.ok(review !== null, "the skill mount opts a reviewer in the same way it opts a worker in");
+  assert.match(review, /## Self-iteration proposal/u);
+  assert.match(review, /review report/u, "the write point is the review report");
+  assert.match(review, /不要新建第二个文件/u);
+  assert.match(review, /不要写 `artifacts\/reflections\/`/u, "the reviewer has no write access there");
+  assert.match(review, /在 `ha task review-execution` 之前/u, "the proposal precedes the registering write");
+  assert.match(review, /不是 finding/u, "the proposal never changes the verdict");
+  assert.match(review, /必须同时列出删除项/u, "the review audience owes the same deletion");
+  assert.equal(selfIterationCloseoutSection("task_x", [], "review"), null, "no mount, no section");
+  // The audiences are distinct: a reviewer must never be told to write the worker's path.
+  assert.doesNotMatch(review, /artifacts\/reflections\/__HARNESS_DISPATCH_ID__\.md/u);
+  assert.match(
+    selfIterationCloseoutSection("task_x", ["self-iteration"], "delivery")!,
+    /artifacts\/reflections\/__HARNESS_DISPATCH_ID__\.md/u,
+  );
 });
