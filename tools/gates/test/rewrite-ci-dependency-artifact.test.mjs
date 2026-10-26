@@ -36,8 +36,7 @@ test("dependency consumers remain fail-closed when the shared install fails", ()
     .filter((section) => section.includes("needs: install"));
   assert.ok(consumers.length > 0);
   for (const job of consumers) {
-    if (job.startsWith("crlf-checkout:")) assert.match(job, /^    if: always\(\)$/mu);
-    else assert.match(job, /^    if: always\(\) && .*github\.event_name/mu);
+    assert.match(job, /^    if: always\(\) && .*github\.event_name/mu);
   }
 });
 
@@ -47,7 +46,10 @@ test("crlf checkout orders PR artifact consumption and retains its nightly lane"
     .find((candidate) => candidate.startsWith("crlf-checkout:"));
   assert.ok(section);
   assert.match(section, /^    needs: install/mu);
-  assert.match(section, /^    if: always\(\)$/mu);
+  assert.match(
+    section,
+    /^    if: always\(\) && \(github\.event_name == 'pull_request' \|\| github\.event_name == 'push'\)$/mu,
+  );
   assert.match(section, /- run: npm ci\n\s+if: github\.event_name != 'pull_request' && github\.event_name != 'push'/u);
   assert.match(
     section,

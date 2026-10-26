@@ -123,7 +123,7 @@ jobs:
     # by PR/push lanes. The dependency still orders PR/push artifact consumption; always() lets the
     # nightly/manual lane run after the PR-only install is skipped.
     needs: install
-    if: always()
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     runs-on: ubuntu-latest
     steps:
       - name: Convert line endings on checkout the way a Windows host does
