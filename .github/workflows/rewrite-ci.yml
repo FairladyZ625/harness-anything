@@ -22,6 +22,33 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # dec_F5B2CBF8B45042B6DA2824A7FA/CH4: every lane used to pay its own `npm ci` (23.7
+  # runner-minutes per PR across 25 lanes). This job installs once and distributes
+  # node_modules and the daemon dist built by its prepare lifecycle as a tar artifact named
+  # after the lockfile hash, so these install outputs are never reused across lockfile
+  # contents — a different lockfile produces a different artifact name and the download fails
+  # instead of silently reusing. The tar preserves workspace symlinks and packages/daemon/dist.
+  # Windows lanes keep their own `npm ci` (56
+  # optional native dependencies are os/cpu-scoped) and nightly lanes keep theirs (they
+  # run other Node versions); pr-body-lint keeps its own too, because it lives in a
+  # separate workflow whose runs race this one.
+  install:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: tar -cf "$RUNNER_TEMP/node-modules.tar" node_modules packages/daemon/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}/node-modules.tar
+          retention-days: 1
+
   # Push to main runs the same tiered lanes as pull_request (see below); the serial
   # aggregate survives only on the nightly schedule and manual dispatch, where a
   # single-process `npm run check` still covers shard-boundary effects the lanes
@@ -48,6 +75,7 @@ jobs:
       - run: npm run check
 
   typecheck:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
@@ -59,11 +87,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/run-manifest-gates.mjs --workflow-job typecheck
 
   fast-contract:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -73,12 +105,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: git diff --check
       - run: node tools/run-manifest-gates.mjs --workflow-job fast-contract
 
   crlf-checkout:
+    needs: install
     # Four of the reported Windows defects (#1525, #1526, #1538, #1588) are line-ending defects,
     # not platform defects: they reproduce anywhere git is told to convert. Catching them costs a
     # Linux runner and one config line, so they should never again be found by a person on Windows.
@@ -94,11 +130,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/run-manifest-gates.mjs --workflow-job crlf-checkout
 
   windows-first-run:
+    needs: install
     # platform-smoke asserts the CLI boots and refuses on a cold machine -- every command it runs
     # is expected to fail. That is why it stayed green through #1524, #1527, #1565 and #1586. This
     # job runs the product instead: init, resident daemon, publish, clone, stop. The ubuntu arm is
@@ -117,10 +157,19 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+        if: runner.os == 'Windows'
+      - uses: actions/download-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+        if: runner.os == 'Linux'
       - run: npm run build -w @harness-anything/cli
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-first-run
 
   integration-shard:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     name: integration-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -133,8 +182,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
 
   windows-integration-shard:
@@ -230,6 +282,7 @@ jobs:
           retention-days: 14
 
   boundaries:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     permissions:
       contents: read
@@ -241,15 +294,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - name: Run boundary gates
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tools/run-manifest-gates.mjs --workflow-job boundaries
 
+  # dec_F5B2CBF8B45042B6DA2824A7FA/CH3: this lane is nightly-only now. Neither of its two
+  # advisory gates ever blocked a PR (the job is continue-on-error and not a required context):
+  # gui-read-baseline had zero real catches in 60 days, and allowlist-path-existence had four,
+  # whose value was visibility, not blocking. Detection is preserved -- the gates stay mapped to
+  # this job through nonPullRequestJobs, so the nightly schedule still runs them.
   ontology-advisory:
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -265,6 +326,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job ontology-advisory
 
   package-policy:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -272,14 +334,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       # The windows-first-run smoke (folded into this lane on push) needs the packaged bin.
       - if: github.event_name == 'push'
         run: npm run build -w @harness-anything/cli
       - run: node tools/run-manifest-gates.mjs --workflow-job package-policy
 
   supply-chain:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -287,11 +353,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/run-manifest-gates.mjs --workflow-job supply-chain
 
   gui-build:
+    needs: install
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -313,13 +383,21 @@ jobs:
         if: ${{ steps.filter.outputs.gui == 'true' }}
         with:
           node-version: 24
-          cache: npm
       # Skip the GUI build/test when a PR touches no GUI or shared-root files.
+      - uses: actions/download-artifact@v4
+        if: ${{ steps.filter.outputs.gui == 'true' }}
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
       - if: ${{ steps.filter.outputs.gui == 'true' }}
-        run: npm ci
+        run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - if: ${{ steps.filter.outputs.gui == 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build
+  # dec_F5B2CBF8B45042B6DA2824A7FA/CH3: nightly-only now. All 25 of its real catches in 60
+  # days were simultaneously caught by the Node 24 typecheck lane (exclusive catches: 0),
+  # and the nightly full-check matrix already runs the aggregate under Node 26.
   node26-compatibility:
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -340,6 +418,7 @@ jobs:
   # push trigger. They now also join this workflow's concurrency group, so a superseded run is
   # cancelled instead of finishing on a stale SHA.
   gate-contract-tests:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -347,11 +426,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node --test tools/gates/test/*.test.mjs
 
   derived-contracts:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -361,10 +444,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/gates/derived-contracts.mjs --check
 
   platform-smoke:
+    needs: install
     if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false
@@ -378,10 +466,19 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+        if: runner.os == 'Windows'
+      - uses: actions/download-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+        if: runner.os == 'Linux'
       - run: npm run build -w @harness-anything/cli
       - run: node tools/gates/platform-smoke.mjs
 
   schema-closure:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -391,10 +488,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/gates/schema-closure.mjs --check
 
   canonical-event-compat:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -402,8 +504,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: npm run harness:check-canonical-event-compat
 
   test-selection:
@@ -422,6 +527,7 @@ jobs:
           node tools/gates/test-selection.mjs --base origin/main
 
   clean-build:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -431,8 +537,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/gates/clean-build.mjs --temp
 
   dependency-policy:
@@ -448,6 +557,7 @@ jobs:
       - run: node tools/gates/dependency-policy.mjs
 
   cost-budget:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -455,12 +565,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - name: Reject deterministic cost regressions (G38)
         run: node tools/gates/cost-budget.mjs
 
   lint:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -468,11 +582,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: npm run lint
 
   entity-id-links:
+    needs: install
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -480,6 +598,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
       - run: node tools/gates/entity-id-links.mjs

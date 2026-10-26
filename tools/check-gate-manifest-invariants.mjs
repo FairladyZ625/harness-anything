@@ -222,8 +222,11 @@ function checkClassificationFields(gate, findings) {
     }
   }
 
-  if (gate.deterministic === true && !classes?.includes("pr")) {
-    findings.push(`${gate.id} is deterministic but executionSurfaces.classes omits pr`);
+  // A deterministic gate must stay CI-visible; dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved two
+  // deterministic advisory gates to the nightly schedule, so "pr" is no longer the only
+  // visibility class that satisfies this invariant.
+  if (gate.deterministic === true && !classes?.includes("pr") && !classes?.includes("nightly")) {
+    findings.push(`${gate.id} is deterministic but executionSurfaces.classes omits pr and nightly`);
   }
 
   if (Array.isArray(classes)) checkSurfaceClassMapping(gate, classes, findings);
