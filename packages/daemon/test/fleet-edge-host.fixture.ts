@@ -145,7 +145,9 @@ export async function fleetEdgeHostFixture(
       jsonrpc: "2.0",
       id,
       method: "daemon.fleet.task.run",
-      params: { payload: { ...payload, action } },
+      // The CLI names the workspace root on every fleet task payload; the task channel reads the
+      // invitation's interactive client from that root's fleet-edge.json.
+      params: { payload: { ...payload, workspaceRoot: edgeRoot, action } },
     });
     if (!response || Array.isArray(response) || !("result" in response))
       throw new Error(`edge command failed: ${JSON.stringify(response)}`);

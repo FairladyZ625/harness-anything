@@ -10,6 +10,7 @@ import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 
 const quota = 64 * 1024 * 1024;
 
@@ -115,6 +116,36 @@ test(
     // 6. An edge that never pulled has no local answer and says so instead of returning an empty list.
     const empty = await fleetEdgeHostFixture(t, f, { name: "edge-empty" });
     assert.equal((await empty.command({ kind: "task-list" })).code, "replica_unavailable");
+  },
+);
+
+test(
+  "an edge write admits the session's interactive client on every center branch, not just metadata",
+  { timeout: 180_000 },
+  async (t) => {
+    // The center audits the human token's `azp` against the invitation's interactive client on every
+    // frame an edge sends, not only the two frames that happened to carry it. A device signed in under
+    // `harness-gui` must be able to create a task through task.command and the upload frames that
+    // precede it; otherwise a live session is refused with human_confirmation_required mid-write.
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    f.owners.keycloak.interactiveSession(
+      "person-one",
+      "node-one",
+      f.owners.url,
+      "device-token-node-one",
+      "harness-gui",
+    );
+    // Join writes fleet-edge.json with the invitation's interactive client before the daemon starts;
+    // the fixture writes the file first, so extend it the same way before the resident stream opens.
+    const e = await fleetEdgeHostFixture(t, f, {
+      name: "edge-gui",
+      beforeOpen: (edgeRoot) => {
+        const config = readFleetEdgeConfig(edgeRoot)!;
+        writeFleetEdgeConfig(edgeRoot, { ...config, humanClientId: "harness-gui" });
+      },
+    });
+    const written = await e.command({ kind: "task-create", taskId: "session-client-write", title: "Session client" });
+    assert.equal(written.outcome, "applied", JSON.stringify(written));
   },
 );
 
