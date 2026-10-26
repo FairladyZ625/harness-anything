@@ -101,6 +101,7 @@ test(
       type: "replica.start",
       repoId: replicationRepoId,
       position: null,
+      edgeBuildCommit: null,
       taskEventShapeVersion: 2,
     });
     assert.equal(response.type, "replica.reject");
