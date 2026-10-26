@@ -546,7 +546,20 @@ export const agentProtocolCommands = Object.freeze([
     method: "daemon.rbac.manage",
     // One operation of the managed RBAC surface, like login; it declares no Action of its own.
     actionKind: "rbac-bootstrap",
-    inputs: [cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" })],
+    inputs: [
+      cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" }),
+      cliInput(
+        "--quota-bytes",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "quotaBytes",
+          regex: "^[1-9][0-9]*$",
+          projection: "number",
+        },
+      ),
+    ],
   }),
   defineHostAdminCommand({
     id: "rbac-bootstrap",

@@ -96,7 +96,13 @@ const slotFence = (fixture: FleetReplicationFixture): number =>
   ).fence;
 
 /** Starts the production resident stream for edge-one, optionally through a cuttable TCP relay. */
-function startStream(t: TestContext, fixture: FleetReplicationFixture, viewRoot: string, port: number) {
+function startStream(
+  t: TestContext,
+  fixture: FleetReplicationFixture,
+  viewRoot: string,
+  port: number,
+  diskQuotaBytes = 64 * 1024 * 1024,
+) {
   const controller = new AbortController(),
     failures: unknown[] = [],
     // What `ha doctor` on the edge read when each failure was reported.
@@ -111,7 +117,7 @@ function startStream(t: TestContext, fixture: FleetReplicationFixture, viewRoot:
     readAccessToken: async () => "device-token-edge-one",
     repoId: replicationRepoId,
     viewRoot,
-    diskQuotaBytes: 64 * 1024 * 1024,
+    diskQuotaBytes,
     signal: controller.signal,
     onFailure: (error) => {
       failures.push(error);
@@ -125,6 +131,46 @@ function startStream(t: TestContext, fixture: FleetReplicationFixture, viewRoot:
   t.after(stop);
   return { stop, failures, healthAtFailure };
 }
+
+test(
+  "edge sync reports an initial replica quota failure instead of waiting across retries",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-under-quota-")),
+      workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-under-quota-workspace-"));
+    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    t.after(() => rmSync(workspaceRoot, { recursive: true, force: true }));
+    const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 1);
+    await assert.rejects(
+      syncFleetEdgeMirror(
+        {
+          payload: {
+            host: "127.0.0.1",
+            port: fixture.centerPort(),
+            caPath: fixture.certFile,
+            servername: "localhost",
+            nodeId: "edge-one",
+            credential: "secret-edge-one",
+            repoId: replicationRepoId,
+            viewRoot,
+            quotaBytes: 1,
+            workspaceRoot,
+          },
+        },
+        async () => "device-token-edge-one",
+      ),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, "replica_sync_failed");
+        assert.match(String(error), /base backup exceeds disk quota/u);
+        return true;
+      },
+    );
+    assert.ok(stream.failures.length > 0, "the resident stream recorded the initial failure");
+  },
+);
 
 /**
  * A TCP relay in front of the center. The test can cut live connections, refuse new ones, hold the

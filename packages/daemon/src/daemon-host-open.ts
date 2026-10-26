@@ -740,6 +740,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             {
               link: String(request.link ?? ""),
               ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
+              ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
             },
             {
               session: async () => (await oidc.bind(auth)).oidcPrincipal,

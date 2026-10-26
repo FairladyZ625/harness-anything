@@ -1,7 +1,7 @@
 // `ha edge join <link>`: authenticate the invited person over the center's pinned TLS channel,
 // then register and sync one local mirror for each repository carried by the invitation.
 import { X509Certificate } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { writeFileDurably } from "../durable-file.ts";
@@ -13,7 +13,7 @@ import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
 
-const defaultQuotaBytes = 1024 * 1024 * 1024;
+const DEFAULT_QUOTA_FRACTION = 0.4;
 
 /** One repository's stage inside a running join; observation only, it never steers the join. */
 export interface EdgeJoinRepositoryProgress {
@@ -69,6 +69,8 @@ export interface EdgeJoinClientPorts {
   readonly probeCenter?: typeof probeFleetEdgeCenterAddress;
   readonly probeLogin?: (authority: OidcLoginAuthority) => Promise<void>;
   readonly homeDir?: string;
+  /** Test seam for the filesystem capacity used by the derived quota. */
+  readonly availableBytes?: (rootDir: string) => number;
   /** Receives each repository's phase as the join loop advances, so a viewer can show progress. */
   readonly onProgress?: (progress: {
     readonly joinId: string;
@@ -77,10 +79,12 @@ export interface EdgeJoinClientPorts {
 }
 
 export async function joinFleetEdge(
-  request: { readonly link: string; readonly workspaceRoot?: string },
+  request: { readonly link: string; readonly workspaceRoot?: string; readonly quotaBytes?: number },
   ports: EdgeJoinClientPorts,
 ): Promise<Record<string, unknown>> {
   const link = decodeEdgeJoinLink(request.link);
+  if (request.quotaBytes !== undefined && (!Number.isSafeInteger(request.quotaBytes) || request.quotaBytes <= 0))
+    throw Object.assign(new Error("Edge join quota must be a positive integer."), { code: "edge_join_quota_invalid" });
   if (!link.token)
     throw Object.assign(new Error("The invitation has no token; ask for a new invitation."), {
       code: "edge_join_invalid",
@@ -175,6 +179,9 @@ export async function joinFleetEdge(
     report("register");
     await ports.register(root, repository.repoId);
     report("sync");
+    const quotaBytes =
+      request.quotaBytes ??
+      deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
     const synced = await ports.sync({
       repoId: repository.repoId,
       workspaceRoot: root,
@@ -186,9 +193,19 @@ export async function joinFleetEdge(
       credential: admitted.credential,
       humanClientId: authority.clientId,
       viewRoot: `${root}-view`,
-      quotaBytes: defaultQuotaBytes,
+      quotaBytes,
       timeoutMs: 60_000,
     });
+    if (synced.ok === false) {
+      report("failed");
+      repositories.push({
+        repoId: repository.repoId,
+        workspaceRoot: root,
+        ok: false,
+        ...edgeJoinSyncFailure(repository.repoId, synced),
+      });
+      continue;
+    }
     if (link.transport === "ssh-reverse") {
       const existing = readFleetEdgeConfig(root);
       if (!existing) throw new Error("Fleet edge sync did not persist its connection configuration.");
@@ -200,18 +217,19 @@ export async function joinFleetEdge(
         ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),
       });
     }
-    report(synced.ok !== false ? "synced" : "failed");
+    report("synced");
     repositories.push({
       repoId: repository.repoId,
       workspaceRoot: root,
-      ok: synced.ok !== false,
+      ok: true,
       ...(synced.mirrorOutcome === undefined ? {} : { mirrorOutcome: synced.mirrorOutcome }),
       ...(synced.knownHead === undefined ? {} : { knownHead: synced.knownHead }),
-      ...(synced.ok === false ? { code: synced.code, error: synced.error } : {}),
     });
   }
+  const failure = repositories.find((repository) => !repository.ok);
   return {
-    ok: repositories.every((repository) => repository.ok),
+    ok: failure === undefined,
+    ...(failure ? { code: "edge_join_sync_failed", error: failure.error } : {}),
     command: "edge-join",
     joinId: admitted.joinId,
     state: repositories.every((repository) => repository.ok) ? "synced" : "partial",
@@ -220,6 +238,48 @@ export async function joinFleetEdge(
     nodeId: admitted.nodeId,
     personId: admitted.personId,
   };
+}
+
+function edgeJoinSyncFailure(repoId: string, error: unknown): { readonly code: string; readonly error: JsonObject } {
+  const observed = error as { readonly code?: unknown; readonly message?: unknown; readonly error?: unknown } | null,
+    code = typeof observed?.code === "string" ? observed.code : "replica_sync_failed",
+    nested = observed?.error as { readonly hint?: unknown; readonly code?: unknown } | null,
+    message =
+      typeof nested?.hint === "string"
+        ? nested.hint
+        : error instanceof Error
+          ? error.message
+          : typeof observed?.message === "string"
+            ? observed.message
+            : typeof error === "string"
+              ? error
+              : code,
+    quotaAction = /disk quota/u.test(message)
+      ? " Increase the quota with ha daemon fleet edge sync --quota-bytes <bytes>, then retry."
+      : " Resolve the reported cause, then retry with ha daemon fleet edge sync.";
+  return {
+    code,
+    error: { code, hint: `Edge repository ${repoId} failed during initial sync: ${message}.${quotaAction}` },
+  };
+}
+
+export function deriveEdgeJoinQuotaBytes(rootDir: string, availableBytes: (rootDir: string) => number): number {
+  const available = availableBytes(rootDir);
+  if (!Number.isSafeInteger(available) || available <= 0)
+    throw Object.assign(new Error(`Unable to determine available disk space for ${rootDir}.`), {
+      code: "edge_join_disk_space_unavailable",
+    });
+  const quota = Math.floor(available * DEFAULT_QUOTA_FRACTION);
+  if (quota <= 0)
+    throw Object.assign(new Error(`No usable disk space is available for edge repository ${rootDir}.`), {
+      code: "edge_join_disk_space_unavailable",
+    });
+  return quota;
+}
+
+function availableFilesystemBytes(rootDir: string): number {
+  const stats = statfsSync(rootDir);
+  return stats.bavail * stats.bsize;
 }
 
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {

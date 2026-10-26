@@ -186,3 +186,79 @@ test("bootstrap CLI preserves the daemon-issued edge invitation link as a string
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+test("edge join CLI sends its quota and exits with the daemon's initial sync failure", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-join-quota-rpc-")),
+    userRoot = path.join(root, "user"),
+    endpoint = localUserDaemonEndpoint(userRoot, "default"),
+    link = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEifQ",
+    workspaceRoot = path.join(root, "edge-repo"),
+    quotaBytes = 4_000_000_000,
+    requests: Array<{ method: string; params: Record<string, unknown> }> = [],
+    server = createServer((socket) => {
+      const lines = createInterface({ input: socket });
+      lines.on("line", (line) => {
+        const request = JSON.parse(line) as { id: number; method: string; params: Record<string, unknown> };
+        requests.push(request);
+        const result =
+          request.method === "protocol.hello"
+            ? { protocolVersion: { major: 1, minor: 0 } }
+            : {
+                ok: false,
+                command: "edge-join",
+                code: "edge_join_sync_failed",
+                error: { code: "replica_sync_failed", hint: "base backup exceeds disk quota" },
+              };
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+      });
+      socket.on("close", () => lines.close());
+    });
+  try {
+    mkdirSync(path.dirname(endpoint), { recursive: true });
+    server.listen(endpoint);
+    await once(server, "listening");
+    const child = spawn(
+      process.execPath,
+      [
+        path.resolve("packages/cli/src/index.ts"),
+        "--root",
+        root,
+        "--json",
+        "edge",
+        "join",
+        link,
+        "--root",
+        workspaceRoot,
+        "--quota-bytes",
+        String(quotaBytes),
+      ],
+      {
+        env: { ...process.env, HOME: path.join(root, "home"), HARNESS_DAEMON_USER_ROOT: userRoot },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+    });
+    const [status] = await once(child, "close", { signal: AbortSignal.timeout(10_000) });
+    assert.equal(status, 1, output);
+    assert.match(output, /base backup exceeds disk quota/u);
+    assert.deepEqual(requests[1]?.params, {
+      operation: "edge-join",
+      link,
+      workspaceRoot,
+      quotaBytes,
+    });
+  } finally {
+    if (server.listening) {
+      const closed = once(server, "close", { signal: AbortSignal.timeout(5_000) });
+      server.close();
+      await closed;
+    }
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});

@@ -99,6 +99,7 @@ function parseEdgeJoin(
       operation: "edge-join",
       link,
       ...(flags.one.get("--root") ? { workspaceRoot: path.resolve(flags.one.get("--root")!) } : {}),
+      ...(flags.one.get("--quota-bytes") ? { quotaBytes: Number(flags.one.get("--quota-bytes")) } : {}),
     },
     method,
   );
