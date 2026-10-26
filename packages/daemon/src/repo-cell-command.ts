@@ -140,8 +140,8 @@ export function buildCommand(
         iteration: selection.iteration,
         contentDigest: packet.digest,
         submissionDigest: selection.submissionDigest,
-        ...(packet.value.findings === undefined ? {} : { findings: reviewFindings(packet.value.findings, "findings") }),
-        ...(packet.value.resolutions === undefined ? {} : { resolutions: reviewResolutions(packet.value.resolutions) }),
+        findings: reviewFindings(packet.value.findings, "findings"),
+        resolutions: reviewResolutions(packet.value.resolutions),
       };
     assertPhysicalReviewReport({
       rootDir,

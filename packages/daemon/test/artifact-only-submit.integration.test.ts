@@ -172,6 +172,8 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
         verdict: "approved",
         reason: "Verified delivery cut.",
         evidenceChecked: ["submission manifest"],
+        findings: [],
+        resolutions: [],
       }),
     );
     const reviewer = withPolicyGroup(

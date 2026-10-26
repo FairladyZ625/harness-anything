@@ -124,7 +124,7 @@ export function reviewPacket(
   let value: Record<string, unknown>;
   try {
     const parsed = JSON.parse(body) as unknown,
-      requiredFields = new Set(["verdict", "reason", "evidenceChecked"]),
+      requiredFields = new Set(reviewJsonFields),
       allowedFields = new Set([
         ...reviewJsonAllowedFields,
         "externalCompletionAnchor",
@@ -160,7 +160,12 @@ export function reviewResponsePacket(
   rootDir: string,
   action: RepoTaskAction,
 ): { readonly value: readonly Record<string, unknown>[]; readonly digest: `sha256:${string}` } {
-  const body = readPacketSource(rootDir, action);
+  // Fleet command frames carry the packet fields directly after the closed wire validator
+  // expands the declared JSON schema. Local CLI actions keep the file/stdin source instead.
+  const directResponses = action.responses,
+    body = Array.isArray(directResponses)
+      ? JSON.stringify({ responses: directResponses })
+      : readPacketSource(rootDir, action);
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);

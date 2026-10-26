@@ -53,8 +53,8 @@ const reviewFields = Object.freeze(
 );
 const reviewPacketFields = Object.freeze([
   ...reviewFields,
-  field("findings", "json-object-array"),
-  field("resolutions", "json-object-array"),
+  field("findings", "json-object-array", true),
+  field("resolutions", "json-object-array", true),
 ]);
 const createPacketFields = Object.freeze([
   field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),

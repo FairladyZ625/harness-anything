@@ -144,6 +144,8 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
         verdict: "approved",
         reason: "Independent agent review passed.",
         evidenceChecked: ["live installed-bin daemon route"],
+        findings: [],
+        resolutions: [],
       }),
     );
     const reviewReportDir = path.join(root, "harness", packagePath, "artifacts", "reports");

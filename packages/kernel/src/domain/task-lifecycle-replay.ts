@@ -143,7 +143,10 @@ function assertAtomic<C extends TaskLifecycleCommand>(
         (finding) =>
           finding.blocking &&
           !reviewResolutions.some(
-            (resolution) => resolution.findingId === finding.findingId && resolution.resolution === "withdrawn",
+            (resolution) =>
+              resolution.reviewId === command.reviewId &&
+              resolution.findingId === finding.findingId &&
+              resolution.resolution === "withdrawn",
           ),
       );
     const reopen =

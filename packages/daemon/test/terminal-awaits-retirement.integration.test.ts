@@ -381,6 +381,8 @@ test("a task completing after review and consent retires the awaits Relations it
           verdict: "approved",
           reason: "Verified delivery cut.",
           evidenceChecked: ["closeout sections"],
+          findings: [],
+          resolutions: [],
         }),
       );
       const reviewed = await cell.run(

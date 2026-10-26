@@ -370,7 +370,13 @@ async function reachGreenInReview(
   // The cut enters in_review directly at submit; the reviewer dispatch rides the same write.
   writeFileSync(
     path.join(rootDir, "review.json"),
-    JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Approved.",
+      evidenceChecked: ["verified"],
+      findings: [],
+      resolutions: [],
+    }),
   );
   mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true });
   writeFileSync(

@@ -205,7 +205,13 @@ test("declare-executor traces the authoring dispatch across executions and never
     writeFileSync(path.join(reviewReportDir, "cha.md"), "# Review cha\n\nPhysical review findings.\n");
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
-      JSON.stringify({ verdict: "changes_requested", reason: "Rework the cut.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Rework the cut.",
+        evidenceChecked: ["tests"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
+      }),
     );
     const cutReviewerActor = withPolicyGroup(
       withPolicyGroup(

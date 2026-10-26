@@ -84,6 +84,8 @@ test("an oversized dispatch report no longer wedges task completion", { timeout:
         verdict: "approved",
         reason: "Inspected the submitted execution and its declared evidence.",
         evidenceChecked: ["submitted execution", "task contract"],
+        findings: [],
+        resolutions: [],
       }),
     );
     const review = await f.cell().run(

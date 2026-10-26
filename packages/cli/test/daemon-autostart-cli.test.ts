@@ -1062,6 +1062,8 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       verdict: "approved",
       reason: "Human review accepted the agent execution.",
       evidenceChecked: ["end-to-end daemon flow"],
+      findings: [],
+      resolutions: [],
     }),
   );
   mkdirSync(path.join(fixture.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });

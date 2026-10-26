@@ -254,7 +254,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     );
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "in_review/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
 
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withPolicyGroup({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "maintainer");
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"], findings: [], resolutions: [] })); const reviewBinding = withPolicyGroup({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "maintainer");
     const reviewReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports"); mkdirSync(reviewReportDir, { recursive: true }); writeFileSync(path.join(reviewReportDir, "life.md"), "# Review life\n\nPhysical review findings.\n");
     const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; await assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
@@ -497,7 +497,13 @@ async function prepareReadyCompletion(
 
   writeFileSync(
     path.join(rootDir, "review.json"),
-    JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Approved.",
+      evidenceChecked: ["verified"],
+      findings: [],
+      resolutions: [],
+    }),
   );
   const readyReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
   mkdirSync(readyReportDir, { recursive: true });

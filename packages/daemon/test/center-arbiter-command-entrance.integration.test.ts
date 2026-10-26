@@ -263,7 +263,13 @@ test("a center-local reviewer records an Execution Review while the submitting e
 
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Reviewed independently.",
+        evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     const reports = path.join(rootDir, "harness", String(created.packagePath), "artifacts", "reports");
     mkdirSync(reports, { recursive: true });

@@ -20,6 +20,7 @@ import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import type { Snapshot } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -346,6 +347,42 @@ export async function fixture(
     delivery = `${delivery} artifact:${report}@${accepted.revision}`;
   }
   const submit = async (roundExecutionId = executionId) => {
+    // A returned blocking review belongs to the next implementation round. Freeze the worker's
+    // response to every still-unanswered blocking finding before cutting that round; the lifecycle
+    // contract rejects a submit that silently carries a prior rebuttal forward.
+    const shown = await run({ kind: "task-show", taskId }),
+      snapshot = JSON.parse(String(shown.evidence)) as Snapshot,
+      responded = new Set(
+        (snapshot.reviewResponses ?? []).map((response) => `${response.reviewId}\0${response.findingId}`),
+      ),
+      pendingResponses = snapshot.reviews
+        .filter(
+          (review) =>
+            review.verdict === "changes_requested" &&
+            snapshot.executions.some(
+              (execution) => execution.executionId === review.executionId && execution.state === "changes_requested",
+            ),
+        )
+        .flatMap((review) =>
+          (review.findings ?? [])
+            .filter((finding) => finding.blocking)
+            .filter((finding) => !responded.has(`${review.reviewId}\0${finding.findingId}`))
+            .map((finding) => ({
+              reviewId: review.reviewId,
+              findingId: finding.findingId,
+              disposition: "adopt" as const,
+              rationale: `Fixture worker addressed ${review.reviewId}/${finding.findingId}.`,
+            })),
+        );
+    if (pendingResponses.length) {
+      const response = await run({
+        kind: "task-respond-review",
+        taskId,
+        executionId: roundExecutionId,
+        jsonInput: JSON.stringify({ responses: pendingResponses }),
+      });
+      assert.equal(response.outcome, "applied", JSON.stringify(response));
+    }
     writeFileSync(
       path.join(root, "harness", packagePath, "closeout.md"),
       `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
@@ -525,6 +562,8 @@ export async function fixture(
             reviewedCommit === null || hybridDelivery
               ? submitted.payload.execution.submission.artifacts!.map((anchor) => `${anchor.path}@${anchor.revision}`)
               : [`${reviewedCommit}:README.md`, "closeout.md"],
+          findings: [],
+          resolutions: [],
         }),
       );
       return cell.run(
@@ -559,6 +598,8 @@ export async function fixture(
           verdict: "approved",
           reason: "Inspected the submitted execution and its declared evidence.",
           evidenceChecked: ["submitted execution", "task contract"],
+          findings: [],
+          resolutions: [],
         }),
       );
       return cell.run(

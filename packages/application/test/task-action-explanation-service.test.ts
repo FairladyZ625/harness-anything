@@ -34,6 +34,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "transition",
         "submit",
         "review",
+        "respondReview",
         "consent",
         "complete",
         "release",

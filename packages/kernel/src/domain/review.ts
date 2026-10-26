@@ -138,6 +138,12 @@ export const REVIEW_V1_SCHEMA = Object.freeze({
   verdicts: reviewVerdicts,
   inputRequired: Object.freeze(["verdict", "reason", "evidenceChecked"] as const),
 });
+/** Fields accepted from Review records written before findings and resolutions were durable. */
+export const REVIEW_V1_HISTORICAL_REQUIRED_FIELDS = Object.freeze(
+  REVIEW_V1_SCHEMA.required.filter(
+    (field) => field !== "submissionDigest" && field !== "findings" && field !== "resolutions",
+  ),
+);
 export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({
   id: "ReviewConsent/v1",
   required: Object.freeze([
@@ -155,16 +161,13 @@ export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({
   ]),
 });
 export function validateReviewV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  const historicalFields = REVIEW_V1_SCHEMA.required.filter(
-      (field) => field !== "submissionDigest" && field !== "findings" && field !== "resolutions",
-    ),
+  const historicalFields = REVIEW_V1_HISTORICAL_REQUIRED_FIELDS,
     allowedFields = REVIEW_V1_SCHEMA.required;
   if (
     !isRecord(value) ||
     !(allowUnknownFields
       ? hasRequiredFields(value, historicalFields)
-      : hasRequiredFields(value, historicalFields) &&
-        Object.keys(value).every((field) => allowedFields.includes(field)))
+      : hasRequiredFields(value, allowedFields) && Object.keys(value).every((field) => allowedFields.includes(field)))
   )
     return [invalidReviewIssue("Review/v1 fields are incomplete or unknown")];
   const issues: ContractValidationIssue[] = [];

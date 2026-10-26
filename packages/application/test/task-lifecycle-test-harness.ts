@@ -269,6 +269,11 @@ export function lifecycleHarness() {
             iteration: snapshot.task?.iteration ?? 0,
             contentDigest: `sha256:${"b".repeat(64)}`,
             submissionDigest: submissionDigest(submitted.submission),
+            findings:
+              verdict === "changes_requested"
+                ? [{ findingId: "fixture-finding", blocking: true, text: `${kind} requires another pass.` }]
+                : [],
+            resolutions: [],
           },
           opId,
         ),

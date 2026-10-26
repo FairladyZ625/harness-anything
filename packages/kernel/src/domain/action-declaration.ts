@@ -468,7 +468,7 @@ export const actionDeclarations = Object.freeze([
   canonical("task-review-execution", "task/review", "arbiter", undefined, undefined, "lifecycle.event-publication"),
   canonical(
     "task-respond-review",
-    "task/respond-review",
+    "task/respondReview",
     "repo-write",
     undefined,
     undefined,

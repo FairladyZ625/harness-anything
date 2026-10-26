@@ -83,8 +83,34 @@ function reviewIssues(
         "transport-bound execution review proof, content digest, and repository rework budget are required",
       ),
     );
-  if (command.findings !== undefined) issues.push(...validateReviewFindings(command.findings));
-  if (command.resolutions !== undefined) issues.push(...validateReviewResolutions(command.resolutions));
+  if (!Array.isArray(command.findings))
+    issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
+  else issues.push(...validateReviewFindings(command.findings));
+  if (!Array.isArray(command.resolutions))
+    issues.push(lifecycleContractIssue("missing_field", "new Review records must include a resolutions array"));
+  else issues.push(...validateReviewResolutions(command.resolutions));
+  const priorRebuttedFindings = priorRebuttedFindingKeys(snapshot, command.iteration),
+    suppliedResolutionKeys = new Map<string, number>();
+  for (const resolution of command.resolutions ?? []) {
+    const key = `${resolution.reviewId}\0${resolution.findingId}`;
+    suppliedResolutionKeys.set(key, (suppliedResolutionKeys.get(key) ?? 0) + 1);
+    if (!priorRebuttedFindings.includes(key))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_review",
+          `resolution ${resolution.reviewId}/${resolution.findingId} does not address a rebutted finding from the prior review round`,
+        ),
+      );
+  }
+  for (const key of priorRebuttedFindings) {
+    if (suppliedResolutionKeys.get(key) !== 1)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_review",
+          `re-review must include exactly one resolution for rebutted finding ${key.replace("\0", "/")}`,
+        ),
+      );
+  }
   if (
     command.verdict === "changes_requested" &&
     command.findings !== undefined &&
@@ -92,6 +118,18 @@ function reviewIssues(
   )
     issues.push(lifecycleContractIssue("invalid_review", "changes_requested review requires a blocking finding"));
   return issues;
+}
+
+function priorRebuttedFindingKeys(snapshot: TaskLifecycleSnapshot, iteration: number): readonly string[] {
+  const priorReviews = snapshot.reviews.filter((review) => review.iteration < iteration);
+  if (priorReviews.length === 0) return [];
+  const priorIteration = Math.max(...priorReviews.map((review) => review.iteration)),
+    priorReviewIds = new Set(
+      priorReviews.filter((review) => review.iteration === priorIteration).map((review) => review.reviewId),
+    );
+  return (snapshot.reviewResponses ?? [])
+    .filter((response) => response.disposition === "rebut" && priorReviewIds.has(response.reviewId))
+    .map((response) => `${response.reviewId}\0${response.findingId}`);
 }
 function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 {
   const qualificationEvidence =
@@ -118,8 +156,8 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
     contentDigest: command.contentDigest,
     submissionDigest: command.submissionDigest,
     reviewedAt: command.occurredAt,
-    ...(command.findings === undefined ? {} : { findings: [...command.findings] }),
-    ...(command.resolutions === undefined ? {} : { resolutions: [...command.resolutions] }),
+    findings: [...(command.findings ?? [])],
+    resolutions: [...(command.resolutions ?? [])],
   };
 }
 export const review: Transition = {
@@ -176,7 +214,10 @@ function reworkReopen(
       (finding) =>
         finding.blocking &&
         !resolutions.some(
-          (resolution) => resolution.findingId === finding.findingId && resolution.resolution === "withdrawn",
+          (resolution) =>
+            resolution.reviewId === recorded.reviewId &&
+            resolution.findingId === finding.findingId &&
+            resolution.resolution === "withdrawn",
         ),
     );
   // A re-review that upholds an earlier finding belongs to CEO disposition. Only a newly blocking

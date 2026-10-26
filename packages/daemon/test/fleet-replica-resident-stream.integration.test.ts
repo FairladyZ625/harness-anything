@@ -57,9 +57,9 @@ test(
         send({
           type: "replica.reject",
           code: "edge_upgrade_required",
-          message: "Edge must upgrade to center build 86d1398 before applying task event shape 2.",
+          message: "Edge must upgrade to center build 86d1398 before applying task event shape 3.",
           centerBuildCommit: "86d1398",
-          taskEventShapeVersion: 2,
+          taskEventShapeVersion: 3,
         });
     });
     const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-deterministic-failure-"));

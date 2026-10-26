@@ -62,6 +62,8 @@ async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSes
       verdict: "changes_requested",
       reason: "The submitted cut needs another pass.",
       evidenceChecked: ["closeout.md"],
+      findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+      resolutions: [],
     }),
   );
   return f.cell().run(
@@ -145,6 +147,8 @@ test("expanded reviewer runtime publishes only its bound report atomically", asy
         verdict: "approved",
         reason: "Checked the submitted execution.",
         evidenceChecked: ["tests"],
+        findings: [],
+        resolutions: [],
         docChanges: [
           {
             path: report,

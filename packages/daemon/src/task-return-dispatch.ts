@@ -87,10 +87,24 @@ export async function continueReviewRework(
       (finding) =>
         finding.blocking &&
         !(review.resolutions ?? []).some(
-          (resolution) => resolution.findingId === finding.findingId && resolution.resolution === "withdrawn",
+          (resolution) =>
+            resolution.reviewId === review.reviewId &&
+            resolution.findingId === finding.findingId &&
+            resolution.resolution === "withdrawn",
         ),
     );
   if (review.findings !== undefined || review.resolutions !== undefined) {
+    if (read.snapshot.task?.status === "in_review" && execution.state === "submitted")
+      return {
+        ...receipt,
+        warnings: [
+          ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
+          `Review ${reviewId} requested changes and the repository rework budget is exhausted; the cut stays at the ` +
+            `review gate for the owner: dispose the verdict with ha task review-consent ${taskId} ` +
+            `--execution-id ${execution.executionId} --review-id ${reviewId} --dispose ${reviewId} ` +
+            "--rationale <why>, or supersede the task.",
+        ],
+      } as WriteReceiptDraft;
     return {
       ...receipt,
       warnings: [

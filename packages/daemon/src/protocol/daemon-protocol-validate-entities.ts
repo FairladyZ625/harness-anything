@@ -183,6 +183,7 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       "commitSha",
       ...(isJsonObject(value) && (value.commitSha === null || "artifacts" in value) ? ["artifacts"] : []),
       ...(isJsonObject(value) && "riskTierAssessment" in value ? ["riskTierAssessment"] : []),
+      ...(isJsonObject(value) && "reviewResponses" in value ? ["reviewResponses"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
     // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
@@ -206,6 +207,8 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
     errors.push(
       validationError(entityId, "productionDelta", value.productionDelta, "requires a code commit and changedFiles"),
     );
+  if (value.reviewResponses !== undefined && !Array.isArray(value.reviewResponses))
+    errors.push(validationError(entityId, "reviewResponses", value.reviewResponses, "must be an array"));
   if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),

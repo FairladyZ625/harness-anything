@@ -95,7 +95,13 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
     writeFileSync(path.join(reportDir, "baseline-rework.md"), "# Review baseline-rework\n\nNeeds revision.\n");
     writeFileSync(
       path.join(reportDir, "baseline-rework.json"),
-      JSON.stringify({ verdict: "changes_requested", reason: "Rework the cut.", evidenceChecked: ["DELIVERY.md"] }),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Rework the cut.",
+        evidenceChecked: ["DELIVERY.md"],
+        findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+        resolutions: [],
+      }),
     );
     const returned = (await cell.run(
       {
@@ -120,6 +126,25 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
     // Round B appends a commit on the same branch and submits again.
     const executionB = "execution-baseline-b";
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId: executionB }, worker)).outcome, "applied");
+    const responseReceipt = await cell.run(
+      {
+        kind: "task-respond-review",
+        taskId,
+        executionId: executionB,
+        jsonInput: JSON.stringify({
+          responses: [
+            {
+              reviewId: "review-baseline-rework",
+              findingId: "fixture-finding",
+              disposition: "adopt",
+              rationale: "Round B addresses the blocking fixture finding.",
+            },
+          ],
+        }),
+      },
+      worker,
+    );
+    assert.equal(responseReceipt.outcome, "applied", JSON.stringify(responseReceipt));
     const branchTip = await deliverRound(cell, rootDir, taskId, packagePath, executionB, "Round B delivery.");
 
     const baselines = new Map(

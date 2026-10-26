@@ -324,6 +324,8 @@ test(
         verdict: "approved",
         reason: "Independent CLI verification passed.",
         evidenceChecked: ["test:remote-edge-lifecycle"],
+        findings: [],
+        resolutions: [],
       }),
     );
     const review = ["task", "review-execution", taskId, "--review-id", "review-edge-cli", "--from-file", "review.json"];

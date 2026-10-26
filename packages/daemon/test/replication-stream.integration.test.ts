@@ -97,14 +97,19 @@ test(
     const fixture = await fleetReplicationFixture(t);
     const center = await fixture.openCenter();
     const edge = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-one", "secret-edge-one");
-    const response = await edge.raw({ type: "replica.start", repoId: replicationRepoId, position: null });
+    const response = await edge.raw({
+      type: "replica.start",
+      repoId: replicationRepoId,
+      position: null,
+      taskEventShapeVersion: 2,
+    });
     assert.equal(response.type, "replica.reject");
     if (response.type !== "replica.reject") return;
     assert.equal(response.code, "edge_upgrade_required");
     const expectedBuild = daemonBuildStamp().commit?.slice(0, 7) ?? "unknown";
     assert.equal(response.centerBuildCommit, daemonBuildStamp().commit);
     assert.ok(response.message.includes(expectedBuild));
-    assert.equal(response.taskEventShapeVersion, 2);
+    assert.equal(response.taskEventShapeVersion, 3);
     const status = center.status().replicas.find((replica) => replica.nodeId === "edge-one");
     assert.equal(status?.connected, false);
     assert.equal(status?.syncFailure?.code, "edge_upgrade_required");

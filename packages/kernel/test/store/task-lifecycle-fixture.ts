@@ -172,6 +172,7 @@ export function twoRoundLifecycleEvents(
     readonly taskId?: string;
     readonly firstExecutionId?: string;
     readonly secondExecutionId?: string;
+    readonly firstReviewFindings?: RecordReviewCommand["findings"];
   } = {},
 ): {
   readonly events: readonly TaskEventV1[];
@@ -241,12 +242,23 @@ export function twoRoundLifecycleEvents(
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
   // The changes_requested verdict itself reopens the rework round below the budget.
-  run(reviewCommand(4, taskId, firstExecutionId, "changes_requested", "review-round-one", fixtureCompletionContract), {
-    actorBinding: reviewer,
-    capability: "execution-review@v1",
-    capabilityRef: "cap-review",
-    reworkBudget: 2,
-  });
+  run(
+    reviewCommand(
+      4,
+      taskId,
+      firstExecutionId,
+      "changes_requested",
+      "review-round-one",
+      fixtureCompletionContract,
+      options.firstReviewFindings,
+    ),
+    {
+      actorBinding: reviewer,
+      capability: "execution-review@v1",
+      capabilityRef: "cap-review",
+      reworkBudget: 2,
+    },
+  );
   run(
     command(implementer, 5, {
       type: "StartExecution",
@@ -277,6 +289,7 @@ function reviewCommand(
   verdict: "approved" | "changes_requested",
   reviewId: string,
   completionContract: FrozenCompletionContract = fixtureCompletionContract,
+  findings?: RecordReviewCommand["findings"],
 ): RecordReviewCommand {
   const submission = {
     completionClaim: "implemented",
@@ -300,5 +313,11 @@ function reviewCommand(
     iteration: 0,
     contentDigest: `sha256:${"b".repeat(64)}`,
     submissionDigest: submissionDigest(submission),
+    findings:
+      findings ??
+      (verdict === "changes_requested"
+        ? [{ findingId: "fixture-finding", blocking: true, text: "The fixture cut needs another pass." }]
+        : []),
+    resolutions: [],
   });
 }

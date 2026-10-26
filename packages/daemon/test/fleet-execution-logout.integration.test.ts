@@ -622,7 +622,13 @@ test(
     let packet = `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.json`;
     writeFileSync(
       path.join(reviewRoot, packet),
-      JSON.stringify({ verdict: "approved", reason: "Verified edge execution.", evidenceChecked: ["CLI receipts"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Verified edge execution.",
+        evidenceChecked: ["CLI receipts"],
+        findings: [],
+        resolutions: [],
+      }),
     );
     writeFileSync(
       path.join(reportDir, `${reviewDispatch}.md`),
@@ -854,6 +860,8 @@ test(
         verdict: "approved",
         reason: "Verified amended S2 cut.",
         evidenceChecked: ["S2 CLI receipts"],
+        findings: [],
+        resolutions: [],
       }),
     );
     writeFileSync(path.join(reportDir, `${reviewDispatch}.md`), "# Review\n\nVerified amended S2 cut.\n");

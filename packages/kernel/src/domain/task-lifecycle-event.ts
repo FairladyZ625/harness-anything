@@ -358,7 +358,7 @@ export class TaskLifecycleContractError extends Error {
   }
 }
 /** Increment when a task-event shape change makes older replica implementations unable to replay it. */
-export const TASK_EVENT_SHAPE_COMPAT_VERSION = 2;
+export const TASK_EVENT_SHAPE_COMPAT_VERSION = 3;
 export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   id: "task-event/v1",
   required: Object.freeze([
@@ -646,7 +646,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   }
   if (
     String(value.type).startsWith("task_") &&
-    !["task_created", "task_completed", "task_completion_generation_retired"].includes(String(value.type)) &&
+    !["task_created", "task_completed", "task_completion_generation_retired", "task_review_responded"].includes(
+      String(value.type),
+    ) &&
     !validMutation(payload.mutation, allowUnknownFields)
   )
     issues.push(invalidEventPayloadIssue("task mutation audit fields are invalid"));
