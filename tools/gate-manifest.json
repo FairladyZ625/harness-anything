@@ -2288,6 +2288,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-integrity-single-source.mjs",
+          "tools/check-integrity-single-source.test.mjs",
           "package.json:scripts.harness:check-integrity-single-source",
           "tools/gate-manifest.json"
         ]

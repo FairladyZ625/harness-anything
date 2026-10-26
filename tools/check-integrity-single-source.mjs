@@ -96,10 +96,14 @@ function collectMarkerAuthorities() {
 }
 
 // Definitions live in more shapes than a regex sees: function/class
-// declarations, variable initializers, class methods, and object-literal
-// function properties. Plain data properties (e.g. a `sha256Bytes` counter)
-// and shorthand forwarding (`{ stablePayloadHash }`) bind the name without
-// implementing it, so they stay legal.
+// declarations, variable initializers, class methods, object-literal function
+// properties, class fields holding arrow/function values, and accessors. Class
+// fields and accessors are not optional coverage: arrow-valued class fields are
+// the dominant local style under packages/*/src, so a reimplementation written
+// that way would otherwise be invisible. Plain data properties (e.g. a
+// `sha256Bytes` counter), shorthand forwarding (`{ stablePayloadHash }`) and
+// field-to-field forwarding (`stableStringify = this.forwarded`) bind the name
+// without implementing it, so they stay legal.
 function findDefinedSymbols(text, symbols) {
   const defined = new Set();
   const source = ts.createSourceFile("gate-scan.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -120,10 +124,27 @@ function findDefinedSymbols(text, symbols) {
     if (ts.isMethodDeclaration(node)) {
       return ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) ? node.name.text : null;
     }
+    if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) {
+      return ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) ? node.name.text : null;
+    }
     if (ts.isPropertyAssignment(node)) {
       if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name)) return null;
-      return ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer) ? node.name.text : null;
+      return isFunctionValue(node.initializer) ? node.name.text : null;
+    }
+    if (ts.isPropertyDeclaration(node)) {
+      if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name)) return null;
+      return node.initializer !== undefined && isFunctionValue(node.initializer) ? node.name.text : null;
     }
     return null;
+  }
+
+  // `f = (v) => …` and `f = function (v) {…}` are the two direct forms; a type
+  // assertion or parentheses around either one does not change what it is.
+  function isFunctionValue(node) {
+    let current = node;
+    while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+    }
+    return ts.isArrowFunction(current) || ts.isFunctionExpression(current);
   }
 }

@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -128,6 +128,81 @@ test("integrity single-source check rejects class-method duplicates", () => {
   assert.match(result.stderr, /duplicate readScalar implementation/u);
 });
 
+// Class fields holding arrow/function values are the dominant local style
+// (hundreds of them under packages/*/src), so a reimplementation written that
+// way must not be invisible. Accessors are the same surface one shape over.
+test("integrity single-source check rejects class-field arrow duplicates", () => {
+  const root = makeGateRoot("ha-integrity-single-source-");
+  writeCanonicalStableHash(root);
+  mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+  writeFileSync(
+    path.join(root, "packages/daemon/src/hash-helpers.ts"),
+    [
+      "export class HashHelpers {",
+      "  stablePayloadHash = (value: unknown): string => String(value);",
+      "  stableStringify = ((value: unknown): string => JSON.stringify(value)) as (value: unknown) => string;",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = runGate(root);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stderr, /duplicate stablePayloadHash implementation/u);
+  assert.match(result.stderr, /duplicate stableStringify implementation/u);
+});
+
+test("integrity single-source check rejects accessor duplicates", () => {
+  const root = makeGateRoot("ha-integrity-single-source-");
+  writeCanonicalStableHash(root);
+  writeCanonicalFrontmatter(root);
+  mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+  writeFileSync(
+    path.join(root, "packages/daemon/src/getters.ts"),
+    [
+      "export const helpers = {",
+      "  get stableStringify(): (value: unknown) => string { return (value) => JSON.stringify(value); },",
+      "};",
+      "export class Reader {",
+      "  get readScalar(): (frontmatter: string, key: string) => string { return (frontmatter, key) => frontmatter + key; }",
+      "  set sha256Text(value: string) { void value; }",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = runGate(root);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stderr, /duplicate stableStringify implementation/u);
+  assert.match(result.stderr, /duplicate readScalar implementation/u);
+  assert.match(result.stderr, /duplicate sha256Text implementation/u);
+});
+
+test("integrity single-source check accepts data class fields and forwarding field bindings", () => {
+  const root = makeGateRoot("ha-integrity-single-source-");
+  writeCanonicalStableHash(root);
+  writeCanonicalFrontmatter(root);
+  mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+  writeFileSync(
+    path.join(root, "packages/daemon/src/counters.ts"),
+    [
+      "import { stableStringify } from '@harness-anything/kernel/internal/integrity/stable-hash';",
+      "export class Counters {",
+      "  sha256Bytes = 0;",
+      "  readonly forwarded = stableStringify;",
+      "  stableStringify = this.forwarded;",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const output = execFileSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
+  assert.match(output, /Integrity single-source check passed/u);
+});
+
 test("integrity single-source check rejects markers claiming symbols the file does not define", () => {
   const root = makeGateRoot("ha-integrity-single-source-");
   writeCanonicalStableHash(root);
@@ -235,6 +310,49 @@ test("integrity single-source check accepts imports, call sites, data properties
 
   const output = execFileSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
   assert.match(output, /Integrity single-source check passed/u);
+});
+
+// The gate's authority is the marker set itself, so the set needs a witness:
+// without this pin, deleting one symbol from a marker line silently unprotects
+// it while the gate and every other test stay green (ADR-0022 D3 layer 2/3 —
+// ceremony cost and entry-count trend for the authority surface). Updating this
+// table is the deliberate act a marker change is supposed to require.
+const pinnedAuthorities = {
+  "packages/kernel/src/integrity/stable-hash.ts": ["sha256Bytes", "sha256Text", "stablePayloadHash", "stableStringify"],
+  "packages/kernel/src/markdown/frontmatter.ts": ["readFrontmatter", "readNestedScalar", "readScalar"],
+};
+
+function readMarkerSymbols(relativeFile) {
+  const text = readFileSync(path.join(repoRoot, relativeFile), "utf8");
+  const symbols = [];
+  for (const match of text.matchAll(/\/\/\s*@canonical-substrate\b([^\n]*)/gu)) {
+    for (const token of match[1].split(/\s+/u)) {
+      if (token === "") continue;
+      if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(token)) break;
+      symbols.push(token);
+    }
+  }
+  return symbols.sort();
+}
+
+function trackedSourceFiles() {
+  const listed = execFileSync("git", ["ls-files", "-z", "packages"], { cwd: repoRoot, encoding: "utf8" });
+  return listed.split("\0").filter((file) => /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(file));
+}
+
+test("integrity single-source check pins the exact canonical symbol set per authority file", () => {
+  for (const [file, expected] of Object.entries(pinnedAuthorities)) {
+    assert.deepEqual(
+      readMarkerSymbols(file),
+      [...expected].sort(),
+      `${file} declares a different canonical symbol set than the pin; changing the authority set is a governance act, not an edit`,
+    );
+  }
+});
+
+test("integrity single-source check declares no authority file outside the pinned set", () => {
+  const marked = trackedSourceFiles().filter((file) => readMarkerSymbols(file).length > 0);
+  assert.deepEqual(marked.sort(), Object.keys(pinnedAuthorities).sort());
 });
 
 const requiredScanRoots = ["packages"];
