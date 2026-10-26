@@ -1,10 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { attachActiveRuntime, createActiveRuntime } from "../src/runtime-spawn-active.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+
+// A real dispatch cwd is its own worktree; a recursive watcher over a shared tmp tree holds one
+// fs_event handle per entry and keeps the test process alive after its tests finish.
+const fixtureWorkspace = mkdtempSync(path.join(tmpdir(), "ha-spend-cap-fixture-"));
 
 function active(tokenLimit: number | null = 100, process: unknown = { pid: 4321 }) {
   return createActiveRuntime({
@@ -25,7 +32,7 @@ function active(tokenLimit: number | null = 100, process: unknown = { pid: 4321 
     task: null,
     decisionReviewTarget: null,
     schedule: null,
-    cwd: "/tmp",
+    cwd: fixtureWorkspace,
     prompt: "spend cap fixture",
     onExitCommand: null,
     model: "gpt-5.6-sol",

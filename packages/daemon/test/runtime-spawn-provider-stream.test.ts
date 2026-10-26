@@ -28,6 +28,11 @@ import {
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 
+// A real dispatch cwd is its own worktree. The liveness watcher recurses the whole cwd, so a
+// fixture pointed at a shared tmp tree attaches one fs_event handle per entry there and the test
+// process outlives its tests. One empty directory keeps the watched tree the size of a worktree.
+const fixtureWorkspace = mkdtempSync(path.join(tmpdir(), "ha-provider-fixture-"));
+
 function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
     runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -39,7 +44,7 @@ function active(kindId = "codex", process = {} as never, extras: Record<string, 
     model: null,
     reasoningEffort: null,
     fast: false,
-    cwd: "/tmp",
+    cwd: fixtureWorkspace,
     prompt: "metrics fixture",
     startedAt: "2026-09-11T00:00:00.000Z",
     binding: {} as never,
