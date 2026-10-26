@@ -264,6 +264,8 @@ test(
             verdict: "approved",
             reason: "Checked.",
             evidenceChecked: ["tests"],
+            findings: [],
+            resolutions: [],
           },
           docChanges: [
             {
