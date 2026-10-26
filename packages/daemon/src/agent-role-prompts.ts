@@ -11,6 +11,7 @@ const mutatorDiscipline = `# Implementation Permissions
 
 - Inspect beyond the suggested file map when needed; respect shared exclusions and task boundaries, and stage only owned files.
 - Keep the injected canonical repository root read-only; edit code in the worker repository root.
+- Read another commit with \`node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]\`. It extracts an archive into a plain directory, so use it instead of \`git worktree add\`, and never link a checkout's node_modules at a shared store: a link resolves its parent directory first, so replacing an entry through it rewrites the store's own workspace links, and deleting that checkout then breaks every consumer.
 - Worktrees share one git stash stack. Park changes in a temporary WIP commit instead.
 - Before handoff, rebase onto the latest default branch and rerun affected evidence commands.`;
 

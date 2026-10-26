@@ -89,6 +89,11 @@ for (const role of [undefined, "worker"] as const)
     const prompt = assembleUnboundPrompt("Do the mission.", role);
     for (const grant of writeGrants) assert.ok(prompt.includes(grant), grant);
     assert.match(prompt, /Worktrees share one git stash stack/u);
+    // A historical read has one path; the ad-hoc scratch worktree with a shared node_modules is the
+    // write-through that broke the canonical root on 2026-10-27.
+    assert.match(prompt, /node tools\/readonly-checkout\.mjs --rev <commit>/u);
+    assert.match(prompt, /use it instead of `git worktree add`/u);
+    assert.match(prompt, /a link resolves its parent directory first/u);
     assert.match(prompt, /After affected tests pass, commit and publish through the task delivery commands/u);
     assert.match(prompt, /PR checks for that delivery commit/u);
     assert.match(prompt, /Pending is not green/u);

@@ -141,10 +141,52 @@ export const runNodeTestsCommand = command({
   ],
 });
 
+export const readonlyCheckoutCommand = command({
+  id: "readonly-checkout",
+  entry: "tools/readonly-checkout.mjs",
+  summary: "Materialize a historical commit's tree, or read one path from it, without touching shared state.",
+  invalidInputShowsHelp: true,
+  options: [
+    {
+      name: "--rev",
+      placeholder: "<commit>",
+      required: true,
+      missingValue: "--rev requires a commit",
+      description: "Commit to read, as any revision git resolves to a commit.",
+    },
+    {
+      name: "--out",
+      placeholder: "<dir>",
+      allowEquals: true,
+      missingValue: "--out requires a directory",
+      description: "Extraction directory; a fresh temporary directory when omitted.",
+    },
+    {
+      name: "--show",
+      placeholder: "<path>",
+      allowEquals: true,
+      missingValue: "--show requires a repository-relative path",
+      description: "Print one file's bytes at the commit instead of extracting the tree.",
+    },
+    {
+      name: "--deps",
+      kind: "boolean",
+      description: "Mirror the root store's dependencies into the extracted tree.",
+    },
+  ],
+  details: [
+    "Extracts a git archive, so the result is not a Git worktree: nothing is registered in the repository's",
+    "worktrees and it cannot be committed to or pushed. Without --deps the tree carries no node_modules and no",
+    "shared state is read; --deps mirrors the root store the same way a task worktree setup does, copying the",
+    "workspace links relative so they resolve inside the new tree.",
+  ],
+});
+
 export const supportedToolCommands = Object.freeze([
   dispatchTaskCommand,
   testHermeticPreflightCommand,
   runNodeTestsCommand,
+  readonlyCheckoutCommand,
 ]);
 
 export function renderToolHelp(descriptor) {
