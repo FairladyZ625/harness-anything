@@ -264,23 +264,22 @@ export function attachActiveRuntime(
         }
       },
     };
-  // Provider/exit observation comes first: a workspace the watcher cannot open is a real fault,
-  // and it must not leave a live process whose output nobody reads. The launcher's own failure
-  // path then terminates the process and retires the dispatch.
+  // Observations first: the watchdog and its workspace watcher belong to this registration, so a
+  // provider exit that arrives while the process handlers are being wired already finds a
+  // disposable registration instead of one created after disposal. A workspace the watcher cannot
+  // open is a real fault: it travels out of here, and the launcher's failed-launch path terminates
+  // the process and retires the dispatch.
+  try {
+    attachRuntimeObservations(context, active);
+  } catch (error) {
+    disposeActiveRuntimeObservations(active);
+    throw error;
+  }
   if (resumeObservation) resumeObservation.activate(handlers);
   else {
     active.process.onOutput(handlers.output);
     active.process.onErrorOutput(handlers.error);
     active.process.onExit(handlers.exit);
-  }
-  try {
-    attachRuntimeObservations(context, active);
-  } catch (error) {
-    // Release the observation handles this call created before the fault travels: the launcher
-    // terminates the process, and a runtime left holding progress callbacks with no armed
-    // deadline would be a live session nobody is watching.
-    disposeActiveRuntimeObservations(active);
-    throw error;
   }
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
 }
