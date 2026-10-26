@@ -191,14 +191,6 @@ export function classifyRuntimeExit(
       ),
       outcome: "unknown",
     };
-  if (
-    exitCode === 0 &&
-    active.providerOutcome === "succeeded" &&
-    !active.toolCallObserved &&
-    !active.nonEmptyAgentOutputObserved &&
-    active.providerUsageEmpty
-  )
-    return classified("provider_fault", "Provider completed a turn but produced no output.");
   if (attemptFailed && !active.toolCallObserved) {
     if (active.failureText?.startsWith("ACP provider exited before the session completed (exit "))
       return classified("provider_fault", active.failureText);

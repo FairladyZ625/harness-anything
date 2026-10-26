@@ -98,10 +98,11 @@ export async function consumeProviderLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-    if (!persisted) {
-      active.stream.appendProviderEvent(value, context.input.now());
-      active.recordProviderProgress?.();
-    }
+    if (!persisted) active.stream.appendProviderEvent(value, context.input.now());
+    // The worker host persists provider frames before the daemon tails them.  Persistence
+    // provenance controls whether we append a duplicate record, not whether the frame is
+    // meaningful progress for the idle watchdog.
+    active.recordProviderProgress?.();
     active.durableOutputCount += 1;
   } catch (error) {
     if (persisted) active.durableOutputCount += 1;
