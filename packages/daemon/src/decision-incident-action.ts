@@ -82,7 +82,13 @@ export interface IncidentActionEvidence {
 export type IncidentActionPlan =
   | { readonly action: "resume"; readonly payload: JsonObject }
   | { readonly action: "rerun"; readonly payload: JsonObject }
-  | { readonly action: "needs_attention"; readonly rationale: string }
+  | {
+      readonly action: "needs_attention";
+      readonly rationale: string;
+      /** Why this option was refused, without the option and dispatch wrapper. The provider-less
+       * default reads it to name the guard in its own receipt. */
+      readonly guard: string;
+    }
   | { readonly action: "no_action" };
 
 /** The daemon-side eligibility gate: the provider only chooses; admissibility is decided here and
@@ -93,9 +99,10 @@ export function planIncidentAction(input: {
   readonly dispatchId: string;
   readonly evidence: IncidentActionEvidence;
 }): IncidentActionPlan {
-  const escalate = (reason: string): IncidentActionPlan => ({
+  const escalate = (guard: string): IncidentActionPlan => ({
     action: "needs_attention",
-    rationale: `question: Decisions API could not safely apply "${input.selected}" for dispatch ${input.dispatchId}: ${reason}`,
+    guard,
+    rationale: `question: Decisions API could not safely apply "${input.selected}" for dispatch ${input.dispatchId}: ${guard}`,
   });
   if (!(incidentDispositionOptions as readonly string[]).includes(input.selected))
     return escalate("the selected option id is not declared by the incident disposition contract.");
@@ -111,8 +118,10 @@ export function planIncidentAction(input: {
             : !input.evidence.headKnown
               ? "the worktree HEAD is unknown, so no automatic restart has a known base."
               : null;
-  if (input.selected === "needs_attention")
-    return { action: "needs_attention", rationale: awaitRationale(input.taskId, input.dispatchId) };
+  if (input.selected === "needs_attention") {
+    const rationale = awaitRationale(input.taskId, input.dispatchId);
+    return { action: "needs_attention", rationale, guard: rationale };
+  }
   if (input.selected === "no_action") {
     if (input.evidence.submitted || input.evidence.successorActive) return { action: "no_action" };
     return escalate("no canonical submission or active successor backs doing nothing.");
@@ -134,6 +143,38 @@ export function planIncidentAction(input: {
 
 function awaitRationale(taskId: string, dispatchId: string): string {
   return `question: Decisions API escalated the runtime incident on dispatch ${dispatchId} of task ${taskId} for an owner disposition.`;
+}
+
+/** Preference order of the provider-less disposition. This list is the only new information: which
+ * declared option to try first. Whether a candidate is admissible stays with the gate above, so
+ * there is no second copy of the guards. */
+const defaultDispositionPreference = ["no_action", "resume_original", "rerun_same_identity"] as const;
+
+export type DefaultIncidentDisposition =
+  | {
+      readonly kind: "execute";
+      readonly selected: (typeof defaultDispositionPreference)[number];
+      readonly plan: IncidentActionPlan;
+    }
+  | { readonly kind: "escalate"; readonly guard: string };
+
+/** The disposition when the Decisions provider cannot answer: the provider accelerates the choice,
+ * it is never the only route to one. Each candidate goes through the same admissibility gate; the
+ * first admissible one wins, and only when every automatic option is refused does the incident go
+ * to the owner, naming the guard that refused it. */
+export function defaultIncidentDisposition(input: {
+  readonly taskId: string;
+  readonly dispatchId: string;
+  readonly evidence: IncidentActionEvidence;
+}): DefaultIncidentDisposition {
+  let guard = "no declared automatic disposition is admissible.";
+  for (const selected of defaultDispositionPreference) {
+    const plan = planIncidentAction({ ...input, selected });
+    if (plan.action !== "needs_attention") return { kind: "execute", selected, plan };
+    guard = plan.guard;
+  }
+  // Every candidate was refused; the deepest refusal (rerun needs the most) names the real guard.
+  return { kind: "escalate", guard };
 }
 
 function incidentSpawnPayload(
