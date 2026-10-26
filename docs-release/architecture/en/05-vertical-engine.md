@@ -53,8 +53,8 @@ selects the task flow: low skips review and consent and automatically uses a
 preset's short profile when one is declared; medium is the default and receives
 one functional review; high receives full review and consent. Submit-time
 repository risk scripts inspect the actual delivery diff and may only raise the
-effective tier. The effective tier controls review, consent, and low-tier GUI
-acceptance; configured consent gates remain in force for medium tasks.
+effective tier. The effective tier controls review and consent; configured
+consent gates remain in force for medium tasks.
 Pull-request CI still applies to code changes. `--profile lightweight` is not a
 task-create choice.
 
