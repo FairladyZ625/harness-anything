@@ -66,6 +66,12 @@ export {
 export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
 
 export {
+  reviewFindingThresholdsFor,
+  reviewFindingTriageQuestion,
+  reviewFindingTriageQuestionVersion,
+} from "./review-triage-question.ts";
+
+export {
   discardedFindingCategories,
   hardRuleFindingCategories,
   isDiscardedCategory,

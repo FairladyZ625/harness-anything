@@ -9,6 +9,7 @@ import {
   type DecisionReviewFindingV1,
   type DecisionReviewResponseV1,
 } from "./decision-event.ts";
+import { reviewFindingCategories, reviewFindingLabels } from "./review-settlement.ts";
 import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import type { CanonicalRelationDirection } from "./relation-direction.ts";
@@ -659,7 +660,7 @@ function choice<T extends string>(
   invalid(input, `${field} is invalid; expected one of: ${choices.join(", ")}.`);
 }
 const reviewResponseFields = ["reviewId", "findingId", "disposition", "rationale", "amendmentRef"],
-  reviewFindingFields = ["findingId", "text", "anchor"];
+  reviewFindingFields = ["findingId", "text", "anchor", "category", "label", "evidenceDigest", "priorFindingRefs"];
 
 /**
  * Review packets reach the kernel as raw JSON items. Compile runs before the finding-existence
@@ -699,10 +700,18 @@ function reviewFindings(input: EntityActionCompileInput, value: unknown): readon
   return value.map((finding, index) => {
     if (!plainRecordValue(finding)) invalid(input, `findings[${index}] must be an object.`);
     const label = `findings[${index}]`,
+      category = optionalFindingCategory(input, finding.category, `${label}.category`),
+      findingLabel = optionalFindingLabel(input, finding.label, `${label}.label`),
+      evidenceDigest = optionalFindingEvidence(input, finding.evidenceDigest, `${label}.evidenceDigest`),
+      priorFindingRefs = optionalFindingRefs(input, finding.priorFindingRefs, `${label}.priorFindingRefs`),
       record = {
         findingId: requiredText(input, finding.findingId, `${label}.findingId`),
         text: requiredText(input, finding.text, `${label}.text`),
         ...(finding.anchor === undefined ? {} : { anchor: requiredText(input, finding.anchor, `${label}.anchor`) }),
+        ...(category === undefined ? {} : { category }),
+        ...(findingLabel === undefined ? {} : { label: findingLabel }),
+        ...(evidenceDigest === undefined ? {} : { evidenceDigest }),
+        ...(priorFindingRefs === undefined ? {} : { priorFindingRefs }),
       },
       unknown = Object.keys(finding).filter((field) => !reviewFindingFields.includes(field));
     if (unknown.length > 0)
@@ -712,6 +721,46 @@ function reviewFindings(input: EntityActionCompileInput, value: unknown): readon
       );
     return record;
   });
+}
+function optionalFindingCategory(
+  input: EntityActionCompileInput,
+  value: unknown,
+  field: string,
+): DecisionReviewFindingV1["category"] {
+  if (value === undefined) return undefined;
+  if (!reviewFindingCategories.includes(value as (typeof reviewFindingCategories)[number]))
+    invalid(input, `${field} must be one of ${reviewFindingCategories.join(", ")}.`);
+  return value as DecisionReviewFindingV1["category"];
+}
+function optionalFindingLabel(
+  input: EntityActionCompileInput,
+  value: unknown,
+  field: string,
+): DecisionReviewFindingV1["label"] {
+  if (value === undefined) return undefined;
+  if (!reviewFindingLabels.includes(value as (typeof reviewFindingLabels)[number]))
+    invalid(input, `${field} must be one of ${reviewFindingLabels.join(", ")}.`);
+  return value as DecisionReviewFindingV1["label"];
+}
+function optionalFindingEvidence(
+  input: EntityActionCompileInput,
+  value: unknown,
+  field: string,
+): `sha256:${string}` | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value))
+    invalid(input, `${field} must be a sha256 digest.`);
+  return value as `sha256:${string}`;
+}
+function optionalFindingRefs(
+  input: EntityActionCompileInput,
+  value: unknown,
+  field: string,
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || !entry.trim()))
+    invalid(input, `${field} must be a non-empty array of finding references.`);
+  return value as readonly string[];
 }
 function stringList(value: unknown): readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [];

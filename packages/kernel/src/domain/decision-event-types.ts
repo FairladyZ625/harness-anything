@@ -2,6 +2,7 @@ import { type SessionProvenanceV1 } from "./agent-runtime.ts";
 import type { DocEventChange } from "./doc-sync.contract.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { type ActorIdentity, type EventEnvelope, type FrozenWritePlan } from "./write-chain.contract.ts";
+import type { ReviewFindingCategory, ReviewFindingLabel } from "./review-settlement.ts";
 
 export const decisionEventTypes = [
   "decision_proposed",
@@ -112,6 +113,14 @@ export interface DecisionReviewFindingV1 {
   readonly findingId: string;
   readonly text: string;
   readonly anchor?: string;
+  /** One settled or discarded category; absent on historical reviews. */
+  readonly category?: ReviewFindingCategory;
+  /** The Anthropic-aligned label the reviewer claims; input to triage, never the verdict. */
+  readonly label?: ReviewFindingLabel;
+  /** Hash of the minimal evidence this finding rests on. */
+  readonly evidenceDigest?: `sha256:${string}`;
+  /** Same opinion carried from an earlier cut. */
+  readonly priorFindingRefs?: readonly string[];
 }
 export interface DecisionReviewV1 {
   readonly reviewId: string;

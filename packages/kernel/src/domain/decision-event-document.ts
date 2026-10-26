@@ -20,6 +20,8 @@ import {
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+import { settleReviewFindings } from "./review-settlement.ts";
+import type { ReviewFindingSettlement, ReviewFindingTriageV1 } from "./review-settlement.ts";
 import type { DecisionReviewRequirement } from "./settings-field-declarations.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
@@ -572,10 +574,47 @@ export interface DecisionAcceptReviewReadiness {
   };
 }
 
+/**
+ * The per-finding settlement of a Decision cut (dec_6A77D43B8523823ABA1F5E4D3C CH5). Task and
+ * Decision share `settleReviewFindings`; this adapter maps Decision review findings onto it, so both
+ * aggregates apply one rule and Decision accept stops looking for a single `approved` review.
+ */
+export function decisionCutSettlement(
+  current: DecisionDocumentState,
+  documentBody: string,
+  triages: readonly ReviewFindingTriageV1[],
+): ReviewFindingSettlement | null {
+  const currentDigest = decisionReviewContentDigest(current, documentBody),
+    findings = current.reviews
+      .filter((review) => review.reviewContentDigest === currentDigest)
+      .flatMap((review) =>
+        review.findings.flatMap((finding) =>
+          finding.category === undefined
+            ? []
+            : [
+                {
+                  reviewId: review.reviewId,
+                  findingId: finding.findingId,
+                  category: finding.category,
+                  label: finding.label ?? ("Important" as const),
+                  text: finding.text,
+                  reviewerBlocking: review.verdict === "changes_requested",
+                  ...(finding.evidenceDigest === undefined || finding.anchor === undefined
+                    ? {}
+                    : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
+                  ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
+                },
+              ],
+        ),
+      );
+  return findings.length === 0 ? null : settleReviewFindings({ findings, triages });
+}
+
 export function decisionAcceptReviewReadiness(
   current: DecisionDocumentState,
   documentBody: string,
   requirement: DecisionReviewRequirement,
+  findingTriages: readonly ReviewFindingTriageV1[] = [],
 ): DecisionAcceptReviewReadiness {
   const currentDigest = decisionReviewContentDigest(current, documentBody),
     blocking = current.reviews
@@ -606,27 +645,55 @@ export function decisionAcceptReviewReadiness(
           "The owner must override the named reviews, or the proposer must amend the content and seek review again.",
       },
     };
-  const approved = current.reviews.some(
-      (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
-    ),
+  // Per-finding settlement supersedes "one approved review" for any cut that carries a categorized
+  // finding: a blocker returns it, an unresolved triage is unresolved review, and a settled cut is
+  // approved without any review-level `approved` record (CH3/CH5).
+  const settlement = decisionCutSettlement(current, documentBody, findingTriages),
+    settledPassed = settlement?.outcome === "passed",
+    approved =
+      settlement === null
+        ? current.reviews.some(
+            (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
+          )
+        : settledPassed,
     reviewRequired =
       requirement === "all" ||
       (requirement === "high" && current.riskTier === "high") ||
       (requirement === "medium_and_high" && current.riskTier !== "low"),
-    unanswered = approved
-      ? []
-      : current.reviews
-          .filter(({ verdict }) => verdict === "changes_requested")
-          .flatMap((review) =>
-            review.findings
-              .filter(
-                ({ findingId }) =>
-                  !current.reviewResponses.some(
-                    (response) => response.reviewId === review.reviewId && response.findingId === findingId,
-                  ),
-              )
-              .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
-          );
+    unanswered =
+      approved || settlement !== null
+        ? []
+        : current.reviews
+            .filter(({ verdict }) => verdict === "changes_requested")
+            .flatMap((review) =>
+              review.findings
+                .filter(
+                  ({ findingId }) =>
+                    !current.reviewResponses.some(
+                      (response) => response.reviewId === review.reviewId && response.findingId === findingId,
+                    ),
+                )
+                .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
+            );
+  if (settlement !== null && settlement.outcome !== "passed")
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "changes_requested",
+        reviewIds: settlement.blockers.map(({ reviewId }) => reviewId),
+        reason: settlement.reason,
+      },
+      next: {
+        action: settlement.outcome === "escalated" ? "override-review" : "respond-review",
+        actor: settlement.outcome === "escalated" ? "owner" : "proposer",
+        reason:
+          settlement.outcome === "escalated"
+            ? "The finding triage could not settle safely; a person must decide."
+            : "Fix or rebut every blocking finding, then submit an amended cut for a fresh settlement.",
+      },
+    };
   if (!approved && reviewRequired)
     return {
       ready: false,
@@ -634,7 +701,10 @@ export function decisionAcceptReviewReadiness(
       basis: null,
       blocker: {
         code: "review_required",
-        reason: `Repository policy requires an approved review for ${current.riskTier}-risk Decisions.`,
+        reason:
+          settlement === null
+            ? `Repository policy requires an approved review for ${current.riskTier}-risk Decisions.`
+            : `Repository policy requires a settled finding review for ${current.riskTier}-risk Decisions.`,
       },
       next: {
         action: "dispatch-review",

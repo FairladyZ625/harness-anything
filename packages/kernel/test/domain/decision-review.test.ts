@@ -422,3 +422,54 @@ test("human consent accepts a reviewed high-risk Decision once current changes_r
     ),
   );
 });
+
+test("a Decision cut with a categorized finding settles per finding, not per approved review", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document()),
+    triage = (selected: "blocker" | "non_blocking", probability: number) =>
+      ({
+        schema: "review-finding-triage/v1" as const,
+        reviewId: "review-findings",
+        findingId: "F1",
+        targetDigest: digest,
+        selected,
+        probabilities: {
+          blocker: selected === "blocker" ? probability : 1 - probability,
+          non_blocking: selected === "non_blocking" ? probability : 1 - probability,
+          nit: 0,
+          pre_existing: 0,
+          false_positive: 0,
+        },
+        model: "triage-model",
+        bindingDigest: digest,
+        decidedAt: "2026-09-29T00:02:00.000Z",
+      }) as const,
+    review = {
+      reviewId: "review-findings",
+      reviewContentDigest: digest,
+      verdict: "approved" as const,
+      reason: "One non-blocking observation.",
+      findings: [{ findingId: "F1", text: "Name the evidence.", category: "completeness" as const }],
+      evidenceChecked: [],
+      reportRef: null,
+      actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+      reviewedAt: "2026-09-29T00:01:00.000Z",
+    },
+    withFinding = { ...current, reviews: [review] };
+
+  // An unresolved triage is unresolved review, even though the review itself says approved.
+  assert.equal(
+    decisionAcceptReviewReadiness(withFinding, document(), "all").blocker?.code,
+    "changes_requested",
+    "no triage means the finding is unresolved",
+  );
+  // A confident non-blocking settlement passes the cut without any separate approved-review predicate.
+  assert.equal(
+    decisionAcceptReviewReadiness(withFinding, document(), "all", [triage("non_blocking", 0.95)]).ready,
+    true,
+  );
+  assert.equal(
+    decisionAcceptReviewReadiness(withFinding, document(), "all", [triage("blocker", 0.95)]).blocker?.code,
+    "changes_requested",
+  );
+});
