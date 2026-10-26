@@ -27,11 +27,19 @@ const auxiliaryEventTypes = Object.freeze([
   "runtime_handoff_revoked",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][]);
 
-function reviewerLaneKey(dispatchKey: unknown): string | null {
+/**
+ * The reviewer seat a dispatch key belongs to. Every current seat is a `task-review:` key qualified
+ * by the reviewer, so a resume may continue the same seat and nothing else; historical
+ * `task-review-lane:` keys keep their own segment so a pre-single-seat reviewer can still resume.
+ */
+function reviewerSeatKey(dispatchKey: unknown): string | null {
   if (typeof dispatchKey !== "string") return null;
   if (dispatchKey.startsWith("task-review-lane:")) return dispatchKey.split(":").slice(0, 3).join(":");
-  if (dispatchKey.startsWith("task-review:")) return "task-review";
-  return null;
+  if (!dispatchKey.startsWith("task-review:")) return null;
+  const segments = dispatchKey.split(":"),
+    reviewerAt = segments.indexOf("reviewer"),
+    reviewerId = reviewerAt > 0 ? segments[reviewerAt + 1] : undefined;
+  return reviewerId ? `task-review:${reviewerId}` : "task-review";
 }
 
 export function appendAuxiliaryRuntimeIngress(
@@ -162,8 +170,8 @@ export function appendAuxiliaryRuntimeIngress(
         action.payload.role === "reviewer" &&
         source.payload.taskId === action.payload.taskId &&
         source.payload.agentId === action.payload.agentId &&
-        reviewerLaneKey(source.payload.dispatchKey) !== null &&
-        reviewerLaneKey(source.payload.dispatchKey) === reviewerLaneKey(action.payload.dispatchKey);
+        reviewerSeatKey(source.payload.dispatchKey) !== null &&
+        reviewerSeatKey(source.payload.dispatchKey) === reviewerSeatKey(action.payload.dispatchKey);
       if (
         !isSamePerson(source.actor, binding.actor) ||
         source.payload.taskId !== action.payload.taskId ||

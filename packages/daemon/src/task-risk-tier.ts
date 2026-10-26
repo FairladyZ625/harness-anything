@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { TaskMetadataV1, TaskRiskTierAssessmentV1 } from "@harness-anything/kernel";
 import { runProcessExitAsync } from "./process-port.ts";
-import { reviewLanePaths, reviewPathLanes } from "./review-path-lanes.ts";
+import { reviewPathMatches, reviewPathRules } from "./review-path-matching.ts";
 
 export type RiskTier = NonNullable<TaskMetadataV1["riskTier"]>;
 export const taskRiskManifestPath = "tools/task-risk-manifest.json";
@@ -101,9 +101,9 @@ export async function assessTaskRiskTier(input: {
   const manifest = readTaskRiskManifest(input.rootDir),
     matchedPathReviewers = input.pathReviewers
       ? [
-          ...reviewLanePaths(
+          ...reviewPathMatches(
             input.delivery.files.map(({ path: filePath }) => filePath),
-            reviewPathLanes(input.pathReviewers),
+            reviewPathRules(input.pathReviewers),
           ),
         ].map(([agentId, paths]) => ({ agentId, paths }))
       : input.matchedPathReviewers,

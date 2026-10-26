@@ -18,22 +18,52 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { reviewLaneDispatchKey, reviewLanePrompt } from "./review-path-lanes.ts";
 import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
+import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./review-panel.ts";
+import { reviewPathSeatPrompt } from "./review-path-matching.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /**
- * The owner's explicit reviewer argument overrides the cut's frozen claim (owner ruling 2026-09-21);
- * without one, the frozen claim still beats repository settings, which only select an unfrozen cut.
+ * The automatic dispatch and `ha task dispatch-review` share `selectReviewSeat`; this adapter only
+ * keeps the receipt's historical field names. The owner's explicit reviewer argument wins, then the
+ * task's own reviewer, then a professional path seat, then the cut's frozen claim, then the
+ * repository default.
  */
 export function selectReviewAgent(frozen?: string, argument?: string, setting?: string) {
-  if (argument) return { reviewerId: argument, reviewerSource: "argument" as const };
-  if (frozen) return { reviewerId: frozen, reviewerSource: "frozen" as const };
-  if (setting) return { reviewerId: setting, reviewerSource: "settings" as const };
-  return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
+  const selection = selectReviewSeat({ frozenReviewer: frozen, argument, repositoryDefault: setting });
+  if (selection.kind === "escalated") {
+    // The three-argument form has no path evidence, so a professional-seat escalation cannot arise.
+  }
+  return selection.kind === "seat"
+    ? { reviewerId: selection.seat.reviewerId, reviewerSource: selection.seat.source }
+    : { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
+}
+
+/**
+ * The one seat a submitted cut reviews under (dec_6A77D43B8523823ABA1F5E4D3C CH1). A professional
+ * path rule that the cut's frozen manifest hits replaces the default seat rather than opening a
+ * second passing gate; an owner's `--agent` and a task's own reviewer are narrower declarations and
+ * come first. Both the automatic submit dispatch and `ha task dispatch-review` call this.
+ */
+export function reviewSeatForCut(input: {
+  readonly cell: RepoCellOperationalContext;
+  readonly execution: ExecutionV1;
+  readonly taskReviewer?: string | undefined;
+  readonly argument?: string | undefined;
+}): ReviewSeatSelection {
+  const submission = input.execution.submission;
+  return selectReviewSeat({
+    argument: input.argument,
+    taskReviewer: input.taskReviewer,
+    frozenReviewer: submission?.completionContract?.reviewer?.agentId,
+    repositoryDefault: input.cell.settings.readRepository().roles?.defaultReviewer,
+    // The frozen assessment is the routing evidence the cut was submitted under; recomputing it at
+    // dispatch time would let a later settings edit move a cut that is already under review.
+    pathReviewers: submission?.riskTierAssessment?.matchedPathReviewers ?? [],
+  });
 }
 
 /** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
@@ -226,7 +256,10 @@ type ReviewerContinuation = {
   readonly review?: ReviewV1;
 };
 
-/** Find the latest completed reviewer round for exactly one task/lane. */
+/**
+ * Find the latest completed reviewer round for exactly one task and reviewer. Historical path-lane
+ * keys are still matched so a cut reviewed before the single-seat change can continue its reviewer.
+ */
 function previousReviewerContinuation(
   cell: RepoCellOperationalContext,
   input: {
@@ -236,9 +269,8 @@ function previousReviewerContinuation(
     readonly packagePath: string;
   },
 ): ReviewerContinuation | null {
-  const lanePrefix = input.dispatchKey.startsWith(`task-review-lane:${input.reviewerId}:${input.taskId}:`)
-    ? `task-review-lane:${input.reviewerId}:${input.taskId}:`
-    : `task-review:${input.taskId}:`;
+  const lanePrefix = `task-review-lane:${input.reviewerId}:${input.taskId}:`,
+    seatPrefix = `task-review:${input.taskId}:`;
   const candidates = cell.projection
     .readRuntimeDispatches()
     .filter((row) => {
@@ -249,7 +281,7 @@ function previousReviewerContinuation(
         payload.taskId === input.taskId &&
         payload.agentId === input.reviewerId &&
         typeof payload.dispatchKey === "string" &&
-        payload.dispatchKey.startsWith(lanePrefix) &&
+        (payload.dispatchKey.startsWith(seatPrefix) || payload.dispatchKey.startsWith(lanePrefix)) &&
         payload.dispatchKey !== input.dispatchKey &&
         reviewAttemptEnded(cell, payload.runtimeSessionId) &&
         cell.projection.readDocument(reportRef).document !== null
@@ -414,8 +446,6 @@ type DispatchStep = {
   readonly agentId?: string;
   /** The runtime instance the dispatch actually landed on, from its dispatch request. */
   readonly instanceId?: string;
-  /** The configured path-review lane beside the cut review; absent means the primary cut lane. */
-  readonly lane?: string;
   readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
   readonly error?: string;
 };
@@ -438,10 +468,10 @@ export async function spawnCutReviewDispatch(
     readonly reviewerId: string;
     readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
-    /** An explicit dispatch key for a secondary lane; absent selects the cut review key. */
+    /** An explicit seat key for a replacement reviewer; absent selects the cut review key. */
     readonly dispatchKey?: string;
     /**
-     * The lane's mission for one dispatch id; absent builds the cut review packet. The builder is
+     * The seat's mission for one dispatch id; absent builds the cut review packet. The builder is
      * called per attempt so a fresh dispatch — including the resume fallback — names its own
      * registration id and report paths.
      */
@@ -522,7 +552,7 @@ export async function spawnCutReviewDispatch(
     }),
     continuationNote = continuation
       ? [
-          "This is a re-review of the same task and reviewer lane.",
+          "This is a re-review of the same task and reviewer seat.",
           `Read the previous registered report at harness/${continuation.reportRef} with ha doc show --path ${continuation.reportRef} --raw.`,
           ...(continuation.review
             ? [
@@ -621,84 +651,6 @@ export async function spawnCutReviewDispatch(
   return { outcome: "dispatched", ids };
 }
 
-/** One configured path-review lane's result for a submitted cut. */
-type PathLaneDispatchResult = {
-  readonly lane: string;
-  readonly hits: readonly string[];
-  readonly outcome: "dispatched" | "already_dispatched" | "failed";
-  readonly ids?: ReturnType<typeof reviewDispatchIds>;
-  readonly error?: string;
-};
-
-/**
- * The configured path-review lanes beside the cut review: each repository setting entry pairs a
- * reviewer agent with a path, and a submitted cut whose frozen manifest touches that path gets the
- * agent dispatched under its own idempotent key. The product owns the mechanism only; which agents
- * watch which paths is repository setting, and what the lane reviews is the agent's declaration.
- * A lane never disturbs the primary reviewer dispatch or the durable write that precedes it: its
- * own failures are returned per lane for the caller's retry lane.
- */
-async function dispatchPathReviewLanes(
-  cell: RepoCellOperationalContext,
-  input: {
-    readonly taskId: string;
-    readonly execution: ExecutionV1;
-    readonly packagePath: string;
-    readonly binding: RepoCellBinding;
-    readonly revision: number;
-    readonly extras?: Readonly<Record<string, unknown>>;
-  },
-): Promise<readonly PathLaneDispatchResult[]> {
-  const assessment = input.execution.submission?.riskTierAssessment;
-  // A cut frozen before risk assessments carries no path evidence; no risk tier gates a lane.
-  if (assessment === undefined) return [];
-  const hits = new Map<string, readonly string[]>(
-    assessment.matchedPathReviewers.map(({ agentId, paths }) => [agentId, paths]),
-  );
-  if (hits.size === 0) return [];
-  const results: PathLaneDispatchResult[] = [];
-  for (const [agentId, matched] of hits) {
-    const { key, ids, existing } = reviewDispatchAttempt(
-      cell,
-      reviewLaneDispatchKey(agentId, input.taskId, input.execution),
-    );
-    if (existing !== null) {
-      results.push({
-        lane: agentId,
-        hits: matched,
-        outcome: "already_dispatched",
-        ids: { ...ids, dispatchOpId: existing.opId },
-      });
-      continue;
-    }
-    const dispatch = await spawnCutReviewDispatch(cell, {
-      taskId: input.taskId,
-      execution: input.execution,
-      packagePath: input.packagePath,
-      binding: input.binding,
-      revision: input.revision,
-      reviewerId: agentId,
-      dispatchKey: key,
-      promptFor: (dispatchId) =>
-        reviewLanePrompt({
-          agentId,
-          taskId: input.taskId,
-          packagePath: input.packagePath,
-          dispatchId,
-          execution: input.execution,
-          hits: matched,
-        }),
-      ...(input.extras === undefined ? {} : { extras: input.extras }),
-    });
-    results.push(
-      dispatch.outcome === "failed"
-        ? { lane: agentId, hits: matched, outcome: "failed", error: dispatch.error }
-        : { lane: agentId, hits: matched, outcome: dispatch.outcome, ids: dispatch.ids },
-    );
-  }
-  return results;
-}
-
 /** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
 function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string) {
   let attempt = 0,
@@ -749,9 +701,11 @@ export function activeCutReviewDispatches(
 /**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
  * cut without a current review: submit, amend, resumed submit, and an owner's explicit reviewer
- * selection. Returns null outside the in-review gate. A dispatch failure
- * never undoes the durable write: it lands as the returned step with the idempotent
- * `ha task dispatch-review` retry lane.
+ * selection. Returns null outside the in-review gate. A dispatch failure never undoes the durable
+ * write: it lands as the returned step with the idempotent `ha task dispatch-review` retry lane.
+ *
+ * The seat comes from `reviewSeatForCut`, the same function `ha task dispatch-review` uses, so a
+ * professional path reviewer that the cut hits takes the one seat instead of a second review gate.
  */
 export async function dispatchInReviewCutReview(
   cell: RepoCellOperationalContext,
@@ -760,11 +714,9 @@ export async function dispatchInReviewCutReview(
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<{
-  readonly selection: ReturnType<typeof selectReviewAgent>;
+  readonly seat: ReviewSeat;
   readonly step: WriteReceiptDraft;
-  /** The configured path-review lanes' own steps; a failed lane is a warning, never the cut's verdict. */
-  readonly laneSteps: readonly WriteReceiptDraft[];
-  readonly laneWarnings: readonly string[];
+  readonly warnings: readonly string[];
 } | null> {
   const current = await cell.service.read(taskId);
   if (current.snapshot.task?.status !== "in_review") return null;
@@ -772,12 +724,20 @@ export async function dispatchInReviewCutReview(
     (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
   );
   if (!execution?.submission || !current.packagePath) return null;
-  const selection = selectReviewAgent(
-      execution.submission.completionContract?.reviewer?.agentId,
-      typeof action.reviewer === "string" ? action.reviewer : undefined,
-      cell.settings.readRepository().roles?.defaultReviewer,
-    ),
-    { reviewerId } = selection,
+  const selection = reviewSeatForCut({
+    cell,
+    execution,
+    argument: typeof action.reviewer === "string" ? action.reviewer : undefined,
+  });
+  if (selection.kind === "escalated")
+    return {
+      seat: { reviewerId: selection.reviewers.join(", "), source: "path" },
+      step: cell.failed(receipt.opId, cell.cellCodedError("review_dispatch_failed", selection.reason)),
+      warnings: [selection.reason],
+    };
+  const { seat } = selection,
+    { reviewerId } = seat,
+    pathSeat = seat.source === "path",
     dispatch = await spawnCutReviewDispatch(cell, {
       taskId,
       execution,
@@ -787,6 +747,19 @@ export async function dispatchInReviewCutReview(
       reviewerId,
       ...(typeof action.reviewer === "string" ? { dispatchKey: reviewDispatchKey(taskId, execution, reviewerId) } : {}),
       ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
+      ...(pathSeat
+        ? {
+            promptFor: (dispatchId: string): string =>
+              `${reviewDispatchPrompt({
+                taskId,
+                packagePath: current.packagePath!,
+                dispatchId,
+                execution,
+                gates: completionGateIds(current.snapshot.task!.completionGateIds, execution.submission),
+                ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
+              })}\n${reviewPathSeatPrompt({ seat })}`,
+          }
+        : {}),
       // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
       // would otherwise land on an unpredictable default instance.
       extras: {
@@ -811,38 +784,17 @@ export async function dispatchInReviewCutReview(
             dispatchId: dispatch.ids.dispatchId,
             runtimeSessionId: dispatch.ids.runtimeSessionId,
           } as WriteReceiptDraft);
-  const laneResults = await dispatchPathReviewLanes(cell, {
-      taskId,
-      execution,
-      packagePath: current.packagePath,
-      binding,
-      revision: cell.store.readHead()?.revision ?? 0,
-      extras: {
-        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
-        ...(typeof action.model === "string" ? { model: action.model } : {}),
-      },
-    }),
-    laneSteps = laneResults.flatMap((lane): WriteReceiptDraft[] =>
-      lane.outcome === "failed" || lane.ids === undefined
-        ? []
-        : [
-            {
-              ...receipt,
-              dispatchId: lane.ids.dispatchId,
-              runtimeSessionId: lane.ids.runtimeSessionId,
-              summary: `Task ${taskId} path-review lane ${lane.lane} ${lane.ids.dispatchId} ${lane.outcome}.`,
-            } as WriteReceiptDraft,
-          ],
-    ),
-    laneWarnings = laneResults.flatMap((lane) =>
-      lane.outcome === "failed"
+  return {
+    seat,
+    step,
+    warnings:
+      dispatch.outcome === "failed"
         ? [
-            `Task ${taskId} path-review lane ${lane.lane} dispatch failed: ${lane.error ?? "unknown error"} ` +
-              `The cut review is unaffected; recover this lane with ha task dispatch-review ${taskId}.`,
+            `Task ${taskId}'s review seat ${reviewerId} dispatch failed: ${dispatch.error ?? "unknown error"}. ` +
+              `Recover with ha task dispatch-review ${taskId}.`,
           ]
         : [],
-    );
-  return { selection, step, laneSteps, laneWarnings };
+  };
 }
 
 /**
@@ -850,6 +802,10 @@ export async function dispatchInReviewCutReview(
  * task. Each dispatch is keyed by the task's submitted cut and binds to that execution only — never
  * to the task's active implementation lease — so a review cannot open or claim an implementation
  * iteration.
+ *
+ * The seat per task comes from `reviewSeatForCut`, the same function the automatic submit dispatch
+ * uses. A cut therefore holds one seat whichever path dispatched it, and a seat that was cancelled
+ * or failed can be re-dispatched alone with `--agent <seat>` without inheriting another reviewer.
  */
 export async function dispatchTaskReview(
   cell: RepoCellOperationalContext,
@@ -871,41 +827,12 @@ export async function dispatchTaskReview(
       "invalid_command",
       "--execution-id selects exactly one reviewed execution; a batch dispatch reviews each task's submitted cut.",
     );
-  const reviewerId =
-    typeof action.agentId === "string" && action.agentId.length > 0
-      ? action.agentId
-      : (cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer");
-  let resolved;
-  try {
-    resolved = readAgentDeclarationResolution({
-      rootDir: cell.rootDir,
-      agentId: reviewerId,
-      entityStore: createEntityStore(cell.store),
-    });
-  } catch (error) {
-    // A reviewer whose stored declaration fails the current schema (the rewrite window) rejects
-    // the batch with the reinstall command; the raw contract message never surfaces.
-    if (!isAgentDeclarationInvalid(error)) throw error;
-    throw cell.cellCodedError("review_dispatch_failed", error instanceof Error ? error.message : String(error));
-  }
-  if (!resolved)
-    throw cell.cellCodedError(
-      "review_dispatch_failed",
-      `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an ` +
-        "available reviewer with ha task dispatch-review <task-id> --agent <agent-id>.",
-    );
-  const { declaration: agent, layer } = resolved;
-  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof action.model !== "string")
-    throw cell.cellCodedError(
-      "review_dispatch_failed",
-      `Declare an explicit model on every runtimes row for reviewer ${reviewerId}, or pass --model <model>. ` +
-        "Installed reviewer overrides must not select an instance default model.",
-    );
-  const revision = cell.store.readHead()?.revision ?? 0,
-    steps: DispatchStep[] = [],
-    reviewerFromArgument = typeof action.agentId === "string" && action.agentId.length > 0;
+  const reviewerFromArgument =
+      typeof action.agentId === "string" && action.agentId.length > 0 ? action.agentId : undefined,
+    revision = cell.store.readHead()?.revision ?? 0,
+    steps: DispatchStep[] = [];
   for (const taskId of taskIds) {
-    const fail = (error: string, executionId?: string) =>
+    const fail = (error: string, reviewerId: string, executionId?: string) =>
       steps.push({
         taskId,
         agentId: reviewerId,
@@ -922,6 +849,7 @@ export async function dispatchTaskReview(
           ? `Task ${taskId} has no automatic review requirement; its cut lifted review. Complete it with ` +
               `ha task complete ${taskId}.`
           : `Task ${taskId} is not at the in-review gate.`,
+        reviewerFromArgument ?? snapshot.task?.reviewer ?? "closeout-reviewer",
       );
       continue;
     }
@@ -931,6 +859,7 @@ export async function dispatchTaskReview(
       if (execution === undefined) {
         fail(
           `Execution ${executionSelector} is not a submitted cut on task ${taskId}'s current iteration.`,
+          reviewerFromArgument ?? "closeout-reviewer",
           executionSelector,
         );
         continue;
@@ -939,66 +868,77 @@ export async function dispatchTaskReview(
       fail(
         `Task ${taskId} has no submitted execution to review. A review dispatch binds to a submitted ` +
           "cut; submit the implementation first.",
+        reviewerFromArgument ?? "closeout-reviewer",
       );
       continue;
     } else if (candidates.length > 1) {
       fail(
         `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration. ` +
           "Dispatch each review explicitly with --execution-id.",
+        reviewerFromArgument ?? "closeout-reviewer",
       );
       continue;
     } else execution = candidates[0]!;
-    // A configured path-review lane keys off the same submitted cut as the primary review but
-    // owns its dispatch identities, so it runs before any primary-path continue and reports its
-    // own step. A failed lane never replaces the primary outcome.
-    const laneResults = await dispatchPathReviewLanes(cell, {
-        taskId,
-        execution,
-        packagePath: read.packagePath,
-        binding,
-        revision,
-        extras: {
-          ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
-          ...(typeof action.model === "string" ? { model: action.model } : {}),
-        },
-      }),
-      laneSteps: DispatchStep[] = laneResults.map((lane) =>
-        lane.outcome === "failed" || lane.ids === undefined
-          ? {
-              taskId,
-              executionId: execution.executionId,
-              lane: lane.lane,
-              agentId: lane.lane,
-              outcome: "failed",
-              error: lane.error ?? "path-review lane dispatch failed",
-            }
-          : {
-              taskId,
-              executionId: execution.executionId,
-              lane: lane.lane,
-              agentId: lane.lane,
-              dispatchId: lane.ids.dispatchId,
-              runtimeSessionId: lane.ids.runtimeSessionId,
-              dispatchOpId: lane.ids.dispatchOpId,
-              outcome: lane.outcome,
-            },
+    const selection = reviewSeatForCut({
+      cell,
+      execution,
+      taskReviewer: snapshot.task?.reviewer,
+      argument: reviewerFromArgument,
+    });
+    if (selection.kind === "escalated") {
+      fail(selection.reason, selection.reviewers.join(", "), execution.executionId);
+      continue;
+    }
+    const { seat } = selection,
+      { reviewerId } = seat;
+    let resolved;
+    try {
+      resolved = readAgentDeclarationResolution({
+        rootDir: cell.rootDir,
+        agentId: reviewerId,
+        entityStore: createEntityStore(cell.store),
+      });
+    } catch (error) {
+      // A reviewer whose stored declaration fails the current schema (the rewrite window) rejects
+      // the task with the reinstall command; the raw contract message never surfaces.
+      if (!isAgentDeclarationInvalid(error)) throw error;
+      fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
+      continue;
+    }
+    if (!resolved) {
+      fail(
+        `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an ` +
+          `available reviewer with ha task dispatch-review ${taskId} --agent <agent-id>.`,
+        reviewerId,
+        execution.executionId,
       );
+      continue;
+    }
+    const { declaration: agent, layer } = resolved;
+    if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof action.model !== "string") {
+      fail(
+        `Declare an explicit model on every runtimes row for reviewer ${reviewerId}, or pass --model <model>. ` +
+          "Installed reviewer overrides must not select an instance default model.",
+        reviewerId,
+        execution.executionId,
+      );
+      continue;
+    }
     const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(taskId, execution, reviewerId));
     const inFlight = activeCutReviewDispatches(cell, taskId, execution).at(-1)?.event ?? null;
     if (inFlight !== null && existing === null) {
       const holdingAgent = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
-      if (reviewerFromArgument && holdingAgent !== agent.id) {
+      if (reviewerFromArgument !== undefined && holdingAgent !== agent.id) {
         fail(
           `Task ${taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
             `${holdingAgent ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}, ` +
             `instance ${inFlight.payload.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
             `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
+          reviewerId,
           execution.executionId,
         );
-        steps.push(...laneSteps);
         continue;
       }
-      steps.push(...laneSteps);
       steps.push({
         taskId,
         executionId: execution.executionId,
@@ -1015,18 +955,17 @@ export async function dispatchTaskReview(
       // One submitted cut holds one review dispatch at a time, so an explicit --agent must never
       // masquerade as another agent's in-flight dispatch: refuse naming both agents instead.
       const holdingAgent = typeof existing.payload.agentId === "string" ? existing.payload.agentId : null;
-      if (reviewerFromArgument && holdingAgent !== agent.id) {
+      if (reviewerFromArgument !== undefined && holdingAgent !== agent.id) {
         fail(
           `Task ${taskId}'s submitted cut already holds review dispatch ${existing.payload.dispatchId} by agent ` +
             `${holdingAgent ?? "with no recorded agent"} (runtime session ${existing.payload.runtimeSessionId}, ` +
             `instance ${existing.payload.instanceId}); --agent ${reviewerId} was not dispatched. Re-run ` +
             `ha task dispatch-review ${taskId} --agent ${reviewerId} after that review session ends.`,
+          reviewerId,
           execution.executionId,
         );
-        steps.push(...laneSteps);
         continue;
       }
-      steps.push(...laneSteps);
       steps.push({
         taskId,
         executionId: execution.executionId,
@@ -1039,7 +978,8 @@ export async function dispatchTaskReview(
       });
       continue;
     }
-    const payload = {
+    const seatPrompt = seat.source === "path" ? reviewPathSeatPrompt({ seat }) : null,
+      payload = {
         agentId: agent.id,
         role: "reviewer",
         taskId,
@@ -1050,13 +990,14 @@ export async function dispatchTaskReview(
         ...(typeof action.model === "string" ? { model: action.model } : {}),
         ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
         ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
-        prompt: reviewDispatchPrompt({
-          taskId,
-          packagePath: read.packagePath,
-          dispatchId: ids.dispatchId,
-          execution,
-          gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
-        }),
+        prompt:
+          reviewDispatchPrompt({
+            taskId,
+            packagePath: read.packagePath,
+            dispatchId: ids.dispatchId,
+            execution,
+            gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
+          }) + (seatPrompt === null ? "" : `\n${seatPrompt}`),
       },
       authorizationDecision = await evaluateRepoCellAction({
         action: { kind: "runtime-spawn", ...payload },
@@ -1068,8 +1009,7 @@ export async function dispatchTaskReview(
         readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
       });
     if (authorizationDecision.outcome !== "allowed") {
-      fail(`authorization_denied: ${authorizationDecision.nextActions.join(" ")}`, execution.executionId);
-      steps.push(...laneSteps);
+      fail(`authorization_denied: ${authorizationDecision.nextActions.join(" ")}`, reviewerId, execution.executionId);
       continue;
     }
     try {
@@ -1088,17 +1028,13 @@ export async function dispatchTaskReview(
         ...(dispatched === undefined ? {} : { instanceId: dispatched.payload.instanceId }),
         outcome: "dispatched",
       });
-      steps.push(...laneSteps);
     } catch (error) {
       // One task's launch failure is reported on its own step; the batch continues for the rest.
       consumeKnownError(error);
-      fail(error instanceof Error ? error.message : String(error), execution.executionId);
-      steps.push(...laneSteps);
+      fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
     }
   }
-  const dispatchedTasks = new Set(
-      steps.filter((step) => step.lane === undefined && step.outcome !== "failed").map((step) => step.taskId),
-    ),
+  const dispatchedTasks = new Set(steps.filter((step) => step.outcome !== "failed").map((step) => step.taskId)),
     failed = steps.filter((step) => step.outcome === "failed");
   return {
     outcome: dispatchedTasks.size === 0 ? "op_rejected" : "applied",

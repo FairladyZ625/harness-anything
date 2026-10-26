@@ -611,9 +611,7 @@ async function submittedCutReview(
   receipt: WriteReceiptDraft,
 ): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
-  return dispatched
-    ? { steps: [dispatched.step, ...dispatched.laneSteps], warnings: dispatched.laneWarnings }
-    : { steps: [], warnings: [] };
+  return dispatched ? { steps: [dispatched.step], warnings: dispatched.warnings } : { steps: [], warnings: [] };
 }
 
 export async function submitTask(
