@@ -52,7 +52,7 @@ import { parseRouted, parseStorageRoute } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
 import { parseTask } from "./thin-command-task.ts";
 import { preferTaskActionHelp } from "./task-action-help.ts";
-import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
+import type { ProtocolCommand, ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
 
 type LifecyclePublicationAction =
   | "task-create"
@@ -88,17 +88,37 @@ export function parseThinCommand(
   const routed =
     parseStorageRoute(route, args, rootDir, repoId, json, inputs) ??
     parseRouted(route, args, rootDir, repoId, json, inputs);
-  if (routed?.ok && typeof routed.command.action.packageSource === "string")
-    return declared({
-      ...routed,
-      command: {
-        ...routed.command,
-        action: { ...routed.command.action, packageSource: path.resolve(cwd, routed.command.action.packageSource) },
-      },
-    });
-  if (routed) return declared(routed);
+  if (routed) return declared(resolveCallerPaths(routed, rootDir, cwd));
   if (!route || args[0] !== "task") return rejected("unsupported_command", unsupportedCommandHint(args), json);
-  return declared(parseTaskRoute(route.id, args, rootDir, repoId, json, inputs));
+  return declared(resolveCallerPaths(parseTaskRoute(route.id, args, rootDir, repoId, json, inputs), rootDir, cwd));
+}
+
+// A value naming a file belongs to the workspace the caller selected with --root (default cwd), and
+// the daemon resolves file paths from the center's own root instead — a different directory when a
+// worker runs inside a task worktree, whose own file then read as missing and whose real refusal
+// (too large) was replaced by that wrong one. Resolving against the selected workspace root keeps
+// one definition here and agrees with how every other workspace path flag reads; the local, fleet,
+// and remote routes then all name the same file. Keyed by action kind because `source` is a
+// free-text provenance label on fact-record, not a path. `packageSource` stays anchored to the cwd:
+// its declaration makes it independent of the repository selection.
+const workspacePathFields: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "task-artifact-add": ["source"],
+});
+
+function resolveCallerPaths(result: ThinParseResult, workspaceRoot: SafePath, cwd: string): ThinParseResult {
+  if (!result.ok) return result;
+  const action = result.command.action,
+    resolved: Record<string, unknown> = { ...action };
+  let changed = false;
+  const resolve = (field: string, base: string): void => {
+    const value = action[field];
+    if (typeof value !== "string") return;
+    resolved[field] = path.resolve(base, value);
+    changed = true;
+  };
+  for (const field of workspacePathFields[action.kind] ?? []) resolve(field, workspaceRoot);
+  resolve("packageSource", cwd);
+  return changed ? { ...result, command: { ...result.command, action: resolved as ThinCommand["action"] } } : result;
 }
 
 function parseTaskRoute(

@@ -1,5 +1,7 @@
 // harness-test-tier: integration
 import test from "node:test";
+import { truncateSync } from "node:fs";
+import { RAW_ARTIFACT_MAX_BYTES } from "@harness-anything/kernel";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import * as shared from "./release-cli-acceptance.fixture.ts";
@@ -574,6 +576,98 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     if (existsSync(path.join(parent, "restored-user")))
       runMaybe(path.join(parent, "restored-repo"), path.join(parent, "restored-user"), ["daemon", "stop"]);
+    await reader.drain();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("release acceptance: a relative artifact source names the caller's file, and an oversized one reports its real reason", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-release-acc-artifact-source-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "release-acc-artifact-source",
+    taskId = "task-release-acc-artifact-source",
+    // A task worktree is a subdirectory of the registered root, so the same relative path names a
+    // different file in each; the caller's directory is the one the command must honour.
+    worktree = path.join(root, ".worktrees", taskId),
+    worker = "agent:release-worker";
+  initialize(root);
+  writeFileSync(path.join(root, ".gitignore"), "harness/\n.worktrees/\n");
+  git(root, "add", ".gitignore");
+  git(root, "commit", "--quiet", "-m", "release acceptance artifact source exclusions");
+  seedSettingsEvent({ rootDir: root, repoId });
+  const reader = makeTaskEventReader({ rootDir: root, repoId });
+  try {
+    startDaemon(root, userRoot);
+    run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]);
+    const created = run(root, userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Release Acceptance Artifact Source",
+        "--preset",
+        "docs-task",
+      ]),
+      packagePath = String(created.packagePath);
+    assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    settle(root, userRoot, String(created.opId));
+    writeFileSync(
+      path.join(root, "harness", packagePath, "task_plan.md"),
+      realizedPlan("Release Acceptance Artifact Source"),
+    );
+    run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
+    run(root, userRoot, ["task", "start", taskId, "--execution-id", "execution-release-acc-artifact-source"], worker);
+
+    // The worktree holds both probe files; the registered root holds neither of these names.
+    const probeRoot = path.join(worktree, "artifacts-probe"),
+      smallBytes = Buffer.from(`# Worktree-only probe\n\n${taskId}\n`),
+      smallName = "artifacts-probe/small.md",
+      oversizedName = "artifacts-probe/oversized.bin";
+    mkdirSync(probeRoot, { recursive: true });
+    writeFileSync(path.join(worktree, smallName), smallBytes);
+    writeFileSync(path.join(worktree, oversizedName), "");
+    truncateSync(path.join(worktree, oversizedName), RAW_ARTIFACT_MAX_BYTES + 1);
+
+    // A worker names its own worktree with --root; the relative source belongs to that workspace.
+    const added = run(
+      worktree,
+      userRoot,
+      ["task", "artifact", "add", taskId, "--source", smallName, "--destination", "artifacts/probe.md"],
+      worker,
+    );
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    const logical = String(added.destination);
+    assert.equal(logical, `${packagePath}/artifacts/probe.md`);
+    settle(root, userRoot, String(added.opId), worker);
+    assert.deepEqual(
+      readFileSync(path.join(root, "harness", ...logical.split("/"))),
+      smallBytes,
+      "the selected worktree's bytes are the ones published",
+    );
+
+    // The oversized source in that same worktree is refused for its size, not for a path that
+    // resolves under the center root and is missing there.
+    const refused = runMaybe(
+      worktree,
+      userRoot,
+      ["task", "artifact", "add", taskId, "--source", oversizedName, "--destination", "artifacts/oversized.bin"],
+      worker,
+    );
+    assert.notEqual(refused.status, 0, "an oversized source must be refused");
+    const receipt = JSON.parse(refused.stdout) as { readonly code?: string; readonly outcome?: string };
+    assert.equal(receipt.code, "artifact_too_large", `${refused.stdout}\n${refused.stderr}`);
+    assert.notEqual(receipt.outcome, "applied");
+    assert.equal(
+      existsSync(path.join(root, "harness", packagePath, "artifacts", "oversized.bin")),
+      false,
+      "a refused source must not appear as an accepted artifact",
+    );
+    context.diagnostic(JSON.stringify({ schema: "release-acceptance-artifact-source/v1", taskId, worktree }));
+  } finally {
+    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     await reader.drain();
     rmSync(parent, { recursive: true, force: true });
   }

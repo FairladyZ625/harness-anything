@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
   parseRuntimeBatchEntry,
@@ -466,25 +467,36 @@ test("task show accepts the id positionally or as --id and reports flag misuse a
   }
 });
 
-test("artifact add emits only a source-to-destination descriptor", () => {
-  const parsed = parseThinCommand([
-    "task",
-    "artifact",
-    "add",
-    "task-1",
-    "--source",
-    "tmp/result.md",
-    "--destination",
-    "reports/result.md",
-  ]);
-  assert.equal(parsed.ok, true);
-  if (parsed.ok)
-    assert.deepEqual(parsed.command.action, {
-      kind: "task-artifact-add",
-      taskId: "task-1",
-      source: "tmp/result.md",
-      destination: "reports/result.md",
-    });
+// A relative --source names a file in the workspace the caller selected. The daemon resolves file
+// paths from the center's own root, so a task worktree (a subdirectory of that root) published a
+// path that exists only in the canonical checkout; its own worktree file then read as missing and
+// the real refusal (too large) came back as artifact_source_missing. `--root` already names the
+// workspace meant, defaulting to cwd, so both bases are the caller's side of the wire.
+test("artifact add resolves a relative source against the selected workspace root, not the center root", () => {
+  const caller = path.resolve("caller"),
+    selected = path.resolve("selected-workspace"),
+    absolute = path.resolve("absolute/result.md");
+  for (const [source, underCaller, underSelected] of [
+    ["tmp/result.md", path.join(caller, "tmp/result.md"), path.join(selected, "tmp/result.md")],
+    ["./tmp/result.md", path.join(caller, "tmp/result.md"), path.join(selected, "tmp/result.md")],
+    ["../sibling.md", path.resolve(caller, "../sibling.md"), path.resolve(selected, "../sibling.md")],
+    [absolute, absolute, absolute],
+  ] as const)
+    for (const selection of [[], ["--root", selected], ["--repo", "selected-repository"]]) {
+      const parsed = parseThinCommand(
+        ["task", "artifact", "add", "task-1", "--source", source, "--destination", "reports/result.md", ...selection],
+        caller,
+      );
+      assert.equal(parsed.ok, true, `${source}: ${JSON.stringify(parsed)}`);
+      if (!parsed.ok) continue;
+      const workspaceRoot = selection[0] === "--root" ? selected : caller;
+      assert.equal(
+        parsed.command.action.source,
+        workspaceRoot === caller ? underCaller : underSelected,
+        `${source} with ${selection.join(" ") || "no selection"}`,
+      );
+      assert.equal(parsed.command.rootDir, workspaceRoot, `${source}: the repository selection is unchanged`);
+    }
 });
 
 // A route decided by scanning the whole argv lets a flag *value* spelling a command name hijack it.
