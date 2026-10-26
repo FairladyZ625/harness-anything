@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
-import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 
 test(
   "a successful edge sync persists its connection and starts the resident stream",
@@ -61,5 +61,48 @@ test(
         .sort(),
       ["synced-0", "synced-1"],
     );
+  },
+);
+
+test(
+  "a manual edge sync presents the invitation's interactive client, not the node client",
+  { timeout: 180_000 },
+  async (t) => {
+    // #4019's field report: the edge is signed in through the invitation's interactive client
+    // (`harness-gui` on the CEO's Ubuntu node) while the center audits `azp`. A manual sync that
+    // omits humanClientId made the center assert the node client instead, so every retry failed with
+    // human_confirmation_required while the session was live. The invitation's client is already
+    // persisted by join; a manual sync must relay that value instead of letting the center guess.
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    const e = await fleetEdgeHostFixture(t, f);
+    // Keycloak minted this device session under the invitation's interactive client, as a real join does.
+    f.owners.keycloak.interactiveSession(
+      "person-one",
+      "node-one",
+      f.owners.url,
+      "device-token-node-one",
+      "harness-gui",
+    );
+    // The RPC payload is the closed connection shape; the freshness tuning in fleet-edge.json is not one.
+    const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!,
+      sync = async () => {
+        const response = await e.rpc.handle({
+          jsonrpc: "2.0",
+          id: 200,
+          method: "daemon.fleet.edge.sync",
+          params: { payload: { ...connection, workspaceRoot: e.edgeRoot, timeoutMs: 30_000 } },
+        });
+        assert.ok(response && !Array.isArray(response), JSON.stringify(response));
+        return "result" in response ? (response.result as Record<string, unknown>) : {};
+      };
+    // Negative control: without the persisted invitation client the same request is refused, so this
+    // test fails for the mechanism it names rather than for an unrelated transport problem.
+    assert.equal((await sync()).code, "human_confirmation_required");
+    // Join persists the interactive client beside the machine credential; the manual sync reads it.
+    writeFleetEdgeConfig(e.edgeRoot, { ...connection, humanClientId: "harness-gui" });
+    const synced = await sync();
+    assert.equal(synced.ok, true, JSON.stringify(synced));
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.humanClientId, "harness-gui", "the sync keeps the invitation client");
   },
 );

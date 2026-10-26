@@ -426,8 +426,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   }
   const persist = () => writeCenterDurableJson(stateFile, state),
     auth = writerAuth;
-  const nodeContext = async (nodeId: string, repoId: string, accessToken?: string) => {
-    const node = { nodeId, repoId, accessToken };
+  // Every frame after the hello belongs to one TLS session, and that session's hello named the
+  // interactive client Keycloak minted its human token under. Carrying it here means each branch
+  // inherits the session's client instead of re-deriving one per frame (the center audits `azp`).
+  const nodeContext = async (nodeId: string, repoId: string, accessToken?: string, humanClientId?: string) => {
+    const node = { nodeId, repoId, accessToken, ...(humanClientId ? { humanClientId } : {}) };
     repoRoot(repoId);
     return node;
   };
@@ -512,7 +515,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.repo.metadata.get/v1") {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId),
         principal = await readerAuth({ ...a, humanClientId }),
         baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
         actionAllowed =
@@ -543,7 +546,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId),
         receipt = await runCenterWriter(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
@@ -555,7 +558,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.upload.begin/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId),
           uploadId = digestId(
             nodeId,
             a.repoId,
@@ -615,7 +618,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (frame.schema === "fleet.upload.chunk/v1") {
       return runFleetCenterWrite(frame, async () => {
         const upload = ownedUpload(state, nodeId, frame.uploadId);
-        await repoAdmission({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
+        await repoAdmission({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken, humanClientId });
         const file = uploadPath(frame.uploadId),
           bytes = Buffer.from(frame.dataBase64, "base64");
         if (frame.offset + bytes.length > upload.content.size)
@@ -653,10 +656,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const upload = state.uploads[frame.uploadId];
         if (!upload || upload.nodeId !== nodeId)
           throw new FleetFault("upload_unknown", "Upload is unknown or belongs to another node.");
-        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
+        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken, humanClientId });
         const wasStaged = upload.descriptor !== null,
           file = uploadPath(frame.uploadId, upload),
-          a = await nodeContext(nodeId, upload.repoId, frame.accessToken),
+          a = await nodeContext(nodeId, upload.repoId, frame.accessToken, humanClientId),
           descriptor = upload.descriptor ?? {
             ref: `doc-sync-claims/${frame.uploadId}`,
             ...upload.content,
@@ -695,7 +698,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.doc.submit/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const completed: string[] = [];
         for (const change of frame.changes) {
@@ -757,7 +760,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.task.command/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
         try {
           assertFrameEpoch(a.repoId, frame.writerEpoch);
         } catch (error) {
@@ -893,7 +896,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.schedule.command/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
         if (frame.scheduleId !== frame.action.scheduleId)
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
         assertFrameEpoch(a.repoId, frame.writerEpoch);
@@ -919,7 +922,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.runtime.event/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
         if (frame.repoId !== a.repoId)
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -993,7 +996,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.runtime.archive/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
         if (frame.repoId !== a.repoId)
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1025,7 +1028,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.operational.read/v1") {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
           "execution_scope_mismatch",
