@@ -17,6 +17,9 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "unknown_field",
   "unsupported_command",
   "cli_render_failed",
+  // `ha agent rollback` reads a retained declaration body before it writes, so this receipt can
+  // be answered without the daemon (a corrupt version payload names the same code).
+  "agent_version_unavailable",
 ]);
 
 export { cliCapabilities } from "./thin-command-help.ts";

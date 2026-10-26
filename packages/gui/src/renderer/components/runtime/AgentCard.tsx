@@ -1,6 +1,6 @@
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1, RuntimeEffort } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
@@ -88,7 +88,12 @@ type Props = {
   readonly availableSkills?: readonly AgentSkillRow[];
   readonly presets?: readonly { readonly id: string; readonly title: string; readonly description: string }[];
   readonly busy: boolean;
-  readonly onSave: (declaration: AgentDeclarationV1) => void;
+  /** The declaration-version surface, injected by the view: it owns its own read queries, so the
+   *  card stays presentational and renders no panel when the view passes none. */
+  readonly versionPanel?: ReactNode;
+  /** The editor hands back the declaration plus the revision it was read at, so the daemon can
+   *  fence the write; a stale revision returns an actionable conflict instead of overwriting. */
+  readonly onSave: (declaration: AgentDeclarationV1, expectedVersion: number) => void;
   readonly onDispatch: (mission: string) => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSelectAgent: (agentId: string) => void;
@@ -132,6 +137,7 @@ export function AgentCard({
   availableSkills = [],
   presets = [],
   busy,
+  versionPanel,
   onSave,
   onDispatch,
   onSelectRuntime,
@@ -747,6 +753,8 @@ export function AgentCard({
           <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.runtimeConstraintNote")}</p>
         </Sect>
 
+        {versionPanel}
+
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -789,7 +797,7 @@ export function AgentCard({
                 variant="primary"
                 testId="agent-save"
                 disabled={busy || !dirty || !draft.name.trim() || !draft.instructions.trim()}
-                onClick={() => onSave(agentDeclarationFrom(detail.id, draft))}
+                onClick={() => onSave(agentDeclarationFrom(detail.id, draft), detail.revision)}
               >
                 {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
               </Button>

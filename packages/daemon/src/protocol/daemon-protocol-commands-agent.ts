@@ -9,6 +9,9 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
+/** History pages accept 1..500 rows; the reader enforces the same bound. */
+const agentHistoryLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
+
 export const agentProtocolCommands = Object.freeze([
   // Artifact kind authoring is a GUI surface: these descriptors keep the repo.vertical.kind.* RPCs
   // routed through the center write path without exposing a CLI command.
@@ -312,6 +315,58 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
   }),
+  // Version management reads the declaration history the ledger already keeps: every
+  // entity_upserted carries its body digest, so a version is addressed by revision and read back
+  // from the retained content object. These are named reads, not a second store.
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "agent-history",
+    phase: "Runtime-B",
+    path: ["agent", "history", "<id>"],
+    summary:
+      "List the declaration versions of one Agent, newest first; each row names the revision, actor, body digest and a one-line summary.",
+    method: "repo.task.read",
+    positional: "agentId",
+    inputs: [
+      cliInput("--limit", "single", false, { code: "invalid_field" }, { regex: agentHistoryLimit }),
+      cliInput("--cursor", "single", false, { code: "invalid_field" }, { regex: "^[0-9]+$" }),
+      cliInput("--no-summary", "boolean", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "agent-diff",
+    phase: "Runtime-B",
+    path: ["agent", "diff", "<id>"],
+    summary:
+      "Compare two declaration versions of one Agent field by field; --to defaults to the current declaration revision.",
+    method: "repo.task.read",
+    positional: "agentId",
+    inputs: [
+      cliInput("--from", "single", true, { code: "missing_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
+      cliInput("--to", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
+    ],
+  }),
+  // The single-version body read behind `ha agent rollback` and the GUI version tab. Internal
+  // because it is a composition input, not a documented command: the user-facing surface stays
+  // history + diff + rollback, and no caller has to learn a fourth verb to read one old body.
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "agent-version-read",
+    actionKind: "agent-version-read",
+    internal: true,
+    phase: "Runtime-B",
+    path: ["agent", "_version"],
+    summary: "Read one retained Agent declaration version and its difference to the live declaration.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput("--id", "single", true, { code: "missing_field" }, { field: "agentId" }),
+      cliInput(
+        "--revision",
+        "single",
+        true,
+        { code: "missing_field" },
+        { regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+    ],
+  }),
   defineLedgerWriteCommand({
     id: "agent-install",
     phase: "Runtime-B",
@@ -322,7 +377,13 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
-      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { projection: "number" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { regex: "^[0-9]+$", projection: "number" },
+      ),
     ],
   }),
   defineLedgerWriteCommand({
@@ -335,6 +396,36 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--reason", "single", true, { code: "missing_field" }),
       cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+    ],
+  }),
+  // Rollback composes existing surfaces rather than adding a write path: the CLI reads the
+  // retained body of --to-revision, refuses a byte-identical no-op, then submits that body as the
+  // ordinary agent-install action with the revision fence. It therefore rides the read method at
+  // the protocol layer; the daemon answers it with the CLI instruction instead of composing RPCs.
+  defineRepoReadCommand({
+    id: "agent-rollback",
+    actionKind: "agent-rollback",
+    phase: "Runtime-B",
+    path: ["agent", "rollback", "<id>"],
+    summary:
+      "Restore one historical Agent declaration revision through agent-install; refuses to write when the target body is already live.",
+    method: "repo.task.read",
+    positional: "agentId",
+    inputs: [
+      cliInput(
+        "--to-revision",
+        "single",
+        true,
+        { code: "missing_field" },
+        { regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { regex: "^[0-9]+$", projection: "number" },
+      ),
     ],
   }),
   defineLedgerWriteCommand({

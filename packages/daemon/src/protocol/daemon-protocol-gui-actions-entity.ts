@@ -110,7 +110,11 @@ export const entityDeclarationGuiActions = Object.freeze([
     "agent.entity.write",
     "repo.agent.entity.write",
     "agent-install",
-    shape({ declaration: "json" }),
+    // The install action already owns the revision fence; this ingress only has to hand it the
+    // revision the editor read. Optional because the same facet also serves a first create, which
+    // sends expectedVersion 0; an omitted value keeps the pre-fence behavior for callers that do
+    // not hold a revision.
+    shape({ declaration: "json", expectedVersion: "number?" }),
     "saveAgent",
     "/api/agents",
     "repo-write",

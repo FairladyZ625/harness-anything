@@ -91,15 +91,18 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // dec_4C06F7F902E91C4210020A9E75/CH2 then removed the CI observation read.
   // task_26aae3adfea4acfc71a9763dad adds the task delivery diff read used by closeout review.
   // task_2b66dad4 adds the bounded per-work topology read used by the work graph.
+  // task_5a539f6a90516ad68f0a19966b adds the two Agent declaration version reads (history and a
+  // single retained body); both answer off the existing ledger, so they add facets but no storage.
   assert.equal(
     daemonGuiReadMethods.length,
-    46,
+    48,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
       "plus 1 token usage aggregate read plus 1 token usage member detail read plus 1 workspace scope read " +
       "plus 1 work index read plus 1 claimable read plus 1 assignment directory read plus 1 fleet overview read " +
       "plus 1 cross-repository home overview read (S8 CH4) " +
-      "plus 1 work briefs read (redesign zone) plus 1 bounded work topology read minus the retired CI observation read",
+      "plus 1 work briefs read (redesign zone) plus 1 bounded work topology read " +
+      "plus 2 Agent declaration version reads (history, single version) minus the retired CI observation read",
   );
 });
 

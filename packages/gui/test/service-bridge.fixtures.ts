@@ -256,7 +256,11 @@ export async function seedEntityDeclarations(endpoint: string, repoId: string): 
     const result = await requestDaemonJsonRpcAt(
       endpoint,
       method,
-      { repo: { repoId }, payload: { declaration } },
+      {
+        repo: { repoId },
+        // 空实体:Agent 写入显式 0 过栅栏(与 GUI 新建路径同值);Squad 写入还没有这条栅栏。
+        payload: method === "repo.agent.entity.write" ? { declaration, expectedVersion: 0 } : { declaration },
+      },
       1_000,
     );
     if (result.ok !== true) throw new Error(`GUI entity fixture failed: ${JSON.stringify(result)}`);

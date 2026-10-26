@@ -249,4 +249,155 @@ export const serializeAgentEntityCatalog = (value: unknown): string =>
   serializeAgentSkillCatalog = (value: unknown): string => serializeEntity(value, validateAgentSkillCatalog),
   serializeSquadEntityCatalog = (value: unknown): string => serializeEntity(value, validateSquadEntityCatalog),
   serializeAgentEntityDetail = (value: unknown): string => serializeEntity(value, validateAgentEntityDetail),
-  serializeSquadEntityDetail = (value: unknown): string => serializeEntity(value, validateSquadEntityDetail);
+  serializeSquadEntityDetail = (value: unknown): string => serializeEntity(value, validateSquadEntityDetail),
+  serializeAgentHistory = (value: unknown): string => serializeEntity(value, validateAgentHistory),
+  serializeAgentVersion = (value: unknown): string => serializeEntity(value, validateAgentVersion);
+
+/**
+ * The two Agent version reads share one row vocabulary: history returns a page of versions and
+ * the single-version read returns one of those rows beside its body. Both state the declaration
+ * revision, never the projection row's lifecycle-advanced `workspaceRevision`.
+ */
+const agentVersionRowFields = Object.freeze([
+    "revision",
+    "opId",
+    "sha256",
+    "size",
+    "occurredAt",
+    "actor",
+    "current",
+    "summary",
+  ]),
+  agentVersionIdentityFields = Object.freeze(["revision", "sha256"]);
+
+function agentVersionRowErrors(row: unknown, prefix: string): readonly string[] {
+  const errors = [...entityReadRowErrors(row, [...agentVersionRowFields], prefix)];
+  if (!isEntityRecord(row)) return errors;
+  if (!Number.isSafeInteger(row.revision) || Number(row.revision) < 1)
+    errors.push(`${prefix} revision must be a positive integer declaration revision.`);
+  if (!entityNonEmpty(row.opId)) errors.push(`${prefix} opId must name the event that published this version.`);
+  if (typeof row.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(row.sha256))
+    errors.push(`${prefix} sha256 must be the retained declaration body digest.`);
+  if (!Number.isSafeInteger(row.size) || Number(row.size) < 0)
+    errors.push(`${prefix} size must be the declaration body byte length.`);
+  const actor = row.actor;
+  if (
+    !isEntityRecord(actor) ||
+    Object.keys(actor).length !== 2 ||
+    !entityNonEmpty(actor.personId) ||
+    !(actor.executorId === null || entityNonEmpty(actor.executorId))
+  )
+    errors.push(`${prefix} actor must be an exact {personId, executorId|null}.`);
+  if (typeof row.current !== "boolean") errors.push(`${prefix} current must be a boolean.`);
+  if (!(row.summary === null || entityNonEmpty(row.summary)))
+    errors.push(`${prefix} summary must be null or a string.`);
+  return errors;
+}
+
+function agentDiffIdentityErrors(value: unknown, prefix: string): readonly string[] {
+  const errors = [...entityReadRowErrors(value, [...agentVersionIdentityFields], prefix)];
+  if (!isEntityRecord(value)) return errors;
+  if (!Number.isSafeInteger(value.revision) || Number(value.revision) < 1)
+    errors.push(`${prefix} revision must be a positive integer declaration revision.`);
+  if (typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(value.sha256))
+    errors.push(`${prefix} sha256 must be the retained declaration body digest.`);
+  return errors;
+}
+
+/** Field differences: instructions carry add/remove/context lines, set facets carry added/removed,
+ *  scalar facets carry from/to. Each shape is closed so a renderer never guesses a missing half. */
+function agentDiffFieldErrors(value: unknown, prefix: string): readonly string[] {
+  if (!isEntityRecord(value)) return [`${prefix} must be a JSON object.`];
+  const field = String(value.field),
+    errors: string[] = [];
+  if (field === "instructions") {
+    errors.push(...entityReadRowErrors(value, ["field", "kind", "lines"], prefix));
+    if (value.kind !== "changed") errors.push(`${prefix} instructions differences are always kind=changed.`);
+    if (!Array.isArray(value.lines)) return [...errors, `${prefix} lines must be an array.`];
+    value.lines.forEach((line, index) => {
+      if (
+        !isEntityRecord(line) ||
+        !["context", "add", "remove"].includes(String(line.kind)) ||
+        typeof line.text !== "string"
+      ) {
+        errors.push(`${prefix} lines[${index}] must be a {kind: context|add|remove, text} row.`);
+        return;
+      }
+      const invalid = Object.keys(line).filter(
+        (key) =>
+          !["kind", "text", "oldLineNo", "newLineNo"].includes(key) ||
+          (["oldLineNo", "newLineNo"] as const).some(
+            (lineNo) => line[lineNo] !== undefined && (!Number.isSafeInteger(line[lineNo]) || Number(line[lineNo]) < 1),
+          ),
+      );
+      if (invalid.length) errors.push(`${prefix} lines[${index}] carries an unknown or invalid field.`);
+    });
+    return errors;
+  }
+  if (["skills", "runtimes", "prompts"].includes(field)) {
+    errors.push(...entityReadRowErrors(value, ["field", "kind", "added", "removed"], prefix));
+    if (value.kind !== "changed") errors.push(`${prefix} ${field} differences are always kind=changed.`);
+    if (!Array.isArray(value.added) || !Array.isArray(value.removed))
+      errors.push(`${prefix} ${field} differences must carry added and removed arrays.`);
+    return errors;
+  }
+  errors.push(...entityReadRowErrors(value, ["field", "kind", "from", "to"], prefix));
+  if (!["name", "role", "preset", "instance", "permissionMode"].includes(field) || value.kind !== "changed")
+    errors.push(`${prefix} names an undeclared scalar field or a non-changed kind.`);
+  return errors;
+}
+
+export function validateAgentHistory(value: unknown): readonly string[] {
+  const errors = [
+    ...entityReadEnvelopeErrors(value, "agent-history/v1", [
+      "schema",
+      "ok",
+      "agentId",
+      "revision",
+      "versions",
+      "hasMore",
+      "nextCursor",
+    ]),
+  ];
+  if (!isEntityRecord(value)) return errors;
+  if (!entityNonEmpty(value.agentId)) errors.push("agent-history/v1 needs the Agent id.");
+  if (!Number.isSafeInteger(value.revision) || Number(value.revision) < 1)
+    errors.push("agent-history/v1 revision must be the live declaration revision.");
+  if (typeof value.hasMore !== "boolean") errors.push("agent-history/v1 hasMore must be a boolean.");
+  if (!(value.nextCursor === null || entityNonEmpty(value.nextCursor)))
+    errors.push("agent-history/v1 nextCursor must be null or the next revision boundary.");
+  if (!Array.isArray(value.versions)) return [...errors, "agent-history/v1 versions must be an array."];
+  value.versions.forEach((row, index) => errors.push(...agentVersionRowErrors(row, `versions[${index}]`)));
+  // The page is newest-first, so a row claiming "current" anywhere but first would contradict the
+  // revision order the reader guarantees; more than one current row is the same contradiction.
+  const currentIndexes = value.versions.flatMap((row, index) =>
+    isEntityRecord(row) && row.current === true ? [index] : [],
+  );
+  if (currentIndexes.length > 1 || (currentIndexes.length === 1 && currentIndexes[0] !== 0))
+    errors.push("agent-history/v1 marks exactly one newest version current.");
+  return errors;
+}
+
+export function validateAgentVersion(value: unknown): readonly string[] {
+  const errors = [
+    ...entityReadEnvelopeErrors(value, "agent-version/v1", [
+      "schema",
+      "ok",
+      "agentId",
+      "version",
+      "current",
+      "declaration",
+      "fields",
+      "truncated",
+    ]),
+  ];
+  if (!isEntityRecord(value)) return errors;
+  if (!entityNonEmpty(value.agentId)) errors.push("agent-version/v1 needs the Agent id.");
+  errors.push(...agentVersionRowErrors(value.version, "version"));
+  errors.push(...agentDiffIdentityErrors(value.current, "current"));
+  if (!isEntityRecord(value.declaration)) errors.push("agent-version/v1 declaration must be one JSON object.");
+  if (typeof value.truncated !== "boolean") errors.push("agent-version/v1 truncated must be a boolean.");
+  if (!Array.isArray(value.fields)) return [...errors, "agent-version/v1 fields must be an array."];
+  value.fields.forEach((field, index) => errors.push(...agentDiffFieldErrors(field, `fields[${index}]`)));
+  return errors;
+}

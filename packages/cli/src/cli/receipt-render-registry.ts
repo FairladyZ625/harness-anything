@@ -47,6 +47,9 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["squad-list", renderSquadListReceipt],
   ["squad-status", renderSquadStatusReceipt],
   ["event-list", renderEventListReceipt],
+  ["agent-history", renderAgentHistoryReceipt],
+  ["agent-diff", renderAgentDiffReceipt],
+  ["agent-version-read", renderAgentVersionReceipt],
   ["event-show", renderEventShowReceipt],
   ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
@@ -390,6 +393,78 @@ function renderEventListReceipt(receipt: Record<string, unknown>): string {
   return [
     ...(lines.length ? lines : ["No events."]),
     ...(nextCursor === null ? [] : [`more: use --cursor ${nextCursor}`]),
+  ].join("\n");
+}
+
+function renderAgentHistoryReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "agent-history/v1" || !Array.isArray(payload.versions))
+    return renderSuccessfulReceipt(receipt);
+  const lines = payload.versions.map((row) => {
+    if (!isRecord(row) || !isRecord(row.actor)) throw new TypeError("Agent history row is invalid.");
+    const actor = typeof row.actor.executorId === "string" ? row.actor.executorId : row.actor.personId;
+    return [
+      row.current === true ? "*" : " ",
+      row.revision,
+      row.occurredAt,
+      row.opId,
+      actor,
+      typeof row.sha256 === "string" ? row.sha256.slice(0, 12) : "",
+      row.summary ?? "",
+    ]
+      .map((value) => String(value ?? ""))
+      .join(" | ");
+  });
+  return [
+    ...(lines.length ? lines : ["No declaration versions."]),
+    ...(payload.nextCursor === null || payload.nextCursor === undefined
+      ? []
+      : [`more: use --cursor ${String(payload.nextCursor)}`]),
+    `expected-version=${String(payload.revision)}`,
+  ].join("\n");
+}
+
+function renderAgentDiffReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "agent-diff/v1" || !Array.isArray(payload.fields))
+    return renderSuccessfulReceipt(receipt);
+  const from = isRecord(payload.from) ? payload.from : {},
+    to = isRecord(payload.to) ? payload.to : {},
+    lines = [`${String(from.revision)} -> ${String(to.revision)}`];
+  for (const field of payload.fields) {
+    if (!isRecord(field)) throw new TypeError("Agent diff field is invalid.");
+    if (Array.isArray(field.lines)) {
+      lines.push(`${String(field.field)}:`);
+      for (const line of field.lines) {
+        if (!isRecord(line)) continue;
+        lines.push(`${line.kind === "add" ? "+" : line.kind === "remove" ? "-" : " "} ${String(line.text ?? "")}`);
+      }
+      continue;
+    }
+    if (Array.isArray(field.added) || Array.isArray(field.removed)) {
+      lines.push(
+        `${String(field.field)}: +${JSON.stringify(field.added ?? [])} -${JSON.stringify(field.removed ?? [])}`,
+      );
+      continue;
+    }
+    lines.push(`${String(field.field)}: ${JSON.stringify(field.from ?? null)} -> ${JSON.stringify(field.to ?? null)}`);
+  }
+  if (payload.fields.length === 0) lines.push("no field differences");
+  if (payload.truncated === true) lines.push("truncated: true");
+  return lines.join("\n");
+}
+
+function renderAgentVersionReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "agent-version/v1" || !isRecord(payload.version))
+    return renderSuccessfulReceipt(receipt);
+  const version = payload.version,
+    current = isRecord(payload.current) ? payload.current : {};
+  return [
+    `revision ${String(version.revision)}${version.current === true ? " (current)" : ""}`,
+    `sha256 ${String(version.sha256)}`,
+    `current ${String(current.revision)} / ${String(current.sha256)}`,
+    JSON.stringify(payload.declaration ?? null, null, 2),
   ].join("\n");
 }
 

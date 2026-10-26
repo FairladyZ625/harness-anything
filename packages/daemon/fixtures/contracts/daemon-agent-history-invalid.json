@@ -1,0 +1,20 @@
+{
+  "schema": "agent-history/v1",
+  "ok": true,
+  "agentId": "terra",
+  "revision": 3,
+  "versions": [
+    {
+      "revision": 3,
+      "opId": "op-3",
+      "sha256": "NOT-A-DIGEST",
+      "size": 240,
+      "occurredAt": "2026-10-26T00:00:03.000Z",
+      "actor": { "personId": "person-a", "executorId": null },
+      "current": false,
+      "summary": "instructions 240 B · 1 skill · 1 runtime"
+    }
+  ],
+  "hasMore": false,
+  "nextCursor": null
+}

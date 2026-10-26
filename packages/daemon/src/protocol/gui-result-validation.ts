@@ -22,7 +22,9 @@ import {
 import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,
+  validateAgentHistory,
   validateAgentSkillCatalog,
+  validateAgentVersion,
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
 } from "./agent-entity-gui-contract.ts";
@@ -194,6 +196,8 @@ const resultValidators = {
   "repo.task.dispatches": validateDaemonTaskDispatches,
   "repo.agent.entities.list": validateAgentEntityCatalog,
   "repo.agent.entity.read": validateAgentEntityDetail,
+  "repo.agent.history.read": validateAgentHistory,
+  "repo.agent.version.read": validateAgentVersion,
   "repo.agent.skills.list": validateAgentSkillCatalog,
   "repo.squad.entities.list": validateSquadEntityCatalog,
   "repo.squad.entity.read": validateSquadEntityDetail,

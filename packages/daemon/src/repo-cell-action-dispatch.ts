@@ -2,6 +2,7 @@ import { runTaskWitnessAction } from "./task-witness-action.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
 import { settleTask, submitTask } from "./repo-cell-submit.ts";
 import { doctorHealth } from "./repo-cell-doctor.ts";
+import { isAgentVersionRead, runAgentVersionRead } from "./agent-version-action.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -417,6 +418,7 @@ export function executeRepoAction(
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
   if (action.kind === "doctor-health") return doctorHealth(cell, action, binding);
+  if (isAgentVersionRead(action.kind)) return runAgentVersionRead(cell, action, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-annotate") return cell.annotateExecution(action, binding);
   if (action.kind === "task-attest") return attestGateWitness(cell, action, binding);
