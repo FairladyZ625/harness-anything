@@ -60,6 +60,8 @@ test("runtime read facets expose safe overview/session/events through the shared
         "repo.task.dispatches",
         "repo.agent.entities.list",
         "repo.agent.entity.read",
+        "repo.agent.history.read",
+        "repo.agent.version.read",
         "repo.agent.skills.list",
         "repo.squad.entities.list",
         "repo.squad.entity.read",

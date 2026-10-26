@@ -96,6 +96,17 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     writeTriadicLedger(fixture.rootDir);
     await seedEntityDeclarations(fixture.endpoint, fixture.repoId);
     const seededSquadRun = SEEDED_SQUAD_RUN_ID;
+    // 版本读按**声明 revision**寻址,而 revision 是台账的 workspace revision,不是 1..N。
+    // 先问一次历史拿到真实值,再拿它读单版本——硬编码数字只会在别人的台账上失败。
+    const seededHistory = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.agent.history.read",
+      { repo: { repoId: fixture.repoId }, payload: { agentId: "terra" } },
+      5_000,
+    );
+    assert.equal(seededHistory.ok, true, JSON.stringify(seededHistory));
+    const seededAgentRevision = (seededHistory as { readonly revision?: unknown }).revision;
+    assert.equal(typeof seededAgentRevision, "number", JSON.stringify(seededHistory));
     const bridge = createLocalGuiServiceBridge(fixture.rootDir),
       executionId = "execution-gui-bridge",
       scope = { repoId: fixture.repoId };
@@ -184,7 +195,10 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                               runtimeSessionId: "runtime-gui",
                               afterCursor: "lifecycle:0",
                             }
-                          : contract.id === "agent.entity.read" || contract.id === "agentRuntime.tokenUsageDetail"
+                          : contract.id === "agent.entity.read" ||
+                              contract.id === "agent.history.read" ||
+                              contract.id === "agent.version.read" ||
+                              contract.id === "agentRuntime.tokenUsageDetail"
                             ? { ...scope, agentId: "terra" }
                             : contract.id === "squad.entity.read"
                               ? { ...scope, squadId: "core-squad" }
@@ -220,8 +234,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                                 entityId: "ADR-00000000000000000000000000000000",
                                               }
                                             : scope;
+      // 版本读按声明 revision 寻址;这个 fixture 装过 terra,所以给它的一个既有 revision。
+      // 读面无版本时应如实答错,而不是伪装成空历史。
       const readPayload =
-        contract.id === "work.topology.read" ? { ...payload, workRootTaskId: "task-gui-smoke" } : payload;
+        contract.id === "work.topology.read"
+          ? { ...payload, workRootTaskId: "task-gui-smoke" }
+          : contract.id === "agent.version.read"
+            ? { ...payload, revision: seededAgentRevision }
+            : payload;
       const result = await bridge.invoke(contract.guiBridgeMethod, readPayload);
       const parsed =
         contract.id === "gui.control.receipt"

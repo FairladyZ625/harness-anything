@@ -462,10 +462,13 @@ test("capabilities is an exact-set projection of the command contract", () => {
     agent: [
       "agent-assign",
       "agent-delete",
+      "agent-diff",
+      "agent-history",
       "agent-inspect",
       "agent-install",
       "agent-list",
       "agent-retire",
+      "agent-rollback",
       "agent-run",
       "agent-unassign",
       "agent-validate",
