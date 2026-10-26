@@ -138,7 +138,7 @@ export const REVIEW_V1_SCHEMA = Object.freeze({
   verdicts: reviewVerdicts,
   inputRequired: Object.freeze(["verdict", "reason", "evidenceChecked"] as const),
 });
-/** Fields accepted from Review records written before findings and resolutions were durable. */
+/** Fields a Review record had to carry before submissionDigest, findings, and resolutions were durable. */
 export const REVIEW_V1_HISTORICAL_REQUIRED_FIELDS = Object.freeze(
   REVIEW_V1_SCHEMA.required.filter(
     (field) => field !== "submissionDigest" && field !== "findings" && field !== "resolutions",
@@ -160,6 +160,14 @@ export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({
     "consentedAt",
   ]),
 });
+/**
+ * Shape check for a Review copy an event embeds instead of writing. A consent event carries the Review
+ * the ledger already admitted, so it is validated at that recording boundary's shape — the same field
+ * set `review_recorded` required when it accepted the record — never at the current new-record shape.
+ */
+export function validateAdmittedReviewV1(value: unknown): readonly ContractValidationIssue[] {
+  return validateReviewV1(value, true);
+}
 export function validateReviewV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   const historicalFields = REVIEW_V1_HISTORICAL_REQUIRED_FIELDS,
     allowedFields = REVIEW_V1_SCHEMA.required;

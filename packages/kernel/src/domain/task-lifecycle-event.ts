@@ -9,6 +9,7 @@ import {
 } from "./execution.ts";
 import type { ExecutionAnnotationV1, ExecutionV1, LeaseHolder, LeaseV1, SubmissionV1 } from "./execution.ts";
 import {
+  validateAdmittedReviewV1,
   validateReviewConsentV1,
   validateReviewDispositionV1,
   validateReviewV1,
@@ -571,9 +572,11 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       for (const response of payload.responses)
         issues.push(...validateTaskReviewResponseV1(response, allowUnknownFields));
   }
+  // A consent embeds the Review the ledger already admitted; `review_recorded` above is what admits a new
+  // one, so this copy is validated at that recording boundary's shape rather than the current record shape.
   if (value.type === "review_consent_recorded" || value.type === "review_consent_overridden")
     issues.push(
-      ...validateReviewV1(payload.review, allowUnknownFields),
+      ...validateAdmittedReviewV1(payload.review),
       ...validateReviewConsentV1(payload.consent, allowUnknownFields),
       ...(payload.disposition === undefined
         ? []
