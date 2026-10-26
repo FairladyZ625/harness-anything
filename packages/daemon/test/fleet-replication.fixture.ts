@@ -359,9 +359,22 @@ export async function fleetReplicationFixture(
       child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
         stderr += chunk;
       });
+      // The child's own terminal signal, readable synchronously so a state wait can stop on it.
+      // `exitedNow` is separate from `exitCode` because a SIGKILLed child reports code null.
+      let exitCode: number | null = null,
+        exitedNow = false;
       const exited = new Promise<{ code: number | null }>((resolve) => {
-        child.on("close", (code) => resolve({ code }));
+        child.on("close", (code) => {
+          exitCode = code;
+          exitedNow = true;
+          resolve({ code });
+        });
       });
+      const exitedBecause = (): string | null =>
+        exitedNow
+          ? `edge ${nodeId} exited (code ${String(exitCode)}) before reaching the awaited state; ` +
+            `events=${JSON.stringify(events).slice(0, 800)} stderr=${stderr.slice(0, 400)}`
+          : null;
       t.diagnostic(`edge ${nodeId} spawned (pid ${child.pid})`);
       return {
         nodeId,
@@ -381,6 +394,7 @@ export async function fleetReplicationFixture(
               else if (performance.now() > deadline)
                 reject(
                   new Error(
+                    // Read at failure time: the state that timed out, not the state when the wait began.
                     `edge ${nodeId} did not report ${kind}; events=${JSON.stringify(events).slice(0, 800)} stderr=${stderr.slice(0, 400)}`,
                   ),
                 );
@@ -393,8 +407,11 @@ export async function fleetReplicationFixture(
         waitForWhere: (predicate, label, timeoutMs = 30_000) =>
           waitForState(
             () => events.some(predicate),
-            `edge ${nodeId}: ${label}; events=${JSON.stringify(events).slice(0, 800)} stderr=${stderr.slice(0, 400)}`,
+            // A thunk, not a string: the events are read when the wait fails, not when it starts.
+            () =>
+              `edge ${nodeId}: ${label}; events=${JSON.stringify(events).slice(0, 800)} stderr=${stderr.slice(0, 400)}`,
             timeoutMs,
+            exitedBecause,
           ),
         control: (line) => child.stdin.write(`${JSON.stringify(line)}\n`),
         kill: () => child.kill("SIGKILL"),
@@ -588,18 +605,31 @@ export function queryPlanRows(dbPath: string, sql: string, params: readonly unkn
   }
 }
 
-/** Bounded state wait: polls the observed condition without a wall-clock sleep schedule. */
+/**
+ * Bounded state wait: polls the observed condition without a wall-clock sleep schedule.
+ *
+ * `label` may be a thunk. A caller that embeds mutable state (the child's events, its stderr) must
+ * pass one: a string is formatted at the call, so a timeout would report the state from before the
+ * wait instead of the state that actually made it time out.
+ *
+ * `failure` is the observed process's own terminal signal. When it reports one the wait stops at
+ * once and names it, instead of spending the rest of the budget on a clock: a child that already
+ * died will never reach the state being polled.
+ */
 export async function waitForState(
   check: () => boolean | Promise<boolean>,
-  label: string,
+  label: string | (() => string),
   timeoutMs = 30_000,
+  failure?: () => string | null,
 ): Promise<void> {
   const deadline = performance.now() + timeoutMs;
   do {
     if (await check()) return;
+    const failed = failure?.();
+    if (failed !== null && failed !== undefined) throw new Error(failed);
     await new Promise((resolve) => setTimeout(resolve, 10));
   } while (performance.now() < deadline);
-  throw new Error(`timed out waiting for ${label}`);
+  throw new Error(`timed out waiting for ${typeof label === "function" ? label() : label}`);
 }
 
 /**
