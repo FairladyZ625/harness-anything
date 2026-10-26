@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Agent"
+  short_description: "Create a business Agent declaration with its own job, skills, prompts, role, and preset"
+  default_prompt: "Use $create-agent to define and install a business Agent declaration with its own instructions, skills, prompts, role, preset, and runtime targets."

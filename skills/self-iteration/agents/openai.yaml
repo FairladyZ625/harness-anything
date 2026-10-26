@@ -1,0 +1,4 @@
+interface:
+  display_name: "Self-iteration"
+  short_description: "Turn one delivery into a bounded proposal to change your own declaration, including what to delete"
+  default_prompt: "Use $self-iteration to propose changes to your own instructions, prompts, skills, or tool scripts from this dispatch's evidence, listing the deletion each change costs."

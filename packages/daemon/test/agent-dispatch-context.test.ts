@@ -876,3 +876,86 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a dispatch whose declaration mounts self-iteration carries the closeout step; others do not", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-self-iteration-closeout-"));
+  let cell: Cell | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("self-iteration-closeout"),
+      rootDir: canonicalRoot(root),
+      ownerId: "self-iteration-closeout-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "self-iteration-closeout-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [instance()],
+      prepareRuntimeLaunch: async () => {
+        throw new Error("dry-run must not reach prepareLaunch");
+      },
+      runtimeLaunch: () => ({
+        pid: 4245,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      }),
+    });
+    await createTask(cell, root, { taskId: "task_si_root", title: "Self-iteration work", taskClass: "work" });
+    await createTask(cell, root, {
+      taskId: "task_si_leaf",
+      title: "Self-iteration leaf",
+      parentTaskId: "task_si_root",
+    });
+    // Skills resolve against the harness authored root, so the fixture materializes real skill dirs.
+    for (const skill of ["self-iteration", "harness-anything-worker"]) {
+      const dir = path.join(root, "harness", "skills", skill);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${skill}\ndescription: Fixture\n---\nFixture body.\n`);
+    }
+    const install = async (id: string, skills: readonly { readonly id: string; readonly path: string }[]) => {
+      const receipt = await cell!.run(
+        {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id,
+            name: id,
+            instructions: "Deliver, then reflect.",
+            runtimes: [{ type: "codex" }],
+            skills,
+          },
+        },
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    };
+    await install("opted-in-worker", [{ id: "self-iteration", path: "skills/self-iteration" }]);
+    await install("plain-worker", [{ id: "harness-anything-worker", path: "skills/harness-anything-worker" }]);
+    const preview = (agentId: string, dispatchKey: string) =>
+      cell!.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          agentId,
+          cwd: { scope: "repo-root" as const },
+          taskId: "task_si_leaf",
+          dispatchKey,
+          dryRun: true,
+        },
+        binding,
+      );
+    const optedIn = await preview("opted-in-worker", "dispatch-self-iteration-opted-in");
+    assert.equal(optedIn.ok, true, JSON.stringify(optedIn));
+    assert.match(String(optedIn.prompt), /# Self-iteration closeout/u);
+    assert.match(String(optedIn.prompt), /artifacts\/reflections\/dispatch_[a-f0-9]+\.md/u, "the path is rendered");
+    assert.match(String(optedIn.prompt), /必须同时列出删除项/u);
+    const plain = await preview("plain-worker", "dispatch-self-iteration-plain");
+    assert.equal(plain.ok, true, JSON.stringify(plain));
+    assert.doesNotMatch(String(plain.prompt), /# Self-iteration closeout/u, "the opt-in is the only trigger");
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -473,6 +473,31 @@ export function taskReviewerNote(
   return `本任务的提交将由评审员 ${agentId} 审查（${taskReviewer ? "任务指定" : repositoryReviewer ? "仓库默认" : "内置默认"}）。提交即自动派评审；changes_requested 会自动回到本轮返工并携带评审报告。`;
 }
 
+/**
+ * The self-iteration closeout step: one delivery turn ends with an evidence-backed proposal against
+ * the Agent's own declaration, including what it deletes. It rides only dispatches whose declaration
+ * mounts the `self-iteration` skill, so an Agent that never opted in carries no extra prompt text.
+ *
+ * The step has to happen BEFORE `ha task submit`: a submitted round is frozen, and the same
+ * task-bound implementation dispatch is refused with `execution_frozen`; after `done` no lease
+ * exists (`runtime-spawner.ts:266-305`). A proposal written after submit would never be produced.
+ * The path is dispatch-owned so two edges running the same Agent never write one file.
+ */
+export function selfIterationCloseoutSection(taskId: string, mountedSkillIds: readonly string[]): string | null {
+  if (!mountedSkillIds.includes("self-iteration")) return null;
+  return [
+    "# Self-iteration closeout",
+    "本轮交付最后一个动作：按已挂载的 `self-iteration` skill 对**你自己的声明**提出一份有证据的改动提议，" +
+      "必须同时列出删除项——没有删除项的提议视为熵增，应放弃或改写成预算中性的重写。",
+    "- 写入点：本任务包 `artifacts/reflections/__HARNESS_DISPATCH_ID__.md`；一次派工一份，多节点并发不互相覆盖。",
+    "- 时机：**在 `ha task submit` 之前**。提交后本轮 cut 冻结，同任务的实现派工会被 `execution_frozen` 拒绝；" +
+      "`done` 后没有 lease 可派，所以这是唯一能产出该提议的时刻。",
+    `- 你不能自己生效：提议由 owner/CEO 审核，再经中心单写 \`ha agent install --source <declaration> --expected-version <n>\` 落入声明。`,
+    `- 取证：\`ha agent inspect <agent-id>\` 读当前声明与 expected-version；\`ha task dispatches ${taskId}\` 取本次 dispatchId 作为文件名。`,
+    "- 范围：只改自己的声明面（instructions / prompts / skills / 工具脚本）；改他人声明、技能正文或门禁不在此授权内。",
+  ].join("\n");
+}
+
 /** Dynamic sections follow the dispatch action: review, delivery, or rework.
  * reviewerBinding is the spawner's existing review judgment; workers owe the delivery contracts. */
 export function taskMissionSections(

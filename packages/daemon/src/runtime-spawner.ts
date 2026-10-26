@@ -44,6 +44,7 @@ import {
   prepareRuntimeInstance,
   runtimeMissionName,
   resolveRuntimeMission,
+  selfIterationCloseoutSection,
 } from "./runtime-spawn-mission.ts";
 import {
   dispatchLedgerReadTexts,
@@ -462,7 +463,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     })
                   : mission,
             readOnlyDispatch = effectivePermissionMode === "read-only",
-            dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
+            // The self-iteration closeout step is the last action of a delivery turn, so it rides the
+            // end of the mission: task-bound implementation dispatches whose declaration mounts the
+            // `self-iteration` skill, never reviewers and never read-only attaches (they cannot write
+            // the proposal, and a read-only attach is how a frozen cut is read, not delivered).
+            selfIteration =
+              taskId !== null && !reviewerBinding && !readOnlyDispatch
+                ? selfIterationCloseoutSection(
+                    taskId,
+                    resolvedSkills.map((skill) => skill.id),
+                  )
+                : null,
+            dispatchMission = dispatchMissionForPermission(
+              selfIteration === null
+                ? (selfContainedMission ?? mission)
+                : `${selfContainedMission ?? mission}\n\n${selfIteration}`,
+              effectivePermissionMode,
+            ),
             // A worktree checks out no private ledger, so every `harness/…` reference the agent
             // declaration or the mission carries is answered with the path this worker can open;
             // an implementation dispatch also owes the isolated-test entry when nothing names it.

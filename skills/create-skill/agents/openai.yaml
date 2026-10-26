@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Skill"
+  short_description: "Write a project skill an Agent loads before acting, with real triggers and a deletion budget"
+  default_prompt: "Use $create-skill to write or revise a project skill for a Harness Anything Agent, with a trigger-bearing description, an executable procedure, and the deletions it costs."

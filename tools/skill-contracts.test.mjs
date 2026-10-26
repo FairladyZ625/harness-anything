@@ -27,6 +27,8 @@ test("repository skills are discoverable with agent metadata", () => {
     .sort();
 
   assert.deepEqual(skillNames, [
+    "create-agent",
+    "create-skill",
     "gate-customization",
     "harness-ceo",
     "harness-contributing",
@@ -37,10 +39,13 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-reckoning",
     "preset-creator",
     "preset-trigger",
+    "self-iteration",
     "task-explainer-html",
     "vertical-creator",
   ]);
   for (const skillName of [
+    "create-agent",
+    "create-skill",
     "harness-ceo",
     "harness-download",
     "harness-gui",
@@ -48,6 +53,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-migration",
     "harness-reckoning",
     "preset-trigger",
+    "self-iteration",
   ]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
