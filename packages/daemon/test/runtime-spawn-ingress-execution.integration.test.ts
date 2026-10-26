@@ -659,6 +659,207 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       // intentionally unrelated untracked directory.
       rmSync(path.join(workerRoot, "packages"), { recursive: true, force: true });
     });
+    await t.test("an owner return continues the review it returned, not the entity-id-last verdict", async () => {
+      const taskId = "task-runtime-owner-return-order",
+        firstExecutionId = "exec-runtime-owner-return-order-r1",
+        // `snapshot.reviews` is read `ORDER BY task_id, entity_id`, so a fallback search over this
+        // task's changes_requested verdicts returns the alphabetically last id, not the newest.
+        staleReviewId = "review-z-first-round",
+        currentReviewId = "review-a-second-round";
+      const settings = (await host.read(repoId, "repo.settings.read", {}, auth)) as {
+        readonly revision: number;
+        readonly settings?: { readonly reviewReturnBudget?: number };
+      };
+      if (settings.settings?.reviewReturnBudget !== 1) {
+        const budget = await host.run(
+          repoId,
+          {
+            kind: "settings-update",
+            reviewReturnBudget: 1,
+            expectedVersion: settings.revision,
+            idempotencyKey: "runtime-owner-return-order-budget-one",
+          },
+          auth,
+        );
+        assert.ok(["applied", "no_changes"].includes(String(budget.outcome)), JSON.stringify(budget));
+      }
+      await createReadyTask(taskId, "Runtime owner return ordering");
+      assert.equal(
+        (await host.run(repoId, { kind: "task-start", taskId, executionId: firstExecutionId }, auth)).outcome,
+        "applied",
+      );
+      writeCloseout(taskId, "The first ordering round is ready for review.");
+      assert.equal(
+        (await host.run(repoId, { kind: "task-submit", taskId, executionId: firstExecutionId }, auth)).outcome,
+        "applied",
+      );
+      const reviewer = async (dispatchKey: string): Promise<Record<string, unknown>> => {
+        const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: ingressDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Review the current round.",
+            role: "reviewer",
+            taskId,
+            dispatchKey,
+          },
+        });
+        assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+        await eventuallyValue(
+          async () =>
+            makeTaskEventReader({ repoId, rootDir: root })
+              .read()
+              .events.find(
+                (event) =>
+                  event.type === "runtime_session_task_bound" &&
+                  event.payload.runtimeSessionId === spawned.runtimeSessionId,
+              ) ?? null,
+        );
+        return spawned;
+      };
+      const writeVerdict = (file: string, findingId: string, reason: string): void => {
+        writeFileSync(
+          path.join(root, file),
+          JSON.stringify({
+            verdict: "changes_requested",
+            reason,
+            evidenceChecked: [reason],
+            findings: [{ findingId, blocking: true, text: reason }],
+            resolutions: [],
+          }),
+        );
+      };
+      const firstReviewer = await reviewer("runtime-owner-return-order-first-reviewer");
+      writeReviewReport(taskId, staleReviewId);
+      writeVerdict(
+        "owner-return-order-first.json",
+        "ordering-finding-1",
+        "The first ordering round needs another pass.",
+      );
+      const firstReturn = (await host.run(
+        repoId,
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId: firstExecutionId,
+          reviewId: staleReviewId,
+          fromFile: "owner-return-order-first.json",
+          executor: { kind: "agent", id: `runtime-session:${String(firstReviewer.runtimeSessionId)}` },
+        },
+        auth,
+      )) as Record<string, unknown>;
+      assert.equal(firstReturn.outcome, "applied", JSON.stringify(firstReturn));
+      const firstContinuation = firstReturn.continuation as Record<string, unknown>;
+      assert.equal(firstContinuation?.outcome, "applied", JSON.stringify(firstReturn));
+      assert.match(launchedPrompt, new RegExp(`Review ${staleReviewId} on your submitted cut requested changes`, "u"));
+      const firstDispatchId = String(firstContinuation.dispatchId),
+        firstBinding = await eventuallyValue(
+          async () =>
+            makeTaskEventReader({ repoId, rootDir: root })
+              .read()
+              .events.find(
+                (event) =>
+                  event.type === "runtime_session_task_bound" &&
+                  event.payload.runtimeSessionId === firstContinuation.runtimeSessionId,
+              ) ?? null,
+        );
+      assert.equal(firstBinding?.type, "runtime_session_task_bound");
+      if (firstBinding?.type !== "runtime_session_task_bound") throw new Error("missing ordering binding");
+      const secondExecutionId = firstBinding.payload.executionId,
+        runtimeExecutor = {
+          kind: "agent" as const,
+          id: `runtime-session:${String(firstContinuation.runtimeSessionId)}`,
+        };
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "task-respond-review",
+              taskId,
+              executionId: secondExecutionId,
+              executor: runtimeExecutor,
+              jsonInput: JSON.stringify({
+                responses: [
+                  {
+                    reviewId: staleReviewId,
+                    findingId: "ordering-finding-1",
+                    disposition: "adopt",
+                    rationale: "The second cut addresses the first blocking finding.",
+                  },
+                ],
+              }),
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      writeCloseout(taskId, "The second ordering round is ready for review.");
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            { kind: "task-submit", taskId, executionId: secondExecutionId, executor: runtimeExecutor },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      const secondReviewer = await reviewer("runtime-owner-return-order-second-reviewer");
+      writeReviewReport(taskId, currentReviewId);
+      writeVerdict(
+        "owner-return-order-second.json",
+        "ordering-finding-2",
+        "The second ordering round needs one correction.",
+      );
+      const exhausted = (await host.run(
+        repoId,
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId: secondExecutionId,
+          reviewId: currentReviewId,
+          fromFile: "owner-return-order-second.json",
+          executor: { kind: "agent", id: `runtime-session:${String(secondReviewer.runtimeSessionId)}` },
+        },
+        auth,
+      )) as Record<string, unknown>;
+      assert.equal(exhausted.outcome, "applied", JSON.stringify(exhausted));
+      assert.equal(exhausted.continuation, undefined, "an exhausted budget must not dispatch rework automatically");
+      const ownerReturn = (await host.run(
+        repoId,
+        { kind: "task-rework", taskId, reason: "The owner authorizes one more ordering round." },
+        auth,
+      )) as Record<string, unknown>;
+      assert.equal(ownerReturn.outcome, "applied", JSON.stringify(ownerReturn));
+      const continuation = ownerReturn.continuation as Record<string, unknown>;
+      assert.ok(continuation, JSON.stringify(ownerReturn));
+      // The incident symptom: reusing the earlier return's dispatch identity re-mints an existing
+      // execution credential client and reports the launch as rejected.
+      assert.doesNotMatch(
+        JSON.stringify(ownerReturn),
+        /Execution credential authentication was rejected/u,
+        "the owner return must not re-mint an existing dispatch credential",
+      );
+      assert.equal(continuation.outcome, "applied", JSON.stringify(ownerReturn));
+      assert.match(
+        launchedPrompt,
+        new RegExp(`Review ${currentReviewId} on your submitted cut requested changes`, "u"),
+        "the owner return continues the cut it returned, not the alphabetically last verdict",
+      );
+      assert.doesNotMatch(
+        launchedPrompt,
+        new RegExp(`Review ${staleReviewId} on your submitted cut requested changes`, "u"),
+        "a superseded verdict must not author the continuation prompt",
+      );
+      assert.notEqual(
+        String(continuation.dispatchId),
+        firstDispatchId,
+        "each return dispatches under its own identity",
+      );
+    });
     await t.test("a submitted or in-review task rejects an implementation dispatch at admission", async () => {
       const taskId = "task-runtime-frozen-cut",
         executionId = "exec-runtime-frozen-cut";

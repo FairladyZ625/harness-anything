@@ -1,10 +1,10 @@
-import type { ExecutionV1, WriteReceiptDraft } from "@harness-anything/kernel";
+import type { ExecutionV1, TaskLifecycleCommand, WriteReceiptDraft } from "@harness-anything/kernel";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding } from "./repo-cell-types.ts";
 
 /** The receipt extension a rework continuation contributes to the recorded review's receipt. */
 type ReviewReworkStep = { readonly continuation: Readonly<Record<string, unknown>> } & (
@@ -51,23 +51,19 @@ function principalBinding(binding: RepoCellBinding): RepoCellBinding {
  */
 export async function continueReviewRework(
   cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
+  command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" | "ReworkTask" }>,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<WriteReceiptDraft> {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+  // The applied command names the review it recorded or returned; a search over the projection
+  // would be a different question (`snapshot.reviews` is ordered by entity id, not time) and would
+  // let a superseded verdict decide this continuation's prompt and dispatch identity.
+  const taskId = cell.requiredCellText(command.taskId, "taskId"),
     read = cell.projection.read(taskId),
-    executionId = typeof action.executionId === "string" ? action.executionId : undefined,
-    requestedReviewId = typeof action.reviewId === "string" ? action.reviewId : undefined,
-    review = read.snapshot.reviews.findLast(
-      (value) =>
-        value.verdict === "changes_requested" &&
-        (requestedReviewId === undefined || value.reviewId === requestedReviewId) &&
-        (executionId === undefined || value.executionId === executionId),
-    ),
-    reviewId = review?.reviewId,
+    reviewId = cell.requiredCellText(command.reviewId, "reviewId"),
+    review = read.snapshot.reviews.find((value) => value.reviewId === reviewId),
     execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined;
-  if (!review || reviewId === undefined || !execution?.submission) return receipt;
+  if (!review || review.verdict !== "changes_requested" || !execution?.submission) return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
     const reportPath = read.packagePath ? reviewReportRelativePath(read.packagePath, reviewId) : null;
     if (reportPath === null) return receipt;
