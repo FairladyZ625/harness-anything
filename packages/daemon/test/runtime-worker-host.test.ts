@@ -165,8 +165,15 @@ test(
       await waitForRuntimeOutput(runtime, 2);
       await Promise.all(scheduled.splice(0));
       assert.equal(runtime.stalledAt, null, "a persisted provider event must renew the watchdog");
+      assert.equal(runtime.lastProgressAtMs, nowMs, "the persisted provider event must advance the progress clock");
 
       nowMs += 9_999;
+      const renewedTimer = timerCallbacks.shift();
+      assert.ok(renewedTimer, "the provider event must leave an armed watchdog timer");
+      renewedTimer.callback();
+      await Promise.all(scheduled.splice(0));
+      assert.equal(runtime.stalledAt, null, "the renewed deadline must still be ahead");
+
       writeFileSync(controlPath, "2");
       await waitForProviderEvents(rootDir, dispatchId, 3);
       await waitForRuntimeOutput(runtime, 3);
