@@ -10,7 +10,11 @@ import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { publishExit, runtimeResultText } from "../src/runtime-spawn-settlement.ts";
-import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/runtime-spawn-active.ts";
+import {
+  attachActiveRuntime,
+  disposeActiveRuntimeObservations,
+  settleStalledRuntime,
+} from "../src/runtime-spawn-active.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
@@ -899,6 +903,83 @@ test("terminal settlement keeps the worker result when fallback settlement fails
       outcomes[0]?.resultRef,
       `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a stalled dispatch settles through the process-tree path and never masks its failure", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-terminate-"));
+  try {
+    const termination: string[] = [],
+      runtime = tasklessSettlementRuntime(rootDir, "partial work");
+    Object.assign(runtime, {
+      stalledAt: "2026-10-24T00:05:00.000Z",
+      stallTimeoutMs: 30_000,
+      process: {
+        pid: 4001,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => termination.push("group"),
+        terminateTree: async () => {
+          termination.push("tree");
+          throw Object.assign(new Error("descendant 4002 survived SIGKILL"), { code: "runtime_cancel_failed" });
+        },
+      },
+    });
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-10-24T00:05:01.000Z",
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "partial work",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async () => ({}),
+      publishExit: async () => {
+        throw new Error("the stalled settlement must not publish an exit after termination failed");
+      },
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+
+    await assert.rejects(
+      settleStalledRuntime(context, runtime),
+      /descendant 4002 survived SIGKILL/u,
+      "the termination failure is the settlement's own failure, not a replaced success",
+    );
+    assert.deepEqual(termination, ["tree"], "one termination path runs; no second best-effort kill hides it");
+    assert.equal(runtime.stalledAt, "2026-10-24T00:05:00.000Z", "the stall observation is still recorded");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a workspace the watcher cannot open fails the attach instead of degrading the watchdog", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-watch-refused-"));
+  try {
+    const runtime = active({ cwd: path.join(rootDir, "absent-workspace") }),
+      activated: string[] = [],
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-24T00:00:00.000Z",
+          stream: { publish: () => ({}) },
+          schedule: () => undefined,
+        },
+      } as unknown as RuntimeSpawnerContext;
+
+    assert.throws(() => attachActiveRuntime(context, runtime), { code: "ENOENT" });
+    assert.deepEqual(activated, []);
+    assert.equal(runtime.recordWorkspaceProgress, null, "no half-attached liveness surface is left behind");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

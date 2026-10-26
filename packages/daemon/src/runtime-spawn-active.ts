@@ -2,7 +2,7 @@ import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-ty
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 
 type ActiveRuntimeBase = Omit<
@@ -145,13 +145,11 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   active.stalledAt ??= context.input.now();
   active.lossReason = `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`;
   if (newlyStalled) active.stream.appendStalled?.(active.stalledAt);
-  try {
-    if (active.process.terminateTree) await active.process.terminateTree();
-    else active.process.terminate();
-  } catch (error) {
-    consumeKnownError(error);
-    active.process.terminate();
-  }
+  // One termination path: the process tree when the launch can enumerate it, otherwise the
+  // process group. A termination failure is a real fault and propagates to the scheduling
+  // boundary instead of being replaced by a second kill attempt that hides it.
+  if (active.process.terminateTree) await active.process.terminateTree();
+  else active.process.terminate();
   await consumeDurableOutput(context, active);
   await context.publishExit(active, null);
 }
@@ -208,30 +206,26 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
   };
   active.recordProviderProgress = () => progress(false);
   active.recordWorkspaceProgress = () => progress(true);
-  try {
-    handles.watcher = watch(active.cwd, { recursive: true }, (_eventType, filename) => {
-      const relative = typeof filename === "string" ? filename : String(filename ?? "");
-      // The daemon's own stream/cache writes are observations about the dispatch, not worker
-      // progress. Ignoring the local runtime root also prevents appendWorkspaceActivity from
-      // feeding its own watcher and extending the deadline indefinitely.
-      const normalized = relative?.replaceAll(path.sep, "/");
-      if (
-        !normalized ||
-        (ignoredRoot !== null &&
-          (normalized === ignoredRoot || (ignoredRoot !== "" && normalized.startsWith(`${ignoredRoot}/`))))
-      )
-        return;
-      active.recordWorkspaceProgress?.();
-    });
-    handles.watcher.unref?.();
-    handles.watcher.on("error", (error) => {
-      consumeKnownError(error);
-      handles.watcher?.close();
-      handles.watcher = null;
-    });
-  } catch (error) {
-    consumeKnownError(error);
-  }
+  // Recursive watching is supported on every platform this repository runs on, so a workspace it
+  // cannot watch is a real fault of this dispatch: it throws out of the attach instead of quietly
+  // reducing the watchdog to provider events. A later watcher fault reaches the process as the
+  // emitter's own error (the same policy as the edge read's watcher) — no layer here invents a
+  // degraded liveness mode, and the ordinary exit/adoption settlement still owns the attempt.
+  handles.watcher = watch(active.cwd, { recursive: true }, (_eventType, filename) => {
+    const relative = typeof filename === "string" ? filename : String(filename ?? "");
+    // The daemon's own stream/cache writes are observations about the dispatch, not worker
+    // progress. Ignoring the local runtime root also prevents appendWorkspaceActivity from
+    // feeding its own watcher and extending the deadline indefinitely.
+    const normalized = relative?.replaceAll(path.sep, "/");
+    if (
+      !normalized ||
+      (ignoredRoot !== null &&
+        (normalized === ignoredRoot || (ignoredRoot !== "" && normalized.startsWith(`${ignoredRoot}/`))))
+    )
+      return;
+    active.recordWorkspaceProgress?.();
+  });
+  handles.watcher.unref?.();
   if (active.stalledAt === null) armStallDeadline(context, active, handles);
 }
 
@@ -270,12 +264,15 @@ export function attachActiveRuntime(
         }
       },
     };
-  attachRuntimeObservations(context, active);
+  // Provider/exit observation comes first: a workspace the watcher cannot open is a real fault,
+  // and it must not leave a live process whose output nobody reads. The launcher's own failure
+  // path then terminates the process and retires the dispatch.
   if (resumeObservation) resumeObservation.activate(handlers);
   else {
     active.process.onOutput(handlers.output);
     active.process.onErrorOutput(handlers.error);
     active.process.onExit(handlers.exit);
   }
+  attachRuntimeObservations(context, active);
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
 }
