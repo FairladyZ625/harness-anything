@@ -80,6 +80,41 @@ Worktrees created before this naming (`codex/<slug>-<id8>`) are renamed once by
 `ha task contract migrate --apply`. One with uncommitted changes or a live
 worker is left in place and listed for you to handle.
 
+## Which runtime instance a dispatch uses
+
+An Agent declaration names runtime *kinds* and models, not necessarily a machine
+instance. When several enabled instances of one kind can serve the declaration,
+dispatch picks one by these keys, in order — the first key that separates two
+candidates decides:
+
+1. the declaration's `runtimes` row order (kinds the Agent lists first win);
+2. the declaration's `preferredInstances` list, when it names the instance;
+3. the model spelling: an instance whose catalog lists the declared model
+   verbatim beats one that lists only a different letter case;
+4. live session load on this node (spreads work between otherwise equal
+   candidates);
+5. the repository's `runtime.allowedInstances` order.
+
+`instance` is a hard pin: if that instance is not enabled and compatible,
+dispatch fails instead of choosing another one. `preferredInstances` is an
+ordered soft preference: it wins when the instance is ready on this node and
+otherwise falls through to the remaining candidates, so it never blocks a
+dispatch:
+
+```json
+{
+  "runtimes": [{ "type": "deepseek-harness", "model": "deepseek-v4.1-flash" }],
+  "preferredInstances": ["ds-bailian", "ds-harness-api"]
+}
+```
+
+The dispatch receipt repeats the decision as `runtimeSelection` (`instanceId`,
+`basis`, `reason`, `model`), and `ha agent validate` / `ha agent install` warn
+when several compatible instances exist and the declaration names no preference
+(`agent_runtime_instance_ambiguous`). Model matching is exact first,
+case-insensitive second; the launched model is always the spelling the chosen
+instance publishes.
+
 ## Dispatch record retention
 
 Every dispatch writes a full record (a JSONL stream of its transcript) on the

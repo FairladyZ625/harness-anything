@@ -19,6 +19,7 @@ import {
   readAgentDeclaration,
   readAgentEntityGuiProjection,
   resolveSquadDispatch,
+  validateAgentEntityAction,
 } from "../src/agent-entities.ts";
 import {
   serializeAgentEntityCatalog,
@@ -153,6 +154,35 @@ test("runtime kind is an open identifier: third-party runtimes validate while tr
       ).agent.runtimes,
       [{ type: "opencode" }],
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("preferredInstances is an ordered unique list of instance slugs and survives install", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-preferred-instances-"));
+  try {
+    assert.deepEqual(
+      validateAgentDeclarationV1({ ...agent, preferredInstances: ["ds-bailian", "ds-harness-api"] }),
+      [],
+    );
+    for (const preferredInstances of [
+      ["ds-bailian", "ds-bailian"],
+      ["DeepSeek-Bailian"],
+      ["../etc/passwd"],
+      "ds-bailian",
+    ])
+      assert.notDeepEqual(
+        validateAgentDeclarationV1({ ...agent, preferredInstances }),
+        [],
+        JSON.stringify(preferredInstances),
+      );
+    const declaration = { ...agent, id: "preferred", preferredInstances: ["ds-harness-api", "ds-bailian"] };
+    await install({ rootDir, kind: "agent-install", declaration });
+    const installed = readAgentDeclaration({ rootDir, agentId: "preferred" });
+    assert.deepEqual(installed.preferredInstances, ["ds-harness-api", "ds-bailian"]);
+    // A soft preference is not a hard pin: dispatch still has a fallback when it is unavailable.
+    assert.equal(installed.instance, undefined);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -1088,6 +1118,53 @@ test("an old-shape stored declaration rejects dispatch with the reinstall comman
       { type: "zcode", model: "GLM-5.3" },
       { type: "claude", model: "GLM-5.3[1m]" },
     ]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("install and validate warn when a valid declaration leaves the instance choice open", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-instance-ambiguity-")),
+    // The deli-ai-lab shape: one kind, two instances, the model spelled with different case.
+    runtimeInstances = [
+      { instanceId: "ds-bailian", kindId: "deepseek-harness", models: ["deepseek-v4.1-flash"], enabled: true },
+      { instanceId: "ds-harness-api", kindId: "deepseek-harness", models: ["Deepseek-V4.1-Flash"], enabled: true },
+    ],
+    declaration = {
+      ...agent,
+      id: "lab-glm-reviewer",
+      name: "Lab reviewer",
+      runtimes: [{ type: "deepseek-harness", model: "deepseek-v4.1-flash" }],
+    };
+  try {
+    const report = (await install({ rootDir, kind: "agent-install", declaration, runtimeInstances })) as {
+      warnings?: readonly { readonly code: string; readonly message: string }[];
+    };
+    assert.equal(report.warnings?.length, 1);
+    assert.equal(report.warnings?.[0]?.code, "agent_runtime_instance_ambiguous");
+    assert.match(report.warnings![0]!.message, /ds-bailian/u);
+    assert.match(report.warnings![0]!.message, /ds-harness-api/u);
+
+    // validate reads a package source, so write the same declaration as an Agent package.
+    const source = path.join(rootDir, "validate-source");
+    writeEntity(source, declaration.id, "agent", declaration);
+    const validateReport = validateAgentEntityAction({
+      rootDir,
+      action: { kind: "agent-validate", packageSource: path.join(source, declaration.id) },
+      runtimeInstances,
+    });
+    assert.equal(validateReport.valid, true);
+    assert.equal(validateReport.warnings?.length, 1);
+    assert.equal(validateReport.warnings?.[0]?.code, "agent_runtime_instance_ambiguous");
+    // Stating the order silences it on both paths without changing validity.
+    const preferredDeclaration = { ...declaration, preferredInstances: ["ds-bailian"] },
+      preferredReport = (await install({
+        rootDir,
+        kind: "agent-install",
+        declaration: preferredDeclaration,
+        runtimeInstances,
+      })) as { warnings?: readonly unknown[] };
+    assert.deepEqual(preferredReport.warnings ?? [], []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
