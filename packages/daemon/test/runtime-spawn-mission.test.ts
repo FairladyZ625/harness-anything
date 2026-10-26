@@ -17,6 +17,7 @@ import {
   explicitPromptMission,
   livingDeliverableProtocol,
   resolveRuntimeMission,
+  selfIterationCloseoutSection,
   taskPlanSection,
   taskPrPublicationNote,
   taskQueryGuidance,
@@ -435,4 +436,17 @@ test("every task-bound mission tells the worker this session cannot ask, with on
   );
   // Unbound prompts have no task package, so there is nowhere to write the ruling artifact.
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
+});
+
+test("the self-iteration closeout rides only a delivery dispatch whose declaration mounts the skill", () => {
+  const taskId = "task_x",
+    mounted = selfIterationCloseoutSection(taskId, ["harness-anything-worker", "self-iteration"]),
+    absent = selfIterationCloseoutSection(taskId, ["harness-anything-worker"]);
+  assert.ok(mounted !== null, "a declaration that mounts self-iteration carries the closeout step");
+  assert.match(mounted, /# Self-iteration closeout/u);
+  assert.match(mounted, /artifacts\/reflections\/__HARNESS_DISPATCH_ID__\.md/u, "the proposal path is per dispatch");
+  assert.match(mounted, /必须同时列出删除项/u, "the proposal owes a deletion");
+  assert.match(mounted, /在 `ha task submit` 之前/u, "the step runs before the cut freezes");
+  assert.match(mounted, /ha agent install --source <declaration> --expected-version <n>/u);
+  assert.equal(absent, null, "an Agent that never opted in carries no extra prompt text");
 });
