@@ -72,7 +72,11 @@ export async function runAgentRollback(
   if (versionRead.ok !== true) return versionRead;
   const version = versionBodyOf(versionRead),
     liveRevision = command.expectedVersion ?? version.current.revision;
-  if (version.current.revision === version.revision && version.current.sha256 === version.sha256)
+  // The no-op condition is byte equality with the live body, not revision equality: a caller can
+  // roll back to an older revision that happens to hold the same bytes (v1 → v2 → back to v1), and
+  // rewriting that body would move the revision for no change and void the fence it just passed.
+  // Nothing is written on this path, so no fence comparison is owed; the live revision is reported.
+  if (version.current.sha256 === version.sha256)
     return {
       ok: true,
       command: "agent-rollback",
@@ -83,7 +87,7 @@ export async function runAgentRollback(
       targetRevision: version.revision,
       sha256: version.sha256,
       nextAction: `Agent ${command.agentId} already holds the body of revision ${version.revision}; nothing was written.`,
-      summary: `agent-rollback: ${command.agentId} already holds revision ${version.revision}; no write.`,
+      summary: `agent-rollback: ${command.agentId} already holds the body of revision ${version.revision} (live revision ${version.current.revision}); no write.`,
     };
   const installed = await request({
     ...base,

@@ -22,7 +22,7 @@ import {
 } from "../src/agent-version-read.ts";
 import { validateAgentHistory, validateAgentVersion } from "../src/protocol/agent-entity-gui-contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { initRepo } from "./agent-entities.fixtures.ts";
+import { appendLegacyAgentDeclaration, initRepo } from "./agent-entities.fixtures.ts";
 
 /**
  * The ledger is already the version history. These tests pin the three things the read surface is
@@ -185,6 +185,33 @@ test("a missing agent is agent_not_found, not an empty history", () => {
     );
   } finally {
     rmSync(f.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a stored declaration this cut cannot interpret is unavailable, not missing", () => {
+  // A migration-window declaration (pre-runtimes shape) keeps its row as `unknown` freshness rather
+  // than failing the rebuild. The row exists, so "not an installed agent" would name the wrong
+  // problem and send the caller to install a different agent; the honest answer is that this
+  // agent's versions cannot be read until it is reinstalled.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-version-degraded-"));
+  try {
+    appendLegacyAgentDeclaration(rootDir);
+    const store = makeTaskEventStore({ repoId: "agent-entities", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store });
+    projection.catchUp();
+    assert.equal(projection.getEntity("agent", "legacy-worker")?.freshness, "unknown", "fixture sanity");
+    for (const read of [
+      () => readAgentHistory({ projection, store }, { agentId: "legacy-worker" }),
+      () => readAgentVersion({ projection, store }, { agentId: "legacy-worker", revision: 1 }),
+    ])
+      assert.throws(read, (error: Error & { readonly code?: string }) => {
+        assert.equal(error.code, "agent_version_unavailable");
+        assert.match(error.message, /cannot interpret/u);
+        assert.doesNotMatch(error.message, /not an installed agent/u);
+        return true;
+      });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 

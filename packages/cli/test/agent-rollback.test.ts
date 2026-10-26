@@ -141,6 +141,45 @@ test("rolling back to the version that is already live submits nothing", async (
   assert.match(String(result.nextAction), /already holds the body of revision 3/u);
 });
 
+test("an older target revision that already holds the live body is still a no-op", async () => {
+  // v1 → v2 → back to v1: the live bytes are the first v1, at a newer revision. Rolling back to
+  // that first revision must not write — identical bytes are the whole no-op condition (design
+  // §3.3), and the append would move the revision for no change and void the caller's fence.
+  const stubber = stub([versionReceipt({ revision: 1, liveRevision: 3, liveSha: sha("a") })]),
+    result = await runAgentRollback(
+      { agentId: "terra", toRevision: 1, expectedVersion: undefined, json: false },
+      stubber.request,
+      base,
+    );
+  assert.equal(stubber.calls.length, 1, "identical bytes must never reach the install action");
+  assert.equal(result.outcome, "no_changes");
+  assert.equal(result.changed, false);
+  assert.equal(result.revision, 3, "the live revision is reported and did not move");
+  assert.equal(result.targetRevision, 1);
+  assert.match(
+    String(result.summary),
+    /body of revision 1 \(live revision 3\)/u,
+    "the receipt names both the target and the live revision, so the caller can see why nothing moved",
+  );
+});
+
+test("an older target revision with a different body is written", async () => {
+  // The complement: a differing digest must reach the install action, or the no-op predicate
+  // would have degenerated into "never write when the target is old".
+  const stubber = stub([
+      versionReceipt({ revision: 1, liveRevision: 3, liveSha: sha("c") }),
+      { ok: true, outcome: "applied", revision: 4, opId: "op-install" },
+    ]),
+    result = await runAgentRollback(
+      { agentId: "terra", toRevision: 1, expectedVersion: undefined, json: false },
+      stubber.request,
+      base,
+    );
+  assert.equal(stubber.calls.length, 2, "one read plus one write");
+  assert.equal(stubber.calls[1]?.method, "repo.task.run");
+  assert.equal(result.outcome, "applied");
+});
+
 test("a version read failure is returned as-is and never becomes a write", async () => {
   const stubber = stub([{ ok: false, code: "agent_version_not_found", error: { code: "agent_version_not_found" } }]),
     result = await runAgentRollback(

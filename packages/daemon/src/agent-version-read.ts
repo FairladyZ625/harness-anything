@@ -113,8 +113,16 @@ function entityError(code: string, message: string): Error & { readonly code: st
 /** The current declaration revision and digest, or a not-found the caller can act on. */
 function currentIdentity(ports: AgentVersionPorts, agentId: string): AgentVersionIdentity {
   const row = ports.projection.getEntity("agent", agentId);
-  if (row === null || row.freshness !== "current")
-    throw entityError("agent_not_found", `${agentId} is not an installed agent.`);
+  if (row === null) throw entityError("agent_not_found", `${agentId} is not an installed agent.`);
+  // A row that exists but is not current was recorded as uninterpretable or orphaned during replay
+  // (`agent-entities.ts` degrades that same row instead of failing the list). Answering "not an
+  // installed agent" would send the caller to install something else than the agent that is
+  // actually broken; the honest answer is that this agent's versions cannot be read at this cut.
+  if (row.freshness !== "current")
+    throw entityError(
+      "agent_version_unavailable",
+      `Agent ${agentId} has a stored declaration this cut cannot interpret (projection ${row.freshness}); reinstall it to restore version reads.`,
+    );
   const revision = declarationRevision(row),
     page = ports.projection.readEventList({ entity: `agent/${agentId}`, type: "entity_upserted", limit: 1 }),
     head = page.rows[0];
