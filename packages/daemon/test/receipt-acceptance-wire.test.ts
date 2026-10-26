@@ -171,3 +171,36 @@ test("Decision wire fidelity follows the verified worktree cut independently of 
     );
   }
 });
+
+// runtime-spawn receipts state which instance the selection rule chose. The GUI envelope is a
+// named ingress onto that same spawn, so it must accept the field the CLI channel already emits;
+// before this was declared the whole receipt failed with "field is not declared".
+test("runtime-spawn wire receipts accept the instance selection and reject undeclared extras", () => {
+  const receipt = {
+    schema: "command-receipt/v2",
+    command: "runtime-spawn",
+    ok: true,
+    opId: "op-spawn-selection",
+    outcome: "applied",
+    revision: 3,
+    runtimeSessionId: "runtime_selection",
+    dispatchId: "dispatch_selection",
+    evidence: "event-object:op-spawn-selection",
+    visibility: "center",
+    proof: { committedRevision: 3, appliedCut: 3, durable: true, canonicalVisible: true, worktreeVisible: null },
+    runtimeSelection: {
+      instanceId: "ds-bailian",
+      basis: "exact-model",
+      reason:
+        "Instance ds-bailian (deepseek-harness) lists the declared model deepseek-v4.1-flash verbatim, " +
+        "which ranks ahead of any instance matching it only case-insensitively.",
+      model: "deepseek-v4.1-flash",
+    },
+  };
+  assert.deepEqual(validateDaemonGuiCommandReceipt(receipt), []);
+  // The selection is optional: a pre-change receipt without it stays valid.
+  const { runtimeSelection: _omitted, ...withoutSelection } = receipt;
+  assert.deepEqual(validateDaemonGuiCommandReceipt(withoutSelection), []);
+  // Declaring one extension field must not open the envelope to arbitrary ones.
+  assert.ok(validateDaemonGuiCommandReceipt({ ...receipt, undeclaredRuntimeField: "x" }).length > 0);
+});

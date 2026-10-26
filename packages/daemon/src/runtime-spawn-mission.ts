@@ -5,7 +5,6 @@ import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import {
   agentRuntimeModelMatches,
-  agentRuntimeModelTier,
   agentRuntimeTargetSummary,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
@@ -307,22 +306,19 @@ export function resolveRuntimeInstanceCandidates(input: {
         ? `Runtime instances declare model ${declaredModel}, but none are authentication-ready.`
         : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`) + detail,
     );
-  const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index])),
-    runtimeRank = new Map(declaredTargets?.map((target, index) => [target.type, index])),
-    preferredRank = new Map((input.agent?.preferredInstances ?? []).map((instanceId, index) => [instanceId, index]));
+  const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index]));
   // The one ranking rule (`runtime-instance-selection.ts`) decides between same-kind instances:
   // declared runtime row, then declared instance preference, then exact-over-case-insensitive
-  // model spelling. The allowlist order is the final tiebreak, so an unchanged repository keeps
-  // its previous choice whenever no higher key separates the candidates.
+  // model spelling. Allowlist order is the final tiebreak, so an unchanged repository keeps its
+  // previous choice whenever no higher key separates the candidates. Reading the keys from the
+  // shared helper keeps this list and `prepareRuntimeInstance` from encoding the rule twice.
   return [...ready]
     .sort(
       (a, b) =>
-        (runtimeRank.get(a.kindId) ?? runtimeRank.size) - (runtimeRank.get(b.kindId) ?? runtimeRank.size) ||
-        (preferredRank.get(a.instanceId) ?? Number.MAX_SAFE_INTEGER) -
-          (preferredRank.get(b.instanceId) ?? Number.MAX_SAFE_INTEGER) ||
-        agentRuntimeModelTier(b.models, declaredModel ?? declaredTargets?.find((r) => r.type === b.kindId)?.model) -
-          agentRuntimeModelTier(a.models, declaredModel ?? declaredTargets?.find((r) => r.type === a.kindId)?.model) ||
-        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
+        compareRuntimeInstanceRank(
+          runtimeInstanceRank(input, a.instanceId),
+          runtimeInstanceRank(input, b.instanceId),
+        ) || (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
     )
     .map((instance) => instance.instanceId);
 }

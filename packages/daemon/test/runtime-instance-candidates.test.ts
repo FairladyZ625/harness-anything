@@ -653,3 +653,16 @@ test("ambiguity warns while a pin or an exhaustive preference stays silent", () 
   // A single compatible instance is not ambiguous.
   assert.equal(agentRuntimeAmbiguityWarning({ agent, runtimeInstances: [runtimeInstances[0]!] }), null);
 });
+
+test("a tie on the model tier names the real deciding key instead of claiming the tier", () => {
+  // Every compatible instance spells the model identically, so the model tier separates nothing
+  // and the receipt must not credit it: load and allowed-instance order are what decided.
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-backup", ["deepseek-v4.1-flash"]),
+    ],
+    tied = selectedRuntimeInstance({ agent: deepseekReviewer(), instances, selected: "ds-backup" });
+  assert.equal(tied.basis, "runtime-row-order");
+  assert.match(tied.reason, /model spelling did not separate the candidates/u);
+  assert.doesNotMatch(tied.reason, /ranks ahead of any instance/u);
+});

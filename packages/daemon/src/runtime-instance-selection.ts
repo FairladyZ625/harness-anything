@@ -122,6 +122,19 @@ export function selectedRuntimeInstance(input: {
     preferred = input.agent?.preferredInstances ?? [],
     preferenceIndex = preferred.indexOf(input.selected),
     tier = instance === undefined ? 2 : agentRuntimeModelTier(instance.models, declaredModel),
+    // Whether the model tier actually separated this instance from a competing candidate that
+    // shares its runtime row. Without this the receipt would credit `exact-model` on a node where
+    // every compatible instance spells the model identically — a true but hollow explanation.
+    modelSeparated =
+      instance !== undefined &&
+      declaredModel !== undefined &&
+      input.instances.some(
+        (other) =>
+          other.instanceId !== instance.instanceId &&
+          other.enabled &&
+          other.kindId === instance.kindId &&
+          agentRuntimeModelTier(other.models, declaredModel) < tier,
+      ),
     selection = (basis: RuntimeInstanceSelectionBasis, reason: string): RuntimeInstanceSelection => ({
       instanceId: input.selected,
       basis,
@@ -140,7 +153,7 @@ export function selectedRuntimeInstance(input: {
       `Agent ${input.agent!.id} lists instance ${input.selected} at preferredInstances[${String(preferenceIndex)}]; ` +
         "it is enabled, compatible, and ready on this node.",
     );
-  if (declaredModel !== undefined && tier === 2)
+  if (declaredModel !== undefined && tier === 2 && modelSeparated)
     return selection(
       "exact-model",
       `Instance ${input.selected} (${kind}) lists the declared model ${declaredModel} verbatim, ` +
@@ -152,10 +165,17 @@ export function selectedRuntimeInstance(input: {
       `Instance ${input.selected} (${kind}) lists the declared model ${declaredModel} only with different ` +
         `letter case; no enabled instance spelled it verbatim. Pin the instance or the spelling to keep this choice.`,
     );
+  // No higher key separated the candidates. Say so instead of attributing the choice to the model
+  // tier, which would be a hollow truth whenever every compatible instance spells the model the
+  // same way; the remaining keys are live load and then allowed-instance order.
   return selection(
     "runtime-row-order",
-    `Instance ${input.selected} (${kind}) is the first compatible candidate by runtime-row and ` +
-      "repository allowed-instance order.",
+    declaredModel === undefined
+      ? `Instance ${input.selected} (${kind}) is the first compatible candidate by runtime-row and ` +
+          "repository allowed-instance order."
+      : `Instance ${input.selected} (${kind}) is the first compatible candidate; runtime row, stated ` +
+          `preference, and model spelling did not separate the candidates, so live load then ` +
+          "repository allowed-instance order decided.",
   );
 }
 
