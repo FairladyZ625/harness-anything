@@ -76,6 +76,8 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly rootDir?: string;
   /** edge-join: where the remote-edge mirror lives; defaults to ~/harness-edge/<repoId>. */
   readonly workspaceRoot?: string;
+  /** edge-join: persistent replica quota in bytes; omitted to derive from the target volume. */
+  readonly quotaBytes?: number;
   readonly link?: string;
   readonly operation?: ManagedRbacOperation;
   readonly mode?: "managed" | "external";

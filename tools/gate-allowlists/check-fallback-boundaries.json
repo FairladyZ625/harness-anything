@@ -96,6 +96,7 @@
    "packages/daemon/src/daemon-singleton.ts#acquireDaemonAutostartFlight",
    "packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton",
    "packages/daemon/src/daemon-singleton.ts#processAlive",
+   "packages/daemon/src/fleet/edge-join-client.ts#joinFleetEdge",
    "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts##launch",
    "packages/daemon/src/daemon-singleton.ts#readPidFile",
    "packages/daemon/src/daemon-singleton.ts#releaseIfHeld",

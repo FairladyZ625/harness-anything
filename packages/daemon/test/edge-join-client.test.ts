@@ -92,6 +92,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
         };
       },
       homeDir: temp,
+      availableBytes: () => 10 * 1024 * 1024 * 1024,
       onProgress: (event) => progress.push(event),
     },
     result = await joinFleetEdge(
@@ -110,6 +111,15 @@ test("one invitation creates and syncs an independent workspace for every reposi
   assert.deepEqual(
     syncs.map((payload) => payload.repoId),
     ["repo-a", "repo-b"],
+  );
+  assert.deepEqual(
+    syncs.map((payload) => payload.quotaBytes),
+    [4 * 1024 * 1024 * 1024, 4 * 1024 * 1024 * 1024],
+    "an omitted quota follows the target volume instead of the retired 1 GiB default",
+  );
+  assert.ok(
+    syncs.every((payload) => Number(payload.quotaBytes) > 3_346_161_664),
+    "the derived quota can hold the observed 3.3 GB canonical snapshot",
   );
   const workspaceRoots = syncs.map((payload) => String(payload.workspaceRoot));
   assert.notEqual(workspaceRoots[0], workspaceRoots[1]);
@@ -187,6 +197,34 @@ test("one invitation creates and syncs an independent workspace for every reposi
     ],
   );
   assert.ok(progress.every(({ joinId }) => joinId === invite.record.joinId));
+
+  const explicitQuota = 4 * 1024 * 1024 * 1024;
+  await joinFleetEdge(
+    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "explicit"), quotaBytes: explicitQuota },
+    ports,
+  );
+  assert.equal(syncs.at(-1)?.quotaBytes, explicitQuota, "an explicit quota is passed through unchanged");
+
+  const failedJoin = await joinFleetEdge(
+    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "too-small"), quotaBytes: 1024 },
+    {
+      ...ports,
+      sync: async () => {
+        throw Object.assign(new Error("base backup exceeds disk quota"), { code: "replica_sync_failed" });
+      },
+    },
+  );
+  assert.equal(failedJoin.ok, false);
+  assert.equal(failedJoin.code, "edge_join_sync_failed");
+  const joinError = failedJoin.error as { readonly code?: unknown; readonly hint?: unknown };
+  assert.equal(joinError.code, "replica_sync_failed");
+  assert.match(String(joinError.hint), /repo-a.*base backup exceeds disk quota/u);
+  assert.match(String(joinError.hint), /ha daemon fleet edge sync --quota-bytes/u);
+  assert.equal(
+    (failedJoin.repositories as readonly { readonly ok: boolean }[]).every((repository) => !repository.ok),
+    true,
+    "a failed initial replica remains a per-repository partial result",
+  );
 });
 
 test("both external addresses are probed before login, and each failure names its address", async () => {

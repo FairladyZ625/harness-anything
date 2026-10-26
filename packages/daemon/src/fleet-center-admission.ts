@@ -9,7 +9,8 @@ import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-generation.ts";
 import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
-import { failFleetReplicaSync, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
+import { failFleetReplicaSync, waitForFleetReplicaReady, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
+import { readReplicaHealth } from "./fleet/replica-health.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
@@ -225,6 +226,12 @@ export async function syncFleetEdgeMirror(
   // (started or restarted by onAdmitted); sync then waits on that stream.
   persistEdgeConnection(request);
   onAdmitted?.();
+  const viewDir = path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
+    replicaReady = await waitForFleetReplicaReady(request);
+  if (!replicaReady) {
+    const failure = readReplicaHealth(viewDir).syncFailure;
+    if (failure) throw Object.assign(new Error(failure.message), { code: failure.code });
+  }
   if (head.replicationSequence !== null) await waitForFleetReplicaSequence(request, head.replicationSequence);
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const generation = readReplicaGeneration(

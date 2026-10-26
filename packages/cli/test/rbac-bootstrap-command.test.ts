@@ -239,7 +239,7 @@ test("ha bootstrap exposes edge invitation, status, list, and revoke operations 
   assert.equal(parseThinCommand(["bootstrap", "--operation", "edge-join-consume"], "/repo").ok, false);
 });
 
-test("ha edge join is one operation of the managed RBAC surface", () => {
+test("ha edge join is one operation of the managed RBAC surface and accepts a quota", () => {
   const link = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEyMyJ9";
   const parsed = parseThinCommand(["edge", "join", link], "/edge");
   assert.equal(parsed.ok, true);
@@ -252,6 +252,21 @@ test("ha edge join is one operation of the managed RBAC surface", () => {
   });
 
   assert.equal(parseThinCommand(["edge", "join", link, "--repo-id", "repo-a"], "/edge").ok, false);
+
+  const quota = parseThinCommand(["edge", "join", link, "--quota-bytes", "4000000000"], "/edge");
+  assert.equal(quota.ok, true);
+  if (quota.ok) assert.equal(quota.command.action.quotaBytes, 4_000_000_000);
+  assert.equal(parseThinCommand(["edge", "join", link, "--quota-bytes", "0"], "/edge").ok, false);
+  assert.match(
+    renderCliReceipt({
+      ok: false,
+      command: "edge-join",
+      code: "edge_join_sync_failed",
+      error: { code: "replica_sync_failed", hint: "Base backup exceeds disk quota." },
+    }).text,
+    /Base backup exceeds disk quota/u,
+    "the CLI prints the failed repository's sync reason",
+  );
 });
 
 test("ha bootstrap parses one external Keycloak through the same command", () => {
@@ -525,6 +540,7 @@ test("edge join prepares its workspace root before reaching the daemon", async (
     const parsed = parseThinCommand(["edge", "join", "harness-edge://join/test", "--root", workspaceRoot], userRoot);
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
+    assert.equal(parsed.command.action.workspaceRoot, workspaceRoot);
     // The autostart spawns the daemon from the invoking root as its cwd, so edge join creates the
     // missing --root before the first connection attempt; the request itself then fails offline.
     await assert.rejects(
