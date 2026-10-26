@@ -359,7 +359,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           verdict: "changes_requested",
           reason: "The exhausted cut still needs one concrete correction.",
           evidenceChecked: ["second round"],
-          findings: [],
+          findings: [
+            {
+              findingId: "fixture-finding-2",
+              blocking: true,
+              text: "The exhausted cut still needs one concrete correction.",
+            },
+          ],
           resolutions: [],
         }),
       );
@@ -460,6 +466,30 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       if (rebound.type !== "runtime_session_task_bound") throw new Error("missing owner-return worker binding");
       assert.equal(rebound.payload.taskId, taskId);
       writeCloseout(taskId, "The owner-returned runtime execution is ready for independent review.");
+      const ownerReturnResponse = await host.run(
+        repoId,
+        {
+          kind: "task-respond-review",
+          taskId,
+          executionId: rebound.payload.executionId,
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${String(manualContinuation.runtimeSessionId)}`,
+          },
+          jsonInput: JSON.stringify({
+            responses: [
+              {
+                reviewId: "redispatch-review",
+                findingId: "fixture-finding-2",
+                disposition: "adopt",
+                rationale: "The owner-returned cut addresses the exhausted review finding.",
+              },
+            ],
+          }),
+        },
+        auth,
+      );
+      assert.equal(ownerReturnResponse.outcome, "applied", JSON.stringify(ownerReturnResponse));
       const ownerReturnSubmission = await host.run(
         repoId,
         {

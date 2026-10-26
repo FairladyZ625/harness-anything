@@ -205,7 +205,7 @@ function withFixture(run) {
     write(
       root,
       "packages/cli/src/cli/thin-command.ts",
-      `const actions = ["task-create", "task-submit", "task-review-execution", "task-respond-review", "task-complete", "repo-bootstrap"];\n`,
+      `const actions = ["task-create", "task-submit", "task-review-execution", "task-respond-review", "task-rework", "task-complete", "repo-bootstrap"];\n`,
     );
     write(
       root,
@@ -231,7 +231,14 @@ function withFixture(run) {
           rows: [
             {
               id: "lifecycle.event-publication",
-              actions: ["task-complete", "task-create", "task-review-execution", "task-respond-review", "task-submit"],
+              actions: [
+                "task-complete",
+                "task-create",
+                "task-rework",
+                "task-review-execution",
+                "task-respond-review",
+                "task-submit",
+              ],
               authority: "packages/daemon/src/repo-cell.ts",
               store: "packages/kernel/src/store/task-event-store.ts",
               leasePolicy: "domain-contract",

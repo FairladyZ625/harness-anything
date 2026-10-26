@@ -278,11 +278,11 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
                 ? ReworkTaskProof
                 : C extends RecordReviewCommand
                   ? ReviewProof
-              : C extends RecordReviewConsentCommand
-                ? ReviewConsentProof
-                : C extends CompleteTaskCommand
-                  ? CompleteTaskProof
-                  : never;
+                  : C extends RecordReviewConsentCommand
+                    ? ReviewConsentProof
+                    : C extends CompleteTaskCommand
+                      ? CompleteTaskProof
+                      : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;

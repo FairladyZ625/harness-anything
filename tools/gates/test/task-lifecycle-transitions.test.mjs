@@ -656,6 +656,16 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
 });
 
 test("G10 a consent conflict prints the existing --dispose recovery command", () => {
+  const secondReviewResponses = [
+    {
+      reviewId: "review-reject-1",
+      findingId: "fixture-finding",
+      disposition: "adopt",
+      rationale: "The second implementation addresses the blocking fixture finding.",
+      actor: executor,
+      respondedAt: "2026-08-11T00:00:05.500Z",
+    },
+  ];
   const { submitted } = firstRound(),
     firstReturn = applyTransition(
       submitted.snapshot,
@@ -663,7 +673,11 @@ test("G10 a consent conflict prints the existing --dispose recovery command", ()
       reviewProof(reviewer, 1),
     ),
     restarted = applyTransition(firstReturn.snapshot, start(5, "execution-1"), startProof("execution-1")),
-    secondSubmission = applyTransition(restarted.snapshot, submit(6, "execution-1"), submitProof()),
+    secondSubmission = applyTransition(
+      restarted.snapshot,
+      submit(6, "execution-1", commit0, reviewRequiredGates, secondReviewResponses),
+      submitProof(),
+    ),
     adverse = applyTransition(
       secondSubmission.snapshot,
       review(7, {
@@ -671,12 +685,18 @@ test("G10 a consent conflict prints the existing --dispose recovery command", ()
         executionId: "execution-1",
         iteration: 1,
         reviewId: "review-reject-2",
+        reviewResponses: secondReviewResponses,
       }),
       reviewProof(reviewer, 1),
     ),
     approved = applyTransition(
       adverse.snapshot,
-      review(8, { executionId: "execution-1", iteration: 1, reviewId: "review-approved" }),
+      review(8, {
+        executionId: "execution-1",
+        iteration: 1,
+        reviewId: "review-approved",
+        reviewResponses: secondReviewResponses,
+      }),
       reviewProof(),
     ),
     selected = approved.snapshot.reviews.at(-1);

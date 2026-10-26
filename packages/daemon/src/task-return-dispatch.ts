@@ -107,7 +107,8 @@ export async function continueReviewRework(
         warnings: [
           ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
           `Review ${reviewId} requested changes and the repository rework budget is exhausted; the cut stays at the ` +
-            `review gate for the owner: dispose the verdict with ha task review-consent ${taskId} ` +
+            `review gate. The owner can return it with ha task rework ${taskId} --reason <why>, ` +
+            `dispose the verdict with ha task review-consent ${taskId} ` +
             `--execution-id ${execution.executionId} --review-id ${reviewId} --dispose ${reviewId} ` +
             "--rationale <why>, or supersede the task.",
         ],
