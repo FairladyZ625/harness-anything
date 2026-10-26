@@ -2266,10 +2266,10 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-integrity-single-source.mjs","tools/gate-allowlists/check-integrity-single-source.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": ["packages/**","tools/check-integrity-single-source.mjs"],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
-        "packages/kernel/src/** canonical substrate declarations"
+        "packages/** source @canonical-substrate marker declarations"
       ],
       "consumerScope": ["canonical substrate and integrity single-source declarations"],
       "githubContext": {
@@ -2278,16 +2278,17 @@
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/gate-allowlists/check-integrity-single-source.json",
-        "adrOrDecisionRequired": true,
-        "notes": "Canonical symbol authorities are externalized; each entry must carry ref+reason and the checker reports entry-count trend."
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Authorities derive from @canonical-substrate markers at each canonical implementation site (ADR-0022 D3/D6; dec_F5B2CBF8B45042B6DA2824A7FA/CH2b); the gate reads markers and defines no symbol list of its own."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-integrity-single-source.mjs",
+          "tools/check-integrity-single-source.test.mjs",
           "package.json:scripts.harness:check-integrity-single-source",
           "tools/gate-manifest.json"
         ]
@@ -3224,10 +3225,10 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/**","tools/check-schema-field-coverage.mjs"],
+      "localPathGlobs": ["packages/kernel/src/**","tools/check-schema-field-coverage.mjs","tools/gate-allowlists/check-schema-field-coverage.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
       "authoritySource": [
-        "packages/kernel/src/domain/entity-field-contracts.ts",
-        "tools/check-schema-field-coverage.mjs"
+        "tools/gate-allowlists/check-schema-field-coverage.json",
+        "decision/dec_F5B2CBF8B45042B6DA2824A7FA/CH2b"
       ],
       "consumerScope": ["entity schema field contract coverage"],
       "githubContext": {
@@ -3237,15 +3238,16 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/check-schema-field-coverage.mjs",
+        "location": "tools/gate-allowlists/check-schema-field-coverage.json",
         "adrOrDecisionRequired": true,
-        "notes": "ADR-0022 D6 classifies the current default path as local-consistency, not boundary evidence."
+        "notes": "External expected field lists; entries carry ref+reason and entry-count trend. Replaces the tautological self-derived default (ADR-0022:123; dec_F5B2CBF8B45042B6DA2824A7FA/CH2b)."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-schema-field-coverage.mjs",
+          "tools/gate-allowlists/check-schema-field-coverage.json",
           "package.json:scripts.harness:check-schema-field-coverage",
           "tools/gate-manifest.json"
         ]

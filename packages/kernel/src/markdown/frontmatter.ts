@@ -1,3 +1,6 @@
+// @canonical-substrate readFrontmatter readScalar readNestedScalar
+// Single canonical implementation authority (ADR-0022 D6); duplicate
+// definitions anywhere else in packages/ fail check-integrity-single-source.
 export interface ReadScalarOptions {
   readonly required?: boolean;
 }
