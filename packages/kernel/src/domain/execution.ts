@@ -41,7 +41,8 @@ export interface TaskRiskTierAssessmentV1 {
   readonly deliveryHeadSha: string | null;
   readonly matchedPathReviewers: readonly { readonly agentId: string; readonly paths: readonly string[] }[];
   readonly reasons: readonly string[];
-  readonly guiAcceptanceRequired: boolean;
+  /** @deprecated Present only in historical cuts; new assessments never write or read it. */
+  readonly guiAcceptanceRequired?: boolean;
 }
 export type ProductionDeltaV1 = ProductionDeltaCounts & {
   readonly baseSha: string;
@@ -306,7 +307,7 @@ function validTaskRiskTierAssessment(value: unknown): value is TaskRiskTierAsses
       "deliveryHeadSha",
       "matchedPathReviewers",
       "reasons",
-      "guiAcceptanceRequired",
+      ...(Object.hasOwn(value, "guiAcceptanceRequired") ? ["guiAcceptanceRequired"] : []),
     ]) &&
     value.schema === "task-risk-tier-assessment/v1" &&
     ["low", "medium", "high"].includes(String(value.declaredTier)) &&
@@ -322,7 +323,7 @@ function validTaskRiskTierAssessment(value: unknown): value is TaskRiskTierAsses
         stringArray(lane.paths),
     ) &&
     stringArray(value.reasons) &&
-    typeof value.guiAcceptanceRequired === "boolean"
+    (value.guiAcceptanceRequired === undefined || typeof value.guiAcceptanceRequired === "boolean")
   );
 }
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {

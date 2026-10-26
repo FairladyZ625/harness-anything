@@ -21,11 +21,18 @@ const validRiskTierAssessment = Object.freeze({
   deliveryHeadSha: "c".repeat(40),
   matchedPathReviewers: [],
   reasons: ["repository floor"],
-  guiAcceptanceRequired: false,
 });
 
 test("#1546: a valid submission has no issues", () => {
   assert.deepEqual(validateGuiSubmission(valid), []);
+  assert.deepEqual(
+    validateGuiSubmission({
+      ...valid,
+      riskTierAssessment: { ...validRiskTierAssessment, guiAcceptanceRequired: true },
+    }),
+    [],
+    "historical boolean fields remain valid",
+  );
   assert.deepEqual(validateGuiSubmission({ ...valid, riskTierAssessment: validRiskTierAssessment }), []);
 });
 
@@ -103,4 +110,12 @@ test("risk tier assessment is declared and validated on the GUI submission envel
   assert.deepEqual(validateGuiSubmission({ ...valid, riskTierAssessment: { unexpected: true } }), [
     "entity='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' field=riskTierAssessment must be a task-risk-tier-assessment/v1 object; actual={ unexpected: true }",
   ]);
+  assert.notDeepEqual(
+    validateGuiSubmission({
+      ...valid,
+      riskTierAssessment: { ...validRiskTierAssessment, guiAcceptanceRequired: "true" },
+    }),
+    [],
+    "the retired field is accepted only as a boolean",
+  );
 });

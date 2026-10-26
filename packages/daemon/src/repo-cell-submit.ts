@@ -31,7 +31,6 @@ import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
-import { readCanonicalVerticalDeclaration, readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -390,15 +389,11 @@ function automaticSubmissionArtifactPaths(
 function freezeCompletionContract(
   cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
   snapshot: Snapshot,
-  assessment?: SubmissionV1["riskTierAssessment"],
 ): SubmissionV1["completionContract"] {
   const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
     .snapshot as import("@harness-anything/preset").PresetSnapshotV1;
   const resolved = resolveCompletionContract(
-    [
-      ...(snapshot.task?.completionGateIds ?? []),
-      ...(assessment?.guiAcceptanceRequired ? [GUI_ACCEPTANCE_GATE_ID] : []),
-    ],
+    snapshot.task?.completionGateIds ?? [],
     cell.settings.readRepository(),
     frozenPreset,
     snapshot.task?.closeoutOverrides,
@@ -409,14 +404,11 @@ function freezeCompletionContract(
   // A task-level reviewer override (dec_E369B861 CH3) beats the repository default here.
   return {
     ...resolved.contract,
-    closeoutGates: riskTierCloseoutGates(resolved.contract.closeoutGates, assessment),
     reviewer: {
       agentId: snapshot.task?.reviewer ?? cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer",
     },
   };
 }
-
-const GUI_ACCEPTANCE_GATE_ID = "gui-acceptance";
 
 function riskTierCloseoutGates(
   gates: SubmissionV1["completionContract"]["closeoutGates"],
@@ -433,41 +425,11 @@ function riskTierCloseoutGates(
 }
 
 export function riskTierCompletionContract(
-  cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
-  snapshot: Snapshot,
   contract: SubmissionV1["completionContract"],
   assessment: SubmissionV1["riskTierAssessment"],
 ): SubmissionV1["completionContract"] {
-  if (!assessment?.guiAcceptanceRequired || contract.gates.some((gate) => gate.gateId === GUI_ACCEPTANCE_GATE_ID))
-    return { ...contract, closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment) };
-  const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
-      .snapshot as import("@harness-anything/preset").PresetSnapshotV1,
-    canonicalVertical = readCanonicalVerticalDeclaration(cell.projection),
-    currentVertical = canonicalVertical?.definition,
-    taskVerticalId = snapshot.task?.metadata?.verticalId ?? "software/coding",
-    bundledVertical = readDefaultVerticalDefinition(),
-    candidateDeclaration =
-      frozenPreset.completion.gates[GUI_ACCEPTANCE_GATE_ID] !== undefined
-        ? frozenPreset.completion
-        : currentVertical?.id === taskVerticalId &&
-            currentVertical.completion.gates[GUI_ACCEPTANCE_GATE_ID] !== undefined
-          ? currentVertical.completion
-          : bundledVertical.id === taskVerticalId
-            ? bundledVertical.completion
-            : frozenPreset.completion,
-    gateDeclaration = {
-      ...frozenPreset.completion,
-      sources: { ...candidateDeclaration.sources, ...frozenPreset.completion.sources },
-      gates: { ...candidateDeclaration.gates, ...frozenPreset.completion.gates },
-    },
-    resolved = resolveCompletionContract([GUI_ACCEPTANCE_GATE_ID], cell.settings.readRepository(), {
-      ...frozenPreset,
-      completion: gateDeclaration,
-    });
-  if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
   return {
     ...contract,
-    gates: [...contract.gates, ...resolved.contract.gates],
     closeoutGates: riskTierCloseoutGates(contract.closeoutGates, assessment),
   };
 }
@@ -959,7 +921,7 @@ export async function readCloseoutSubmission(
         derived.submission,
         frozen,
         riskTierAssessment,
-        () => riskTierCompletionContract(cell, snapshot, derived.submission.completionContract, riskTierAssessment),
+        () => riskTierCompletionContract(derived.submission.completionContract, riskTierAssessment),
         preserveLegacyCut,
       );
     return { ok: true, submission };

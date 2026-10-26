@@ -24,6 +24,8 @@ import {
   applyTransition,
   normalizeTaskLifecycleCommand,
   emptyTaskLifecycleSnapshot,
+  validateCurrentTaskEvent,
+  validateTaskEvent,
 } from "../../src/domain/task-lifecycle.contract.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
@@ -93,6 +95,39 @@ test("retired CI is omitted from completion receipt cuts even when an old receip
     }),
     [],
   );
+});
+
+test("current lifecycle writes accept a historical GUI assessment boolean", () => {
+  const { events } = lifecycleFixture(),
+    submitted = events.find((event) => event.type === "execution_submitted");
+  assert.ok(submitted?.type === "execution_submitted");
+  assert.ok(submitted.payload.execution.submission);
+
+  const legacyEvent = {
+    ...submitted,
+    payload: {
+      ...submitted.payload,
+      execution: {
+        ...submitted.payload.execution,
+        submission: {
+          ...submitted.payload.execution.submission,
+          riskTierAssessment: {
+            schema: "task-risk-tier-assessment/v1",
+            declaredTier: "medium",
+            effectiveTier: "medium",
+            deliveryBaseSha: null,
+            deliveryHeadSha: "a".repeat(40),
+            matchedPathReviewers: [],
+            reasons: [],
+            guiAcceptanceRequired: true,
+          },
+        },
+      },
+    },
+  } as TaskEventV1;
+
+  assert.deepEqual(validateTaskEvent(legacyEvent), []);
+  assert.deepEqual(validateCurrentTaskEvent(legacyEvent), []);
 });
 
 function executionReceipt(gateIds: readonly "ci"[]): string {
