@@ -11,7 +11,11 @@ import { noSwallowedFailureBaseline } from "./no-swallowed-failure-baseline.mjs"
 import { processPortOnlyBaseline } from "./process-port-only-baseline.mjs";
 
 const allowlistSchema = "harness-anything/gate-allowlist/v1";
-const jsonPolicies = Object.freeze({
+// Exported so the classification itself is inspectable: every allowlist JSON is
+// either audited as repository paths or explicitly recorded as non-path, and an
+// unclassified file or section fails closed. Tests pin the per-file decision
+// instead of matching source text.
+export const allowlistJsonPolicies = Object.freeze({
   "action-catalog-null.json": {
     pathSections: {},
     nonPathSections: ["catalogNulls"],
@@ -174,14 +178,14 @@ function collectJsonPathEntries(rootDir) {
   const jsonFiles = readdirSync(allowlistRoot)
     .filter((name) => name.endsWith(".json"))
     .sort();
-  const unclassifiedFiles = jsonFiles.filter((name) => !Object.hasOwn(jsonPolicies, name));
+  const unclassifiedFiles = jsonFiles.filter((name) => !Object.hasOwn(allowlistJsonPolicies, name));
   if (unclassifiedFiles.length > 0) {
     throw new Error(`unclassified JSON allowlist(s): ${unclassifiedFiles.join(", ")}`);
   }
 
   const pathEntries = [];
   const refEntries = [];
-  for (const [fileName, policy] of Object.entries(jsonPolicies)) {
+  for (const [fileName, policy] of Object.entries(allowlistJsonPolicies)) {
     const relativeFile = `tools/gate-allowlists/${fileName}`;
     const parsed = JSON.parse(readFileSync(path.join(rootDir, relativeFile), "utf8"));
     if (parsed.schema !== allowlistSchema || typeof parsed.entries !== "object" || parsed.entries === null) {
