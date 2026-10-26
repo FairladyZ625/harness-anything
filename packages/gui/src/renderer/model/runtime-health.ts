@@ -83,8 +83,10 @@ export interface RuntimeHealthInput {
     /** The isolated-row count the same read reported; omitted when the caller does not carry it. */
     readonly isolatedRows?: number;
     /**
-     * The answered cut still has a cursor: the row set is a partially hydrated slice. Omitted
-     * when the caller does not carry it; a cut that reports `pending` is hydrating by definition.
+     * The answered cut still carries `page.nextCursor`: hydration stopped at the page budget, so the
+     * row set is only the pages read so far. Omitted when the caller does not carry it. This is a
+     * distinct fact from `status === "pending"`: a lagging projection still answers a row set that is
+     * complete *relative to its watermark*, and only the cut's own cursor tells us the difference.
      */
     readonly hydrating?: boolean;
   } | null;

@@ -575,6 +575,8 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
   it("reports hydration-pending on the visible line, not only in the tooltip", async () => {
     // The third failure mode the review found: a budget-truncated hydration has lag 0, so a
     // lag-only reading says "caught up" while the row set is still the pages read so far.
+    // This pins the pure derivation; the production wiring that actually supplies `hydrating`
+    // from the answered cut's cursor is covered end-to-end by board-row-set-completeness.vitest.ts.
     const hydrating = deriveRuntimeHealth({
       daemon: { ok: true, observedAt: "2026-10-25T23:00:00.000Z", uptimeMs: 3_600_000 },
       repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },

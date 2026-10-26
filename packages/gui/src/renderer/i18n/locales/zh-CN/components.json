@@ -97,6 +97,7 @@
   "components.taskFilterBar.filtersEntry": "筛选",
   "components.taskFilterBar.expandFilterPanel": "展开筛选",
   "components.taskFilterBar.collapseFilterPanel": "收起筛选",
+  "components.taskFilterBar.viewingCountLoading": "{count} 个在看 · 行集加载中 · 已服务 {served}",
   "components.taskFilterBar.viewingCount": "{count} 个在看 · 共 {total}",
   "components.taskFilterBar.viewingCountIncomplete": "{count} 个在看 · 已服务 {served} · 未服务 {isolated}",
   "components.taskFilterBar.incompleteRows": "行集不完整 · {count} 行未服务",

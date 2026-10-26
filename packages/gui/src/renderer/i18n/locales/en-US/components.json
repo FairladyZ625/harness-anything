@@ -97,6 +97,7 @@
   "components.taskFilterBar.filtersEntry": "Filters",
   "components.taskFilterBar.expandFilterPanel": "Expand filters",
   "components.taskFilterBar.collapseFilterPanel": "Collapse filters",
+  "components.taskFilterBar.viewingCountLoading": "{count} in view · row set loading · {served} served",
   "components.taskFilterBar.viewingCount": "{count} in view · {total} total",
   "components.taskFilterBar.viewingCountIncomplete": "{count} in view · {served} served · {isolated} unserved",
   "components.taskFilterBar.incompleteRows": "row set incomplete · {count} rows unserved",
