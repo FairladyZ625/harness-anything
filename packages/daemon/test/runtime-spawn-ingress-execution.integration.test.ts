@@ -310,13 +310,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       );
       assert.doesNotMatch(
         reflectingPrompt,
-        /artifacts\/reflections\//u,
-        "a reviewer must not be told to write a path its credential refuses",
+        /写入点：本任务包/u,
+        "a reviewer must not be told the worker's package write point",
       );
       assert.doesNotMatch(
         reflectingPrompt,
         /# Self-iteration closeout/u,
-        "the review audience never receives the delivery write point",
+        "the review audience never receives the delivery heading",
       );
       await eventuallyValue(
         async () =>
