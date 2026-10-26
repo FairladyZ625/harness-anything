@@ -83,7 +83,7 @@ function transition(revision, status, reason = `Transition to ${status}`, force 
   );
 }
 const reviewRequiredGates = { review: true, consent: true, factDisposition: true };
-function submission(commitSha = commit0, closeoutGates = reviewRequiredGates) {
+function submission(commitSha = commit0, closeoutGates = reviewRequiredGates, reviewResponses) {
   return {
     completionClaim: "Implementation is ready for review.",
     deliverables: ["kernel lifecycle"],
@@ -93,13 +93,25 @@ function submission(commitSha = commit0, closeoutGates = reviewRequiredGates) {
     residualRisks: [],
     commitSha,
     completionContract: { ...emptyCompletionContract, closeoutGates, gates: [] },
+    ...(reviewResponses === undefined ? {} : { reviewResponses }),
   };
 }
-function submit(revision, executionId = "execution-0", commitSha = commit0, closeoutGates = reviewRequiredGates) {
+function submit(
+  revision,
+  executionId = "execution-0",
+  commitSha = commit0,
+  closeoutGates = reviewRequiredGates,
+  reviewResponses,
+) {
   return command(
     executor,
     revision,
-    { type: "SubmitExecution", taskId: "task-1", executionId, submission: submission(commitSha, closeoutGates) },
+    {
+      type: "SubmitExecution",
+      taskId: "task-1",
+      executionId,
+      submission: submission(commitSha, closeoutGates, reviewResponses),
+    },
     `submit-${executionId}`,
   );
 }
@@ -116,6 +128,7 @@ function review(
     actor = reviewer,
     reviewId = `review-${executionId}`,
     contentDigest = content0,
+    reviewResponses,
   } = {},
 ) {
   return command(
@@ -135,7 +148,12 @@ function review(
       commitSha,
       iteration,
       contentDigest,
-      submissionDigest: submissionDigest(submission(commitSha)),
+      submissionDigest: submissionDigest(submission(commitSha, reviewRequiredGates, reviewResponses)),
+      findings:
+        verdict === "changes_requested"
+          ? [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }]
+          : [],
+      resolutions: [],
     },
     `${reviewId}-${verdict}`,
   );
@@ -510,7 +528,20 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
   assert.deepEqual(reduceTaskEvent(submitted.snapshot, reopened.event), reopened.snapshot);
   // At the budget the same verdict only records: the cut stays at the gate for the owner.
   const started = applyTransition(reopened.snapshot, start(5, "execution-1"), startProof("execution-1"));
-  const resubmitted = applyTransition(started.snapshot, submit(6, "execution-1", commit1), submitProof());
+  const resubmitted = applyTransition(
+    started.snapshot,
+    submit(6, "execution-1", commit1, reviewRequiredGates, [
+      {
+        reviewId: "review-reject",
+        findingId: "fixture-finding",
+        disposition: "adopt",
+        rationale: "The second cut addresses the blocking fixture finding.",
+        actor: executor,
+        respondedAt: "2026-08-11T00:00:05.000Z",
+      },
+    ]),
+    submitProof(),
+  );
   const capped = applyTransition(
     resubmitted.snapshot,
     review(7, {
@@ -519,6 +550,16 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
       commitSha: commit1,
       iteration: 1,
       reviewId: "review-reject-1",
+      reviewResponses: [
+        {
+          reviewId: "review-reject",
+          findingId: "fixture-finding",
+          disposition: "adopt",
+          rationale: "The second cut addresses the blocking fixture finding.",
+          actor: executor,
+          respondedAt: "2026-08-11T00:00:05.000Z",
+        },
+      ],
     }),
     reviewProof(reviewer, 1),
   );
@@ -567,10 +608,38 @@ test("G34 replay preserves report-to-auto-rework to new execution to approved co
     { status: "active", node: "implementation", iteration: 1, execution: "changes_requested", lease: null },
   );
   const startedAgain = applyTransition(rejected.snapshot, start(5, "execution-1"), startProof("execution-1"));
-  const submittedAgain = applyTransition(startedAgain.snapshot, submit(6, "execution-1", commit1), submitProof());
+  const submittedAgain = applyTransition(
+    startedAgain.snapshot,
+    submit(6, "execution-1", commit1, reviewRequiredGates, [
+      {
+        reviewId: "review-reject",
+        findingId: "fixture-finding",
+        disposition: "adopt",
+        rationale: "The second cut addresses the blocking fixture finding.",
+        actor: executor,
+        respondedAt: "2026-08-11T00:00:05.000Z",
+      },
+    ]),
+    submitProof(),
+  );
   const approvedAgain = applyTransition(
     submittedAgain.snapshot,
-    review(7, { executionId: "execution-1", commitSha: commit1, iteration: 1, reviewId: "review-execution-1" }),
+    review(7, {
+      executionId: "execution-1",
+      commitSha: commit1,
+      iteration: 1,
+      reviewId: "review-execution-1",
+      reviewResponses: [
+        {
+          reviewId: "review-reject",
+          findingId: "fixture-finding",
+          disposition: "adopt",
+          rationale: "The second cut addresses the blocking fixture finding.",
+          actor: executor,
+          respondedAt: "2026-08-11T00:00:05.000Z",
+        },
+      ],
+    }),
     reviewProof(),
   );
   const recorded = approvedAgain.snapshot.reviews.at(-1);
@@ -598,7 +667,16 @@ test("G34 replay preserves report-to-auto-rework to new execution to approved co
   // A review-lifted cut never enters the corridor: status submitted refuses RecordReview.
   const liftedAgain = applyTransition(
     startedAgain.snapshot,
-    submit(6, "execution-1", commit1, { review: false, consent: false, factDisposition: false }),
+    submit(6, "execution-1", commit1, { review: false, consent: false, factDisposition: false }, [
+      {
+        reviewId: "review-reject",
+        findingId: "fixture-finding",
+        disposition: "adopt",
+        rationale: "The second cut addresses the blocking fixture finding.",
+        actor: executor,
+        respondedAt: "2026-08-11T00:00:05.000Z",
+      },
+    ]),
     submitProof(),
   );
   assert.throws(

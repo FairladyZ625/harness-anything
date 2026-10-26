@@ -307,6 +307,26 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           kind: "agent" as const,
           id: `runtime-session:${String(implementation.runtimeSessionId)}`,
         },
+        response = await host.run(
+          repoId,
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: secondExecutionId,
+            executor: runtimeExecutor,
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "redispatch-changes",
+                  findingId: "fixture-finding",
+                  disposition: "adopt",
+                  rationale: "The second runtime cut addresses the blocking fixture finding.",
+                },
+              ],
+            }),
+          },
+          auth,
+        ),
         secondSubmission = await host.run(
           repoId,
           {
@@ -317,6 +337,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           },
           auth,
         );
+      assert.equal(response.outcome, "applied", JSON.stringify(response));
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
       writeFileSync(
         path.join(root, "redispatch-review.json"),

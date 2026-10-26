@@ -176,6 +176,28 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     assert.equal(afterRequestEvidence.task?.status, "active");
     assert.equal(afterRequestEvidence.task?.iteration, 1);
     await expectApplied(fixture, ["task", "start", taskId, "--execution-id", secondExecutionId], workerEnvironment);
+    await expectApplied(
+      fixture,
+      [
+        "task",
+        "respond-review",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--json-input",
+        JSON.stringify({
+          responses: [
+            {
+              reviewId: "review-cli-changes-requested",
+              findingId: "fixture-finding",
+              disposition: "adopt",
+              rationale: "The second execution addresses the blocking fixture finding.",
+            },
+          ],
+        }),
+      ],
+      workerEnvironment,
+    );
     writeFileSync(
       closeoutPath,
       `# Closeout\n\n## Summary\n\nSecond execution addresses the verification note: artifact:${packagePath}/artifacts/recovery.txt@${artifactSync.revision}\n\n` +

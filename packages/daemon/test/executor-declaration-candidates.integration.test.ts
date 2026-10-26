@@ -253,6 +253,29 @@ test("declare-executor traces the authoring dispatch across executions and never
       (await cell.run({ kind: "task-start", taskId, executionId: recoveryExecutionId }, owner)).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: recoveryExecutionId,
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "cha",
+                  findingId: "fixture-finding",
+                  disposition: "adopt",
+                  rationale: "The recovery execution addresses the blocking fixture finding.",
+                },
+              ],
+            }),
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(path.join(workerRoot, "README.md"), "# Recovery delivery\n");
     git(workerRoot, "commit", "--quiet", "-am", "recovery delivery");
     const recoveryCommit = git(workerRoot, "rev-parse", "HEAD");

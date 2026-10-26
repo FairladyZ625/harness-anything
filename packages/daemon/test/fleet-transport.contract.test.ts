@@ -436,6 +436,8 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       verdict: "approved",
       reason: "checked",
       evidenceChecked: ["tests"],
+      findings: [],
+      resolutions: [],
     },
     { kind: "task-review-consent", taskId: "task_abc", executionId: "execution_abc", reviewId: "review_abc" },
     { kind: "task-release", taskId: "task_abc", reason: "handoff" },

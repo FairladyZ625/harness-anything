@@ -295,6 +295,29 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     assert.equal(afterReturn.task.iteration, 1, "the adverse verdict opens the second round");
 
     run(root, userRoot, ["task", "start", taskId, "--execution-id", secondExecutionId], worker);
+    run(
+      root,
+      userRoot,
+      [
+        "task",
+        "respond-review",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--json-input",
+        JSON.stringify({
+          responses: [
+            {
+              reviewId: "review-release-acc-rework",
+              findingId: "fixture-finding",
+              disposition: "adopt",
+              rationale: "The second execution addresses the blocking fixture finding.",
+            },
+          ],
+        }),
+      ],
+      worker,
+    );
     writeFileSync(reportFile, secondBody);
     writeCloseout(root, packagePath, "The second execution addressed the returned review.");
     const secondPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
