@@ -205,25 +205,21 @@ test("one invitation creates and syncs an independent workspace for every reposi
   );
   assert.equal(syncs.at(-1)?.quotaBytes, explicitQuota, "an explicit quota is passed through unchanged");
 
-  const failedJoin = await joinFleetEdge(
-    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "too-small"), quotaBytes: 1024 },
-    {
-      ...ports,
-      sync: async () => {
-        throw Object.assign(new Error("base backup exceeds disk quota"), { code: "replica_sync_failed" });
+  await assert.rejects(
+    joinFleetEdge(
+      { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "too-small"), quotaBytes: 1024 },
+      {
+        ...ports,
+        sync: async () => {
+          throw Object.assign(new Error("base backup exceeds disk quota"), { code: "replica_sync_failed" });
+        },
       },
+    ),
+    (error: unknown) => {
+      assert.equal((error as { readonly code?: unknown }).code, "replica_sync_failed");
+      assert.match(String((error as Error).message), /base backup exceeds disk quota/u);
+      return true;
     },
-  );
-  assert.equal(failedJoin.ok, false);
-  assert.equal(failedJoin.code, "edge_join_sync_failed");
-  const joinError = failedJoin.error as { readonly code?: unknown; readonly hint?: unknown };
-  assert.equal(joinError.code, "replica_sync_failed");
-  assert.match(String(joinError.hint), /repo-a.*base backup exceeds disk quota/u);
-  assert.match(String(joinError.hint), /ha daemon fleet edge sync --quota-bytes/u);
-  assert.equal(
-    (failedJoin.repositories as readonly { readonly ok: boolean }[]).every((repository) => !repository.ok),
-    true,
-    "a failed initial replica remains a per-repository partial result",
   );
 });
 

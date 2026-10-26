@@ -4,7 +4,6 @@ import { X509Certificate } from "node:crypto";
 import { existsSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessTextAsync } from "../process-port.ts";
@@ -183,33 +182,20 @@ export async function joinFleetEdge(
     const quotaBytes =
       request.quotaBytes ??
       deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
-    let synced: Record<string, unknown>;
-    try {
-      synced = await ports.sync({
-        repoId: repository.repoId,
-        workspaceRoot: root,
-        host: center.hostname,
-        port,
-        servername: centerServername,
-        caPath,
-        nodeId: admitted.nodeId,
-        credential: admitted.credential,
-        humanClientId: authority.clientId,
-        viewRoot: `${root}-view`,
-        quotaBytes,
-        timeoutMs: 60_000,
-      });
-    } catch (error) {
-      consumeKnownError(error);
-      report("failed");
-      repositories.push({
-        repoId: repository.repoId,
-        workspaceRoot: root,
-        ok: false,
-        ...edgeJoinSyncFailure(repository.repoId, error),
-      });
-      continue;
-    }
+    const synced = await ports.sync({
+      repoId: repository.repoId,
+      workspaceRoot: root,
+      host: center.hostname,
+      port,
+      servername: centerServername,
+      caPath,
+      nodeId: admitted.nodeId,
+      credential: admitted.credential,
+      humanClientId: authority.clientId,
+      viewRoot: `${root}-view`,
+      quotaBytes,
+      timeoutMs: 60_000,
+    });
     if (synced.ok === false) {
       report("failed");
       repositories.push({
