@@ -805,3 +805,60 @@ test("RepoCell fixtures preserve an unnamed local caller's missing authority", a
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("an ambiguous agent install reports its warning on the receipt the operator reads", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-install-warning-"));
+  initRepo(rootDir);
+  // Two enabled instances of one kind, model spelled in different case: exactly the choice the
+  // declaration below leaves open.
+  const cell = await openRepoCell({
+    repoId: workspaceId("agent-install-warning"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "agent-install-warning-test",
+    runtimeInstances: () =>
+      [
+        { instanceId: "ds-bailian", models: ["deepseek-v4.1-flash"] },
+        { instanceId: "ds-harness-api", models: ["Deepseek-V4.1-Flash"] },
+      ].map(({ instanceId, models }) => ({
+        schemaVersion: 2,
+        instanceId,
+        name: instanceId,
+        kindId: "deepseek-harness",
+        installationId: "deepseek-harness-install",
+        providerId: "deepseek",
+        models: [...models],
+        defaultModel: models[0]!,
+        enabled: true,
+        permissionMode: "workspace-write",
+        authMode: "api-key",
+        authState: "configured",
+        authReadiness: { status: "ready", code: null, hint: null },
+        isolationState: "enforced",
+      })),
+  });
+  try {
+    const installed = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          ...declaration,
+          runtimes: [{ type: "deepseek-harness", model: "deepseek-v4.1-flash" }],
+        },
+        idempotencyKey: "ambiguous-install",
+      },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    // The report nests warnings where the human renderer cannot reach them; without lifting them
+    // to the receipt's own warnings channel `ha agent install` printed nothing at all.
+    assert.deepEqual(installed.warnings, [
+      "agent_runtime_instance_ambiguous: Agent unified-agent can dispatch to 2 enabled instances " +
+        "(ds-bailian, ds-harness-api) and does not name one; dispatch would fall back to runtime-row " +
+        "then repository allowed-instance order. Pin one with the `instance` field, or state an order " +
+        "with `preferredInstances`; run ha runtime instance list to see the enabled instances.",
+    ]);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

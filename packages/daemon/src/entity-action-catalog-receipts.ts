@@ -221,6 +221,25 @@ export function preparedEntityReport(action: RepoTaskAction): Readonly<Record<st
     : {};
 }
 
+/**
+ * The prepared report's non-blocking warnings as receipt warnings. The report nests them under
+ * `warnings`, where the human renderer cannot reach them, so `ha agent install` used to emit
+ * `agent_runtime_instance_ambiguous` only in the machine payload while `ha agent validate` printed
+ * it. Lifting them to the receipt's top-level `warnings` puts the same sentence on both surfaces
+ * and on the CLI's existing `warning:` channel; the code stays in the line so it stays greppable.
+ */
+export function preparedEntityWarnings(action: RepoTaskAction): readonly string[] {
+  const warnings = preparedEntityReport(action).warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const { code, message } = entry as { readonly code?: unknown; readonly message?: unknown };
+    return typeof message === "string" && message.length > 0
+      ? [typeof code === "string" && code.length > 0 ? `${code}: ${message}` : message]
+      : [];
+  });
+}
+
 export function readReceipt<
   T extends { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
 >(command: string, read: T): WriteReceipt {

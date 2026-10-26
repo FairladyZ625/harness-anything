@@ -202,12 +202,15 @@ export function compatibleRuntimeInstances(input: {
 }
 
 /**
- * The ambiguity `ha agent validate` / `ha agent install` warn about: several enabled instances can
- * serve the declaration and the declaration never says which one to prefer. Dispatch stays
- * deterministic without a preference, but the author's intent is unstated, so the warning names
- * the candidates and both ways to state it. Null when there is no choice left to make: one
+ * The ambiguity `ha agent validate`, `ha agent install`, and dispatch warn about: several enabled
+ * instances can serve the declaration and the declaration never says which one to prefer. Dispatch
+ * stays deterministic without a preference, but the author's intent is unstated, so the warning
+ * names the candidates and both ways to state it. Null when there is no choice left to make: one
  * candidate, a hard `instance` pin, or a `preferredInstances` list that prefers at least every
  * candidate but one.
+ *
+ * `selected` is set by a dispatch, which has already decided: its sentence reports the instance it
+ * took instead of what a future dispatch "would" do, so one definition serves all three surfaces.
  */
 export function agentRuntimeAmbiguityWarning(input: {
   readonly agent: Pick<RuntimeAgent, "id" | "runtimes" | "instance" | "preferredInstances">;
@@ -217,6 +220,7 @@ export function agentRuntimeAmbiguityWarning(input: {
     readonly models: readonly string[];
     readonly enabled: boolean;
   }[];
+  readonly selected?: string;
 }): { readonly code: string; readonly message: string } | null {
   const agent = input.agent;
   if (agent.instance !== undefined) return null;
@@ -228,8 +232,11 @@ export function agentRuntimeAmbiguityWarning(input: {
     code: "agent_runtime_instance_ambiguous",
     message:
       `Agent ${agent.id} can dispatch to ${String(candidates.length)} enabled instances ` +
-      `(${candidates.join(", ")}) and does not name one; dispatch would fall back to runtime-row then ` +
-      "repository allowed-instance order. Pin one with the `instance` field, or state an order with " +
-      "`preferredInstances`; run ha runtime instance list to see the enabled instances.",
+      `(${candidates.join(", ")}) and does not name one; ` +
+      (input.selected === undefined
+        ? "dispatch would fall back to runtime-row then repository allowed-instance order. "
+        : `this dispatch took ${input.selected}. `) +
+      "Pin one with the `instance` field, or state an order with `preferredInstances`; run ha runtime " +
+      "instance list to see the enabled instances.",
   };
 }

@@ -482,7 +482,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       ["runtime_auth_not_checked", "runtime_auth_not_checked"],
     );
     const readsBeforeFirstSpawn = instanceReads.count;
-    await cell.spawnRuntime(
+    const autoRouted = await cell.spawnRuntime(
       {
         agentId: "declared-model",
         cwd: { scope: "repo-root" },
@@ -493,6 +493,25 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       binding,
     );
     assert.equal(launched?.definition.instanceId, "codex-agent-model");
+    // Two same-kind instances can serve this declaration and it names no preference, so the
+    // dispatch that had to choose says so on its own receipt instead of leaving the author to
+    // discover it from a later unexpected landing.
+    assert.deepEqual(
+      {
+        selection: (autoRouted.runtimeSelection as { readonly instanceId: string }).instanceId,
+        warnings: autoRouted.warnings,
+      },
+      {
+        selection: "codex-agent-model",
+        warnings: [
+          "Agent declared-model can dispatch to 2 enabled instances (codex-agent-model, " +
+            "codex-agent-model-b) and does not name one; this dispatch took codex-agent-model. " +
+            "Pin one with the `instance` field, or state an order with `preferredInstances`; run ha " +
+            "runtime instance list to see the enabled instances.",
+        ],
+      },
+    );
+    assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("runtime-spawn", autoRouted)), []);
     assert.deepEqual(probed, ["codex-agent-model"]);
     assert.equal(instanceReads.count - readsBeforeFirstSpawn, 1);
     await cell.spawnRuntime(

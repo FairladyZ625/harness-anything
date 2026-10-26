@@ -109,9 +109,11 @@ dispatch:
 ```
 
 The dispatch receipt repeats the decision as `runtimeSelection` (`instanceId`,
-`basis`, `reason`, `model`), and `ha agent validate` / `ha agent install` warn
-when several compatible instances exist and the declaration names no preference
-(`agent_runtime_instance_ambiguous`). Model matching is exact first,
+`basis`, `reason`, `model`). When several compatible instances exist and the
+declaration names no preference, `ha agent validate`, `ha agent install`, and
+the dispatch itself warn with `agent_runtime_instance_ambiguous`; the dispatch
+warning names the instance it actually took, so an unstated choice is visible
+before and at the moment it is resolved. Model matching is exact first,
 case-insensitive second; the launched model is always the spelling the chosen
 instance publishes.
 

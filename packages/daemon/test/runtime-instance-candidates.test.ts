@@ -666,3 +666,25 @@ test("a tie on the model tier names the real deciding key instead of claiming th
   assert.match(tied.reason, /model spelling did not separate the candidates/u);
   assert.doesNotMatch(tied.reason, /ranks ahead of any instance/u);
 });
+
+test("a dispatch-time ambiguity warning names the instance it took, not a hypothetical fallback", () => {
+  const runtimeInstances = [
+      { ...deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]) },
+      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]) },
+    ],
+    agent = deepseekReviewer(),
+    atDispatch = agentRuntimeAmbiguityWarning({ agent, runtimeInstances, selected: "ds-bailian" }),
+    beforeDispatch = agentRuntimeAmbiguityWarning({ agent, runtimeInstances });
+  assert.equal(atDispatch?.code, "agent_runtime_instance_ambiguous");
+  // Dispatch already decided: it reports the instance, never "would fall back".
+  assert.match(atDispatch!.message, /this dispatch took ds-bailian/u);
+  assert.doesNotMatch(atDispatch!.message, /would fall back/u);
+  // Validate/install run before any dispatch and keep the predictive wording.
+  assert.match(beforeDispatch!.message, /dispatch would fall back/u);
+  // Both still name the same candidates and both ways to state the intent.
+  for (const warning of [atDispatch!, beforeDispatch!]) {
+    assert.match(warning.message, /ds-bailian/u);
+    assert.match(warning.message, /ds-harness-api/u);
+    assert.match(warning.message, /preferredInstances/u);
+  }
+});

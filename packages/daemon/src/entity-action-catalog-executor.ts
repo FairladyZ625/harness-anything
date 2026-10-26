@@ -40,6 +40,7 @@ import {
   factPreview,
   factReceipt,
   preparedEntityReport,
+  preparedEntityWarnings,
   previewReceipt,
   readReceipt,
 } from "./entity-action-catalog-receipts.ts";
@@ -476,6 +477,7 @@ export function makeEntityActionCatalogExecutor(input: {
     publicationKillpoints(input.killpoint);
     const applied = input.projection.readOperation(bundle.event.opId),
       visible = !!applied && applied.watermark >= bundle.event.workspaceRevision,
+      warnings = preparedEntityWarnings(action),
       path =
         bundle.event.type === "entity_deleted"
           ? bundle.event.payload.ownedContent.retirements[0]!.path
@@ -518,6 +520,7 @@ export function makeEntityActionCatalogExecutor(input: {
         commitSha: appended.commitSha?.sha ?? null,
         cut: appended.cut,
         authorizationDecision,
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     return visible
       ? { outcome: "applied", ...receipt }

@@ -10,7 +10,7 @@ import {
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
 import { agentRuntimeModelSpelling, agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
-import { selectedRuntimeInstance } from "./runtime-instance-selection.ts";
+import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "./runtime-instance-selection.ts";
 import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
@@ -1038,25 +1038,47 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // The receipt states which instance was chosen and which rule decided it; without this the
     // operator sees only an id and has to infer why a same-kind sibling was skipped.
     const selectionFields = {
-      runtimeSelection: {
-        instanceId: runtimeSelection.instanceId,
-        basis: runtimeSelection.basis,
-        reason: runtimeSelection.reason,
-        model: definition.model,
+        runtimeSelection: {
+          instanceId: runtimeSelection.instanceId,
+          basis: runtimeSelection.basis,
+          reason: runtimeSelection.reason,
+          model: definition.model,
+        },
       },
-    };
+      // `ha agent validate` / `ha agent install` warn before dispatch; the dispatch that actually
+      // had to pick is the last moment the author can still be told the choice was unstated, so the
+      // same warning rides this receipt and names the instance it took.
+      ambiguity =
+        agent === null
+          ? null
+          : agentRuntimeAmbiguityWarning({
+              agent,
+              runtimeInstances,
+              selected: runtimeSelection.instanceId,
+            }),
+      // Merge, never replace: the receipt may already carry operator notices (for example the
+      // hosting-credential warning) that this dispatch must not drop.
+      existingWarnings = Array.isArray(requested.receipt?.warnings)
+        ? (requested.receipt.warnings as readonly unknown[]).filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : [],
+      warningFields: { warnings?: readonly string[] } =
+        ambiguity === null ? {} : { warnings: [...existingWarnings, ambiguity.message] };
     return requested.receipt
       ? {
           ...requested.receipt,
           runtimeSessionId,
           dispatchId: newDispatchId,
           ...selectionFields,
+          ...warningFields,
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         }
       : {
           ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
           ...selectionFields,
+          ...warningFields,
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };
