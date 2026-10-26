@@ -22,42 +22,39 @@ const seededTask = { taskId: "task_stream000000000000000000001", executionId: "e
 let pressureCounter = 0;
 const createPressure = (): string => `task_wp${String(++pressureCounter).padStart(6, "0")}00000000000000000000`;
 
-const mirrorEventCount = (ledgerPath: string): number => {
+// One bounded read against a mirror ledger. The edge is SIGKILLed in these tests, so it can leave an
+// unrecovered WAL behind; a probe that opens without a busy handler gets SQLITE_BUSY_RECOVERY (261,
+// "database is locked") on its first statement whenever another connection happens to be running that
+// recovery, which under CI load is exactly what happened. Every probe here goes through one guard.
+const readMirror = <T>(ledgerPath: string, read: (db: DatabaseSync) => T): T => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
       db.exec("PRAGMA busy_timeout=5000");
-      return (db.prepare("SELECT COUNT(*) AS rows_ FROM event").get() as { rows_: number }).rows_;
+      return read(db);
     } finally {
       db.close();
     }
   },
-  mirrorOutcomeCount = (ledgerPath: string): number => {
-    const db = new DatabaseSync(ledgerPath, { readOnly: true });
-    try {
-      db.exec("PRAGMA busy_timeout=5000");
-      return (db.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_;
-    } finally {
-      db.close();
-    }
-  },
-  mirrorHead = (ledgerPath: string): number => {
-    const db = new DatabaseSync(ledgerPath, { readOnly: true });
-    try {
-      db.exec("PRAGMA busy_timeout=5000");
-      return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
-    } finally {
-      db.close();
-    }
-  },
-  centerOutcomeCount = (fixture: FleetReplicationFixture): number => {
-    const db = new DatabaseSync(fixture.ledgerPath, { readOnly: true });
-    try {
-      db.exec("PRAGMA busy_timeout=5000");
-      return (db.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_;
-    } finally {
-      db.close();
-    }
-  };
+  mirrorEventCount = (ledgerPath: string): number =>
+    readMirror(
+      ledgerPath,
+      (db) => (db.prepare("SELECT COUNT(*) AS rows_ FROM event").get() as { rows_: number }).rows_,
+    ),
+  mirrorOutcomeCount = (ledgerPath: string): number =>
+    readMirror(
+      ledgerPath,
+      (db) => (db.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_,
+    ),
+  mirrorHead = (ledgerPath: string): number =>
+    readMirror(
+      ledgerPath,
+      (db) => (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head,
+    ),
+  centerOutcomeCount = (fixture: FleetReplicationFixture): number =>
+    readMirror(
+      fixture.ledgerPath,
+      (db) => (db.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_,
+    );
 
 test(
   "a rejected command with no events still replicates: sequence advances, revision does not",
@@ -154,13 +151,10 @@ test("a lost ACK replays the durable suffix without duplicating canonical events
     headRevision,
     "replayed records are applied exactly once: mirror row count equals the center's revision head",
   );
-  const duplicateCheck = new DatabaseSync(String(installed.ledgerPath), { readOnly: true });
-  try {
-    const rows = duplicateCheck.prepare("SELECT op_id, COUNT(*) AS n FROM event GROUP BY op_id HAVING n > 1").all();
-    assert.deepEqual(rows, [], "no canonical event exists twice on the mirror");
-  } finally {
-    duplicateCheck.close();
-  }
+  const duplicateCheck = readMirror(String(installed.ledgerPath), (db) =>
+    db.prepare("SELECT op_id, COUNT(*) AS n FROM event GROUP BY op_id HAVING n > 1").all(),
+  );
+  assert.deepEqual(duplicateCheck, [], "no canonical event exists twice on the mirror");
 });
 
 test("a disconnect resumes from the persisted cursor without a fresh basebackup", { timeout: 180_000 }, async (t) => {
@@ -191,16 +185,21 @@ test("a disconnect resumes from the persisted cursor without a fresh basebackup"
   }
   assert.ok(fixture.eventCount() > headBeforeRestart);
   const resumed = fixture.startEdge("edge-one", { retry: true });
+  // Convergence first: the resumed child has emitted nothing at this instant, so asserting on its
+  // event history here would pass without observing the product. The mirror path is re-read after
+  // the restart too — a resume that re-packaged installs a new generation under a new path, and a
+  // poll of the pre-kill path would then wait on a file the product had already abandoned.
+  await resumed.waitForWhere(
+    () =>
+      mirrorHead(String(resumed.lastEvent("installed")?.ledgerPath ?? installed.ledgerPath)) === fixture.eventCount(),
+    "post-restart convergence to the center head",
+    60_000,
+  );
   // Resume on the same history: no second package transfer, only the ordered suffix.
   assert.equal(
     resumed.events.filter((event) => event.event === "backup-header").length,
     0,
     "reconnection inside the window streams the suffix instead of re-packaging",
-  );
-  await resumed.waitForWhere(
-    () => mirrorHead(String(installed.ledgerPath)) === fixture.eventCount(),
-    "post-restart convergence to the center head",
-    60_000,
   );
 });
 
