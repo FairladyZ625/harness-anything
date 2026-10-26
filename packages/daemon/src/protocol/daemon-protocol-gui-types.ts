@@ -423,6 +423,8 @@ type DaemonGuiReadDataMap = {
   readonly "repo.task.dispatches": DaemonTaskDispatchesResult;
   readonly "repo.agent.entities.list": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>;
   readonly "repo.agent.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }>;
+  readonly "repo.agent.history.read": import("../agent-version-read.ts").AgentHistoryRead;
+  readonly "repo.agent.version.read": import("../agent-version-read.ts").AgentVersionRead;
   readonly "repo.agent.skills.list": AgentSkillGuiRead;
   readonly "repo.squad.entities.list": Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-catalog/v1" }>;
   readonly "repo.squad.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }>;
@@ -519,6 +521,13 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.task.dispatches": DaemonTaskDispatchesPayload;
   readonly "repo.agent.entities.list": Readonly<Record<string, never>>;
   readonly "repo.agent.entity.read": { readonly agentId: string };
+  readonly "repo.agent.history.read": {
+    readonly agentId: string;
+    readonly limit?: number;
+    readonly cursor?: string;
+    readonly noSummary?: boolean;
+  };
+  readonly "repo.agent.version.read": { readonly agentId: string; readonly revision: number };
   readonly "repo.agent.skills.list": Readonly<Record<string, never>>;
   readonly "repo.squad.entities.list": Readonly<Record<string, never>>;
   readonly "repo.squad.entity.read": { readonly squadId: string };

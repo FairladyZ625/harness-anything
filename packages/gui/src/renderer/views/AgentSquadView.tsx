@@ -22,6 +22,7 @@ import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/
 import { DeleteEntityDialog, RetireAgentDialog } from "../components/runtime/EntityLifecycleDialog.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Hint } from "../components/runtime/parts.tsx";
+import { AgentVersionPanel } from "../components/runtime/AgentVersionPanel.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { IdentityRail } from "../components/runtime/RuntimeRail.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
@@ -408,6 +409,16 @@ export function AgentSquadView({
                   availableSkills={skills.data ?? []}
                   presets={catalog.data?.presets ?? []}
                   busy={workspace.busy}
+                  versionPanel={
+                    <AgentVersionPanel
+                      repoId={repoId}
+                      agentId={selectedAgent.id}
+                      revision={agentDetail.data.revision}
+                      retired={selectedAgent.retirement !== null}
+                      busy={workspace.busy}
+                      onSave={workspace.saveAgent}
+                    />
+                  }
                   actionError={workspace.error}
                   conclusionRefs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
                   lastDispatch={related.dockRows[0] ?? null}
@@ -416,7 +427,7 @@ export function AgentSquadView({
                   loadingMoreSessions={related.loadingMore}
                   onMoreSessions={related.loadMore}
                   onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
-                  onSave={(declaration) => void workspace.saveAgent(declaration)}
+                  onSave={(declaration, expectedVersion) => void workspace.saveAgent(declaration, expectedVersion)}
                   onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
                   onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
                   onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}

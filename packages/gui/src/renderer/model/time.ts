@@ -121,6 +121,13 @@ export function formatListTime(
 }
 
 /** 时长(一种紧凑写法):`45ms` / `1.6s` / `45s` / `4m 45s` / `2h 30m` / `1d 2h`;未知(NaN/负数/缺投影)回落占位词。 */
+/** Group thousands for byte counts shown beside a version; the unit stays the caller's. */
+export function formatByteCount(bytes: number): string {
+  const digits = String(Math.max(0, Math.trunc(bytes))),
+    grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+  return grouped;
+}
+
 export function formatDuration(uptimeMs: number | null | undefined, unknown = "—"): string {
   if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) return unknown;
   const msRounded = Math.round(uptimeMs),

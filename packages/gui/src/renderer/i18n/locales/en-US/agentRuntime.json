@@ -786,5 +786,16 @@
   "agentRuntime.sessionConclusionFromReview": "from the review verdict",
   "agentRuntime.sessionConclusionFromClaim": "from the submission's completion claim",
   "agentRuntime.sessionConclusionFromSettlement": "from the daemon settlement",
-  "agentRuntime.sessionConclusionFromResult": "from the session result, narration removed"
+  "agentRuntime.sessionConclusionFromResult": "from the session result, narration removed",
+  "agentRuntime.versions": "Versions",
+  "agentRuntime.versionsDesc": "Declaration history; every install is a version.",
+  "agentRuntime.versionsEmpty": "No declaration versions recorded yet.",
+  "agentRuntime.versionsUnavailable": "The version history could not be read.",
+  "agentRuntime.versionCurrent": "current",
+  "agentRuntime.versionSummaryAbsent": "no summary",
+  "agentRuntime.versionPick": "Pick a version to compare it with the current declaration.",
+  "agentRuntime.versionUnavailable": "This version could not be read.",
+  "agentRuntime.versionNoFieldDiff": "This version matches the current declaration field by field.",
+  "agentRuntime.versionIsCurrent": "This version is the current declaration; nothing to roll back.",
+  "agentRuntime.versionRollback": "Roll back to this version"
 }

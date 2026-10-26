@@ -18,6 +18,7 @@ import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishC
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
 import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "./cli-task-artifact-run.ts";
 import { doctorInvocation, renderDoctorReport, runDoctor } from "./cli/thin-command-doctor.ts";
+import { parseAgentRollbackCommand, runAgentRollback } from "./cli-agent-rollback.ts";
 import { parseBackupRetentionInvocation, runBackupRetention } from "./cli/thin-command-backup-retention.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
@@ -160,14 +161,20 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   try {
     const receipt = withTitleFocusGuidance(
       withFactStatementGuidance(
-        isRuntimeFacadeCommand(typedCommand)
-          ? await runRuntimeFacadeCommand(typedCommand)
-          : await runCommandThroughDaemon(
-              typedCommand,
-              (phase) => emit(phase, typedCommand.json),
-              undefined,
-              daemonRequestTimer,
-            ),
+        typedCommand.action.kind === "agent-rollback"
+          ? await runAgentRollback(
+              parseAgentRollbackCommand(typedCommand),
+              (requested) => runCommandThroughDaemon(requested, (phase) => emit(phase, typedCommand.json)),
+              { rootDir: typedCommand.rootDir, ...(typedCommand.repoId ? { repoId: typedCommand.repoId } : {}) },
+            )
+          : isRuntimeFacadeCommand(typedCommand)
+            ? await runRuntimeFacadeCommand(typedCommand)
+            : await runCommandThroughDaemon(
+                typedCommand,
+                (phase) => emit(phase, typedCommand.json),
+                undefined,
+                daemonRequestTimer,
+              ),
         typedCommand.action,
       ),
       typedCommand.action,

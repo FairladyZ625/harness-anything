@@ -307,7 +307,7 @@ export function useAgentSquadWorkspace(repoId: string) {
     error: channel.error,
     settlement: channel.settlement,
     clearFeedback: channel.clearFeedback,
-    saveAgent: async (declaration: AgentDeclarationV1): Promise<EntitySaveResult | null> => {
+    saveAgent: async (declaration: AgentDeclarationV1, expectedVersion?: number): Promise<EntitySaveResult | null> => {
       // A cold Agent entry can still have its initial empty catalog request in flight when the
       // first create action is submitted. Cancel that pre-write snapshot so it cannot overwrite
       // the post-write reread with stale data.
@@ -317,7 +317,8 @@ export function useAgentSquadWorkspace(repoId: string) {
       ]);
       const saved = (await channel.run(
         t("agentRuntime.opAgentSaved"),
-        () => agentEntityClient.saveAgent(repoId, declaration),
+        // The editor passes the revision it read; omitting it keeps the create path's 0.
+        () => agentEntityClient.saveAgent(repoId, declaration, expectedVersion),
         false,
       )) as EntitySaveResult | null;
       if (saved === null) return null;

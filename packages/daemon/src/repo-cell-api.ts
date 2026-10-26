@@ -51,6 +51,7 @@ import {
 } from "@harness-anything/kernel";
 import { type PresetRunReceiptV1, type createPresetProcessService } from "@harness-anything/preset";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
+import { readAgentHistory, readAgentVersion, type AgentVersionPorts } from "./agent-version-read.ts";
 import { makeRepoCellCommandRunner } from "./repo-cell-command-run.ts";
 import {
   canonicalVertical,
@@ -315,6 +316,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
             .then((receipt) => ({ ...receipt, authorizationDecision: authorizationDecision! }))
         : reject("unsupported_command");
   };
+  const agentVersionPorts = (): AgentVersionPorts => ({ projection: context.projection, store: context.store });
   let readinessCache:
     | {
         readonly key: string;
@@ -423,6 +425,20 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         kind: "agent-inspect",
         entityId: context.requiredCellText(payload.agentId, "agentId"),
         projection: context.projection,
+      }),
+    // The version facets are the same two-hop read the CLI uses: event list → declaration claim →
+    // retained content object. They are named reads so the GUI never rebuilds history itself.
+    "repo.agent.history.read": (payload: Readonly<Record<string, unknown>>) =>
+      readAgentHistory(agentVersionPorts(), {
+        agentId: context.requiredCellText(payload.agentId, "agentId"),
+        ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
+        ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
+        ...(payload.noSummary === undefined ? {} : { summaries: payload.noSummary !== true }),
+      }),
+    "repo.agent.version.read": (payload: Readonly<Record<string, unknown>>) =>
+      readAgentVersion(agentVersionPorts(), {
+        agentId: context.requiredCellText(payload.agentId, "agentId"),
+        revision: Number(payload.revision),
       }),
     "repo.agent.skills.list": () => readAgentSkillsGui(context.rootDir),
     "repo.squad.entities.list": () =>

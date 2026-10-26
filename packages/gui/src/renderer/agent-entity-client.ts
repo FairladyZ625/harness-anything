@@ -1,10 +1,14 @@
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
 import type {
+  AgentDiffField,
   AgentEntityGuiDetail as AgentEntityDetail,
   AgentEntityGuiAvailableRow as AgentEntityAvailableRow,
   AgentEntityGuiRead as AgentEntityRead,
   AgentEntityGuiRow as AgentEntityRow,
+  AgentHistoryRead,
+  AgentHistoryVersion,
   AgentSkillGuiRead,
+  AgentVersionRead,
   SquadEntityGuiDetail as SquadEntityDetail,
   SquadEntityGuiAvailableRow as SquadEntityAvailableRow,
   SquadEntityGuiRow as SquadEntityRow,
@@ -14,10 +18,14 @@ import { rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";
 export type {
+  AgentDiffField,
   AgentEntityAvailableRow,
   AgentEntityDetail,
   AgentEntityRead,
   AgentEntityRow,
+  AgentHistoryRead,
+  AgentHistoryVersion,
+  AgentVersionRead,
   SquadEntityAvailableRow,
   SquadEntityDetail,
   SquadEntityRow,
@@ -48,10 +56,30 @@ type Bridge = {
   readonly listAgentSkills: (payload: { readonly repoId: string }) => Promise<unknown>;
   readonly listSquads: (payload: { readonly repoId: string }) => Promise<unknown>;
   readonly showSquad: (payload: { readonly repoId: string; readonly squadId: string }) => Promise<unknown>;
+  readonly readAgentHistory: (payload: {
+    readonly repoId: string;
+    readonly agentId: string;
+    readonly limit?: number;
+    readonly cursor?: string;
+    readonly noSummary?: boolean;
+  }) => Promise<unknown>;
+  readonly readAgentVersion: (payload: {
+    readonly repoId: string;
+    readonly agentId: string;
+    readonly revision: number;
+  }) => Promise<unknown>;
 };
 const bridge = (): Bridge => {
   const value = guiHostBridge() as unknown as Partial<Bridge> | undefined,
-    required = ["listAgents", "showAgent", "listAgentSkills", "listSquads", "showSquad"] as const;
+    required = [
+      "listAgents",
+      "showAgent",
+      "listAgentSkills",
+      "listSquads",
+      "showSquad",
+      "readAgentHistory",
+      "readAgentVersion",
+    ] as const;
   if (!value || required.some((method) => typeof value[method] !== "function"))
     throw new Error("Agent entity bridge is unavailable.");
   return value as Bridge;
@@ -67,11 +95,31 @@ export const agentEntityClient = {
     detail(await bridge().showAgent({ repoId, agentId }), "agent-entity-detail/v1", "agent") as AgentEntityDetail,
   showSquad: async (repoId: string, squadId: string): Promise<SquadEntityDetail> =>
     detail(await bridge().showSquad({ repoId, squadId }), "squad-entity-detail/v1", "squad") as SquadEntityDetail,
-  saveAgent: async (repoId: string, declaration: AgentDeclarationV1): Promise<EntitySaveResult> =>
+  readAgentHistory: async (
+    repoId: string,
+    agentId: string,
+    input: { readonly limit?: number; readonly cursor?: string; readonly noSummary?: boolean } = {},
+  ): Promise<AgentHistoryRead> =>
+    versioned(
+      await bridge().readAgentHistory({
+        repoId,
+        agentId,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+        ...(input.noSummary === undefined ? {} : { noSummary: input.noSummary }),
+      }),
+      "agent-history/v1",
+    ) as AgentHistoryRead,
+  readAgentVersion: async (repoId: string, agentId: string, revision: number): Promise<AgentVersionRead> =>
+    versioned(await bridge().readAgentVersion({ repoId, agentId, revision }), "agent-version/v1") as AgentVersionRead,
+  // 保存带上详情里的声明 revision:daemon 的 agent-install 动作已有 expectedVersion 栅栏,
+  // 这里只是把编辑者读到的那一版递过去。并发保存的后者因此得到 revision_conflict,而不是
+  // 静默覆盖前者。新建没有既有 revision,显式递 0(空实体通过栅栏)。
+  saveAgent: async (repoId: string, declaration: AgentDeclarationV1, expectedVersion = 0): Promise<EntitySaveResult> =>
     save(
       await invoke(
         "repo.agent.entity.write",
-        { repoId, declaration } as { readonly repoId: string } & object,
+        { repoId, declaration, expectedVersion } as { readonly repoId: string } & object,
         "saveAgent",
       ),
     ),
@@ -134,6 +182,14 @@ function detail(value: unknown, schema: string, field: string): unknown {
     throw new Error(rendererErrorHint(row, "Agent entity detail read returned an invalid payload."));
   if (containsSecretLikeKey(row)) throw new Error("Agent entity detail contains a forbidden credential-shaped key.");
   return row[field];
+}
+/** Version reads carry a closed schema like every other Agent read; an unexpected shape fails closed. */
+function versioned(value: unknown, schema: string): unknown {
+  const row = entityRecord(value);
+  if (row.schema !== schema || row.ok !== true)
+    throw new Error(rendererErrorHint(row, `Agent version read returned an invalid ${schema} payload.`));
+  if (containsSecretLikeKey(row)) throw new Error("Agent version read contains a forbidden credential-shaped key.");
+  return row;
 }
 function save(value: unknown): EntitySaveResult {
   const row = entityRecord(value),

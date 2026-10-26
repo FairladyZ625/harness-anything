@@ -84,6 +84,14 @@ export type {
   SquadEntityGuiDetail,
   SquadEntityGuiRow,
 } from "../agent-entities.ts";
+export type {
+  AgentDiffField,
+  AgentDiffLine,
+  AgentDiffRead,
+  AgentHistoryRead,
+  AgentHistoryVersion,
+  AgentVersionRead,
+} from "../agent-version-read.ts";
 export type { RuntimeInstanceSummary } from "../agent-runtime-instance-types.ts";
 export { agentRuntimeSearchMatches } from "../agent-runtime-search.ts";
 /**

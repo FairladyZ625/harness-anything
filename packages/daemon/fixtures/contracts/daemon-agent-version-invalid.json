@@ -1,0 +1,19 @@
+{
+  "schema": "agent-version/v1",
+  "ok": true,
+  "agentId": "terra",
+  "version": {
+    "revision": 1,
+    "opId": "op-1",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size": 200,
+    "occurredAt": "2026-10-26T00:00:01.000Z",
+    "actor": { "personId": "person-a", "executorId": null },
+    "current": false,
+    "summary": "instructions 200 B · 0 skills · 1 runtime"
+  },
+  "current": { "revision": 3, "sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+  "declaration": { "schema": "agent-declaration/v1", "id": "terra" },
+  "fields": [{ "field": "unknownFacet", "kind": "changed", "from": 1, "to": 2 }],
+  "truncated": false
+}

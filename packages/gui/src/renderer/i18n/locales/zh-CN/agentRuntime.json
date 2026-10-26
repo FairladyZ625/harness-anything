@@ -786,5 +786,16 @@
   "agentRuntime.sessionConclusionFromReview": "取自评审裁决",
   "agentRuntime.sessionConclusionFromClaim": "取自交付提交的完成声明",
   "agentRuntime.sessionConclusionFromSettlement": "取自 daemon 终局裁决",
-  "agentRuntime.sessionConclusionFromResult": "取自会话结果,已剔除过程叙述"
+  "agentRuntime.sessionConclusionFromResult": "取自会话结果,已剔除过程叙述",
+  "agentRuntime.versions": "版本",
+  "agentRuntime.versionsDesc": "声明历史;每次安装都是一个版本",
+  "agentRuntime.versionsEmpty": "还没有声明版本记录",
+  "agentRuntime.versionsUnavailable": "读不到版本历史",
+  "agentRuntime.versionCurrent": "当前",
+  "agentRuntime.versionSummaryAbsent": "无摘要",
+  "agentRuntime.versionPick": "选一个版本，与当前声明对比",
+  "agentRuntime.versionUnavailable": "读不到这个版本",
+  "agentRuntime.versionNoFieldDiff": "这个版本与当前声明的字段完全一致",
+  "agentRuntime.versionIsCurrent": "这已是当前声明，无需回退",
+  "agentRuntime.versionRollback": "回退到此版本"
 }

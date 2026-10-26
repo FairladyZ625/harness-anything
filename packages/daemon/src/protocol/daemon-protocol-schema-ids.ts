@@ -259,6 +259,12 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA = Object.freeze({
     id: "daemon.agent-skill-catalog/v1",
   }),
+  DAEMON_AGENT_HISTORY_SCHEMA = Object.freeze({
+    id: "daemon.agent-history/v1",
+  }),
+  DAEMON_AGENT_VERSION_SCHEMA = Object.freeze({
+    id: "daemon.agent-version/v1",
+  }),
   DAEMON_SQUAD_ENTITY_CATALOG_SCHEMA = Object.freeze({
     id: "daemon.squad-entity-catalog/v1",
   }),
