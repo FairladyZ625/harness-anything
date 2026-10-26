@@ -204,3 +204,40 @@ test("a dispatch-review receipt names the reviewed task on every row", () => {
   assert.match(text, /^task_two\tfailed\tno submitted execution$/mu);
   assert.doesNotMatch(text, /undefined/u);
 });
+
+test("a dispatch receipt renders which runtime instance was chosen and why", () => {
+  const rendered = renderCliReceipt({
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-spawn",
+    outcome: "applied",
+    opId: "op-selection",
+    runtimeSessionId: "runtime_one",
+    dispatchId: "dispatch_one",
+    runtimeSelection: {
+      instanceId: "ds-bailian",
+      basis: "exact-model",
+      model: "deepseek-v4.1-flash",
+      reason:
+        "Instance ds-bailian (deepseek-harness) lists the declared model deepseek-v4.1-flash verbatim, " +
+        "which ranks ahead of any instance matching it only case-insensitively.",
+    },
+  });
+  assert.equal(rendered.stream, "stdout");
+  assert.match(
+    rendered.text,
+    /warning: runtime instance: ds-bailian \(exact-model\) — Instance ds-bailian \(deepseek-harness\) lists the declared model deepseek-v4\.1-flash verbatim/u,
+  );
+});
+
+test("a receipt without a runtime selection gains no extra line", () => {
+  const rendered = renderCliReceipt({
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "task-show",
+    outcome: "applied",
+    opId: "op-plain",
+    evidence: JSON.stringify({ ok: true }),
+  });
+  assert.doesNotMatch(rendered.text, /runtime instance:/u);
+});

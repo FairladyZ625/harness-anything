@@ -658,6 +658,8 @@ const agentDoc: EntityKindDoc = {
     field("name", true, "string", "显示名。"),
     field("instructions", true, "string", "身份指令(提示词纪律)。"),
     field("runtimes", true, "array", "可派的运行时目标行 {type, model?, effort?};空数组 = 任意兼容运行时种类。"),
+    field("instance", false, "string", "硬绑定一个节点实例;该实例不可用即派工失败,不回退。"),
+    field("preferredInstances", false, "array", "有序软偏好;实例就绪时优先,不可用时回退到其余候选,不阻塞派工。"),
     field("role", false, "enum", "worker / commander / reviewer。"),
     field("skills", false, "array", "技能引用:{id, path}。"),
     field("prompts", false, "array", "提示词引用。"),

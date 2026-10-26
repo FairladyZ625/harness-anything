@@ -486,6 +486,9 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // decision-dispatch-review names the dispatch it launched (or the one already running for this
     // content cut) on the CLI channel; repo.decision.dispatchReview is a named ingress onto that write.
     "dispatches",
+    // runtime-spawn figures which instance serves the dispatch and which rule decided it; the GUI
+    // is a named ingress onto that same spawn, so its envelope accepts the receipt's selection.
+    "runtimeSelection",
   ];
 
 export function writeReceipt(value: JsonObject): string[] {

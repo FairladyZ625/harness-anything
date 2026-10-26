@@ -127,6 +127,9 @@ export type RuntimeAgent = {
   readonly instructions: string;
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance?: string;
+  /** Ordered soft preference among the instances one runtimes row admits; unlike `instance` it
+   *  never fails a dispatch when a preferred instance is unavailable on this node. */
+  readonly preferredInstances?: readonly string[];
   readonly permissionMode?: AgentPermissionMode;
   readonly role?: AgentRole;
   readonly skills?: readonly AgentSkillDeclarationV1[];

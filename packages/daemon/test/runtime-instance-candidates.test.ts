@@ -5,6 +5,7 @@ import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
+import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "../src/runtime-instance-selection.ts";
 
 const instance = (
   instanceId: string,
@@ -501,4 +502,189 @@ test("an Agent without runtime declarations keeps every explicit pin and resume"
     }),
     ["zcode-flash"],
   );
+});
+
+// The deli-ai-lab shape: two deepseek-harness instances, one publishing the model title-cased
+// and one lower-cased, and a declaration that writes the lower-case spelling.
+const deepseekInstance = (instanceId: string, models: readonly string[]): never =>
+  instance(instanceId, "deepseek-harness", `provider-${instanceId}`, models) as never;
+const deepseekReviewer = (extra: Record<string, unknown> = {}): RuntimeAgent => ({
+  id: "lab-glm-reviewer",
+  name: "Lab reviewer",
+  instructions: "Review.",
+  runtimes: [{ type: "deepseek-harness", model: "deepseek-v4.1-flash" }],
+  ...extra,
+});
+
+test("an exact model spelling outranks a case-insensitive one whatever the allowlist order", () => {
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]),
+    ],
+    agent = deepseekReviewer();
+  for (const allowedInstanceIds of [
+    ["ds-bailian", "ds-harness-api"],
+    ["ds-harness-api", "ds-bailian"],
+  ]) {
+    assert.deepEqual(resolveRuntimeInstanceCandidates({ agent, instances, sessions: [], allowedInstanceIds }), [
+      "ds-bailian",
+      "ds-harness-api",
+    ]);
+  }
+});
+
+test("a case-insensitive catalog spelling is compatible instead of agent_model_unavailable", () => {
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: deepseekReviewer(),
+      instances: [deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"])],
+      sessions: [],
+      allowedInstanceIds: ["ds-harness-api"],
+    }),
+    ["ds-harness-api"],
+  );
+});
+
+test("preferredInstances orders same-row candidates ahead of the model tier and allowlist", () => {
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]),
+    ],
+    agent = deepseekReviewer({ preferredInstances: ["ds-harness-api"] });
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent,
+      instances,
+      sessions: [],
+      allowedInstanceIds: ["ds-bailian", "ds-harness-api"],
+    }),
+    ["ds-harness-api", "ds-bailian"],
+  );
+});
+
+test("a soft preference yields to availability and never blocks dispatch", async () => {
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]),
+    ],
+    agent = deepseekReviewer({ preferredInstances: ["ds-harness-api"] }),
+    selected = await prepareRuntimeInstance(
+      { agent, instances, sessions: [], allowedInstanceIds: ["ds-bailian", "ds-harness-api"] },
+      async (instanceId) => {
+        if (instanceId === "ds-harness-api")
+          throw Object.assign(new Error("Sign in"), { code: "runtime_subscription_required" });
+        return { prepared: instanceId };
+      },
+    );
+  assert.equal(selected.instanceId, "ds-bailian");
+});
+
+test("selection is identical across repeated runs for the two-casing node", async () => {
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]),
+    ],
+    agent = deepseekReviewer(),
+    runs: string[] = [];
+  for (let run = 0; run < 5; run += 1)
+    runs.push(
+      (
+        await prepareRuntimeInstance(
+          { agent, instances, sessions: [], allowedInstanceIds: ["ds-harness-api", "ds-bailian"] },
+          async (instanceId) => ({ prepared: instanceId }),
+        )
+      ).instanceId,
+    );
+  assert.deepEqual(runs, ["ds-bailian", "ds-bailian", "ds-bailian", "ds-bailian", "ds-bailian"]);
+});
+
+test("the selection reason names the rule that decided and the spelling to launch", () => {
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]),
+    ],
+    agent = deepseekReviewer(),
+    exact = selectedRuntimeInstance({ agent, instances, selected: "ds-bailian" }),
+    variant = selectedRuntimeInstance({ agent, instances, selected: "ds-harness-api" });
+  assert.equal(exact.basis, "exact-model");
+  assert.equal(exact.model, "deepseek-v4.1-flash");
+  assert.match(exact.reason, /lists the declared model deepseek-v4\.1-flash verbatim/u);
+  assert.equal(variant.basis, "case-insensitive-model");
+  // The launch keeps the catalog's spelling: the instance store validates membership verbatim.
+  assert.equal(variant.model, "Deepseek-V4.1-Flash");
+  assert.match(variant.reason, /only with different letter case/u);
+});
+
+test("the selection reason reports an explicit request, a pin, and a declared preference", () => {
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]),
+    ],
+    agent = deepseekReviewer({ preferredInstances: ["ds-harness-api"] });
+  assert.equal(
+    selectedRuntimeInstance({ agent: null, instances, selected: "ds-harness-api", explicitlyRequested: true }).basis,
+    "explicit-request",
+  );
+  assert.equal(
+    selectedRuntimeInstance({ agent: { ...agent, instance: "ds-bailian" }, instances, selected: "ds-bailian" }).basis,
+    "declared-instance",
+  );
+  assert.equal(selectedRuntimeInstance({ agent, instances, selected: "ds-harness-api" }).basis, "declared-preference");
+  assert.equal(selectedRuntimeInstance({ agent: null, instances, selected: "ds-bailian" }).basis, "runtime-row-order");
+});
+
+test("ambiguity warns while a pin or an exhaustive preference stays silent", () => {
+  const runtimeInstances = [
+      { ...deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]) },
+      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]) },
+    ],
+    agent = deepseekReviewer(),
+    warning = agentRuntimeAmbiguityWarning({ agent, runtimeInstances });
+  assert.equal(warning?.code, "agent_runtime_instance_ambiguous");
+  assert.match(warning!.message, /ds-bailian, ds-harness-api|ds-harness-api, ds-bailian/u);
+  assert.match(warning!.message, /preferredInstances/u);
+  // One hard pin removes the choice.
+  assert.equal(agentRuntimeAmbiguityWarning({ agent: { ...agent, instance: "ds-bailian" }, runtimeInstances }), null);
+  // A preference list that leaves only one unpreferred candidate still states the winner.
+  assert.equal(
+    agentRuntimeAmbiguityWarning({ agent: { ...agent, preferredInstances: ["ds-bailian"] }, runtimeInstances }),
+    null,
+  );
+  // A single compatible instance is not ambiguous.
+  assert.equal(agentRuntimeAmbiguityWarning({ agent, runtimeInstances: [runtimeInstances[0]!] }), null);
+});
+
+test("a tie on the model tier names the real deciding key instead of claiming the tier", () => {
+  // Every compatible instance spells the model identically, so the model tier separates nothing
+  // and the receipt must not credit it: load and allowed-instance order are what decided.
+  const instances = [
+      deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
+      deepseekInstance("ds-backup", ["deepseek-v4.1-flash"]),
+    ],
+    tied = selectedRuntimeInstance({ agent: deepseekReviewer(), instances, selected: "ds-backup" });
+  assert.equal(tied.basis, "runtime-row-order");
+  assert.match(tied.reason, /model spelling did not separate the candidates/u);
+  assert.doesNotMatch(tied.reason, /ranks ahead of any instance/u);
+});
+
+test("a dispatch-time ambiguity warning names the instance it took, not a hypothetical fallback", () => {
+  const runtimeInstances = [
+      { ...deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]) },
+      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]) },
+    ],
+    agent = deepseekReviewer(),
+    atDispatch = agentRuntimeAmbiguityWarning({ agent, runtimeInstances, selected: "ds-bailian" }),
+    beforeDispatch = agentRuntimeAmbiguityWarning({ agent, runtimeInstances });
+  assert.equal(atDispatch?.code, "agent_runtime_instance_ambiguous");
+  // Dispatch already decided: it reports the instance, never "would fall back".
+  assert.match(atDispatch!.message, /this dispatch took ds-bailian/u);
+  assert.doesNotMatch(atDispatch!.message, /would fall back/u);
+  // Validate/install run before any dispatch and keep the predictive wording.
+  assert.match(beforeDispatch!.message, /dispatch would fall back/u);
+  // Both still name the same candidates and both ways to state the intent.
+  for (const warning of [atDispatch!, beforeDispatch!]) {
+    assert.match(warning.message, /ds-bailian/u);
+    assert.match(warning.message, /ds-harness-api/u);
+    assert.match(warning.message, /preferredInstances/u);
+  }
 });
