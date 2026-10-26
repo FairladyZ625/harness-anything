@@ -3,10 +3,15 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
-import { consentedApprovedReviewForExecution, settledApprovedReviewsForExecution } from "./review.ts";
+import {
+  consentedApprovedReviewForExecution,
+  reviewsForExecution,
+  settledApprovedReviewsForExecution,
+} from "./review.ts";
 import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
+import { settleReviewFindings, type ReviewFindingSettlement, type ReviewFindingTriageV1 } from "./review-settlement.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
@@ -72,6 +77,8 @@ export interface CloseoutSnapshot {
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
+  /** Per-finding triage answers the center recorded for this cut's categorized findings. */
+  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
   readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
@@ -153,7 +160,14 @@ export function closeoutReadiness(
   const forwarded = (snapshot.forwardedCuts ?? []).some(
     (record) => record.executionId === execution.executionId && record.iteration === execution.iteration,
   );
-  if ((effectiveGates?.review !== false || forwarded) && !approved.length && !consented)
+  // Per-finding settlement (dec_6A77D43B8523823ABA1F5E4D3C CH5): once a current cut carries a
+  // categorized finding, each finding is the pass unit and a missing or ambiguous triage is
+  // unresolved review — never an approved one. A cut with no categorized finding keeps the
+  // per-review path so historical records still complete.
+  const settlement = currentCutSettlement(snapshot.reviews, execution, snapshot.reviewFindingTriages ?? []),
+    reviewOwed = effectiveGates?.review !== false || forwarded,
+    reviewSatisfied = settlement !== null ? settlement.outcome === "passed" : approved.length > 0 || consented;
+  if (reviewOwed && !reviewSatisfied)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
@@ -166,6 +180,38 @@ export function closeoutReadiness(
     ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}),
     gates,
   };
+}
+
+/**
+ * The per-finding settlement of one cut, or null for a cut that raised no categorized finding. Only
+ * findings bound to this execution/iteration enter, so a prior cut's settlement cannot pass a new one.
+ */
+export function currentCutSettlement(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  triages: readonly ReviewFindingTriageV1[],
+): ReviewFindingSettlement | null {
+  const findings = reviewsForExecution(reviews, execution).flatMap((review) =>
+    (review.findings ?? []).flatMap((finding) =>
+      finding.category === undefined
+        ? []
+        : [
+            {
+              reviewId: review.reviewId,
+              findingId: finding.findingId,
+              category: finding.category,
+              label: finding.label ?? ("Important" as const),
+              text: finding.text,
+              reviewerBlocking: finding.blocking,
+              ...(finding.evidenceDigest === undefined || finding.anchor === undefined
+                ? {}
+                : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
+              ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
+            },
+          ],
+    ),
+  );
+  return findings.length === 0 ? null : settleReviewFindings({ findings, triages });
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

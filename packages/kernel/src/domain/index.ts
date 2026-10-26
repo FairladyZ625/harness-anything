@@ -101,6 +101,7 @@ export {
   deliveryTargetRef,
   closeoutReadiness,
   completionGateIds,
+  currentCutSettlement,
   currentExecutionCuts,
   gateResults,
   judgeGateWitnesses,

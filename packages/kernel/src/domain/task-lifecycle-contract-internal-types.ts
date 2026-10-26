@@ -5,6 +5,7 @@ import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
 import type {
   ReviewConsentV1,
   ReviewDispositionV1,
+  ReviewFindingV1,
   ReviewResponseDisposition,
   ReviewV1,
   ReviewVerdict,
@@ -111,12 +112,7 @@ export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly iteration: number;
   readonly contentDigest: `sha256:${string}`;
   readonly submissionDigest: `sha256:${string}`;
-  readonly findings?: readonly {
-    readonly findingId: string;
-    readonly blocking: boolean;
-    readonly text: string;
-    readonly anchor?: string;
-  }[];
+  readonly findings?: readonly ReviewFindingV1[];
   readonly resolutions?: readonly {
     readonly reviewId: string;
     readonly findingId: string;

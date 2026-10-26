@@ -3,6 +3,7 @@ import { digest } from "./digest.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import { validateReviewFindings, validateReviewResolutions, validateTaskReviewResponseV1 } from "./review.ts";
+import { isDiscardedCategory } from "./review-settlement.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
@@ -111,12 +112,19 @@ function reviewIssues(
         ),
       );
   }
+  // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
+  // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
   if (
     command.verdict === "changes_requested" &&
     command.findings !== undefined &&
-    !command.findings.some((item) => item.blocking)
+    !command.findings.some((item) => item.blocking && !isDiscardedCategory(item.category ?? "correctness"))
   )
-    issues.push(lifecycleContractIssue("invalid_review", "changes_requested review requires a blocking finding"));
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_review",
+        "changes_requested review requires a blocking finding outside style/diagnostic/cleanup",
+      ),
+    );
   return issues;
 }
 
