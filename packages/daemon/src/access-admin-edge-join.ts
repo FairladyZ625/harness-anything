@@ -113,11 +113,14 @@ export class EdgeJoinAdminService {
     const login = await this.#oidc.interactiveAuthority();
     try {
       const loginAddress = new URL(login.url),
+        serviceHosts = sshServiceHosts(config.bind, login.url),
         tunnel = sshTarget
           ? await this.#sshTunnels.start({
               target: sshTarget,
               fleetServicePort: config.port,
+              fleetServiceHost: serviceHosts.fleet,
               loginServicePort: Number(loginAddress.port || 443),
+              loginServiceHost: serviceHosts.login,
             })
           : undefined,
         tunnelFields = sshTarget && tunnel ? sshJoinFields(config.externalUrl!, login.url, tunnel) : undefined;
@@ -258,7 +261,18 @@ export class EdgeJoinAdminService {
           ["pending", "consumed"].includes(this.#joins.status(record.joinId).state),
       );
     if (records.length === 0) return;
-    const byTarget = new Map<string, { readonly ports: EdgeJoinTunnelPorts; readonly loginServicePort: number }>();
+    const config = readFleetCenterConfig(this.#userRoot, this.#daemonId);
+    if (!config)
+      throw coded(
+        "edge_join_ssh_state_invalid",
+        "Cannot resume SSH invitations without the current fleet center config.",
+      );
+    const login = await this.#oidc.interactiveAuthority(),
+      serviceHosts = sshServiceHosts(config.bind, login.url),
+      byTarget = new Map<
+        string,
+        { readonly ports: EdgeJoinTunnelPorts; readonly loginServicePort: number; readonly loginServiceHost: string }
+      >();
     for (const record of records) {
       const ports = { fleet: record.sshFleetPort!, login: record.sshLoginPort! },
         previous = byTarget.get(record.sshTarget!);
@@ -266,16 +280,23 @@ export class EdgeJoinAdminService {
         previous &&
         (previous.ports.fleet !== ports.fleet ||
           previous.ports.login !== ports.login ||
-          previous.loginServicePort !== record.sshLoginServicePort)
+          previous.loginServicePort !== record.sshLoginServicePort ||
+          previous.loginServiceHost !== serviceHosts.login)
       )
-        throw coded("edge_join_ssh_state_invalid", "Invitations for one SSH target disagree on tunnel ports.");
-      byTarget.set(record.sshTarget!, { ports, loginServicePort: record.sshLoginServicePort! });
+        throw coded("edge_join_ssh_state_invalid", "Invitations for one SSH target disagree on tunnel addresses.");
+      byTarget.set(record.sshTarget!, {
+        ports,
+        loginServicePort: record.sshLoginServicePort!,
+        loginServiceHost: serviceHosts.login,
+      });
     }
     for (const [target, entry] of byTarget)
       this.#sshTunnels.resume({
         target,
         fleetServicePort,
+        fleetServiceHost: serviceHosts.fleet,
         loginServicePort: entry.loginServicePort,
+        loginServiceHost: entry.loginServiceHost,
         remotePorts: entry.ports,
       });
   }
@@ -401,6 +422,14 @@ function sshJoinFields(
     loginUrl: machineLogin.toString().replace(/\/$/u, ""),
     loginServername: login.hostname,
     ports,
+  };
+}
+
+function sshServiceHosts(fleetBind: string, loginUrl: string): { readonly fleet: string; readonly login: string } {
+  const fleet = fleetBind.replace(/^\[|\]$/gu, "");
+  return {
+    fleet: fleet === "0.0.0.0" || fleet === "::" ? "127.0.0.1" : fleet,
+    login: new URL(loginUrl).hostname.replace(/^\[|\]$/gu, ""),
   };
 }
 

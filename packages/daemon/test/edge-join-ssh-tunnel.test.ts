@@ -1,11 +1,15 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { EdgeJoinSshTunnelManager, validateSshTarget } from "../src/fleet/edge-join-ssh-tunnel.ts";
 import { EdgeJoinAdminService } from "../src/access-admin-edge-join.ts";
 import { createEdgeJoinStore } from "../src/fleet/edge-join.ts";
+import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import type { OidcSessionService } from "../src/oidc-session-service.ts";
 import type { ChildProcess } from "node:child_process";
 
@@ -50,8 +54,9 @@ function fakeProcess(options: { readonly exitOnKill?: boolean } = {}): FakeProce
   };
 }
 
-test("SSH tunnel uses only the validated target and requests two loopback remote forwards", async () => {
+test("SSH tunnel forwards each service to its configured listener host", async () => {
   const child = fakeProcess(),
+    spawnedArgs: string[][] = [],
     states: string[] = [],
     manager = new EdgeJoinSshTunnelManager({
       spawn: ((command: string, argv: readonly string[]) => {
@@ -61,38 +66,84 @@ test("SSH tunnel uses only the validated target and requests two loopback remote
         assert.ok(argv.includes("ForwardAgent=no"));
         assert.equal(argv.at(-1), "macbook-air-via-tencent-prod");
         assert.equal(argv.filter((value) => value === "-R").length, 2);
-        assert.equal(
-          argv.filter((value, index) => argv[index - 1] === "-R" && value.includes(":0:127.0.0.1:")).length,
-          2,
-        );
+        spawnedArgs.push([...argv]);
         return child.process;
       }) as never,
       onState: (_target, state) => states.push(state),
+      schedule: () => () => undefined,
     }),
     pending = manager.start({
       target: "macbook-air-via-tencent-prod",
       fleetServicePort: 7545,
+      fleetServiceHost: "10.211.55.2",
       loginServicePort: 18544,
+      loginServiceHost: "10.211.55.2",
     });
-  child.data("Allocated port 41231 for remote forward to 127.0.0.1:7545\r\n");
-  child.data("Allocated port 41232 for remote forward to 127.0.0.1:18544\r\n");
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:0:10.211.55.2:7545"));
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:0:10.211.55.2:18544"));
+  child.data("Allocated port 41231 for remote forward to 10.211.55.2:7545\r\n");
+  child.data("Allocated port 41232 for remote forward to 10.211.55.2:18544\r\n");
   assert.deepEqual(await pending, { fleet: 41231, login: 41232 });
   assert.equal(manager.state("macbook-air-via-tencent-prod"), "connected");
   assert.deepEqual(states, ["connecting", "connected"]);
+  await assert.rejects(
+    manager.start({
+      target: "macbook-air-via-tencent-prod",
+      fleetServicePort: 7545,
+      fleetServiceHost: "10.211.55.3",
+      loginServicePort: 18544,
+      loginServiceHost: "10.211.55.2",
+    }),
+    { code: "edge_join_ssh_failed", message: /different service addresses/u },
+  );
+  await assert.rejects(
+    manager.start({
+      target: "macbook-air-via-tencent-prod",
+      fleetServicePort: 7545,
+      fleetServiceHost: "10.211.55.2",
+      loginServicePort: 18544,
+      loginServiceHost: "10.211.55.3",
+    }),
+    { code: "edge_join_ssh_failed", message: /different service addresses/u },
+  );
   await manager.close();
   assert.equal(child.killed(), true);
   assert.equal(manager.state("macbook-air-via-tencent-prod"), "stopped");
 });
 
+test("SSH tunnel brackets IPv6 local hosts for OpenSSH and recognizes their forward logs", async () => {
+  const child = fakeProcess(),
+    spawnedArgs: string[][] = [],
+    manager = new EdgeJoinSshTunnelManager({
+      spawn: ((_command: string, args: readonly string[]) => {
+        spawnedArgs.push([...args]);
+        return child.process;
+      }) as never,
+      schedule: () => () => undefined,
+    }),
+    pending = manager.start({
+      target: "operator@edge.example",
+      fleetServicePort: 7545,
+      fleetServiceHost: "2001:db8::2",
+      loginServicePort: 18544,
+      loginServiceHost: "2001:db8::3",
+    });
+
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:0:[2001:db8::2]:7545"));
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:0:[2001:db8::3]:18544"));
+  child.data("Allocated port 41231 for remote forward to [2001:db8::2]:7545\r\n");
+  child.data("Allocated port 41232 for remote forward to [2001:db8::3]:18544\r\n");
+  assert.deepEqual(await pending, { fleet: 41231, login: 41232 });
+  await manager.close();
+});
+
 test("a disconnected SSH tunnel reconnects with its allocated ports and can be released", async () => {
   const children: FakeProcess[] = [],
+    spawnedArgs: (readonly string[])[] = [],
     scheduled: { callback: () => void; cancelled: boolean; delayMs: number }[] = [],
     manager = new EdgeJoinSshTunnelManager({
       spawn: ((_command: string, args: readonly string[]) => {
-        if (children.length > 0) {
-          assert.ok(args.includes("127.0.0.1:41231:127.0.0.1:7545"));
-          assert.ok(args.includes("127.0.0.1:41232:127.0.0.1:18544"));
-        }
+        spawnedArgs.push(args);
         const child = fakeProcess();
         children.push(child);
         return child.process;
@@ -108,10 +159,14 @@ test("a disconnected SSH tunnel reconnects with its allocated ports and can be r
   const pending = manager.start({
     target: "operator@edge.example",
     fleetServicePort: 7545,
+    fleetServiceHost: "10.211.55.2",
     loginServicePort: 18544,
+    loginServiceHost: "10.211.55.2",
   });
-  children[0]!.data("Allocated port 41231 for remote forward to 127.0.0.1:7545\r\n");
-  children[0]!.data("Allocated port 41232 for remote forward to 127.0.0.1:18544\r\n");
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:0:10.211.55.2:7545"));
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:0:10.211.55.2:18544"));
+  children[0]!.data("Allocated port 41231 for remote forward to 10.211.55.2:7545\r\n");
+  children[0]!.data("Allocated port 41232 for remote forward to 10.211.55.2:18544\r\n");
   assert.deepEqual(await pending, { fleet: 41231, login: 41232 });
   assert.equal(scheduled[0]!.delayMs, 45_000);
   assert.equal(scheduled[0]!.cancelled, true);
@@ -119,14 +174,22 @@ test("a disconnected SSH tunnel reconnects with its allocated ports and can be r
   assert.equal(manager.state("operator@edge.example"), "reconnecting");
   assert.equal(scheduled[1]!.delayMs, 5_000);
   assert.deepEqual(
-    await manager.start({ target: "operator@edge.example", fleetServicePort: 7545, loginServicePort: 18544 }),
+    await manager.start({
+      target: "operator@edge.example",
+      fleetServicePort: 7545,
+      fleetServiceHost: "10.211.55.2",
+      loginServicePort: 18544,
+      loginServiceHost: "10.211.55.2",
+    }),
     { fleet: 41231, login: 41232 },
   );
   assert.equal(children.length, 1);
   scheduled[1]!.callback();
   assert.equal(children.length, 2);
-  children[1]!.data("debug1: remote forward success for: listen 127.0.0.1:41231, connect 127.0.0.1:7545\r\n");
-  children[1]!.data("debug1: remote forward success for: listen 127.0.0.1:41232, connect 127.0.0.1:18544\r\n");
+  assert.ok(spawnedArgs[1]!.includes("127.0.0.1:41231:10.211.55.2:7545"));
+  assert.ok(spawnedArgs[1]!.includes("127.0.0.1:41232:10.211.55.2:18544"));
+  children[1]!.data("debug1: remote forward success for: listen 127.0.0.1:41231, connect 10.211.55.2:7545\r\n");
+  children[1]!.data("debug1: remote forward success for: listen 127.0.0.1:41232, connect 10.211.55.2:18544\r\n");
   assert.equal(manager.state("operator@edge.example"), "connected");
   manager.release("operator@edge.example");
   assert.equal(children[1]!.killed(), true);
@@ -151,7 +214,13 @@ test("a startup timeout waits for the SSH child to exit before scheduling a repl
         };
       },
     });
-  const pending = manager.start({ target: "operator@edge.example", fleetServicePort: 7545, loginServicePort: 18544 });
+  const pending = manager.start({
+    target: "operator@edge.example",
+    fleetServicePort: 7545,
+    fleetServiceHost: "127.0.0.1",
+    loginServicePort: 18544,
+    loginServiceHost: "127.0.0.1",
+  });
   assert.equal(scheduled[0]!.delayMs, 45_000);
   scheduled[0]!.callback();
   await assert.rejects(pending, { code: "edge_join_ssh_failed", message: /within 45 seconds/u });
@@ -181,7 +250,13 @@ test("a synchronous OpenSSH spawn failure is surfaced and scheduled for reconnec
         };
       },
     }),
-    pending = manager.start({ target: "operator@edge.example", fleetServicePort: 7545, loginServicePort: 18544 });
+    pending = manager.start({
+      target: "operator@edge.example",
+      fleetServicePort: 7545,
+      fleetServiceHost: "127.0.0.1",
+      loginServicePort: 18544,
+      loginServiceHost: "127.0.0.1",
+    });
 
   await assert.rejects(pending, { message: "spawn denied" });
   assert.equal(manager.state("operator@edge.example"), "reconnecting");
@@ -197,8 +272,19 @@ test("SSH targets reject options, commands, and shell syntax", () => {
     assert.throws(() => validateSshTarget(target), { code: "edge_join_ssh_target_invalid" });
 });
 
-test("an expired pending invitation releases its shared SSH tunnel", async () => {
+test("resume derives actual service hosts and an expired invitation releases its shared SSH tunnel", async (t) => {
   let now = Date.parse("2026-10-22T00:00:00.000Z");
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-resume-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  saveFleetCenterConfig(userRoot, "default", {
+    bind: "10.211.55.2",
+    port: 7545,
+    repoId: "repo-a",
+    keyPath: path.join(userRoot, "center.key"),
+    certPath: path.join(userRoot, "center.crt"),
+    stateRoot: path.join(userRoot, "fleet-state"),
+    quotaBytes: 1024 * 1024,
+  });
   const journal: string[] = [],
     store = createEdgeJoinStore({ now: () => new Date(now).toISOString() }),
     created = store.create({
@@ -224,8 +310,10 @@ test("an expired pending invitation releases its shared SSH tunnel", async () =>
   journal.push(JSON.stringify({ schema: "harness-edge-join/v2", kind: "record", record: created.record }));
 
   const children: FakeProcess[] = [],
+    spawnedArgs: (readonly string[])[] = [],
     manager = new EdgeJoinSshTunnelManager({
-      spawn: (() => {
+      spawn: ((_command: string, args: readonly string[]) => {
+        spawnedArgs.push(args);
         const child = fakeProcess();
         children.push(child);
         return child.process;
@@ -234,8 +322,14 @@ test("an expired pending invitation releases its shared SSH tunnel", async () =>
     }),
     expiryTimers: { callback: () => void; delayMs: number; cancelled: boolean }[] = [],
     admin = new EdgeJoinAdminService({
-      oidc: {} as OidcSessionService,
-      userRoot: "/unused",
+      oidc: {
+        interactiveAuthority: async () => ({
+          url: "https://login.example:18544",
+          realm: "harness",
+          clientId: "harness-edge",
+        }),
+      } as OidcSessionService,
+      userRoot,
       daemonId: "default",
       now: () => new Date(now).toISOString(),
       journal: { read: () => journal, append: (line) => journal.push(line) },
@@ -254,8 +348,10 @@ test("an expired pending invitation releases its shared SSH tunnel", async () =>
 
   assert.equal(expiryTimers[0]!.delayMs, 1_000);
   await admin.resumeSshTunnels(7545);
-  children[0]!.data("Allocated port 41231 for remote forward to 127.0.0.1:7545\r\n");
-  children[0]!.data("Allocated port 41232 for remote forward to 127.0.0.1:18544\r\n");
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41231:10.211.55.2:7545"));
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41232:login.example:18544"));
+  children[0]!.data("debug1: remote forward success for: listen 127.0.0.1:41231, connect 10.211.55.2:7545\r\n");
+  children[0]!.data("debug1: remote forward success for: listen 127.0.0.1:41232, connect login.example:18544\r\n");
   assert.equal(manager.state("macbook-air-via-tencent-prod"), "connected");
 
   now += 1_000;

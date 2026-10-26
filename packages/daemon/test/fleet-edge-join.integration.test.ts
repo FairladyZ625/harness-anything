@@ -26,7 +26,8 @@ test(
     timeout: 240_000,
   },
   async (t) => {
-    const invites = createEdgeJoinStore();
+    const invites = createEdgeJoinStore(),
+      sshArgs: (readonly string[])[] = [];
     const fakeChild = (argv: readonly string[]) => {
       const emitter = new EventEmitter() as ChildProcess;
       let stderrListener: ((chunk: string) => void) | undefined;
@@ -45,10 +46,10 @@ test(
       const lines: string[] = [];
       for (let i = 0; i < argv.length; i++) {
         if (argv[i] === "-R") {
-          const match = /^127\.0\.0\.1:(?:0|\d+):127\.0\.0\.1:(\d+)$/u.exec(argv[i + 1] ?? "");
+          const match = /^127\.0\.0\.1:(?:0|\d+):(.+):(\d+)$/u.exec(argv[i + 1] ?? "");
           if (match) {
-            const port = match[1];
-            lines.push(`Allocated port ${port} for remote forward to 127.0.0.1:${port}\n`);
+            const [, host, port] = match;
+            lines.push(`Allocated port ${port} for remote forward to ${host}:${port}\n`);
           }
         }
       }
@@ -58,7 +59,10 @@ test(
       return emitter;
     };
     const sshTunnels = new EdgeJoinSshTunnelManager({
-      spawn: ((_cmd: string, argv: readonly string[]) => fakeChild(argv)) as never,
+      spawn: ((_cmd: string, argv: readonly string[]) => {
+        sshArgs.push([...argv]);
+        return fakeChild(argv);
+      }) as never,
     });
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true, {
       edgeJoins: invites,
@@ -116,7 +120,7 @@ test(
     });
     saveFleetCenterConfig(f.userRoot, "lease-center", {
       port: center.port,
-      bind: "127.0.0.1",
+      bind: "10.211.55.2",
       repoId: "lease-repo",
       keyPath: path.join(f.root, "tls.key"),
       certPath: path.join(f.root, "tls.crt"),
@@ -187,6 +191,10 @@ test(
 
     for (const nodeName of ["node-one", "node-two"]) {
       const invitation = await link("person-one", spkiSha256, nodeName === "node-one");
+      if (nodeName === "node-one") {
+        assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:10.211.55.2:${center.port}`));
+        assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:localhost:${loginPort}`));
+      }
       f.owners.keycloak.interactiveSession("person-one", nodeName, loginUrl, `device-token-${nodeName}`, "harness-gui");
       const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
