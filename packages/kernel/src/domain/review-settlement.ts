@@ -246,6 +246,11 @@ function settleOneFinding(
         : "No triage record exists for this finding.",
     );
   const first = confidentDisposition(triage, threshold);
+  // Two conflicts require an independent second opinion before the finding can be downgraded: a
+  // project hard rule without complete evidence, and a reviewer's own blocker claim that the
+  // triage would wave through. Agreeing with the Critic settles it; a disagreement or a low
+  // Critic confidence escalates to a person (CH4).
+  const needsCritic = first !== null && first !== "blocker" && (hardRule || finding.reviewerBlocking);
   if (triage.critic === undefined) {
     if (first === null)
       return settled(
@@ -256,14 +261,16 @@ function settleOneFinding(
         hardRule,
         `Triage confidence stayed below the ${category} floor (${String(threshold)}).`,
       );
-    if (hardRule && first !== "blocker")
+    if (needsCritic)
       return settled(
         finding,
         category,
         "escalated",
         null,
-        true,
-        `Project hard rule ${category} was classified ${first}; a Critic must confirm before it can be downgraded.`,
+        hardRule,
+        hardRule
+          ? `Project hard rule ${category} was classified ${first}; a Critic must confirm before it can be downgraded.`
+          : `The reviewer claimed a blocker but triage selected ${first}; a Critic must confirm that conflict.`,
       );
     return dispositionOutcome(finding, category, first, hardRule);
   }
@@ -286,15 +293,9 @@ function settleOneFinding(
       hardRule,
       `Triage selected ${first} but the Critic selected ${critic}; only a person can settle that conflict.`,
     );
-  if (hardRule && critic !== "blocker")
-    return settled(
-      finding,
-      category,
-      "escalated",
-      null,
-      true,
-      `Project hard rule ${category} was confirmed ${critic}; a person must accept downgrading it.`,
-    );
+  // Two independent passes that agree settle the finding, including when the reviewer's own label
+  // disagreed: the Critic exists precisely to check that conflict (CH4). A hard-rule finding with
+  // complete evidence never reaches here.
   return dispositionOutcome(finding, category, critic, hardRule);
 }
 
