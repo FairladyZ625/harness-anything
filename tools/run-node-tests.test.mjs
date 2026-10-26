@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -181,6 +181,39 @@ test("runner names each test file process as the owner of the daemons it starts"
   const output = `${result.stdout}\n${result.stderr}`;
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 0, output);
+});
+
+// Dropping the worker's HARNESS_DAEMON_USER_ROOT is not isolation on its own: every resolver that
+// reads it falls back to `<home>/.harness`, so a fixture that names no user root of its own reaches
+// the operator's real one. That is the leak that left a test daemon serving the real user root from
+// a temporary build entry, so its successor respawned an entry whose checkout had already been deleted.
+test("runner keeps an unconfigured test file out of the operator's daemon user root", () => {
+  const operatorHome = mkdtempSync(path.join(os.tmpdir(), "ha-operator-home-")),
+    childEnv = {
+      ...process.env,
+      HARNESS_RUNNER_HOME_ISOLATION_FIXTURE: "1",
+      HARNESS_RUNNER_OPERATOR_HOME: operatorHome,
+      HARNESS_DAEMON_USER_ROOT: path.join(operatorHome, ".harness"),
+      HARNESS_DAEMON_ID: "invoking-worker",
+    };
+  delete childEnv.NODE_TEST_CONTEXT;
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-home-isolation"],
+      { cwd: repoRoot, encoding: "utf8", env: childEnv, timeout: 20_000 },
+    );
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.error, undefined, output);
+    assert.equal(result.status, 0, output);
+    assert.deepEqual(
+      readdirSync(operatorHome),
+      [],
+      "an unconfigured test file must not write into the operator's home",
+    );
+  } finally {
+    rmSync(operatorHome, { recursive: true, force: true });
+  }
 });
 
 function runUnboundedFixture(extraEnv) {

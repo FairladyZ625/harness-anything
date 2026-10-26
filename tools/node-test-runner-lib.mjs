@@ -248,6 +248,27 @@ function buildLockOwnerAlive(lockPath) {
   }
 }
 
+/**
+ * The environment every test child runs with: a private home directory plus the daemon route the
+ * worker injected, removed.
+ *
+ * Dropping HARNESS_DAEMON_USER_ROOT alone is not isolation: every resolver that reads it falls back
+ * to `<home>/.harness`, and every fixture that omits `--user-root` does too, so a test daemon lands in
+ * the operator's real user root and keeps the checkout's dist entry it was launched from. Moving HOME
+ * into the run's own temporary directory makes the fallback value private as well; the route is still
+ * dropped because the worker's socket belongs to another daemon.
+ */
+export function testChildEnvironment({ parent, temporaryRoot, variableNames }) {
+  const environment = {
+    ...parent,
+    HARNESS_TEST_TEMP_ROOT: temporaryRoot,
+    HOME: temporaryRoot,
+    USERPROFILE: temporaryRoot,
+  };
+  for (const name of variableNames) delete environment[name];
+  return environment;
+}
+
 /** Shared observation semantics for Node and Vitest; summaries count JSON-escaped UTF-8 bytes. */
 export function boundedCiSummary(text) {
   let summary = "";
