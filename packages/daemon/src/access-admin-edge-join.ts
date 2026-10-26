@@ -267,13 +267,14 @@ export class EdgeJoinAdminService {
         "edge_join_ssh_state_invalid",
         "Cannot resume SSH invitations without the current fleet center config.",
       );
-    const login = await this.#oidc.interactiveAuthority(),
-      serviceHosts = sshServiceHosts(config.bind, login.url),
+    const fleetServiceHost = sshFleetServiceHost(config.bind),
       byTarget = new Map<
         string,
         { readonly ports: EdgeJoinTunnelPorts; readonly loginServicePort: number; readonly loginServiceHost: string }
       >();
     for (const record of records) {
+      if (!record.loginServername)
+        throw coded("edge_join_ssh_state_invalid", "SSH invitations are missing their login service hostname.");
       const ports = { fleet: record.sshFleetPort!, login: record.sshLoginPort! },
         previous = byTarget.get(record.sshTarget!);
       if (
@@ -281,20 +282,20 @@ export class EdgeJoinAdminService {
         (previous.ports.fleet !== ports.fleet ||
           previous.ports.login !== ports.login ||
           previous.loginServicePort !== record.sshLoginServicePort ||
-          previous.loginServiceHost !== serviceHosts.login)
+          previous.loginServiceHost !== record.loginServername)
       )
         throw coded("edge_join_ssh_state_invalid", "Invitations for one SSH target disagree on tunnel addresses.");
       byTarget.set(record.sshTarget!, {
         ports,
         loginServicePort: record.sshLoginServicePort!,
-        loginServiceHost: serviceHosts.login,
+        loginServiceHost: record.loginServername,
       });
     }
     for (const [target, entry] of byTarget)
       this.#sshTunnels.resume({
         target,
         fleetServicePort,
-        fleetServiceHost: serviceHosts.fleet,
+        fleetServiceHost,
         loginServicePort: entry.loginServicePort,
         loginServiceHost: entry.loginServiceHost,
         remotePorts: entry.ports,
@@ -426,11 +427,15 @@ function sshJoinFields(
 }
 
 function sshServiceHosts(fleetBind: string, loginUrl: string): { readonly fleet: string; readonly login: string } {
-  const fleet = fleetBind.replace(/^\[|\]$/gu, "");
   return {
-    fleet: fleet === "0.0.0.0" || fleet === "::" ? "127.0.0.1" : fleet,
+    fleet: sshFleetServiceHost(fleetBind),
     login: new URL(loginUrl).hostname.replace(/^\[|\]$/gu, ""),
   };
+}
+
+function sshFleetServiceHost(fleetBind: string): string {
+  const fleet = fleetBind.replace(/^\[|\]$/gu, "");
+  return fleet === "0.0.0.0" || fleet === "::" ? "127.0.0.1" : fleet;
 }
 
 function edgeJoinPermissionVersion(groupId: string, effectiveScopes: readonly string[]): string {

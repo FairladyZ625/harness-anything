@@ -273,7 +273,8 @@ test("SSH targets reject options, commands, and shell syntax", () => {
 });
 
 test("resume derives actual service hosts and an expired invitation releases its shared SSH tunnel", async (t) => {
-  let now = Date.parse("2026-10-22T00:00:00.000Z");
+  let now = Date.parse("2026-10-22T00:00:00.000Z"),
+    interactiveAuthorityCalls = 0;
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-resume-"));
   t.after(() => rmSync(userRoot, { recursive: true, force: true }));
   saveFleetCenterConfig(userRoot, "default", {
@@ -323,11 +324,10 @@ test("resume derives actual service hosts and an expired invitation releases its
     expiryTimers: { callback: () => void; delayMs: number; cancelled: boolean }[] = [],
     admin = new EdgeJoinAdminService({
       oidc: {
-        interactiveAuthority: async () => ({
-          url: "https://login.example:18544",
-          realm: "harness",
-          clientId: "harness-edge",
-        }),
+        interactiveAuthority: async () => {
+          interactiveAuthorityCalls += 1;
+          throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18544"), { code: "ECONNREFUSED" });
+        },
       } as OidcSessionService,
       userRoot,
       daemonId: "default",
@@ -348,6 +348,7 @@ test("resume derives actual service hosts and an expired invitation releases its
 
   assert.equal(expiryTimers[0]!.delayMs, 1_000);
   await admin.resumeSshTunnels(7545);
+  assert.equal(interactiveAuthorityCalls, 0);
   assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41231:10.211.55.2:7545"));
   assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41232:login.example:18544"));
   children[0]!.data("debug1: remote forward success for: listen 127.0.0.1:41231, connect 10.211.55.2:7545\r\n");
@@ -359,4 +360,76 @@ test("resume derives actual service hosts and an expired invitation releases its
   assert.equal(children[0]!.killed(), true);
   assert.equal(manager.state("macbook-air-via-tencent-prod"), "stopped");
   await admin.close();
+});
+
+test("resume restores consumed SSH invitations without probing the login listener", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-consumed-resume-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  saveFleetCenterConfig(userRoot, "default", {
+    bind: "10.211.55.2",
+    port: 7545,
+    repoId: "repo-a",
+    keyPath: path.join(userRoot, "center.key"),
+    certPath: path.join(userRoot, "center.crt"),
+    stateRoot: path.join(userRoot, "fleet-state"),
+    quotaBytes: 1024 * 1024,
+  });
+  const store = createEdgeJoinStore({ now: () => "2026-10-22T00:00:00.000Z" }),
+    created = store.create({
+      centerOrigin: "https://127.0.0.1:41231",
+      transport: "ssh-reverse",
+      centerServername: "center.example",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [{ groupId: "viewer", version: "scope-v1" }],
+      spkiSha256: "a".repeat(64),
+      loginUrl: "https://127.0.0.1:41232",
+      loginServername: "login.example",
+      loginBrowserUrl: "https://login.example:18544",
+      sshTarget: "macbook-air-via-tencent-prod",
+      sshFleetPort: 41231,
+      sshLoginPort: 41232,
+      sshLoginServicePort: 18544,
+      loginRealm: "harness",
+      loginClientId: "harness-edge",
+      createdBy: "person-center",
+      ttlMs: 72 * 60 * 60 * 1000,
+    });
+  const consumed = store.consume(created.record.joinId, "node-edge"),
+    journal = [JSON.stringify({ schema: "harness-edge-join/v2", kind: "record", record: consumed })],
+    children: FakeProcess[] = [],
+    spawnedArgs: (readonly string[])[] = [],
+    manager = new EdgeJoinSshTunnelManager({
+      spawn: ((_command: string, args: readonly string[]) => {
+        spawnedArgs.push(args);
+        const child = fakeProcess();
+        children.push(child);
+        return child.process;
+      }) as never,
+      schedule: () => () => undefined,
+    }),
+    admin = new EdgeJoinAdminService({
+      oidc: {
+        interactiveAuthority: async () => {
+          throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18544"), { code: "ECONNREFUSED" });
+        },
+      } as OidcSessionService,
+      userRoot,
+      daemonId: "default",
+      now: () => "2026-10-22T00:00:00.000Z",
+      journal: { read: () => journal, append: (line) => journal.push(line) },
+      session: async () => {
+        throw new Error("the consumed restore path does not use OIDC");
+      },
+      sshTunnels: manager,
+      schedule: () => () => undefined,
+    });
+
+  await admin.resumeSshTunnels(7545);
+  assert.equal(spawnedArgs.length, 1);
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41231:10.211.55.2:7545"));
+  assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41232:login.example:18544"));
+  assert.equal(admin.status(created.record.joinId).state, "consumed");
+  await admin.close();
+  assert.equal(children[0]!.killed(), true);
 });
