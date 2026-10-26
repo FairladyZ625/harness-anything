@@ -63,15 +63,20 @@ const coldAttachCatchUpLimit = 32;
  * identical while making the board pay for the journal once.
  */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries, rootDir?: string): TaskQueryJudgments {
-  let triages: readonly ReviewTriageStoreRecord[] | null = null;
-  const reviewFindingTriages = (): readonly ReviewTriageStoreRecord[] => {
-    if (triages === null) triages = rootDir === undefined ? [] : readReviewTriageRecords(rootDir);
-    return triages;
+  let journal: readonly ReviewTriageStoreRecord[] | null = null;
+  const reviewFindingTriages = (taskId: string | undefined): readonly ReviewTriageStoreRecord[] => {
+    if (journal === null) journal = rootDir === undefined ? [] : readReviewTriageRecords(rootDir);
+    // The settlement matches records by `(reviewId, findingId)`, so a record minted for another
+    // task must not answer this one. Filtering per row keeps that guarantee without re-reading the
+    // journal for every row the board renders.
+    return taskId === undefined
+      ? []
+      : journal.filter((record) => record.target.kind === "task" && record.target.id === taskId);
   };
   return {
     closeout: (snapshot, availability) =>
       closeoutReadiness(
-        { ...snapshot, reviewFindingTriages: reviewFindingTriages() },
+        { ...snapshot, reviewFindingTriages: reviewFindingTriages(snapshot.task?.taskId) },
         availability,
         readEffectiveCloseoutGates(projection, snapshot),
         readCompletionDeliveryStatus(projection, snapshot, rootDir),

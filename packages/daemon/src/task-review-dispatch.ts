@@ -18,29 +18,13 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
+import { reviewFindingCategoryPrompt, reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./review-panel.ts";
 import { reviewPathSeatPrompt } from "./review-path-matching.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-
-/**
- * The automatic dispatch and `ha task dispatch-review` share `selectReviewSeat`; this adapter only
- * keeps the receipt's historical field names. The owner's explicit reviewer argument wins, then the
- * task's own reviewer, then a professional path seat, then the cut's frozen claim, then the
- * repository default.
- */
-export function selectReviewAgent(frozen?: string, argument?: string, setting?: string) {
-  const selection = selectReviewSeat({ frozenReviewer: frozen, argument, repositoryDefault: setting });
-  if (selection.kind === "escalated") {
-    // The three-argument form has no path evidence, so a professional-seat escalation cannot arise.
-  }
-  return selection.kind === "seat"
-    ? { reviewerId: selection.seat.reviewerId, reviewerSource: selection.seat.source }
-    : { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
-}
 
 /**
  * The one seat a submitted cut reviews under (dec_6A77D43B8523823ABA1F5E4D3C CH1). A professional
@@ -346,6 +330,7 @@ export function decisionReviewDispatchPrompt(input: {
     `Independently review Decision ${decisionId} at reviewContentDigest ${digest}.`,
     `Read the frozen accepted document at harness/decisions/decision-${decisionId}/decision.md.`,
     "Record approved or changes_requested with ha decision review; never accept, reject, defer, or amend.",
+    reviewFindingCategoryPrompt,
     `Write the review report to harness/${reports}/${dispatchId}.md ` +
       `and the review input to harness/${reports}/${dispatchId}.json.`,
     `The review input's identity fields are fixed by this dispatch; any other value is rejected as ` +
@@ -421,7 +406,7 @@ export function reviewDispatchPrompt(input: {
         : []),
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
-      `${reviewFindingScopePrompt("first")} ` +
+      `${reviewFindingScopePrompt("first")} ${reviewFindingCategoryPrompt} ` +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     "For a re-review, include resolutions for prior findings as {reviewId, findingId, resolution: upheld|withdrawn}; " +
       "upheld findings go to the CEO, while a new blocking finding without an upheld resolution returns to the worker.",
@@ -562,8 +547,9 @@ export async function spawnCutReviewDispatch(
               ]
             : []),
           reviewFindingScopePrompt("re-review"),
+          reviewFindingCategoryPrompt,
         ].join("\n")
-      : reviewFindingScopePrompt("first"),
+      : `${reviewFindingScopePrompt("first")} ${reviewFindingCategoryPrompt}`,
     // The mission text and its registration identity are one value: whatever dispatch id the
     // spawner renders is the id the reviewer must register under, so the prompt is always
     // rebuilt from that id instead of being carried over from an earlier attempt.

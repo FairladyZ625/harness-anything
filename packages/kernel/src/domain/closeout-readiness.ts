@@ -166,12 +166,30 @@ export function closeoutReadiness(
     (record) => record.executionId === execution.executionId && record.iteration === execution.iteration,
   );
   // Per-finding settlement (dec_6A77D43B8523823ABA1F5E4D3C CH5): once a current cut carries a
-  // categorized finding, each finding is the pass unit and a missing or ambiguous triage is
-  // unresolved review — never an approved one. A cut with no categorized finding keeps the
-  // per-review path so historical records still complete.
-  const settlement = currentCutSettlement(snapshot.reviews, execution, snapshot.reviewFindingTriages ?? []),
+  // finding, each finding is the pass unit and a missing or ambiguous triage is unresolved review —
+  // never an approved one. A cut whose reviews raise no finding at all passes on its own verdict
+  // (CH1 "无 finding 时直接通过"), which is also how historical records still complete.
+  //
+  // A cut that raised a finding without a category must not slip back to the single-`approved`
+  // predicate: that predicate is exactly what C3 deletes, and it would let a reviewer return
+  // `changes_requested` findings and be overruled by one `approved` record. Such a cut is
+  // unresolved review — the reviewer answered neither the triage question nor "no findings".
+  // Pinning a cut means hashing its whole submission, and this judgment runs once per rendered
+  // board row. A repository whose reviews carry no finding at all cannot enter either branch below,
+  // so one cheap scan over the snapshot spares that hash; only a repository that actually records
+  // findings pays for the per-cut pinning.
+  const findingsRecorded = snapshot.reviews.some((review) => (review.findings ?? []).length > 0),
+    settlement = findingsRecorded
+      ? currentCutSettlement(snapshot.reviews, execution, snapshot.reviewFindingTriages ?? [])
+      : null,
     reviewOwed = effectiveGates?.review !== false || forwarded,
-    reviewSatisfied = settlement !== null ? settlement.outcome === "passed" : approved.length > 0 || consented;
+    unfiledFindings =
+      findingsRecorded &&
+      reviewsForExecution(snapshot.reviews, execution).some((review) =>
+        (review.findings ?? []).some((finding) => finding.category === undefined),
+      ),
+    reviewSatisfied =
+      settlement !== null ? settlement.outcome === "passed" : !unfiledFindings && (approved.length > 0 || consented);
   if (reviewOwed && !reviewSatisfied)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)

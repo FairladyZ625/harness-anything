@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   resolveHarnessLayout,
+  hardRuleFindingCategories,
   reviewFindingDispositions,
   reviewFindingThresholdsFor,
   reviewFindingTriageQuestion,
@@ -86,6 +87,24 @@ export function readReviewTriageRecords(rootDir: string): readonly ReviewTriageS
   } catch {
     return [];
   }
+}
+
+/**
+ * The records that answer for one cut, keyed by target identity and digest.
+ *
+ * A settlement matches records by `(reviewId, findingId)` alone, so handing it the whole journal
+ * would let a record minted for another Decision or an earlier cut answer a review that merely
+ * reused those ids. Filtering on `(kind, id, digest)` here keeps that decision at the one place
+ * that knows what the digests mean; the settlement stays a pure function of the findings it is given.
+ */
+export function reviewTriageRecordsFor(
+  rootDir: string,
+  target: ReviewTriageTarget,
+): readonly ReviewTriageStoreRecord[] {
+  return readReviewTriageRecords(rootDir).filter(
+    (record) =>
+      record.target.kind === target.kind && record.target.id === target.id && record.target.digest === target.digest,
+  );
 }
 
 /** The model identity a Critic must differ from; null when the provider names no model. */
@@ -230,9 +249,15 @@ export function openReviewFindingTriage(input: {
           let triage = await ask(finding, cut.target, provider, findingInput(finding, cut.target));
           const maximum = Math.max(...reviewFindingDispositions.map((value) => triage.probabilities[value] ?? 0)),
             floor = thresholds[finding.category as keyof typeof thresholds] ?? 1,
+            // CH4: a project hard rule downgraded without complete evidence buys one independent
+            // second opinion. Naming only data-loss here escalated the other four to a person
+            // outright — safe, but it paid a human for what a Critic can decide, and it contradicted
+            // "证据不全→加派 Critic". Every hard-rule category is contested now, exactly as
+            // `settleReviewFindings` treats them.
             contested =
               maximum < floor ||
-              (triage.selected !== "blocker" && (finding.reviewerBlocking || finding.category === "data-loss"));
+              (triage.selected !== "blocker" &&
+                (finding.reviewerBlocking || hardRuleFindingCategories.includes(finding.category as never)));
           const critic = contested ? input.critics?.find(({ model }) => model !== triage.model) : undefined;
           if (critic !== undefined) {
             const providerForCritic =
@@ -276,5 +301,40 @@ export function openReviewFindingTriage(input: {
       );
     },
     target,
+  };
+}
+
+/**
+ * The center's producer of triage records (dec_6A77D43B8523823ABA1F5E4D3C CH3/CH6).
+ *
+ * One factory per (repository, cut): `settle` asks the Decisions API about each finding, writes the
+ * records to the journal, and returns the settlement the closeout and Decision judgments will read.
+ * It is deliberately not called from the kernel — the kernel owns the rule, the center owns the
+ * provider call, and the journal they share is the only thing that crosses.
+ *
+ * A caller that has no enabled provider must not settle: the finding then has no record, and
+ * `settleReviewFindings` escalates it. That is the fail-closed direction the decision asks for.
+ */
+export function reviewFindingTriageFor(input: {
+  readonly rootDir: string;
+  readonly providers: { readonly list: () => readonly DecisionProviderRecord[]; readonly port: DecisionPort };
+  readonly now: () => string;
+  readonly rulesVersion: string;
+}) {
+  const triage = openReviewFindingTriage(input);
+  return {
+    /**
+     * Settle one cut's categorized findings. `findings` are the ones the kernel's `cutReviewFindings`
+     * selected, so the question asked here and the judgment that reads the answer are the same set.
+     */
+    settleCut(cut: {
+      readonly target: ReviewTriageTarget;
+      readonly findings: readonly SettleableReviewFinding[];
+      readonly thresholds?: ReviewFindingThresholds | undefined;
+    }): ReturnType<typeof triage.settle> {
+      return triage.settle(cut);
+    },
+    recordsFor: (target: ReviewTriageTarget): readonly ReviewTriageStoreRecord[] =>
+      reviewTriageRecordsFor(input.rootDir, target),
   };
 }

@@ -43,6 +43,8 @@ export function compileDecisionWrite(input: {
     readonly body: string;
   } | null;
   readonly decisionReviewRequirement: DecisionReviewRequirement;
+  /** The center's triage answers for this cut; the accept judgment reads the same settlement as closeout. */
+  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
 }): CompiledDecisionWrite {
   const proposal = input.event.type === "decision_proposed";
   if (
@@ -58,6 +60,7 @@ export function compileDecisionWrite(input: {
       input.currentDocument!.body,
       input.event,
       input.decisionReviewRequirement,
+      input.reviewFindingTriages ?? [],
     );
   }
   if (input.currentDecision && input.currentDocument)
@@ -584,6 +587,15 @@ export function decisionCutSettlement(
   documentBody: string,
   triages: readonly ReviewFindingTriageV1[],
 ): ReviewFindingSettlement | null {
+  // `decisionReviewContentDigest` hashes the whole document body, and the read surfaces that show
+  // review state run once per Decision row — the agenda calls this for every proposed Decision it
+  // renders. A Decision whose reviews carry no categorized finding settles to null whatever the
+  // digest says, so the cheap scan decides that first and the digest is only bought when a finding
+  // could actually enter (G38 measured the unconditional hash as +6 sha256 on the agenda read).
+  const categorized = current.reviews.some((review) =>
+    review.findings.some((finding) => finding.category !== undefined),
+  );
+  if (!categorized) return null;
   const currentDigest = decisionReviewContentDigest(current, documentBody),
     findings = current.reviews
       .filter((review) => review.reviewContentDigest === currentDigest)
@@ -648,11 +660,29 @@ export function decisionAcceptReviewReadiness(
   // Per-finding settlement supersedes "one approved review" for any cut that carries a categorized
   // finding: a blocker returns it, an unresolved triage is unresolved review, and a settled cut is
   // approved without any review-level `approved` record (CH3/CH5).
+  // C3 also deletes the single-`approved` fallback for a cut that raised a finding without a
+  // category: such a review answered neither the triage question nor "no findings", so one approved
+  // record must not overrule it. Only a cut whose current review filed no finding at all keeps the
+  // legacy predicate — that is CH1's "no finding passes directly".
   const settlement = decisionCutSettlement(current, documentBody, findingTriages),
     settledPassed = settlement?.outcome === "passed",
+    // A review the owner explicitly overrode at this digest is disposed: the override is the human
+    // route for exactly this, so its unfiled findings no longer hold the cut.
+    overriddenReviewIds = new Set(
+      current.reviewOverrides
+        .filter((override) => override.reviewContentDigest === currentDigest)
+        .flatMap((override) => override.reviewIds),
+    ),
+    unfiledFindings = current.reviews.some(
+      (review) =>
+        review.reviewContentDigest === currentDigest &&
+        !overriddenReviewIds.has(review.reviewId) &&
+        review.findings.some((finding) => finding.category === undefined),
+    ),
     approved =
       settlement === null
-        ? current.reviews.some(
+        ? !unfiledFindings &&
+          current.reviews.some(
             (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
           )
         : settledPassed,
@@ -741,8 +771,9 @@ export function assertDecisionAcceptReview(
   documentBody: string,
   event: Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>,
   requirement: DecisionReviewRequirement,
+  findingTriages: readonly ReviewFindingTriageV1[] = [],
 ): void {
-  const readiness = decisionAcceptReviewReadiness(current, documentBody, requirement),
+  const readiness = decisionAcceptReviewReadiness(current, documentBody, requirement, findingTriages),
     currentDigest = readiness.currentDigest;
   if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
     throw attributeEntityActionCriterion(

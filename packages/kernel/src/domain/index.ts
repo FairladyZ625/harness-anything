@@ -73,6 +73,7 @@ export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
 // second judgment cannot be assembled from it.
 export {
   discardedFindingCategories,
+  hardRuleFindingCategories,
   isDiscardedCategory,
   isSettledFindingCategory,
   reviewFindingDispositions,
@@ -104,6 +105,7 @@ export {
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,
+  cutReviewFindings,
   gateResults,
   judgeGateWitnesses,
   waivableAutomatedFail,

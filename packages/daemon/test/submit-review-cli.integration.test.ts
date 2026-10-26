@@ -15,7 +15,10 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
-test("CLI submit of a pushed delivery automatically dispatches the default and matching path reviewers", async (t) => {
+// dec_6A77D43B8523823ABA1F5E4D3C CH1: a matching path reviewer *replaces* the default seat. The
+// old contract dispatched both and demanded two dispatches; a cut now holds exactly one seat, so
+// this test asserts the replacement instead of the retired pair.
+test("CLI submit of a pushed delivery seats the matching path reviewer instead of the default", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-submit-review-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -162,10 +165,15 @@ test("CLI submit of a pushed delivery automatically dispatches the default and m
     const dispatches = await cli(["task", "dispatches", taskId]);
     t.diagnostic(`ha task dispatches ${taskId}\n${dispatches.stdout}${dispatches.stderr}`);
     assert.equal(dispatches.status, 0, JSON.stringify(dispatches));
-    assert.match(dispatches.stdout, /auto-reviewer/u);
     assert.match(dispatches.stdout, /path-reviewer/u);
+    assert.doesNotMatch(dispatches.stdout, /auto-reviewer/u);
     const initialDispatches = JSON.parse(dispatches.stdout).dispatches as { dispatchId: string; agentId: string }[];
-    assert.equal(initialDispatches.length, 2, "initial submit dispatches the cut and path reviewers without forward");
+    assert.equal(
+      initialDispatches.length,
+      1,
+      "the path rule replaces the default seat rather than opening a second review gate",
+    );
+    assert.equal(initialDispatches[0]?.agentId, "path-reviewer");
     const retry = await cli(["task", "submit", taskId, "--execution-id", executionId]);
     t.diagnostic(`repeat ha task submit ${taskId}\n${retry.stdout}${retry.stderr}`);
     assert.equal(retry.status, 0, JSON.stringify(retry));
@@ -174,7 +182,7 @@ test("CLI submit of a pushed delivery automatically dispatches the default and m
     assert.deepEqual(
       JSON.parse(repeated.stdout).dispatches.map(({ dispatchId }: { dispatchId: string }) => dispatchId),
       initialDispatches.map(({ dispatchId }) => dispatchId),
-      "repeated submit preserves both dispatch identities",
+      "repeated submit preserves the seat's dispatch identity",
     );
   } finally {
     await transport.stop();
