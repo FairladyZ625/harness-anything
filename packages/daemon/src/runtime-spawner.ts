@@ -1018,7 +1018,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding,
       );
     }, activeBinding);
-    attachActiveRuntime(extracted, active, resumeObservation);
+    // Attachment can refuse: a workspace the liveness watcher cannot open is a real fault, not a
+    // reason to run unwatched. The process is already launched, so the failed-launch path retires
+    // it — terminate, release, and drop the stream — instead of leaving a live worker owned by a
+    // dispatch this call is about to report as failed.
+    try {
+      attachActiveRuntime(extracted, active, resumeObservation);
+    } catch (error) {
+      await cleanupFailedLaunch(error);
+      throw error;
+    }
     if (!requested.event || (!requested.receipt && !requested.publication))
       throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
     return requested.receipt

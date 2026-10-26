@@ -960,11 +960,22 @@ test("a stalled dispatch settles through the process-tree path and never masks i
   }
 });
 
-test("a workspace the watcher cannot open fails the attach instead of degrading the watchdog", async () => {
+test("a refused workspace watch fails the attach instead of degrading the watchdog", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-watch-refused-"));
   try {
-    const runtime = active({ cwd: path.join(rootDir, "absent-workspace") }),
-      activated: string[] = [],
+    const runtime = active({
+        // NUL is invalid in a filesystem path on every Node platform, so watch() refuses it
+        // before any native backend is chosen: the attach's own failure, independent of whether
+        // a missing directory happens to throw on this platform's watcher.
+        cwd: path.join(rootDir, "absent-workspace\u0000refused"),
+        process: {
+          pid: 4002,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        },
+      }),
       context = {
         exiting: new Set<string>(),
         processes: new Map([[runtime.runtimeSessionId, runtime]]),
@@ -977,9 +988,12 @@ test("a workspace the watcher cannot open fails the attach instead of degrading 
         },
       } as unknown as RuntimeSpawnerContext;
 
-    assert.throws(() => attachActiveRuntime(context, runtime), { code: "ENOENT" });
-    assert.deepEqual(activated, []);
-    assert.equal(runtime.recordWorkspaceProgress, null, "no half-attached liveness surface is left behind");
+    assert.throws(() => attachActiveRuntime(context, runtime), { code: "ERR_INVALID_ARG_VALUE" });
+    assert.equal(
+      runtime.recordWorkspaceProgress,
+      null,
+      "the refused attach releases its progress callbacks instead of leaving an unwatched runtime",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

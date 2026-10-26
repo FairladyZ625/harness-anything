@@ -273,6 +273,14 @@ export function attachActiveRuntime(
     active.process.onErrorOutput(handlers.error);
     active.process.onExit(handlers.exit);
   }
-  attachRuntimeObservations(context, active);
+  try {
+    attachRuntimeObservations(context, active);
+  } catch (error) {
+    // Release the observation handles this call created before the fault travels: the launcher
+    // terminates the process, and a runtime left holding progress callbacks with no armed
+    // deadline would be a live session nobody is watching.
+    disposeActiveRuntimeObservations(active);
+    throw error;
+  }
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
 }
