@@ -57,9 +57,21 @@ interface LedgerCall {
  * `changedAfterRevision` 按行 revision 过滤。`neverEnds` 模拟死游标/无限台账:
  * 页页都报 nextCursor,用来验证页预算封顶。
  */
-function installFakeLedger(size = LEDGER_ROWS, options: { readonly neverEnds?: boolean } = {}) {
+function installFakeLedger(
+  size = LEDGER_ROWS,
+  options: {
+    readonly neverEnds?: boolean;
+    /**
+     * Rows the daemon refuses to serve, keyed by taskId. The real daemon isolates them per page, so
+     * a page's `invalidRows` covers only the isolated rows that page scanned — the shape that made
+     * a per-read count wrong.
+     */
+    readonly isolated?: ReadonlySet<string>;
+  } = {},
+) {
   const rows = Array.from({ length: size }, (_, index) => projectionRow(index));
   const revisionOf = new Map(rows.map((row) => [row.taskId, 1_000]));
+  const isolated = new Set(options.isolated ?? []);
   const state = { watermark: 1_000, sourceRevision: 1_000, status: "ready" as "ready" | "pending" };
   const calls: LedgerCall[] = [];
   const getTasks = vi.fn(
@@ -77,8 +89,9 @@ function installFakeLedger(size = LEDGER_ROWS, options: { readonly neverEnds?: b
           (payload.status === undefined || row.snapshot.task?.status === payload.status) &&
           (payload.changedAfterRevision === undefined || revisionOf.get(row.taskId)! > payload.changedAfterRevision),
       );
-      const visible = eligible.slice(0, limit),
-        last = visible.at(-1);
+      const scanned = eligible.slice(0, limit),
+        visible = scanned.filter((row) => !isolated.has(row.taskId)),
+        last = scanned.at(-1);
       calls.push({
         cursor: after,
         changedAfterRevision: payload.changedAfterRevision ?? null,
@@ -89,7 +102,14 @@ function installFakeLedger(size = LEDGER_ROWS, options: { readonly neverEnds?: b
         ok: true,
         status: state.status,
         rows: visible,
-        invalidRows: [],
+        invalidRows: scanned
+          .filter((row) => isolated.has(row.taskId))
+          .map((row, index) => ({
+            rowIndex: index,
+            taskId: row.taskId,
+            field: `rows[${index}].snapshot`,
+            message: "actual=Task snapshot field is invalid.",
+          })),
         watermark: state.watermark,
         sourceRevision: state.sourceRevision,
         warnings: [],
@@ -110,6 +130,11 @@ function installFakeLedger(size = LEDGER_ROWS, options: { readonly neverEnds?: b
       state.watermark += 1;
       state.sourceRevision = state.watermark;
       revisionOf.set(rows[index]!.taskId, state.watermark);
+    },
+    /** The row became servable, e.g. after a repair: it now returns as a changed row. */
+    unIsolate(taskId: string, revision: number) {
+      isolated.delete(taskId);
+      revisionOf.set(taskId, revision);
     },
   };
 }
@@ -260,6 +285,72 @@ describe("W6 Goal 第二项演进:受控快读水化(顺序续读 + 页预算封
     expect(hydrationRequests).toBeLessThanOrEqual(HYDRATION_PAGE_BUDGET);
     expect(steady.requests).toBe(1);
     expect(rowsPulled).toBe(LEDGER_ROWS);
+  });
+});
+
+/**
+ * 完整性是切面属性,不是单次读的属性。`invalidRows` 由 daemon 按页判定,把最后一页的数字
+ * 当成整段切面的数字会低估三个数量级;一个空增量还会把它清零,让界面在 10s 内回到
+ * 「落后 0 / 共 N」。2026-10-25 的现场是 4,380 行被隔离、页面只报 468。
+ */
+describe("行集完整性:按切面累加,不被续读或空增量清零", () => {
+  /** The isolated set the real projection had: nearly every row, spread across all pages. */
+  const isolateAllBut = (rows: ReturnType<typeof installFakeLedger>["rows"], keep: number) =>
+    new Set(rows.slice(keep).map((row) => row.taskId));
+
+  it("counts every isolated row across pages, not just the last page", async () => {
+    const size = 2_400,
+      shape = installFakeLedger(size),
+      ledger = installFakeLedger(size, { isolated: isolateAllBut(shape.rows, 20) });
+    const { cut } = await refresh(ledger);
+    expect(cut.status).toBe("ready");
+    // Served rows are what the daemon hands out; the isolated count is the rest of the ledger.
+    expect(cut.rows).toHaveLength(20);
+    expect(cut.invalidRows).toHaveLength(size - 20);
+    // A per-read count would only ever see the last page, which is smaller than one page here.
+    expect(cut.invalidRows.length).toBeGreaterThan(TASK_LIST_PAGE_LIMIT);
+  });
+
+  it("keeps the incomplete set across a delta that returns no changed rows", async () => {
+    const size = 2_400,
+      shape = installFakeLedger(size),
+      ledger = installFakeLedger(size, { isolated: isolateAllBut(shape.rows, 20) });
+    const first = (await refresh(ledger)).cut;
+    expect(first.invalidRows).toHaveLength(size - 20);
+    // Nothing changed between probes, so the delta carries no rows and no isolated rows of its own.
+    const steady = (await refresh(ledger, first)).cut;
+    expect(steady.rows).toHaveLength(20);
+    expect(steady.invalidRows).toHaveLength(size - 20);
+  });
+
+  it("drops a task from the incomplete set once a later read serves it", async () => {
+    const size = 600,
+      shape = installFakeLedger(size),
+      repairedId = shape.rows[0]!.taskId,
+      ledger = installFakeLedger(size, { isolated: new Set([repairedId]) });
+    const first = (await refresh(ledger)).cut;
+    expect(first.invalidRows.map((row) => row.taskId)).toEqual([repairedId]);
+    // The repair landed: that task is now served as a changed row instead of being isolated. The
+    // marker must disappear, or "incomplete" would stick forever after the bug is gone.
+    ledger.state.watermark += 1;
+    ledger.state.sourceRevision = ledger.state.watermark;
+    ledger.unIsolate(repairedId, ledger.state.watermark);
+    const steady = (await refresh(ledger, first)).cut;
+    expect(steady.rows).toHaveLength(size);
+    expect(steady.invalidRows).toEqual([]);
+  });
+
+  it("a restart replaces the incomplete set instead of accumulating it", async () => {
+    const size = 600,
+      shape = installFakeLedger(size),
+      isolated = new Set([shape.rows[0]!.taskId]);
+    const ledger = installFakeLedger(size, { isolated });
+    const first = (await refresh(ledger)).cut;
+    expect(first.invalidRows).toHaveLength(1);
+    // A restart discards the previous cut, so it cannot inherit the old set. Reading with no
+    // previous cut is exactly that path.
+    const restarted = (await refresh(ledger)).cut;
+    expect(restarted.invalidRows).toHaveLength(1);
   });
 });
 

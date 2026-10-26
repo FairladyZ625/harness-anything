@@ -30,6 +30,16 @@ function ageText(seconds: number | null): string {
 }
 
 function projectionText(health: RuntimeHealth): string {
+  // 行集不完整优先于落后读数:daemon 隔离掉不服务时,「落后 0 revisions」是假象,
+  // 必须说「不完整」而不是「已追平」(2026-10-25 看板 92 / 台账 4,469)。
+  if ((health.projection.isolatedRows ?? 0) > 0)
+    return t("components.appSidebar.healthRowsIncomplete", {
+      count: new Intl.NumberFormat("en-US").format(health.projection.isolatedRows!),
+    });
+  // 水化未完成同样是不完整:切面还带着 `page.nextCursor`,行集只是「已读到的部分」。
+  // lag 可以是 0(投影已追平),所以单看落后读数会把它说成「已追平」。这条必须在
+  // lag 之前判,且要在**可见行**上说,不能只藏在折叠 tooltip 里。
+  if (health.projection.hydrating) return t("components.appSidebar.healthHydrating");
   if (health.projection.loading) return t("components.appSidebar.healthLagLoading");
   if (health.projection.lag === null) return t("components.appSidebar.healthLagUnknown");
   return t("components.appSidebar.healthLagRevs", { lag: String(health.projection.lag) });

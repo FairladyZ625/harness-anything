@@ -9,6 +9,7 @@ import {
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { validateTaskV2 } from "../domain/task.ts";
+import { withoutRetiredTaskSnapshotFields } from "../domain/event-shape-migration-event.ts";
 import {
   canonicalJson,
   prepareQuery,
@@ -159,7 +160,12 @@ function readSnapshotsInternal(
   for (const row of snapshotRows) {
     let snapshot: TaskLifecycleSnapshot;
     try {
-      snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot;
+      // A cache written before version 38's cleaner still carries the retired code/doc witness
+      // field. Drop it here instead of forcing a replay: the field carries no authority, and the
+      // replay needed to erase it does not survive attach at canonical scale.
+      snapshot = withoutRetiredTaskSnapshotFields(
+        JSON.parse(row.snapshot_json) as Record<string, unknown>,
+      ) as TaskLifecycleSnapshot;
     } catch {
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     }

@@ -209,4 +209,55 @@ describe("board one-row filter area (2026-10-01 review #8)", () => {
     });
     container.remove();
   });
+
+  it("marks the header total as unserved rows when the daemon isolates ledger rows", async () => {
+    // 2026-10-25: the header read "共 92" against a 4,469-row ledger because the daemon isolated
+    // 4,380 snapshots and served the rest. The count stays true for served rows; the header must
+    // say the set is incomplete so nobody reads "共 92" as the ledger size.
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          createElement(BoardView, {
+            ...boardProps({ tasks: [makeTask()] }),
+            isolatedRows: 4_380,
+          }),
+        );
+      });
+      const incomplete = container.querySelector('[data-testid="board-header-incomplete"]');
+      expect(incomplete).not.toBeNull();
+      // This file pins en-US; assert the fact, not one locale's wording.
+      expect(incomplete!.textContent).toContain("incomplete");
+      expect(incomplete!.textContent).toContain("4,380");
+      // The header must stop presenting the served count as the total at all.
+      const summary = container.querySelector('[data-testid="board-header-summary"]')!;
+      expect(summary.textContent).toContain("served");
+      expect(summary.textContent).toContain("unserved");
+      expect(summary.textContent).not.toContain(" total");
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("omits the incomplete marker when every ledger row is served", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(createElement(BoardView, boardProps({ tasks: [makeTask()] })));
+      });
+      expect(container.querySelector('[data-testid="board-header-incomplete"]')).toBeNull();
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
 });

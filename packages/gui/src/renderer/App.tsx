@@ -390,6 +390,13 @@ function AppShell() {
           watermark: tasksQuery.data.watermark,
           sourceRevision: tasksQuery.data.sourceRevision,
           status: tasksQuery.data.status,
+          // 同一读面亲口报的隔离行数:非 0 时行集相对 watermark 不完整,侧栏必须说「不完整」
+          // 而不是「落后 0 revisions」(2026-10-25 看板 92 / 台账 4,469)。
+          isolatedRows: tasksQuery.data.invalidRows.length,
+          // 切面仍带游标 = 水化在 `HYDRATION_PAGE_BUDGET` 处截断,行集只是「已读到的页」。
+          // 这个事实只能由切面自己给: `status === "pending"` 同时表示「投影落后」,而落后时
+          // 行集相对所报 watermark 仍是完整的——两个缺陷不能互相推断。
+          hydrating: (tasksQuery.data.page?.nextCursor ?? null) !== null,
         }
       : null,
     projectionLoading: tasksQuery.isLoading,
@@ -756,6 +763,8 @@ function AppShell() {
                   onStartTask={taskActions.startTask}
                   mutationFeedback={feedbackOf}
                   onSetPin={handleSetPin}
+                  isolatedRows={tasksQuery.data?.invalidRows.length ?? 0}
+                  hydrating={(tasksQuery.data?.page?.nextCursor ?? null) !== null}
                 />
               ) : view === "collaboration" ? (
                 // 协作页舰队拓扑(task_8ce646d94):节点/通道/详情/事件全部来自
