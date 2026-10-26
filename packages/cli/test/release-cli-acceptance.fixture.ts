@@ -35,6 +35,7 @@ for (const personId of ["owner", "reviewer"]) {
     "release-acc-chain",
     "release-acc-rework",
     "release-acc-artifacts",
+    "release-acc-artifact-source",
     "release-acc-entity",
     "browser-e2e",
     "browser-write-first",

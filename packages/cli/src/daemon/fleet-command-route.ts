@@ -196,8 +196,6 @@ export async function fleetTaskRoute(
       );
     }
   }
-  if (actionKind === "task-artifact-add" && typeof action.source === "string")
-    action.source = path.resolve(command.rootDir, action.source);
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,
