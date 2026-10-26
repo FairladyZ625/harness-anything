@@ -4,7 +4,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { attachActiveRuntime, createActiveRuntime } from "../src/runtime-spawn-active.ts";
+import {
+  attachActiveRuntime,
+  createActiveRuntime,
+  disposeActiveRuntimeObservations,
+} from "../src/runtime-spawn-active.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
@@ -111,4 +115,7 @@ test("the output handler enforces the cap after the consuming chunk", async () =
   output?.(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 80, output_tokens: 30 } }) + "\n");
   for (const effect of scheduled) await effect();
   assert.deepEqual(enforced, [runtime.runtimeSessionId]);
+  // The attach owns a recursive watcher for the fixture workspace; disposing it is what lets the
+  // test process exit instead of leaking one fs_event handle.
+  disposeActiveRuntimeObservations(runtime);
 });
