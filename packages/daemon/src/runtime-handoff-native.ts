@@ -9,7 +9,11 @@ import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 const git = promisify(execFile);
-const supportedVersions = new Set(["0.159.1", "0.159.3"]);
+/** The one verified-version list: source closure reads a rollout's `cli_version`, target admission
+ * reads the installation's `codex-cli <version>` output, and a release verified by byte comparison
+ * must not be accepted on one node and refused on the other. */
+export const verifiedHandoffVersions = ["0.159.1", "0.159.3", "0.163.0"] as const;
+const supportedVersions = new Set<string>(verifiedHandoffVersions);
 const portableTools = new Set([
   "exec",
   "exec_command",
@@ -111,7 +115,7 @@ export function validateHandoffRollout(body: Uint8Array, providerSessionId: stri
       )
         throw runtimeSpawnError(
           "runtime_handoff_version_unsupported",
-          "Only verified Codex 0.159.1 and 0.159.3 native rollouts are supported.",
+          `Only verified Codex ${verifiedHandoffVersions.join(", ")} native rollouts are supported.`,
         );
       version = String(record.payload.cli_version);
     }
