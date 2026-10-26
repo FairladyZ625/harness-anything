@@ -93,11 +93,10 @@ export async function publishExit(
         type: "error",
         code: "provider_disconnected",
       });
-    if (
-      !cancelled &&
-      (active.providerSessionId === null ||
-        (code === 0 && (active.finalText === null || active.providerOutcome === null)))
-    )
+    // `finalText` is worker completion evidence, not a provider protocol terminal. ACP may
+    // report `end_turn` without a final message; keep that attempt unknown, but do not call
+    // the valid provider stream malformed when its session and terminal outcome are present.
+    if (!cancelled && (active.providerSessionId === null || (code === 0 && active.providerOutcome === null)))
       context.markProtocolError(active);
     // One read of the worker's own ruling artifact feeds both the settlement classification and
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
