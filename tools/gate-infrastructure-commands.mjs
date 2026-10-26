@@ -18,7 +18,7 @@ export const INFRASTRUCTURE_COMMANDS = new Set([
   "git config --global core.autocrlf true",
   "git fetch --no-tags origin main",
   'gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"',
-  // dec_F5B2CBF8B45042B6DA2824A7FA/CH4: unpacking the lockfile-keyed node_modules artifact the
-  // install helper job produced is runner setup, not a gate — every consuming lane runs it.
-  'tar -xf "$RUNNER_TEMP/node-modules.tar"',
+  // dec_F5B2CBF8B45042B6DA2824A7FA/CH4: the artifact is built from this workflow run's checkout;
+  // refresh the marker after a later consumer checkout so tests do not mistake it for stale.
+  'tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt',
 ]);

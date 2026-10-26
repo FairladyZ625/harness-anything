@@ -28,6 +28,8 @@ jobs:
   # after the lockfile hash, so these install outputs are never reused across lockfile
   # contents — a different lockfile produces a different artifact name and the download fails
   # instead of silently reusing. The tar preserves workspace symlinks and packages/daemon/dist.
+  # Consumers refresh dist/build-id.txt after extraction because their checkout mtimes are newer
+  # than the install job's checkout; the artifact itself is scoped to this same workflow run.
   # Windows lanes keep their own `npm ci` (56
   # optional native dependencies are os/cpu-scoped) and nightly lanes keep theirs (they
   # run other Node versions); pr-body-lint keeps its own too, because it lives in a
@@ -91,7 +93,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/run-manifest-gates.mjs --workflow-job typecheck
 
   fast-contract:
@@ -109,7 +111,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: git diff --check
       - run: node tools/run-manifest-gates.mjs --workflow-job fast-contract
 
@@ -134,7 +136,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/run-manifest-gates.mjs --workflow-job crlf-checkout
 
   windows-first-run:
@@ -163,7 +165,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
         if: runner.os == 'Linux'
       - run: npm run build -w @harness-anything/cli
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-first-run
@@ -186,7 +188,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
 
   windows-integration-shard:
@@ -298,7 +300,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - name: Run boundary gates
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -338,7 +340,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       # The windows-first-run smoke (folded into this lane on push) needs the packaged bin.
       - if: github.event_name == 'push'
         run: npm run build -w @harness-anything/cli
@@ -357,7 +359,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/run-manifest-gates.mjs --workflow-job supply-chain
 
   gui-build:
@@ -390,7 +392,7 @@ jobs:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
       - if: ${{ steps.filter.outputs.gui == 'true' }}
-        run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+        run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - if: ${{ steps.filter.outputs.gui == 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build
   # dec_F5B2CBF8B45042B6DA2824A7FA/CH3: nightly-only now. All 25 of its real catches in 60
@@ -430,7 +432,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node --test tools/gates/test/*.test.mjs
 
   derived-contracts:
@@ -448,7 +450,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/gates/derived-contracts.mjs --check
 
   platform-smoke:
@@ -472,7 +474,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
         if: runner.os == 'Linux'
       - run: npm run build -w @harness-anything/cli
       - run: node tools/gates/platform-smoke.mjs
@@ -492,7 +494,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/gates/schema-closure.mjs --check
 
   canonical-event-compat:
@@ -508,7 +510,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: npm run harness:check-canonical-event-compat
 
   test-selection:
@@ -541,7 +543,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/gates/clean-build.mjs --temp
 
   dependency-policy:
@@ -569,7 +571,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - name: Reject deterministic cost regressions (G38)
         run: node tools/gates/cost-budget.mjs
 
@@ -586,7 +588,7 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: npm run lint
 
   entity-id-links:
@@ -602,5 +604,5 @@ jobs:
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar"
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/gates/entity-id-links.mjs

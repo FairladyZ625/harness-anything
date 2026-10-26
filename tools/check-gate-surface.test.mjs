@@ -53,7 +53,10 @@ test("rewrite CI dependency artifact includes the daemon output built by npm ci"
     /run: npm ci[\s\S]*run: tar -cf "\$RUNNER_TEMP\/node-modules\.tar" node_modules packages\/daemon\/dist/u,
   );
   assert.match(installBlock, /name: node-modules-\$\{\{ hashFiles\('package-lock\.json'\) \}\}/u);
-  assert.match(workflow, /run: tar -xf "\$RUNNER_TEMP\/node-modules\.tar"/u);
+  assert.match(
+    workflow,
+    /run: tar -xf "\$RUNNER_TEMP\/node-modules\.tar" && touch packages\/daemon\/dist\/build-id\.txt/u,
+  );
 });
 
 test("gate surface check accepts a consistent minimal manifest", () => {

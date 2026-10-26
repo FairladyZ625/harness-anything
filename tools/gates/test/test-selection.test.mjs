@@ -55,6 +55,13 @@ test("G25 treats the merged rewrite-ci workflow as gate wiring: tiers plus a fix
 
   const withFixture = selectTests([".github/workflows/rewrite-ci.yml", "tools/gates/test/test-selection.test.mjs"]);
   assert.equal(withFixture.ok, true, withFixture.errors.join("\n"));
+  assert.deepEqual(withFixture.required, ["fast", "contract"]);
+  assert.deepEqual(withFixture.paths[1], {
+    path: "tools/gates/test/test-selection.test.mjs",
+    module: null,
+    kind: "test",
+    tiers: ["fast"],
+  });
 });
 
 test("G25 zero selection is green only with complete non-production proof", () => {

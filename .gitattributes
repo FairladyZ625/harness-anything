@@ -5,6 +5,7 @@
 #
 # Source stays convertible on purpose. A Windows contributor gets CRLF sources like any other, and
 # the crlf-checkout lane keeps the teeth it needs to find the next defect in this class.
+package-lock.json text eol=lf
 packages/preset/assets/** -text
 packages/*/test/fixtures/** -text
 packages/*/fixtures/** -text
