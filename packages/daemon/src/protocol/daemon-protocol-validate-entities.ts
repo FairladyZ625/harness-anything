@@ -463,8 +463,26 @@ export function review(value: unknown): boolean {
     "contentDigest",
     "reviewedAt",
   ];
+  const optionalFields = ["submissionDigest", "findings", "resolutions"];
+  const validFinding = (finding: unknown): boolean => {
+    if (!isJsonObject(finding)) return false;
+    const fields = ["findingId", "blocking", "text"];
+    return (
+      (exactRecord(finding, fields) || exactRecord(finding, [...fields, "anchor"])) &&
+      nonEmpty(finding.findingId) &&
+      typeof finding.blocking === "boolean" &&
+      nonEmpty(finding.text) &&
+      (finding.anchor === undefined || nonEmpty(finding.anchor))
+    );
+  };
+  const validResolution = (resolution: unknown): boolean =>
+    exactRecord(resolution, ["reviewId", "findingId", "resolution"]) &&
+    nonEmpty(resolution.reviewId) &&
+    nonEmpty(resolution.findingId) &&
+    (resolution.resolution === "upheld" || resolution.resolution === "withdrawn");
   return (
-    (exactRecord(value, fields) || exactRecord(value, [...fields, "submissionDigest"])) &&
+    recordWith(value, fields) &&
+    Object.keys(value).every((field) => fields.includes(field) || optionalFields.includes(field)) &&
     value.schema === "review/v1" &&
     [
       value.reviewId,
@@ -480,7 +498,9 @@ export function review(value: unknown): boolean {
     (value.commitSha === null ? digest(value.submissionDigest) : sha(value.commitSha)) &&
     iteration(value.iteration) &&
     digest(value.contentDigest) &&
-    (value.submissionDigest === undefined || digest(value.submissionDigest))
+    (value.submissionDigest === undefined || digest(value.submissionDigest)) &&
+    (value.findings === undefined || (Array.isArray(value.findings) && value.findings.every(validFinding))) &&
+    (value.resolutions === undefined || (Array.isArray(value.resolutions) && value.resolutions.every(validResolution)))
   );
 }
 
