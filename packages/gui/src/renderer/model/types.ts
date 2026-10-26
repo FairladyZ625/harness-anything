@@ -204,12 +204,15 @@ interface TaskRowFields {
    * 与 spawningDecisionIds 不同:这是 task→task 的层级关系,不是 decision 派生。
    */
   parentTaskId?: string;
-  /** Work topology overlay; the canonical task status stays in coordinationStatus. */
+  /**
+   * Work topology overlay (`repo.work.topology.read`, dec_17A863CC CH7): the three marks the
+   * daemon publishes per work-scope node. They are read-only display state layered on the
+   * canonical row — the lifecycle word still lives in coordinationStatus and the GUI never
+   * derives blocked/ready from events or edges.
+   */
   topologyState?: WorkTopologyRead["members"][number]["topologyState"];
   topologyFrontier?: boolean;
   topologyCriticalPathPosition?: number;
-  /** This graph row has no fields beyond the bounded topology read. */
-  topologyOnly?: boolean;
   /**
    * 所属工作的根 taskId(dec_5F7E74F1),来自 daemon 工作索引 `repo.works.index`;工作根的
    * workId=自身。不属于任何工作(独立任务)时缺省。renderer 不沿父链自己判定。

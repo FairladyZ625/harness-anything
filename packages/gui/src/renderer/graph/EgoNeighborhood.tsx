@@ -82,9 +82,9 @@ export type EgoNeighborhoodProps = {
   cardHeightCap?: number;
   focusRef: string | null;
   tasks: readonly TaskRow[];
-  decisions: DecisionRow[];
+  decisions: readonly DecisionRow[];
   facts: readonly FactRef[];
-  relations: RelationEdge[];
+  relations: readonly RelationEdge[];
   factAnchors: ReadonlyArray<FactAnchorRow>;
   /** 运行时平面节点行(agent/schedule);缺省 = 该平面缺席,图照常。 */
   agents?: ReadonlyArray<AgentNodeRow>;
