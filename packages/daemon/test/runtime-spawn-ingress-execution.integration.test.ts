@@ -291,7 +291,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           dryRun: true,
         },
       });
-      assert.equal(reflecting.outcome, "applied", JSON.stringify(reflecting));
+      assert.equal(reflecting.ok, true, JSON.stringify(reflecting));
       const reflectingPrompt = String(reflecting.prompt);
       assert.match(
         reflectingPrompt,
