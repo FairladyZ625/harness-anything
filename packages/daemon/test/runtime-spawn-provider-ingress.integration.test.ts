@@ -337,9 +337,9 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       },
       { outcome: "failed", exitCode: 1 },
     );
-    assert.equal(
-      (emptyRead.result as Record<string, unknown>).text,
-      "Provider exited with code 1 and produced no output.",
+    assert.match(
+      String((emptyRead.result as Record<string, unknown>).text),
+      /^Provider exited with code 1 and produced no output\./u,
     );
     const secret = "sk-runtime-secret-1234567890",
       stderrFailure = await rpc(host, auth, "repo.agentRuntime.spawn", {

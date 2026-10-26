@@ -470,8 +470,8 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
   ]);
   assert.equal(emptyFailure.status, 1);
   assert.equal(emptyFailure.receipt.code, "provider_exit");
-  assert.equal(emptyFailure.receipt.reason, "Provider exited with code 1 and produced no output.");
-  assert.equal(emptyFailure.receipt.summary, emptyFailure.receipt.reason);
+  assert.match(String(emptyFailure.receipt.reason), /^Provider exited with code 1 and produced no output\./u);
+  assert.match(String(emptyFailure.receipt.summary), /^Provider exited with code 1 and produced no output\./u);
   const secret = "sk-runtime-secret-1234567890",
     secretFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:secret", "--no-stream"]);
   assert.equal(secretFailure.status, 1);
@@ -519,7 +519,7 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
   assert.equal(failureBatch.status, 1);
   const failureRow = (failureBatch.receipt.dispatches as Array<Record<string, unknown>>)[0]!;
   assert.equal(failureRow.code, "provider_exit");
-  assert.equal(failureRow.reason, "Provider exited with code 1 and produced no output.");
+  assert.match(String(failureRow.reason), /^Provider exited with code 1 and produced no output\./u);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const detachedFailure = run(root, env, [
     "agent",

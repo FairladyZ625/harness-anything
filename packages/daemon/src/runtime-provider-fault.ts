@@ -170,6 +170,18 @@ export function classifyRuntimeExit(
       ...(providerFault.faultClass ? { faultClass: providerFault.faultClass } : {}),
       ...(providerFault.resetAt ? { resetAt: providerFault.resetAt } : {}),
     };
+  if (active.lossReason)
+    return classified("worker_stop", `Worker process stopped before settlement: ${active.lossReason}`);
+  if (exitCode === null)
+    return classified("provider_fault", "Provider process disconnected before completing the attempt.");
+  // A drained reconnect budget is upstream overload, not the worker giving up: when the provider
+  // reconnected and the attempt then ended without any successful tool call, the last agent
+  // message is the overloaded stream's tail, whatever it claims about the workspace.
+  if (reconnectExhaustedTail(active)) return classified("provider_fault", reconnectExhaustedReason(active));
+  // A reconnect with neither a served tool call nor an answering agent message has no terminal
+  // evidence to preserve. Keep this transport-loss case on the historical worker-stop path;
+  // completed_without_final_text is reserved for a provider that actually completed a turn.
+  if (reconnectWithoutAnswer(active)) return classified("worker_stop", workerStopReason(active, outcome));
   if (exitCode === 0 && active.providerOutcome === "succeeded" && !active.finalText?.trim())
     return {
       ...classified(
@@ -179,14 +191,6 @@ export function classifyRuntimeExit(
       ),
       outcome: "unknown",
     };
-  if (active.lossReason)
-    return classified("worker_stop", `Worker process stopped before settlement: ${active.lossReason}`);
-  if (exitCode === null)
-    return classified("provider_fault", "Provider process disconnected before completing the attempt.");
-  // A drained reconnect budget is upstream overload, not the worker giving up: when the provider
-  // reconnected and the attempt then ended without any successful tool call, the last agent
-  // message is the overloaded stream's tail, whatever it claims about the workspace.
-  if (reconnectExhaustedTail(active)) return classified("provider_fault", reconnectExhaustedReason(active));
   if (
     exitCode === 0 &&
     active.providerOutcome === "succeeded" &&
@@ -224,6 +228,14 @@ function reconnectExhaustedTail(active: ActiveRuntime): boolean {
   return (
     (active.providerReconnectCount ?? 0) > 0 &&
     active.finalAgentMessageAfterReconnect === true &&
+    active.successfulToolCallAfterReconnect !== true
+  );
+}
+
+function reconnectWithoutAnswer(active: ActiveRuntime): boolean {
+  return (
+    (active.providerReconnectCount ?? 0) > 0 &&
+    active.finalAgentMessageAfterReconnect !== true &&
     active.successfulToolCallAfterReconnect !== true
   );
 }
