@@ -98,7 +98,7 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("review", "task-lifecycle-review-transitions/review.validate"), reviewValidation],
     [key("review", "repo-cell-proof/proofFor.RecordReview"), reviewIndependence],
     [key("respondReview", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [key("respondReview", "task-lifecycle-review-transitions/respond.validate"), responseValidation],
+    [key("respondReview", "task-lifecycle-review-transitions/respondReview.validate"), responseValidation],
     [key("respondReview", "repo-cell-proof/proofFor.RespondReview"), responseLease],
     [key("rework", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("rework", "task-lifecycle-command-transitions/rework.validate"), mutationInvocation],

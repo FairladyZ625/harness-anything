@@ -58,6 +58,14 @@ export interface EntityActionExecutionContract {
     readonly coordination: "reserve" | "execute";
     readonly eventType: string;
     readonly proof: readonly string[];
+    /**
+     * The criterion a rejected invocation is attributed to: the guard that decides whether this
+     * command may be built and applied at all. Declared here, not derived from the action id by
+     * naming convention: when the two disagreed, attribution threw a second error that replaced the
+     * rejection's own reason. Null when no single guard owns the refusal — `create` attributes its
+     * compile and graph refusals in `createTask`, which never reaches the lifecycle runtime.
+     */
+    readonly validatorCriterionRef: string | null;
   };
 }
 

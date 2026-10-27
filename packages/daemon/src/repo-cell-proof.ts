@@ -246,7 +246,7 @@ export async function proofFor(
       throw cellCriterionError(
         "actor_unauthorized",
         "Task review responses require the current implementation execution lease.",
-        "respond-review",
+        "respondReview",
         REVIEW_RESPONSE_PROOF_CRITERION,
       );
     const authorizationDecision = requiredAuthorizationDecision(binding);
