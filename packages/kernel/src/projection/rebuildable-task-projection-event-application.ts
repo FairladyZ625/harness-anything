@@ -573,9 +573,8 @@ export function applyEvent(
           change.policyId === base.policyId
         )
           continue;
-        // A create claim admitted while the live projection lacked an earlier ledger write of the
-        // same path (that write's event failed to project and was later replayed) is still an
-        // accepted ledger event; replay applies it in ledger order rather than failing the rebuild.
+        // The ledger admitted this create while its live projection still lacked an earlier write
+        // to the same path. During replay, preserve accepted ledger order and let the create win.
         if (change.baseBlobSha256 !== null || base === undefined)
           throw new Error(`document base mismatch for ${change.path}`);
       }
