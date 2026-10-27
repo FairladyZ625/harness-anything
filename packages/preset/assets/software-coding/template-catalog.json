@@ -297,6 +297,20 @@
     },
     {
       "id": "planning/task-plan",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
+      ]
+    },
+    {
+      "id": "planning/task-plan",
       "version": "2",
       "documentKind": "task-plan",
       "slot": "task.plan",
