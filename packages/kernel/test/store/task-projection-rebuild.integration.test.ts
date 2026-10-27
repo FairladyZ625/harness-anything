@@ -492,6 +492,52 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
   });
 });
+
+test("cold rebuild replays a null-base create over an earlier document claim", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "null-base-replay", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      documentPath = "context/replayed-report.md",
+      firstBody = "# Replayed report\n\nEarlier accepted claim.\n",
+      secondBody = "# Replayed report\n\nLater accepted create claim.\n";
+    try {
+      eventStore.append(replayDocumentBundle(eventStore, "replay-first", documentPath, firstBody, null));
+      assert.equal(projection.catchUp().watermark, 1);
+      assert.equal(projection.readDocument(documentPath).document?.body, firstBody);
+
+      eventStore.append(replayDocumentBundle(eventStore, "replay-second", documentPath, secondBody, null));
+      assert.equal(projection.rebuild().watermark, 2);
+      const replayed = projection.readDocument(documentPath);
+      assert.equal(replayed.status, "ready");
+      assert.equal(replayed.document?.body, secondBody);
+      assert.equal(replayed.sourceRevision, 2);
+    } finally {
+      projection.close();
+    }
+  });
+});
+
+test("replay still rejects a non-null document base that does not match the prior claim", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "wrong-base-replay", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      documentPath = "context/replayed-report.md",
+      firstBody = "# Replayed report\n\nEarlier accepted claim.\n",
+      secondBody = "# Replayed report\n\nClaim with a stale base.\n";
+    try {
+      eventStore.append(replayDocumentBundle(eventStore, "replay-base-first", documentPath, firstBody, null));
+      assert.equal(projection.catchUp().watermark, 1);
+      eventStore.append(
+        replayDocumentBundle(eventStore, "replay-base-second", documentPath, secondBody, sha256Text("stale base")),
+      );
+      assert.throws(() => projection.rebuild(), /document base mismatch for context\/replayed-report\.md/u);
+    } finally {
+      projection.close();
+    }
+  });
+});
 test("query-only reader sessions keep one completed projection cut while the writer advances", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -1097,6 +1143,52 @@ function batchDocumentBundle(
     event,
     plan: docSyncWritePlan(event),
     blobs: [{ sha256, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
+  };
+}
+function replayDocumentBundle(
+  store: CanonicalEventStore,
+  opId: string,
+  documentPath: string,
+  body: string,
+  baseBlobSha256: string | null,
+): CanonicalWriteBundle {
+  const hash = sha256Text(body),
+    event: DocEventV1 = {
+      schema: "doc-event/v1",
+      eventId: `${opId}-event`,
+      workspaceRevision: store.read().revision + 1,
+      opId,
+      type: "documents_written",
+      actor: { principal: { personId: "person-1" }, executor: null },
+      source: "local",
+      occurredAt: "2026-10-27T00:00:00.000Z",
+      payload: {
+        executionId: null,
+        baseLedgerSha: store.currentCut(),
+        changes: [
+          {
+            path: documentPath,
+            baseBlobSha256,
+            candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" },
+            policyId: DOC_POLICY_ID,
+            regionProofs: [
+              {
+                regionId: "heading/replayed-report",
+                policyId: DOC_POLICY_ID,
+                codecId: DOC_CODEC_ID,
+                baseSha256: baseBlobSha256 ?? sha256Text(""),
+                candidateSha256: hash,
+                insertBytes: Buffer.byteLength(body),
+              },
+            ],
+          },
+        ],
+      },
+    };
+  return {
+    event,
+    plan: docSyncWritePlan(event),
+    blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
   };
 }
 function batchDocumentPath(revision: number): string {

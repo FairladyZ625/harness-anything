@@ -573,7 +573,10 @@ export function applyEvent(
           change.policyId === base.policyId
         )
           continue;
-        throw new Error(`document base mismatch for ${change.path}`);
+        // The ledger admitted this create while its live projection still lacked an earlier write
+        // to the same path. During replay, preserve accepted ledger order and let the create win.
+        if (change.baseBlobSha256 !== null || base === undefined)
+          throw new Error(`document base mismatch for ${change.path}`);
       }
       const bytes = readBlob(change.candidate.sha256);
       if (!bytes || bytes.byteLength !== change.candidate.size)
