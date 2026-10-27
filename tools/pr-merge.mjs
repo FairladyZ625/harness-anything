@@ -83,14 +83,16 @@ function readPr(selector, root) {
 }
 
 function requireCleanWorktree(worktree, label) {
-  // Untracked files never block the guarded operations: `git pull --ff-only`
+  // Untracked files never block the guarded operations: `git merge --ff-only`
   // and `git worktree remove` refuse on their own when untracked files would
   // be lost, so only tracked-file modifications make the worktree dirty here.
   const status = output("git", ["status", "--porcelain=v1", "--untracked-files=no"], {
     cwd: worktree.path,
   });
   if (status) {
-    throw new Error(`${label} worktree is dirty at ${worktree.path}; refusing to merge, delete, or pull.\n${status}`);
+    throw new Error(
+      `${label} worktree is dirty at ${worktree.path}; refusing to merge, delete, or synchronize.\n${status}`,
+    );
   }
 }
 
@@ -143,40 +145,51 @@ function preflight(selector) {
   return { mainWorktree, pr, prWorktree };
 }
 
-// The merge gate for task-bound PRs: the kernel's own judgment over the task-show lifecycle snapshot
-// decides whether the task's current execution has an owner-consented approved review. The completion
-// blocker chain is not consulted: it names only the first unfinished step, and CI witnessing (which
-// exists only after merging) precedes the review chain in it.
-function readTaskReviewConsent(taskId, root) {
+// The task-show receipt is the kernel's lifecycle snapshot. Its read has two callers with different
+// contracts: the pre-merge gate must fail closed, while the post-merge merge-sha annotation is
+// bookkeeping that must never be worded as a merge refusal after GitHub already merged the PR.
+function readTaskLifecycleEvidence(taskId, root) {
   let receipt;
   try {
     receipt = JSON.parse(output("ha", ["task", "show", taskId, "--json"], { cwd: root }));
   } catch (error) {
     throw new Error(
-      `Reading harness task ${taskId} failed (${error instanceof Error ? error.message : String(error)}); ` +
-        "refusing to merge while the review-consent state is unknown (fail closed).",
+      `Reading harness task ${taskId} failed (${error instanceof Error ? error.message : String(error)}).`,
     );
   }
   if (receipt?.ok !== true) {
     const code = typeof receipt?.error?.code === "string" ? receipt.error.code : "unknown_error";
-    throw new Error(`Harness task show for ${taskId} was refused (code=${code}); refusing to merge (fail closed).`);
+    throw new Error(`Harness task show for ${taskId} was refused (code=${code}).`);
   }
   let evidence;
   try {
     evidence = JSON.parse(receipt.evidence);
   } catch {
-    throw new Error(`Harness task show for ${taskId} returned a malformed receipt; refusing to merge (fail closed).`);
+    throw new Error(`Harness task show for ${taskId} returned a malformed receipt.`);
   }
   if (
     typeof evidence?.task?.status !== "string" ||
     evidence.task === null ||
     !["executions", "reviews", "consents", "gateWitnesses"].every((field) => Array.isArray(evidence[field]))
   ) {
-    throw new Error(
-      `Harness task show for ${taskId} returned no completion judgment; refusing to merge (fail closed).`,
-    );
+    throw new Error(`Harness task show for ${taskId} returned no completion judgment.`);
   }
   return evidence;
+}
+
+// The merge gate for task-bound PRs: the kernel's own judgment over the task-show lifecycle snapshot
+// decides whether the task's current execution has an owner-consented approved review. The completion
+// blocker chain is not consulted: it names only the first unfinished step, and CI witnessing (which
+// exists only after merging) precedes the review chain in it.
+function readTaskReviewConsent(taskId, root) {
+  try {
+    return readTaskLifecycleEvidence(taskId, root);
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)} ` +
+        "Refusing to merge while the review-consent state is unknown (fail closed).",
+    );
+  }
 }
 
 // The kernel's own digest-pinned judgment over the receipt's lifecycle snapshot answers the one
@@ -214,7 +227,7 @@ function reviewChainClosed(taskId, evidence) {
 function requireReviewConsent(pr, root) {
   if (!TASK_BRANCH_PATTERN.test(pr.headRefName)) {
     console.log(`Branch ${pr.headRefName} is not a task branch; merging without a review-consent check.`);
-    return;
+    return null;
   }
   const taskId = pr.headRefName,
     evidence = readTaskReviewConsent(taskId, root);
@@ -246,6 +259,7 @@ function requireReviewConsent(pr, root) {
     );
   }
   console.log(`Task ${taskId} passed the review-consent check (status=${evidence.task.status}).`);
+  return evidence;
 }
 
 function mergeOpenPr(pr, root) {
@@ -266,27 +280,40 @@ function mergeOpenPr(pr, root) {
   );
   if (merge.stdout) process.stdout.write(merge.stdout);
 
-  const merged = readPr(String(pr.number), root);
-  if (merged.state !== "MERGED") {
-    throw new Error(`PR #${pr.number} did not reach MERGED state (state=${merged.state}).`);
+  // gh's zero exit already proves the merge happened, so a failure to read the PR back must not abort
+  // the cleanup: the annotation step re-reads the merge commit and reports itself unfinished instead.
+  try {
+    const merged = readPr(String(pr.number), root);
+    if (merged.state === "MERGED") return merged;
+    console.log(`PR #${pr.number} was merged by gh but GitHub still reports state=${merged.state}.`);
+  } catch (error) {
+    console.log(
+      `PR #${pr.number} was merged by gh but reading it back failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
-  return merged;
+  return { ...pr, state: "MERGED", mergeCommit: null };
 }
 
-function recordMergeCommitAnnotation(pr, merged, root) {
-  if (!TASK_BRANCH_PATTERN.test(pr.headRefName) || !merged.mergeCommit?.oid) return;
+function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
+  if (!TASK_BRANCH_PATTERN.test(pr.headRefName)) return;
   const taskId = pr.headRefName,
-    evidence = readTaskReviewConsent(taskId, root),
-    cuts = currentExecutionCuts({
-      task: evidence.task,
-      executions: evidence.executions,
-      reviews: evidence.reviews,
-      consents: evidence.consents,
-      reviewDispositions: evidence.reviewDispositions ?? [],
-      gateWitnesses: evidence.gateWitnesses,
-    });
+    // The open-PR path read the ledger before merging; reusing that snapshot keeps the annotation
+    // from depending on a daemon that may be restarting into a new build right after the merge.
+    evidence = preMergeEvidence ?? readTaskLifecycleEvidence(taskId, root),
+    mergeCommitOid = merged.mergeCommit?.oid ?? readPr(String(pr.number), root).mergeCommit?.oid;
+  if (!mergeCommitOid) throw new Error(`GitHub reports no merge commit for PR #${pr.number}.`);
+  const cuts = currentExecutionCuts({
+    task: evidence.task,
+    executions: evidence.executions,
+    reviews: evidence.reviews,
+    consents: evidence.consents,
+    reviewDispositions: evidence.reviewDispositions ?? [],
+    gateWitnesses: evidence.gateWitnesses,
+  });
   if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
-  const note = `merge_commit_sha:${merged.mergeCommit.oid}`;
+  const note = `merge_commit_sha:${mergeCommitOid}`;
   const alreadyAnnotated = cuts[0].annotations?.some((entry) => entry.note === note);
   if (alreadyAnnotated) return;
   output(
@@ -349,10 +376,35 @@ function printHelp() {
       "A PR whose head branch is a task id must first have the owner-consented review of its",
       "current execution recorded in the harness ledger (ha task show); the check fails closed",
       "when the ledger is unreachable or its judgment cannot be read.",
+      "After a merge every cleanup step runs; any unfinished step is reported with the command that",
+      "finishes it, and the exit status is then non-zero.",
       "This helper never pulls the private harness ledger repository.",
     ].join("\n"),
   );
   process.stdout.write("\n");
+}
+
+// `git pull` fetches and then reads .git/FETCH_HEAD, one file shared by every worktree of this
+// repository. A concurrent fetch (the daemon fetches in the canonical checkout after a merge) can
+// rewrite that file between the two steps, and pull then dies with "There are no candidates for
+// merging among the refs that you just fetched" (PR #4048). Fetching into the remote-tracking ref
+// with --no-write-fetch-head and merging that ref never reads the shared file.
+function syncMain(root) {
+  run("git", ["checkout", MAIN_BRANCH], { cwd: root });
+  run(
+    "git",
+    [
+      "fetch",
+      "--no-tags",
+      "--no-write-fetch-head",
+      REMOTE,
+      `+refs/heads/${MAIN_BRANCH}:refs/remotes/${REMOTE}/${MAIN_BRANCH}`,
+    ],
+    { cwd: root },
+  );
+  run("git", ["merge", "--ff-only", `${REMOTE}/${MAIN_BRANCH}`], { cwd: root });
+  const head = output("git", ["rev-parse", "HEAD"], { cwd: root });
+  console.log(`Local ${MAIN_BRANCH} synchronized to ${head}.`);
 }
 
 function rebuildRuntimePackages(root) {
@@ -369,6 +421,66 @@ function rebuildRuntimePackages(root) {
   }
 }
 
+// Once GitHub reports MERGED the merge cannot be undone, so the only honest outcomes are "every
+// post-merge step completed" or a report naming each unfinished step and the command that finishes
+// it. A failure in one step must not silently skip the independent steps after it; only the rebuild
+// genuinely depends on a synchronized main.
+function finalizeMergedPr(pr, merged, prWorktree, root, preMergeEvidence) {
+  const unfinished = [],
+    attempt = (step, remedy, action) => {
+      try {
+        action();
+      } catch (error) {
+        unfinished.push({ step, remedy, detail: error instanceof Error ? error.message : String(error) });
+      }
+    };
+  attempt(
+    "annotate the current execution with merge_commit_sha",
+    `node tools/pr-merge.mjs ${pr.number} (skips the merge for a merged PR and retries every unfinished step)`,
+    () => recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence),
+  );
+  attempt(`delete remote branch ${REMOTE}/${pr.headRefName}`, `git push ${REMOTE} --delete ${pr.headRefName}`, () =>
+    deleteRemoteBranch(pr.headRefName, root),
+  );
+  attempt(
+    `remove the local worktree and branch for ${pr.headRefName}`,
+    prWorktree
+      ? `git worktree remove ${prWorktree.path} && git branch -D ${pr.headRefName}`
+      : `git branch -D ${pr.headRefName}`,
+    () => removeLocalBranch(pr, prWorktree, root),
+  );
+  let synchronized = false;
+  attempt(
+    `synchronize local ${MAIN_BRANCH}`,
+    `in ${root}: git checkout ${MAIN_BRANCH} && git fetch --no-write-fetch-head ${REMOTE} ` +
+      `+refs/heads/${MAIN_BRANCH}:refs/remotes/${REMOTE}/${MAIN_BRANCH} && git merge --ff-only ${REMOTE}/${MAIN_BRANCH}`,
+    () => {
+      syncMain(root);
+      synchronized = true;
+    },
+  );
+  if (synchronized)
+    attempt("rebuild the runtime packages", `npm run build -w ${RUNTIME_BUILD_PACKAGES.join(" -w ")}`, () =>
+      rebuildRuntimePackages(root),
+    );
+  else
+    unfinished.push({
+      step: "rebuild the runtime packages",
+      remedy: `npm run build -w ${RUNTIME_BUILD_PACKAGES.join(" -w ")} after local ${MAIN_BRANCH} synchronizes`,
+      detail: `skipped because local ${MAIN_BRANCH} did not synchronize`,
+    });
+  return unfinished;
+}
+
+function reportUnfinished(pr, unfinished) {
+  process.stderr.write(
+    [
+      `PR #${pr.number} is MERGED; ${unfinished.length} post-merge step(s) did not finish:`,
+      ...unfinished.map(({ step, detail, remedy }) => `- ${step}: ${detail}\n  finish with: ${remedy}`),
+    ].join("\n") + "\n",
+  );
+}
+
 function main(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     printHelp();
@@ -380,25 +492,20 @@ function main(argv) {
 
   const { mainWorktree, pr, prWorktree } = preflight(argv[0]);
   console.log(`Finalizing PR #${pr.number} (${pr.headRefName} -> ${MAIN_BRANCH}).`);
-  let merged = pr;
+  let merged = pr,
+    evidence = null;
   if (pr.state === "OPEN") {
-    requireReviewConsent(pr, mainWorktree.path);
+    evidence = requireReviewConsent(pr, mainWorktree.path);
     merged = mergeOpenPr(pr, mainWorktree.path);
   } else {
     console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
-    if (!merged.mergeCommit?.oid) {
-      merged = readPr(String(pr.number), mainWorktree.path);
-    }
   }
-  recordMergeCommitAnnotation(pr, merged, mainWorktree.path);
-
-  deleteRemoteBranch(pr.headRefName, mainWorktree.path);
-  removeLocalBranch(pr, prWorktree, mainWorktree.path);
-  run("git", ["checkout", MAIN_BRANCH], { cwd: mainWorktree.path });
-  run("git", ["pull", "--ff-only", REMOTE, MAIN_BRANCH], { cwd: mainWorktree.path });
-  const head = output("git", ["rev-parse", "HEAD"], { cwd: mainWorktree.path });
-  console.log(`Local ${MAIN_BRANCH} synchronized to ${head}.`);
-  rebuildRuntimePackages(mainWorktree.path);
+  const unfinished = finalizeMergedPr(pr, merged, prWorktree, mainWorktree.path, evidence);
+  if (unfinished.length > 0) {
+    reportUnfinished(pr, unfinished);
+    process.exitCode = 1;
+    return;
+  }
   console.log("Private harness ledger was not pulled; use the daemon-stop procedure if it needs separate maintenance.");
 }
 

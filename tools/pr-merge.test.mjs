@@ -49,6 +49,7 @@ if (args[0] === "pr" && args[1] === "view") {
   const expected = ["--merge", "--admin", "--match-head-commit", data.headRefOid];
   if (!expected.every((token) => args.includes(token))) process.exit(4);
   data.state = "MERGED";
+  data.mergeCommit = data.mergeCommit ?? { oid: "b".repeat(40) };
   writeFileSync(statePath, JSON.stringify(data));
   process.stdout.write("merged by fake gh\\n");
 } else {
@@ -85,6 +86,17 @@ const state = JSON.parse(readFileSync(process.env.HA_STATE_PATH, "utf8"));
 if (args[0] !== "task" || args[1] !== "show" || !args[2] || args[3] !== "--json") {
   process.stderr.write(\`unexpected ha args: \${args.join(" ")}\\n\`);
   process.exit(2);
+}
+
+const showLog = process.env.HA_SHOW_LOG_PATH;
+if (showLog) {
+  appendFileSync(showLog, args.join(" ") + "\\n");
+  const shown = readFileSync(showLog, "utf8").trim().split("\\n").length;
+  const failFrom = Number(process.env.HA_FAIL_SHOW_FROM ?? "0");
+  if (failFrom > 0 && shown >= failFrom) {
+    process.stderr.write("Error: daemon is starting; waited 21s (repo 5/23: canonical)\\n");
+    process.exit(1);
+  }
 }
 
 if (state.fail) {
@@ -141,10 +153,43 @@ if (packageName === process.env.BUILD_FAIL_PACKAGE) {
   chmodSync(npm, 0o755);
 }
 
+// A git shim that refuses `pull`: the helper must synchronize through the remote-tracking ref
+// instead of the repository-wide .git/FETCH_HEAD that a concurrent fetch rewrites (#4048).
+function makeFakeGit(bin) {
+  const script = `import { spawnSync } from "node:child_process";
+const args = process.argv.slice(2);
+if (args[0] === "pull") {
+  process.stderr.write("git pull must not be used: .git/FETCH_HEAD is shared\\n");
+  process.exit(9);
+}
+const result = spawnSync(process.env.REAL_GIT, args, { stdio: "inherit" });
+process.exit(result.status ?? 1);
+`;
+  if (process.platform === "win32") {
+    writeFileSync(path.join(bin, "git.mjs"), script, "utf8");
+    writeFileSync(
+      path.join(bin, "git.cmd"),
+      `@echo off\r\n"${process.execPath}" "%~dp0git.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`,
+      "utf8",
+    );
+    return;
+  }
+  const gitPath = path.join(bin, "git");
+  writeFileSync(gitPath, `#!/usr/bin/env node\n${script}`, "utf8");
+  chmodSync(gitPath, 0o755);
+}
+
+// Resolve the real binary behind any PATH shim, so the fixture's git shim can delegate to it
+// instead of resolving `git` through a PATH that still contains the shim's own directory.
+function resolveRealGit() {
+  const execPath = spawnSync("git", ["--exec-path"], { encoding: "utf8" }).stdout.trim();
+  return path.join(execPath, process.platform === "win32" ? "git.exe" : "git");
+}
+
 // haState shapes the fake `ha` fixture: { fail: true } answers every task-show with an
 // unreachable-daemon exit, { receipt: <task-show evidence payload> } answers with that payload.
 // A fake ha always shadows any real one so tests never reach the production daemon.
-function fixture(t, { branch = "codex/pr-123", haState = { fail: true } } = {}) {
+function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectPull = false } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "pr-merge-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const remote = path.join(root, "origin.git");
@@ -201,13 +246,16 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true } } = {}) 
   const fakeBin = makeFakeGh(root);
   makeFakeHa(fakeBin);
   makeFakeNpm(fakeBin);
+  if (rejectPull) makeFakeGit(fakeBin);
   const env = {
     ...process.env,
     PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
     PR_STATE_PATH: statePath,
     HA_STATE_PATH: haStatePath,
+    HA_SHOW_LOG_PATH: path.join(root, "show.log"),
     BUILD_LOG_PATH: buildLogPath,
     HA_ANNOTATE_LOG_PATH: path.join(root, "annotate.log"),
+    REAL_GIT: resolveRealGit(),
     HARNESS_TASK_BOUND: "",
     HARNESS_ACTOR: "",
     HARNESS_CANONICAL_ROOT: "",
@@ -245,6 +293,19 @@ test("merges, cleans the PR branch and worktree, and fast-forwards local main", 
     "@harness-anything/daemon",
     "@harness-anything/cli",
   ]);
+});
+
+test("synchronizes local main without git pull's shared FETCH_HEAD", (t) => {
+  // #4048: `git pull` reads .git/FETCH_HEAD after its own fetch, and any concurrent fetch in the
+  // repository rewrites that shared file. The helper must fetch into the remote-tracking ref and
+  // merge that ref instead.
+  const setup = fixture(t, { rejectPull: true });
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Local main synchronized/u);
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
 });
 
 test("reports which runtime package failed after local main synchronization", (t) => {
@@ -310,10 +371,9 @@ test("untracked files in main do not block merge or fast-forward", (t) => {
   assert.equal(existsSync(setup.prWorktree), false);
 });
 
-test("untracked files in the PR worktree pass preflight; git worktree remove refuses", (t) => {
+test("untracked files in the PR worktree pass preflight; the worktree removal is reported unfinished", (t) => {
   const setup = fixture(t);
   writeFileSync(path.join(setup.prWorktree, "scratch.txt"), "keep me\n");
-  const initialHead = git(setup.main, "rev-parse", "HEAD");
 
   const result = run(process.execPath, [helper, "123"], {
     cwd: setup.main,
@@ -321,15 +381,21 @@ test("untracked files in the PR worktree pass preflight; git worktree remove ref
     allowFailure: true,
   });
 
+  // The merge already happened, so the independent cleanup steps still run; only the worktree and
+  // its checked-out branch stay, and the report names them with the command that finishes them.
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /untracked files/u);
+  assert.match(result.stderr, /PR #123 is MERGED; 1 post-merge step\(s\) did not finish/u);
+  assert.match(result.stderr, /remove the local worktree and branch for codex\/pr-123/u);
+  assert.match(result.stderr, /finish with: git worktree remove .*pr-worktree/u);
+  assert.doesNotMatch(result.stderr, /refusing to merge/u);
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(existsSync(setup.prWorktree), true);
   assert.equal(readFileSync(path.join(setup.prWorktree, "scratch.txt"), "utf8"), "keep me\n");
-  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+  assert.equal(git(setup.main, "ls-remote", "--heads", "origin", "refs/heads/codex/pr-123"), "");
 });
 
-test("git pull refuses when an incoming commit collides with an untracked file", (t) => {
+test("the main synchronization refuses when an incoming commit collides with an untracked file", (t) => {
   const setup = fixture(t);
   writeFileSync(path.join(setup.seed, "colliding.txt"), "from upstream\n");
   git(setup.seed, "add", "colliding.txt");
@@ -346,16 +412,19 @@ test("git pull refuses when an incoming commit collides with an untracked file",
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /colliding\.txt/u);
+  assert.match(result.stderr, /synchronize local main/u);
+  assert.match(result.stderr, /rebuild the runtime packages: skipped/u);
+  assert.doesNotMatch(result.stderr, /refusing to merge/u);
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(readFileSync(path.join(setup.main, "colliding.txt"), "utf8"), "keep me\n");
   assert.notEqual(git(setup.main, "rev-parse", "HEAD"), collisionHead);
+  assert.equal(existsSync(setup.buildLogPath), false, "a stale main is never rebuilt");
 });
 
-test("remote deletion races continue cleanup; other deletion failures stop", async (t) => {
+test("a remote deletion failure is reported while the independent cleanup and sync still run", async (t) => {
   for (const absent of [true, false]) {
     await t.test(absent ? "branch disappears after probe" : "remote deletion fails", (t) => {
       const setup = fixture(t);
-      const initialHead = git(setup.main, "rev-parse", "HEAD");
       const receiver = path.join(path.dirname(setup.remote), "receive.mjs");
       const receiveScript = absent
         ? `const deletion = spawnSync("git", ["--git-dir", remote, "update-ref", "-d", "refs/heads/codex/pr-123"]);
@@ -379,11 +448,16 @@ ${receiveScript}
         allowFailure: true,
       });
       assert.equal(result.status, absent ? 0 : 1, result.stderr);
-      assert.equal(existsSync(setup.prWorktree), !absent);
-      assert.equal(git(setup.main, "rev-parse", "HEAD"), absent ? setup.upstreamHead : initialHead);
-      assert.equal(git(setup.main, "branch", "--list", "codex/pr-123") === "", absent);
-      if (absent) assert.match(result.stdout, /Local main synchronized/u);
-      else assert.match(result.stderr, /remote deletion denied/u);
+      assert.equal(existsSync(setup.prWorktree), false);
+      assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+      assert.equal(git(setup.main, "branch", "--list", "codex/pr-123"), "");
+      assert.match(result.stdout, /Local main synchronized/u);
+      if (absent) assert.doesNotMatch(result.stderr, /remote branch/u);
+      else {
+        assert.match(result.stderr, /PR #123 is MERGED; 1 post-merge step\(s\) did not finish/u);
+        assert.match(result.stderr, /delete remote branch origin\/codex\/pr-123: git push origin --delete/u);
+        assert.match(result.stderr, /remote deletion denied/u);
+      }
     });
   }
 });
@@ -648,6 +722,51 @@ test("fails closed when the harness ledger is unreachable for a task PR", (t) =>
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
   assert.equal(existsSync(setup.prWorktree), true);
+});
+
+test("a daemon restart between merge and annotation does not skip the post-merge steps", (t) => {
+  // #4045/#4047: the merge succeeded, then the daemon restarting into a new build made the second
+  // `ha task show` fail. The merge-sha annotation reuses the pre-merge snapshot, so the daemon
+  // becoming unreachable after the merge must not abort the branch/worktree/main cleanup.
+  const setup = fixture(t, { branch: TASK_BRANCH, haState: reviewChainWithDeliveryBlockerHaState() });
+  setup.env.HA_FAIL_SHOW_FROM = "2";
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(setup.env.HA_SHOW_LOG_PATH, "utf8").trim().split("\n").length, 1);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  assert.equal(existsSync(setup.annotateLogPath), true);
+  assert.match(readFileSync(setup.annotateLogPath, "utf8"), /merge_commit_sha:b{40}/u);
+  assert.equal(existsSync(setup.prWorktree), false);
+  assert.equal(git(setup.main, "branch", "--list", TASK_BRANCH), "");
+  assert.equal(git(setup.main, "ls-remote", "--heads", "origin", `refs/heads/${TASK_BRANCH}`), "");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+});
+
+test("an already merged PR with an unreachable ledger reports the annotation unfinished and finishes cleanup", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH });
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(setup.statePath, JSON.stringify({ ...prState, state: "MERGED", mergeCommit: { oid: "a".repeat(40) } }));
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  // Nothing was merged in this run, so the failure is bookkeeping: it is named as an unfinished
+  // post-merge step with a runnable remedy, and every independent git step still completes.
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /PR #123 is MERGED; 1 post-merge step\(s\) did not finish/u);
+  assert.match(result.stderr, /annotate the current execution with merge_commit_sha/u);
+  assert.match(result.stderr, /finish with: node tools\/pr-merge\.mjs 123/u);
+  assert.doesNotMatch(result.stderr, /refusing to merge/u);
+  assert.equal(existsSync(setup.annotateLogPath), false);
+  assert.equal(existsSync(setup.prWorktree), false);
+  assert.equal(git(setup.main, "branch", "--list", TASK_BRANCH), "");
+  assert.equal(git(setup.main, "ls-remote", "--heads", "origin", `refs/heads/${TASK_BRANCH}`), "");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
 });
 
 test("annotates the current execution with merge_commit_sha when a task PR is already merged", (t) => {

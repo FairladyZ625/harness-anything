@@ -51,7 +51,11 @@ export async function withAutostart(
     if (options.autostart) {
       // Leave room for autostart's two bounded socket probes so the whole
       // recovery path, including an unreachable Unix socket, stays inside the
-      // caller-visible budget.
+      // caller-visible budget. A successor that records attach progress keeps
+      // the wait alive within the same extension ceiling every other autostart
+      // caller uses: the canonical checkout alone takes 20-30s to attach, so
+      // abandoning a demonstrably progressing startup at the quiet budget is
+      // what turned a daemon build handoff into a post-merge failure.
       const probeReserveMs = 550,
         remainingMs = budgetMs - (Date.now() - startedAt) - probeReserveMs;
       if (remainingMs <= 0) return daemonRestartingReceipt(Date.now() - startedAt, 0);
@@ -60,7 +64,6 @@ export async function withAutostart(
         invokingRoot: options.invokingRoot,
         launch,
         readyTimeoutMs: remainingMs,
-        extendTimeoutWhileProgressing: false,
         onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
       });
       if (!started.ok) {
