@@ -170,6 +170,8 @@ test("batched and coalesced replay has the same projection bytes as event-at-a-t
     assert.equal(receipt.watermark, eventCount);
     assert.equal(receipt.metrics.maxBatchItems, 32);
     assert.equal(batched.readStateDigest(), eventAtATime.readStateDigest());
+    assert.deepEqual(batched.listPinnedEntities(), eventAtATime.listPinnedEntities());
+    assert.ok(batched.listPinnedEntities().some((row) => row.entityRef === `task/${amendedTaskId}`));
     assert.equal(JSON.stringify(batched.searchFacts({})), JSON.stringify(eventAtATime.searchFacts({})));
     batched.close();
     eventAtATime.close();
