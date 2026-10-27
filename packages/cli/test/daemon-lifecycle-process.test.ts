@@ -443,6 +443,55 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
   }
 });
 
+test("a daemon handoff that keeps recording attach progress is waited out past the restart budget", async () => {
+  // #4045/#4047: the successor daemon reported "repo 5/23: canonical" while attaching, but the
+  // restart path disabled the progress extension and gave up at the quiet budget. The quiet budget
+  // still bounds a silent daemon; a progressing one keeps the existing extension ceiling.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-progress-")),
+    daemonId = "restart-progress",
+    socketPath = localUserDaemonEndpoint(parent, daemonId),
+    pidPath = daemonPidPath(parent, daemonId),
+    server = createServer(),
+    receipts = [
+      { ok: false, code: "daemon_stopping" },
+      { ok: true, outcome: "applied" },
+    ];
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  writeFileSync(pidPath, "111\n");
+  // A live singleton lock keeps this fixture from spawning a real daemon while the socket is unbound.
+  writeFileSync(daemonSingletonLockPath(parent, daemonId), `${process.pid}\n`);
+  const lifecycle = openDaemonLifecycleLog({ userRoot: parent, daemonId });
+  lifecycle.record({ event: "process_start" });
+  lifecycle.record({ event: "repo_attach_started", repoId: "canonical", attachIndex: 5, attachTotal: 23 });
+  const launch = (): DaemonLaunchSpec => ({
+    command: process.execPath,
+    args: ["serve-entry.mjs", "serve", "--user-root", parent, "--daemon-id", daemonId],
+    env: {},
+  });
+  // The successor generation publishes its pid quickly, then keeps attaching; its socket binds after
+  // the quiet budget (restartBudgetMs − probe reserve = 1450ms), which is the observed cold attach.
+  const successor = setTimeout(() => writeFileSync(pidPath, "222\n"), 60);
+  const bind = setTimeout(() => server.listen(socketPath), 1_600);
+  try {
+    const result = await withAutostart(async () => receipts.shift()!, launch, socketPath, {
+      autostart: true,
+      env: {},
+      invokingRoot: process.cwd(),
+      userRoot: parent,
+      daemonId,
+      restartBudgetMs: 2_000,
+      commandCategory: "operation",
+    });
+    assert.equal(result.outcome, "applied");
+    assert.equal((result.daemonRestart as { retries: number }).retries, 1);
+  } finally {
+    clearTimeout(successor);
+    clearTimeout(bind);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("daemon_stopping without autostart resends to the successor and never launches a daemon", async () => {
   // A parked wait answered daemon_stopping after its successor wrote the pid but before it bound the
   // socket: readiness probing would spawn a daemon of its own that races the successor for the socket.
