@@ -17,6 +17,7 @@ import {
   type ReviewFindingTriageV1,
   type SettleableReviewFinding,
 } from "./review-settlement.ts";
+import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
@@ -183,11 +184,23 @@ export function closeoutReadiness(
       ? currentCutSettlement(snapshot.reviews, execution, snapshot.reviewFindingTriages ?? [])
       : null,
     reviewOwed = effectiveGates?.review !== false || forwarded,
+    // A cut that raised a finding with no category is unresolved review — except for a review the
+    // owner already disposed at this submission digest. Without that exit the predicate would
+    // retroactively redefine every historical finding (the field did not exist when they were
+    // written) as an open review, and no disposition or consent could clear it: the owner would have
+    // no route at all. Dispositions are the same channel the Decision side honors for exactly this.
     unfiledFindings =
       findingsRecorded &&
-      reviewsForExecution(snapshot.reviews, execution).some((review) =>
-        (review.findings ?? []).some((finding) => finding.category === undefined),
-      ),
+      (() => {
+        const disposed = disposedReviewIdsForSubmission(
+          snapshot.reviewDispositions ?? [],
+          submissionDigest(execution.submission!),
+        );
+        return reviewsForExecution(snapshot.reviews, execution).some(
+          (review) =>
+            !disposed.has(review.reviewId) && (review.findings ?? []).some((finding) => finding.category === undefined),
+        );
+      })(),
     reviewSatisfied =
       settlement !== null ? settlement.outcome === "passed" : !unfiledFindings && (approved.length > 0 || consented);
   if (reviewOwed && !reviewSatisfied)

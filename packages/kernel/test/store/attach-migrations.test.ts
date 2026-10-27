@@ -93,6 +93,7 @@ test("attach migration registry covers each retired historical field and is idem
       "vertical.completion.sources",
       "vertical.completion.closeoutCodeDoc",
       "submission.delivery-facts",
+      "review.finding.category",
     ],
   );
   assert.deepEqual(
@@ -247,17 +248,13 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
 });
 
 test("legacy submission facts stay readable without an attach migration event", () => {
-  assert.deepEqual(publicHistoricalReadConclusions, [
-    {
-      kind: "read-conclusion",
-      name: "submission.delivery-facts",
-      fields: ["Execution.submission.changedFiles", "Execution.submission.productionDelta"],
-      attachRequired: false,
-      conclusion:
-        "Legacy rows remain byte-identical; the shared submission-facts reader exposes unambiguous stored paths and no production delta.",
-    },
-  ]);
-  const conclusion = attachMigrationRegistry.find((entry) => entry.kind === "read-conclusion");
+  assert.deepEqual(
+    publicHistoricalReadConclusions.map(({ name }) => name),
+    ["submission.delivery-facts", "review.finding.category"],
+  );
+  const conclusion = attachMigrationRegistry.find(
+    (entry) => entry.kind === "read-conclusion" && entry.name === "submission.delivery-facts",
+  );
   assert.deepEqual(conclusion, {
     kind: "read-conclusion",
     name: "submission.delivery-facts",
@@ -266,6 +263,13 @@ test("legacy submission facts stay readable without an attach migration event", 
     conclusion:
       "Legacy rows remain byte-identical; the shared submission-facts reader exposes unambiguous stored paths and no production delta.",
   });
+  // The finding-category narrowing is a read conclusion too: historical findings are immutable, so
+  // its registered exit is a disposition, not an attach rewrite.
+  const findingConclusion = attachMigrationRegistry.find(
+    (entry) => entry.kind === "read-conclusion" && entry.name === "review.finding.category",
+  );
+  assert.equal(findingConclusion?.attachRequired, false);
+  assert.deepEqual(findingConclusion?.fields, ["Review.findings[].category", "DecisionReview.findings[].category"]);
   const legacySubmission = {
       commitSha: "a".repeat(40),
       completionClaim: "Delivered before submission facts were added.",

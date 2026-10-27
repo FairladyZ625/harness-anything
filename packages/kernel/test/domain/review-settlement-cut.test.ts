@@ -62,6 +62,9 @@ const review = (findings: ReviewV1["findings"], verdict: ReviewV1["verdict"] = "
     resolutions: [],
   }) as unknown as ReviewV1;
 
+/** The cut's own submission digest; B-3 made settlement compare this, so a preset digest no longer matches. */
+const cutDigest = (): `sha256:${string}` => submissionDigest(execution([]).submission!);
+
 const triage = (
   findingId: string,
   selected: ReviewFindingTriageV1["selected"],
@@ -70,7 +73,7 @@ const triage = (
   schema: "review-finding-triage/v1",
   reviewId: "review-cut-1",
   findingId,
-  targetDigest: digest,
+  targetDigest: cutDigest(),
   selected,
   probabilities: {
     blocker: 0,
@@ -156,4 +159,56 @@ test("discarded findings never gate a cut, so formatting cannot block completion
     ["S1"],
   );
   assert.notEqual(closeoutReadiness(snapshot([onlyStyle])).blocker, "review");
+});
+
+test("a historical finding with no category is stranded until the owner disposes that review", () => {
+  // B-2: `category` did not exist when historical reviews were written, so every one of those
+  // findings reads as `category: undefined`. Without an exit the new predicate retroactively turns
+  // them into open review on cuts that already passed, and nothing the owner can do clears it.
+  const historical = review([{ findingId: "F1", blocking: false, text: "Old finding, no category." }]),
+    cut = execution([historical]),
+    submission = submissionDigest(cut.submission!),
+    stranded = snapshot([historical]);
+  assert.equal(closeoutReadiness(stranded).blocker, "review", "an unfiled finding is unresolved review");
+
+  const disposed = snapshot([historical]);
+  (disposed as unknown as { reviewDispositions: unknown[] }).reviewDispositions = [
+    {
+      schema: "review-disposition/v1",
+      dispositionId: "disposition-1",
+      taskId: "task-categorized",
+      executionId: "exec-categorized",
+      iteration: 1,
+      submissionDigest: submission,
+      disposedReviewIds: ["review-cut-1"],
+      rationale: "Reviewed and accepted at the time; the category field did not exist then.",
+      actor: { principal: { personId: "person_zeyu" }, executor: null },
+      source: "local",
+      disposedAt: "2026-10-27T00:05:00.000Z",
+    },
+  ];
+  assert.notEqual(
+    closeoutReadiness(disposed).blocker,
+    "review",
+    "the owner's disposition is the exit for a review filed before categories existed",
+  );
+
+  // A disposition pinned to another submission digest is not a disposition of this cut.
+  const otherCut = snapshot([historical]);
+  (otherCut as unknown as { reviewDispositions: unknown[] }).reviewDispositions = [
+    {
+      schema: "review-disposition/v1",
+      dispositionId: "disposition-2",
+      taskId: "task-categorized",
+      executionId: "exec-categorized",
+      iteration: 1,
+      submissionDigest: `sha256:${"9".repeat(64)}`,
+      disposedReviewIds: ["review-cut-1"],
+      rationale: "An earlier cut's disposition.",
+      actor: { principal: { personId: "person_zeyu" }, executor: null },
+      source: "local",
+      disposedAt: "2026-10-27T00:05:00.000Z",
+    },
+  ];
+  assert.equal(closeoutReadiness(otherCut).blocker, "review", "another cut's disposition cannot release this one");
 });
