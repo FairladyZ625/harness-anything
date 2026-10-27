@@ -40,7 +40,9 @@ const reviewerDiscipline = [
 ].join("\n");
 
 // Publication commands belong to the action-specific mission, not the static role baseline.
-const taskDeliveryPublicationDiscipline = `- After affected tests pass, commit and publish through the task delivery commands; read the hosting platform's PR checks for that delivery commit. Pending is not green. Investigate failures, repair change-caused regressions and repeat; record failures also present on latest main. If checks cannot be read, report the error and mark CI unverified. Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync for them. Final merge authority belongs to the CEO.`;
+const taskDeliveryPublicationDiscipline = `- Complete the functional scope and its required affected tests before the first task push. Publish earlier only when the session must end or a blocker prevents further useful implementation; publish the completed work and record the exact remaining scope and verification gaps in closeout.md.
+- After publishing a coherent delivery, inspect the hosting platform's PR checks for that delivery commit. Pending is not green. While CI is pending, continue useful in-scope work; do not wait solely for CI. Repair regressions caused by this change and record failures also present on latest main. If the session ends while checks are pending or unreadable, report their exact status and mark CI unverified.
+- Before ending a task-bound session, either submit a cut that meets the task's completion criteria, or publish completed work and update closeout.md with completed work, exact remaining scope, test results and unverified checks. Never hand off with neither. Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync for them. Final merge authority belongs to the CEO.`;
 
 const workerDiscipline = `# Worker Role
 

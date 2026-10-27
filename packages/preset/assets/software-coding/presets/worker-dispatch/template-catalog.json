@@ -13,7 +13,7 @@
   "documents": [
     {
       "id": "planning/worker-flow",
-      "version": "1",
+      "version": "2",
       "documentKind": "worker-flow",
       "slot": "task.worker.flow",
       "materializeAs": "worker-flow.md",
@@ -38,7 +38,7 @@
             "## Stop Conditions",
             "## Commit and Handoff"
           ],
-          "bodyPath": "templates/task.worker.flow/zh-CN.md"
+          "bodyPath": "templates/task.worker.flow.v2/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -50,7 +50,7 @@
             "## Stop Conditions",
             "## Commit and Handoff"
           ],
-          "bodyPath": "templates/task.worker.flow/en-US.md"
+          "bodyPath": "templates/task.worker.flow.v2/en-US.md"
         }
       ]
     },

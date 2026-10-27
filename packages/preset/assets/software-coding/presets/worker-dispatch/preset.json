@@ -16,7 +16,7 @@
       "templateSelections": [
         {
           "slot": "task.worker.flow",
-          "templateRef": "template://planning/worker-flow@1",
+          "templateRef": "template://planning/worker-flow@2",
           "materializeAs": "worker-flow.md",
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }
@@ -45,7 +45,7 @@
         },
         {
           "slot": "task.worker.flow",
-          "templateRef": "template://planning/worker-flow@1",
+          "templateRef": "template://planning/worker-flow@2",
           "materializeAs": "worker-flow.md",
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }

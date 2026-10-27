@@ -33,6 +33,5 @@
 - 交付前先 rebase 到最新 `origin/main`，再重跑证据命令。
 - 提交时会接纳任务包文档；这些文件不再单独运行文档同步。
 - 仓库交付在最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实，再用 `ha task push <task-id>` 发布、用 `gh pr create --head <task-id>` 创建 PR，并运行 `gh pr checks <task-id> --watch` 等待当前 PR head 的 checks 出结论。Worker 不得合并。
-- 检查仍在等待时继续等。GitHub 检查失败时用 `gh run view <run-id> --log-failed` 读取日志，并对照 origin/main 最近 CI 的同一用例：main 也红的记入报告、不修、不等；其余判定为本次改动引起后修复、amend submission、重新生成 PR 正文事实段、再推送并重读检查，直到交付 SHA 全绿。CLI 无法读取检查时，报告错误并把 CI 标为 unverified。
-- 排队的检查仍在等待，继续等到有明确结论。
+- 任务交付时序、检查等待期间的工作、失败修复与会话交接统一遵循 `# Worker Role`。任务合同声明的 CI 仍是完成门禁。
 - 如果 PR 冲突，先 rebase 到最新 `origin/main`，再次推送并重读检查。

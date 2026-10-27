@@ -85,7 +85,7 @@ const writeGrants = [
   "rebase onto the latest default branch",
 ];
 for (const role of [undefined, "worker"] as const)
-  test(`${role ?? "undeclared"} retains worktree ownership and the delivery loop`, () => {
+  test(`${role ?? "undeclared"} finishes task scope before CI and guarantees a useful handoff`, () => {
     const prompt = assembleUnboundPrompt("Do the mission.", role);
     for (const grant of writeGrants) assert.ok(prompt.includes(grant), grant);
     assert.match(prompt, /Worktrees share one git stash stack/u);
@@ -94,11 +94,20 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /node tools\/readonly-checkout\.mjs --rev <commit>/u);
     assert.match(prompt, /use it instead of `git worktree add`/u);
     assert.match(prompt, /a link resolves its parent directory first/u);
-    assert.match(prompt, /After affected tests pass, commit and publish through the task delivery commands/u);
-    assert.match(prompt, /PR checks for that delivery commit/u);
+    assert.match(prompt, /Complete the functional scope and its required affected tests before the first task push/u);
+    assert.match(
+      prompt,
+      /Publish earlier only when the session must end or a blocker prevents further useful implementation/u,
+    );
+    assert.match(prompt, /inspect the hosting platform's PR checks for that delivery commit/u);
     assert.match(prompt, /Pending is not green/u);
-    assert.match(prompt, /repair change-caused regressions.*failures also present on latest main/u);
-    assert.match(prompt, /checks cannot be read.*unverified/u);
+    assert.match(prompt, /While CI is pending, continue useful in-scope work; do not wait solely for CI/u);
+    assert.match(prompt, /Repair regressions caused by this change.*failures also present on latest main/u);
+    assert.match(prompt, /session ends while checks are pending or unreadable.*unverified/u);
+    assert.match(
+      prompt,
+      /Before ending a task-bound session, either submit a cut that meets the task's completion criteria, or publish completed work.*exact remaining scope/u,
+    );
     assert.match(
       prompt,
       /Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync/u,

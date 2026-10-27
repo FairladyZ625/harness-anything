@@ -166,12 +166,12 @@ test("GitHub askpass answers only standard HTTPS GitHub prompts", { skip: posixS
   assert.deepEqual([hostile.status, hostile.stdout], [1, ""]);
 });
 
-test("worker handoff templates carry framework-owned publication rules", () => {
+test("worker handoff templates delegate delivery timing to the role and retain publication rules", () => {
   const templatePaths = [
-    "packages/preset/assets/software-coding/templates/task.worker.flow/en-US.md",
-    "packages/preset/assets/software-coding/templates/task.worker.flow/zh-CN.md",
-    "packages/preset/assets/software-coding/presets/worker-dispatch/templates/task.worker.flow/en-US.md",
-    "packages/preset/assets/software-coding/presets/worker-dispatch/templates/task.worker.flow/zh-CN.md",
+    "packages/preset/assets/software-coding/templates/task.worker.flow.v2/en-US.md",
+    "packages/preset/assets/software-coding/templates/task.worker.flow.v2/zh-CN.md",
+    "packages/preset/assets/software-coding/presets/worker-dispatch/templates/task.worker.flow.v2/en-US.md",
+    "packages/preset/assets/software-coding/presets/worker-dispatch/templates/task.worker.flow.v2/zh-CN.md",
   ];
   for (const relativePath of templatePaths) {
     const body = readFileSync(path.join(repositoryRoot, relativePath), "utf8");
@@ -188,10 +188,10 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.match(body, /gh pr create --head <task-id>/u);
     assert.match(body, /gh pr checks <task-id> --watch/u);
     assert.doesNotMatch(body, /ha task pr/u);
-    assert.match(body, /unverified/u);
-    assert.match(body, /PR 冲突|conflicting pull request/u);
-    assert.match(body, /排队|queued/u);
-    assert.match(body, /main 也红|main-red/u);
+    assert.match(
+      body,
+      /Use `# Worker Role` as the single source for task-delivery timing|任务交付时序、检查等待期间的工作、失败修复与会话交接统一遵循 `# Worker Role`/u,
+    );
   }
 });
 
