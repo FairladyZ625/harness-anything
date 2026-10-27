@@ -6,6 +6,7 @@ import { TASK_INDEX_TABLES_SQL } from "../../src/projection/projection-tables.ts
 import {
   encodePageCursor,
   listTaskRowsNarrow,
+  readTaskPresentationStatus,
   taskCompletedAtSql,
   taskCreatedAtSql,
 } from "../../src/projection/task-query-projection.ts";
@@ -208,5 +209,159 @@ test("a page cursor continues past the long-history task without re-reading its 
     assert.equal(first.page?.nextCursor === null, false);
   } finally {
     db.close();
+  }
+});
+
+/** The presentation-status derivation walks a work root's subtree. `task_snapshot` is a view over
+ * the real table whose WHERE runs a counting UDF, so the count is the member rows SQLite reads while
+ * the production SQL stays byte-identical. The count sits in the view's WHERE, not on a projected
+ * column, so it cannot steer the seek or a partial index. */
+function memberReadCount(db: DatabaseSync): { readonly visits: () => number; readonly reset: () => void } {
+  let visits = 0;
+  db.function("count_member", { deterministic: false }, (taskId: unknown) => {
+    visits += 1;
+    return taskId;
+  });
+  return { visits: () => visits, reset: () => (visits = 0) };
+}
+
+/** One work root with a chain of `members` descendants, every one of them `done` except the last,
+ * which carries `deepStatus` so a caller can put the only non-terminal member at the far end.
+ * `task_snapshot_base` carries the production parent expression index so the recursive walk stays a
+ * seek; `task_snapshot` is the counting view the production SQL runs against unchanged. */
+function seedWorkSubtree(db: DatabaseSync, members: number, deepStatus: string): void {
+  db.exec(`
+    CREATE TABLE task_snapshot_base (
+      task_id TEXT PRIMARY KEY,
+      status TEXT,
+      workspace_revision INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT
+    );
+    CREATE INDEX task_snapshot_parent_base
+      ON task_snapshot_base(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
+    CREATE VIEW task_snapshot AS
+    SELECT task_id, status, workspace_revision, updated_at, snapshot_json FROM task_snapshot_base
+    WHERE count_member(task_id) IS NOT NULL;
+  `);
+  const insert = db.prepare("INSERT INTO task_snapshot_base(task_id, status, snapshot_json) VALUES (?, ?, ?)");
+  const row = (taskId: string, status: string, parentTaskId: string | null, taskClass = "standard") =>
+    JSON.stringify({
+      task: {
+        schema: "task/v2",
+        taskId,
+        title: taskId,
+        taskClass,
+        status,
+        packageDisposition: "active",
+        metadata: { parentTaskId },
+      },
+    });
+  insert.run("root", "planned", row("root", "planned", null, "work"));
+  for (let index = 0; index < members; index += 1) {
+    const taskId = `m-${String(index).padStart(6, "0")}`;
+    const parentTaskId = index === 0 ? "root" : `m-${String(index - 1).padStart(6, "0")}`;
+    insert.run(
+      taskId,
+      index === members - 1 ? deepStatus : "done",
+      row(taskId, index === members - 1 ? deepStatus : "done", parentTaskId),
+    );
+  }
+}
+
+test("presentation status stops at the first witness instead of materializing the whole subtree", (t) => {
+  // A planned root whose direct first member is already started settles "active" without visiting
+  // the other 20,000 descendants. The aggregate this replaced could not answer before producing
+  // every member, so the same read visited the whole subtree.
+  const db = new DatabaseSync(":memory:");
+  try {
+    const counter = memberReadCount(db);
+    seedWorkSubtree(db, 20_000, "done");
+    counter.reset();
+    assert.equal(readTaskPresentationStatus(db, "root"), "done");
+    const allTerminal = counter.visits();
+    // Flip the FIRST descendant to active: the planned-root arm is decided by that one member.
+    db.prepare("UPDATE task_snapshot_base SET status = 'active' WHERE task_id = 'm-000000'").run();
+    counter.reset();
+    assert.equal(readTaskPresentationStatus(db, "root"), "active");
+    const firstWitness = counter.visits();
+    t.diagnostic(`subtree members read: ${allTerminal} all-terminal, ${firstWitness} with the first member active`);
+    // The all-terminal answer genuinely needs the whole subtree: no member can be skipped, because
+    // a single non-terminal descendant changes the answer.
+    assert.ok(allTerminal >= 20_000, `all-terminal must visit every member, visited ${allTerminal}`);
+    // The early-exit answer must not: one started member near the root settles it.
+    assert.ok(
+      firstWitness < 100,
+      `a started first member must settle the root without walking the subtree, visited ${firstWitness}`,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("presentation status keeps every arm of the aggregate it replaced", () => {
+  // Expected values are the previous MIN/MAX aggregate's own output on these fixtures, so this test
+  // pins cost-preserving equivalence rather than a re-derived opinion. Each case is the smallest
+  // subtree that reaches its arm.
+  const cases = [
+    { label: "all members done -> done", root: "planned", members: ["done", "done"], expected: "done" },
+    // The aggregate asked MAX(status = 'done') = 1, so a mixed terminal subtree still reads done.
+    {
+      label: "mixed terminal subtree with a done member -> done",
+      root: "planned",
+      members: ["done", "cancelled"],
+      expected: "done",
+    },
+    {
+      label: "planned root with a started member -> active",
+      root: "planned",
+      members: ["active", "done"],
+      expected: "active",
+    },
+    {
+      label: "planned root, every member still planned -> planned",
+      root: "planned",
+      members: ["planned", "planned"],
+      expected: "planned",
+    },
+    { label: "blocked root, all members done -> done", root: "blocked", members: ["done"], expected: "done" },
+    {
+      label: "blocked root, one member started -> stays blocked",
+      root: "blocked",
+      members: ["active", "done"],
+      expected: "blocked",
+    },
+    { label: "terminal root short-circuits the walk -> done", root: "done", members: ["planned"], expected: "done" },
+    {
+      label: "cancelled root short-circuits the walk -> cancelled",
+      root: "cancelled",
+      members: ["active"],
+      expected: "cancelled",
+    },
+    // planned + cancelled members never started, so the root keeps presenting planned.
+    {
+      label: "planned root, planned and cancelled members -> planned",
+      root: "planned",
+      members: ["planned", "cancelled"],
+      expected: "planned",
+    },
+    { label: "all members cancelled -> cancelled", root: "planned", members: ["cancelled"], expected: "cancelled" },
+  ] as const;
+  for (const { label, root, members, expected } of cases) {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, snapshot_json TEXT); CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'))",
+      );
+      const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?)");
+      const row = (taskId: string, status: string, parentTaskId: string | null, taskClass = "standard") =>
+        JSON.stringify({ task: { taskId, status, taskClass, metadata: { parentTaskId } } });
+      insert.run("root", root, row("root", root, null, "work"));
+      for (const [index, status] of members.entries())
+        insert.run(`m-${index}`, status, row(`m-${index}`, status, index === 0 ? "root" : `m-${index - 1}`));
+      assert.equal(readTaskPresentationStatus(db, "root"), expected, label);
+    } finally {
+      db.close();
+    }
   }
 });
