@@ -35,7 +35,6 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
     "package-policy",
     "supply-chain",
     "gui-build",
-    "node26-compatibility",
   ]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
@@ -43,6 +42,21 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   for (const job of ["pr-body-lint", "production-delta", "evidence-contract"]) {
     assert.match(prBodyWorkflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain in the PR-body workflow`);
   }
+});
+
+test("rewrite CI dependency artifact includes the daemon output built by npm ci", () => {
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  const installBlock = workflow.slice(workflow.indexOf("  install:"), workflow.indexOf("  # Push to main"));
+
+  assert.match(
+    installBlock,
+    /run: npm ci[\s\S]*run: tar -cf "\$RUNNER_TEMP\/node-modules\.tar" node_modules packages\/daemon\/dist/u,
+  );
+  assert.match(installBlock, /name: node-modules-\$\{\{ hashFiles\('package-lock\.json'\) \}\}/u);
+  assert.match(
+    workflow,
+    /run: tar -xf "\$RUNNER_TEMP\/node-modules\.tar" && touch packages\/daemon\/dist\/build-id\.txt/u,
+  );
 });
 
 test("gate surface check accepts a consistent minimal manifest", () => {
@@ -264,6 +278,70 @@ test("gate surface check rejects boundary allowlists embedded in the checker fil
       result.stderr,
       /check-import-boundaries allowlistPolicy\.location must be outside the checker file tools\/check-import-boundaries\.mjs/,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("gate surface check exempts helper jobs from both event inventories", () => {
+  // dec_F5B2CBF8B45042B6DA2824A7FA/CH4 added the install helper job, which runs on
+  // pull_request and push but is not a gate. Helper jobs are exempt from the pull-request
+  // AND non-pull-request gate-job inventories here, matching check-gate-manifest-invariants;
+  // before this alignment the two checkers demanded opposite listings for the same job.
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      manifest(manifest) {
+        manifest.surfaces.rewriteCi.helperJobsNotRegisteredAsGates.push("install");
+      },
+      workflow(workflow) {
+        return workflow.replace(
+          "  full-check:\n",
+          [
+            "  install:",
+            "    if: github.event_name == 'pull_request' || github.event_name == 'push'",
+            "    runs-on: ubuntu-latest",
+            "    steps:",
+            "      - run: npm ci",
+            '      - run: tar -cf "$RUNNER_TEMP/node-modules.tar" node_modules',
+            "  full-check:",
+            "",
+          ].join("\n"),
+        );
+      },
+    });
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Gate surface check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("gate surface check still requires non-helper non-PR jobs in the non-PR inventory", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      workflow(workflow) {
+        return workflow.replace(
+          "  full-check:\n",
+          [
+            "  nightly-extra:",
+            "    if: github.event_name != 'pull_request' && github.event_name != 'push'",
+            "    runs-on: ubuntu-latest",
+            "    steps:",
+            "      - run: npm ci",
+            "  full-check:",
+            "",
+          ].join("\n"),
+        );
+      },
+    });
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /contains unmanifested entry nightly-extra/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

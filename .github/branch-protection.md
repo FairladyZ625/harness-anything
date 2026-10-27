@@ -25,7 +25,6 @@ Required pull request checks must cover:
 - architecture boundaries
 - package policy
 - GUI build smoke
-- Node 26 compatibility for typecheck plus fast and contract tests
 Platform coverage is required: `crlf-checkout`, and `windows-first-run` on
 `ubuntu-latest` and `windows-latest`. They landed advisory in #1597 because the
 `windows-latest` arm had never passed, and were promoted once it did on `main`.
@@ -43,7 +42,10 @@ red, the platform is the difference.
 The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
 manual workflow dispatch. It remains the release-grade gate and still covers
 typecheck, all node tests, boundaries, package policy, schema/API/service gates,
-supply-chain, Legacy Intake smoke, and CLI package smoke.
+supply-chain, Legacy Intake smoke, and CLI package smoke. Node 26 compatibility
+runs there and in the nightly `node26-compatibility` lane only — every one of
+its 25 real catches in 60 days was simultaneously caught by the Node 24
+typecheck lane (decision dec_F5B2CBF8B45042B6DA2824A7FA/CH3).
 
 The active GitHub repository ruleset is the sole enforcement surface for
 `main`. It requires pull requests, the `rewrite-ci` status checks, deletion
@@ -66,7 +68,6 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (6)
 - supply-chain
 - gui-build
-- node26-compatibility
 - pr-body-lint
 - crlf-checkout
 - windows-first-run (ubuntu-latest)

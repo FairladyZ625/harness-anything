@@ -151,7 +151,14 @@ function checkWorkflowSurface({ findings, manifest, gates, workflow, commandToGa
     .filter((job) => job.isPullRequestJob)
     .filter((job) => !helperJobs.includes(job.id))
     .map((job) => job.id);
-  const actualNonPullRequestGateJobs = jobs.filter((job) => job.isNonPullRequestJob).map((job) => job.id);
+  // Helper jobs are exempt from both inventories, matching check-gate-manifest-invariants:
+  // a job registered as "not a gate" is not a gate on any event. Before the install helper
+  // job (dec_F5B2CBF8B45042B6DA2824A7FA/CH4) this list had no helper entries, so the missing
+  // filter could never fire.
+  const actualNonPullRequestGateJobs = jobs
+    .filter((job) => job.isNonPullRequestJob)
+    .filter((job) => !helperJobs.includes(job.id))
+    .map((job) => job.id);
 
   compareIdSets({
     findings,

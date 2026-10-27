@@ -7,14 +7,18 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
-// The schema-closure gate walks kernel modules that import `effect`; a job that never installs
-// dependencies fails with ERR_MODULE_NOT_FOUND on the first push after such an import lands
-// (main run 33075473572). The install step must precede the gate.
-test("schema-closure job installs dependencies before running the gate", () => {
+// The schema-closure gate walks kernel modules that import `effect`; a job without dependencies
+// fails with ERR_MODULE_NOT_FOUND. The shared install artifact must be restored before the gate.
+test("schema-closure job restores shared dependencies before running the gate", () => {
   const workflow = readFileSync(path.join(rootDir, ".github/workflows/rewrite-ci.yml"), "utf8");
   const start = workflow.indexOf("  schema-closure:");
   const job = workflow.slice(start, workflow.indexOf("\n  canonical-event-compat:", start));
-  const install = job.indexOf("npm ci"),
+  const download = job.indexOf("actions/download-artifact@v4"),
+    install = job.indexOf('tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt'),
     gate = job.indexOf("tools/gates/schema-closure.mjs --check");
-  assert.ok(install > 0 && gate > install, "npm ci must run before the schema-closure gate");
+  assert.match(job, /needs: install/u);
+  assert.ok(
+    download > 0 && install > download && gate > install,
+    "shared dependencies must be restored before the schema-closure gate",
+  );
 });
