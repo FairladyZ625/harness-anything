@@ -502,7 +502,6 @@ type DispatchStep = {
   runtimeSessionId?: string;
   agentId?: string;
   instanceId?: string;
-  lane?: string;
   outcome: string;
   error?: string;
 };
@@ -1173,7 +1172,7 @@ test(
 );
 
 test(
-  "a configured path-review lane dispatches its reviewer beside the cut review and stays off by default",
+  "a configured path reviewer replaces the default seat instead of opening a second review gate",
   { timeout: 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, {
@@ -1195,10 +1194,7 @@ test(
         },
       });
       assert.equal(laneAgent.outcome, "applied", JSON.stringify(laneAgent));
-      // The standard-task preset binds a task worktree; committing on the bound worktree branch and
-      // amending without an explicit commit makes the frozen manifest derive from the branch's fork
-      // point, exactly as a worker's delivery does.
-      await f.cell().settlePendingMaterialization("path lane fixture delivery");
+      await f.cell().settlePendingMaterialization("path seat fixture delivery");
       const worktreePaths = execFileSync("git", ["-C", f.root, "worktree", "list", "--porcelain"], {
           encoding: "utf8",
         })
@@ -1209,18 +1205,29 @@ test(
           .map((line) => path.resolve(line.slice("worktree ".length))),
         checkout = worktreePaths.find((entry) => entry !== path.resolve(f.root));
       assert.ok(checkout, `expected the bound task worktree beside ${f.root}`);
-      const commitSchemaSurface = (body: string) => {
-        const surface = path.join(checkout, "packages/kernel/src/domain/settings.ts");
-        mkdirSync(path.dirname(surface), { recursive: true });
-        writeFileSync(surface, body);
-        execFileSync("git", ["-C", checkout, "add", "packages/kernel/src/domain/settings.ts"]);
-        execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: narrow a persisted field"]);
-      };
-      // Default off: no repository entry means no additional lane, even when the cut touches the
-      // path the product's self-hosted configuration would watch.
+      const surface = "packages/kernel/src/domain/settings.ts",
+        commitSchemaSurface = (body: string) => {
+          mkdirSync(path.dirname(path.join(checkout, surface)), { recursive: true });
+          writeFileSync(path.join(checkout, surface), body);
+          execFileSync("git", ["-C", checkout, "add", surface]);
+          execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: narrow a persisted field"]);
+        };
+      // The mechanism is off by default: with no configured rule the cut still dispatches exactly
+      // one default-seat reviewer, never an extra professional one.
+      const launchesBefore = f.launches.length;
       commitSchemaSurface("// first schema surface\n");
       const unconfigured = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       assert.equal(unconfigured.outcome, "applied", JSON.stringify(unconfigured));
+      assert.ok(
+        f
+          .events()
+          .some(
+            (event) =>
+              event.type === "runtime_dispatch_requested" &&
+              event.payload.dispatchKey?.startsWith(`task-review:${taskId}:`),
+          ),
+        "the unconfigured cut still dispatches its default seat",
+      );
       assert.equal(
         f
           .events()
@@ -1229,8 +1236,9 @@ test(
               event.type === "runtime_dispatch_requested" && event.payload.dispatchKey?.startsWith("task-review-lane:"),
           ),
         false,
-        "an empty review.pathReviewers must dispatch no lane",
+        "no separate path-review lane may be dispatched",
       );
+      assert.equal(f.launches.length, launchesBefore + 1, "one default seat, never a parallel professional seat");
       const settings = await f.run({ kind: "settings-read" });
       const configured = await f.runPrincipal({
         kind: "settings-update",
@@ -1238,42 +1246,32 @@ test(
         expectedVersion: settings.revision,
       });
       assert.equal(configured.outcome, "applied", JSON.stringify(configured));
-      const launchesBefore = f.launches.length;
-      // The amended cut's frozen manifest touches the configured directory.
+      // The amended cut's frozen manifest now hits the configured path: its one seat is the
+      // professional reviewer, and the default reviewer is not dispatched beside it.
+      const beforeSeat = f.launches.length;
       commitSchemaSurface("// second schema surface\n");
       const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-      const laneDispatch = f
+      const seatDispatches = f
         .events()
-        .find(
+        .filter(
           (event) =>
             event.type === "runtime_dispatch_requested" &&
-            event.payload.dispatchKey?.startsWith("task-review-lane:data-migration:"),
-        );
-      assert.ok(laneDispatch?.type === "runtime_dispatch_requested", "no path-review lane dispatch was requested");
-      assert.equal(laneDispatch.payload.agentId, "data-migration");
-      assert.equal(laneDispatch.payload.role, "reviewer");
-      assert.equal(laneDispatch.payload.taskId, taskId);
-      assert.equal(laneDispatch.payload.executionId, executionId);
-      const laneId = laneDispatch.payload.dispatchId!;
-      const laneLaunch = f.launches.find((launch) => launch.prompt.includes(laneId));
-      assert.ok(laneLaunch, `no provider launch carried the lane dispatch ${laneId}`);
-      assert.match(laneLaunch.prompt, /additional review lane for agent data-migration/u);
-      assert.ok(laneLaunch.prompt.includes("- packages/kernel/src/domain/settings.ts"), laneLaunch.prompt);
-      assert.ok(
-        laneLaunch.prompt.includes(`--review-id review-${laneId}`),
-        "the lane reviewer's registration identity is fixed by its dispatch",
-      );
-      assert.equal(f.launches.length, launchesBefore + 2, "one cut review plus one path-review lane");
-      // The lane is idempotent on the same submitted cut.
-      const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
-      assert.equal(retry.outcome, "applied", JSON.stringify(retry));
-      const steps = dispatchesOf(retry),
-        laneStep = steps.find((step) => step.lane === "data-migration");
-      assert.ok(laneStep, `no path-review lane step in ${JSON.stringify(steps)}`);
-      assert.equal(laneStep!.outcome, "already_dispatched");
-      assert.equal(laneStep!.dispatchId, laneId);
-      assert.equal(f.launches.length, launchesBefore + 2, "an idempotent retry launches nothing");
+            event.payload.role === "reviewer" &&
+            event.payload.taskId === taskId,
+        )
+        .slice(-1);
+      const seatDispatch = seatDispatches[0];
+      assert.ok(seatDispatch?.type === "runtime_dispatch_requested", "the amended cut dispatched no reviewer");
+      assert.equal(seatDispatch.payload.agentId, "data-migration", "the professional reviewer took the one seat");
+      assert.equal(seatDispatch.payload.role, "reviewer");
+      assert.equal(seatDispatch.payload.executionId, executionId);
+      const seatLaunch = f.launches.find((launch) => launch.prompt.includes(seatDispatch.payload.dispatchId!));
+      assert.ok(seatLaunch, `no provider launch carried the seat dispatch ${seatDispatch.payload.dispatchId!}`);
+      assert.match(seatLaunch.prompt, /professional reviewer data-migration/u);
+      assert.ok(seatLaunch.prompt.includes(`- ${surface}`), seatLaunch.prompt);
+      assert.match(seatLaunch.prompt, /grants no separate approval/u);
+      assert.equal(f.launches.length, beforeSeat + 1, "replacing the seat still costs exactly one reviewer");
     } finally {
       await f.close();
     }
@@ -1281,84 +1279,37 @@ test(
 );
 
 test(
-  "a medium-risk cut touching a configured path still dispatches its migration reviewer",
+  "dispatch-review re-dispatches only the cut's one seat instead of a second reviewer",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, {
-      closeoutProfile: "standard",
-      create: { presetId: "standard-task", riskTier: "medium" },
-    });
+    const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
       await f.install();
-      const laneAgent = await f.run({
+      const second = await f.run({
         kind: "agent-install",
         declaration: {
           schema: "agent-declaration/v1",
-          id: "data-migration",
-          name: "Data migration reviewer",
-          instructions:
-            "Report the affected persisted data, the attach-migration registration, and the old-copy evidence.",
+          id: "second-reviewer",
+          name: "Second reviewer",
+          instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
+          instance: "review-second",
           role: "reviewer",
         },
       });
-      assert.equal(laneAgent.outcome, "applied", JSON.stringify(laneAgent));
-      await f.cell().settlePendingMaterialization("medium path lane fixture delivery");
-      const worktreePaths = execFileSync("git", ["-C", f.root, "worktree", "list", "--porcelain"], {
-          encoding: "utf8",
-        })
-          .trim()
-          .split("\n\n")
-          .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
-          .filter((line): line is string => line !== undefined)
-          .map((line) => path.resolve(line.slice("worktree ".length))),
-        checkout = worktreePaths.find((entry) => entry !== path.resolve(f.root));
-      assert.ok(checkout, `expected the bound task worktree beside ${f.root}`);
-      // One of the decision's exact-file entries, not a directory prefix: a medium-risk cut that
-      // touches that file must still reach the configured reviewer.
-      const surface = "packages/kernel/src/domain/review.ts";
-      const settings = await f.run({ kind: "settings-read" });
-      const configured = await f.runPrincipal({
-        kind: "settings-update",
-        reviewPathReviewers: [`data-migration ${surface}`],
-        expectedVersion: settings.revision,
-      });
-      assert.equal(configured.outcome, "applied", JSON.stringify(configured));
-      mkdirSync(path.dirname(path.join(checkout, surface)), { recursive: true });
-      writeFileSync(path.join(checkout, surface), "// migration-sensitive domain surface\n");
-      execFileSync("git", ["-C", checkout, "add", surface]);
-      execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: add the reviewed domain surface"]);
-      const launchesBefore = f.launches.length;
-      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
-      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-      const submitted = f
-        .events()
-        .filter((event) => event.type === "execution_submitted")
-        .at(-1);
-      assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
-      const assessment = submitted.payload.execution.submission.riskTierAssessment;
-      assert.equal(assessment?.effectiveTier, "medium", "the cut keeps its declared medium tier");
-      assert.ok(
-        assessment?.matchedPathReviewers.some(
-          ({ agentId, paths }) => agentId === "data-migration" && paths.includes(surface),
-        ),
-        "the medium cut froze the configured path hit",
+      assert.equal(second.outcome, "applied", JSON.stringify(second));
+      // The automatic submit dispatch and the manual retry name the same single seat.
+      assert.equal(f.launches.length, 1);
+      const held = dispatchesOf(await f.run({ kind: "task-dispatch-review", taskIds: [taskId] }))[0]!;
+      assert.equal(held.outcome, "already_dispatched");
+      assert.equal(held.agentId, "closeout-reviewer");
+      const refused = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "second-reviewer" });
+      assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+      assert.match(
+        dispatchesOf(refused)[0]!.error ?? "",
+        /already holds review dispatch \S+ by agent closeout-reviewer .*--agent second-reviewer was not dispatched/u,
       );
-      const laneDispatch = f
-        .events()
-        .find(
-          (event) =>
-            event.type === "runtime_dispatch_requested" &&
-            event.payload.dispatchKey?.startsWith("task-review-lane:data-migration:"),
-        );
-      assert.ok(laneDispatch?.type === "runtime_dispatch_requested", "no path-review lane dispatch was requested");
-      assert.equal(laneDispatch.payload.agentId, "data-migration");
-      assert.equal(laneDispatch.payload.role, "reviewer");
-      assert.equal(laneDispatch.payload.executionId, executionId);
-      const laneLaunch = f.launches.find((launch) => launch.prompt.includes(laneDispatch.payload.dispatchId!));
-      assert.ok(laneLaunch, `no provider launch carried the lane dispatch ${laneDispatch.payload.dispatchId!}`);
-      assert.ok(laneLaunch.prompt.includes(`- ${surface}`), laneLaunch.prompt);
-      assert.equal(f.launches.length, launchesBefore + 2, "one cut review plus one path-review lane");
+      assert.equal(f.launches.length, 1, "a held seat never adds a parallel reviewer");
     } finally {
       await f.close();
     }

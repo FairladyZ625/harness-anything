@@ -3,10 +3,21 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
-import { consentedApprovedReviewForExecution, settledApprovedReviewsForExecution } from "./review.ts";
+import {
+  consentedApprovedReviewForExecution,
+  reviewsForExecution,
+  settledApprovedReviewsForExecution,
+} from "./review.ts";
 import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
+import {
+  settleReviewFindings,
+  type ReviewFindingSettlement,
+  type ReviewFindingTriageV1,
+  type SettleableReviewFinding,
+} from "./review-settlement.ts";
+import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
@@ -72,6 +83,8 @@ export interface CloseoutSnapshot {
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
+  /** Per-finding triage answers the center recorded for this cut's categorized findings. */
+  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
   readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
@@ -153,7 +166,44 @@ export function closeoutReadiness(
   const forwarded = (snapshot.forwardedCuts ?? []).some(
     (record) => record.executionId === execution.executionId && record.iteration === execution.iteration,
   );
-  if ((effectiveGates?.review !== false || forwarded) && !approved.length && !consented)
+  // Per-finding settlement (dec_6A77D43B8523823ABA1F5E4D3C CH5): once a current cut carries a
+  // finding, each finding is the pass unit and a missing or ambiguous triage is unresolved review —
+  // never an approved one. A cut whose reviews raise no finding at all passes on its own verdict
+  // (CH1 "无 finding 时直接通过"), which is also how historical records still complete.
+  //
+  // A cut that raised a finding without a category must not slip back to the single-`approved`
+  // predicate: that predicate is exactly what C3 deletes, and it would let a reviewer return
+  // `changes_requested` findings and be overruled by one `approved` record. Such a cut is
+  // unresolved review — the reviewer answered neither the triage question nor "no findings".
+  // Pinning a cut means hashing its whole submission, and this judgment runs once per rendered
+  // board row. A repository whose reviews carry no finding at all cannot enter either branch below,
+  // so one cheap scan over the snapshot spares that hash; only a repository that actually records
+  // findings pays for the per-cut pinning.
+  const findingsRecorded = snapshot.reviews.some((review) => (review.findings ?? []).length > 0),
+    settlement = findingsRecorded
+      ? currentCutSettlement(snapshot.reviews, execution, snapshot.reviewFindingTriages ?? [])
+      : null,
+    reviewOwed = effectiveGates?.review !== false || forwarded,
+    // A cut that raised a finding with no category is unresolved review — except for a review the
+    // owner already disposed at this submission digest. Without that exit the predicate would
+    // retroactively redefine every historical finding (the field did not exist when they were
+    // written) as an open review, and no disposition or consent could clear it: the owner would have
+    // no route at all. Dispositions are the same channel the Decision side honors for exactly this.
+    unfiledFindings =
+      findingsRecorded &&
+      (() => {
+        const disposed = disposedReviewIdsForSubmission(
+          snapshot.reviewDispositions ?? [],
+          submissionDigest(execution.submission!),
+        );
+        return reviewsForExecution(snapshot.reviews, execution).some(
+          (review) =>
+            !disposed.has(review.reviewId) && (review.findings ?? []).some((finding) => finding.category === undefined),
+        );
+      })(),
+    reviewSatisfied =
+      !unfiledFindings && (settlement !== null ? settlement.outcome === "passed" : approved.length > 0 || consented);
+  if (reviewOwed && !reviewSatisfied)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
@@ -166,6 +216,55 @@ export function closeoutReadiness(
     ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}),
     gates,
   };
+}
+
+/**
+ * The findings of one cut that enter per-finding settlement, in review order. A finding without a
+ * recorded category is not settled: the pre-triage review path keeps owning it (a category is only
+ * written by a reviewer that answered the triage question). The center's triage producer asks about
+ * exactly these findings, so the question it pays for and the judgment that reads the answer cannot
+ * drift apart.
+ */
+export function cutReviewFindings(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+): readonly SettleableReviewFinding[] {
+  return reviewsForExecution(reviews, execution).flatMap((review) =>
+    (review.findings ?? []).flatMap((finding) =>
+      finding.category === undefined
+        ? []
+        : [
+            {
+              reviewId: review.reviewId,
+              findingId: finding.findingId,
+              category: finding.category,
+              label: finding.label ?? ("Important" as const),
+              text: finding.text,
+              reviewerBlocking: finding.blocking,
+              ...(finding.evidenceDigest === undefined || finding.anchor === undefined
+                ? {}
+                : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
+              ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
+            },
+          ],
+    ),
+  );
+}
+
+/**
+ * The per-finding settlement of one cut, or null for a cut that raised no categorized finding. Only
+ * findings bound to this execution/iteration enter, so a prior cut's settlement cannot pass a new one.
+ */
+export function currentCutSettlement(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  triages: readonly ReviewFindingTriageV1[],
+): ReviewFindingSettlement | null {
+  const findings = cutReviewFindings(reviews, execution);
+  if (findings.length === 0 || !execution.submission) return null;
+  // The cut a settlement answers is its submission digest: an amend mints a new one, and a record
+  // minted for the old cut must not answer the new one (B-3: `(reviewId, findingId)` is reusable).
+  return settleReviewFindings({ findings, triages, targetDigest: submissionDigest(execution.submission) });
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

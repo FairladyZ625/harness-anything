@@ -1,13 +1,21 @@
 import { createHash } from "node:crypto";
 import {
   currentSubmittedExecutions,
-  heldLeaseForExecutionActor,
+  discardedFindingCategories,
   getExecutableEntityAction,
+  heldLeaseForExecutionActor,
+  isDiscardedCategory,
   isDomainStatus,
+  isSettledFindingCategory,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  reviewFindingLabels,
+  settledFindingCategories,
   submissionDigest,
+  type ReviewFindingCategory,
+  type ReviewFindingLabel,
+  type ReviewFindingV1,
   type TaskLifecycleCommand,
 } from "@harness-anything/kernel";
 import { type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
@@ -304,15 +312,7 @@ export function buildCommand(
   );
 }
 
-function reviewFindings(
-  value: unknown,
-  field: string,
-): readonly {
-  readonly findingId: string;
-  readonly blocking: boolean;
-  readonly text: string;
-  readonly anchor?: string;
-}[] {
+function reviewFindings(value: unknown, field: string): readonly ReviewFindingV1[] {
   if (!Array.isArray(value)) throw cellCodedError("invalid_command", `${field} must be an array.`);
   return value.map((item, index) => {
     if (!item || typeof item !== "object" || Array.isArray(item))
@@ -322,13 +322,52 @@ function reviewFindings(
       text = requiredCellText(row.text, `${field}[${index}].text`);
     if (typeof row.blocking !== "boolean")
       throw cellCodedError("invalid_command", `${field}[${index}].blocking must be boolean.`);
+    const category = optionalFindingCategory(row.category, `${field}[${index}].category`),
+      label = optionalFindingLabel(row.label, `${field}[${index}].label`),
+      evidenceDigest = optionalEvidenceDigest(row.evidenceDigest, `${field}[${index}].evidenceDigest`),
+      priorFindingRefs = optionalFindingRefs(row.priorFindingRefs, `${field}[${index}].priorFindingRefs`);
     return {
       findingId,
       blocking: row.blocking,
       text,
       ...(row.anchor === undefined ? {} : { anchor: requiredCellText(row.anchor, `${field}[${index}].anchor`) }),
+      ...(category === undefined ? {} : { category }),
+      ...(label === undefined ? {} : { label }),
+      ...(evidenceDigest === undefined ? {} : { evidenceDigest }),
+      ...(priorFindingRefs === undefined ? {} : { priorFindingRefs }),
     };
   });
+}
+
+function optionalFindingCategory(value: unknown, field: string): ReviewFindingCategory | undefined {
+  if (value === undefined) return undefined;
+  if (!isSettledFindingCategory(String(value)) && !isDiscardedCategory(String(value)))
+    throw cellCodedError(
+      "invalid_command",
+      `${field} must be one of ${[...settledFindingCategories, ...discardedFindingCategories].join(", ")}.`,
+    );
+  return value as ReviewFindingCategory;
+}
+
+function optionalFindingLabel(value: unknown, field: string): ReviewFindingLabel | undefined {
+  if (value === undefined) return undefined;
+  if (!reviewFindingLabels.includes(value as ReviewFindingLabel))
+    throw cellCodedError("invalid_command", `${field} must be one of ${reviewFindingLabels.join(", ")}.`);
+  return value as ReviewFindingLabel;
+}
+
+function optionalEvidenceDigest(value: unknown, field: string): `sha256:${string}` | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value))
+    throw cellCodedError("invalid_command", `${field} must be a sha256 digest.`);
+  return value as `sha256:${string}`;
+}
+
+function optionalFindingRefs(value: unknown, field: string): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || !entry.trim()))
+    throw cellCodedError("invalid_command", `${field} must be a non-empty array of finding references.`);
+  return value as readonly string[];
 }
 
 function reviewResolutions(value: unknown): readonly {

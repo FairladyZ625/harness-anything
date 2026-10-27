@@ -63,7 +63,37 @@ export {
   reviewVerdicts,
   settledApprovedReviewsForExecution,
 } from "./review.ts";
-export type { ReviewV1 } from "./review.ts";
+export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
+
+// The per-finding settlement is consumed inside the kernel (closeout readiness and Decision
+// accept), by the daemon's review-entry filter, and by the center's triage store, which is the one
+// writer of `ReviewFindingTriageV1` for a cut. dec_6A77D43B8523823ABA1F5E4D3C CH5 keeps one
+// settlement implementation; only the names a production consumer imports are published. The
+// remaining vocabulary (outcome/settlement shapes, per-category floors) stays module-private so a
+// second judgment cannot be assembled from it.
+export {
+  discardedFindingCategories,
+  hardRuleFindingCategories,
+  isDiscardedCategory,
+  isSettledFindingCategory,
+  reviewFindingDispositions,
+  reviewFindingLabels,
+  settledFindingCategories,
+  settleReviewFindings,
+} from "./review-settlement.ts";
+export {
+  reviewFindingThresholdsFor,
+  reviewFindingTriageQuestion,
+  reviewFindingTriageQuestionVersion,
+} from "./review-triage-question.ts";
+export type {
+  ReviewFindingCategory,
+  ReviewFindingLabel,
+  ReviewFindingSettlement,
+  ReviewFindingThresholds,
+  ReviewFindingTriageV1,
+  SettleableReviewFinding,
+} from "./review-settlement.ts";
 
 export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
 export type { DomainStatus } from "./lifecycle-status.ts";
@@ -75,6 +105,7 @@ export {
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,
+  cutReviewFindings,
   gateResults,
   judgeGateWitnesses,
   waivableAutomatedFail,
@@ -161,6 +192,7 @@ export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from 
 export {
   compileDecisionWrite,
   decisionAcceptReviewReadiness,
+  decisionCutReviewFindings,
   decisionMachineDigest,
   decisionReviewContentDigest,
   decisionStates,

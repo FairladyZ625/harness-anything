@@ -23,6 +23,7 @@ import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSe
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
+import { readReviewTriageRecords, type ReviewTriageStoreRecord } from "./review-finding-triage.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
@@ -47,12 +48,35 @@ export type {
  * this size lets the supervisor observe advancing watermarks during reconstruction, before ready. */
 const coldAttachCatchUpLimit = 32;
 
-/** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
+/**
+ * Read judgments bound to one projection cut: the closeout verdict follows the effective gate set.
+ *
+ * The triage records are read from the center's journal here rather than carried on the snapshot:
+ * the journal is the one writer for them (`review-finding-triage.ts`), so a read must not invent a
+ * second copy on the projection. Without a rootDir the read yields no records, which keeps the
+ * judgment fail-closed — a categorized finding then has no triage and escalates.
+ *
+ * The journal is read once per judgment set, not once per task. An agenda/task-list read asks this
+ * closeout judgment for every row it renders, and each pass re-read and re-hashed the same file —
+ * a per-task cost that grows with the board rather than with the journal (G38 measured it as 18
+ * hashes/8172 bytes against a 12/7044 budget). Memoizing one read per set keeps the judgment
+ * identical while making the board pay for the journal once.
+ */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries, rootDir?: string): TaskQueryJudgments {
+  let journal: readonly ReviewTriageStoreRecord[] | null = null;
+  const reviewFindingTriages = (taskId: string | undefined): readonly ReviewTriageStoreRecord[] => {
+    if (journal === null) journal = rootDir === undefined ? [] : readReviewTriageRecords(rootDir);
+    // The settlement matches records by `(reviewId, findingId)`, so a record minted for another
+    // task must not answer this one. Filtering per row keeps that guarantee without re-reading the
+    // journal for every row the board renders.
+    return taskId === undefined
+      ? []
+      : journal.filter((record) => record.target.kind === "task" && record.target.id === taskId);
+  };
   return {
     closeout: (snapshot, availability) =>
       closeoutReadiness(
-        snapshot,
+        { ...snapshot, reviewFindingTriages: reviewFindingTriages(snapshot.task?.taskId) },
         availability,
         readEffectiveCloseoutGates(projection, snapshot),
         readCompletionDeliveryStatus(projection, snapshot, rootDir),

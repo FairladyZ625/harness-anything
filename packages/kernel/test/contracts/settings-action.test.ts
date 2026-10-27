@@ -614,8 +614,15 @@ test("path reviewers write as one agent-and-path entry per line and read back ex
   const entries = ["data-migration packages/kernel/src/domain/", "gui-reviewer packages/gui/src/"],
     draft = compile({ reviewPathReviewers: entries });
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
-  assert.deepEqual(draft.result.bundle.event.payload.settings.review, { pathReviewers: entries });
+  // dec_6A77D43B8523823ABA1F5E4D3C CH3 adds review.thresholds beside pathReviewers, and settings
+  // always materialize their defaults, so the facet carries both.
+  assert.deepEqual(draft.result.bundle.event.payload.settings.review, {
+    pathReviewers: entries,
+    thresholds: { correctness: 80, migration: 85, securityAuth: 90 },
+  });
   const written = draft.result.bundle.blobs[0].body;
+  // The document body carries only what was set: the threshold defaults are resolved in the event
+  // payload, so the authored YAML names pathReviewers and nothing else.
   assert.match(
     written,
     /^  review:\n    pathReviewers:\n      - data-migration packages\/kernel\/src\/domain\/\n      - gui-reviewer packages\/gui\/src\/$/mu,
@@ -655,6 +662,9 @@ test("path reviewers default to no additional review, and none clears them", () 
     },
   );
   if (cleared.kind !== "settings" || cleared.result.kind !== "event") throw new Error("missing cleared settings event");
-  assert.deepEqual(cleared.result.bundle.event.payload.settings.review, { pathReviewers: [] });
+  assert.deepEqual(cleared.result.bundle.event.payload.settings.review, {
+    pathReviewers: [],
+    thresholds: { correctness: 80, migration: 85, securityAuth: 90 },
+  });
   assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /^  review:/mu);
 });

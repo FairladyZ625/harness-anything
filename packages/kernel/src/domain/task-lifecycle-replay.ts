@@ -2,6 +2,7 @@ import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
+import { isReviewDispositionEligible } from "./review-consent-validity.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -753,14 +754,14 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
             review.executionId === event.payload.execution.executionId &&
             review.iteration === event.payload.execution.iteration &&
             review.submissionDigest === event.payload.disposition.submissionDigest &&
-            review.verdict === "changes_requested",
+            isReviewDispositionEligible(review),
         ),
     )
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_proof",
-        "replayed review disposition is not bound to current changes_requested reviews",
+        "replayed review disposition is not bound to current changes_requested reviews or approved reviews with unclassified findings",
       ),
     ]);
   if (

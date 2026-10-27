@@ -10,6 +10,7 @@ import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { settleReviewedCutAfterWrite, settleReviewedDecisionAfterWrite } from "./review-triage-after-write.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -711,6 +712,63 @@ export function createDaemonHostRepositoryApi(
           action.kind === "task-submit"
         )
           void context.scheduleScheduler.refresh();
+        // dec_6A77D43B8523823ABA1F5E4D3C CH3/CH5: a review that landed with categorized findings has
+        // to produce their triage records, or the closeout gate has nothing to read and the cut
+        // escalates forever. The Decisions provider lives on the host, so the host drives it here
+        // once the review is durable. A failure is reported, never converted into a pass: the
+        // journal stays unwritten and the read side keeps the cut at review.
+        if (action.kind === "task-review-execution" && receipt.outcome === "applied")
+          void settleReviewedCutAfterWrite({
+            rootDir: cell.status().rootDir,
+            readSnapshot: async (taskId) =>
+              (
+                (await cell.read("repo.tasks.runtimeContext.read", { taskId }, serverBinding)) as unknown as {
+                  readonly snapshot?: {
+                    readonly executions?: readonly import("@harness-anything/kernel").ExecutionV1[];
+                    readonly reviews?: readonly import("@harness-anything/kernel").ReviewV1[];
+                  };
+                }
+              ).snapshot ?? {},
+            receipt,
+            decisionProviders: context.decisionProviders,
+            now: context.now,
+            settings: (await cell.read("repo.settings.read")).settings as Parameters<
+              typeof settleReviewedCutAfterWrite
+            >[0]["settings"],
+          }).catch((error: unknown) => console.error(error));
+        // B-1: the Decision side needs the same producer. Without it a categorized Decision finding
+        // has no record, never settles, and the owner's override cannot clear it — an override
+        // disposes reviews, not unfiled findings. The accept judgment has read a journal since this
+        // same change, so only the writer was missing.
+        if (action.kind === "decision-review" && receipt.outcome === "applied")
+          void settleReviewedDecisionAfterWrite({
+            rootDir: cell.status().rootDir,
+            readDecision: async (decisionId) => {
+              // The full Decision rows already carry their current content digest, so the hook does
+              // not hash the body a second time; `withBody` only affects whether prose is returned.
+              const listed = (await cell.read(
+                  "repo.decisions.list",
+                  { projection: "full" },
+                  serverBinding,
+                )) as unknown as {
+                  readonly decisions?: readonly {
+                    readonly decisionId: string;
+                    readonly currentReviewContentDigest?: `sha256:${string}` | null;
+                  }[];
+                },
+                row = listed.decisions?.find((candidate) => candidate.decisionId === decisionId);
+              // No digest means no materialized cut to settle; the read side keeps escalating it.
+              return row?.currentReviewContentDigest == null
+                ? undefined
+                : { decision: row as never, digest: row.currentReviewContentDigest };
+            },
+            receipt,
+            decisionProviders: context.decisionProviders,
+            now: context.now,
+            settings: (await cell.read("repo.settings.read")).settings as Parameters<
+              typeof settleReviewedDecisionAfterWrite
+            >[0]["settings"],
+          }).catch((error: unknown) => console.error(error));
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
           const checks = [

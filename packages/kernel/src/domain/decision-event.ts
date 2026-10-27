@@ -10,6 +10,7 @@ export {
   decisionDocumentProse,
   decisionMachineDigest,
   decisionAcceptReviewReadiness,
+  decisionCutReviewFindings,
   decisionReviewContentDigest,
   decisionWritePlan,
   reduceDecisionDocument,

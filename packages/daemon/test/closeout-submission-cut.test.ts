@@ -13,7 +13,7 @@ import {
   submissionAnchorDriftWarnings,
   submissionStopped,
 } from "../src/repo-cell-submit.ts";
-import { reviewLaneHits, reviewPathLanes } from "../src/review-path-lanes.ts";
+import { reviewPathHits, reviewPathRules } from "../src/review-path-matching.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 
 const packagePath = "tasks/task-1";
@@ -1264,12 +1264,12 @@ test("an artifact-only cut whose empty branch rebased onto an advanced main free
 test("the artifact-only cut drives no path-review lane while the same mechanism still fires for its own migration commit", (t) => {
   const { root, base, worker } = emptyBranchOnAdvancedMain(t),
     laneEntries = ["data-migration packages/kernel/src/store/"],
-    lanes = reviewPathLanes(laneEntries),
+    lanes = reviewPathRules(laneEntries),
     emptyCut = derive(root, "Analysis delivered as accepted artifacts.", undefined, [], undefined, {
       kind: "commit",
       commitSha: base,
     });
-  assert.equal(reviewLaneHits(emptyCut, lanes).size, 0);
+  assert.equal(reviewPathHits(emptyCut, lanes).size, 0);
   // Positive control: a real persisted-shape change on the task's own branch still hits the lane.
   put(worker, "packages/kernel/src/store/own-migration.ts", "export const ownMigration = 1;\n");
   commit(worker);
@@ -1278,7 +1278,7 @@ test("the artifact-only cut drives no path-review lane while the same mechanism 
     commitSha: base,
   });
   assert.deepEqual(realCut.deliverables, ["packages/kernel/src/store/own-migration.ts"]);
-  assert.equal(reviewLaneHits(realCut, lanes).get("data-migration")?.length, 1);
+  assert.equal(reviewPathHits(realCut, lanes).get("data-migration")?.length, 1);
 });
 
 // Positive control for the same gate: a real delivery already merged into main keeps its own
@@ -1355,6 +1355,6 @@ test("a same-execution amendment at its own merged tip keeps the manifest and it
   );
   assert.equal(packet.commitSha, merged);
   assert.deepEqual(packet.deliverables, ["packages/kernel/src/store/own-migration.ts"]);
-  const lanes = reviewPathLanes(["data-migration packages/kernel/src/store/"]);
-  assert.equal(reviewLaneHits(packet, lanes).get("data-migration")?.length, 1);
+  const lanes = reviewPathRules(["data-migration packages/kernel/src/store/"]);
+  assert.equal(reviewPathHits(packet, lanes).get("data-migration")?.length, 1);
 });

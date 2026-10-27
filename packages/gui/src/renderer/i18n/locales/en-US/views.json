@@ -2161,5 +2161,14 @@
   "views.liveFloor.endedEmpty": "No sessions ended in the last 24 hours.",
   "views.liveFloor.endedWindowNote": "last 24 hours",
   "views.liveFloor.endedReportToggle": "Report",
-  "views.liveFloor.stageOther": "Other"
+  "views.liveFloor.stageOther": "Other",
+  "views.settingsView.reviewThresholdCorrectnessLabel": "Correctness triage floor",
+  "views.settingsView.reviewThresholdCorrectnessDescription": "Percent confidence a correctness or completeness finding's triage needs to settle it.",
+  "views.settingsView.reviewThresholdCorrectnessEffect": "Below this the finding escalates to a person unless a Critic agrees; it can only raise the built-in 80.",
+  "views.settingsView.reviewThresholdMigrationLabel": "Migration triage floor",
+  "views.settingsView.reviewThresholdMigrationDescription": "Percent confidence a CI, migration, or decision-break finding's triage needs to settle it.",
+  "views.settingsView.reviewThresholdMigrationEffect": "Below this the finding escalates to a person unless a Critic agrees; it can only raise the built-in 85.",
+  "views.settingsView.reviewThresholdSecurityAuthLabel": "Security triage floor",
+  "views.settingsView.reviewThresholdSecurityAuthDescription": "Percent confidence a security-auth or data-loss finding's triage needs to settle it.",
+  "views.settingsView.reviewThresholdSecurityAuthEffect": "Below this the finding escalates to a person unless a Critic agrees; it can only raise the built-in 90."
 }

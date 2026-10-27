@@ -3,8 +3,13 @@ import { digest } from "./digest.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import { validateReviewFindings, validateReviewResolutions, validateTaskReviewResponseV1 } from "./review.ts";
+import { isDiscardedCategory } from "./review-settlement.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
-import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+import {
+  describeReviewConsentConflicts,
+  isReviewDispositionEligible,
+  reviewConsentConflicts,
+} from "./review-consent-validity.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -111,12 +116,19 @@ function reviewIssues(
         ),
       );
   }
+  // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
+  // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
   if (
     command.verdict === "changes_requested" &&
     command.findings !== undefined &&
-    !command.findings.some((item) => item.blocking)
+    !command.findings.some((item) => item.blocking && !isDiscardedCategory(item.category ?? "correctness"))
   )
-    issues.push(lifecycleContractIssue("invalid_review", "changes_requested review requires a blocking finding"));
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_review",
+        "changes_requested review requires a blocking finding outside style/diagnostic/cleanup",
+      ),
+    );
   return issues;
 }
 
@@ -380,14 +392,14 @@ export const consent: Transition = {
             currentSubmissionDigest: currentSubmissionDigest!,
           })
         : [],
-      currentChanges = new Set(
+      dispositionEligibleReviews = new Set(
         snapshot.reviews
           .filter(
             (value) =>
               value.executionId === command.executionId &&
               value.iteration === current?.iteration &&
-              value.verdict === "changes_requested" &&
-              value.submissionDigest === currentSubmissionDigest,
+              value.submissionDigest === currentSubmissionDigest &&
+              isReviewDispositionEligible(value),
           )
           .map((value) => value.reviewId),
       );
@@ -419,12 +431,12 @@ export const consent: Transition = {
     if (
       command.disposedReviewIds?.length &&
       (new Set(command.disposedReviewIds).size !== command.disposedReviewIds.length ||
-        command.disposedReviewIds.some((reviewId) => !currentChanges.has(reviewId)))
+        command.disposedReviewIds.some((reviewId) => !dispositionEligibleReviews.has(reviewId)))
     )
       issues.push(
         lifecycleContractIssue(
           "invalid_proof",
-          "review disposition may name each current changes_requested review exactly once",
+          "review disposition may name current changes_requested reviews or approved reviews with unclassified findings",
         ),
       );
     if (conflicts.length)

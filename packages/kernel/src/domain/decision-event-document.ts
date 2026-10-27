@@ -20,6 +20,8 @@ import {
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+import { settleReviewFindings } from "./review-settlement.ts";
+import type { ReviewFindingSettlement, ReviewFindingTriageV1, SettleableReviewFinding } from "./review-settlement.ts";
 import type { DecisionReviewRequirement } from "./settings-field-declarations.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
@@ -41,6 +43,8 @@ export function compileDecisionWrite(input: {
     readonly body: string;
   } | null;
   readonly decisionReviewRequirement: DecisionReviewRequirement;
+  /** The center's triage answers for this cut; the accept judgment reads the same settlement as closeout. */
+  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
 }): CompiledDecisionWrite {
   const proposal = input.event.type === "decision_proposed";
   if (
@@ -56,6 +60,7 @@ export function compileDecisionWrite(input: {
       input.currentDocument!.body,
       input.event,
       input.decisionReviewRequirement,
+      input.reviewFindingTriages ?? [],
     );
   }
   if (input.currentDecision && input.currentDocument)
@@ -572,10 +577,70 @@ export interface DecisionAcceptReviewReadiness {
   };
 }
 
+/**
+ * The categorized findings of one Decision cut, as the settlement reads them.
+ *
+ * The producer that asks the Decisions API must ask about exactly this set, or the question and the
+ * judgment drift: a finding asked about but not judged (or the reverse) leaves a cut that can never
+ * settle. Both callers therefore take the findings from here rather than repeating the filter.
+ */
+export function decisionCutReviewFindings(
+  current: DecisionDocumentState,
+  currentDigest: `sha256:${string}`,
+): readonly SettleableReviewFinding[] {
+  return current.reviews
+    .filter((review) => review.reviewContentDigest === currentDigest)
+    .flatMap((review) =>
+      review.findings.flatMap((finding) =>
+        finding.category === undefined
+          ? []
+          : [
+              {
+                reviewId: review.reviewId,
+                findingId: finding.findingId,
+                category: finding.category,
+                label: finding.label ?? ("Important" as const),
+                text: finding.text,
+                reviewerBlocking: review.verdict === "changes_requested",
+                ...(finding.evidenceDigest === undefined || finding.anchor === undefined
+                  ? {}
+                  : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
+                ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
+              },
+            ],
+      ),
+    );
+}
+
+/**
+ * The per-finding settlement of a Decision cut (dec_6A77D43B8523823ABA1F5E4D3C CH5). Task and
+ * Decision share `settleReviewFindings`; this adapter maps Decision review findings onto it, so both
+ * aggregates apply one rule and Decision accept stops looking for a single `approved` review.
+ */
+export function decisionCutSettlement(
+  current: DecisionDocumentState,
+  documentBody: string,
+  triages: readonly ReviewFindingTriageV1[],
+): ReviewFindingSettlement | null {
+  // `decisionReviewContentDigest` hashes the whole document body, and the read surfaces that show
+  // review state run once per Decision row — the agenda calls this for every proposed Decision it
+  // renders. A Decision whose reviews carry no categorized finding settles to null whatever the
+  // digest says, so the cheap scan decides that first and the digest is only bought when a finding
+  // could actually enter (G38 measured the unconditional hash as +6 sha256 on the agenda read).
+  const categorized = current.reviews.some((review) =>
+    review.findings.some((finding) => finding.category !== undefined),
+  );
+  if (!categorized) return null;
+  const currentDigest = decisionReviewContentDigest(current, documentBody),
+    findings = decisionCutReviewFindings(current, currentDigest);
+  return findings.length === 0 ? null : settleReviewFindings({ findings, triages, targetDigest: currentDigest });
+}
+
 export function decisionAcceptReviewReadiness(
   current: DecisionDocumentState,
   documentBody: string,
   requirement: DecisionReviewRequirement,
+  findingTriages: readonly ReviewFindingTriageV1[] = [],
 ): DecisionAcceptReviewReadiness {
   const currentDigest = decisionReviewContentDigest(current, documentBody),
     blocking = current.reviews
@@ -606,27 +671,73 @@ export function decisionAcceptReviewReadiness(
           "The owner must override the named reviews, or the proposer must amend the content and seek review again.",
       },
     };
-  const approved = current.reviews.some(
-      (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
+  // Per-finding settlement supersedes "one approved review" for any cut that carries a categorized
+  // finding: a blocker returns it, an unresolved triage is unresolved review, and a settled cut is
+  // approved without any review-level `approved` record (CH3/CH5).
+  // C3 also deletes the single-`approved` fallback for a cut that raised a finding without a
+  // category: such a review answered neither the triage question nor "no findings", so one approved
+  // record must not overrule it. Only a cut whose current review filed no finding at all keeps the
+  // legacy predicate — that is CH1's "no finding passes directly".
+  const settlement = decisionCutSettlement(current, documentBody, findingTriages),
+    settledPassed = settlement?.outcome === "passed",
+    // A review the owner explicitly overrode at this digest is disposed: the override is the human
+    // route for exactly this, so its unfiled findings no longer hold the cut.
+    overriddenReviewIds = new Set(
+      current.reviewOverrides
+        .filter((override) => override.reviewContentDigest === currentDigest)
+        .flatMap((override) => override.reviewIds),
     ),
+    unfiledFindings = current.reviews.some(
+      (review) =>
+        review.reviewContentDigest === currentDigest &&
+        !overriddenReviewIds.has(review.reviewId) &&
+        review.findings.some((finding) => finding.category === undefined),
+    ),
+    approved =
+      settlement === null
+        ? !unfiledFindings &&
+          current.reviews.some(
+            (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
+          )
+        : settledPassed,
     reviewRequired =
       requirement === "all" ||
       (requirement === "high" && current.riskTier === "high") ||
       (requirement === "medium_and_high" && current.riskTier !== "low"),
-    unanswered = approved
-      ? []
-      : current.reviews
-          .filter(({ verdict }) => verdict === "changes_requested")
-          .flatMap((review) =>
-            review.findings
-              .filter(
-                ({ findingId }) =>
-                  !current.reviewResponses.some(
-                    (response) => response.reviewId === review.reviewId && response.findingId === findingId,
-                  ),
-              )
-              .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
-          );
+    unanswered =
+      approved || settlement !== null
+        ? []
+        : current.reviews
+            .filter(({ verdict }) => verdict === "changes_requested")
+            .flatMap((review) =>
+              review.findings
+                .filter(
+                  ({ findingId }) =>
+                    !current.reviewResponses.some(
+                      (response) => response.reviewId === review.reviewId && response.findingId === findingId,
+                    ),
+                )
+                .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
+            );
+  if (settlement !== null && settlement.outcome !== "passed")
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "changes_requested",
+        reviewIds: settlement.blockers.map(({ reviewId }) => reviewId),
+        reason: settlement.reason,
+      },
+      next: {
+        action: settlement.outcome === "escalated" ? "override-review" : "respond-review",
+        actor: settlement.outcome === "escalated" ? "owner" : "proposer",
+        reason:
+          settlement.outcome === "escalated"
+            ? "The finding triage could not settle safely; a person must decide."
+            : "Fix or rebut every blocking finding, then submit an amended cut for a fresh settlement.",
+      },
+    };
   if (!approved && reviewRequired)
     return {
       ready: false,
@@ -634,7 +745,10 @@ export function decisionAcceptReviewReadiness(
       basis: null,
       blocker: {
         code: "review_required",
-        reason: `Repository policy requires an approved review for ${current.riskTier}-risk Decisions.`,
+        reason:
+          settlement === null
+            ? `Repository policy requires an approved review for ${current.riskTier}-risk Decisions.`
+            : `Repository policy requires a settled finding review for ${current.riskTier}-risk Decisions.`,
       },
       next: {
         action: "dispatch-review",
@@ -671,8 +785,9 @@ export function assertDecisionAcceptReview(
   documentBody: string,
   event: Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>,
   requirement: DecisionReviewRequirement,
+  findingTriages: readonly ReviewFindingTriageV1[] = [],
 ): void {
-  const readiness = decisionAcceptReviewReadiness(current, documentBody, requirement),
+  const readiness = decisionAcceptReviewReadiness(current, documentBody, requirement, findingTriages),
     currentDigest = readiness.currentDigest;
   if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
     throw attributeEntityActionCriterion(

@@ -679,7 +679,7 @@ export function makeTaskQueryReadModel(input: {
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         const full = projection.readDecision(decision.decisionId).decision;
         if (!full || decisionReviewRequirement === null) return { decision, signal: "ready" as const };
-        const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
+        const readiness = decisionReviewState(full, decisionReviewRequirement, rootDir).acceptReviewReadiness;
         if (!readiness) return { decision, signal: "ready" as const };
         if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
           return { decision, signal: "awaitingOwner" as const };
