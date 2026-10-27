@@ -163,11 +163,9 @@
         "windows-first-run",
         "integration-shard",
         "boundaries",
-        "ontology-advisory",
         "package-policy",
         "supply-chain",
         "gui-build",
-        "node26-compatibility",
         "gate-contract-tests",
         "derived-contracts",
         "platform-smoke",
@@ -180,7 +178,9 @@
         "lint",
         "entity-id-links"
       ],
-      "helperJobsNotRegisteredAsGates": [],
+      "helperJobsNotRegisteredAsGates": [
+        "install"
+      ],
       "nonPullRequestGateJobs": [
         "full-check",
         "crlf-checkout",
@@ -222,7 +222,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "node26-compatibility",
         "pr-body-lint",
         "crlf-checkout",
         "windows-first-run (ubuntu-latest)",
@@ -675,7 +674,7 @@
       "authoritySource": ["tsconfig.json", "package.json:scripts.typecheck"],
       "consumerScope": ["TypeScript project references"],
       "githubContext": {
-        "requiredContexts": ["typecheck (24)", "node26-compatibility"],
+        "requiredContexts": ["typecheck (24)"],
         "workflowJobs": ["typecheck", "node26-compatibility"],
         "nodeVersions": [24, 26]
       },
@@ -698,12 +697,12 @@
           "script": "typecheck"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["typecheck", "node26-compatibility"],
+          "pullRequestJobs": ["typecheck"],
           "nonPullRequestJobs": ["full-check", "node26-compatibility", "typecheck"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["typecheck (24)", "node26-compatibility"]
+          "contexts": ["typecheck (24)"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3875,9 +3874,9 @@
       "id": "gui-read-baseline",
       "command": "node tools/gates/gui-read-baseline.mjs --base origin/main --mode ratchet",
       "category": "local-consistency",
-      "tier": "pr-advisory",
-      "tierReason": "Real-ledger GUI latency is host-sensitive, so the PR job enforces only the committed shrink-only request/payload/latency ratchet; G-slice reports supply fresh measurements.",
-      "authoritySource": ["task_c03713017573032b7b7149b9b5", "tools/measure-gui-read-baseline.mjs"],
+      "tier": "nightly-only",
+      "tierReason": "Real-ledger GUI latency is host-sensitive, so only the committed shrink-only request/payload/latency ratchet is enforced; dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved the advisory ontology-advisory lane off the pull-request path (zero real catches in 60 days), keeping the gate on the nightly schedule and manual dispatch.",
+      "authoritySource": ["task_c03713017573032b7b7149b9b5", "tools/measure-gui-read-baseline.mjs", "decision/dec_F5B2CBF8B45042B6DA2824A7FA#CH3"],
       "consumerScope": [
         "cold-load daemon reads for overview, board, graph, sessions, schedules, Agent/Squad, and Artifacts views",
         "per-view request count, response payload, IPC elapsed time, and daemon handler elapsed time"
@@ -3907,9 +3906,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": ["ontology-advisory"] },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": ["ontology-advisory"], "scheduleOnly": true },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["pr"]
+        "classes": ["nightly"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -3921,9 +3920,9 @@
       "id": "allowlist-path-existence",
       "command": "node tools/gates/allowlist-path-existence.mjs --mode ratchet",
       "category": "boundary",
-      "tier": "pr-advisory",
-      "tierReason": "B13 starts in the existing advisory governance job; promotion to a required context remains a CEO-controlled switch after observation.",
-      "authoritySource": ["task_01130d097481420c8d59e1fe08", "decision/dec_99000027E6BCC263E341D38DC0/CH2"],
+      "tier": "nightly-only",
+      "tierReason": "B13 stays in the advisory ontology-advisory job, which dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved off the pull-request path: the lane is continue-on-error and never blocked a PR, so its four real catches (most recently #3980) were visibility, not merge blocking. Detection is preserved on the nightly schedule and manual dispatch. Promotion to a required context remains a CEO-controlled switch after observation.",
+      "authoritySource": ["task_01130d097481420c8d59e1fe08", "decision/dec_99000027E6BCC263E341D38DC0/CH2", "decision/dec_F5B2CBF8B45042B6DA2824A7FA#CH3"],
       "consumerScope": [
         "path-accounting sections in tools/gate-allowlists/*.json",
         "path fingerprints and known-debt entries in the five registered inline baseline modules",
@@ -3953,9 +3952,9 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": ["ontology-advisory"] },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": ["ontology-advisory"], "scheduleOnly": true },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["pr"]
+        "classes": ["nightly"]
       },
       "deterministic": true,
       "positiveControl": {

@@ -89,6 +89,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "runtimeProviderFreezeDurationSeconds",
       "runtimeProviderMaxWaitSeconds",
       "runtimeProviderHandshakeTimeoutMs",
+      "runtimeStallTimeoutMs",
       "scheduleAdmissionWindowMs",
       "storageBackupExecutionLimitMs",
       "restoreDrillRetention",

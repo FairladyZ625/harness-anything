@@ -184,17 +184,24 @@ The registry records:
   collisions remain covered by `npm run typecheck`.)
 - `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
   non-PR `full-check` confirmation runs.
-- 17 GitHub branch-protection required contexts:
+- 16 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
   `integration-shard (1)` through `integration-shard (6)`, `supply-chain`,
-  `gui-build`, `node26-compatibility`, `pr-body-lint`, `crlf-checkout`,
+  `gui-build`, `pr-body-lint`, `crlf-checkout`,
   `windows-first-run (ubuntu-latest)`, and `windows-first-run (windows-latest)`.
+  (`node26-compatibility` was removed by decision
+  dec_F5B2CBF8B45042B6DA2824A7FA/CH3: every one of its 25 real catches in 60
+  days was simultaneously caught by the Node 24 typecheck lane, and the
+  nightly schedule still runs it.)
 - 2 PR-body meta-governance commands under the `pr-body-lint` required
   context: single-language body structure and protected-surface governance
   declaration shape. That job and the manifest-registered `production-delta`
   and `evidence-contract` jobs run from `.github/workflows/pr-body.yml`.
 
-Workflow helper jobs listed under
 Workflow helper jobs listed under a workflow surface's
 `helperJobsNotRegisteredAsGates` are intentionally not
-registered as gates.
+registered as gates and are exempt from both the pull-request and
+non-pull-request gate-job inventories. The `install` helper job
+(dec_F5B2CBF8B45042B6DA2824A7FA/CH4) is the current example: it installs
+dependencies once, preserves the daemon `prepare` output at
+`packages/daemon/dist`, and distributes both as one lockfile-keyed artifact.

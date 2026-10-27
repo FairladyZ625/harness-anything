@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, readFrontmatter, readScalar } from "@harness-anything/kernel";
 
@@ -106,13 +106,18 @@ export function readDispatchRulingFromWorker(input: {
   return null;
 }
 
-function readFileIfPresent(file: string): string | null {
+export function readFileIfPresent(file: string, maxBytes = Number.POSITIVE_INFINITY): string | null {
   try {
-    return existsSync(file) ? readFileSync(file, "utf8") : null;
+    return existsSync(file) && statSizeAtMost(file, maxBytes) ? readFileSync(file, "utf8") : null;
   } catch (error) {
     consumeKnownError(error);
     return null;
   }
+}
+
+function statSizeAtMost(file: string, maxBytes: number): boolean {
+  const stat = statSync(file, { throwIfNoEntry: false });
+  return stat?.isFile() === true && stat.size <= maxBytes;
 }
 
 /**

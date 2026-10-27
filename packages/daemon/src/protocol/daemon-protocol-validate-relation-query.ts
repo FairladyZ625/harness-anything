@@ -199,7 +199,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     (value.lastObservedAt === undefined ||
       (dispatchText(value.lastObservedAt) && isUtcTimestamp(value.lastObservedAt))) &&
     (value.activityStatus === undefined ||
-      ["thinking", "tool", "waiting", "silent", "unknown"].includes(String(value.activityStatus))) &&
+      ["thinking", "tool", "waiting", "silent", "stalled", "unknown"].includes(String(value.activityStatus))) &&
     (value.activityObservedAt === undefined ||
       (dispatchText(value.activityObservedAt) && isUtcTimestamp(value.activityObservedAt))) &&
     (value.activityIdleMinutes === undefined ||
@@ -265,9 +265,14 @@ function validTaskDispatchAttemptValues(value: Record<string, unknown>): boolean
     dispatchText(value.provider.instance) &&
     (value.provider.model === null || dispatchText(value.provider.model)) &&
     (value.classification === null ||
-      ["provider_fault", "provider_quota", "worker_stop", "awaiting_ruling", "gate_red"].includes(
-        String(value.classification),
-      )) &&
+      [
+        "provider_fault",
+        "provider_quota",
+        "worker_stop",
+        "awaiting_ruling",
+        "gate_red",
+        "completed_without_final_text",
+      ].includes(String(value.classification))) &&
     (value.reason === null || dispatchText(value.reason)) &&
     (value.resume === undefined || validTaskDispatchResume(value.resume)) &&
     (value.faultClass === undefined || ["quota_exhausted", "rate_limited"].includes(String(value.faultClass))) &&

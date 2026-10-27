@@ -251,7 +251,14 @@ export interface AgentRuntimeSessionGroupRoundDto {
   readonly agentName: string | null;
   readonly instanceId: string;
   readonly status: AgentRuntimeSessionGroupStatus;
-  readonly classification?: "provider_fault" | "provider_quota" | "worker_stop" | "awaiting_ruling" | "gate_red" | null;
+  readonly classification?:
+    | "provider_fault"
+    | "provider_quota"
+    | "worker_stop"
+    | "awaiting_ruling"
+    | "gate_red"
+    | "completed_without_final_text"
+    | null;
   readonly reason?: string | null;
   readonly startedAt: string;
 }
@@ -787,9 +794,14 @@ function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGro
     agentRuntimeSessionGroupStatusWords.includes(value.status as AgentRuntimeSessionGroupStatus) &&
     (value.classification === undefined ||
       value.classification === null ||
-      ["provider_fault", "provider_quota", "worker_stop", "awaiting_ruling", "gate_red"].includes(
-        String(value.classification),
-      )) &&
+      [
+        "provider_fault",
+        "provider_quota",
+        "worker_stop",
+        "awaiting_ruling",
+        "gate_red",
+        "completed_without_final_text",
+      ].includes(String(value.classification))) &&
     (value.reason === undefined || value.reason === null || sessionGroupText(value.reason)) &&
     sessionGroupIso(value.startedAt)
   );

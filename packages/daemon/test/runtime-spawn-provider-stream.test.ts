@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { zstdCompressSync } from "node:zlib";
-import { attachActiveRuntime, createActiveRuntime } from "../src/runtime-spawn-active.ts";
+import {
+  attachActiveRuntime,
+  createActiveRuntime,
+  disposeActiveRuntimeObservations,
+} from "../src/runtime-spawn-active.ts";
 import { observeResumeProcess } from "../src/runtime-spawn-process.ts";
 import {
   consumeDurableOutput,
@@ -28,6 +32,11 @@ import {
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 
+// A real dispatch cwd is its own worktree. The liveness watcher recurses the whole cwd, so a
+// fixture pointed at a shared tmp tree attaches one fs_event handle per entry there and the test
+// process outlives its tests. One empty directory keeps the watched tree the size of a worktree.
+const fixtureWorkspace = mkdtempSync(path.join(tmpdir(), "ha-provider-fixture-"));
+
 function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
     runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -39,7 +48,7 @@ function active(kindId = "codex", process = {} as never, extras: Record<string, 
     model: null,
     reasoningEffort: null,
     fast: false,
-    cwd: "/tmp",
+    cwd: fixtureWorkspace,
     prompt: "metrics fixture",
     startedAt: "2026-09-11T00:00:00.000Z",
     binding: {} as never,
@@ -91,6 +100,9 @@ test("resume observation preserves durable provider output provenance", async ()
   await Promise.all(scheduled);
 
   assert.deepEqual(consumed, [{ chunk: frame, persisted: true }]);
+  // The attach owns a recursive watcher for the fixture workspace; an undisposed one is the open
+  // handle that keeps this test process from exiting.
+  disposeActiveRuntimeObservations(runtime);
 });
 
 test("runtime callbacks enqueue output before a subsequently observed exit", async () => {
@@ -132,6 +144,7 @@ test("runtime callbacks enqueue output before a subsequently observed exit", asy
   assert.equal(scheduled.length, 2);
   for (const effect of scheduled) await effect();
   assert.deepEqual(observed, ["output:last-frame", "flush", "exit:0"]);
+  disposeActiveRuntimeObservations(runtime);
 });
 
 test("Codex stream normalizes usage, ten tool calls, compaction, and preserves raw usage", async () => {

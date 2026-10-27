@@ -3,8 +3,8 @@ import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 /** A live dispatch with no observation for this long is surfaced as silent. */
 export const DISPATCH_SILENT_AFTER_MS = 10 * 60_000;
 
-export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "unknown";
-export type DispatchProviderActivity = Exclude<DispatchActivityStatus, "silent" | "unknown">;
+export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown";
+export type DispatchProviderActivity = Exclude<DispatchActivityStatus, "silent" | "stalled" | "unknown">;
 
 /**
  * The daemon owns this judgment so every renderer sees the same activity state. A submitted
@@ -18,16 +18,27 @@ export function dispatchActivityStatus(
     readonly taskStatus: string | undefined;
     readonly role: string | undefined;
     readonly lastObservedAt: string;
+    readonly lastProgressAt?: string;
+    readonly stallTimeoutMs?: number;
+    readonly stalledAt?: string | null;
     readonly processAlive: boolean | null;
     readonly providerActivity: DispatchProviderActivity | null;
   },
   nowMs = Date.now(),
 ): DispatchActivityStatus {
   if (input.status !== "running") return "unknown";
+  if (input.stalledAt) return "stalled";
+  const progressAt = Date.parse(input.lastProgressAt ?? input.lastObservedAt);
+  if (
+    input.processAlive !== false &&
+    input.stallTimeoutMs !== undefined &&
+    Number.isFinite(progressAt) &&
+    nowMs - progressAt >= input.stallTimeoutMs
+  )
+    return "stalled";
   if (input.taskStatus === "submitted" && input.role !== "reviewer") return "waiting";
   if (input.processAlive === false) return "silent";
-  const observedAt = Date.parse(input.lastObservedAt);
-  if (Number.isFinite(observedAt) && nowMs - observedAt >= DISPATCH_SILENT_AFTER_MS) return "silent";
+  if (Number.isFinite(progressAt) && nowMs - progressAt >= DISPATCH_SILENT_AFTER_MS) return "silent";
   return input.providerActivity ?? "thinking";
 }
 

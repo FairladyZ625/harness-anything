@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -56,7 +57,8 @@ export async function adoptRuntimes(
       continue;
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
-      stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+      streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId),
+      stream = fullStream ?? streamSummary;
     if (!stream) continue;
     const processState = stream.process,
       processPid = processState?.pid ?? 0;
@@ -121,6 +123,10 @@ export async function adoptRuntimes(
       reasoningEffort: metadata.reasoningEffort,
       fast: metadata.fast,
       tokenLimit: stream.header.tokenLimit ?? null,
+      stallTimeoutMs: stream.header.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+      lastProgressAtMs: Date.parse(streamSummary?.lastProgressAt ?? stream.header.startedAt),
+      workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
+      stalledAt: streamSummary?.stalledAt ?? null,
       startedAt: stream.header.startedAt,
       stream: reopenDispatchStream(context.input.rootDir, stream.header),
       fallbackAttempt: stream.header.fallbackAttempt ?? null,
@@ -129,7 +135,13 @@ export async function adoptRuntimes(
     });
     context.processes.set(active.runtimeSessionId, active);
     const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
-    if (processAlive && fullStream) attachActiveRuntime(context, active);
+    if (processAlive && fullStream) {
+      const attachmentFailure = attachAdoptedObservations(context, active);
+      if (attachmentFailure !== null) {
+        failures.push(attachmentFailure);
+        continue;
+      }
+    }
     const [publication] = await Promise.allSettled([
       (async () => {
         context.input.recordLifecycle?.({
@@ -196,6 +208,29 @@ export async function adoptRuntimes(
   // indistinguishable here from an orphaned one.
   if (options?.sweepTempDirectories) await sweepSettledRuntimeTempDirectories(context);
   if (failures.length > 0) throw failures[0];
+}
+
+/**
+ * An adopted worker whose liveness surface cannot be established is retired rather than adopted
+ * unwatched. The loop owns one session at a time, so the refusal is returned and the remaining
+ * streams still adopt; the recorded lost-process fact lets the next adoption pass settle the
+ * attempt through the ordinary lost-process path instead of leaving a live worker nobody watches.
+ */
+function attachAdoptedObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): unknown | null {
+  try {
+    attachActiveRuntime(context, active);
+    return null;
+  } catch (error) {
+    appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+      kind: "process_lost",
+      occurredAt: context.input.now(),
+      reason: `runtime observations could not be attached: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    context.processes.delete(active.runtimeSessionId);
+    active.process.terminate();
+    active.process.release?.();
+    return error;
+  }
 }
 
 /** Startup-only retry for this repository's explicitly terminal sessions, independent of

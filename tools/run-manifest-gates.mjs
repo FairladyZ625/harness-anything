@@ -356,7 +356,6 @@ const l0WorkflowJobs = new Set([
   "package-policy",
   "supply-chain",
   "gui-build",
-  "node26-compatibility",
 ]);
 
 export function shouldSkipTestQuarantine(workflowJob, env) {

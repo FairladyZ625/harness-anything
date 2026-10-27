@@ -38,7 +38,31 @@ test("positive control rejects a deterministic gate without the PR execution sur
 
     const result = runChecker(root);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /example-gate is deterministic but executionSurfaces\.classes omits pr/u);
+    assert.match(result.stderr, /example-gate is deterministic but executionSurfaces\.classes omits pr and nightly/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts a deterministic gate on the nightly surface", () => {
+  // dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved two deterministic advisory gates to the
+  // nightly schedule: a deterministic gate stays CI-visible through the nightly class,
+  // so the invariant accepts "pr or nightly" instead of "pr" alone.
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      tier: "nightly-only",
+      deterministic: true,
+      surfaceClasses: ["nightly"],
+      pullRequestJobs: [],
+      nonPullRequestJobs: [],
+      scheduleOnly: true,
+      packageJsonSurface: { check: false, checkPr: false, script: null },
+    });
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Gate manifest invariants passed/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -207,9 +231,13 @@ function makeFixtureRoot() {
 function writeFixture(
   root,
   {
+    tier = "pr-required",
     deterministic,
     surfaceClasses,
     pullRequestJobs,
+    nonPullRequestJobs = ["full-check"],
+    scheduleOnly = false,
+    packageJsonSurface = { check: true, checkPr: true, script: "harness:example-gate" },
     workflowRun = "node tools/run-manifest-gates.mjs --workflow-job boundaries",
     workflowContinueOnError = false,
     workflowExtra = [],
@@ -247,7 +275,7 @@ function writeFixture(
       {
         id: "example-gate",
         command: "npm run harness:example-gate",
-        tier: "pr-required",
+        tier,
         deterministic,
         ...(protectedSurfaces.length > 0
           ? {
@@ -263,8 +291,8 @@ function writeFixture(
         },
         executionSurfaces: {
           classes: surfaceClasses,
-          packageJson: { check: true, checkPr: true, script: "harness:example-gate" },
-          rewriteCi: { pullRequestJobs, nonPullRequestJobs: ["full-check"] },
+          packageJson: packageJsonSurface,
+          rewriteCi: { pullRequestJobs, nonPullRequestJobs, scheduleOnly },
           branchProtection: { required: true, contexts: ["boundaries"] },
         },
       },

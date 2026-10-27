@@ -8,6 +8,7 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import type { ActiveRuntime, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
 
 export async function cancelRuntime(
   context: RuntimeSpawnerContext,
@@ -191,5 +192,8 @@ export async function steerRuntime(
 export function closeRuntimes(context: RuntimeSpawnerContext): void {
   const active = [...context.processes.values()];
   context.processes.clear();
-  for (const entry of active) entry.process.release?.();
+  for (const entry of active) {
+    disposeActiveRuntimeObservations(entry);
+    entry.process.release?.();
+  }
 }

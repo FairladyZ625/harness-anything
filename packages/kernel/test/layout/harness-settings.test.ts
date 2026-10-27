@@ -63,6 +63,12 @@ test("the ACP handshake timeout defaults to 30 seconds, reads a larger value, an
   assert.throws(() => readSettingsFacet("settings:\n  runtime:\n    providerHandshakeTimeoutMs: 999\n"));
 });
 
+test("the dispatch stall timeout defaults to five minutes and is configurable above ten seconds", () => {
+  assert.equal(readSettingsFacet(body).runtime.stallTimeoutMs, 300_000);
+  assert.equal(readSettingsFacet("settings:\n  runtime:\n    stallTimeoutMs: 90000\n").runtime.stallTimeoutMs, 90_000);
+  assert.throws(() => readSettingsFacet("settings:\n  runtime:\n    stallTimeoutMs: 9999\n"));
+});
+
 test("the schedule admission window is read from the facet and refuses a sub-second value", () => {
   assert.equal(
     readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 600000\n").schedule.admissionWindowMs,

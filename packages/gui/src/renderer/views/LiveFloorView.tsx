@@ -478,11 +478,13 @@ function LiveFloorSessionRow({
             ? ["views.liveFloor.statusWaiting", "wait"]
             : row.activityStatus === "silent"
               ? ["views.liveFloor.statusSilent", "bad"]
-              : row.activityStatus === "unknown"
-                ? ["views.liveFloor.statusUnknown", "neutral"]
-                : row.dispatch === null
-                  ? ["views.liveFloor.statusNoDispatch", "neutral"]
-                  : ["views.liveFloor.statusNoProjection", "neutral"],
+              : row.activityStatus === "stalled"
+                ? ["views.liveFloor.statusStalled", "bad"]
+                : row.activityStatus === "unknown"
+                  ? ["views.liveFloor.statusUnknown", "neutral"]
+                  : row.dispatch === null
+                    ? ["views.liveFloor.statusNoDispatch", "neutral"]
+                    : ["views.liveFloor.statusNoProjection", "neutral"],
     model = readableModelName(row.model),
     duration = row.startedAt ? formatDuration(Date.now() - Date.parse(row.startedAt)) : null,
     statusLabel =

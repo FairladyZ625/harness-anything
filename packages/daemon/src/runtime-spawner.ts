@@ -1,4 +1,5 @@
 import type { SquadDispatchContext } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -661,8 +662,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // Freeze the declared cap with the launch: a running dispatch keeps the limit it was admitted
     // under, and an adopting daemon restores it from the stream header instead of re-reading a
     // setting that may have changed. 0 is the declared "no limit" sentinel.
-    const declaredTokenLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0,
-      tokenLimit = declaredTokenLimit > 0 ? declaredTokenLimit : null;
+    const currentSettings = input.readSettings?.(),
+      declaredTokenLimit = currentSettings?.runtime.dispatchUsageLimit ?? 0,
+      tokenLimit = declaredTokenLimit > 0 ? declaredTokenLimit : null,
+      stallTimeoutMs = currentSettings?.runtime.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS;
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
@@ -699,6 +702,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
         ...(tokenLimit === null ? {} : { tokenLimit }),
+        stallTimeoutMs,
         resumeProviderSessionId: providerSessionId ?? null,
         ...(handoffEnabled ? { handoffEnabled: true } : {}),
         ...(handoff
@@ -1009,6 +1013,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       reasoningEffort: definition.reasoningEffort,
       fast: definition.fast ?? false,
       tokenLimit,
+      stallTimeoutMs,
+      lastProgressAtMs: Date.parse(streamStartedAt),
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,
@@ -1032,7 +1038,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding,
       );
     }, activeBinding);
-    attachActiveRuntime(extracted, active, resumeObservation);
+    // Attachment can refuse: a workspace the liveness watcher cannot open is a real fault, not a
+    // reason to run unwatched. The process is already launched, so the failed-launch path retires
+    // it — terminate, release, and drop the stream — instead of leaving a live worker owned by a
+    // dispatch this call is about to report as failed.
+    try {
+      attachActiveRuntime(extracted, active, resumeObservation);
+    } catch (error) {
+      await cleanupFailedLaunch(error);
+      throw error;
+    }
     if (!requested.event || (!requested.receipt && !requested.publication))
       throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
     // The receipt states which instance was chosen and which rule decided it; without this the

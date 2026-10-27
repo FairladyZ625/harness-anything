@@ -8,7 +8,11 @@ import type { RuntimeDispatchProjectionRow } from "@harness-anything/kernel";
 import { archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
 import { validAgentRuntimeAttemptChain } from "../src/runtime-attempt-contract.ts";
-import { admitRuntimeResume, runtimeResumeAdmission } from "../src/runtime-resume-admission.ts";
+import {
+  admitRuntimeResume,
+  assertRuntimeHandoffLaunch,
+  runtimeResumeAdmission,
+} from "../src/runtime-resume-admission.ts";
 
 test("GUI resume spawn uses the dispatchId route", () => {
   const params = {
@@ -169,4 +173,22 @@ test("runtime session attempt chains accept the canonical dispatch resume projec
     }),
     false,
   );
+});
+
+// The source verifies a rollout's `cli_version`; this boundary verifies the target installation's
+// `codex --version` output. Both read the one verified list, so a release verified by bytes cannot
+// be accepted on the source and refused on the target.
+test("handoff target admission reads the same verified Codex version list as source closure", () => {
+  const checkpoint = { dispatchId: "dispatch_0123456789abcdef01234567" } as Parameters<
+    typeof assertRuntimeHandoffLaunch
+  >[1];
+  const launch = { taskId: "task-1", agentId: "worker", role: undefined, trustedSchedule: undefined };
+  for (const version of ["0.159.1", "0.159.3", "0.163.0"])
+    assert.doesNotThrow(() => assertRuntimeHandoffLaunch(true, checkpoint, launch, "codex", `codex-cli ${version}`));
+  for (const version of ["0.163.1", "0.162.0", "codex-cli 0.159.2", "", "0.163.0-extra"])
+    assert.throws(() => assertRuntimeHandoffLaunch(true, checkpoint, launch, "codex", version), {
+      code: "runtime_handoff_version_unsupported",
+    });
+  // No checkpoint means no native state to admit, so the version gate does not apply.
+  assert.doesNotThrow(() => assertRuntimeHandoffLaunch(true, undefined, launch, "codex", "codex-cli 0.163.1"));
 });

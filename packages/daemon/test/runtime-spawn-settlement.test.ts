@@ -10,6 +10,11 @@ import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { publishExit, runtimeResultText } from "../src/runtime-spawn-settlement.ts";
+import {
+  attachActiveRuntime,
+  disposeActiveRuntimeObservations,
+  settleStalledRuntime,
+} from "../src/runtime-spawn-active.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
@@ -52,6 +57,143 @@ test("exit zero without final output remains unknown despite an internal plan he
   );
 });
 
+test("a stalled dispatch is classified as a provider fault for the fallback policy", () => {
+  const result = classifyRuntimeExit(
+    active({
+      stalledAt: "2026-10-24T00:05:00.000Z",
+      stallTimeoutMs: 30_000,
+      lastProgressAtMs: Date.parse("2026-10-24T00:04:30.000Z"),
+    }),
+    null,
+  );
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.classification, "provider_fault");
+  assert.match(result.reason, /30,?000 ms/u);
+});
+
+test("stalled settlement hands the attempt to the normal fallback hook", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-fallback-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "partial work");
+    Object.assign(runtime, { stalledAt: "2026-10-24T00:05:00.000Z", stallTimeoutMs: 30_000 });
+    const attempts: Record<string, unknown>[] = [],
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-24T00:05:01.000Z",
+          stream: { publish: () => ({}) },
+          remote: { archive: async () => ({ outcome: "applied" }) },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "partial work",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async (_active: unknown, attempt: Record<string, unknown>) => attempts.push(attempt),
+      } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, null);
+    assert.equal(attempts[0]?.classification, "provider_fault");
+    assert.match(String(attempts[0]?.reason), /30,?000 ms/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the idle watchdog reaches stalled settlement and fallback after the frozen deadline", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-watchdog-"));
+  const originalNow = Date.now;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  try {
+    const nowMs = 10_000;
+    Date.now = () => nowMs;
+    const timerCallbacks: Array<() => void> = [];
+    globalThis.setTimeout = ((callback: () => void) => {
+      timerCallbacks.push(callback);
+      return { unref: () => undefined } as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = (() => undefined) as typeof clearTimeout;
+    const dispatchId = "dispatch_333333333333333333333333",
+      stalledAt: string[] = [],
+      baseStream = openDispatchStream(rootDir, {
+        dispatchId,
+        runtimeSessionId: "runtime-stalled-watchdog",
+        startedAt: "2026-10-24T00:00:00.000Z",
+      }),
+      stream = {
+        ...baseStream,
+        appendStalled: (occurredAt: string) => {
+          stalledAt.push(occurredAt);
+          baseStream.appendStalled(occurredAt);
+        },
+      },
+      runtime = active({
+        process: {
+          pid: 4321,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+          terminateTree: async () => undefined,
+        },
+        runtimeSessionId: "runtime-stalled-watchdog",
+        dispatchId,
+        stream,
+        cwd: rootDir,
+        binding: {
+          actor: {
+            principal: { personId: "operator" },
+            executor: { kind: "agent", id: "runtime-session:runtime-stalled-watchdog" },
+          },
+          source: "local" as const,
+        },
+        lastProgressAtMs: 0,
+        stallTimeoutMs: 10_000,
+        providerOutcome: "succeeded",
+        finalText: null,
+        task: null,
+      });
+    const fallbackAttempts: Record<string, unknown>[] = [],
+      scheduled: Array<() => void | Promise<void>> = [],
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-24T00:00:10.000Z",
+          stream: { publish: () => ({}) },
+          remote: { archive: async () => ({ outcome: "applied" }) },
+          schedule: (work: () => void | Promise<void>) => scheduled.push(work),
+        },
+        resultMediaType: "text/plain; charset=utf-8",
+        runtimeResultText: () => "",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        publishExit: (activeRuntime: ActiveRuntime, code: number | null) => publishExit(context, activeRuntime, code),
+        settleFallback: async (_active: unknown, attempt: Record<string, unknown>) => fallbackAttempts.push(attempt),
+      } as unknown as RuntimeSpawnerContext;
+
+    attachActiveRuntime(context, runtime);
+    assert.equal(timerCallbacks.length, 1, "watchdog arms one fake timer at attachment");
+    timerCallbacks.shift()!();
+    assert.equal(scheduled.length, 1, "timer schedules settlement through the daemon boundary");
+    await scheduled.shift()!();
+
+    assert.deepEqual(stalledAt, ["2026-10-24T00:00:10.000Z"]);
+    assert.equal(runtime.stalledAt, "2026-10-24T00:00:10.000Z");
+    assert.equal(fallbackAttempts[0]?.classification, "provider_fault");
+    disposeActiveRuntimeObservations(runtime);
+  } finally {
+    Date.now = originalNow;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("taskless settlement requires the provider's completed turn and final result", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-taskless-witness-"));
   try {
@@ -92,9 +234,14 @@ test("completed provider turn without final text stays unknown without a protoco
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-empty-final-turn-"));
   try {
     const outcomes: Record<string, unknown>[] = [],
+      bodies: string[] = [],
       runtime = tasklessSettlementRuntime(rootDir, null),
       protocolErrors: string[] = [];
+    runtime.providerSessionId = "provider-session";
+    runtime.providerOutcome = "succeeded";
     runtime.toolCallObserved = true;
+    runtime.toolCallCount = 4;
+    runtime.workspaceActivityCount = 2;
     const context = {
       exiting: new Set<string>(),
       processes: new Map([[runtime.runtimeSessionId, runtime]]),
@@ -108,8 +255,15 @@ test("completed provider turn without final text stays unknown without a protoco
       resultMediaType: "text/markdown",
       runtimeResultText: () => "",
       markProtocolError: (activeRuntime: ActiveRuntime) => protocolErrors.push(activeRuntime.runtimeSessionId),
-      publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+      publishRuntimeEvent: async (
+        type: string,
+        payload: Record<string, unknown>,
+        _opId: string,
+        _binding: unknown,
+        body?: string,
+      ) => {
         if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+        if (typeof body === "string") bodies.push(body);
         return {};
       },
       settleFallback: async () => undefined,
@@ -118,6 +272,10 @@ test("completed provider turn without final text stays unknown without a protoco
     await publishExit(context, runtime, 0);
 
     assert.equal(outcomes[0]?.outcome, "unknown");
+    assert.equal((outcomes[0]?.attempt as Record<string, unknown>)?.classification, "completed_without_final_text");
+    assert.match(String(outcomes[0]?.resultRef), /sha256/u);
+    assert.match(bodies[0] ?? "", /4 tool calls and 2 workspace change events/u);
+    assert.match(bodies[0] ?? "", /Dispatch transcript:/u);
     assert.deepEqual(protocolErrors, []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -744,6 +902,97 @@ test("terminal settlement keeps the worker result when fallback settlement fails
     assert.equal(
       outcomes[0]?.resultRef,
       `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a stalled dispatch settles through the process-tree path and never masks its failure", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-terminate-"));
+  try {
+    const termination: string[] = [],
+      runtime = tasklessSettlementRuntime(rootDir, "partial work");
+    Object.assign(runtime, {
+      stalledAt: "2026-10-24T00:05:00.000Z",
+      stallTimeoutMs: 30_000,
+      process: {
+        pid: 4001,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => termination.push("group"),
+        terminateTree: async () => {
+          termination.push("tree");
+          throw Object.assign(new Error("descendant 4002 survived SIGKILL"), { code: "runtime_cancel_failed" });
+        },
+      },
+    });
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-10-24T00:05:01.000Z",
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "partial work",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async () => ({}),
+      publishExit: async () => {
+        throw new Error("the stalled settlement must not publish an exit after termination failed");
+      },
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+
+    await assert.rejects(
+      settleStalledRuntime(context, runtime),
+      /descendant 4002 survived SIGKILL/u,
+      "the termination failure is the settlement's own failure, not a replaced success",
+    );
+    assert.deepEqual(termination, ["tree"], "one termination path runs; no second best-effort kill hides it");
+    assert.equal(runtime.stalledAt, "2026-10-24T00:05:00.000Z", "the stall observation is still recorded");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a refused workspace watch fails the attach instead of degrading the watchdog", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-watch-refused-"));
+  try {
+    const runtime = active({
+        // NUL is invalid in a filesystem path on every Node platform, so watch() refuses it
+        // before any native backend is chosen: the attach's own failure, independent of whether
+        // a missing directory happens to throw on this platform's watcher.
+        cwd: path.join(rootDir, "absent-workspace\u0000refused"),
+        process: {
+          pid: 4002,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        },
+      }),
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-24T00:00:00.000Z",
+          stream: { publish: () => ({}) },
+          schedule: () => undefined,
+        },
+      } as unknown as RuntimeSpawnerContext;
+
+    assert.throws(() => attachActiveRuntime(context, runtime), { code: "ERR_INVALID_ARG_VALUE" });
+    assert.equal(
+      runtime.recordWorkspaceProgress,
+      null,
+      "the refused attach releases its progress callbacks instead of leaving an unwatched runtime",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

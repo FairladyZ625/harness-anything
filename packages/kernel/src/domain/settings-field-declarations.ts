@@ -156,6 +156,8 @@ export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 export const DEFAULT_BACKUP_EXECUTION_LIMIT_MS = 30 * 60_000;
 /** An ACP provider must answer one handshake request within this; slower hosts raise it (30 seconds). */
 export const DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS = 30_000;
+/** Maximum dispatch idle time without provider or workspace progress before the owner stops it (5 minutes). */
+export const DEFAULT_RUNTIME_STALL_TIMEOUT_MS = 5 * 60_000;
 /** The GUI connect deadline: raised from the CLI's 75ms once (泽宇 2026-09-01/02, 75ms→2s). */
 export const DEFAULT_GUI_CONNECT_TIMEOUT_MS = 2_000;
 /** The GUI default answer deadline: 200ms, 2s and 10s all failed live before 30s held (泽宇 2026-09-01/02). */
@@ -778,6 +780,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "schedules-nodes",
     action: { field: "runtimeProviderHandshakeTimeoutMs", type: "number" },
     cli: { name: "--runtime-provider-handshake-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
+  }),
+  defineSettingsField({
+    path: ["runtime", "stallTimeoutMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+    minimum: 10_000,
+    description: "Maximum time a dispatch may go without provider or workspace progress, in milliseconds.",
+    effect: "The owning node stops an idle dispatch and settles it through the declared provider fallback policy.",
+    group: "schedules-nodes",
+    action: { field: "runtimeStallTimeoutMs", type: "number" },
+    cli: { name: "--runtime-stall-timeout-ms", kind: "single", regex: "^[1-9][0-9]{4,}$" },
   }),
   defineSettingsField({
     path: ["schedule", "admissionWindowMs"],
