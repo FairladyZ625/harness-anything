@@ -15,7 +15,13 @@ import {
   requireExecutionRequestScope,
   requireExecutionActionScope,
 } from "../src/runtime-execution-scope.ts";
-import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
+import {
+  actionForDaemonMethod,
+  commandClassForAction,
+  daemonProtocolCommands,
+} from "../src/protocol/daemon-protocol-commands.ts";
+import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
@@ -110,6 +116,75 @@ test("execution requests exclude other tasks, repos, controls, and human consent
       payload: { action: { kind: "task-show", taskId: p.taskId } },
     }),
   );
+});
+
+test("execution credentials resolve GUI spawn through its declared runtime-spawn scope", () => {
+  const p = principal(),
+    request = (taskId: string) =>
+      requireExecutionRequestScope(p, "repo.agentRuntime.spawn", {
+        repo: { repoId: p.repoId },
+        payload: { runtimeInstanceId: "does-not-exist", taskId, dispatchKey: "spawn-scope-test" },
+      }),
+    action = actionForDaemonMethod("repo.agentRuntime.spawn", {
+      runtimeInstanceId: "does-not-exist",
+      taskId: p.taskId,
+      dispatchKey: "spawn-scope-test",
+    });
+  assert.equal(action.kind, "runtime-spawn");
+  assert.equal(commandClassForAction(action.kind), "repo-write");
+  assert.doesNotThrow(() => request(p.taskId));
+  assert.throws(() => request("task-other"), { code: "execution_credential_rejected" });
+});
+
+test("credential-bearing GUI spawn reaches runtime instance validation", async () => {
+  const worker = principal(),
+    missingInstance = Object.assign(new Error("Runtime instance does not exist."), {
+      code: "runtime_instance_not_found",
+    }),
+    host = {
+      spawnRuntime: async (_repoId: string, _payload: object, auth: { executionPrincipal?: typeof worker }) => {
+        assert.equal(auth.executionPrincipal, worker);
+        throw missingInstance;
+      },
+    },
+    server = createJsonRpcProtocolServer({
+      host: host as never,
+      build: { commit: null },
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+      executionPrincipal: async (_credential, method, params) => {
+        requireExecutionRequestScope(worker, method, params);
+        return worker;
+      },
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion, executionCredential: "test-credential" },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "repo.agentRuntime.spawn",
+      params: {
+        repo: { repoId: worker.repoId },
+        payload: {
+          runtimeInstanceId: "does-not-exist",
+          cwd: { scope: "repo-root" },
+          prompt: "x",
+          taskId: worker.taskId,
+          dispatchKey: "spawn-scope-test",
+        },
+      },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    if (response && !Array.isArray(response) && "result" in response)
+      assert.equal((response.result as { readonly code?: string }).code, "runtime_instance_not_found");
+  } finally {
+    server.close();
+  }
 });
 
 test("a task-bound worker may select its own package paths for doc submit", () => {

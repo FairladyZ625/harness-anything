@@ -228,7 +228,9 @@ export function commandDescriptorForAction(kind: string) {
 }
 
 export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
-  return commandDescriptorForAction(kind).commandClass;
+  const command = commandDescriptorByActionKind.get(kind),
+    guiAction = guiActionDescriptorByKind.get(kind);
+  return command?.commandClass ?? guiAction?.commandClass ?? commandDescriptorForAction(kind).commandClass;
 }
 
 export function repoCellExecutionForAction(kind: string): "query-only" | "writer" {
@@ -286,6 +288,9 @@ const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolC
     string,
     (typeof presetMethods)[number] | (typeof daemonGuiActionMethods)[number]
   > = new Map([...presetMethods, ...daemonGuiActionMethods].map((entry) => [entry.method, entry])),
+  guiActionDescriptorByKind: ReadonlyMap<string, (typeof daemonGuiActionMethods)[number]> = new Map(
+    daemonGuiActionMethods.map((entry) => [entry.actionKind, entry]),
+  ),
   presetCommandByMethod: ReadonlyMap<string, (typeof presetCommands)[number]> = new Map(
     presetCommands.map((entry) => [entry.method, entry]),
   );
