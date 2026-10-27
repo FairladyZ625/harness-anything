@@ -29,12 +29,14 @@ import {
 import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
 import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import {
+  defaultIncidentDisposition,
   executeIncidentAction,
   incidentActionBinding,
   incidentDecisionFields,
   incidentDispositionQuestionVersion,
   planIncidentAction,
   type IncidentActionEvidence,
+  type IncidentActionPlan,
   type IncidentDecisionFields,
 } from "./decision-incident-action.ts";
 
@@ -47,35 +49,37 @@ export function openDecisionPointExecutor(input: {
   readonly now: () => string;
 }) {
   const annotations = openDecisionAnnotationStore(input.rootDir);
-  // The single escalation path every executable failure funnels into: its durable dispatch receipt
-  // is projected as the existing awaiting-ruling agenda item.
-  const settleEscalation = async (args: {
+  // The single settlement path every executable disposition funnels into: the durable dispatch
+  // receipt is projected as the existing awaiting-ruling agenda item when, and only when, the
+  // executed action is an owner escalation.
+  const settle = async (args: {
     readonly cell: RepoCell;
     readonly key: string;
     readonly taskId: string;
     readonly dispatchId: string;
     readonly pointId: string;
     readonly questionVersion: string;
-    readonly reason: string;
+    readonly selected: string;
+    readonly plan: IncidentActionPlan;
+    /** Why a provider-less disposition was chosen; the executed action carries no reason of its
+     * own, and the receipt must still say the Decisions API was unavailable. */
+    readonly note: string | null;
     readonly budget: IncidentDecisionFields["reworkBudget"] | null;
   }): Promise<void> => {
     const outcome = await executeIncidentAction({
-      cell: args.cell,
-      plan: {
-        action: "needs_attention",
-        rationale: `question: Decisions API could not safely select an incident action for dispatch ${args.dispatchId}: ${args.reason}`,
-      },
-      binding: incidentActionBinding(input.rootDir, args.dispatchId),
-      dispatchId: args.dispatchId,
-    });
-    const decidedAt = input.now(),
-      reason = outcome.reason;
+        cell: args.cell,
+        plan: args.plan,
+        binding: incidentActionBinding(input.rootDir, args.dispatchId),
+        dispatchId: args.dispatchId,
+      }),
+      decidedAt = input.now(),
+      reason = outcome.reason ?? args.note;
     await annotations.settleAction(
       args.key,
       {
         taskId: args.taskId,
         dispatchId: args.dispatchId,
-        selected: "needs_attention",
+        selected: args.selected,
         action: outcome.action,
         status: outcome.status,
         reason,
@@ -90,7 +94,7 @@ export function openDecisionPointExecutor(input: {
       pointId: args.pointId,
       questionVersion: args.questionVersion,
       status: outcome.status === "applied" ? "applied" : "failed",
-      selected: "needs_attention",
+      selected: args.selected,
       action: outcome.action,
       reason,
       successorDispatchId: outcome.successorDispatchId,
@@ -228,18 +232,73 @@ export function openDecisionPointExecutor(input: {
             },
           });
         if (!claim.created) continue;
-        const recordBudget = incident?.fields?.reworkBudget ?? null;
-        const escalate = (reason: string) =>
-          settleEscalation({
-            cell,
-            key,
-            taskId: task.taskId,
-            dispatchId,
-            pointId,
-            questionVersion: question.version,
-            reason,
-            budget: recordBudget,
-          });
+        const snapshot = incident?.runtimeContext?.snapshot,
+          incidentTask = snapshot?.task ?? null,
+          evidence: IncidentActionEvidence = {
+            submitted:
+              incidentTask !== null &&
+              (snapshot?.executions ?? []).some(
+                (execution) => execution.submission !== null && execution.iteration === incidentTask.iteration,
+              ),
+            successorActive: dispatchRead.dispatches.some(
+              (row) => row.status === "running" || row.status === "blocked",
+            ),
+            leaseOccupied: snapshot?.lease != null,
+            resumable: Boolean(dispatch?.resume),
+            agentId: dispatch?.agentId ?? null,
+            budgetRemaining: incident?.fields
+              ? incident.fields.reworkBudget.limit - incident.fields.reworkBudget.used
+              : 0,
+            // A continuation inherits the worktree; with no measured HEAD there is no known base
+            // to continue from, so automatic execution is not admissible.
+            headKnown: incident?.fields !== undefined && incident.fields.headStatus !== "unavailable",
+          },
+          recordBudget = incident?.fields?.reworkBudget ?? null,
+          apply = (selected: string, plan: IncidentActionPlan, note: string | null) =>
+            settle({
+              cell,
+              key,
+              taskId: task.taskId,
+              dispatchId,
+              pointId,
+              questionVersion: question.version,
+              selected,
+              plan,
+              note,
+              budget: recordBudget,
+            }),
+          escalate = (guard: string) =>
+            apply(
+              "needs_attention",
+              {
+                action: "needs_attention",
+                guard,
+                rationale: `question: Decisions API could not safely select an incident action for dispatch ${dispatchId}: ${guard}`,
+              },
+              null,
+            ),
+          /** The provider is an accelerator, never the only route to a disposition: when it cannot
+           * answer, the preference list picks the option and the same gate decides whether it is
+           * admissible. The receipt keeps the provider failure in its reason. */
+          applyDefault = (failure: string) => {
+            const unavailable = `Decisions API unavailable (${failure})`,
+              fallback = defaultIncidentDisposition({ taskId: task.taskId, dispatchId, evidence });
+            if (fallback.kind === "escalate")
+              return apply(
+                "needs_attention",
+                {
+                  action: "needs_attention",
+                  guard: fallback.guard,
+                  rationale: `question: ${fallback.guard} ${unavailable}.`,
+                },
+                null,
+              );
+            return apply(
+              fallback.selected,
+              fallback.plan,
+              `${unavailable}; applied the deterministic default disposition "${fallback.selected}".`,
+            );
+          };
         if (executable) {
           // The durable fence outlives the annotation store's retention window. A settled receipt
           // means an earlier observation already executed this dispatch's disposition; a `claimed`
@@ -268,12 +327,12 @@ export function openDecisionPointExecutor(input: {
         }
         if (!provider) {
           await annotations.fail(key, "provider_not_found", input.now());
-          if (executable) await escalate("the configured Decisions provider does not exist.");
+          if (executable) await applyDefault("the configured Decisions provider does not exist");
           continue;
         }
         if (!provider.enabled) {
           await annotations.fail(key, "provider_disabled", input.now());
-          if (executable) await escalate("the configured Decisions provider is disabled.");
+          if (executable) await applyDefault("the configured Decisions provider is disabled");
           continue;
         }
         let answer: AdvisoryDecision;
@@ -296,12 +355,12 @@ export function openDecisionPointExecutor(input: {
               ? error.retries
               : null;
           if (executable)
-            await escalate(
+            await applyDefault(
               `the Decisions provider failed with ${code}${
                 retries === null
                   ? ""
                   : ` after ${String(retries)} retries: ${error instanceof Error ? error.message : ""}`
-              }.`,
+              }`,
             );
           consumeKnownError(error);
           continue;
@@ -316,61 +375,8 @@ export function openDecisionPointExecutor(input: {
           input.now(),
         );
         if (executable && incident !== null) {
-          const snapshot = incident.runtimeContext?.snapshot,
-            incidentTask = snapshot?.task ?? null,
-            selected = answer.result.type === "choice" ? answer.result.selected : "",
-            evidence: IncidentActionEvidence = {
-              submitted:
-                incidentTask !== null &&
-                (snapshot?.executions ?? []).some(
-                  (execution) => execution.submission !== null && execution.iteration === incidentTask.iteration,
-                ),
-              successorActive: dispatchRead.dispatches.some(
-                (row) => row.status === "running" || row.status === "blocked",
-              ),
-              leaseOccupied: snapshot?.lease != null,
-              resumable: Boolean(dispatch?.resume),
-              agentId: dispatch?.agentId ?? null,
-              budgetRemaining: incident.fields
-                ? incident.fields.reworkBudget.limit - incident.fields.reworkBudget.used
-                : 0,
-              // A continuation inherits the worktree; with no measured HEAD there is no known base
-              // to continue from, so automatic execution is not admissible.
-              headKnown: incident.fields !== undefined && incident.fields.headStatus !== "unavailable",
-            },
-            plan = planIncidentAction({ selected, taskId: task.taskId, dispatchId, evidence }),
-            outcome = await executeIncidentAction({
-              cell,
-              plan,
-              binding: incidentActionBinding(input.rootDir, dispatchId),
-              dispatchId,
-            }),
-            decidedAt = input.now();
-          await annotations.settleAction(
-            key,
-            {
-              taskId: task.taskId,
-              dispatchId,
-              selected,
-              action: outcome.action,
-              status: outcome.status,
-              reason: outcome.reason,
-              successorDispatchId: outcome.successorDispatchId,
-              budget: incident.fields?.reworkBudget ?? null,
-            },
-            decidedAt,
-          );
-          appendIncidentActionReceipt(input.rootDir, dispatchId, {
-            pointId,
-            questionVersion: question.version,
-            status: outcome.status === "applied" ? "applied" : "failed",
-            selected,
-            action: outcome.action,
-            reason: outcome.reason,
-            successorDispatchId: outcome.successorDispatchId,
-            budget: incident.fields?.reworkBudget ?? null,
-            decidedAt,
-          });
+          const selected = answer.result.type === "choice" ? answer.result.selected : "";
+          await apply(selected, planIncidentAction({ selected, taskId: task.taskId, dispatchId, evidence }), null);
         }
       }
     },

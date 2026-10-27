@@ -703,7 +703,7 @@ test("a transient Decisions rate limit retries in the provider and settles the r
   assert.notEqual(stored[0]?.action?.action, "needs_attention");
 });
 
-test("an exhausted Decisions rate limit uses the escalation path with its retry count", async (t) => {
+test("an exhausted Decisions rate limit applies the deterministic rerun instead of awaiting a ruling", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
@@ -718,16 +718,138 @@ test("an exhausted Decisions rate limit uses the escalation path with its retry 
       providers: { list: decisionProvider.list, port: decisionProvider.port },
       now: () => "2026-10-19T00:00:01.000Z",
     }),
-    { cell, spawns, relates } = fakeIncidentCell({ rootDir });
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir, agentId: "terra" });
   await executor.settle(cell, incidentOutcomeEvent());
-  assert.equal(calls, 4);
-  assert.equal(spawns.length, 0);
-  assert.equal(relates.length, 0);
+  assert.equal(calls, 4, "the bounded provider retry still runs before the default is applied");
+  assert.equal(relates.length, 0, "an automatic disposition must not open an owner await");
+  assert.equal(spawns.length, 1, "the default disposition reruns the same identity");
+  assert.equal(spawns[0]?.payload.agentId, "terra");
+  assert.equal(spawns[0]?.payload.dispatchKey, `incident-action:task-1:${dispatchId}`);
   const stored = await openDecisionAnnotationStore(rootDir).export();
-  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.status, "failed");
+  assert.equal(stored[0]?.failureCode, "decision_rate_limited");
+  assert.equal(stored[0]?.action?.selected, "rerun_same_identity");
+  assert.equal(stored[0]?.action?.action, "rerun");
+  assert.equal(stored[0]?.action?.status, "applied");
+  assert.match(String(stored[0]?.action?.reason), /Decisions API unavailable/u);
+  assert.match(String(stored[0]?.action?.reason), /decision_rate_limited/u);
   assert.match(String(stored[0]?.action?.reason), /重试 3 次后仍限流/u);
+  assert.match(String(stored[0]?.action?.reason), /default disposition "rerun_same_identity"/u);
+  // The durable receipt is what the dispatch read projects; it must carry the same explanation
+  // so the row never reads as an owner ruling.
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  assert.equal(receipt?.status, "applied");
+  assert.equal(receipt?.action, "rerun");
+  assert.equal(receipt?.selected, "rerun_same_identity");
+  assert.equal(receipt?.successorDispatchId, "dispatch_successor_000000000001");
+  assert.match(String(receipt?.reason), /Decisions API unavailable/u);
 });
 
+test("an exhausted rate limit resumes a resumable dispatch before falling back to a rerun", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  let calls = 0;
+  const decisionProvider = openTestDecisionProvider(rootDir, async () => {
+    calls++;
+    throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+  });
+  await configureTestDecisionProvider(decisionProvider);
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: { list: decisionProvider.list, port: decisionProvider.port },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({
+      rootDir,
+      resume: { dispatchId, agentId: "terra" },
+      agentId: "terra",
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(calls, 4);
+  assert.equal(relates.length, 0);
+  assert.equal(spawns.length, 1);
+  assert.equal(spawns[0]?.payload.dispatchId, dispatchId, "resume reuses the source dispatch session");
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.selected, "resume_original");
+  assert.equal(stored[0]?.action?.action, "resume");
+});
+
+test("a delivered cut turns the provider-less default into no_action", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: {
+          decide: async () => {
+            throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+          },
+        },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({
+      rootDir,
+      submission: { commitSha: "b".repeat(40) },
+      resume: { dispatchId, agentId: "terra" },
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "a delivered cut must not be rerun by a fallback");
+  assert.equal(relates.length, 0);
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.selected, "no_action");
+  assert.equal(stored[0]?.action?.action, "no_action");
+  assert.match(String(stored[0]?.action?.reason), /Decisions API unavailable/u);
+});
+
+test("the deterministic default still escalates when a guard forbids every automatic action", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  // Budget already spent by an earlier automatic disposition: the fallback may not silently
+  // borrow another slot just because the provider is down.
+  const priorDispatchId = "dispatch_00000000000000000000aaaa";
+  seedIncidentStream(rootDir, priorDispatchId);
+  appendIncidentActionReceipt(rootDir, priorDispatchId, {
+    pointId: incidentPointId,
+    questionVersion: incidentDispositionQuestionVersion,
+    status: "applied",
+    selected: "rerun_same_identity",
+    action: "rerun",
+    reason: null,
+    successorDispatchId: "dispatch_prior_successor",
+    budget: { used: 0, limit: 3, source: "repository" },
+    decidedAt: "2026-10-18T00:00:01.000Z",
+  });
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: {
+          decide: async () => {
+            throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
+          },
+        },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      reviewReturnBudget: 1,
+      priorDispatches: [{ dispatchId: priorDispatchId, receipt: readIncidentActionReceipt(rootDir, priorDispatchId) }],
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "an exhausted budget stays a real owner boundary");
+  assert.equal(relates.length, 0, "an escalation rides the durable receipt, not a second relation");
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.match(String(stored[0]?.action?.reason), /budget is exhausted/u);
+  assert.match(String(stored[0]?.action?.reason), /Decisions API unavailable/u);
+});
 test("two concurrent outcome callbacks reserve once, ask once and launch once", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -792,7 +914,7 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
   assert.deepEqual(stored[0]?.action?.budget, { used: 1, limit: 1, source: "repository" });
 });
 
-test("an unavailable provider escalates without asking or launching", async (t) => {
+test("a disabled provider takes the deterministic default instead of waiting for a ruling", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
@@ -805,20 +927,43 @@ test("an unavailable provider escalates without asking or launching", async (t) 
       },
       now: () => "2026-10-19T00:00:01.000Z",
     }),
-    { cell, spawns, relates } = fakeIncidentCell({ rootDir });
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir, agentId: "terra" });
   await executor.settle(cell, incidentOutcomeEvent());
-  assert.equal(calls, 0);
-  assert.equal(spawns.length, 0);
-  assert.equal(relates.length, 0);
+  assert.equal(calls, 0, "a disabled provider is never asked");
+  assert.equal(relates.length, 0, "the default disposition must not open an owner await");
+  assert.equal(spawns.length, 1, "the same identity is rerun without the provider");
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.status, "failed");
   assert.equal(stored[0]?.failureCode, "provider_disabled");
-  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.action?.action, "rerun");
   assert.equal(stored[0]?.action?.status, "applied");
   const receipt = readIncidentActionReceipt(rootDir, dispatchId);
   assert.equal(receipt?.status, "applied");
-  assert.equal(receipt?.action, "needs_attention");
+  assert.equal(receipt?.action, "rerun");
   assert.match(String(receipt?.reason), /provider is disabled/u);
+  assert.match(String(receipt?.reason), /Decisions API unavailable/u);
+});
+
+test("a disabled provider with nothing automatic to do still escalates", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const executor = openDecisionPointExecutor({
+      rootDir,
+      providers: {
+        list: () => [{ ...provider, enabled: false }],
+        port: { decide: async () => choiceAnswer("rerun_same_identity") },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, relates } = fakeIncidentCell({ rootDir });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0);
+  assert.equal(relates.length, 0);
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  assert.equal(receipt?.action, "needs_attention");
+  assert.match(String(receipt?.reason), /no worker identity to rerun/u);
+  assert.match(String(receipt?.reason), /Decisions API unavailable/u);
 });
 
 test("a submitted cut turns no_action into the receipt and launches nothing", async (t) => {
