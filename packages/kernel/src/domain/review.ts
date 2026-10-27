@@ -8,7 +8,8 @@ import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.t
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { timestamp } from "./timestamp.ts";
 import { reviewConsentConflicts } from "./review-consent-validity.ts";
-import { reviewFindingCategories, reviewFindingLabels } from "./review-settlement.ts";
+import { reviewFindingCategories, reviewFindingDispositions, reviewFindingLabels } from "./review-settlement.ts";
+import type { ReviewFindingDisposition } from "./review-settlement.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
 export type ReviewResponseDisposition = "adopt" | "rebut";
@@ -98,12 +99,22 @@ export interface ReviewDispositionV1 {
   readonly actor: ActorAxes;
   readonly source: WriteSource;
   readonly disposedAt: string;
+  /** One owner ruling for an escalated categorized finding on this exact submission cut. */
+  readonly findingRuling?: ReviewFindingRulingV1;
+}
+
+export interface ReviewFindingRulingV1 {
+  readonly targetDigest: SubmissionDigest;
+  readonly reviewId: string;
+  readonly findingId: string;
+  readonly disposition: ReviewFindingDisposition;
+  readonly rationale: string;
 }
 export function validateReviewDispositionV1(
   value: unknown,
   allowUnknownFields = false,
 ): readonly ContractValidationIssue[] {
-  const fields = [
+  const requiredFields = [
     "schema",
     "dispositionId",
     "taskId",
@@ -116,7 +127,14 @@ export function validateReviewDispositionV1(
     "source",
     "disposedAt",
   ] as const;
-  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields(value, fields) : hasOnlyFields(value, fields)))
+  const fields = [...requiredFields, "findingRuling"] as const;
+  if (
+    !isRecord(value) ||
+    !(allowUnknownFields
+      ? hasRequiredFields(value, requiredFields)
+      : hasRequiredFields(value, requiredFields) &&
+        Object.keys(value).every((field) => fields.includes(field as never)))
+  )
     return [invalidReviewIssue("ReviewDisposition/v1 fields are incomplete or unknown")];
   const valid =
     value.schema === "review-disposition/v1" &&
@@ -125,15 +143,28 @@ export function validateReviewDispositionV1(
     Number(value.iteration) >= 0 &&
     digest(value.submissionDigest) &&
     Array.isArray(value.disposedReviewIds) &&
-    value.disposedReviewIds.length > 0 &&
+    (value.disposedReviewIds.length > 0 || value.findingRuling !== undefined) &&
     new Set(value.disposedReviewIds).size === value.disposedReviewIds.length &&
     value.disposedReviewIds.every(isNonEmptyString) &&
     timestamp(value.disposedAt) &&
     validateActorAxes(value.actor, allowUnknownFields).length === 0 &&
-    validateWriteSource(value.source, allowUnknownFields).length === 0;
+    validateWriteSource(value.source, allowUnknownFields).length === 0 &&
+    (value.findingRuling === undefined || value.disposedReviewIds.length === 0) &&
+    (value.findingRuling === undefined || validReviewFindingRuling(value.findingRuling, allowUnknownFields));
   return valid
     ? []
     : [invalidReviewIssue("review disposition must bind named reviews, rationale, content cut, actor, and source")];
+}
+
+function validReviewFindingRuling(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!isRecord(value)) return false;
+  const fields = ["targetDigest", "reviewId", "findingId", "disposition", "rationale"] as const;
+  return (
+    (allowUnknownFields ? hasRequiredFields(value, fields) : hasOnlyFields(value, fields)) &&
+    digest(value.targetDigest) &&
+    [value.reviewId, value.findingId, value.rationale].every(isNonEmptyString) &&
+    reviewFindingDispositions.includes(value.disposition as ReviewFindingDisposition)
+  );
 }
 export interface ConsentedApprovedReview {
   readonly review: ReviewV1;

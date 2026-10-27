@@ -10,6 +10,7 @@ import {
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  reviewFindingDispositions,
   reviewFindingLabels,
   settledFindingCategories,
   submissionDigest,
@@ -106,20 +107,35 @@ export function buildCommand(
     const submitted = snapshot.executions.find(
         (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted" && value.submission,
       ),
+      currentDigest = submitted?.submission ? submissionDigest(submitted.submission) : undefined,
       review = submitted
-        ? snapshot.reviews.findLast(
+        ? (snapshot.reviews.findLast(
             (value) =>
               value.executionId === submitted.executionId &&
               value.iteration === submitted.iteration &&
               value.verdict === "changes_requested" &&
-              value.submissionDigest === submissionDigest(submitted.submission!),
-          )
+              value.submissionDigest === currentDigest,
+          ) ??
+          snapshot.reviews.findLast(
+            (value) =>
+              value.executionId === submitted.executionId &&
+              value.iteration === submitted.iteration &&
+              value.verdict === "approved" &&
+              value.submissionDigest === currentDigest &&
+              snapshot.reviewDispositions?.some(
+                (disposition) =>
+                  disposition.submissionDigest === currentDigest &&
+                  disposition.findingRuling?.targetDigest === currentDigest &&
+                  disposition.findingRuling.reviewId === value.reviewId &&
+                  disposition.findingRuling.disposition === "blocker",
+              ),
+          ))
         : undefined;
     if (!submitted || !review)
       throw cellCodedError(
         "invalid_transition",
-        `Task ${taskId} has no current changes_requested review to return; use ha task review-consent ${taskId} ` +
-          "for an approved or disposed review, or wait for the current review.",
+        `Task ${taskId} has no current changes_requested review or owner-confirmed blocker to return; ` +
+          `use ha task review-consent ${taskId} to decide an escalated finding, or wait for the current review.`,
       );
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReworkTask",
@@ -196,6 +212,8 @@ export function buildCommand(
       "reviewId",
       "dispose",
       "rationale",
+      "findingId",
+      "findingDisposition",
       "expectedVersion",
       "commandType",
     ];
@@ -256,6 +274,12 @@ export function buildCommand(
             submissionDigest(current.submission),
             reviewDigest(recorded),
             ...(Array.isArray(action.dispose) ? [...action.dispose].sort().map(String) : []),
+            ...(typeof action.findingId === "string" || typeof action.findingDisposition === "string"
+              ? [
+                  typeof action.findingId === "string" ? action.findingId : "",
+                  typeof action.findingDisposition === "string" ? action.findingDisposition : "",
+                ]
+              : []),
             typeof action.rationale === "string" ? action.rationale : "",
           ].join("\0"),
         )
@@ -267,6 +291,10 @@ export function buildCommand(
         ? { disposedReviewIds: action.dispose }
         : {}),
       ...(typeof action.rationale === "string" ? { rationale: action.rationale } : {}),
+      ...(typeof action.findingId === "string" ? { findingId: action.findingId } : {}),
+      ...(typeof action.findingDisposition === "string"
+        ? { findingDisposition: action.findingDisposition as (typeof reviewFindingDispositions)[number] }
+        : {}),
     });
   }
   if (lifecycleAction?.commandType === "RespondReview") {

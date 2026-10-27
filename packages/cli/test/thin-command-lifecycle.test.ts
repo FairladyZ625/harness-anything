@@ -318,6 +318,33 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       dispose: ["review-a", "review-b"],
       rationale: "owner adjudicated both reports",
     });
+  const findingRuling = parseThinCommand([
+    "task",
+    "review-consent",
+    "task-1",
+    "--execution-id",
+    "execution-1",
+    "--review-id",
+    "review-a",
+    "--finding-id",
+    "F-7",
+    "--finding-disposition",
+    "false_positive",
+    "--rationale",
+    "The frozen evidence does not reproduce this issue.",
+  ]);
+  assert.equal(findingRuling.ok, true, JSON.stringify(findingRuling));
+  if (findingRuling.ok)
+    assert.deepEqual(findingRuling.command.action, {
+      kind: "task-review-consent",
+      taskId: "task-1",
+      executionId: "execution-1",
+      reviewId: "review-a",
+      commandType: "RecordReviewConsent",
+      findingId: "F-7",
+      findingDisposition: "false_positive",
+      rationale: "The frozen evidence does not reproduce this issue.",
+    });
   if (derivedComplete.ok)
     assert.deepEqual(derivedComplete.command.action, {
       kind: "task-complete",

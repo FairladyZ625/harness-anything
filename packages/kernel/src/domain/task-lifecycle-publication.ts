@@ -558,6 +558,11 @@ function renderReview(
     `- Consent actor: ${consent?.actor.principal.personId ?? "pending"}\n`,
     `- Consent source: ${consent ? stableStringify(consent.source) : "pending"}\n`,
     `- Disposed reviews: ${disposition?.disposedReviewIds.join(", ") ?? "none"}\n`,
+    `- Finding ruling: ${
+      disposition?.findingRuling
+        ? `${disposition.findingRuling.reviewId}/${disposition.findingRuling.findingId} = ${disposition.findingRuling.disposition} (${disposition.findingRuling.targetDigest})`
+        : "none"
+    }\n`,
     `- Disposition rationale: ${disposition?.rationale ?? "none"}\n`,
     `\n## Reason\n\n${value.reason}\n`,
     "\n## Evidence checked\n\n",

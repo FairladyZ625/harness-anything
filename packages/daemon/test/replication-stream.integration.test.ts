@@ -102,7 +102,7 @@ test(
       repoId: replicationRepoId,
       position: null,
       edgeBuildCommit: null,
-      taskEventShapeVersion: 2,
+      taskEventShapeVersion: 3,
     });
     assert.equal(response.type, "replica.reject");
     if (response.type !== "replica.reject") return;
@@ -110,7 +110,7 @@ test(
     const expectedBuild = daemonBuildStamp().commit?.slice(0, 7) ?? "unknown";
     assert.equal(response.centerBuildCommit, daemonBuildStamp().commit);
     assert.ok(response.message.includes(expectedBuild));
-    assert.equal(response.taskEventShapeVersion, 3);
+    assert.equal(response.taskEventShapeVersion, TASK_EVENT_SHAPE_COMPAT_VERSION);
     const status = center.status().replicas.find((replica) => replica.nodeId === "edge-one");
     assert.equal(status?.connected, false);
     assert.equal(status?.syncFailure?.code, "edge_upgrade_required");
