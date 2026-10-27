@@ -309,6 +309,18 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
           { outputShape, completionGateIds, slots, entrypoints: [] },
         );
     }
+    for (const locale of ["en-US", "zh-CN"] as const) {
+      const workerDispatch = runtime.resolveInternal({ ...common, locale, presetId: "worker-dispatch" }),
+        workerFlow = workerDispatch.documents.find(({ slot }) => slot === "task.worker.flow")?.body ?? "",
+        template = workerDispatch.snapshot.templates.find(({ slot }) => slot === "task.worker.flow");
+      assert.equal(template?.templateRef, "template://planning/worker-flow@2", `${locale}:worker-flow-version`);
+      assert.match(workerFlow, /Worker Role.*single source|统一遵循.*Worker Role/u, `${locale}:delivery-source`);
+      assert.doesNotMatch(
+        workerFlow,
+        /queued checks remain pending|keep waiting for a verdict|检查仍在等待时继续等|排队的检查/u,
+        `${locale}:no-ci-wait-loop`,
+      );
+    }
     for (const presetId of ["subtask-expansion"]) {
       const result = await resolver.resolve({ ...common, presetId });
       assert.equal(result.ok, true, presetId);

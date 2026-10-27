@@ -297,20 +297,6 @@
     },
     {
       "id": "planning/task-plan",
-      "version": "1",
-      "documentKind": "task-plan",
-      "slot": "task.plan",
-      "materializeAs": "task_plan.md",
-      "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
-      ]
-    },
-    {
-      "id": "planning/task-plan",
       "version": "2",
       "documentKind": "task-plan",
       "slot": "task.plan",
@@ -423,7 +409,7 @@
     },
     {
       "id": "planning/worker-flow",
-      "version": "1",
+      "version": "2",
       "documentKind": "worker-flow",
       "slot": "task.worker.flow",
       "materializeAs": "worker-flow.md",
@@ -431,8 +417,8 @@
       "requiredAnchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow.v2/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow.v2/en-US.md" }
       ]
     }
   ]

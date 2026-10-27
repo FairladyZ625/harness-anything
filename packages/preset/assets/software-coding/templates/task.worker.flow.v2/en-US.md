@@ -33,6 +33,5 @@ Stop and report when scope, authority, required input, or a destructive choice i
 - Before handoff, rebase onto the latest `origin/main` and rerun the evidence commands.
 - Task package documents are accepted with the submission; do not run a separate document sync for those files.
 - For a repository delivery, run `ha task submit <task-id>` after the final code commit to freeze its delivery facts, then publish with `ha task push <task-id>`, create the PR with `gh pr create --head <task-id>`, and run `gh pr checks <task-id> --watch` until the current PR head's checks settle. Workers never merge.
-- Pending checks are not a verdict. On GitHub, use `gh run view <run-id> --log-failed` to inspect a failure and compare the same test on origin/main's latest CI: main-red failures are recorded in the report, not fixed and not waited on; every other red you judge as caused by this change, repair, amend the submission, regenerate the PR body facts, push again, and read platform checks again until the delivery SHA is green. If the CLI cannot read checks, report the error and mark CI unverified.
-- queued checks remain pending; keep waiting for a verdict.
+- Use `# Worker Role` as the single source for task-delivery timing, work during pending checks, failure repair, and session handoff. CI remains a completion gate when the task contract declares it.
 - If the pull request has a conflicting pull request state, rebase onto the latest `origin/main`, push again, and reread the checks.
