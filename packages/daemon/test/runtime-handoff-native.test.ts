@@ -4,8 +4,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { installHandoffRollout, validateHandoffRollout } from "../src/runtime-handoff-native.ts";
 const sessionId = "019abcdef-1234-5678-9999-abcdef123456";
+// Real 0.163.0 bytes: one `codex exec` session with a `custom_tool_call` for `exec`, its output,
+// reasoning, token usage and a resumed turn, reduced to synthetic content. Record types, field
+// names and nesting are the writer's; only identifiers, paths and prose were replaced.
+const rollout0163 = readFileSync(
+  fileURLToPath(new URL("./fixtures/runtime-handoff-rollout-0.163.0.jsonl", import.meta.url)),
+);
 function rollout(extra: object[] = [], version = "0.159.1") {
   return Buffer.from(
     [
@@ -37,6 +44,17 @@ test("accepts inline image, shell result and compaction records in the verified 
     ),
     "0.159.1",
   );
+});
+test("accepts a recorded 0.163.0 rollout and still refuses an unverified neighbouring release", () => {
+  assert.equal(validateHandoffRollout(rollout0163, sessionId), "0.163.0");
+  // The control the version list exists for: a neighbouring release with the same shape is
+  // still refused, so adding 0.163.0 did not widen the set to "any version".
+  const unverified = Buffer.from(
+    rollout0163.toString("utf8").replace('"cli_version":"0.163.0"', '"cli_version":"0.163.1"'),
+  );
+  assert.throws(() => validateHandoffRollout(unverified, sessionId), {
+    code: "runtime_handoff_version_unsupported",
+  });
 });
 test("refuses unknown version, other session, external image/file and child conversation closure", () => {
   assert.throws(() => validateHandoffRollout(rollout([], "0.160.0"), sessionId), {

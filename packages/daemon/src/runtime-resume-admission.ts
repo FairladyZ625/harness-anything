@@ -1,6 +1,7 @@
 import { resolveHarnessLayout, validSquadDispatchContext } from "@harness-anything/kernel";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
+import { verifiedHandoffVersions } from "./runtime-handoff-native.ts";
 import path from "node:path";
 import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
 import { readDispatchStream } from "./dispatch-stream.ts";
@@ -371,7 +372,7 @@ export function assertRuntimeHandoffLaunch(
     (!launch.taskId || kindId !== "codex" || !launch.agentId || launch.role === "reviewer" || launch.trustedSchedule)
   )
     throw runtimeSpawnError("runtime_handoff_ineligible", "Handoff is limited to task-bound Codex agent sessions.");
-  if (checkpoint && !/^codex-cli 0\.159\.(?:1|3)$/u.test(version))
+  if (checkpoint && !verifiedHandoffVersions.some((verified) => version === `codex-cli ${verified}`))
     throw runtimeSpawnError(
       "runtime_handoff_version_unsupported",
       "Target Codex version has not been verified for native handoff.",
