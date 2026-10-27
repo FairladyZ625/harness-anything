@@ -13,7 +13,7 @@ import {
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { parse as parseYaml } from "yaml";
-import { isRecord } from "../domain/write-chain.contract.ts";
+import { canonicalizeWriteValue, isRecord } from "../domain/write-chain.contract.ts";
 import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import {
@@ -980,20 +980,21 @@ export function catchUpRound(
 } {
   const head = eventStore.readHead();
   const sourceRevision = head?.revision ?? 0;
+  const currentWatermark = watermark(db);
   const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-002 */ db.prepare(sql),
   ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
   // A projection apply advances the contiguous watermark without populating the source-scan
   // cursor.  A restored projection can therefore be fully applied at a high watermark while
   // scanned_revision remains at zero; resume the source scan after that known-complete prefix.
-  const scanRevision = state.scan_cursor === null ? Math.max(state.scanned_revision, watermark(db)) : null;
+  const scanRevision = state.scan_cursor === null ? Math.max(state.scanned_revision, currentWatermark) : null;
   const shouldScan = state.scan_cursor !== null || (scanRevision ?? state.scanned_revision) < sourceRevision;
   const batch = shouldScan ? eventStore.readBatch(state.scan_cursor ?? String(scanRevision), limit) : null;
   if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
   const hasDeferred =
     prepareQuery(db, "SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1", (sql) =>
       /* @gate-identity check-bypass-write-boundary/bypass-write-003 */ db.prepare(sql),
-    ).get(watermark(db)) !== undefined;
+    ).get(currentWatermark) !== undefined;
   if (batch === null && !hasDeferred)
     return {
       sourceRevision,
@@ -1005,7 +1006,15 @@ export function catchUpRound(
   // A complete source scan proves that an absent revision is a permanent hole in this
   // ledger. Before that point, keep strict continuity so a later batch can still supply it.
   const allowRevisionGaps = batch === null || batch.done;
-  const replayEvents = readyDeferredEvents(db, batch?.events ?? [], limit, allowRevisionGaps);
+  const directlyApplicable =
+    batch !== null &&
+    !hasDeferred &&
+    batch.events.length > 0 &&
+    batch.events[0]!.workspaceRevision === currentWatermark + 1 &&
+    batch.events.every((event, index) => event.workspaceRevision === currentWatermark + index + 1);
+  const replayEvents = directlyApplicable
+    ? batch.events
+    : readyDeferredEvents(db, batch?.events ?? [], limit, allowRevisionGaps);
   let prefetch = batch?.prefetchContent ?? batchContentPrefetchers.get(eventStore);
   if (prefetch === undefined && hasDeferred) {
     prefetch = eventStore.readBatch(null, 1).prefetchContent;
@@ -1015,6 +1024,20 @@ export function catchUpRound(
     throw new Error("event stream must provide a verified batch content prefetch");
   const prefetchedContent = replayEvents.length ? prefetch!(replayEvents) : new Map<string, Uint8Array | null>();
   const reducedItems = transaction(db, () => {
+    if (directlyApplicable && batch !== null) {
+      applyDirectBatch(db, batch.events, prefetchedContent);
+      const last = batch.events.at(-1)!;
+      runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", last.workspaceRevision);
+      if (batch.done)
+        runSql(
+          db,
+          "UPDATE projection_meta SET scan_cursor = NULL, scanned_revision = ?, head_digest = ? WHERE singleton = 1",
+          batch.sourceRevision,
+          head?.eventDigest ?? null,
+        );
+      else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
+      return batch.events.length;
+    }
     if (batch !== null) {
       for (const event of batch.events) stageEvent(db, event);
       if (batch.done)
@@ -1037,14 +1060,119 @@ export function catchUpRound(
   };
 }
 
+function applyDirectBatch(
+  db: DatabaseSync,
+  events: readonly PersistedCanonicalEventV1[],
+  content: ReadonlyMap<string, Uint8Array | null>,
+): void {
+  const readBlob = (sha256: string) => content.get(sha256) ?? null;
+  const prepared = events.map((event) => {
+    const persistedEvent = canonicalizeWriteValue(event) as PersistedCanonicalEventV1,
+      eventJson = persistedEventJson(event);
+    return {
+      event: persistedEvent,
+      normalizedEvent: normalizeHistoricalEvent(persistedEvent),
+      eventJson,
+    };
+  });
+  for (let index = 0; index < prepared.length; ) {
+    const first = prepared[index]!;
+    if (isTitleOnlyTaskAmendment(first.normalizedEvent)) {
+      const taskId = first.normalizedEvent.taskId;
+      let end = index + 1;
+      while (end < prepared.length) {
+        const candidate = prepared[end]!.normalizedEvent;
+        if (!isTitleOnlyTaskAmendment(candidate) || candidate.taskId !== taskId) break;
+        end += 1;
+      }
+      if (end - index > 1) {
+        applyTitleOnlyTaskAmendmentBatch(db, prepared.slice(index, end) as readonly PreparedTitleOnlyAmendment[]);
+        index = end;
+        continue;
+      }
+    }
+    applyEvent(db, first.event, first.eventJson, readBlob);
+    index += 1;
+  }
+}
+
+type PreparedTitleOnlyAmendment = {
+  readonly event: PersistedCanonicalEventV1;
+  readonly normalizedEvent: PersistedCanonicalEventV1 & {
+    readonly schema: "task-event/v1";
+    readonly type: "task_amended";
+  };
+  readonly eventJson: string;
+};
+
+function isTitleOnlyTaskAmendment(
+  event: PersistedCanonicalEventV1,
+): event is PersistedCanonicalEventV1 & { readonly schema: "task-event/v1"; readonly type: "task_amended" } {
+  return (
+    event.schema === "task-event/v1" &&
+    event.type === "task_amended" &&
+    event.payload.mutation.fields.length === 1 &&
+    event.payload.mutation.fields[0] === "title" &&
+    (event.payload.documentClaims?.length ?? 0) === 0 &&
+    (event.payload.carriedDocumentClaims?.length ?? 0) === 0
+  );
+}
+
+function applyTitleOnlyTaskAmendmentBatch(db: DatabaseSync, events: readonly PreparedTitleOnlyAmendment[]): void {
+  const taskId = events[0]!.normalizedEvent.taskId;
+  let snapshot = readSnapshotForTaskEventReduction(db, taskId);
+  for (const { event, eventJson, normalizedEvent } of events) {
+    snapshot = reduceTaskEvent(snapshot, normalizedEvent);
+    projectEventSummary(db, normalizedEvent);
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
+      event.opId,
+      event.workspaceRevision,
+      normalizedEvent.taskId,
+      eventJson,
+    );
+  }
+  const last = events.at(-1)!.normalizedEvent;
+  runSql(
+    db,
+    UPSERT_TASK_SNAPSHOT_SQL,
+    taskId,
+    last.workspaceRevision,
+    canonicalJson({
+      ...snapshot,
+      task: snapshot.task === null ? null : currentTaskForWrite(snapshot.task),
+      executions: [],
+      reviews: [],
+    }),
+    snapshot.task?.status ?? null,
+    last.occurredAt,
+  );
+  if (snapshot.task?.pinned)
+    runSql(
+      db,
+      "INSERT INTO pinned_entities(entity_ref, pinned_at, pinned_by) VALUES (?, ?, ?) ON CONFLICT(entity_ref) DO UPDATE SET pinned_at=excluded.pinned_at, pinned_by=excluded.pinned_by",
+      `task/${taskId}`,
+      last.occurredAt,
+      last.actor.principal.personId,
+    );
+  else runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", `task/${taskId}`);
+  applyEmbeddedRelationProjectionEvents(db, last);
+  const packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", taskId)[0]?.package_path;
+  refreshTaskRelationProjection(
+    db,
+    taskId,
+    snapshot.task,
+    last.workspaceRevision,
+    last.occurredAt,
+    packagePath === undefined ? null : String(packagePath),
+  );
+}
+
 function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
   // Historical ledger rows predate the removed fact and code/doc gates. New writes still use the
   // strict serializer.
-  const eventJson = (
-    hasRetiredCloseoutOverride(event)
-      ? serializeCanonicalEventUnchecked(event)
-      : serializePersistedCanonicalEvent(event)
-  ).trimEnd();
+  const eventJson = persistedEventJson(event);
   const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-004 */ db.prepare(sql),
   ).get(event.opId) as { readonly event_json: string } | undefined;
@@ -1069,6 +1197,14 @@ function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
     event.opId,
     eventJson,
   );
+}
+
+function persistedEventJson(event: PersistedCanonicalEventV1): string {
+  return (
+    hasRetiredCloseoutOverride(event)
+      ? serializeCanonicalEventUnchecked(event)
+      : serializePersistedCanonicalEvent(event)
+  ).trimEnd();
 }
 
 function drainDeferred(
