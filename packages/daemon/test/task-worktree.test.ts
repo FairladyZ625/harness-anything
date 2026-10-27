@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -18,6 +27,7 @@ import {
   taskWorkspaceView,
 } from "../src/task-worktree.ts";
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
+import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import {
   isLinkedWorktree,
@@ -496,36 +506,114 @@ test("the node-modules adapter mirrors the root store and removes its mirror bef
   }
 });
 
-test("the node-modules adapter installs the root store when it is missing", async (t) => {
-  const fixture = repositoryFixture(t);
-  try {
-    writeFileSync(
-      path.join(fixture.root, "package.json"),
-      JSON.stringify({ name: "fixture", version: "1.0.0", private: true }),
-    );
-    writeFileSync(
-      path.join(fixture.root, "package-lock.json"),
-      JSON.stringify({
-        name: "fixture",
-        version: "1.0.0",
-        lockfileVersion: 3,
-        requires: true,
-        packages: { "": { name: "fixture", version: "1.0.0" } },
-      }),
-    );
-    git(fixture.root, "add", "package.json", "package-lock.json");
-    git(fixture.root, "commit", "-qm", "declare fixture dependencies");
-    await lifecycle(
-      fixture.root,
-      () => boundTask("active"),
-      { kind: "task-start", taskId },
-      { setup: ["node-modules"] },
-    );
-    assert.equal(existsSync(path.join(fixture.root, "node_modules")), true);
-    assert.equal(existsSync(path.join(fixture.root, binding.path, "node_modules")), true);
-  } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
-  }
+test("an edge workspace installs the worktree's own lockfile and never touches an ancestor tree", async (t) => {
+  // The edge shape (2026-10-27): the node's rootDir is the Harness workspace — its own Git history, no package
+  // manifest — and the task worktree is checked out from the product commit. The workspace sits under a directory
+  // that *does* carry a manifest, which is what makes a bare `npm ci` here dangerous rather than merely broken:
+  // npm walks up and reifies that ancestor's dependencies. The adapter must install the worktree's lockfile only.
+  const base = mkdtempSync(path.join(tmpdir(), "ha-edge-node-modules-")),
+    ancestor = path.join(base, "home"),
+    product = path.join(base, "product"),
+    workspace = path.join(ancestor, "harness-edge", "canonical"),
+    worktree = path.join(workspace, ".worktrees", taskId);
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  // A real-looking ancestor install: a lockfile npm would happily reify, and a marker-only node_modules to detect it.
+  mkdirSync(path.join(ancestor, "node_modules", "ancestor-only"), { recursive: true });
+  writeFileSync(path.join(ancestor, "node_modules", "ancestor-only", "index.js"), "module.exports = 1;\n");
+  writeFileSync(path.join(ancestor, "package.json"), '{"name":"ancestor","version":"1.0.0","private":true}\n');
+  writeFileSync(
+    path.join(ancestor, "package-lock.json"),
+    JSON.stringify({
+      name: "ancestor",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      requires: true,
+      packages: { "": { name: "ancestor", version: "1.0.0" } },
+    }),
+  );
+  git(base, "init", "-q", "-b", "main", product);
+  git(product, "config", "user.name", "Edge Test");
+  git(product, "config", "user.email", "edge@example.invalid");
+  // A lockfile npm ci can satisfy without a registry: the one dependency is a directory in the product.
+  mkdirSync(path.join(product, "fixture-dep"), { recursive: true });
+  writeFileSync(path.join(product, "fixture-dep", "package.json"), '{"name":"fixture-dep","version":"1.0.0"}\n');
+  writeFileSync(path.join(product, "fixture-dep", "index.js"), "module.exports = 'fixture-dep';\n");
+  writeFileSync(
+    path.join(product, "package.json"),
+    JSON.stringify({
+      name: "product",
+      version: "1.0.0",
+      private: true,
+      dependencies: { "fixture-dep": "file:./fixture-dep" },
+    }),
+  );
+  writeFileSync(
+    path.join(product, "package-lock.json"),
+    JSON.stringify({
+      name: "product",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        "": { name: "product", version: "1.0.0", dependencies: { "fixture-dep": "file:./fixture-dep" } },
+        "fixture-dep": { version: "1.0.0" },
+        "node_modules/fixture-dep": { resolved: "fixture-dep", link: true },
+      },
+    }),
+  );
+  writeFileSync(path.join(product, ".gitignore"), "node_modules/\n");
+  git(product, "add", "-A");
+  git(product, "commit", "-qm", "product");
+  const productCommit = git(product, "rev-parse", "HEAD");
+
+  mkdirSync(workspace, { recursive: true });
+  git(workspace, "init", "-q", "-b", "main");
+  git(workspace, "config", "user.name", "Edge Test");
+  git(workspace, "config", "user.email", "edge@example.invalid");
+  mkdirSync(path.join(workspace, "harness"), { recursive: true });
+  writeFileSync(path.join(workspace, "harness", "harness.yaml"), "schema: harness-layout/v1\n");
+  git(workspace, "add", "harness/harness.yaml");
+  git(workspace, "commit", "-qm", "edge workspace");
+  git(workspace, "fetch", "-q", product, productCommit);
+  git(workspace, "worktree", "add", "-q", "-b", taskId, worktree, productCommit);
+
+  await nodeModulesSetupAdapter.prepare({ rootDir: workspace, cwd: worktree });
+
+  assert.equal(existsSync(path.join(workspace, "node_modules")), false, "the workspace root gains no store");
+  assert.equal(existsSync(path.join(worktree, "node_modules", "fixture-dep", "index.js")), true);
+  // The ancestor is what a bare `npm ci` at the workspace root would have reified instead.
+  assert.equal(existsSync(path.join(ancestor, "node_modules", "ancestor-only", "index.js")), true);
+});
+
+test("a worktree with neither a store to share nor a lockfile of its own fails without installing anywhere", async (t) => {
+  // Without a worktree lockfile a bare `npm ci` would climb to the ancestor's manifest and install that tree. The
+  // step must fail instead, naming what is missing, and leave every directory outside the worktree exactly as it was.
+  const base = mkdtempSync(path.join(tmpdir(), "ha-node-modules-nolock-")),
+    ancestor = path.join(base, "home"),
+    workspace = path.join(ancestor, "harness-edge", "canonical"),
+    worktree = path.join(workspace, ".worktrees", taskId);
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(path.join(ancestor, "node_modules", "ancestor-only"), { recursive: true });
+  writeFileSync(path.join(ancestor, "node_modules", "ancestor-only", "index.js"), "module.exports = 1;\n");
+  writeFileSync(path.join(ancestor, "package.json"), '{"name":"ancestor","version":"1.0.0","private":true}\n');
+  writeFileSync(
+    path.join(ancestor, "package-lock.json"),
+    JSON.stringify({
+      name: "ancestor",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      requires: true,
+      packages: { "": { name: "ancestor", version: "1.0.0" } },
+    }),
+  );
+  mkdirSync(worktree, { recursive: true });
+  await assert.rejects(
+    nodeModulesSetupAdapter.prepare({ rootDir: workspace, cwd: worktree }),
+    /has no package-lock\.json or npm-shrinkwrap\.json/u,
+  );
+  assert.deepEqual(readdirSync(ancestor).sort(), ["harness-edge", "node_modules", "package-lock.json", "package.json"]);
+  assert.equal(existsSync(path.join(ancestor, "node_modules", "ancestor-only", "index.js")), true);
+  assert.equal(existsSync(path.join(worktree, "node_modules")), false);
 });
 
 test("a checkout whose directory was removed is restored onto its surviving branch", async (t) => {
