@@ -1068,6 +1068,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // One row per node for every TLS session it holds, from the moment its hello is dispatched.
   // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
   const sessions = new Map<string, Set<TLSSocket>>();
+  // Every accepted TCP socket, from `connection` until `close`. `sessions` only holds sockets whose
+  // hello was dispatched, so it cannot be the close() cut: a peer that completes the handshake and
+  // stalls before its hello — or one still in the handshake — is owned by this listener and by no
+  // session row, and `server.close()` waits for it indefinitely.
+  const connections = new Set<TLSSocket>();
   const replicationOwners = new Map<string, TLSSocket>();
   // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
   const replicaStatus = createReplicaStatusTracker({
@@ -1097,6 +1102,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       replicationOwners,
     ),
   );
+  server.on("connection", (socket: TLSSocket) => {
+    connections.add(socket);
+    socket.once("close", () => connections.delete(socket));
+  });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 0, options.hostname ?? "127.0.0.1", () => {
@@ -1120,12 +1129,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (closed) return;
       closed = true;
       closing.abort();
-      // Edges keep replica sessions open between pulls, so a session is never idle long enough to end on its own;
-      // `server.close` only resolves once every authenticated socket is gone.
+      // `server.close` only resolves once every accepted socket is gone, and an edge keeps replica
+      // sessions open between pulls, so none of them ends on its own. Cut every socket this listener
+      // accepted — not just the hello-registered ones — or a peer that never reached its hello holds
+      // close() open for as long as it stays connected.
       const drained = new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
-      for (const live of sessions.values()) for (const socket of live) socket.destroy();
+      for (const socket of connections) socket.destroy();
       sessions.clear();
       await drained;
       try {

@@ -494,3 +494,23 @@ test("a start without any reusable login listener certificate is refused, not de
   );
   assert.equal(existsSync(fleetCenterConfigPath(f.userRoot, "no-certificate")), false);
 });
+
+test("host close cuts sockets that never reached their Fleet hello instead of waiting on them", async (t) => {
+  const f = await fixture(t),
+    host = await f.open("unhelled-close"),
+    started = await host.fleet.startCenter(f.request, auth),
+    // A peer that owns an accepted socket without ever becoming a session: the center's `sessions`
+    // table is only populated when a hello is dispatched, so this connection belongs to the listener
+    // alone. A replica stream keeps its socket open between pulls, so `server.close` cannot end it.
+    silent = net.connect(Number(started.port), "127.0.0.1");
+  t.after(() => silent.destroy());
+  await new Promise<void>((resolve, reject) => {
+    silent.once("connect", resolve);
+    silent.once("error", reject);
+  });
+  const closed = await Promise.race([
+    host.close().then(() => "closed" as const),
+    new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 10_000).unref()),
+  ]);
+  assert.equal(closed, "closed", "an unhelled connection must not hold the center close open");
+});
