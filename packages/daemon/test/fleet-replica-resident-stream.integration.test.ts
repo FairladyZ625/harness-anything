@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import {
@@ -57,9 +58,9 @@ test(
         send({
           type: "replica.reject",
           code: "edge_upgrade_required",
-          message: "Edge must upgrade to center build 86d1398 before applying task event shape 3.",
+          message: `Edge must upgrade to center build 86d1398 before applying task event shape ${TASK_EVENT_SHAPE_COMPAT_VERSION}.`,
           centerBuildCommit: "86d1398",
-          taskEventShapeVersion: 3,
+          taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
         });
     });
     const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-deterministic-failure-"));

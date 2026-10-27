@@ -720,6 +720,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     mirrorOf: "review.verdict",
   },
   {
+    id: "daemon.review.finding.disposition",
+    entity: "DaemonWire",
+    field: "finding.disposition",
+    module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
+    anchor: "reviewFindingDispositionWords",
+    words: ["blocker", "non_blocking", "nit", "pre_existing", "false_positive"],
+    mirrorOf: "review.finding.disposition",
+  },
+  {
     id: "daemon.decision.state",
     entity: "DaemonWire",
     field: "state",

@@ -16,6 +16,7 @@
  * reviewer used or how the model probabilities fell.
  */
 import type { ContractValidationIssue } from "./task.ts";
+import type { ReviewFindingRulingV1 } from "./review.ts";
 import { digest } from "./digest.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 
@@ -152,6 +153,7 @@ export interface ReviewFindingSettlement {
 export interface ReviewFindingSettlementInput {
   readonly findings: readonly SettleableReviewFinding[];
   readonly triages: readonly ReviewFindingTriageV1[];
+  readonly rulings?: readonly ReviewFindingRulingV1[];
   /**
    * The cut these findings belong to. A triage record answers a cut only when it was minted for this
    * digest: `(reviewId, findingId)` is not an identity, because a rebind, a hand-copied report packet
@@ -174,7 +176,7 @@ export function settleReviewFindings(input: ReviewFindingSettlementInput): Revie
       .map(({ reviewId, findingId, category }) => ({ reviewId, findingId, category })),
     entered = input.findings.filter((finding) => !isDiscardedCategory(finding.category));
   const settled = entered.map((finding) =>
-    settleOneFinding(finding, input.triages, input.thresholds, input.targetDigest),
+    settleOneFinding(finding, input.triages, input.thresholds, input.targetDigest, input.rulings ?? []),
   );
   const blockers = settled.filter(({ outcome }) => outcome === "blocked"),
     escalated = settled.filter(({ outcome }) => outcome === "escalated");
@@ -225,6 +227,7 @@ function settleOneFinding(
   triages: readonly ReviewFindingTriageV1[],
   thresholds: ReviewFindingThresholds | undefined,
   targetDigest: `sha256:${string}`,
+  rulings: readonly ReviewFindingRulingV1[],
 ): SettledReviewFinding {
   const category: SettledFindingCategory = isSettledFindingCategory(finding.category)
       ? finding.category
@@ -234,6 +237,12 @@ function settleOneFinding(
     // A record answers this cut only when it was minted for it. Ids alone are reusable across cuts
     // (rebind, hand-copied packet, edge replay), so the digest is part of the key, not a shape check.
     triage = triages.find(
+      (candidate) =>
+        candidate.reviewId === finding.reviewId &&
+        candidate.findingId === finding.findingId &&
+        candidate.targetDigest === targetDigest,
+    ),
+    ruling = rulings.find(
       (candidate) =>
         candidate.reviewId === finding.reviewId &&
         candidate.findingId === finding.findingId &&
@@ -249,13 +258,13 @@ function settleOneFinding(
       true,
       `Project hard rule ${category} with complete evidence.`,
     );
+  const ownerRuling = (reason: string): SettledReviewFinding => {
+    if (ruling === undefined) return settled(finding, category, "escalated", null, hardRule, reason);
+    const result = dispositionOutcome(finding, category, ruling.disposition, hardRule);
+    return { ...result, reason: `Owner ruling: ${ruling.rationale}` };
+  };
   if (triage === undefined)
-    return settled(
-      finding,
-      category,
-      "escalated",
-      null,
-      hardRule,
+    return ownerRuling(
       hardRule
         ? `Project hard rule ${category} needs complete evidence; this finding has none.`
         : "No triage record exists for this finding.",
@@ -268,21 +277,9 @@ function settleOneFinding(
   const needsCritic = first !== null && first !== "blocker" && (hardRule || finding.reviewerBlocking);
   if (triage.critic === undefined) {
     if (first === null)
-      return settled(
-        finding,
-        category,
-        "escalated",
-        null,
-        hardRule,
-        `Triage confidence stayed below the ${category} floor (${String(threshold)}).`,
-      );
+      return ownerRuling(`Triage confidence stayed below the ${category} floor (${String(threshold)}).`);
     if (needsCritic)
-      return settled(
-        finding,
-        category,
-        "escalated",
-        null,
-        hardRule,
+      return ownerRuling(
         hardRule
           ? `Project hard rule ${category} was classified ${first}; a Critic must confirm before it can be downgraded.`
           : `The reviewer claimed a blocker but triage selected ${first}; a Critic must confirm that conflict.`,
@@ -291,21 +288,9 @@ function settleOneFinding(
   }
   const critic = confidentDisposition(triage.critic, threshold);
   if (critic === null)
-    return settled(
-      finding,
-      category,
-      "escalated",
-      null,
-      hardRule,
-      `Critic confidence stayed below the ${category} floor (${String(threshold)}).`,
-    );
+    return ownerRuling(`Critic confidence stayed below the ${category} floor (${String(threshold)}).`);
   if (first !== null && first !== critic)
-    return settled(
-      finding,
-      category,
-      "escalated",
-      null,
-      hardRule,
+    return ownerRuling(
       `Triage selected ${first} but the Critic selected ${critic}; only a person can settle that conflict.`,
     );
   // Two independent passes that agree settle the finding, including when the reviewer's own label

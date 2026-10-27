@@ -765,6 +765,40 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       ),
     ]);
   if (
+    event.type === "review_consent_overridden" &&
+    event.payload.disposition.findingRuling !== undefined &&
+    (() => {
+      const { findingRuling } = event.payload.disposition,
+        finding = event.payload.review.findings?.find((value) => value.findingId === findingRuling.findingId);
+      return (
+        event.payload.review.verdict !== "approved" ||
+        event.payload.review.reviewId !== findingRuling.reviewId ||
+        event.payload.review.executionId !== event.payload.execution.executionId ||
+        event.payload.review.iteration !== event.payload.execution.iteration ||
+        event.payload.review.submissionDigest !== findingRuling.targetDigest ||
+        event.payload.disposition.submissionDigest !== findingRuling.targetDigest ||
+        snapshot.task?.createdBy.principal.personId !== event.payload.disposition.actor.principal.personId ||
+        finding === undefined ||
+        finding.category === undefined ||
+        !snapshot.reviews.some((review) => stableStringify(review) === stableStringify(event.payload.review)) ||
+        (snapshot.reviewDispositions ?? []).some(
+          (value) =>
+            value.submissionDigest === findingRuling.targetDigest &&
+            value.findingRuling?.reviewId === findingRuling.reviewId &&
+            value.findingRuling.findingId === findingRuling.findingId,
+        ) ||
+        !event.payload.execution.submission ||
+        submissionDigest(event.payload.execution.submission) !== findingRuling.targetDigest
+      );
+    })()
+  )
+    throw new TaskLifecycleContractError("invalid_proof", [
+      lifecycleContractIssue(
+        "invalid_proof",
+        "replayed owner ruling must be a one-time ruling by the task owner for an escalated finding on the current submission",
+      ),
+    ]);
+  if (
     event.type === "completion_gate_verified" &&
     (() => {
       const submission = event.payload.execution.submission,

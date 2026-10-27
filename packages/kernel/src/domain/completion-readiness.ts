@@ -343,13 +343,35 @@ function evaluateCompletion(
   if (!includeReview) return [];
   // The assessment already carries the gate judgment; re-deriving review or consent here
   // would duplicate the one closeout-readiness decision.
-  if (assessment.blocker === "review")
+  if (assessment.blocker === "review") {
+    if (assessment.escalatedFindings?.length) {
+      const { reviewId, findingId } = assessment.escalatedFindings[0]!;
+      return one(
+        "review_missing",
+        "review",
+        `ha task review-consent ${task.taskId} --execution-id ${executionId} ` +
+          `--review-id '${reviewId.replaceAll("'", "'\\''")}' ` +
+          `--finding-id '${findingId.replaceAll("'", "'\\''")}' ` +
+          "--finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> --rationale <why>",
+        `Finding ${reviewId}/${findingId} escalated because automated review could not classify it safely; ` +
+          "the task owner must choose a disposition for this finding.",
+      );
+    }
+    if (assessment.blockingFindings?.length)
+      return one(
+        "review_missing",
+        "review",
+        `ha task rework ${task.taskId} --reason <why the owner is returning this cut>`,
+        `The current finding settlement has ${String(assessment.blockingFindings.length)} blocker(s); ` +
+          "the task owner must return this cut to implementation.",
+      );
     return one(
       "review_missing",
       "review",
       `ha task dispatch-review ${task.taskId}`,
       "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
     );
+  }
   if (assessment.blocker === "consent")
     return one(
       "consent_missing",

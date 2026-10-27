@@ -5,6 +5,7 @@ import {
   isolateDaemonTaskSnapshotRows,
   validateDaemonTaskSnapshotList,
 } from "../src/protocol/daemon-protocol.contract.ts";
+import { review as validateReviewProtocolShape } from "../src/protocol/daemon-protocol-validate-entities.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
 const gateWitness = {
@@ -136,6 +137,30 @@ test("task snapshot protocol accepts historical reviews without findings and val
     ),
     [],
   );
+  assert.equal(
+    validateReviewProtocolShape({
+      ...currentReview,
+      findings: [
+        {
+          findingId: "F-classified",
+          blocking: false,
+          text: "A fully classified review finding.",
+          category: "correctness",
+          label: "Important",
+          evidenceDigest: `sha256:${"c".repeat(64)}`,
+          priorFindingRefs: ["review-old/F-old"],
+        },
+      ],
+    }),
+    true,
+  );
+  assert.equal(
+    validateReviewProtocolShape({
+      ...currentReview,
+      findings: [{ findingId: "F-invalid", blocking: false, text: "Bad category.", category: "other" }],
+    }),
+    false,
+  );
 });
 
 test("task snapshots accept the tier-flow marker while preserving legacy metadata", () => {
@@ -250,12 +275,29 @@ test("task snapshot protocol accepts a named review disposition and isolates a m
       taskId: "task-unnamed-disposition",
       snapshot: { ...row.snapshot, reviewDispositions: [{ ...disposition, disposedReviewIds: [] }] },
     },
-    isolated = isolateDaemonTaskSnapshotRows([row, disposed, unnamed]);
+    findingRuling = {
+      ...disposition,
+      dispositionId: "disposition-finding-ruling",
+      disposedReviewIds: [],
+      findingRuling: {
+        targetDigest: disposition.submissionDigest,
+        reviewId: "review-approved",
+        findingId: "finding-escalated",
+        disposition: "false_positive",
+        rationale: "The frozen evidence does not reproduce this issue.",
+      },
+    },
+    ruled = {
+      ...row,
+      taskId: "task-finding-ruling",
+      snapshot: { ...row.snapshot, reviewDispositions: [findingRuling] },
+    },
+    isolated = isolateDaemonTaskSnapshotRows([row, disposed, ruled, unnamed]);
 
-  assert.deepEqual(isolated.rows, [row, disposed]);
+  assert.deepEqual(isolated.rows, [row, disposed, ruled]);
   assert.deepEqual(
     isolated.invalidRows.map(({ field }) => field),
-    ["rows[2].snapshot.reviewDispositions"],
+    ["rows[3].snapshot.reviewDispositions"],
   );
 });
 

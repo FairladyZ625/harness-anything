@@ -143,6 +143,237 @@ test("a cut carrying a categorized finding passes only after its triage disposes
   assert.equal(blocked.blocker, "review", "a blocker keeps the cut at review");
 });
 
+test("the task owner can adjudicate one escalated finding through review consent", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    escalated = {
+      ...recorded,
+      findings: [
+        {
+          findingId: "F-escalated",
+          blocking: false,
+          text: "The triage could not classify this.",
+          category: "correctness" as const,
+        },
+      ],
+    },
+    before = { ...original, reviews: [escalated], consents: [], reviewFindingTriages: [] },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: escalated.taskId,
+          executionId: escalated.executionId,
+          reviewId: escalated.reviewId,
+          consentId: "consent-owner-finding-ruling",
+          reviewDigest: reviewDigest(escalated),
+          contentDigest: escalated.contentDigest,
+          findingId: "F-escalated",
+          findingDisposition: "false_positive" as const,
+          rationale: "The anchored code path proves this finding is not reproducible.",
+        },
+      ),
+      eventId: "event-owner-finding-ruling",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    };
+
+  assert.equal(
+    closeoutReadiness(before).blocker,
+    "review",
+    "an approved review with an escalated finding remains unresolved before the owner writes",
+  );
+  const result = applyTransition(before, command, {
+    actorBinding: implementer,
+    capability: "execution-consent@v1",
+    capabilityRef: "cap-consent-owner-finding-ruling",
+    reviewFindingTriages: [],
+  } satisfies ReviewConsentProof);
+  const stored = result.snapshot.reviewDispositions?.[0];
+  assert.deepEqual(
+    {
+      targetDigest: stored?.submissionDigest,
+      reviewId: stored?.findingRuling?.reviewId,
+      findingId: stored?.findingRuling?.findingId,
+      disposition: stored?.findingRuling?.disposition,
+      rationale: stored?.rationale,
+    },
+    {
+      targetDigest: submissionDigest(result.snapshot.executions[0]!.submission!),
+      reviewId: escalated.reviewId,
+      findingId: "F-escalated",
+      disposition: "false_positive",
+      rationale: "The anchored code path proves this finding is not reproducible.",
+    },
+  );
+  assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+  assert.equal(result.snapshot.reviewDispositions?.[0]?.disposedReviewIds.length, 0);
+  assert.equal(
+    reduceTaskEvent(before, result.event).reviewDispositions?.[0]?.findingRuling?.findingId,
+    "F-escalated",
+    "the owner ruling survives replay of the admitted event",
+  );
+  const secondRuling = normalizeTaskLifecycleCommand(
+    {
+      workspaceId: "workspace-1",
+      actor: implementer,
+      source: "local",
+      expectedRevision: result.snapshot.revision,
+    },
+    {
+      type: "RecordReviewConsent" as const,
+      taskId: escalated.taskId,
+      executionId: escalated.executionId,
+      reviewId: escalated.reviewId,
+      consentId: "consent-owner-finding-ruling-twice",
+      reviewDigest: reviewDigest(escalated),
+      contentDigest: escalated.contentDigest,
+      findingId: "F-escalated",
+      findingDisposition: "nit" as const,
+      rationale: "A second answer must not replace the first.",
+    },
+  );
+  assert.throws(
+    () =>
+      applyTransition(result.snapshot, secondRuling, {
+        actorBinding: implementer,
+        capability: "execution-consent@v1",
+        capabilityRef: "cap-consent-owner-finding-ruling-twice",
+        reviewFindingTriages: [],
+      } satisfies ReviewConsentProof),
+    /this finding already has an owner ruling for the current submission/u,
+  );
+});
+
+test("an owner ruling of blocker returns the submitted cut to its worker", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    escalated = {
+      ...recorded,
+      findings: [
+        {
+          findingId: "F-owner-blocker",
+          blocking: false,
+          text: "The triage could not classify this.",
+          category: "correctness" as const,
+        },
+      ],
+    },
+    before = { ...original, reviews: [escalated], consents: [], reviewFindingTriages: [] },
+    rulingCommand = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: escalated.taskId,
+          executionId: escalated.executionId,
+          reviewId: escalated.reviewId,
+          consentId: "consent-owner-blocker-ruling",
+          reviewDigest: reviewDigest(escalated),
+          contentDigest: escalated.contentDigest,
+          findingId: "F-owner-blocker",
+          findingDisposition: "blocker" as const,
+          rationale: "This finding is a reproducible correctness defect and must be fixed before completion.",
+        },
+      ),
+      eventId: "event-owner-blocker-ruling",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    },
+    ruled = applyTransition(before, rulingCommand, {
+      actorBinding: implementer,
+      capability: "execution-consent@v1",
+      capabilityRef: "cap-consent-owner-blocker-ruling",
+      reviewFindingTriages: [],
+    } satisfies ReviewConsentProof),
+    reworkCommand = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: ruled.snapshot.revision,
+        },
+        {
+          type: "ReworkTask" as const,
+          taskId: escalated.taskId,
+          executionId: escalated.executionId,
+          reviewId: escalated.reviewId,
+          reason: "The owner confirmed this blocker and returns the cut to implementation.",
+        },
+      ),
+      eventId: "event-owner-blocker-rework",
+      workspaceRevision: ruled.snapshot.revision + 1,
+      occurredAt: "2026-10-27T01:01:00.000Z",
+    },
+    returned = applyTransition(ruled.snapshot, reworkCommand, {
+      actorBinding: implementer,
+      capability: "task-rework@v1",
+      capabilityRef: "cap-rework-owner-blocker-ruling",
+      reworkBudget: 3,
+    });
+
+  assert.equal(ruled.snapshot.reviewDispositions?.[0]?.findingRuling?.disposition, "blocker");
+  assert.equal(returned.snapshot.task?.status, "active");
+  assert.equal(returned.snapshot.task?.iteration, ruled.snapshot.task!.iteration + 1);
+  assert.equal(
+    returned.snapshot.executions.find(({ executionId }) => executionId === escalated.executionId)?.state,
+    "changes_requested",
+  );
+});
+
+test("a finding ruling is digest-bound and leaves every other finding in the review unresolved", () => {
+  const findings = review([
+      { findingId: "F-ruled", blocking: false, text: "First unclear finding.", category: "correctness" },
+      { findingId: "F-still-open", blocking: false, text: "Second unclear finding.", category: "completeness" },
+    ]),
+    cut = execution([findings]),
+    ruling = {
+      targetDigest: cutDigest(),
+      reviewId: findings.reviewId,
+      findingId: "F-ruled",
+      disposition: "false_positive" as const,
+      rationale: "The reviewed evidence shows this concern cannot occur.",
+    },
+    disposition = {
+      schema: "review-disposition/v1" as const,
+      dispositionId: "disposition-finding-ruling",
+      taskId: findings.taskId,
+      executionId: findings.executionId,
+      iteration: findings.iteration,
+      submissionDigest: cutDigest(),
+      disposedReviewIds: [],
+      rationale: ruling.rationale,
+      actor: { principal: { personId: "person_zeyu" }, executor: null },
+      source: "local" as const,
+      disposedAt: "2026-10-27T01:00:00.000Z",
+      findingRuling: ruling,
+    },
+    settled = currentCutSettlement([findings], cut, [], [disposition]),
+    stale = currentCutSettlement(
+      [findings],
+      cut,
+      [],
+      [{ ...disposition, findingRuling: { ...ruling, targetDigest: `sha256:${"9".repeat(64)}` } }],
+    );
+
+  assert.equal(settled?.findings.find(({ findingId }) => findingId === "F-ruled")?.outcome, "closed");
+  assert.equal(settled?.findings.find(({ findingId }) => findingId === "F-still-open")?.outcome, "escalated");
+  assert.equal(settled?.outcome, "escalated");
+  assert.equal(stale?.findings.find(({ findingId }) => findingId === "F-ruled")?.outcome, "escalated");
+});
+
 test("a cut with no categorized finding keeps the per-review approval path", () => {
   const plain = review([]);
   assert.equal(currentCutSettlement([plain], execution([plain]), []), null);

@@ -204,7 +204,7 @@ test("named lifecycle specifications preserve every execution metadata field", (
         topology: "ledger-write",
         coordination: "execute",
         eventType: "submission_returned",
-        proof: ["ownerActor", "task-rework@v1", "exhaustedBudget", "auditableReason"],
+        proof: ["ownerActor", "task-rework@v1", "exhaustedBudgetOrOwnerBlocker", "auditableReason"],
       },
       {
         id: "consent",

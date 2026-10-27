@@ -359,7 +359,7 @@ export class TaskLifecycleContractError extends Error {
   }
 }
 /** Increment when a task-event shape change makes older replica implementations unable to replay it. */
-export const TASK_EVENT_SHAPE_COMPAT_VERSION = 3;
+export const TASK_EVENT_SHAPE_COMPAT_VERSION = 4;
 export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   id: "task-event/v1",
   required: Object.freeze([
@@ -586,14 +586,29 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     value.type === "review_consent_overridden" &&
     isRecord(payload.disposition) &&
     isRecord(payload.execution) &&
-    (payload.disposition.taskId !== value.taskId ||
-      payload.disposition.executionId !== payload.execution.executionId ||
-      payload.disposition.iteration !== payload.execution.iteration ||
-      !payload.execution.submission ||
-      payload.disposition.submissionDigest !== submissionDigest(payload.execution.submission as SubmissionV1) ||
-      !sameActorIdentity(payload.disposition.actor, value.actor) ||
-      !sameWriteSource(payload.disposition.source, value.source) ||
-      payload.disposition.disposedAt !== value.occurredAt)
+    (() => {
+      const disposition = payload.disposition as Record<string, unknown>,
+        execution = payload.execution as Record<string, unknown>,
+        review = isRecord(payload.review) ? payload.review : undefined,
+        ruling = isRecord(disposition.findingRuling) ? disposition.findingRuling : undefined,
+        findings = Array.isArray(review?.findings) ? review.findings : undefined;
+      return (
+        disposition.taskId !== value.taskId ||
+        disposition.executionId !== execution.executionId ||
+        disposition.iteration !== execution.iteration ||
+        !execution.submission ||
+        disposition.submissionDigest !== submissionDigest(execution.submission as SubmissionV1) ||
+        !sameActorIdentity(disposition.actor, value.actor) ||
+        !sameWriteSource(disposition.source, value.source) ||
+        disposition.disposedAt !== value.occurredAt ||
+        (ruling !== undefined &&
+          (ruling.targetDigest !== disposition.submissionDigest ||
+            ruling.reviewId !== review?.reviewId ||
+            ruling.rationale !== disposition.rationale ||
+            findings === undefined ||
+            !findings.some((finding: unknown) => isRecord(finding) && finding.findingId === ruling.findingId)))
+      );
+    })()
   )
     issues.push(invalidEventPayloadIssue("review disposition must be pinned to its event and execution cut"));
   // Retired 2026-10-21: accepted history stays readable, current admission rejects the types.

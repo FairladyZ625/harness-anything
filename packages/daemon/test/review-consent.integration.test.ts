@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
-import { makeTaskEventReader, reviewDigest } from "@harness-anything/kernel";
+import { makeTaskEventReader, reviewDigest, submissionDigest } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { revokeTestPolicyGroup, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -448,6 +448,180 @@ test("only the task owner can consent to a changes_requested review, and overrid
     // An approved cut stays at the gate: the manual return retired with the automatic loop, so
     // the owner's lanes are consent (or supersede) only.
     assert.equal(reviewedEvent.payload.task.status, "in_review");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the task owner can adjudicate an escalated finding through review-consent", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-owner-finding-ruling-")),
+    repoId = workspaceId("owner-finding-ruling"),
+    taskId = "task-owner-finding-ruling",
+    executionId = "execution-owner-finding-ruling",
+    ownerBinding = withPolicyGroup({ actor, source: "local" as const }, "maintainer"),
+    reviewer = withPolicyGroup(
+      {
+        actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },
+        source: "local" as const,
+      },
+      "maintainer",
+    ),
+    outsiderBinding = withPolicyGroup({ actor: outsider, source: "local" as const }, "maintainer");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "owner-finding-ruling" });
+    const store = () => makeTaskEventReader({ repoId, rootDir }),
+      created = await cell.run({ kind: "task-create", taskId, title: "Owner finding ruling" }, ownerBinding),
+      packagePath = (created as Record<string, unknown>).packagePath;
+    await waitForFixturePublication(cell, created.opId, ownerBinding);
+    await realizeTaskPlanFixture(rootDir, String(packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, ownerBinding),
+    );
+    await cell.run({ kind: "task-start", taskId, executionId }, ownerBinding);
+    writeCloseout(rootDir, packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, ownerBinding)).outcome, "applied");
+
+    writeFileSync(
+      path.join(rootDir, "review-escalated.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Review passed except for one finding that needs owner classification.",
+        evidenceChecked: ["review report"],
+        findings: [
+          {
+            findingId: "finding-owner-ruling",
+            blocking: false,
+            text: "The available evidence does not establish whether this concern applies to the cut.",
+            category: "correctness",
+          },
+        ],
+        resolutions: [],
+      }),
+    );
+    writeReviewReport(rootDir, packagePath, "review-owner-finding-ruling");
+    const reviewAction = {
+      kind: "task-review-execution" as const,
+      taskId,
+      executionId,
+      reviewId: "review-owner-finding-ruling",
+      fromFile: "review-escalated.json",
+    };
+    const reviewed = await cell.run(reviewAction, reviewer);
+    await waitForFixturePublication(cell, reviewed.opId, reviewer);
+    assert.equal(reviewed.status, "accepted_durable", JSON.stringify(reviewed));
+    // This write may be durable while the projection is one revision behind. Reopening exercises
+    // the real attach catch-up path before the next command depends on the review snapshot.
+    await cell.close();
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "owner-finding-ruling" });
+    const reviewProjection = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: reviewed.opId,
+        waitFor: ["accepted_durable", "projection_visible"],
+        timeoutMs: 5000,
+      },
+      reviewer,
+    );
+    assert.equal(reviewProjection.wait?.state, "satisfied", JSON.stringify(reviewProjection));
+    const reviewedEvent = store().readEvent(reviewed.opId);
+    assert.equal(reviewedEvent?.type, "review_recorded", JSON.stringify(reviewedEvent));
+
+    const rejected = await cell.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-owner-finding-ruling",
+        findingId: "finding-owner-ruling",
+        findingDisposition: "false_positive",
+        rationale: "This principal did not create the task.",
+      },
+      outsiderBinding,
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
+
+    const missingRationale = await cell.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-owner-finding-ruling",
+        findingId: "finding-owner-ruling",
+        findingDisposition: "false_positive",
+      },
+      ownerBinding,
+    );
+    assert.equal(missingRationale.outcome, "op_rejected", JSON.stringify(missingRationale));
+    assert.equal(missingRationale.code, "invalid_proof");
+
+    const rulingAction = {
+      kind: "task-review-consent" as const,
+      taskId,
+      executionId,
+      reviewId: "review-owner-finding-ruling",
+      findingId: "finding-owner-ruling",
+      findingDisposition: "false_positive",
+      rationale: "The frozen evidence confirms the concern is not present in this cut.",
+    };
+    const ruled = await cell.run(rulingAction, ownerBinding);
+    assert.equal(ruled.outcome, "applied", JSON.stringify(ruled));
+    await waitForFixturePublication(cell, ruled.opId, ownerBinding);
+    await cell.close();
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "owner-finding-ruling" });
+    const rulingProjection = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: ruled.opId,
+        waitFor: ["accepted_durable", "projection_visible"],
+        timeoutMs: 5000,
+      },
+      ownerBinding,
+    );
+    assert.equal(rulingProjection.wait?.state, "satisfied", JSON.stringify(rulingProjection));
+    const rulingEvent = store().readEvent(String(ruled.opId));
+    if (rulingEvent?.type !== "review_consent_overridden") throw new Error("finding ruling event missing");
+    assert.deepEqual(
+      {
+        targetDigest: rulingEvent.payload.disposition.findingRuling?.targetDigest,
+        submissionDigest: rulingEvent.payload.disposition.submissionDigest,
+        reviewId: rulingEvent.payload.disposition.findingRuling?.reviewId,
+        findingId: rulingEvent.payload.disposition.findingRuling?.findingId,
+        disposition: rulingEvent.payload.disposition.findingRuling?.disposition,
+        rationale: rulingEvent.payload.disposition.rationale,
+      },
+      {
+        targetDigest: rulingEvent.payload.execution.submission
+          ? submissionDigest(rulingEvent.payload.execution.submission)
+          : undefined,
+        submissionDigest: rulingEvent.payload.execution.submission
+          ? submissionDigest(rulingEvent.payload.execution.submission)
+          : undefined,
+        reviewId: "review-owner-finding-ruling",
+        findingId: "finding-owner-ruling",
+        disposition: "false_positive",
+        rationale: "The frozen evidence confirms the concern is not present in this cut.",
+      },
+    );
+    assert.deepEqual(
+      (
+        await cell.run(
+          {
+            kind: "task-review-consent",
+            taskId,
+            executionId,
+            reviewId: "review-owner-finding-ruling",
+            findingId: "finding-owner-ruling",
+            findingDisposition: "nit",
+            rationale: "A second ruling must not overwrite the first.",
+          },
+          ownerBinding,
+        )
+      ).code,
+      "invalid_proof",
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

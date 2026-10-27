@@ -5,6 +5,7 @@ import { validateExecutionV1 } from "../../src/domain/execution.ts";
 import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
 import { validateEntityJsonSchema } from "../../src/domain/entity-json-schema.ts";
 import {
+  interpretEntityValue,
   interpretEmbeddedEntityProjections,
   type EntityProjectionContract,
 } from "../../src/domain/entity-kind-projection.ts";
@@ -43,7 +44,19 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       commitSha: "a".repeat(40),
       iteration: 0,
       contentDigest: `sha256:${"b".repeat(64)}`,
+      submissionDigest: `sha256:${"d".repeat(64)}`,
       reviewedAt: execution.claimedAt,
+      findings: [
+        {
+          findingId: "finding-schema-classification",
+          blocking: false,
+          text: "This categorized finding must survive projection reopen.",
+          category: "correctness",
+          label: "Important",
+          evidenceDigest: `sha256:${"c".repeat(64)}`,
+          priorFindingRefs: ["review-previous/finding-previous"],
+        },
+      ],
     },
     runtimeSession = {
       schema: "runtime-session/v1",
@@ -79,6 +92,16 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
     };
 
   const executionContract = getEntityKindContract("execution")!;
+  const reviewContract = getEntityKindContract("review")!;
+  assert.doesNotThrow(() => interpretEntityValue(reviewContract, review));
+  assert.throws(
+    () =>
+      interpretEntityValue(reviewContract, {
+        ...review,
+        findings: [{ ...review.findings[0], category: "not-a-review-category" }],
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_entity_contract",
+  );
   for (const kind of ["correction", "superseded-by"]) {
     const annotated = {
       ...execution,

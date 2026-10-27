@@ -42,6 +42,7 @@ import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
+import { readReviewTriageRecords } from "./review-finding-triage.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -410,7 +411,7 @@ export async function proofFor(
     if (!task || !isSamePerson(task.createdBy, command.actor))
       throw cellCriterionError(
         "invalid_proof",
-        "Only the task-owning principal may return an exhausted review cut to rework.",
+        "Only the task-owning principal may return an exhausted or owner-blocked review cut to rework.",
         "rework",
         "repo-cell-proof/proofFor.ReworkTask",
         [`ha task rework ${command.taskId} --reason <why the owner is returning this cut>`],
@@ -471,6 +472,13 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-consent@v1",
       capabilityRef: authorizationDecision.policyRef,
+      ...(command.findingId !== undefined && command.findingDisposition !== undefined
+        ? {
+            reviewFindingTriages: readReviewTriageRecords(rootDir).filter(
+              (record) => record.target.kind === "task" && record.target.id === command.taskId,
+            ),
+          }
+        : {}),
       authorizationDecision,
     };
   }

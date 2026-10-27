@@ -5,6 +5,7 @@ import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 import { settingsLocales } from "./settings.ts";
 import { taskClasses } from "./task.ts";
 import { priorityTiers, taskWorkKinds } from "./task-metadata.ts";
+import { reviewFindingDispositions } from "./review-settlement.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -248,7 +249,7 @@ const lifecycleSpecs = Object.freeze({
     remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "submission_returned",
-    proof: ["ownerActor", "task-rework@v1", "exhaustedBudget", "auditableReason"],
+    proof: ["ownerActor", "task-rework@v1", "exhaustedBudgetOrOwnerBlocker", "auditableReason"],
     validatorCriterionRef: "task-lifecycle-command-transitions/rework.validate",
   },
   consent: {
@@ -532,19 +533,19 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-command-transitions/rework.validate",
         "invalid_transition",
-        "The owner returns only an unleased in_review cut whose current changes_requested review exhausted the automatic rework budget.",
+        "The owner returns an unleased in_review cut after a current changes_requested review exhausts the automatic rework budget, or after the owner confirms an escalated finding as a blocker.",
       ),
       criterion(
         "repo-cell-proof/proofFor.ReworkTask",
         "invalid_proof",
-        "The authenticated task-owning principal supplies the effective exhausted rework budget and an auditable reason.",
+        "The authenticated task-owning principal supplies the effective exhausted rework budget or a current owner-confirmed blocker, and an auditable reason.",
       ),
     ]),
     concurrency: taskConcurrency(
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
     ),
-    explain: "Return an exhausted review cut to rework with an owner reason and continue its original worker.",
+    explain: "Return exhausted or owner-blocked cuts to rework with an owner reason; resume the worker.",
   }),
   lifecycle("consent", {
     input: input([
@@ -556,12 +557,16 @@ export const declarations: readonly Declaration[] = Object.freeze([
       wire(cli("reviewId", "string", true, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       cli("dispose", "string-array", false, "--dispose", "repeated"),
       cli("rationale", "string", false, "--rationale"),
+      cli("findingId", "string", false, "--finding-id"),
+      cli("findingDisposition", "string", false, "--finding-disposition", "single", {
+        enum: reviewFindingDispositions,
+      }),
     ]),
     criteria: Object.freeze([
       criterion(
         "task-lifecycle-review-transitions/consent.validate",
         "invalid_proof",
-        "Consent selects an approved review or an owner-disposed changes_requested review of the current submission and pins review, content, and submission digests; owner override requires the task owner's principal and a rationale for every disposed review.",
+        "Consent selects an approved review or an owner-disposed changes_requested review of the current submission and pins review, content, and submission digests; owner override requires the task owner's principal and a rationale for every disposed review. An escalated finding can be adjudicated once with --finding-id and --finding-disposition.",
       ),
     ]),
     concurrency: taskConcurrency(

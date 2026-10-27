@@ -334,7 +334,7 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [],
       },
-      explain: "Return an exhausted review cut to rework with an owner reason and continue its original worker.",
+      explain: "Return exhausted or owner-blocked cuts to rework with an owner reason; resume the worker.",
       execution: {
         ingress: "task-rework",
         topology: "ledger-write",
@@ -377,6 +377,19 @@ export const taskActionDescriptorProjection = {
             type: "string",
             required: false,
             cli: { name: "--rationale", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "findingId",
+            type: "string",
+            required: false,
+            cli: { name: "--finding-id", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "findingDisposition",
+            type: "string",
+            required: false,
+            enum: ["blocker", "non_blocking", "nit", "pre_existing", "false_positive"],
+            cli: { name: "--finding-disposition", kind: "single", error: "invalid_field" },
           },
           { field: "commandType", type: "string", required: false, enum: ["RecordReviewConsent"] },
         ],

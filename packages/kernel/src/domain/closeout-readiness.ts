@@ -41,6 +41,8 @@ export interface CloseoutAssessment {
   readonly readiness: CloseoutReadiness;
   readonly executionId?: string;
   readonly blocker?: CloseoutBlocker;
+  readonly escalatedFindings?: readonly { readonly reviewId: string; readonly findingId: string }[];
+  readonly blockingFindings?: readonly { readonly reviewId: string; readonly findingId: string }[];
   readonly gates: readonly CloseoutGateResult[];
 }
 export interface CloseoutProjectionAvailability {
@@ -181,8 +183,25 @@ export function closeoutReadiness(
   // findings pays for the per-cut pinning.
   const findingsRecorded = snapshot.reviews.some((review) => (review.findings ?? []).length > 0),
     settlement = findingsRecorded
-      ? currentCutSettlement(snapshot.reviews, execution, snapshot.reviewFindingTriages ?? [])
+      ? currentCutSettlement(
+          snapshot.reviews,
+          execution,
+          snapshot.reviewFindingTriages ?? [],
+          snapshot.reviewDispositions ?? [],
+        )
       : null,
+    ownerBlockingFindings =
+      settlement?.blockers.filter(({ reviewId, findingId }) => {
+        const targetDigest = submissionDigest(execution.submission!);
+        return (snapshot.reviewDispositions ?? []).some(
+          (value) =>
+            value.submissionDigest === targetDigest &&
+            value.findingRuling?.targetDigest === targetDigest &&
+            value.findingRuling.reviewId === reviewId &&
+            value.findingRuling.findingId === findingId &&
+            value.findingRuling.disposition === "blocker",
+        );
+      }) ?? [],
     reviewOwed = effectiveGates?.review !== false || forwarded,
     // A cut that raised a finding with no category is unresolved review — except for a review the
     // owner already disposed at this submission digest. Without that exit the predicate would
@@ -204,7 +223,18 @@ export function closeoutReadiness(
     reviewSatisfied =
       !unfiledFindings && (settlement !== null ? settlement.outcome === "passed" : approved.length > 0 || consented);
   if (reviewOwed && !reviewSatisfied)
-    return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
+    return {
+      readiness: "incomplete",
+      executionId: execution.executionId,
+      blocker: "review",
+      ...(settlement?.escalated.length
+        ? { escalatedFindings: settlement.escalated.map(({ reviewId, findingId }) => ({ reviewId, findingId })) }
+        : {}),
+      ...(ownerBlockingFindings.length
+        ? { blockingFindings: ownerBlockingFindings.map(({ reviewId, findingId }) => ({ reviewId, findingId })) }
+        : {}),
+      gates,
+    };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"),
@@ -259,12 +289,18 @@ export function currentCutSettlement(
   reviews: readonly ReviewV1[],
   execution: ExecutionV1,
   triages: readonly ReviewFindingTriageV1[],
+  dispositions: readonly ReviewDispositionV1[] = [],
 ): ReviewFindingSettlement | null {
   const findings = cutReviewFindings(reviews, execution);
   if (findings.length === 0 || !execution.submission) return null;
   // The cut a settlement answers is its submission digest: an amend mints a new one, and a record
   // minted for the old cut must not answer the new one (B-3: `(reviewId, findingId)` is reusable).
-  return settleReviewFindings({ findings, triages, targetDigest: submissionDigest(execution.submission) });
+  return settleReviewFindings({
+    findings,
+    triages,
+    targetDigest: submissionDigest(execution.submission),
+    rulings: dispositions.flatMap((value) => (value.findingRuling ? [value.findingRuling] : [])),
+  });
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

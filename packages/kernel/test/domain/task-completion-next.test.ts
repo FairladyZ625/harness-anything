@@ -341,6 +341,128 @@ test("a recorded changes_requested review guides the owner's disposition instead
   assert.equal(taskCompletionNext(at(3), context).next?.action, "ha task dispatch-review task-1");
 });
 
+test("completion readiness names an owner finding ruling when approved review settlement escalates", () => {
+  const reviewed = at(4),
+    escalated = {
+      ...reviewed,
+      reviews: [
+        {
+          ...reviewed.reviews[0]!,
+          findings: [
+            {
+              findingId: "F-escalated",
+              blocking: false,
+              text: "Automated triage could not classify this finding.",
+              category: "correctness" as const,
+            },
+          ],
+        },
+      ],
+      reviewFindingTriages: [],
+    },
+    result = taskCompletionNext(escalated, context);
+
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.match(result.next!.action, /ha task review-consent task-1 --execution-id execution-1/u);
+  assert.match(result.next!.action, /--review-id 'review-execution' --finding-id 'F-escalated'/u);
+  assert.match(
+    result.next!.action,
+    /--finding-disposition <blocker\|non_blocking\|nit\|pre_existing\|false_positive>/u,
+  );
+  assert.doesNotMatch(result.next!.action, /dispatch-review/u);
+});
+
+test("completion readiness returns an owner-confirmed blocker to implementation", () => {
+  const reviewed = at(4),
+    escalated = {
+      ...reviewed,
+      reviews: [
+        {
+          ...reviewed.reviews[0]!,
+          findings: [
+            {
+              findingId: "F-owner-blocker",
+              blocking: false,
+              text: "Automated triage could not classify this finding.",
+              category: "correctness" as const,
+            },
+          ],
+        },
+      ],
+      reviewFindingTriages: [],
+    },
+    submission = escalated.executions.find(({ state }) => state === "submitted")!.submission!,
+    targetDigest = submissionDigest(submission),
+    ownerBlocked = {
+      ...escalated,
+      reviewDispositions: [
+        {
+          schema: "review-disposition/v1" as const,
+          dispositionId: "disposition-owner-blocker",
+          taskId: escalated.task!.taskId,
+          executionId: escalated.reviews[0]!.executionId,
+          iteration: escalated.reviews[0]!.iteration,
+          submissionDigest: targetDigest,
+          disposedReviewIds: [],
+          rationale: "This is a reproducible blocker.",
+          actor: escalated.task!.createdBy,
+          source: "local" as const,
+          disposedAt: "2026-10-27T01:00:00.000Z",
+          findingRuling: {
+            targetDigest,
+            reviewId: escalated.reviews[0]!.reviewId,
+            findingId: "F-owner-blocker",
+            disposition: "blocker" as const,
+            rationale: "This is a reproducible blocker.",
+          },
+        },
+      ],
+    },
+    result = taskCompletionNext(ownerBlocked, context);
+
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.next?.action, "ha task rework task-1 --reason <why the owner is returning this cut>");
+  assert.match(result.next!.reason, /owner must return this cut to implementation/u);
+  assert.doesNotMatch(result.next!.action, /dispatch-review/u);
+});
+
+test("completion readiness does not offer owner rework for an automatically classified blocker", () => {
+  const reviewed = at(4),
+    escalated = {
+      ...reviewed,
+      reviews: [
+        {
+          ...reviewed.reviews[0]!,
+          findings: [
+            {
+              findingId: "F-triaged-blocker",
+              blocking: true,
+              text: "Triage classified this finding as a blocker.",
+              category: "correctness" as const,
+            },
+          ],
+        },
+      ],
+      reviewFindingTriages: [
+        {
+          schema: "review-finding-triage/v1" as const,
+          reviewId: reviewed.reviews[0]!.reviewId,
+          findingId: "F-triaged-blocker",
+          targetDigest: submissionDigest(reviewed.executions.find(({ state }) => state === "submitted")!.submission!),
+          selected: "blocker" as const,
+          probabilities: { blocker: 0.95, non_blocking: 0.02, nit: 0.01, pre_existing: 0.01, false_positive: 0.01 },
+          model: "triage-model",
+          bindingDigest: submissionDigest(reviewed.executions.find(({ state }) => state === "submitted")!.submission!),
+          decidedAt: "2026-10-27T01:00:00.000Z",
+        },
+      ],
+    },
+    result = taskCompletionNext(escalated, context);
+
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.doesNotMatch(result.next!.action, /ha task rework/u);
+});
+
 test("a changes request on the current cut comes before missing merge evidence", () => {
   const reviewed = gatedAt([retiredCiRequirement], 6),
     changesRequested = {

@@ -3,6 +3,9 @@ import {
   executionV1StateWords,
   leasePhaseWords,
   packageDispositionWords,
+  reviewFindingCategoryWords,
+  reviewFindingDispositionWords,
+  reviewFindingLabelWords,
   reviewVerdictWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
@@ -466,13 +469,24 @@ export function review(value: unknown): boolean {
   const optionalFields = ["submissionDigest", "findings", "resolutions"];
   const validFinding = (finding: unknown): boolean => {
     if (!isJsonObject(finding)) return false;
-    const fields = ["findingId", "blocking", "text"];
+    const fields = ["findingId", "blocking", "text"],
+      optionalFields = ["anchor", "category", "label", "evidenceDigest", "priorFindingRefs"],
+      allowedFields = [...fields, ...optionalFields];
     return (
-      (exactRecord(finding, fields) || exactRecord(finding, [...fields, "anchor"])) &&
+      recordWith(finding, fields) &&
+      Object.keys(finding).every((field) => allowedFields.includes(field)) &&
       nonEmpty(finding.findingId) &&
       typeof finding.blocking === "boolean" &&
       nonEmpty(finding.text) &&
-      (finding.anchor === undefined || nonEmpty(finding.anchor))
+      (finding.anchor === undefined || nonEmpty(finding.anchor)) &&
+      (finding.category === undefined ||
+        (typeof finding.category === "string" &&
+          reviewFindingCategoryWords.includes(finding.category as (typeof reviewFindingCategoryWords)[number]))) &&
+      (finding.label === undefined ||
+        (typeof finding.label === "string" &&
+          reviewFindingLabelWords.includes(finding.label as (typeof reviewFindingLabelWords)[number]))) &&
+      (finding.evidenceDigest === undefined || digest(finding.evidenceDigest)) &&
+      (finding.priorFindingRefs === undefined || stringArray(finding.priorFindingRefs))
     );
   };
   const validResolution = (resolution: unknown): boolean =>
@@ -505,26 +519,37 @@ export function review(value: unknown): boolean {
 }
 
 export function reviewDisposition(value: unknown): boolean {
+  const fields = [
+    "schema",
+    "dispositionId",
+    "taskId",
+    "executionId",
+    "iteration",
+    "submissionDigest",
+    "disposedReviewIds",
+    "rationale",
+    "actor",
+    "source",
+    "disposedAt",
+  ];
+  const validRuling = (ruling: unknown): boolean =>
+    recordWith(ruling, ["targetDigest", "reviewId", "findingId", "disposition", "rationale"]) &&
+    exactRecord(ruling, ["targetDigest", "reviewId", "findingId", "disposition", "rationale"]) &&
+    digest(ruling.targetDigest) &&
+    [ruling.reviewId, ruling.findingId, ruling.rationale].every(nonEmpty) &&
+    reviewFindingDispositionWords.includes(ruling.disposition as (typeof reviewFindingDispositionWords)[number]);
+  if (!recordWith(value, fields)) return false;
+  const hasRuling = Object.hasOwn(value, "findingRuling");
+  if (!(exactRecord(value, fields) || (hasRuling && exactRecord(value, [...fields, "findingRuling"])))) return false;
   return (
-    exactRecord(value, [
-      "schema",
-      "dispositionId",
-      "taskId",
-      "executionId",
-      "iteration",
-      "submissionDigest",
-      "disposedReviewIds",
-      "rationale",
-      "actor",
-      "source",
-      "disposedAt",
-    ]) &&
     value.schema === "review-disposition/v1" &&
     [value.dispositionId, value.taskId, value.executionId, value.rationale, value.disposedAt].every(nonEmpty) &&
     iteration(value.iteration) &&
     digest(value.submissionDigest) &&
     stringArray(value.disposedReviewIds) &&
-    value.disposedReviewIds.length > 0 &&
+    (value.disposedReviewIds.length > 0 || hasRuling) &&
+    (!hasRuling || value.disposedReviewIds.length === 0) &&
+    (!hasRuling || validRuling(value.findingRuling)) &&
     actor(value.actor) &&
     source(value.source)
   );

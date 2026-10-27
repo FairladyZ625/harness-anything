@@ -570,7 +570,18 @@ export const rework: Transition = {
           value.executionId === command.executionId &&
           value.iteration === current?.iteration,
       ),
-      returned = snapshot.executions.filter((value) => value.state === "changes_requested").length;
+      returned = snapshot.executions.filter((value) => value.state === "changes_requested").length,
+      currentDigest = current?.submission ? submissionDigest(current.submission) : undefined,
+      ownerConfirmedBlocker =
+        currentDigest !== undefined &&
+        review?.verdict === "approved" &&
+        (snapshot.reviewDispositions ?? []).some(
+          (value) =>
+            value.submissionDigest === currentDigest &&
+            value.findingRuling?.targetDigest === currentDigest &&
+            value.findingRuling.reviewId === review.reviewId &&
+            value.findingRuling.disposition === "blocker",
+        );
     if (
       !task ||
       task.status !== "in_review" ||
@@ -587,24 +598,25 @@ export const rework: Transition = {
       );
     if (
       !review ||
-      review.verdict !== "changes_requested" ||
-      review.submissionDigest !== (current?.submission ? submissionDigest(current.submission) : null)
+      review.submissionDigest !== currentDigest ||
+      (!ownerConfirmedBlocker && review.verdict !== "changes_requested")
     )
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "Task rework requires the named current changes_requested review; use --dispose with review-consent for an override",
+          "Task rework requires a current changes_requested review or an owner-confirmed blocker finding",
         ),
       );
     if (
-      !Number.isSafeInteger(proof.reworkBudget) ||
-      (proof.reworkBudget as number) < 1 ||
-      returned < (proof.reworkBudget as number)
+      !ownerConfirmedBlocker &&
+      (!Number.isSafeInteger(proof.reworkBudget) ||
+        (proof.reworkBudget as number) < 1 ||
+        returned < (proof.reworkBudget as number))
     )
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "Task rework is available only after the repository rework budget is exhausted",
+          "Task rework for a changes_requested review is available only after the repository rework budget is exhausted",
         ),
       );
     if (!isNonEmptyString(command.reason))

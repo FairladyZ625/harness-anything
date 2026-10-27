@@ -4,6 +4,8 @@ import type {
   DecisionCapabilityId,
   DecisionCapabilityReason,
   MaterializationState,
+  ReviewFindingCategory,
+  ReviewFindingLabel,
   TaskBoardColumnId,
   TaskCapabilityId,
   TaskCapabilityReason,
@@ -34,6 +36,43 @@ export const factLivenessWords = ["standing", "superseded_fact"] as const;
 export const executionV1StateWords = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;
 
 export const executionStateWords = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;
+
+/** Wire mirror for the owner finding ruling vocabulary; registered against the kernel authority. */
+export const reviewFindingDispositionWords = Object.freeze([
+  "blocker",
+  "non_blocking",
+  "nit",
+  "pre_existing",
+  "false_positive",
+] as const);
+
+/** Wire mirrors of the kernel finding vocabularies; the kernel remains the source of truth. */
+export const reviewFindingCategoryWords = Object.freeze([
+  "correctness",
+  "completeness",
+  "ci-required",
+  "migration",
+  "decision-break",
+  "security-auth",
+  "data-loss",
+  "style",
+  "diagnostic",
+  "cleanup",
+] as const satisfies readonly ReviewFindingCategory[]);
+export const reviewFindingCategoryWordsAreExact: [ReviewFindingCategory] extends [
+  (typeof reviewFindingCategoryWords)[number],
+]
+  ? true
+  : never = true;
+
+export const reviewFindingLabelWords = Object.freeze([
+  "Important",
+  "Nit",
+  "Pre-existing",
+] as const satisfies readonly ReviewFindingLabel[]);
+export const reviewFindingLabelWordsAreExact: [ReviewFindingLabel] extends [(typeof reviewFindingLabelWords)[number]]
+  ? true
+  : never = true;
 
 export const leasePhaseWords = ["reserving", "held", "orphaned", "released"] as const;
 
