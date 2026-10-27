@@ -465,6 +465,7 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     "receiptId",
     "runtimeSessionId",
     "dispatchId",
+    "checkpoint",
     "reviewerId",
     "reviewerSource",
     "ledgerAccess",
@@ -490,6 +491,76 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // is a named ingress onto that same spawn, so its envelope accepts the receipt's selection.
     "runtimeSelection",
   ];
+
+const runtimeHandoffCheckpointFields = [
+  "dispatchId",
+  "taskId",
+  "executionId",
+  "runtimeSessionId",
+  "ownerPersonId",
+  "source",
+  "providerSessionId",
+  "commit",
+  "version",
+  "agentId",
+  "model",
+  "blob",
+  "exportedAt",
+  "revokedAt",
+] as const;
+
+function validateRuntimeHandoffCheckpoint(value: unknown): readonly string[] {
+  const entityId = "runtime-handoff-checkpoint",
+    shapeError = recordShapeError(
+      entityId,
+      value,
+      runtimeHandoffCheckpointFields,
+      runtimeHandoffCheckpointFields,
+      "checkpoint",
+    );
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
+  const blobShapeError = recordShapeError(
+    entityId,
+    value.blob,
+    ["sha256", "size", "mediaType"],
+    undefined,
+    "checkpoint.blob",
+  );
+  if (blobShapeError) return [blobShapeError];
+  if (!isJsonObject(value.blob)) return [];
+  for (const field of [
+    "taskId",
+    "executionId",
+    "runtimeSessionId",
+    "ownerPersonId",
+    "providerSessionId",
+    "version",
+    "agentId",
+    "model",
+    "exportedAt",
+  ])
+    if (!nonEmpty(value[field]))
+      return [validationError(entityId, `checkpoint.${field}`, value[field], "must be a non-empty string")];
+  if (!/^dispatch_[a-f0-9]{24}$/u.test(String(value.dispatchId)))
+    return [validationError(entityId, "checkpoint.dispatchId", value.dispatchId, "must be a canonical dispatch id")];
+  if (!/^[a-f0-9]{40}$/u.test(String(value.commit)))
+    return [validationError(entityId, "checkpoint.commit", value.commit, "must be a commit SHA")];
+  if (!isJsonObject(value.source) || !nonEmpty(value.source.kind))
+    return [validationError(entityId, "checkpoint.source", value.source, "must be a write source")];
+  if (
+    !/^[a-f0-9]{64}$/u.test(String(value.blob.sha256)) ||
+    !integer(value.blob.size) ||
+    Number(value.blob.size) < 0 ||
+    !nonEmpty(value.blob.mediaType)
+  )
+    return [
+      validationError(entityId, "checkpoint.blob", value.blob, "must contain a SHA-256, byte size and media type"),
+    ];
+  if (value.revokedAt !== null && !nonEmpty(value.revokedAt))
+    return [validationError(entityId, "checkpoint.revokedAt", value.revokedAt, "must be null or a non-empty string")];
+  return [];
+}
 
 export function writeReceipt(value: JsonObject): string[] {
   const outcome = value.outcome,
@@ -608,6 +679,13 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
       (value.consentId !== null && !nonEmpty(value.consentId)))
   )
     errors.push(validationError(entityId, "decisionReceipt", value, "must carry complete decision fidelity fields"));
+  if (Object.hasOwn(value, "checkpoint")) {
+    if (value.command !== "runtime-handoff-claim")
+      errors.push(
+        validationError(entityId, "checkpoint", value.checkpoint, "is declared only for runtime-handoff-claim"),
+      );
+    else errors.push(...validateRuntimeHandoffCheckpoint(value.checkpoint));
+  }
   return errors;
 }
 

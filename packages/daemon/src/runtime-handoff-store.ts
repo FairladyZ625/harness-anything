@@ -250,11 +250,12 @@ function auditCheckpoint(
   binding: RepoCellBinding,
   operation: "export" | "revoke",
 ) {
-  const receipt = cell.appendAuxiliaryRuntimeIngress(
+  const opId = `runtime-handoff-${operation}-${checkpoint.dispatchId}`;
+  cell.appendAuxiliaryRuntimeIngress(
     {
       kind: "event",
       type: operation === "export" ? "runtime_handoff_exported" : "runtime_handoff_revoked",
-      opId: `runtime-handoff-${operation}-${checkpoint.dispatchId}`,
+      opId,
       payload: {
         dispatchId: checkpoint.dispatchId,
         runtimeSessionId: checkpoint.runtimeSessionId,
@@ -271,5 +272,6 @@ function auditCheckpoint(
     binding,
     true,
   );
-  return { ...receipt, checkpoint } as unknown as WriteReceiptDraft;
+  const settled = cell.receiptForOperation(opId, binding);
+  return { ...settled, checkpoint };
 }

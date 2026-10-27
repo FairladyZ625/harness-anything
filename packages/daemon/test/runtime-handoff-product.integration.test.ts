@@ -9,6 +9,7 @@ import test from "node:test";
 import { makeTaskEventReader, runtimeSessionMissingOutcomeEvidence } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
@@ -341,6 +342,22 @@ for (const row of [{type:'thread.started',thread_id:id},
           .events.find((event) => event.type === "runtime_dispatch_requested"),
       }),
     );
+    assert.equal(exported.ok, true, JSON.stringify(exported));
+    assert.equal(exported.command, "runtime-handoff-claim", JSON.stringify(exported));
+    assert.equal(Object.hasOwn(exported, "event"), false, JSON.stringify(exported));
+    assert.equal(
+      parseDaemonGuiActionResult("repo.agentRuntime.handoff", exported).outcome,
+      "applied",
+      JSON.stringify(exported),
+    );
+    assert.throws(
+      () =>
+        parseDaemonGuiActionResult("repo.agentRuntime.handoff", {
+          ...exported,
+          checkpoint: { ...(exported.checkpoint as JsonObject), commit: "invalid" },
+        }),
+      { code: "invalid_result" },
+    );
     assert.equal((exported.checkpoint as JsonObject).commit, commit);
     const exportedNative = readFileSync(path.join(f.repo, ".harness/runtime-handoffs", dispatchId, "rollout.jsonl"));
     assert.deepEqual(exportedNative, sourceNative, "export preserves the settled source bytes");
@@ -446,6 +463,16 @@ for (const row of [{type:'thread.started',thread_id:id},
     assert.equal(replay.handoffResumed, true);
     const repeated = await target.run("repo.agentRuntime.handoff", { ...claim, dispatchKey: "another-target" });
     assert.equal(repeated.code, "runtime_dispatch_already_resumed", JSON.stringify(repeated));
+    const centerLocalRepeat = await f.host.handoffRuntime(
+      repoId,
+      { ...claim, dispatchKey: "center-local-repeat" },
+      localAuth,
+    );
+    assert.equal(centerLocalRepeat.code, "runtime_dispatch_already_resumed", JSON.stringify(centerLocalRepeat));
+    assert.equal(
+      parseDaemonGuiActionResult("repo.agentRuntime.handoff", centerLocalRepeat).code,
+      "runtime_dispatch_already_resumed",
+    );
     if (liveCodex) {
       const negative = await target.run("repo.agentRuntime.spawn", {
         runtimeInstanceId: instance.instanceId,
