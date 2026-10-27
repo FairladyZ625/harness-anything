@@ -8,8 +8,8 @@
  * a different canonical model before a person decides.
  *
  * The declaration is code, not repository configuration, so the option vocabulary and criteria
- * cannot drift from the settlement that consumes them. Thresholds and the reviewer roster are the
- * repository-configured parts (`review.findingThresholds`, reviewer agents).
+ * cannot drift from the settlement that consumes them. The confidence floors and the reviewer
+ * roster are the repository-configured parts (`review.thresholds.*` in Settings, reviewer agents).
  */
 import {
   reviewFindingDispositions,
