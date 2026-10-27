@@ -170,7 +170,7 @@ export async function runTaskActionCatalogRuntime(
       current.snapshot,
       contract,
       evaluations,
-      contract ? attributeCellCriterion(error, contract.id, invocationCriterionRef(contract)) : error,
+      attributeInvocationFailure(error, contract),
     );
     if (rejection) return rejection;
     throw error;
@@ -286,7 +286,7 @@ export async function runTaskActionCatalogRuntime(
       current.snapshot,
       contract,
       evaluations,
-      attributeCellCriterion(error, contract.id, invocationCriterionRef(contract)),
+      attributeInvocationFailure(error, contract),
     );
     if (rejection) return rejection;
     throw error;
@@ -504,13 +504,19 @@ function criterionEvaluation(
   return evaluation;
 }
 
-function invocationCriterionRef(contract: EntityActionContract): string {
-  const suffix = `/${contract.id}.validate`,
-    exact = contract.criteria.find(({ ref }) => ref.endsWith(suffix)),
-    candidates = contract.criteria.filter(({ ref }) => ref !== REVISION_CRITERION),
-    criterion = exact ?? (candidates.length === 1 ? candidates[0] : undefined);
-  if (!criterion) throw new Error(`Task Action ${contract.id} does not declare its invocation validator criterion.`);
-  return criterion.ref;
+/**
+ * Attribute a rejection to the guard that produced it, reading the criterion the Action declares.
+ * Nothing here may throw: attribution runs inside the `catch` that already holds the real rejection,
+ * so a second error would replace the guard's own code and sentence — exactly the defect that made
+ * a refused `respondReview` report a missing validator instead of its actual reason. The declaration
+ * itself is checked when the catalog is built (`createTaskActionCatalog`), so an Action that reaches
+ * this point names a criterion it really has; the guard is only for a hand-built contract.
+ */
+function attributeInvocationFailure(error: unknown, contract: EntityActionContract | undefined): unknown {
+  const declared = contract?.execution?.lifecycle?.validatorCriterionRef;
+  return !contract || !declared || !contract.criteria.some(({ ref }) => ref === declared)
+    ? error
+    : attributeCellCriterion(error, contract.id, declared);
 }
 
 function isTaskLifecycleContractError(error: unknown): error is Error & { readonly issues: readonly unknown[] } {

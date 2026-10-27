@@ -232,6 +232,28 @@ test("named lifecycle specifications preserve every execution metadata field", (
   );
 });
 
+// A rejection is attributed to the criterion the Action declares, so a declared validator that is
+// not one of its own criteria would be attributed to a ref settlement cannot resolve. Creation is
+// the one Action whose refusals are attributed before the lifecycle runtime, so it declares none.
+test("every lifecycle Action declares an invocation validator among its own criteria", () => {
+  const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [],
+    lifecycle = actions.flatMap((action) => {
+      const declared = action.execution?.lifecycle?.validatorCriterionRef;
+      return action.execution?.lifecycle
+        ? [{ id: action.id, refs: action.criteria.map(({ ref }) => ref), declared }]
+        : [];
+    });
+  assert.equal(lifecycle.length, 9);
+  assert.deepEqual(
+    lifecycle.filter(({ declared }) => declared === null).map(({ id }) => id),
+    ["create"],
+  );
+  for (const { id, refs, declared } of lifecycle) {
+    if (declared === null) continue;
+    assert.ok(refs.includes(declared), `${id} declares ${declared}, which is not one of ${refs.join(", ")}`);
+  }
+});
+
 test("task creation result and all eight guidance entries derive from its descriptor", () => {
   const create = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "create");
   assert.ok(create);

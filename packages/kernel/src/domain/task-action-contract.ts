@@ -175,6 +175,9 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "task_created",
     proof: ["taskIdUnique", "actorBinding", "validGraph"],
+    // Creation never reaches the lifecycle runtime: its compile and graph refusals are attributed
+    // by `createTask`, so no single criterion owns a rejected invocation here.
+    validatorCriterionRef: null,
   },
   start: {
     ingress: "task-start",
@@ -186,6 +189,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "reserve",
     eventType: "execution_started",
     proof: ["actorBinding", "deliveryBaseline", "reservation"],
+    validatorCriterionRef: "task-lifecycle-command-transitions/start.validate",
   },
   transition: {
     ingress: "task-transition",
@@ -197,6 +201,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "task_transitioned",
     proof: ["auditedReasonWhenRequired"],
+    validatorCriterionRef: "lifecycle-status/explainStatusTransition",
   },
   submit: {
     ingress: "task-submit",
@@ -208,6 +213,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "execution_submitted",
     proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
+    validatorCriterionRef: "task-lifecycle-command-transitions/submit.validate",
   },
   review: {
     ingress: "task-review-execution",
@@ -219,6 +225,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "review_recorded",
     proof: ["independentActor", "execution-review@v1", "contentCut"],
+    validatorCriterionRef: "task-lifecycle-review-transitions/review.validate",
   },
   respondReview: {
     ingress: "task-respond-review",
@@ -230,6 +237,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "task_review_responded",
     proof: ["actorBinding", "execution-review-response@v1", "contentCut"],
+    validatorCriterionRef: "task-lifecycle-review-transitions/respondReview.validate",
   },
   rework: {
     ingress: "task-rework",
@@ -241,6 +249,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "submission_returned",
     proof: ["ownerActor", "task-rework@v1", "exhaustedBudget", "auditableReason"],
+    validatorCriterionRef: "task-lifecycle-command-transitions/rework.validate",
   },
   consent: {
     ingress: "task-review-consent",
@@ -252,6 +261,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "review_consent_recorded" as "review_consent_recorded" | "review_consent_overridden",
     proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
+    validatorCriterionRef: "task-lifecycle-review-transitions/consent.validate",
   },
   complete: {
     ingress: "task-complete",
@@ -263,6 +273,7 @@ const lifecycleSpecs = Object.freeze({
     coordination: "execute",
     eventType: "task_completed",
     proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
+    validatorCriterionRef: "task-lifecycle-review-transitions/complete.validate",
   },
 } as const);
 type LifecycleId = keyof typeof lifecycleSpecs;
@@ -280,6 +291,8 @@ interface Declaration {
   readonly coordination: LifecycleSpec["coordination"] | null;
   readonly eventType: LifecycleSpec["eventType"] | null;
   readonly proof: LifecycleSpec["proof"] | readonly [];
+  /** The criterion a rejected invocation is attributed to; see EntityActionExecutionContract. */
+  readonly validatorCriterionRef: LifecycleSpec["validatorCriterionRef"] | null;
   readonly targetIdField: string;
   readonly input: EntityActionInputContract;
   readonly criteria: EntityActionContract["criteria"];
@@ -318,6 +331,7 @@ const mutation = (
     coordination: null,
     eventType: null,
     proof: Object.freeze([] as const),
+    validatorCriterionRef: null,
     targetIdField,
     input: actionInput,
     criteria: Object.freeze([criterion(`repo-cell-task-mutation/${id}`, failureCode, criterionExplain)]),
@@ -490,7 +504,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
     ]),
     criteria: Object.freeze([
       criterion(
-        "task-lifecycle-review-transitions/respond.validate",
+        "task-lifecycle-review-transitions/respondReview.validate",
         "invalid_transition",
         "The worker response targets every named blocking finding on a prior returned cut exactly once.",
       ),
@@ -891,6 +905,17 @@ export function createTaskActionCatalog(baseAction: (id: string) => EntityAction
     ref: "kernel/task-action/v1",
     actions: Object.freeze(
       declarations.map((declaration): EntityActionContract => {
+        // A declared validator that is not one of the Action's own criteria cannot be attributed:
+        // the settlement layer rejects the mismatch as an invalid store, and the runtime would have
+        // to invent a criterion. Fail at declaration time, where the name is still in view.
+        if (
+          declaration.validatorCriterionRef !== null &&
+          !declaration.criteria.some(({ ref }) => ref === declaration.validatorCriterionRef)
+        )
+          throw new Error(
+            `Task Action ${declaration.id} declares invocation validator ` +
+              `${declaration.validatorCriterionRef}, which is not one of its criteria.`,
+          );
         return withDerivedActionReturns(
           Object.freeze({
             ...baseAction(declaration.id),
@@ -945,6 +970,7 @@ export function createTaskActionCatalog(baseAction: (id: string) => EntityAction
                       coordination: declaration.coordination,
                       eventType: declaration.eventType!,
                       proof: declaration.proof,
+                      validatorCriterionRef: declaration.validatorCriterionRef,
                     }),
                   }
                 : {}),
