@@ -132,16 +132,27 @@ export interface NarrowTaskRow {
  * UNION terminates cycles; the root itself is never a member. No writes.
  * A planned root with any started member presents active (CEO ruling 2026-10-11:
  * a work whose subtask started is in progress, never "planned"); completion
- * stays explicit — only an all-terminal subtree presents done/cancelled. */
-const PRESENTATION_STATUS_SQL = `CASE
-  WHEN task_snapshot.status IN ('done', 'cancelled') THEN task_snapshot.status
-  WHEN json_extract(task_snapshot.snapshot_json, '$.task.taskClass') = 'work' OR (
-    json_extract(task_snapshot.snapshot_json, '$.task.metadata.parentTaskId') IS NULL AND EXISTS (
-      SELECT 1 FROM task_snapshot AS child
-      WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id
-    )
-  ) THEN COALESCE((
-    WITH RECURSIVE members(task_id, status) AS (
+ * stays explicit — only an all-terminal subtree presents done/cancelled.
+ *
+ * Each question is asked as its own EXISTS ... LIMIT 1 rather than as one
+ * aggregate over a materialized `members` CTE. Both spellings read the same
+ * subtree through the same recursive CTE, but the aggregate has to produce
+ * every member before it can answer, so a single work root's cost was the whole
+ * subtree (a 102,921-member root cost 117.9 ms of a 119.1 ms 5M page). An
+ * EXISTS stops at the first witness: it is O(1) when the answer is decided by
+ * the root's own members near the root, and never worse than the aggregate when
+ * the subtree really is entirely terminal, because no answer exists without
+ * visiting all of it.
+ *
+ * The four questions are asked in the order the aggregate's CASE decided them,
+ * and each one is skipped when an earlier answer already settles the result:
+ *   1. any non-terminal member?  (no  -> the all-terminal arm may apply)
+ *   2. does the subtree have members at all?  (this is the aggregate's COUNT(*) > 0)
+ *   3. is any member done?  (picks done vs cancelled, only when (1) said no)
+ *   4. planned root with a started member -> active (only when (1) said yes)
+ * COALESCE keeps the historical fallback to the root's own status, which is what
+ * an aggregation over zero members produced. */
+const PRESENTATION_SUBTREE_SQL = `WITH RECURSIVE members(task_id, status) AS (
       SELECT child.task_id, child.status FROM task_snapshot AS child
       WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id
         AND child.task_id <> task_snapshot.task_id
@@ -149,14 +160,30 @@ const PRESENTATION_STATUS_SQL = `CASE
       SELECT child.task_id, child.status FROM task_snapshot AS child JOIN members AS parent
         ON json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +parent.task_id
       WHERE child.task_id <> task_snapshot.task_id
+    )`;
+
+const PRESENTATION_STATUS_SQL = `CASE
+  WHEN task_snapshot.status IN ('done', 'cancelled') THEN task_snapshot.status
+  WHEN json_extract(task_snapshot.snapshot_json, '$.task.taskClass') = 'work' OR (
+    json_extract(task_snapshot.snapshot_json, '$.task.metadata.parentTaskId') IS NULL AND EXISTS (
+      SELECT 1 FROM task_snapshot AS child
+      WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id
     )
-    SELECT CASE
-      WHEN COUNT(*) > 0 AND MIN(COALESCE(status IN ('done', 'cancelled'), 0)) = 1
-        THEN CASE WHEN MAX(status = 'done') = 1 THEN 'done' ELSE 'cancelled' END
-      WHEN task_snapshot.status = 'planned' AND MAX(COALESCE(status NOT IN ('planned', 'cancelled'), 0)) = 1
-        THEN 'active'
-    END FROM members
-  ), task_snapshot.status)
+  ) THEN COALESCE(CASE
+      WHEN NOT EXISTS (${PRESENTATION_SUBTREE_SQL}
+        SELECT 1 FROM members WHERE COALESCE(status IN ('done', 'cancelled'), 0) = 0 LIMIT 1)
+      THEN CASE
+        WHEN EXISTS (${PRESENTATION_SUBTREE_SQL} SELECT 1 FROM members LIMIT 1)
+        THEN CASE
+          WHEN EXISTS (${PRESENTATION_SUBTREE_SQL} SELECT 1 FROM members WHERE status = 'done' LIMIT 1)
+          THEN 'done'
+          ELSE 'cancelled'
+        END
+      END
+      WHEN task_snapshot.status = 'planned' AND EXISTS (${PRESENTATION_SUBTREE_SQL}
+        SELECT 1 FROM members WHERE COALESCE(status NOT IN ('planned', 'cancelled'), 0) = 1 LIMIT 1)
+      THEN 'active'
+    END, task_snapshot.status)
   ELSE task_snapshot.status END`;
 
 export function readTaskPresentationStatus(db: DatabaseSync, taskId: string): TaskV2["status"] | null {
