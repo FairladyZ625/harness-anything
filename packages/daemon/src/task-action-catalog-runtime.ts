@@ -315,10 +315,11 @@ export async function runTaskActionCatalogRuntime(
       result.proof,
       authorityProof.authorizationDecision,
     );
-    // Both automatic and owner-authorized returns use the same continuation: locate the authoring
-    // dispatch for this execution, carry the registered report, and let the spawner own admission.
-    return action.kind === "task-review-execution" || action.kind === "task-rework"
-      ? await continueReviewRework(cell, action, binding, receipt)
+    // Both automatic and owner-authorized returns use the same continuation: the applied command
+    // names the review that was recorded or returned, so the continuation follows that review's
+    // execution and dispatch identity instead of searching the projection.
+    return command.type === "RecordReview" || command.type === "ReworkTask"
+      ? await continueReviewRework(cell, command, binding, receipt)
       : receipt;
   }
   if (result.outcome === "pending")
