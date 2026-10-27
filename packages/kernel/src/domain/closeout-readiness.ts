@@ -202,7 +202,7 @@ export function closeoutReadiness(
         );
       })(),
     reviewSatisfied =
-      settlement !== null ? settlement.outcome === "passed" : !unfiledFindings && (approved.length > 0 || consented);
+      !unfiledFindings && (settlement !== null ? settlement.outcome === "passed" : approved.length > 0 || consented);
   if (reviewOwed && !reviewSatisfied)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)

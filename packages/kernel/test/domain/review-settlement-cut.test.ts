@@ -10,6 +10,14 @@ import {
 } from "@harness-anything/kernel";
 import { currentCutSettlement } from "../../src/domain/closeout-readiness.ts";
 import type { ReviewFindingTriageV1 } from "../../src/domain/review-settlement.ts";
+import {
+  reduceTaskEvent,
+  applyTransition,
+  normalizeTaskLifecycleCommand,
+  reviewDigest,
+  type ReviewConsentProof,
+} from "../../src/domain/task-lifecycle.contract.ts";
+import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 const digest = `sha256:${"b".repeat(64)}` as const,
   commit = "c".repeat(40);
@@ -211,4 +219,107 @@ test("a historical finding with no category is stranded until the owner disposes
     },
   ];
   assert.equal(closeoutReadiness(otherCut).blocker, "review", "another cut's disposition cannot release this one");
+});
+
+test("the owner can write a digest-bound disposition for an approved historical review", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    historical = {
+      ...recorded,
+      findings: [{ findingId: "legacy", blocking: false, text: "Filed before categories existed." }],
+    },
+    snapshot = { ...original, reviews: [historical], consents: [] },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: snapshot.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: historical.taskId,
+          executionId: historical.executionId,
+          reviewId: historical.reviewId,
+          consentId: "consent-dispose-legacy",
+          reviewDigest: reviewDigest(historical),
+          contentDigest: historical.contentDigest,
+          disposedReviewIds: [historical.reviewId],
+          rationale: "The finding predates per-finding categories and was reviewed on this cut.",
+        },
+      ),
+      eventId: "event-dispose-legacy",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    },
+    result = applyTransition(snapshot, command, {
+      actorBinding: implementer,
+      capability: "execution-consent@v1",
+      capabilityRef: "cap-consent-dispose-legacy",
+    } satisfies ReviewConsentProof);
+
+  assert.equal(result.event.type, "review_consent_overridden");
+  assert.deepEqual(result.snapshot.reviewDispositions?.[0]?.disposedReviewIds, [historical.reviewId]);
+  assert.deepEqual(
+    reduceTaskEvent(snapshot, result.event).reviewDispositions?.[0]?.disposedReviewIds,
+    [historical.reviewId],
+    "the center replay path must admit the same approved historical disposition as the write path",
+  );
+  const cleanApproved = { ...historical, reviewId: "review-clean-approved", findings: [] },
+    cleanSnapshot = { ...snapshot, reviews: [historical, cleanApproved] },
+    cleanCommand = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: cleanSnapshot.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: historical.taskId,
+          executionId: historical.executionId,
+          reviewId: historical.reviewId,
+          consentId: "consent-dispose-clean-approved",
+          reviewDigest: reviewDigest(historical),
+          contentDigest: historical.contentDigest,
+          disposedReviewIds: [cleanApproved.reviewId],
+          rationale: "A clean approved review is not an old finding to dispose.",
+        },
+      ),
+      eventId: "event-dispose-clean-approved",
+      workspaceRevision: cleanSnapshot.revision + 1,
+      occurredAt: "2026-10-27T01:01:00.000Z",
+    };
+  assert.throws(
+    () =>
+      applyTransition(cleanSnapshot, cleanCommand, {
+        actorBinding: implementer,
+        capability: "execution-consent@v1",
+        capabilityRef: "cap-consent-dispose-clean",
+      } satisfies ReviewConsentProof),
+    { code: "invalid_proof" },
+    "a current approved review with no unclassified finding is not a disposition target",
+  );
+  assert.equal(
+    result.snapshot.reviewDispositions?.[0]?.submissionDigest,
+    submissionDigest(result.snapshot.executions[0]!.submission!),
+  );
+  assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+});
+
+test("a categorized nit cannot hide an unanswered historical blocker", () => {
+  const mixed = review([
+      { findingId: "F1", blocking: false, text: "A small correctness nit.", category: "correctness" },
+      { findingId: "legacy-blocker", blocking: true, text: "An unanswered historical blocker." },
+    ]),
+    settled = currentCutSettlement([mixed], execution([mixed]), [triage("F1", "nit")]);
+
+  assert.equal(settled?.outcome, "passed", "the categorized nit itself has a finalized non-blocking triage");
+  assert.equal(
+    closeoutReadiness(snapshot([mixed], [triage("F1", "nit")])).blocker,
+    "review",
+    "the same cut still has a finding nobody categorized or answered",
+  );
 });

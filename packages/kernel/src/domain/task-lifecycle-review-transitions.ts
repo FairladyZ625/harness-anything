@@ -5,7 +5,11 @@ import { reviewDigest } from "./review.ts";
 import { validateReviewFindings, validateReviewResolutions, validateTaskReviewResponseV1 } from "./review.ts";
 import { isDiscardedCategory } from "./review-settlement.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
-import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+import {
+  describeReviewConsentConflicts,
+  isReviewDispositionEligible,
+  reviewConsentConflicts,
+} from "./review-consent-validity.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -388,14 +392,14 @@ export const consent: Transition = {
             currentSubmissionDigest: currentSubmissionDigest!,
           })
         : [],
-      currentChanges = new Set(
+      dispositionEligibleReviews = new Set(
         snapshot.reviews
           .filter(
             (value) =>
               value.executionId === command.executionId &&
               value.iteration === current?.iteration &&
-              value.verdict === "changes_requested" &&
-              value.submissionDigest === currentSubmissionDigest,
+              value.submissionDigest === currentSubmissionDigest &&
+              isReviewDispositionEligible(value),
           )
           .map((value) => value.reviewId),
       );
@@ -427,12 +431,12 @@ export const consent: Transition = {
     if (
       command.disposedReviewIds?.length &&
       (new Set(command.disposedReviewIds).size !== command.disposedReviewIds.length ||
-        command.disposedReviewIds.some((reviewId) => !currentChanges.has(reviewId)))
+        command.disposedReviewIds.some((reviewId) => !dispositionEligibleReviews.has(reviewId)))
     )
       issues.push(
         lifecycleContractIssue(
           "invalid_proof",
-          "review disposition may name each current changes_requested review exactly once",
+          "review disposition may name current changes_requested reviews or approved reviews with unclassified findings",
         ),
       );
     if (conflicts.length)
