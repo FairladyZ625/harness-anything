@@ -85,6 +85,23 @@ function isolatedRoot(): string {
   return mkdtempSync(path.join(os.tmpdir(), "ha-decision-point-"));
 }
 
+const testOperatorSession = {
+  personId: "person_owner_1",
+  accessToken: "test-operator-access-token",
+  url: "https://keycloak.test",
+  realm: "harness-test",
+  clientId: "harness-center",
+} as const;
+
+/** Production always supplies the daemon's local session; tests opt in explicitly so a missing
+ * wiring cannot silently reproduce the credential-less automatic resume. */
+function openTestExecutor(
+  input: Omit<Parameters<typeof openDecisionPointExecutor>[0], "keycloakSession">,
+  keycloakSession: Parameters<typeof openDecisionPointExecutor>[0]["keycloakSession"] = async () => testOperatorSession,
+) {
+  return openDecisionPointExecutor({ ...input, keycloakSession });
+}
+
 function fakeCell(input: {
   readonly report?: string;
   readonly fallbackState?: "scheduled" | "dispatched" | "exhausted" | null;
@@ -151,7 +168,7 @@ test("an unset or stale binding leaves settlement dormant without a provider cal
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let calls = 0;
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
     rootDir,
     providers: { list: () => [provider], port: { decide: async () => (calls++, answer) } },
     now: () => "2026-10-19T00:00:01.000Z",
@@ -176,7 +193,7 @@ test("a configured but unavailable provider records a typed failure without chan
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   const unavailable = { ...provider, enabled: false };
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
     rootDir,
     providers: { list: () => [unavailable], port: { decide: async () => answer } },
     now: () => "2026-10-19T00:00:01.000Z",
@@ -196,7 +213,7 @@ test("empty, explicitly truncated and fallback-scheduled reports do not call the
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   let calls = 0;
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
     rootDir,
     providers: { list: () => [provider], port: { decide: async () => (calls++, answer) } },
     now: () => "2026-10-19T00:00:01.000Z",
@@ -222,7 +239,7 @@ test("two concurrent callbacks for one settlement reserve once and record the ex
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   let calls = 0;
   const requests: Array<{ providerId: string; state: readonly [string] }> = [];
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
     rootDir,
     providers: {
       list: () => [provider],
@@ -628,7 +645,7 @@ test("an admissible resume choice launches one successor through the existing sp
   seedIncidentStream(rootDir);
   let calls = 0;
   const requests: string[] = [],
-    executor = openDecisionPointExecutor({
+    executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [provider],
@@ -658,10 +675,19 @@ test("an admissible resume choice launches one successor through the existing sp
     (spawns[0]?.binding as { actor: { executor: { id: string } } }).actor.executor.id,
     "runtime-session:runtime-1",
   );
+  const spawnedBinding = spawns[0]?.binding as {
+    keycloakAuthorization?: { session?: { personId?: string; accessToken?: string } };
+  };
+  assert.equal(
+    spawnedBinding.keycloakAuthorization?.session?.personId,
+    "person_owner_1",
+    "the automatic resume reuses the daemon's current operator session",
+  );
+  assert.equal(spawnedBinding.keycloakAuthorization?.session?.accessToken, "test-operator-access-token");
   assert.equal(
     "authorizationDecision" in (spawns[0]?.binding as object),
     false,
-    "recovery uses the persisted binding without Keycloak credentials",
+    "the publication turn still authorizes; the executor only attaches the session it reuses",
   );
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored.length, 1);
@@ -677,6 +703,50 @@ test("an admissible resume choice launches one successor through the existing sp
   assert.match(requests[0]!, /rounds_used: 1/u);
 });
 
+test("an automatic resume refuses a local session owned by a different person", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const executor = openTestExecutor(
+      {
+        rootDir,
+        providers: { list: () => [provider], port: { decide: async () => choiceAnswer("resume_original") } },
+        now: () => "2026-10-19T00:00:01.000Z",
+      },
+      async () => ({ ...testOperatorSession, personId: "person_someone_else" }),
+    ),
+    { cell, spawns } = fakeIncidentCell({ resume: { dispatchId, agentId: "terra" } });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "a different person's session may not launch the original runtime");
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.action?.status, "applied");
+  assert.match(String(stored[0]?.action?.reason), /original runtime owner must sign in/u);
+});
+
+test("an automatic resume without a local operator session escalates instead of launching", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const executor = openTestExecutor(
+      {
+        rootDir,
+        providers: { list: () => [provider], port: { decide: async () => choiceAnswer("resume_original") } },
+        now: () => "2026-10-19T00:00:01.000Z",
+      },
+      async () => {
+        throw Object.assign(new Error("Sign in before continuing a runtime."), { code: "authentication_required" });
+      },
+    ),
+    { cell, spawns } = fakeIncidentCell({ resume: { dispatchId, agentId: "terra" } });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "no local session must fail closed, never launch without authority");
+  const stored = await openDecisionAnnotationStore(rootDir).export();
+  assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.action?.status, "applied");
+  assert.match(String(stored[0]?.action?.reason), /launch failed: Sign in before continuing a runtime/u);
+});
+
 test("a transient Decisions rate limit retries in the provider and settles the real incident choice", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -688,7 +758,7 @@ test("a transient Decisions rate limit retries in the provider and settles the r
     return providerChoiceResponse("resume_original");
   });
   await configureTestDecisionProvider(decisionProvider);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: decisionProvider.list, port: decisionProvider.port },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -713,7 +783,7 @@ test("an exhausted Decisions rate limit applies the deterministic rerun instead 
     throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
   });
   await configureTestDecisionProvider(decisionProvider);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: decisionProvider.list, port: decisionProvider.port },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -755,7 +825,7 @@ test("an exhausted rate limit resumes a resumable dispatch before falling back t
     throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
   });
   await configureTestDecisionProvider(decisionProvider);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: decisionProvider.list, port: decisionProvider.port },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -779,7 +849,7 @@ test("a delivered cut turns the provider-less default into no_action", async (t)
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [provider],
@@ -824,7 +894,7 @@ test("the deterministic default still escalates when a guard forbids every autom
     budget: { used: 0, limit: 3, source: "repository" },
     decidedAt: "2026-10-18T00:00:01.000Z",
   });
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [provider],
@@ -855,7 +925,7 @@ test("two concurrent outcome callbacks reserve once, ask once and launch once", 
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
   let calls = 0;
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [provider],
@@ -893,7 +963,7 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
     budget: { used: 0, limit: 3, source: "repository" },
     decidedAt: "2026-10-18T00:00:01.000Z",
   });
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("rerun_same_identity") } },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -919,7 +989,7 @@ test("a disabled provider takes the deterministic default instead of waiting for
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
   let calls = 0;
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [{ ...provider, enabled: false }],
@@ -948,7 +1018,7 @@ test("a disabled provider with nothing automatic to do still escalates", async (
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [{ ...provider, enabled: false }],
@@ -970,7 +1040,7 @@ test("a submitted cut turns no_action into the receipt and launches nothing", as
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("no_action") } },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -992,7 +1062,7 @@ test("a succeeded worker-stop settlement stays out of the incident decision poin
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
   let calls = 0;
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => (calls++, choiceAnswer("needs_attention")) } },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -1009,7 +1079,7 @@ test("a switch choice on a worker-stop incident is inadmissible and escalates", 
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("switch_declared_next") } },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -1027,7 +1097,7 @@ test("a failed launch escalates to the owner and records the launch failure", as
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("resume_original") } },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -1073,7 +1143,7 @@ test("a later settlement observation after the first action lands never acts twi
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
   let calls = 0;
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: {
         list: () => [provider],
@@ -1103,7 +1173,7 @@ test("an unknown worktree HEAD makes an automatic restart inadmissible and escal
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("rerun_same_identity") } },
       now: () => "2026-10-19T00:00:01.000Z",
@@ -1182,7 +1252,7 @@ test("the automatic budget counts durable dispatch receipts after the annotation
     "the fixture must model the retention window having rotated past the retired action",
   );
 
-  const executor = openDecisionPointExecutor({
+  const executor = openTestExecutor({
       rootDir,
       providers: { list: () => [provider], port: { decide: async () => choiceAnswer("rerun_same_identity") } },
       now: () => "2026-10-19T00:00:01.000Z",

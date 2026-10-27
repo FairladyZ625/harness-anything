@@ -202,10 +202,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimePorts = openDaemonRuntimePorts({ userRoot: input.userRoot, instances }),
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),
-    decisionPointExecutorFor = openDecisionPointExecutorFactory({
-      providers: { list: decisionProviders.list, port: decisionProviders.port },
-      now,
-    }),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
@@ -232,6 +228,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
     return { personId: principal.personId, accessToken: principal.accessToken, ...principal.authority };
   };
+  // The automatic disposition launches through the same local session source as a manual
+  // `ha agent run`: the persisted dispatch binding has no credential of its own.
+  const decisionPointExecutorFor = openDecisionPointExecutorFactory({
+    providers: { list: decisionProviders.list, port: decisionProviders.port },
+    now,
+    keycloakSession,
+  });
   const hostBinding: DaemonHostApiContext["binding"] = async (
     rootDir,
     auth,

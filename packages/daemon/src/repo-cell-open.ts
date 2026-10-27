@@ -89,6 +89,7 @@ import {
   type RuntimeDaemonRoute,
   type RuntimeLauncher,
 } from "./runtime-spawn.ts";
+import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
 import { cancelRejectedSquadChildren } from "./squad-run-state.ts";
@@ -112,9 +113,7 @@ export interface RepoCellOpenInput {
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession?: () => Promise<
-    Omit<NonNullable<NonNullable<RepoCellBinding["keycloakAuthorization"]>["session"]>, "currentAccessToken">
-  >;
+  readonly keycloakSession?: () => Promise<RuntimeOperatorSession>;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch?: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
@@ -438,13 +437,8 @@ export async function openRepoWriterCell(
   };
   // Async work outlives its initiating RPC. Resolve the daemon's current local session at acceptance;
   // a device request must keep its own verified session and can never borrow this local one.
-  const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => {
-    if (binding.source !== "local" || !input.keycloakSession) return binding;
-    const session = await input.keycloakSession();
-    if (session.personId !== binding.actor.principal.personId)
-      throw cellCodedError("authentication_required", "The original runtime owner must sign in on this device.");
-    return { ...binding, keycloakAuthorization: { ...binding.keycloakAuthorization, session } };
-  };
+  const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> =>
+    input.keycloakSession ? withOnlineRuntimeSession(binding, input.keycloakSession) : binding;
   const authorizeRuntimeAction = async (
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],
