@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import {
@@ -303,6 +304,141 @@ test("terminal settlement accepts a review registered for the dispatch role", as
   assert.equal(outcomes[0]?.outcome, "succeeded");
   assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
+
+test("reviewer settlement carries a worker report into the archive without copying it into the receipt", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-report-carry", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: null,
+      providerOutcome: "succeeded",
+      toolCallObserved: true,
+      toolCallCount: 3,
+      publicationOwner: "commander",
+      role: "reviewer",
+      binding: {
+        actor: {
+          principal: { personId: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime-settle-push" },
+        },
+        source: "local",
+      },
+    }),
+    reportPath = path.join(
+      fixture.worker,
+      "harness",
+      "tasks",
+      "task_0123456789abcdef01234567-fixture",
+      "artifacts",
+      "reports",
+      `${runtime.dispatchId}.md`,
+    ),
+    reportBody = "# Review findings\n\nThe worker report must survive an empty final turn.\n";
+  mkdirSync(path.dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, reportBody);
+  const outcomes: Record<string, unknown>[] = [],
+    outcomeBodies: string[] = [],
+    packagePath = "tasks/task_0123456789abcdef01234567-fixture",
+    dispatchStream = openDispatchStream(fixture.canonical, {
+      dispatchId: runtime.dispatchId,
+      taskId: fixtureTaskId,
+      executionId: "execution-owner",
+      runtimeSessionId: runtime.runtimeSessionId,
+      instanceId: runtime.instanceId,
+      role: "reviewer",
+      startedAt: "2026-09-14T00:00:00.000Z",
+    }),
+    documents = new Map<string, { readonly path: string; readonly blobSha256: string }>(),
+    occurrence = {
+      type: "runtime_dispatch_requested",
+      source: "local",
+      actor: { principal: { personId: "operator" }, executor: null },
+      payload: {
+        dispatchId: runtime.dispatchId,
+        runtimeSessionId: runtime.runtimeSessionId,
+        instanceId: runtime.instanceId,
+        taskId: fixtureTaskId,
+        executionId: "execution-owner",
+      },
+    },
+    projection = {
+      read: () => ({
+        packagePath,
+        watermark: 0,
+        sourceRevision: 0,
+        snapshot: {
+          task: { presetSnapshotDigest: "sha256:preset" },
+          reviews: [{ reviewId: `review-${runtime.dispatchId}` }],
+          executions: [],
+        },
+      }),
+      readDocument: (documentPath: string) => {
+        const document = documents.get(documentPath);
+        return document
+          ? { status: "ready", watermark: 1, sourceRevision: 1, document }
+          : { status: "ready", watermark: 0, sourceRevision: 0, document: null };
+      },
+      taskIdForDocumentPath: (documentPath: string) =>
+        documentPath.startsWith(`${packagePath}/`) ? fixtureTaskId : null,
+      readRuntimeDispatches: () => [occurrence],
+      readRuntimeSession: () => null,
+      readLeaseIntervals: () => [],
+      currentLeaseForExecution: () => null,
+      apply: (event: {
+        readonly payload: {
+          readonly changes: readonly {
+            readonly path: string;
+            readonly candidate: { readonly sha256: string } | null;
+          }[];
+        };
+      }) => {
+        for (const change of event.payload.changes)
+          if (change.candidate) documents.set(change.path, { path: change.path, blobSha256: change.candidate.sha256 });
+      },
+    },
+    currentCut = { repoId: "canonical", revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
+    store = {
+      currentCut: () => currentCut,
+      readEvent: () => null,
+      append: () => ({ outcome: "applied" }),
+      publication: () => ({ commitSha: null }),
+    },
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        if (typeof body === "string") outcomeBodies.push(body);
+      }
+      return {};
+    });
+  Object.assign(runtime, { stream: dispatchStream });
+  await publishExit(
+    {
+      ...settleContext,
+      input: {
+        ...settleContext.input,
+        remote: undefined,
+        projection: () => projection,
+        authorizeRuntimeArchive: (_archive, binding) => ({ ...binding, authorizationDecision: { outcome: "allowed" } }),
+      },
+      requiredRuntimeProjection: () => projection,
+      requiredRuntimeStore: () => store,
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+  assert.match(
+    outcomeBodies[0]!,
+    /Reviewer report: tasks\/task_0123456789abcdef01234567-fixture\/artifacts\/reports\/dispatch_0123456789abcdef01234567\.md\./u,
+  );
+  assert.doesNotMatch(outcomeBodies[0]!, /The worker report must survive/u);
+  assert.deepEqual(documents.get(`${packagePath}/artifacts/reports/${runtime.dispatchId}.md`), {
+    path: `${packagePath}/artifacts/reports/${runtime.dispatchId}.md`,
+    blobSha256: expectSha(reportBody),
+  });
+});
+
+function expectSha(body: string): string {
+  return createHash("sha256").update(body).digest("hex");
+}
 
 test("reviewer settlement does not prepare credentials or push a worker branch", async (context) => {
   const fixture = workerGitFixture(context, "settle-review-no-push", { reachableRemote: true }),

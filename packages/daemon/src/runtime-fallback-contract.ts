@@ -6,7 +6,8 @@ export type DispatchExitClassification =
   | "worker_stop"
   /** The worker stopped to await an owner ruling; the question rides the ruling artifact. */
   | "awaiting_ruling"
-  | "gate_red";
+  | "gate_red"
+  | "completed_without_final_text";
 
 export function isProviderFailureClassification(classification: DispatchExitClassification): boolean {
   return classification === "provider_fault" || classification === "provider_quota";

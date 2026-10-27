@@ -16,7 +16,7 @@ export interface LiveFloorRow {
   readonly model: string | null;
   readonly startedAt: string | null;
   /** daemon 派工行的活动判定;null = 旧 daemon 没有该投影。 */
-  readonly activityStatus: "thinking" | "tool" | "waiting" | "silent" | "unknown" | null;
+  readonly activityStatus: "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown" | null;
   readonly activityObservedAt: string | null;
   readonly activityIdleMinutes: number | null;
   readonly dispatch: TaskDispatchProjectionRow | null;

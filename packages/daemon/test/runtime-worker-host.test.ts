@@ -6,20 +6,213 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import {
+  attachActiveRuntime,
+  createActiveRuntime,
+  disposeActiveRuntimeObservations,
+} from "../src/runtime-spawn-active.ts";
 import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { steerRuntime } from "../src/runtime-spawn-control.ts";
 import { launchNative } from "../src/runtime-spawn-process.ts";
+import { consumeProviderChunk, consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
+import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
+import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 
 const operatorBinding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
+
+test(
+  "persisted provider events keep the native worker watchdog alive without workspace writes",
+  { timeout: 20_000 },
+  async () => {
+    const originalNow = Date.now;
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let nowMs = 0;
+    const timerCallbacks: Array<{ readonly callback: () => void; readonly unref: () => void }> = [];
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-stall-progress-")),
+      rootDir = path.join(parent, "repo"),
+      controlPath = path.join(parent, "provider-progress"),
+      executablePath = path.join(parent, "provider.mjs"),
+      dispatchId = "dispatch_123456789012345681901234",
+      runtimeSessionId = "runtime_123456789012345681901234";
+    mkdirSync(rootDir);
+    writeFileSync(
+      executablePath,
+      `#!/usr/bin/env node\n` +
+        `import fs from "node:fs";\n` +
+        `const control = process.env.PROVIDER_PROGRESS_CONTROL;\n` +
+        `let seen = "";\n` +
+        `const emit = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\n` +
+        `emit({ type: "thread.started", thread_id: "provider-stall-progress" });\n` +
+        `setInterval(() => { const next = fs.existsSync(control) ? fs.readFileSync(control, "utf8") : ""; if (next !== seen) { seen = next; emit({ type: "thread.started", thread_id: "provider-stall-progress" }); } }, 5);\n`,
+    );
+    chmodSync(executablePath, 0o755);
+    const stream = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "codex-stall-progress",
+      startedAt: new Date().toISOString(),
+      dispatchOpId: "dispatch-op-stall-progress",
+      kindId: "codex",
+      permissionMode: "workspace-write",
+      binding: operatorBinding,
+      cwd: rootDir,
+      prompt: "keep emitting provider progress",
+      model: "test-model",
+      reasoningEffort: null,
+      fast: false,
+      stallTimeoutMs: 10_000,
+    });
+    let runtime: ReturnType<typeof createActiveRuntime> | undefined;
+    let nativeProcess: ReturnType<typeof launchNative> | null = null;
+    try {
+      const launchedProcess = launchNative(
+        {
+          executablePath,
+          args: ["exec", "--json", "--model", "test-model", "-"],
+          env: {
+            ...runtimeWorkerProviderEnvironment(process.env),
+            PROVIDER_PROGRESS_CONTROL: controlPath,
+          },
+          cwd: rootDir,
+          prompt: "keep emitting provider progress",
+          installation: { kindId: "codex" },
+          protocolFamily: "codex",
+          permissionMode: "workspace-write",
+        } as never,
+        { rootDir, dispatchId },
+      );
+      nativeProcess = launchedProcess;
+      globalThis.setTimeout = ((callback: () => void) => {
+        const timer = { callback, unref: () => undefined };
+        timerCallbacks.push(timer);
+        return timer as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+      globalThis.clearTimeout = ((timer) => {
+        const index = timerCallbacks.indexOf(timer as (typeof timerCallbacks)[number]);
+        if (index >= 0) timerCallbacks.splice(index, 1);
+      }) as typeof clearTimeout;
+      const scheduled: Promise<void>[] = [];
+      runtime = createActiveRuntime({
+        runtimeSessionId,
+        dispatchId,
+        dispatchOpId: "dispatch-op-stall-progress",
+        instanceId: "codex-stall-progress",
+        kindId: "codex",
+        resolvedProviderDirectory: null,
+        permissionMode: "workspace-write",
+        agent: null,
+        role: null,
+        delegatedBy: null,
+        squadId: null,
+        publicationOwner: "runtime",
+        parentRuntimeSessionId: null,
+        binding: operatorBinding,
+        task: null,
+        decisionReviewTarget: null,
+        schedule: null,
+        cwd: rootDir,
+        prompt: "keep emitting provider progress",
+        onExitCommand: null,
+        model: "test-model",
+        reasoningEffort: null,
+        fast: false,
+        startedAt: new Date().toISOString(),
+        stream: stream,
+        stallTimeoutMs: 10_000,
+        process: launchedProcess,
+      });
+      const runtimeContext: RuntimeSpawnerContext = {
+        input: {
+          rootDir,
+          repoId: "worker-host-stall-progress",
+          now: () => new Date().toISOString(),
+          stream: { publish: () => undefined },
+          schedule: (work: () => void | Promise<void>) => {
+            scheduled.push(Promise.resolve(work()));
+          },
+        },
+        processes: new Map([[runtimeSessionId, runtime]]),
+        exiting: new Set<string>(),
+        consumeChunk: (active: typeof runtime, chunk: string, flush: boolean, persisted?: boolean) =>
+          consumeProviderChunk(runtimeContext, active!, chunk, flush, persisted),
+        consumeLine: (active: typeof runtime, line: string, persisted?: boolean) =>
+          consumeProviderLine(runtimeContext, active!, line, persisted),
+        parseProviderFrame,
+        markProtocolError: () => undefined,
+        bindProvider: async () => undefined,
+        isStructuredSuccessResult: () => false,
+        captureErrorOutput: () => undefined,
+        publishExit: async () => undefined,
+      } as never;
+      attachActiveRuntime(runtimeContext, runtime);
+      await waitForProviderEvents(rootDir, dispatchId, 1);
+      await waitForRuntimeOutput(runtime, 1);
+      await Promise.all(scheduled.splice(0));
+      nowMs = runtime.lastProgressAtMs;
+      const startedAtMs = nowMs;
+      Date.now = () => nowMs;
+
+      assert.equal(runtime.stalledAt, null);
+      nowMs += 9_999;
+      writeFileSync(controlPath, "1");
+      await waitForProviderEvents(rootDir, dispatchId, 2);
+      await waitForRuntimeOutput(runtime, 2);
+      await Promise.all(scheduled.splice(0));
+      assert.equal(runtime.stalledAt, null, "a persisted provider event must renew the watchdog");
+      assert.equal(runtime.lastProgressAtMs, nowMs, "the persisted provider event must advance the progress clock");
+
+      nowMs += 9_999;
+      const renewedTimer = timerCallbacks.shift();
+      assert.ok(renewedTimer, "the provider event must leave an armed watchdog timer");
+      renewedTimer.callback();
+      await Promise.all(scheduled.splice(0));
+      assert.equal(runtime.stalledAt, null, "the renewed deadline must still be ahead");
+
+      writeFileSync(controlPath, "2");
+      await waitForProviderEvents(rootDir, dispatchId, 3);
+      await waitForRuntimeOutput(runtime, 3);
+      await Promise.all(scheduled.splice(0));
+      assert.ok(nowMs - startedAtMs >= 19_998, "the provider stream crossed repeated idle deadlines");
+      assert.equal(runtime.stalledAt, null, "continuous provider events must survive repeated deadlines");
+      assert.equal(
+        readDispatchStream(rootDir, dispatchId)?.records.some((record) => record.kind === "dispatch_stalled"),
+        false,
+        "provider progress alone must not append dispatch_stalled",
+      );
+    } finally {
+      if (runtime) disposeActiveRuntimeObservations(runtime);
+      Date.now = originalNow;
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+      await nativeProcess?.terminateTree?.();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 function steerContext(rootDir: string, runtimeSessionId: string, active: unknown) {
   return {
     input: { rootDir, repoId: "worker-host-steer-test", now: () => new Date().toISOString() },
     processes: new Map([[runtimeSessionId, active]]),
   };
+}
+
+async function waitForProviderEvents(rootDir: string, dispatchId: string, count: number): Promise<void> {
+  await eventually(
+    () =>
+      (readDispatchStream(rootDir, dispatchId)?.records.filter((record) => record.kind === "provider_event").length ??
+        0) >= count,
+  );
+}
+
+async function waitForRuntimeOutput(runtime: ReturnType<typeof createActiveRuntime>, count: number): Promise<void> {
+  await eventually(() => runtime.durableOutputCount >= count);
 }
 
 test("restricted provider environment excludes host Git and SSH credentials", () => {

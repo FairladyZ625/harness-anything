@@ -250,10 +250,10 @@ test("attempt-bound classification falls back only for recognized provider fault
       }),
       0,
     ).classification,
-    "worker_stop",
+    "completed_without_final_text",
   );
   const cleanExit = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
-  assert.deepEqual(pick(cleanExit), { outcome: "unknown", classification: "worker_stop" });
+  assert.deepEqual(pick(cleanExit), { outcome: "unknown", classification: "completed_without_final_text" });
   assert.deepEqual(
     pick(
       classifyRuntimeExit(
@@ -263,7 +263,7 @@ test("attempt-bound classification falls back only for recognized provider fault
     ),
     {
       outcome: "unknown",
-      classification: "worker_stop",
+      classification: "completed_without_final_text",
     },
   );
   const stopped = classifyRuntimeExit(active({ providerOutcome: "succeeded", finalText: "checkpoint reached" }), 0);
@@ -299,7 +299,7 @@ test("agy print timeout makes an exit-zero partial turn a provider fault", () =>
   assert.equal(result.reason, stderr.trim());
 });
 
-test("blank successful Codex turns classify as provider faults", () => {
+test("blank successful Codex turns preserve work as completed without final text", () => {
   const runtime = active({ providerOutcome: null });
   for (const frame of [
     { type: "thread.started", thread_id: "provider-session" },
@@ -313,9 +313,9 @@ test("blank successful Codex turns classify as provider faults", () => {
     observeProviderFault(runtime, parsed);
   }
   const result = classifyRuntimeExit(runtime, 0);
-  assert.equal(result.outcome, "failed");
-  assert.equal(result.classification, "provider_fault");
-  assert.equal(result.reason, "Provider completed a turn but produced no output.");
+  assert.equal(result.outcome, "unknown");
+  assert.equal(result.classification, "completed_without_final_text");
+  assert.match(result.reason, /^Provider completed without final text \(/u);
 });
 
 test("non-blank successful Codex turns remain worker stops", () => {

@@ -150,6 +150,14 @@ export function classifyRuntimeExit(
   // fallback chain from spending the next provider's budget on the same runaway attempt.
   if (active.spendCapExceeded)
     return { ...classified("worker_stop", runtimeSpendCapReason(active)), outcome: "failed" };
+  if (active.stalledAt !== null && active.stalledAt !== undefined)
+    return {
+      ...classified(
+        "provider_fault",
+        `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`,
+      ),
+      outcome: "failed",
+    };
   // A requested stop for a ruling is never a provider fault: the worker wrote the question and
   // stopped, which is exactly what the unattended contract asks for. It settles `stopped` rather
   // than `failed` so the receipt and agenda read "waiting on the owner", not "the run broke".
@@ -170,14 +178,19 @@ export function classifyRuntimeExit(
   // reconnected and the attempt then ended without any successful tool call, the last agent
   // message is the overloaded stream's tail, whatever it claims about the workspace.
   if (reconnectExhaustedTail(active)) return classified("provider_fault", reconnectExhaustedReason(active));
-  if (
-    exitCode === 0 &&
-    active.providerOutcome === "succeeded" &&
-    !active.toolCallObserved &&
-    !active.nonEmptyAgentOutputObserved &&
-    active.providerUsageEmpty
-  )
-    return classified("provider_fault", "Provider completed a turn but produced no output.");
+  // A reconnect with neither a served tool call nor an answering agent message has no terminal
+  // evidence to preserve. Keep this transport-loss case on the historical worker-stop path;
+  // completed_without_final_text is reserved for a provider that actually completed a turn.
+  if (reconnectWithoutAnswer(active)) return classified("worker_stop", workerStopReason(active, outcome));
+  if (exitCode === 0 && active.providerOutcome === "succeeded" && !active.finalText?.trim())
+    return {
+      ...classified(
+        "completed_without_final_text",
+        `Provider completed without final text (${String(active.toolCallCount)} tool calls; ` +
+          `${String(active.workspaceActivityCount ?? 0)} workspace change events). Dispatch transcript: ${active.stream?.ref ?? "unavailable"}`,
+      ),
+      outcome: "unknown",
+    };
   if (attemptFailed && !active.toolCallObserved) {
     if (active.failureText?.startsWith("ACP provider exited before the session completed (exit "))
       return classified("provider_fault", active.failureText);
@@ -207,6 +220,14 @@ function reconnectExhaustedTail(active: ActiveRuntime): boolean {
   return (
     (active.providerReconnectCount ?? 0) > 0 &&
     active.finalAgentMessageAfterReconnect === true &&
+    active.successfulToolCallAfterReconnect !== true
+  );
+}
+
+function reconnectWithoutAnswer(active: ActiveRuntime): boolean {
+  return (
+    (active.providerReconnectCount ?? 0) > 0 &&
+    active.finalAgentMessageAfterReconnect !== true &&
     active.successfulToolCallAfterReconnect !== true
   );
 }

@@ -170,6 +170,14 @@ export type ActiveRuntime = {
   readonly fast: boolean;
   /** Total-token cap frozen from repository settings at launch; null disables the cap. */
   readonly tokenLimit: number | null;
+  /** Idle deadline frozen from repository settings at dispatch creation. */
+  readonly stallTimeoutMs: number;
+  /** Last provider event or workspace change observed by the owner daemon. */
+  lastProgressAtMs: number;
+  workspaceActivityCount: number;
+  stalledAt: string | null;
+  recordProviderProgress: (() => void) | null;
+  recordWorkspaceProgress: (() => void) | null;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;

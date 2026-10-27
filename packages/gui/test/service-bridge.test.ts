@@ -341,6 +341,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       runtime: {
         allowedInstances: [],
         dispatchUsageLimit: 0,
+        stallTimeoutMs: 300_000,
         providerMaxRetries: 3,
         providerRoundBackoffBaseSeconds: 5,
         providerRoundBackoffMaxSeconds: 60,

@@ -95,6 +95,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly fast?: boolean;
   /** Total-token cap declared at launch; absent when the repository set no limit. */
   readonly tokenLimit?: number;
+  /** Frozen repository idle timeout; absent only on streams written before stall detection existed. */
+  readonly stallTimeoutMs?: number;
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;
   readonly transcriptCompactionVersion?: 1;
@@ -121,6 +123,8 @@ export type DispatchStreamActivity = {
 export interface DispatchStreamWriter {
   readonly ref: string;
   readonly appendProviderEvent: (value: unknown, occurredAt: string) => void;
+  readonly appendWorkspaceActivity: (occurredAt: string) => void;
+  readonly appendStalled: (occurredAt: string) => void;
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
   readonly appendExitNotification: (
     value: {
@@ -164,6 +168,9 @@ export interface DispatchLiveIndex {
 /** Metadata needed by daemon hot paths without retaining provider event bodies. */
 export type DispatchStreamSummary = Omit<NonNullable<ReturnType<typeof readDispatchStream>>, "records"> & {
   readonly lastObservedAt: string;
+  readonly lastProgressAt: string;
+  readonly workspaceActivityCount: number;
+  readonly stalledAt: string | null;
   readonly lastProviderActivity: DispatchStreamActivity | null;
   readonly records: readonly DispatchStreamRecord[];
 };
@@ -194,6 +201,8 @@ const summaryKinds = new Set([
   "runtime_metrics",
   "execution_principal",
   "decision_action",
+  "workspace_activity",
+  "dispatch_stalled",
 ]);
 
 export function openDispatchStream(
@@ -227,6 +236,18 @@ export function openDispatchStream(
         kind: "provider_event",
         occurredAt,
         event: scrubProviderValue(value),
+      }),
+    appendWorkspaceActivity: (occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "workspace_activity",
+        occurredAt,
+      }),
+    appendStalled: (occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "dispatch_stalled",
+        occurredAt,
       }),
     appendProviderBinding: (providerSessionId, occurredAt) =>
       appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
@@ -380,7 +401,8 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   const headerEnd = firstLineEndOffset(target, stat.size);
   const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
     records: DispatchStreamRecord[] = [];
-  let lastProviderActivity: DispatchStreamActivity | null = null;
+  let lastProviderActivity: DispatchStreamActivity | null = null,
+    lastProgressAt = header.startedAt;
   const seenOffsets = new Set<number>();
   for (const chunk of chunks) {
     for (const line of completeLines(chunk.text, chunk.offset)) {
@@ -390,15 +412,29 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
       if (kind === "provider_event") {
         const record = parseRecord(line.value),
           activity = record && providerActivityRecord(header.kindId, record);
+        if (
+          record &&
+          typeof record.occurredAt === "string" &&
+          Date.parse(record.occurredAt) > Date.parse(lastProgressAt)
+        )
+          lastProgressAt = record.occurredAt;
         if (activity !== null) lastProviderActivity = activity;
         continue;
       }
       if (!kind || !summaryKinds.has(kind)) continue;
       const record = parseRecord(line.value);
-      if (record) records.push(record);
+      if (record) {
+        records.push(record);
+        if (
+          kind === "workspace_activity" &&
+          typeof record.occurredAt === "string" &&
+          Date.parse(record.occurredAt) > Date.parse(lastProgressAt)
+        )
+          lastProgressAt = record.occurredAt;
+      }
     }
   }
-  const value = summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity);
+  const value = summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt);
   if (value.providerSessionId === null) {
     // provider_binding lands after the provider's startup preamble, which has no size bound;
     // when it falls between the head windows and the tail window, probe the gap directly
@@ -425,7 +461,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     );
     if (runtimeMetrics) records.push(runtimeMetrics);
   }
-  return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity);
+  return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt);
 }
 
 export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
@@ -736,6 +772,7 @@ function summarizeDispatch(
   records: readonly DispatchStreamRecord[],
   modifiedAtMs: number,
   lastProviderActivity: DispatchStreamActivity | null = latestProviderActivity(header.kindId, records),
+  lastProgressAt = latestDispatchProgressAt(header, records),
 ): DispatchStreamSummary {
   let providerSessionId: string | null = null,
     processState: DispatchProcessState | null = null,
@@ -781,6 +818,11 @@ function summarizeDispatch(
   return {
     header,
     lastObservedAt: dispatchLastObservedAt(header, records, modifiedAtMs),
+    lastProgressAt,
+    workspaceActivityCount: records.filter((record) => record.kind === "workspace_activity").length,
+    stalledAt:
+      ([...records].reverse().find((record) => record.kind === "dispatch_stalled")?.occurredAt as string | undefined) ??
+      null,
     providerSessionId,
     process: processState,
     attemptOutcome,
@@ -793,6 +835,19 @@ function summarizeDispatch(
     lastProviderActivity,
     records,
   };
+}
+
+function latestDispatchProgressAt(header: DispatchStreamHeader, records: readonly DispatchStreamRecord[]): string {
+  return records.reduce(
+    (latest, record) =>
+      (record.kind === "provider_event" || record.kind === "workspace_activity") &&
+      typeof record.occurredAt === "string" &&
+      Number.isFinite(Date.parse(record.occurredAt)) &&
+      Date.parse(record.occurredAt) > Date.parse(latest)
+        ? record.occurredAt
+        : latest,
+    header.startedAt,
+  );
 }
 
 function latestProviderActivity(
@@ -1056,9 +1111,14 @@ function isRuntimeAttemptOutcome(
 ): value is Record<string, unknown> & RuntimeAttemptOutcome {
   const provider = value.provider;
   return (
-    ["provider_fault", "provider_quota", "worker_stop", "awaiting_ruling", "gate_red"].includes(
-      String(value.classification),
-    ) &&
+    [
+      "provider_fault",
+      "provider_quota",
+      "worker_stop",
+      "awaiting_ruling",
+      "gate_red",
+      "completed_without_final_text",
+    ].includes(String(value.classification)) &&
     typeof value.reason === "string" &&
     typeof value.attemptGroupId === "string" &&
     Number.isSafeInteger(value.attemptIndex) &&
@@ -1091,6 +1151,8 @@ function isHeader(value: Record<string, unknown> | null): value is Record<string
     typeof value.runtimeSessionId === "string" &&
     typeof value.instanceId === "string" &&
     typeof value.startedAt === "string" &&
+    (value.stallTimeoutMs === undefined ||
+      (Number.isSafeInteger(value.stallTimeoutMs) && Number(value.stallTimeoutMs) >= 10_000)) &&
     typeof value.eventStreamRef === "string"
   );
 }

@@ -39,6 +39,10 @@ export function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     planObserved: true,
     protocolError: false,
     providerOutcome: "succeeded",
+    stalledAt: null,
+    workspaceActivityCount: 0,
+    stallTimeoutMs: 300_000,
+    lastProgressAtMs: Date.now(),
     writeItemObserved: true,
     ...overrides,
   } as ActiveRuntime;

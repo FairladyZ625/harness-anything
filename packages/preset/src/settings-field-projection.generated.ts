@@ -290,6 +290,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "runtimeStallTimeoutMs",
+      description: "Maximum time a dispatch may go without provider or workspace progress, in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "scheduleAdmissionWindowMs",
       description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
       type: "number",
@@ -736,6 +742,16 @@ export const settingsFieldProtocolProjection = {
       name: "--runtime-provider-handshake-timeout-ms",
       kind: "single",
       regex: "^[1-9][0-9]{3,}$",
+      projection: "number",
+    },
+    {
+      field: "runtimeStallTimeoutMs",
+      description: "Maximum time a dispatch may go without provider or workspace progress, in milliseconds.",
+      group: "schedules-nodes",
+      effect: "The owning node stops an idle dispatch and settles it through the declared provider fallback policy.",
+      name: "--runtime-stall-timeout-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{4,}$",
       projection: "number",
     },
     {

@@ -343,6 +343,9 @@ function DispatchChain({
             entityRef={`provider/${row.instanceId}`}
           />
           <MetaLine label="provider session" value={row.providerSessionId ?? "—"} />
+          <MetaLine label="activity" value={row.activityStatus ?? "—"} />
+          <MetaLine label="classification" value={row.classification ?? "—"} />
+          <MetaLine label="dispatch transcript" value={row.eventStreamRef ?? "—"} />
           <MetaLine
             label="started"
             value={formatTime(row.startedAt, { style: "date-time-seconds" }) ?? row.startedAt}

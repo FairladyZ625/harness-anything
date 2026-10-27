@@ -475,7 +475,7 @@ function canonicalDispatchRow(
     ]),
     activityObservedAt =
       lastObservedAt === "1970-01-01T00:00:00.000Z" ? (payload.startedAt ?? event.occurredAt) : lastObservedAt,
-    activityProjectionObservedAt = dispatchStream?.lastProviderActivity?.observedAt ?? activityObservedAt,
+    activityProjectionObservedAt = dispatchStream?.lastProgressAt ?? activityObservedAt,
     status =
       outcome === "stopped" && taskExecutionDelivered(projection, event)
         ? "succeeded"
@@ -494,6 +494,9 @@ function canonicalDispatchRow(
       taskStatus: taskRead?.snapshot.task?.status,
       role: payload.role,
       lastObservedAt: activityProjectionObservedAt,
+      lastProgressAt: dispatchStream?.lastProgressAt,
+      stallTimeoutMs: dispatchStream?.header.stallTimeoutMs,
+      stalledAt: dispatchStream?.stalledAt,
       processAlive,
       providerActivity: dispatchStream?.lastProviderActivity?.kind ?? null,
     }),
@@ -572,7 +575,7 @@ function canonicalDispatchRow(
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
     providerSessionId,
-    eventStreamRef: null,
+    eventStreamRef: dispatchStream?.header.eventStreamRef ?? null,
     startedAt: payload.startedAt ?? event.occurredAt,
     endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
     outcome,
@@ -671,7 +674,8 @@ function isClassification(value: unknown): value is NonNullable<TaskDispatchRow[
     value === "provider_quota" ||
     value === "worker_stop" ||
     value === "awaiting_ruling" ||
-    value === "gate_red"
+    value === "gate_red" ||
+    value === "completed_without_final_text"
   );
 }
 
