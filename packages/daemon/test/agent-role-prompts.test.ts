@@ -135,6 +135,9 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   assert.match(prompt, /changes_requested verdict returns the cut for rework while the automatic budget remains/u);
   assert.match(prompt, /# Required Skills.*review: \/skills\/review\/SKILL.md/su);
   assert.match(prompt, /Honor declared gates/u);
+  // Reviewers read baselines too; the safe path must reach them without granting a worker's write surface.
+  assert.match(prompt, /node tools\/readonly-checkout\.mjs --rev <commit> \[--show <path>\] \[--deps\]/u);
+  assert.match(prompt, /needs neither `git worktree add` nor a node_modules link/u);
   // The CI wait is the reviewer's one write-family reach; publication stays delivery-only.
   assert.doesNotMatch(
     prompt,
