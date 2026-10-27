@@ -85,7 +85,7 @@ const writeGrants = [
   "rebase onto the latest default branch",
 ];
 for (const role of [undefined, "worker"] as const)
-  test(`${role ?? "undeclared"} finishes task scope before CI and guarantees a useful handoff`, () => {
+  test(`${role ?? "undeclared"} pushes coherent work early and guarantees a useful handoff`, () => {
     const prompt = assembleUnboundPrompt("Do the mission.", role);
     for (const grant of writeGrants) assert.ok(prompt.includes(grant), grant);
     assert.match(prompt, /Worktrees share one git stash stack/u);
@@ -94,11 +94,13 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /node tools\/readonly-checkout\.mjs --rev <commit>/u);
     assert.match(prompt, /use it instead of `git worktree add`/u);
     assert.match(prompt, /a link resolves its parent directory first/u);
-    assert.match(prompt, /Complete the functional scope and its required affected tests before the first task push/u);
     assert.match(
       prompt,
-      /Publish earlier only when the session must end or a blocker prevents further useful implementation/u,
+      /Push early and often: after each coherent piece of change, commit and publish it through the task delivery commands, even if a local test is still red/u,
     );
+    assert.match(prompt, /CI is the complete authority and cannot be read before a push/u);
+    assert.match(prompt, /Waiting for green before the first push is a deadlock/u);
+    assert.doesNotMatch(prompt, /before the first task\s+push/u);
     assert.match(prompt, /inspect the hosting platform's PR checks for that delivery commit/u);
     assert.match(prompt, /Pending is not green/u);
     assert.match(prompt, /While CI is pending, continue useful in-scope work; do not wait solely for CI/u);
