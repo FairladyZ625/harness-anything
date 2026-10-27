@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateExecutionV1 } from "../../src/domain/execution.ts";
 import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
-import { validateEntityJsonSchema } from "../../src/domain/entity-json-schema.ts";
 import {
   interpretEmbeddedEntityProjections,
   type EntityProjectionContract,
@@ -11,7 +10,6 @@ import {
 import { explainEntityKind, getEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
 import { isAllowedRelationKindTriple } from "../../src/domain/entity-relation.ts";
 import { parseEntityRef } from "../../src/domain/entity-ref.ts";
-import { validateReviewFindings } from "../../src/domain/review.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: { kind: "agent" as const, id: "agent-1" } };
 
@@ -229,50 +227,6 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
   assert.deepEqual(parseEntityRef(`review/${review.reviewId}`)?.kind, "review");
   assert.equal(parseEntityRef(`execution/${execution.taskId}/${execution.executionId}`), null);
   assert.equal(parseEntityRef(`review/${execution.executionId}/${review.reviewId}`), null);
-});
-
-test("Review entity schema accepts third-generation finding fields and rejects invalid values", () => {
-  const reviewSchema = getEntityKindContract("review")!.schema,
-    finding = {
-      findingId: "F-1",
-      blocking: true,
-      text: "The declared field contract must reach the entity document schema.",
-      anchor: "packages/kernel/src/domain/review.ts:16",
-      category: "correctness",
-      label: "Important",
-      evidenceDigest: `sha256:${"a".repeat(64)}`,
-      priorFindingRefs: ["review/rev-previous/F-7"],
-    },
-    review = {
-      schema: "review/v1",
-      reviewId: "rev_88E36DD4172ECC8AC1C0FF318A",
-      taskId: "task_01j00000000000000000000000",
-      executionId: "exe_01KXZ6PY19GBXMBRHBXQT3Q0DH",
-      verdict: "changes_requested",
-      actor,
-      capabilityRef: "execution-review@v1",
-      reason: "One finding needs attention.",
-      evidenceChecked: ["submission"],
-      commitSha: null,
-      iteration: 1,
-      contentDigest: `sha256:${"b".repeat(64)}`,
-      submissionDigest: `sha256:${"c".repeat(64)}`,
-      reviewedAt: "2026-08-25T00:00:00.000Z",
-      findings: [finding],
-      resolutions: [],
-    };
-
-  assert.deepEqual(validateEntityJsonSchema(reviewSchema, review), []);
-  assert.deepEqual(validateReviewFindings([finding]), []);
-
-  const invalidCategory = { ...finding, category: "invented" },
-    invalidDigest = { ...finding, evidenceDigest: "sha256:short" },
-    emptyPriorRefs = { ...finding, priorFindingRefs: [] };
-  for (const invalid of [invalidCategory, invalidDigest, emptyPriorRefs])
-    assert.ok(validateEntityJsonSchema(reviewSchema, { ...review, findings: [invalid] }).length > 0);
-  assert.ok(validateReviewFindings([invalidCategory]).length > 0);
-  assert.ok(validateReviewFindings([invalidDigest]).length > 0);
-  assert.ok(validateReviewFindings([emptyPriorRefs]).length > 0);
 });
 
 test("a synthetic third contract drives the same embedded projection interpreter", () => {

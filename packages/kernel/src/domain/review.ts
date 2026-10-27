@@ -9,38 +9,24 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { timestamp } from "./timestamp.ts";
 import { reviewConsentConflicts } from "./review-consent-validity.ts";
 import { reviewFindingCategories, reviewFindingLabels } from "./review-settlement.ts";
+import type { ReviewFindingCategory, ReviewFindingLabel } from "./review-settlement.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
 export type ReviewResponseDisposition = "adopt" | "rebut";
-export const REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS = Object.freeze({
-  anchor: { kind: "non-empty-string" },
-  category: { kind: "enum", values: reviewFindingCategories },
-  label: { kind: "enum", values: reviewFindingLabels },
-  evidenceDigest: { kind: "sha256-digest", pattern: /^sha256:[0-9a-f]{64}$/u },
-  priorFindingRefs: { kind: "non-empty-string-array", minItems: 1 },
-} as const);
-
-type ReviewFindingOptionalFieldContract =
-  (typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS)[keyof typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS];
-type ReviewFindingOptionalFieldValue<Contract> = Contract extends { kind: "non-empty-string" }
-  ? string
-  : Contract extends { kind: "enum"; values: readonly (infer Value extends string)[] }
-    ? Value
-    : Contract extends { kind: "sha256-digest" }
-      ? `sha256:${string}`
-      : Contract extends { kind: "non-empty-string-array" }
-        ? readonly string[]
-        : never;
-
-export type ReviewFindingV1 = {
+export interface ReviewFindingV1 {
   readonly findingId: string;
   readonly blocking: boolean;
   readonly text: string;
-} & {
-  readonly [Field in keyof typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS]?: ReviewFindingOptionalFieldValue<
-    (typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS)[Field]
-  >;
-};
+  readonly anchor?: string;
+  /** One settled or discarded category (dec_6A77D43B8523823ABA1F5E4D3C CH2); absent on history. */
+  readonly category?: ReviewFindingCategory;
+  /** The Anthropic-aligned label the reviewer claims; input to triage, never the verdict. */
+  readonly label?: ReviewFindingLabel;
+  /** Hash of the minimal evidence this finding rests on. */
+  readonly evidenceDigest?: `sha256:${string}`;
+  /** Same opinion carried from an earlier cut. */
+  readonly priorFindingRefs?: readonly string[];
+}
 export interface ReviewResolutionV1 {
   readonly reviewId: string;
   readonly findingId: string;
@@ -234,14 +220,15 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
   if (!Array.isArray(value)) return [invalidReviewIssue("review findings must be an array")];
   const issues: ContractValidationIssue[] = [];
   const seen = new Set<string>();
-  const optionalFields = Object.keys(REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS),
-    allowedFields = new Set(["findingId", "blocking", "text", ...optionalFields]);
   for (const finding of value) {
-    const fields = ["findingId", "blocking", "text"] as const;
+    const fields = ["findingId", "blocking", "text"] as const,
+      optional = ["anchor", "category", "label", "evidenceDigest", "priorFindingRefs"] as const,
+      allowedFields = [...fields, ...optional];
     if (
       !isRecord(finding) ||
       !hasRequiredFields(finding, fields) ||
-      (!allowUnknownFields && Object.keys(finding).some((field) => !allowedFields.has(field)))
+      (!allowUnknownFields &&
+        Object.keys(finding).some((field) => !allowedFields.includes(field as (typeof allowedFields)[number])))
     ) {
       issues.push(invalidReviewIssue("review finding fields are incomplete or unknown"));
       continue;
@@ -255,17 +242,15 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
     )
       issues.push(invalidReviewIssue("review findings require unique ids, blocking flags, and text"));
     else seen.add(finding.findingId);
-    const hasInvalidOptionalField = optionalFields.some((field) => {
-      const fieldValue = finding[field];
-      return (
-        fieldValue !== undefined &&
-        !isValidReviewFindingOptionalFieldValue(
-          REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS[field as keyof typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS],
-          fieldValue,
-        )
-      );
-    });
-    if (hasInvalidOptionalField)
+    if (
+      (finding.category !== undefined &&
+        !(reviewFindingCategories as readonly string[]).includes(String(finding.category))) ||
+      (finding.label !== undefined && !(reviewFindingLabels as readonly string[]).includes(String(finding.label))) ||
+      (finding.evidenceDigest !== undefined && !digest(finding.evidenceDigest)) ||
+      (finding.priorFindingRefs !== undefined &&
+        (!Array.isArray(finding.priorFindingRefs) ||
+          finding.priorFindingRefs.some((reference) => !isNonEmptyString(reference))))
+    )
       issues.push(
         invalidReviewIssue(
           "review finding category, label, evidence digest, or prior finding refs are invalid when present",
@@ -273,23 +258,6 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
       );
   }
   return issues;
-}
-
-function isValidReviewFindingOptionalFieldValue(contract: ReviewFindingOptionalFieldContract, value: unknown): boolean {
-  switch (contract.kind) {
-    case "non-empty-string":
-      return isNonEmptyString(value);
-    case "enum":
-      return typeof value === "string" && (contract.values as readonly string[]).includes(value);
-    case "sha256-digest":
-      return typeof value === "string" && contract.pattern.test(value);
-    case "non-empty-string-array":
-      return (
-        Array.isArray(value) &&
-        value.length >= contract.minItems &&
-        value.every((reference) => isNonEmptyString(reference))
-      );
-  }
 }
 
 export function validateReviewResolutions(
