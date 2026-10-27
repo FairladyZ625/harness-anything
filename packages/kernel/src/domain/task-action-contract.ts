@@ -545,8 +545,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
     ),
-    explain:
-      "Return an exhausted or owner-blocked review cut to rework with an owner reason and continue its original worker.",
+    explain: "Return exhausted or owner-blocked cuts to rework with an owner reason; resume the worker.",
   }),
   lifecycle("consent", {
     input: input([
