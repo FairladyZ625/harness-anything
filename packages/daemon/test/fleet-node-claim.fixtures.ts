@@ -115,7 +115,7 @@ export async function fleetNodeClaimFixture(
     centers.push(center);
     return center;
   };
-  const openHost = async (options: { readonly waitForAttachments?: boolean } = {}): Promise<DaemonHost> => {
+  const openHost = async (): Promise<DaemonHost> => {
     const host = await openDaemonHost({
       ...runtimeOptions,
       daemonId: "lease-center",
@@ -124,7 +124,7 @@ export async function fleetNodeClaimFixture(
     });
     const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host;
     hosts.push(wrapped);
-    if (options.waitForAttachments !== false) await host.attachmentsSettled();
+    await host.attachmentsSettled();
     return wrapped;
   };
   const closeHost = async (host: DaemonHost): Promise<void> => {
