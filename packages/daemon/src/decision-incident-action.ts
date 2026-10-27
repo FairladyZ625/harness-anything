@@ -9,6 +9,7 @@ import {
   type RuntimeContinuationSeed,
 } from "./runtime-continuation-context.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
+import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
 import type { DecisionActionRecord } from "./decision-annotations.ts";
 
 /** The fixed executable contract: a question with this version chooses exactly one of the five
@@ -218,6 +219,8 @@ export async function executeIncidentAction(input: {
   readonly plan: IncidentActionPlan;
   readonly binding: RepoCellBinding | null;
   readonly dispatchId: string;
+  /** The same daemon-local session source a manual runtime launch resolves at acceptance. */
+  readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
 }): Promise<IncidentActionOutcome> {
   if (input.plan.action === "no_action")
     return { action: "no_action", status: "applied", reason: null, successorDispatchId: null };
@@ -236,7 +239,8 @@ export async function executeIncidentAction(input: {
       successorDispatchId: null,
     };
   try {
-    const receipt = await input.cell.spawnRuntime(input.plan.payload, input.binding),
+    const binding = await withOnlineRuntimeSession(input.binding, input.keycloakSession),
+      receipt = await input.cell.spawnRuntime(input.plan.payload, binding),
       successorDispatchId = typeof receipt.dispatchId === "string" ? receipt.dispatchId : null;
     if (!successorDispatchId) throw new Error("the spawn receipt names no successor dispatch.");
     return { action: input.plan.action, status: "applied", reason: null, successorDispatchId };

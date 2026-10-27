@@ -106,6 +106,13 @@ test(
         },
       },
       now: () => new Date().toISOString(),
+      keycloakSession: async () => ({
+        personId: "person_live_smoke",
+        accessToken: "test-access-token",
+        url: "https://keycloak.test",
+        realm: "harness-test",
+        clientId: "harness-center",
+      }),
     });
     const startedAt = Date.now();
     await executor.settle(cell, outcome);

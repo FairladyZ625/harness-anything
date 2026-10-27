@@ -39,6 +39,7 @@ import {
   type IncidentActionPlan,
   type IncidentDecisionFields,
 } from "./decision-incident-action.ts";
+import type { RuntimeOperatorSession } from "./runtime-online-binding.ts";
 
 type OutcomeEvent = Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>;
 type DecisionPort = { readonly decide: (request: DecisionRequest) => Promise<AdvisoryDecision> };
@@ -47,6 +48,8 @@ export function openDecisionPointExecutor(input: {
   readonly rootDir: string;
   readonly providers: { readonly list: () => readonly DecisionProviderRecord[]; readonly port: DecisionPort };
   readonly now: () => string;
+  /** The daemon's current local operator session, the same source a manual runtime launch uses. */
+  readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
 }) {
   const annotations = openDecisionAnnotationStore(input.rootDir);
   // The single settlement path every executable disposition funnels into: the durable dispatch
@@ -71,6 +74,7 @@ export function openDecisionPointExecutor(input: {
         plan: args.plan,
         binding: incidentActionBinding(input.rootDir, args.dispatchId),
         dispatchId: args.dispatchId,
+        keycloakSession: input.keycloakSession,
       }),
       decidedAt = input.now(),
       reason = outcome.reason ?? args.note;
@@ -560,6 +564,7 @@ export function decisionPointBindingDigestForVertical(vertical: VerticalDefiniti
 export function openDecisionPointExecutorFactory(input: {
   readonly providers: { readonly list: () => readonly DecisionProviderRecord[]; readonly port: DecisionPort };
   readonly now: () => string;
+  readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
 }) {
   const executors = new Map<
     string,
