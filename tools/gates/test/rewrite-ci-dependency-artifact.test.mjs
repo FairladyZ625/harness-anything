@@ -4,7 +4,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/rewrite-ci.yml"), "utf8");
+// The patterns below are written against LF and match across an explicit "\n" inside a run block.
+// The crlf-checkout lane checks this file out with core.autocrlf=true, where that "\n" is preceded
+// by "\r" and the PR artifact ordering assertion misses a block that is right there. The workflow's
+// bytes are not the assertion, so the reader normalizes; the patterns keep their exact content.
+const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/rewrite-ci.yml"), "utf8").replaceAll(
+  "\r\n",
+  "\n",
+);
 const attributes = readFileSync(path.join(process.cwd(), ".gitattributes"), "utf8");
 
 test("the shared install job is scoped to PR and push artifact consumers", () => {
