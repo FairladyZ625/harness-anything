@@ -10,7 +10,7 @@ import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
-import { settleReviewedCutAfterWrite } from "./review-triage-after-write.ts";
+import { settleReviewedCutAfterWrite, settleReviewedDecisionAfterWrite } from "./review-triage-after-write.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -734,6 +734,39 @@ export function createDaemonHostRepositoryApi(
             now: context.now,
             settings: (await cell.read("repo.settings.read")).settings as Parameters<
               typeof settleReviewedCutAfterWrite
+            >[0]["settings"],
+          }).catch((error: unknown) => console.error(error));
+        // B-1: the Decision side needs the same producer. Without it a categorized Decision finding
+        // has no record, never settles, and the owner's override cannot clear it — an override
+        // disposes reviews, not unfiled findings. The accept judgment has read a journal since this
+        // same change, so only the writer was missing.
+        if (action.kind === "decision-review" && receipt.outcome === "applied")
+          void settleReviewedDecisionAfterWrite({
+            rootDir: cell.status().rootDir,
+            readDecision: async (decisionId) => {
+              // The full Decision rows already carry their current content digest, so the hook does
+              // not hash the body a second time; `withBody` only affects whether prose is returned.
+              const listed = (await cell.read(
+                  "repo.decisions.list",
+                  { projection: "full" },
+                  serverBinding,
+                )) as unknown as {
+                  readonly decisions?: readonly {
+                    readonly decisionId: string;
+                    readonly currentReviewContentDigest?: `sha256:${string}` | null;
+                  }[];
+                },
+                row = listed.decisions?.find((candidate) => candidate.decisionId === decisionId);
+              // No digest means no materialized cut to settle; the read side keeps escalating it.
+              return row?.currentReviewContentDigest == null
+                ? undefined
+                : { decision: row as never, digest: row.currentReviewContentDigest };
+            },
+            receipt,
+            decisionProviders: context.decisionProviders,
+            now: context.now,
+            settings: (await cell.read("repo.settings.read")).settings as Parameters<
+              typeof settleReviewedDecisionAfterWrite
             >[0]["settings"],
           }).catch((error: unknown) => console.error(error));
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {

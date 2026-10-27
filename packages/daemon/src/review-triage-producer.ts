@@ -1,11 +1,14 @@
 import {
   cutReviewFindings,
+  decisionCutReviewFindings,
   reviewFindingThresholdsFor,
   submissionDigest,
+  type DecisionDocumentState,
   type ExecutionV1,
   type ReviewFindingSettlement,
   type ReviewFindingThresholds,
   type ReviewV1,
+  type SettleableReviewFinding,
 } from "@harness-anything/kernel";
 import type { DecisionProviderRecord } from "@harness-anything/kernel";
 import type { DecisionPort } from "./decision-provider.ts";
@@ -87,19 +90,49 @@ export function makeReviewTriageProducer(input: ReviewTriageProducerInput) {
         id: cut.taskId,
         digest: submissionDigest(cut.execution.submission),
       };
-      const { settlement } = await reviewFindingTriageFor({
-        rootDir: input.rootDir,
-        providers: input.providers,
-        now: input.now,
-        rulesVersion: input.rulesVersion,
-      }).settleCut({
-        target,
-        findings,
-        thresholds: reviewFindingThresholdsFor(
-          (cut.thresholds as ReviewFindingThresholds | undefined) ?? input.readThresholds?.(),
-        ),
-      });
-      return settlement;
+      return settle(target, findings, cut.thresholds);
+    },
+    /**
+     * Settle the Decision cut a review landed on (B-1 from the data-migration review).
+     *
+     * The Task side had this and the Decision side did not, while the very same commit started
+     * asking Decision reviewers for a `category`. A categorized Decision finding therefore had no
+     * record, was never settled, and escalated forever — and the owner's override could not clear it
+     * either, because an override only disposes reviews, not unfiled findings.
+     *
+     * The target digest is the one the accept judgment pins a review to
+     * (`decisionReviewContentDigest`), so an amended body mints a new digest and needs new answers —
+     * the same invariant as a Task cut's submission digest.
+     */
+    async settleDecisionCut(cut: {
+      readonly decision: DecisionDocumentState;
+      /** The cut digest the review surfaces already computed, so this does not hash the body again. */
+      readonly digest: `sha256:${string}`;
+      readonly thresholds?: unknown;
+    }): Promise<ReviewFindingSettlement | null> {
+      const findings = decisionCutReviewFindings(cut.decision, cut.digest);
+      if (findings.length === 0) return null;
+      return settle({ kind: "decision", id: cut.decision.decisionId, digest: cut.digest }, findings, cut.thresholds);
     },
   };
+
+  async function settle(
+    target: ReviewTriageTarget,
+    findings: readonly SettleableReviewFinding[],
+    thresholds: unknown,
+  ): Promise<ReviewFindingSettlement | null> {
+    const { settlement } = await reviewFindingTriageFor({
+      rootDir: input.rootDir,
+      providers: input.providers,
+      now: input.now,
+      rulesVersion: input.rulesVersion,
+    }).settleCut({
+      target,
+      findings,
+      thresholds: reviewFindingThresholdsFor(
+        (thresholds as ReviewFindingThresholds | undefined) ?? input.readThresholds?.(),
+      ),
+    });
+    return settlement;
+  }
 }

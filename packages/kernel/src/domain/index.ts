@@ -192,6 +192,7 @@ export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from 
 export {
   compileDecisionWrite,
   decisionAcceptReviewReadiness,
+  decisionCutReviewFindings,
   decisionMachineDigest,
   decisionReviewContentDigest,
   decisionStates,

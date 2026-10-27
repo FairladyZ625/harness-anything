@@ -21,7 +21,7 @@ import { type EntityRelationRecord } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import { settleReviewFindings } from "./review-settlement.ts";
-import type { ReviewFindingSettlement, ReviewFindingTriageV1 } from "./review-settlement.ts";
+import type { ReviewFindingSettlement, ReviewFindingTriageV1, SettleableReviewFinding } from "./review-settlement.ts";
 import type { DecisionReviewRequirement } from "./settings-field-declarations.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
@@ -578,6 +578,41 @@ export interface DecisionAcceptReviewReadiness {
 }
 
 /**
+ * The categorized findings of one Decision cut, as the settlement reads them.
+ *
+ * The producer that asks the Decisions API must ask about exactly this set, or the question and the
+ * judgment drift: a finding asked about but not judged (or the reverse) leaves a cut that can never
+ * settle. Both callers therefore take the findings from here rather than repeating the filter.
+ */
+export function decisionCutReviewFindings(
+  current: DecisionDocumentState,
+  currentDigest: `sha256:${string}`,
+): readonly SettleableReviewFinding[] {
+  return current.reviews
+    .filter((review) => review.reviewContentDigest === currentDigest)
+    .flatMap((review) =>
+      review.findings.flatMap((finding) =>
+        finding.category === undefined
+          ? []
+          : [
+              {
+                reviewId: review.reviewId,
+                findingId: finding.findingId,
+                category: finding.category,
+                label: finding.label ?? ("Important" as const),
+                text: finding.text,
+                reviewerBlocking: review.verdict === "changes_requested",
+                ...(finding.evidenceDigest === undefined || finding.anchor === undefined
+                  ? {}
+                  : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
+                ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
+              },
+            ],
+      ),
+    );
+}
+
+/**
  * The per-finding settlement of a Decision cut (dec_6A77D43B8523823ABA1F5E4D3C CH5). Task and
  * Decision share `settleReviewFindings`; this adapter maps Decision review findings onto it, so both
  * aggregates apply one rule and Decision accept stops looking for a single `approved` review.
@@ -597,28 +632,7 @@ export function decisionCutSettlement(
   );
   if (!categorized) return null;
   const currentDigest = decisionReviewContentDigest(current, documentBody),
-    findings = current.reviews
-      .filter((review) => review.reviewContentDigest === currentDigest)
-      .flatMap((review) =>
-        review.findings.flatMap((finding) =>
-          finding.category === undefined
-            ? []
-            : [
-                {
-                  reviewId: review.reviewId,
-                  findingId: finding.findingId,
-                  category: finding.category,
-                  label: finding.label ?? ("Important" as const),
-                  text: finding.text,
-                  reviewerBlocking: review.verdict === "changes_requested",
-                  ...(finding.evidenceDigest === undefined || finding.anchor === undefined
-                    ? {}
-                    : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
-                  ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
-                },
-              ],
-        ),
-      );
+    findings = decisionCutReviewFindings(current, currentDigest);
   return findings.length === 0 ? null : settleReviewFindings({ findings, triages, targetDigest: currentDigest });
 }
 

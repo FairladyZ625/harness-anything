@@ -12,7 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import { submissionDigest, type ExecutionV1, type ReviewV1 } from "@harness-anything/kernel";
 import { readReviewTriageRecords } from "../src/review-finding-triage.ts";
-import { settleReviewedCutAfterWrite } from "../src/review-triage-after-write.ts";
+import { settleReviewedCutAfterWrite, settleReviewedDecisionAfterWrite } from "../src/review-triage-after-write.ts";
 
 const digest = `sha256:${"a".repeat(64)}` as const,
   commit = "b".repeat(40);
@@ -177,6 +177,122 @@ test("a receipt without an execution identity does nothing rather than settle th
       now: () => "2026-10-26T00:02:00.000Z",
     });
     assert.equal(reads, 0, "no execution means no cut to settle");
+    assert.equal(readReviewTriageRecords(rootDir).length, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * B-1: the Decision side had no producer at all, while the same change started asking Decision
+ * reviewers for a `category`. A categorized Decision finding then had no record, could never settle,
+ * and the owner's override could not clear it (an override disposes reviews, not unfiled findings).
+ * These cases drive the Decision hook the host calls after an applied Decision review.
+ */
+function decisionCut(findings: readonly Record<string, unknown>[], reviewDigest: `sha256:${string}`) {
+  return {
+    decisionId: "dec_0123456789ABCDEFGHJKMNPQRS",
+    state: "proposed" as const,
+    title: "Review a Decision",
+    question: "Should this cut be accepted?",
+    riskTier: "high" as const,
+    urgency: "medium" as const,
+    vertical: "software/coding",
+    preset: "standard-task",
+    decisionClass: "ordinary" as const,
+    appliesTo: { modules: ["kernel"], productLines: [] },
+    proposer: { principal: { personId: "person-owner" }, executor: null },
+    arbiter: null,
+    proposedAt: "2026-10-26T00:00:00.000Z",
+    decidedAt: null,
+    workspaceRevision: 1,
+    chosen: [{ id: "CH1", text: "Use the shared review rule." }],
+    rejected: [],
+    claims: [],
+    relations: [],
+    provenance: [],
+    judgmentConsents: [],
+    reviews: [
+      {
+        reviewId: "review-1",
+        reviewContentDigest: reviewDigest,
+        verdict: "changes_requested" as const,
+        reason: "checked",
+        findings,
+        evidenceChecked: [],
+        reportRef: null,
+        actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "reviewer" } },
+        reviewedAt: "2026-10-26T00:01:00.000Z",
+      },
+    ],
+    reviewResponses: [],
+    reviewOverrides: [],
+  };
+}
+
+const decisionDigest = `sha256:${"d".repeat(64)}` as const;
+
+test("the Decision hook writes the journal for a categorized Decision finding", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-triage-decision-"));
+  try {
+    const decision = decisionCut(
+        [{ findingId: "F1", blocking: false, text: "Names a stale comment.", category: "correctness" }],
+        decisionDigest,
+      ),
+      provider = providers();
+    await settleReviewedDecisionAfterWrite({
+      rootDir,
+      readDecision: async () => ({ decision: decision as never, digest: decisionDigest }),
+      receipt: { outcome: "applied", decisionId: decision.decisionId },
+      decisionProviders: provider,
+      now: () => "2026-10-26T00:02:00.000Z",
+    });
+    const records = readReviewTriageRecords(rootDir);
+    assert.equal(records.length, 1, "B-1: the Decision side now has the writer it never had");
+    assert.equal(records[0]?.findingId, "F1");
+    assert.equal(records[0]?.target.kind, "decision");
+    assert.equal(records[0]?.target.id, decision.decisionId);
+    assert.equal(records[0]?.target.digest, decisionDigest, "the record answers this Decision cut, not a Task one");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the Decision hook never asks the provider for an uncategorized finding", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-triage-decision-"));
+  try {
+    const decision = decisionCut([{ findingId: "F1", blocking: false, text: "Wording." }], decisionDigest),
+      provider = providers();
+    await settleReviewedDecisionAfterWrite({
+      rootDir,
+      readDecision: async () => ({ decision: decision as never, digest: decisionDigest }),
+      receipt: { outcome: "applied", decisionId: decision.decisionId },
+      decisionProviders: provider,
+      now: () => "2026-10-26T00:02:00.000Z",
+    });
+    assert.equal(readReviewTriageRecords(rootDir).length, 0);
+    assert.equal(provider.asked(), 0, "no category, no question, no cost");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the Decision hook does nothing without a decision identity on the receipt", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-triage-decision-"));
+  try {
+    let reads = 0;
+    const provider = providers();
+    await settleReviewedDecisionAfterWrite({
+      rootDir,
+      readDecision: async () => {
+        reads += 1;
+        return undefined;
+      },
+      receipt: { outcome: "applied" },
+      decisionProviders: provider,
+      now: () => "2026-10-26T00:02:00.000Z",
+    });
+    assert.equal(reads, 0, "no decision means nothing to settle");
     assert.equal(readReviewTriageRecords(rootDir).length, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
