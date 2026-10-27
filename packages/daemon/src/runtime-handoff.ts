@@ -72,10 +72,12 @@ export async function runRuntimeHandoff(input: {
 }
 
 function publicResult(receipt: JsonObject): JsonObject {
+  const ok = ["applied", "pending", "no_changes"].includes(String(receipt.outcome));
   return {
     ...receipt,
     schema: "command-receipt/v2",
-    command: "runtime-handoff",
-    ok: ["applied", "no_changes"].includes(String(receipt.outcome)),
+    command: "runtime-handoff-claim",
+    ok,
+    ...(!ok && typeof receipt.code === "string" ? { error: { code: receipt.code } } : {}),
   };
 }
