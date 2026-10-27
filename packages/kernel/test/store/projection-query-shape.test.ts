@@ -941,6 +941,48 @@ function queryPlan(db: DatabaseSync, read: { readonly sql: string; readonly args
     .join("\n");
 }
 
+/** A validated task/v2 snapshot for presentation rows: only the fields the derivation reads are varied. */
+function workDerivationSnapshot(
+  taskId: string,
+  status: string,
+  taskClass: string,
+  parentTaskId: string | null,
+  disposition: { readonly packageDisposition?: "active" | "archived"; readonly supersededBy?: string } = {},
+): string {
+  return JSON.stringify({
+    task: {
+      schema: "task/v2",
+      taskId,
+      title: taskId,
+      taskClass,
+      status,
+      graph: REPLAY_TASK_GRAPH,
+      currentNode: "implementation",
+      iteration: 0,
+      pinned: false,
+      createdBy: { principal: { personId: "person-fixture" }, executor: null },
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+      packageDisposition: disposition.packageDisposition ?? "active",
+      ...(disposition.supersededBy === undefined ? {} : { supersededBy: disposition.supersededBy }),
+      metadata: {
+        parentTaskId,
+        idempotencyKey: null,
+        workKind: null,
+        riskTier: null,
+        urgency: null,
+        verticalId: "test",
+        presetId: "standard-task",
+        profileId: "baseline",
+        moduleKey: null,
+        slug: taskId,
+        surfaces: [],
+        fromLegacyId: null,
+      },
+    },
+  });
+}
+
 test("work derivation uses complete raw subtrees, including archived and nested work members", () => {
   const db = new DatabaseSync(":memory:");
   try {
@@ -963,36 +1005,8 @@ test("work derivation uses complete raw subtrees, including archived and nested 
         taskId,
         status,
         "2026-09-30T00:00:00.000Z",
-        JSON.stringify({
-          task: {
-            schema: "task/v2",
-            taskId,
-            title: taskId,
-            taskClass,
-            status,
-            graph: REPLAY_TASK_GRAPH,
-            currentNode: "implementation",
-            iteration: 0,
-            pinned: false,
-            createdBy: { principal: { personId: "person-fixture" }, executor: null },
-            completionGateIds: [],
-            presetSnapshotDigest: null,
-            packageDisposition: taskId === "archived" ? "archived" : "active",
-            metadata: {
-              parentTaskId,
-              idempotencyKey: null,
-              workKind: null,
-              riskTier: null,
-              urgency: null,
-              verticalId: "test",
-              presetId: "standard-task",
-              profileId: "baseline",
-              moduleKey: null,
-              slug: taskId,
-              surfaces: [],
-              fromLegacyId: null,
-            },
-          },
+        workDerivationSnapshot(taskId, status, taskClass, parentTaskId, {
+          packageDisposition: taskId === "archived" ? "archived" : "active",
         }),
       );
     }
@@ -1001,6 +1015,60 @@ test("work derivation uses complete raw subtrees, including archived and nested 
       ["leaf", "nested", "nested-leaf", "outside"],
     );
     assert.equal(readTaskIndexRows(db).rows.find(({ taskId }) => taskId === "root")!.status, "planned");
+  } finally {
+    db.close();
+  }
+});
+
+// dec_mr7v4h6t: the derived status is "all subtree members terminal". A retired plan (archived and
+// superseded by its replacement) is no longer open work — workspace-scope-read's
+// supersededArchivedLeaf already drops it from `ha work show` leaf counts — so it must not keep the
+// root presented active forever. An archived task with no replacement is still open work and blocks.
+test("a superseded archived descendant retires from work derivation while an unreplaced archive blocks", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(
+      "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, updated_at TEXT, snapshot_json TEXT); CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT)",
+    );
+    const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, ?)");
+    const add = (
+      taskId: string,
+      status: string,
+      parentTaskId: string | null,
+      disposition: { readonly packageDisposition?: "active" | "archived"; readonly supersededBy?: string } = {},
+      taskClass = "standard",
+    ) =>
+      insert.run(
+        taskId,
+        status,
+        "2026-09-30T00:00:00.000Z",
+        workDerivationSnapshot(taskId, status, taskClass, parentTaskId, disposition),
+      );
+    add("retired-root", "planned", null, {}, "work");
+    add("retired-done", "done", "retired-root");
+    add("retired-plan", "planned", "retired-root", {
+      packageDisposition: "archived",
+      supersededBy: "task-retired-replacement",
+    });
+    add("archived-root", "planned", null, {}, "work");
+    add("archived-done", "done", "archived-root");
+    add("archived-plan", "planned", "archived-root", { packageDisposition: "archived" });
+
+    assert.equal(
+      readTaskPresentationStatus(db, "retired-root"),
+      "done",
+      "a superseded archived plan is retired, so the all-terminal subtree derives done",
+    );
+    assert.equal(
+      readTaskPresentationStatus(db, "archived-root"),
+      "active",
+      "an archived task without a replacement keeps blocking; only the proven supersede pair retires",
+    );
+    assert.deepEqual(
+      readTaskIndexRows(db, { presentationStatus: true, status: "done" }).rows.map(({ taskId }) => taskId),
+      ["archived-done", "retired-done", "retired-root"],
+      "the filter and the projection answer from the same retired-plan rule",
+    );
   } finally {
     db.close();
   }
