@@ -11,6 +11,7 @@ const mutatorDiscipline = `# Implementation Permissions
 
 - Inspect beyond the suggested file map when needed; respect shared exclusions and task boundaries, and stage only owned files.
 - Keep the injected canonical repository root read-only; edit code in the worker repository root.
+- Read another commit with \`node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]\`. It extracts an archive into a plain directory, so use it instead of \`git worktree add\`, and never link a checkout's node_modules at a shared store: a link resolves its parent directory first, so replacing an entry through it rewrites the store's own workspace links, and deleting that checkout then breaks every consumer.
 - Worktrees share one git stash stack. Park changes in a temporary WIP commit instead.
 - Before handoff, rebase onto the latest default branch and rerun affected evidence commands.`;
 
@@ -26,6 +27,9 @@ const reviewerDiscipline = [
     "`gh pr checks <task-id>`, then the head again; both reads must equal the pinned delivery commit. Pending " +
     "checks are not green. `gh run view <run-id> --log-failed` reads a failure's log. When the checks cannot be read, record " +
     "the exact error and label the check unverified.",
+  "- Read another commit with `node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]`. It " +
+    "extracts outside the repository and shares no store, so a baseline read needs neither `git worktree add` " +
+    "nor a node_modules link.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
     "changes_requested against the pinned target and digest, and stop if that cut changes. " +
