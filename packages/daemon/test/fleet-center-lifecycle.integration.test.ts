@@ -19,6 +19,7 @@ import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
+import { FLEET_HELLO_TIMEOUT_MS } from "../src/fleet/command-protocol.ts";
 
 async function fixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-lifecycle-")),
@@ -495,22 +496,39 @@ test("a start without any reusable login listener certificate is refused, not de
   assert.equal(existsSync(fleetCenterConfigPath(f.userRoot, "no-certificate")), false);
 });
 
-test("host close cuts sockets that never reached their Fleet hello instead of waiting on them", async (t) => {
+test("host close cuts a peer that completed the TLS handshake but never sent its Fleet hello", async (t) => {
+  // The bug: `close()` cut only hello-registered sessions, so a peer that stalled after the
+  // handshake held `server.close` until its own hello timer fired.
+  const closeBoundMs = 10_000;
   const f = await fixture(t),
     host = await f.open("unhelled-close"),
     started = await host.fleet.startCenter(f.request, auth),
-    // A peer that owns an accepted socket without ever becoming a session: the center's `sessions`
-    // table is only populated when a hello is dispatched, so this connection belongs to the listener
-    // alone. A replica stream keeps its socket open between pulls, so `server.close` cannot end it.
-    silent = net.connect(Number(started.port), "127.0.0.1");
+    // A peer that owns an accepted socket without ever becoming a session: `sessions` is populated
+    // only when the hello frame is dispatched, so this connection belongs to the listener alone.
+    // The handshake must complete first. A bare TCP connect does not hold `server.close` on Node
+    // v24, so it cannot detect this regression; a TLS socket that never sends its hello does — its
+    // `serve()` armed the hello timer, and `server.close` would wait out that whole window before
+    // the timer cut the socket. The bound below must stay inside that window so a regression shows
+    // as `pending`, never as a slow `closed`.
+    silent = connect({
+      host: "127.0.0.1",
+      port: Number(started.port),
+      ca: readFileSync(f.certPath),
+      servername: "localhost",
+    });
   t.after(() => silent.destroy());
   await new Promise<void>((resolve, reject) => {
-    silent.once("connect", resolve);
+    silent.once("secureConnect", resolve);
     silent.once("error", reject);
   });
+  assert.equal(silent.destroyed, false, "the probe must hold a live socket when close starts");
+  assert.ok(
+    closeBoundMs < FLEET_HELLO_TIMEOUT_MS,
+    `the close bound (${closeBoundMs}ms) must undercut the ${FLEET_HELLO_TIMEOUT_MS}ms hello window, or a regression reads as slow-closed`,
+  );
   const closed = await Promise.race([
     host.close().then(() => "closed" as const),
-    new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 10_000).unref()),
+    new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), closeBoundMs).unref()),
   ]);
-  assert.equal(closed, "closed", "an unhelled connection must not hold the center close open");
+  assert.equal(closed, "closed", "a hello-less TLS peer must not hold the center close open");
 });
