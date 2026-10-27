@@ -1,7 +1,7 @@
 import taskFrontmatterJsonSchema from "../../schemas/json/task-frontmatter.schema.json" with { type: "json" };
 import decisionPackageJsonSchema from "../../schemas/json/decision-package.schema.json" with { type: "json" };
 import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
-import { REVIEW_V1_SCHEMA } from "./review.ts";
+import { REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS, REVIEW_V1_SCHEMA } from "./review.ts";
 import { requireEntityTypeContract } from "./base-entity.ts";
 import {
   type EntityDocumentJsonSchema,
@@ -108,6 +108,29 @@ export const executionSchema: EntityDocumentJsonSchema = {
   ],
   additionalProperties: false,
 };
+type ReviewFindingOptionalFieldContract =
+  (typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS)[keyof typeof REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS];
+
+function reviewFindingOptionalFieldSchema(contract: ReviewFindingOptionalFieldContract): EntityJsonSchemaNode {
+  switch (contract.kind) {
+    case "non-empty-string":
+      return { type: "string", minLength: 1 };
+    case "enum":
+      return { type: "string", enum: contract.values };
+    case "sha256-digest":
+      return { type: "string", pattern: contract.pattern.source };
+    case "non-empty-string-array":
+      return { type: "array", items: { type: "string", minLength: 1 }, minItems: contract.minItems };
+  }
+}
+
+const reviewFindingOptionalProperties: Readonly<Record<string, EntityJsonSchemaNode>> = Object.fromEntries(
+  Object.entries(REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS).map(([name, contract]) => [
+    name,
+    reviewFindingOptionalFieldSchema(contract),
+  ]),
+);
+
 export const reviewSchema: EntityDocumentJsonSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "Review/v1",
@@ -136,6 +159,7 @@ export const reviewSchema: EntityDocumentJsonSchema = {
           blocking: { type: "boolean" },
           text: { type: "string", minLength: 1 },
           anchor: { type: "string", minLength: 1 },
+          ...reviewFindingOptionalProperties,
         },
         required: ["findingId", "blocking", "text"],
         additionalProperties: false,
