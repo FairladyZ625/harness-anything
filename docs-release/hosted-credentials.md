@@ -1,10 +1,12 @@
 # Hosted Git credentials
 
-Task branch publishing, pull request creation, and CI reading go through the
-daemon. The daemon credential is a GitHub or GitLab token the machine's
-operator configures once per runtime instance; runtime processes never receive
-it. This page is the operator setup; the worker-facing commands are described
-in
+Task branch publishing goes through the daemon. The daemon credential is a
+GitLab token (and, for `git` operations outside the GitHub CLI, a GitHub token)
+the machine's operator configures once per runtime instance; a runtime process
+does not read the instance configuration. GitHub work here is different: every
+runtime launch inherits the operator's own GitHub credential directly, so the
+worker itself can push, open the pull request, and read CI with the GitHub CLI.
+This page is the operator setup; the worker-facing commands are described in
 [Task branch publishing and direct-push protection](operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
 
 ## What the credential powers
@@ -87,7 +89,9 @@ contents write access for pushes; GitLab tokens need `write_repository` for
 pushes. The daemon resolves the provider-specific reference and supplies the
 token only to its own git push. Opening the pull request and reading checks
 (`gh pr create`, `gh pr checks --watch`, `gh run view --log-failed`) use the
-machine's own platform CLI login. Provider
+operator's GitHub login, which the daemon passes to every runtime launch as
+`GH_TOKEN` plus a github.com `gh auth git-credential` helper; an isolated
+instance home no longer needs its own `gh auth login`. Provider
 selection is inferred from
 `origin`; declare `hosting.provider` and `hosting.host` in repository settings
 for an unrecognized or self-hosted GitLab host. GitLab CI uses REST API v4 and

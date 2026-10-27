@@ -56,6 +56,7 @@ async function runResidentDaemon(
   finish: (receipt: Record<string, unknown>, exitCode: number) => number,
 ): Promise<number> {
   const { startDaemon } = await import("./runtime.ts"),
+    { resolveOperatorGithubToken } = await import("./runtime-github-credentials.ts"),
     { ensureLocalDaemonRunning } = await import("./client/daemon-autostart.ts"),
     { daemonSupersededExitCode } = await import("./client/daemon-service.ts"),
     { localUserDaemonEndpoint } = await import("./client/local-daemon-target.ts");
@@ -85,6 +86,9 @@ async function runResidentDaemon(
       startDaemon({
         userRoot,
         daemonId,
+        // The resident daemon is the process that owns the operator login: every runtime launch
+        // inherits this token, so an isolated instance HOME needs no `gh auth login` of its own.
+        runtimeGithubToken: resolveOperatorGithubToken,
         buildSupersessionEnabled,
         shutdownRequested: () => stopping !== null,
         requestShutdown: requestStop,

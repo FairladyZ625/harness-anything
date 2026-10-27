@@ -69,6 +69,7 @@ import {
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
+import { applyGithubLaunchCredential } from "./runtime-github-credentials.ts";
 import {
   runtimeEffortField,
   runtimeEffortRidesProviderConfig,
@@ -118,6 +119,12 @@ export function openRuntimeInstanceStore(input: {
   readonly env?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
   readonly resolveCredential?: (reference: string) => Promise<string>;
+  /**
+   * Reads the operator's GitHub token for one launch. The daemon host supplies this (its own
+   * `gh` login); a store opened without it injects no GitHub credential, so tests and embedded
+   * stores never read the machine's login as a side effect of preparing a launch.
+   */
+  readonly resolveGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
   readonly subscriptionReady?: (input: {
     readonly installation: RuntimeInstallationWitness;
     readonly env: NodeJS.ProcessEnv;
@@ -125,6 +132,10 @@ export function openRuntimeInstanceStore(input: {
 }) {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
+    // The operator environment is the daemon's own, never an instance state root: this is the
+    // one place a launch reads a GitHub credential, and it reads the operator's own login.
+    operatorEnvironment = input.env ?? process.env,
+    resolveGithubToken = input.resolveGithubToken,
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
@@ -346,7 +357,13 @@ export function openRuntimeInstanceStore(input: {
               model: deepseekHarnessAcpModelOption(config, model),
               ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
             }
-          : {};
+          : {},
+      // The one GitHub injection point for both isolation states and both auth modes. `env` is
+      // already resolved (isolated HOME or the operator environment); the credential rides beside
+      // it. A store opened without a resolver deliberately injects nothing and owes no notice.
+      githubCredentialNotice = resolveGithubToken
+        ? applyGithubLaunchCredential(env, await resolveGithubToken(operatorEnvironment))
+        : undefined;
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
@@ -365,6 +382,7 @@ export function openRuntimeInstanceStore(input: {
         prompt: request.prompt,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
         ...acpLaunch,
       };
     }
@@ -407,6 +425,7 @@ export function openRuntimeInstanceStore(input: {
       prompt: request.prompt,
       ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
       ...(permissionMode ? { permissionMode } : {}),
+      ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
       // ACP agents authenticate through the client handshake, so the key rides the
       // launch manifest rather than the provider's environment.
       ...(protocolFamily === "acp" && config.kindId !== "deepseek-harness" ? { acpApiKey: secret } : {}),

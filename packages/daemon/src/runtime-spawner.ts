@@ -1071,6 +1071,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               runtimeInstances,
               selected: runtimeSelection.instanceId,
             }),
+      // A launch without the operator's GitHub login still runs; this is the one place the operator
+      // learns the worker cannot publish before the credential error would arrive at `ha task push`.
+      notices = [ambiguity?.message, prepared.githubCredentialNotice].filter(
+        (notice): notice is string => typeof notice === "string",
+      ),
       // Merge, never replace: the receipt may already carry operator notices (for example the
       // hosting-credential warning) that this dispatch must not drop.
       existingWarnings = Array.isArray(requested.receipt?.warnings)
@@ -1079,7 +1084,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           )
         : [],
       warningFields: { warnings?: readonly string[] } =
-        ambiguity === null ? {} : { warnings: [...existingWarnings, ambiguity.message] };
+        notices.length === 0 ? {} : { warnings: [...existingWarnings, ...notices] };
     return requested.receipt
       ? {
           ...requested.receipt,
