@@ -248,7 +248,10 @@ export function currentCutSettlement(
   triages: readonly ReviewFindingTriageV1[],
 ): ReviewFindingSettlement | null {
   const findings = cutReviewFindings(reviews, execution);
-  return findings.length === 0 ? null : settleReviewFindings({ findings, triages });
+  if (findings.length === 0 || !execution.submission) return null;
+  // The cut a settlement answers is its submission digest: an amend mints a new one, and a record
+  // minted for the old cut must not answer the new one (B-3: `(reviewId, findingId)` is reusable).
+  return settleReviewFindings({ findings, triages, targetDigest: submissionDigest(execution.submission) });
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

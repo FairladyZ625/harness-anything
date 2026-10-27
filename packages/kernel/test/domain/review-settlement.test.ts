@@ -9,7 +9,18 @@ import {
   type SettleableReviewFinding,
 } from "../../src/domain/review-settlement.ts";
 
-const digest = `sha256:${"a".repeat(64)}` as const;
+const digest = `sha256:${"a".repeat(64)}` as const,
+  otherCut = `sha256:${"b".repeat(64)}` as const;
+
+/**
+ * Every case reads the same cut unless it says otherwise, so the digest that a triage record must
+ * match is stated once here instead of at 18 call sites.
+ */
+const settle = (
+  input: Omit<Parameters<typeof settleReviewFindings>[0], "targetDigest"> & {
+    readonly targetDigest?: `sha256:${string}`;
+  },
+) => settleReviewFindings({ targetDigest: digest, ...input });
 
 const finding = (overrides: Partial<SettleableReviewFinding> = {}): SettleableReviewFinding => ({
   reviewId: "review-1",
@@ -47,14 +58,14 @@ const triage = (
 });
 
 test("a cut with no finding passes without inventing one", () => {
-  const settlement = settleReviewFindings({ findings: [], triages: [] });
+  const settlement = settle({ findings: [], triages: [] });
   assert.equal(settlement.outcome, "passed");
   assert.deepEqual(settlement.findings, []);
   assert.match(settlement.reason, /No finding entered settlement/u);
 });
 
 test("style, diagnostic, and cleanup notes are discarded before settlement", () => {
-  const settlement = settleReviewFindings({
+  const settlement = settle({
     findings: [
       finding({ findingId: "S1", category: "style" }),
       finding({ findingId: "D1", category: "diagnostic" }),
@@ -71,7 +82,7 @@ test("style, diagnostic, and cleanup notes are discarded before settlement", () 
 });
 
 test("a confident blocker returns the cut; a confident nit closes it", () => {
-  const blocker = settleReviewFindings({
+  const blocker = settle({
     findings: [finding()],
     triages: [triage("blocker", { blocker: 0.93, non_blocking: 0.07 })],
   });
@@ -83,13 +94,13 @@ test("a confident blocker returns the cut; a confident nit closes it", () => {
   );
 
   // The reviewer claimed a blocker; the API must not wave it through on one pass (CH4).
-  const nitConflict = settleReviewFindings({
+  const nitConflict = settle({
     findings: [finding({ category: "completeness", evidence: undefined })],
     triages: [triage("nit", { nit: 0.9, non_blocking: 0.1 })],
   });
   assert.equal(nitConflict.outcome, "escalated");
 
-  const nit = settleReviewFindings({
+  const nit = settle({
     findings: [finding({ category: "completeness", evidence: undefined, label: "Nit", reviewerBlocking: false })],
     triages: [triage("nit", { nit: 0.9, non_blocking: 0.1 })],
   });
@@ -99,7 +110,7 @@ test("a confident blocker returns the cut; a confident nit closes it", () => {
 
 test("non_blocking and pre_existing become follow-up-owned, not blockers", () => {
   for (const disposition of ["non_blocking", "pre_existing"] as const) {
-    const settlement = settleReviewFindings({
+    const settlement = settle({
       findings: [finding({ category: "completeness", evidence: undefined, reviewerBlocking: false })],
       triages: [triage(disposition, { [disposition]: 0.9 })],
     });
@@ -109,7 +120,7 @@ test("non_blocking and pre_existing become follow-up-owned, not blockers", () =>
 });
 
 test("a low-confidence triage escalates instead of guessing a pass", () => {
-  const settlement = settleReviewFindings({
+  const settlement = settle({
     findings: [finding()],
     triages: [triage("blocker", { blocker: 0.5, non_blocking: 0.5 })],
   });
@@ -121,12 +132,12 @@ test("the category floor decides confidence, not a single global number", () => 
   const findingInput = finding({ category: "data-loss", evidence: undefined }),
     probabilities = { blocker: 0.85, non_blocking: 0.15 };
   assert.equal(
-    settleReviewFindings({ findings: [findingInput], triages: [triage("blocker", probabilities)] }).outcome,
+    settle({ findings: [findingInput], triages: [triage("blocker", probabilities)] }).outcome,
     "escalated",
     "0.85 is below the data-loss floor of 0.90",
   );
   assert.equal(
-    settleReviewFindings({
+    settle({
       findings: [findingInput],
       triages: [triage("blocker", { blocker: 0.91 })],
     }).outcome,
@@ -135,7 +146,7 @@ test("the category floor decides confidence, not a single global number", () => 
 });
 
 test("a hard-rule finding with complete evidence is a blocker no matter the label or probabilities", () => {
-  const settlement = settleReviewFindings({
+  const settlement = settle({
     findings: [finding({ category: "security-auth", label: "Nit" })],
     triages: [triage("false_positive", { false_positive: 0.99 })],
   });
@@ -145,13 +156,13 @@ test("a hard-rule finding with complete evidence is a blocker no matter the labe
 });
 
 test("a hard-rule finding without evidence cannot resolve itself or be downgraded", () => {
-  const missing = settleReviewFindings({
+  const missing = settle({
     findings: [finding({ category: "data-loss", evidence: undefined })],
     triages: [],
   });
   assert.equal(missing.outcome, "escalated");
 
-  const downgraded = settleReviewFindings({
+  const downgraded = settle({
     findings: [finding({ category: "data-loss", evidence: undefined })],
     triages: [triage("non_blocking", { non_blocking: 0.97 })],
   });
@@ -160,7 +171,7 @@ test("a hard-rule finding without evidence cannot resolve itself or be downgrade
 });
 
 test("a Critic that agrees settles the finding; a Critic that disagrees escalates", () => {
-  const agreeing = settleReviewFindings({
+  const agreeing = settle({
     findings: [finding({ evidence: undefined })],
     triages: [
       triage(
@@ -181,7 +192,7 @@ test("a Critic that agrees settles the finding; a Critic that disagrees escalate
   assert.equal(agreeing.outcome, "passed");
   assert.equal(agreeing.findings[0]!.outcome, "follow_up_owned");
 
-  const disagreeing = settleReviewFindings({
+  const disagreeing = settle({
     findings: [finding({ evidence: undefined })],
     triages: [
       triage(
@@ -204,7 +215,7 @@ test("a Critic that agrees settles the finding; a Critic that disagrees escalate
 });
 
 test("a triage record that disagrees with its own distribution is not a classification", () => {
-  const settlement = settleReviewFindings({
+  const settlement = settle({
     findings: [finding({ evidence: undefined })],
     triages: [triage("blocker", { blocker: 0.2, false_positive: 0.9 })],
   });
@@ -212,14 +223,14 @@ test("a triage record that disagrees with its own distribution is not a classifi
 });
 
 test("a per-cut threshold override narrows without being able to lower a hard rule", () => {
-  const highBar = settleReviewFindings({
+  const highBar = settle({
     findings: [finding({ evidence: undefined })],
     triages: [triage("blocker", { blocker: 0.86 })],
     thresholds: { correctness: 0.95 },
   });
   assert.equal(highBar.outcome, "escalated", "the cut's own floor is honored");
 
-  const lowered = settleReviewFindings({
+  const lowered = settle({
     findings: [finding({ category: "security-auth" })],
     triages: [triage("non_blocking", { non_blocking: 0.99 })],
     thresholds: { "security-auth": 0.1 },
@@ -242,4 +253,45 @@ test("triage validation rejects an unknown disposition and an uncovered distribu
     ),
     /cover all five dispositions/u,
   );
+});
+
+test("a triage record minted for another cut does not settle this one", () => {
+  // B-3: the first version matched on `(reviewId, findingId)` alone, so a record written for a
+  // different cut's digest answered this one — which is exactly the invariant an amend relies on.
+  // Ids are reusable (a rebind, a hand-copied report packet, an edge replay), so the digest has to
+  // be part of the key. This case fails on the id-only key and passes only with the digest compared.
+  // The reviewer did not claim a blocker here, so a confident non-blocking triage can settle the
+  // finding without buying a Critic — otherwise these cases would escalate for the wrong reason.
+  const reported = finding({ reviewerBlocking: false }),
+    foreign = settle({
+      findings: [reported],
+      triages: [triage("non_blocking", { non_blocking: 0.99 }, { targetDigest: otherCut })],
+    });
+  assert.equal(foreign.outcome, "escalated", "another cut's answer must not pass this cut");
+  assert.match(
+    String(foreign.escalated[0]?.reason),
+    /No triage record exists/u,
+    "the finding is treated as unanswered, not as answered elsewhere",
+  );
+
+  const own = settle({ findings: [reported], triages: [triage("non_blocking", { non_blocking: 0.99 })] });
+  assert.equal(own.outcome, "passed", "the same record does settle the cut it was minted for");
+});
+
+test("the same ids on two cuts settle independently", () => {
+  // Both cuts carry review-1/F1; only their digests differ. A key that ignores the digest would let
+  // whichever record came first answer both.
+  const findings = [finding({ reviewerBlocking: false })],
+    cutA = settle({
+      findings,
+      targetDigest: digest,
+      triages: [triage("non_blocking", { non_blocking: 0.99 }, { targetDigest: digest })],
+    }),
+    cutB = settle({
+      findings,
+      targetDigest: otherCut,
+      triages: [triage("non_blocking", { non_blocking: 0.99 }, { targetDigest: digest })],
+    });
+  assert.equal(cutA.outcome, "passed");
+  assert.equal(cutB.outcome, "escalated", "cut A's record is not an answer for cut B");
 });

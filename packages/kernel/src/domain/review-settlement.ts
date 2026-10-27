@@ -152,6 +152,13 @@ export interface ReviewFindingSettlement {
 export interface ReviewFindingSettlementInput {
   readonly findings: readonly SettleableReviewFinding[];
   readonly triages: readonly ReviewFindingTriageV1[];
+  /**
+   * The cut these findings belong to. A triage record answers a cut only when it was minted for this
+   * digest: `(reviewId, findingId)` is not an identity, because a rebind, a hand-copied report packet
+   * or an edge replay can reuse both ids on a different cut. Without this the producer would re-ask
+   * the question on an amend while consumption happily reused the stale answer.
+   */
+  readonly targetDigest: `sha256:${string}`;
   /** Per-cut confidence floors; a category omitted here falls back to `reviewFindingThresholds`. */
   readonly thresholds?: ReviewFindingThresholds | undefined;
 }
@@ -166,7 +173,9 @@ export function settleReviewFindings(input: ReviewFindingSettlementInput): Revie
       .filter((finding) => isDiscardedCategory(finding.category))
       .map(({ reviewId, findingId, category }) => ({ reviewId, findingId, category })),
     entered = input.findings.filter((finding) => !isDiscardedCategory(finding.category));
-  const settled = entered.map((finding) => settleOneFinding(finding, input.triages, input.thresholds));
+  const settled = entered.map((finding) =>
+    settleOneFinding(finding, input.triages, input.thresholds, input.targetDigest),
+  );
   const blockers = settled.filter(({ outcome }) => outcome === "blocked"),
     escalated = settled.filter(({ outcome }) => outcome === "escalated");
   if (escalated.length > 0)
@@ -215,14 +224,20 @@ function settleOneFinding(
   finding: SettleableReviewFinding,
   triages: readonly ReviewFindingTriageV1[],
   thresholds: ReviewFindingThresholds | undefined,
+  targetDigest: `sha256:${string}`,
 ): SettledReviewFinding {
   const category: SettledFindingCategory = isSettledFindingCategory(finding.category)
       ? finding.category
       : "correctness",
     hardRule = hardRuleFindingCategories.includes(category),
     hardRuleEvidenceComplete = finding.evidence !== undefined,
+    // A record answers this cut only when it was minted for it. Ids alone are reusable across cuts
+    // (rebind, hand-copied packet, edge replay), so the digest is part of the key, not a shape check.
     triage = triages.find(
-      (candidate) => candidate.reviewId === finding.reviewId && candidate.findingId === finding.findingId,
+      (candidate) =>
+        candidate.reviewId === finding.reviewId &&
+        candidate.findingId === finding.findingId &&
+        candidate.targetDigest === targetDigest,
     ),
     threshold = thresholds?.[category] ?? reviewFindingThresholds[category];
   if (hardRule && hardRuleEvidenceComplete)

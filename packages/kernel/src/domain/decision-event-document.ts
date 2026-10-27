@@ -619,7 +619,7 @@ export function decisionCutSettlement(
               ],
         ),
       );
-  return findings.length === 0 ? null : settleReviewFindings({ findings, triages });
+  return findings.length === 0 ? null : settleReviewFindings({ findings, triages, targetDigest: currentDigest });
 }
 
 export function decisionAcceptReviewReadiness(

@@ -287,7 +287,12 @@ export function openReviewFindingTriage(input: {
         settled.push(record);
       }
       return {
-        settlement: settleReviewFindings({ findings: cut.findings, triages: settled, thresholds: cut.thresholds }),
+        settlement: settleReviewFindings({
+          findings: cut.findings,
+          triages: settled,
+          targetDigest: cut.target.digest,
+          thresholds: cut.thresholds,
+        }),
         records: settled,
         reused,
       };

@@ -126,38 +126,47 @@ function journal(rootDir: string, records: readonly Record<string, unknown>[]): 
   writeFileSync(file, JSON.stringify({ schema: "review-finding-triage-store/v1", records }), "utf8");
 }
 
+/**
+ * One triage record for review-1/F1. `mintedFor` is the digest the record claims to answer, and the
+ * reviewer's blocker claim buys a Critic that agrees — so the record is *capable* of unlocking a cut.
+ * Both cases below use this same record, differing only in `mintedFor`; that is what makes the
+ * foreign-digest case a real negative instead of one that escalates for an unrelated reason.
+ */
+function recordMintedFor(mintedFor: string): Record<string, unknown> {
+  return {
+    schema: "review-finding-triage/v1",
+    reviewId: "review-1",
+    findingId: "F1",
+    targetDigest: mintedFor,
+    selected: "non_blocking",
+    probabilities: { blocker: 0.02, non_blocking: 0.9, nit: 0.03, pre_existing: 0.03, false_positive: 0.02 },
+    model: "reviewer-model",
+    bindingDigest: mintedFor,
+    decidedAt: "2026-10-26T00:02:00.000Z",
+    critic: {
+      selected: "non_blocking",
+      probabilities: { blocker: 0.02, non_blocking: 0.92, nit: 0.02, pre_existing: 0.02, false_positive: 0.02 },
+      model: "critic-model",
+      bindingDigest: mintedFor,
+      decidedAt: "2026-10-26T00:03:00.000Z",
+    },
+    target: { kind: "task", id: "task_1", digest: mintedFor },
+    thresholds: {},
+    rulesVersion: "rules-v1",
+    inputDigest: mintedFor,
+  };
+}
+
 test("a categorized finding keeps the cut at review until the journal answers for its cut", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-triage-seam-"));
   try {
-    const { snapshot } = cut([{ findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" }]);
+    const { snapshot, submissionDigest: cutDigest } = cut([
+      { findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" },
+    ]);
     const before = repoCellTaskQueryJudgmentsFor(projection(snapshot), root).closeout(snapshot, availability);
     assert.equal(before.blocker, "review", "a categorized finding with no triage is unresolved review");
 
-    journal(root, [
-      {
-        schema: "review-finding-triage/v1",
-        reviewId: "review-1",
-        findingId: "F1",
-        targetDigest: digest,
-        selected: "non_blocking",
-        probabilities: { blocker: 0.02, non_blocking: 0.9, nit: 0.03, pre_existing: 0.03, false_positive: 0.02 },
-        model: "reviewer-model",
-        bindingDigest: digest,
-        decidedAt: "2026-10-26T00:02:00.000Z",
-        // A reviewer claimed a blocker, so a second independent model must agree before downgrade.
-        critic: {
-          selected: "non_blocking",
-          probabilities: { blocker: 0.02, non_blocking: 0.92, nit: 0.02, pre_existing: 0.02, false_positive: 0.02 },
-          model: "critic-model",
-          bindingDigest: digest,
-          decidedAt: "2026-10-26T00:03:00.000Z",
-        },
-        target: { kind: "task", id: "task_1", digest },
-        thresholds: {},
-        rulesVersion: "rules-v1",
-        inputDigest: digest,
-      },
-    ]);
+    journal(root, [recordMintedFor(cutDigest)]);
 
     const after = repoCellTaskQueryJudgmentsFor(projection(snapshot), root).closeout(snapshot, availability);
     assert.notEqual(after.blocker, "review", "the journal's answer unlocks the review gate");
@@ -169,25 +178,12 @@ test("a categorized finding keeps the cut at review until the journal answers fo
 test("a record minted for another cut digest does not settle this one", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-triage-seam-"));
   try {
-    const { snapshot } = cut([{ findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" }]);
-    const otherDigest = `sha256:${"f".repeat(64)}`;
-    journal(root, [
-      {
-        schema: "review-finding-triage/v1",
-        reviewId: "review-1",
-        findingId: "F1",
-        targetDigest: otherDigest,
-        selected: "non_blocking",
-        probabilities: { blocker: 0.02, non_blocking: 0.9, nit: 0.03, pre_existing: 0.03, false_positive: 0.02 },
-        model: "reviewer-model",
-        bindingDigest: otherDigest,
-        decidedAt: "2026-10-26T00:02:00.000Z",
-        target: { kind: "task", id: "task_1", digest: otherDigest },
-        thresholds: {},
-        rulesVersion: "rules-v1",
-        inputDigest: otherDigest,
-      },
-    ]);
+    const { snapshot } = cut([{ findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" }]),
+      otherDigest = `sha256:${"f".repeat(64)}`;
+    // Same ids, same disposition, same agreeing Critic — only the digest differs. An id-only match
+    // would unlock the gate here, which is exactly the B-3 defect this case pins.
+    journal(root, [recordMintedFor(otherDigest)]);
+
     const judgment = repoCellTaskQueryJudgmentsFor(projection(snapshot), root).closeout(snapshot, availability);
     assert.equal(judgment.blocker, "review", "an old cut's answer cannot pass a new cut");
   } finally {
