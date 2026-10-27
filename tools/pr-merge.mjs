@@ -83,14 +83,16 @@ function readPr(selector, root) {
 }
 
 function requireCleanWorktree(worktree, label) {
-  // Untracked files never block the guarded operations: `git pull --ff-only`
+  // Untracked files never block the guarded operations: `git merge --ff-only`
   // and `git worktree remove` refuse on their own when untracked files would
   // be lost, so only tracked-file modifications make the worktree dirty here.
   const status = output("git", ["status", "--porcelain=v1", "--untracked-files=no"], {
     cwd: worktree.path,
   });
   if (status) {
-    throw new Error(`${label} worktree is dirty at ${worktree.path}; refusing to merge, delete, or pull.\n${status}`);
+    throw new Error(
+      `${label} worktree is dirty at ${worktree.path}; refusing to merge, delete, or synchronize.\n${status}`,
+    );
   }
 }
 
