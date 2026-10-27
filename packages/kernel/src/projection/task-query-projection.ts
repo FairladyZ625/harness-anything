@@ -129,7 +129,8 @@ export interface NarrowTaskRow {
 /** dec_mr7v4h6t: the only production work-status derivation. The correlated
  * recursion visits this root's descendants using the existing parent index.
  * Unary + removes TEXT affinity so SQLite can search the JSON parent index.
- * UNION terminates cycles; the root itself is never a member. No writes.
+ * UNION terminates cycles; the root itself is never a member, and a superseded
+ * archived plan is retired rather than counted as an unfinished member. No writes.
  * A planned root with any started member presents active (CEO ruling 2026-10-11:
  * a work whose subtask started is in progress, never "planned"); completion
  * stays explicit — only an all-terminal subtree presents done/cancelled.
@@ -152,14 +153,30 @@ export interface NarrowTaskRow {
  *   4. planned root with a started member -> active (only when (1) said yes)
  * COALESCE keeps the historical fallback to the root's own status, which is what
  * an aggregation over zero members produced. */
+/** `ha task supersede` archives the replaced task and records its replacement, but the immutable
+ * event status of the replaced plan stays where it was (often planned). That pair is a retired
+ * plan, not open work — `workspace-scope-read`'s `supersededArchivedLeaf` already drops it from the
+ * work's open accounting — so the status derivation must not see it as an unfinished member.
+ * Because the walk descends through `members`, skipping the retired node also retires its
+ * descendants with it: the replacement carries the future work.
+ * Archived without a replacement keeps its existing meaning: the work was put aside, not replaced.
+ * Read the snapshot JSON rather than the generated `package_disposition` column so the same SQL also
+ * runs against the lighter in-memory projection fixtures. */
+const RETIRED_PLAN_SQL = `NOT (
+        COALESCE(json_extract(child.snapshot_json, '$.task.packageDisposition'), 'active') = 'archived'
+        AND json_extract(child.snapshot_json, '$.task.supersededBy') IS NOT NULL
+      )`;
+
 const PRESENTATION_SUBTREE_SQL = `WITH RECURSIVE members(task_id, status) AS (
       SELECT child.task_id, child.status FROM task_snapshot AS child
       WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id
         AND child.task_id <> task_snapshot.task_id
+        AND ${RETIRED_PLAN_SQL}
       UNION
       SELECT child.task_id, child.status FROM task_snapshot AS child JOIN members AS parent
         ON json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +parent.task_id
       WHERE child.task_id <> task_snapshot.task_id
+        AND ${RETIRED_PLAN_SQL}
     )`;
 
 const PRESENTATION_STATUS_SQL = `CASE
