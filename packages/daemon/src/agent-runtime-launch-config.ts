@@ -84,6 +84,8 @@ export function launchArgs(
     if (token === "$permission")
       return config.kindId === "codex" && callbackRelayPath && callbackProfileParent ? [] : permission;
     if (token === "$callback-relay-socket")
+      // Exact socket rules require Codex's managed proxy; an empty domain allowlist
+      // keeps ordinary network access denied rather than enabling direct networking.
       return config.kindId === "codex" && callbackRelayPath && callbackProfileParent
         ? [
             "--config",
@@ -94,7 +96,9 @@ export function launchArgs(
               ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}']
               : []),
             "--config",
-            `permissions.harness-callback-relay.network.unix_sockets={${tomlString(callbackRelayPath)}="allow"}`,
+            "features.network_proxy=true",
+            "--config",
+            `permissions.harness-callback-relay.network={enabled=true,domains={},unix_sockets={${tomlString(callbackRelayPath)}="allow"}}`,
           ]
         : [];
     if (token === "$resume-command" || token === "$resume") {

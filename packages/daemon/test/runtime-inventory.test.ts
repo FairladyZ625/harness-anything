@@ -243,7 +243,9 @@ test("Codex callback socket grant is emitted once for fresh and resume with work
       "--config",
       'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}',
       "--config",
-      `permissions.harness-callback-relay.network.unix_sockets={"${relayPath}"="allow"}`,
+      "features.network_proxy=true",
+      "--config",
+      `permissions.harness-callback-relay.network={enabled=true,domains={},unix_sockets={"${relayPath}"="allow"}}`,
     ];
   const fresh = codexLaunchArgs("workspace-write", relayPath),
     resumed = codexResumeArgs(fresh);
