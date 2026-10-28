@@ -174,6 +174,12 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /report the evidence instead of inventing upstream input/u);
     assert.match(prompt, /facts are not a completion quota/u);
     assert.match(prompt, /Propose a decision for a route choice, reversal, or long-lived boundary/u);
+    // A checkpoint is a write, not a turn boundary: the old "report-back points" line told a
+    // dispatched worker to stop and report, which is exactly the turn end task_d7c95971 measured.
+    assert.match(prompt, /Write each checkpoint's conclusions into the report or progress log, then continue/u);
+    assert.match(prompt, /a checkpoint is not a stop/u);
+    assert.doesNotMatch(prompt, /Follow the task's checkpoints and planned report-back points/u);
+    assert.doesNotMatch(prompt, /report-back points/u);
     assert.match(prompt, /three consecutive failures with no new evidence/u);
     assert.doesNotMatch(prompt, /ha runtime status|ha squad status|ha task dispatches/u);
   });

@@ -53,7 +53,7 @@ const workerDiscipline = `# Worker Role
 - A Squad child hands its local commits to the Commander and stops; its branch is not published at settlement. For a task-bound delivery:
 ${taskDeliveryPublicationDiscipline}
 - Hand back delivery, verification, residual risks and same-mechanism evidence in the package's closeout.md; use a separate report only for material it cannot hold.
-- Follow the task's checkpoints and planned report-back points. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
+- Write each checkpoint's conclusions into the report or progress log, then continue; a checkpoint is not a stop. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
 
 const commanderDiscipline = `<very_important>
 # Commander Context

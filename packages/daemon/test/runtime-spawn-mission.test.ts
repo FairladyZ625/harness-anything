@@ -438,6 +438,30 @@ test("every task-bound mission tells the worker this session cannot ask, with on
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
 });
 
+test("every task-bound mission sends progress to a file and keeps the rule model-neutral", () => {
+  // Measured 2026-10-28 (task_d7c95971): 138 of 223 stopped Codex dispatches ran no settle action;
+  // the prompt never said progress belongs in a file rather than in a chat message. The rule is
+  // model-neutral here; the Codex-specific turn boundary rides a skill mounted by Codex Agents.
+  for (const riskTier of ["low", "medium", "high", undefined] as const) {
+    const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
+    assert.match(mission, /进度写进文件/u, `riskTier=${String(riskTier)} routes progress to a file`);
+    assert.match(mission, /ha task progress append/u, "the progress log is a concrete file channel");
+    assert.doesNotMatch(
+      mission,
+      /不带工具调用|不会被唤醒|结束会话/u,
+      "the universal layer carries no provider-specific turn semantics",
+    );
+    assert.equal(mission.match(/进度写进文件/gu)?.length, 1, "one injection point");
+  }
+  // Reviewers write reports, not progress messages: the same section reaches them.
+  assert.match(explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true), /进度写进文件/u);
+  // The assembled prompt (role baseline + mission) still carries the rule exactly once.
+  const assembled = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Go.", "medium"), "worker");
+  assert.equal(assembled.match(/进度写进文件/gu)?.length, 1);
+  // Unbound prompts have no task package and no progress surface.
+  assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /进度写进文件/u);
+});
+
 test("the self-iteration closeout rides only a dispatch whose declaration mounts the skill", () => {
   const taskId = "task_x",
     mounted = selfIterationCloseoutSection(taskId, ["harness-anything-worker", "self-iteration"]),
