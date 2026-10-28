@@ -369,6 +369,9 @@ test("completion readiness names an owner finding ruling when approved review se
     result.next!.action,
     /--finding-disposition <blocker\|non_blocking\|nit\|pre_existing\|false_positive>/u,
   );
+  // task show prints this same reason as its completion hint, so the named finding must be there.
+  assert.match(result.next!.reason, /Finding review-execution\/F-escalated escalated/u);
+  assert.match(result.next!.reason, /the task owner must choose a disposition for this finding/u);
   assert.doesNotMatch(result.next!.action, /dispatch-review/u);
 });
 

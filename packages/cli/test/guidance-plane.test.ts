@@ -839,6 +839,35 @@ test("task show renders the completion blocker as an appended completion gate", 
     }),
   });
   assert.match(rendered.text, /completion gates: lint \(gate_witness_missing\)/u);
+  // Legacy payloads predate completionNext; never invent a hint or command for them.
+  assert.doesNotMatch(rendered.text, /^completion (hint|next):/mu);
+});
+
+test("task show renders the same blocker hint and next command task complete reports", () => {
+  const reason =
+      "Finding review-execution/F-CE9D-02 escalated because automated review could not classify it safely; " +
+      "the task owner must choose a disposition for this finding.",
+    action =
+      "ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' " +
+      "--finding-id 'F-CE9D-02' --finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> " +
+      "--rationale <why>",
+    rendered = renderCliReceipt({
+      ok: true,
+      command: "task-show",
+      evidence: JSON.stringify({
+        task: { status: "in_review", currentNode: "review", completionGateIds: [] },
+        completionBlocker: { code: "review_missing", gate: "review" },
+        completionNext: {
+          reason,
+          action,
+          authority: "person-owner",
+          readCut: { revision: 7, iteration: 1, executionId: "execution-1" },
+        },
+      }),
+    });
+  assert.match(rendered.text, /completion gates: review \(review_missing\)/u);
+  assert.ok(rendered.text.includes(`completion hint: ${reason}`));
+  assert.ok(rendered.text.includes(`completion next: ${action}`));
 });
 
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {
