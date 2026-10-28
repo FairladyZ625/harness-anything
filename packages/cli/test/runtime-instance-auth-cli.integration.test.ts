@@ -156,7 +156,7 @@ async function runInteractive(
   child.stderr.on("data", (chunk: string) => {
     stderr += chunk;
   });
-  if (input) child.stdin.write(input);
+  child.stdin.end(input);
   const [status] = await new Promise<[number | null]>((resolve) => child.once("close", (code) => resolve([code])));
   return { status, receipt: stdout.trim() ? (JSON.parse(stdout) as Record<string, unknown>) : {}, stderr };
 }
