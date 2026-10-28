@@ -14,12 +14,14 @@ type ReviewReworkStep = { readonly continuation: Readonly<Record<string, unknown
 
 type ReworkContext = {
   readonly taskId: string;
-  /** The execution the review closed as changes_requested. */
+  /** The execution the cut closed: changes_requested, or the owner-returned consented approved cut. */
   readonly execution: ExecutionV1;
   /** The recorded review verdict record; only its identity and reason reach the worker prompt. */
   readonly review: { readonly reviewId: string; readonly reason: string };
-  /** Ledger-relative path of the review report the reviewer registered. */
-  readonly reportPath: string;
+  /** Ledger-relative path of the review report the reviewer registered, when one exists. */
+  readonly reportPath: string | null;
+  /** The owner's reason for a consented approved cut; absent for an automatic review return. */
+  readonly ownerReturnReason: string | null;
 };
 
 // dec_E369B8616F50A6208B293997E7/CH3: a changes_requested verdict below the repository rework
@@ -62,16 +64,21 @@ export async function continueReviewRework(
     read = cell.projection.read(taskId),
     reviewId = cell.requiredCellText(command.reviewId, "reviewId"),
     review = read.snapshot.reviews.find((value) => value.reviewId === reviewId),
-    execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined;
-  if (!review || review.verdict !== "changes_requested" || !execution?.submission) return receipt;
+    execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined,
+    // A ReworkTask on a consented approved cut has no changes_requested verdict to continue from:
+    // the owner's reason is the work order. The kernel already bound that consent to this cut.
+    ownerReturnReason = command.type === "ReworkTask" ? command.reason : null;
+  if (!review || !execution?.submission || (review.verdict !== "changes_requested" && ownerReturnReason === null))
+    return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
     const reportPath = read.packagePath ? reviewReportRelativePath(read.packagePath, reviewId) : null;
-    if (reportPath === null) return receipt;
+    if (ownerReturnReason === null && reportPath === null) return receipt;
     const step = await dispatchReviewRework(cell, {
       taskId,
       execution,
       review,
       reportPath,
+      ownerReturnReason,
       binding,
       opId: receipt.opId ?? taskId,
     });
@@ -214,7 +221,8 @@ function prepareWorkerContinuation(cell: RepoCellOperationalContext, input: Rewo
       ...(agentId ? { agentId } : {}),
       ...(mode === "resume" && previous?.resume ? { dispatchId: previous.dispatchId } : {}),
       prompt: [
-        `Continue task ${input.taskId}. Read its task package before addressing the review findings.`,
+        `Continue task ${input.taskId}. Read its task package before ` +
+          (input.ownerReturnReason === null ? "addressing the review findings." : "acting on the owner return."),
         ...(mode === "fresh"
           ? [
               "# Previous submitted conclusion",
@@ -227,15 +235,28 @@ function prepareWorkerContinuation(cell: RepoCellOperationalContext, input: Rewo
               ...submission.residualRisks,
             ]
           : []),
-        "# Review feedback",
-        [
-          "# Review verdict: changes_requested",
-          `Review ${input.review.reviewId} on your submitted cut requested changes: ${input.review.reason}`,
-          `Read the full review report with ha doc show --path ${input.reportPath} --raw`,
-          "Address the findings, then submit the reworked cut again.",
-        ].join("\n"),
+        "# Feedback",
+        (input.ownerReturnReason !== null
+          ? [
+              "# Owner return",
+              `The owner returned your submitted cut to implementation: ${input.ownerReturnReason}`,
+              ...(input.reportPath === null
+                ? []
+                : [`Read the review report with ha doc show --path ${input.reportPath} --raw`]),
+              "Fix the cause of the return, then submit the reworked cut again.",
+            ]
+          : [
+              "# Review verdict: changes_requested",
+              `Review ${input.review.reviewId} on your submitted cut requested changes: ${input.review.reason}`,
+              `Read the full review report with ha doc show --path ${input.reportPath} --raw`,
+              "Address the findings, then submit the reworked cut again.",
+            ]
+        ).join("\n"),
       ].join("\n"),
-      dispatchKey: `task-return:${input.taskId}:${input.execution.executionId}:${mode}`,
+      // The review names the return order: one cut can be returned again after another round, and
+      // each order needs its own dispatch identity so a later return never re-mints an earlier
+      // execution credential client.
+      dispatchKey: `task-return:${input.taskId}:${input.execution.executionId}:${input.review.reviewId}:${mode}`,
     },
   };
 }

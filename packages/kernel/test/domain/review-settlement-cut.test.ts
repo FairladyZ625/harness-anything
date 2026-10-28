@@ -624,3 +624,90 @@ test("a categorized nit cannot hide an unanswered historical blocker", () => {
     "the same cut still has a finding nobody categorized or answered",
   );
 });
+
+// task_2f5b047f21ac5ab30f027ebd10: after an approved review is consented, a pre-merge failure (CI
+// red) has no review to return and no finding to rule on. The owner returns the same frozen cut
+// with a reason; the consent stays recorded and unrevoked, only the cut reopens.
+test("an owner returns a consented approved cut to implementation before merge", () => {
+  const { snapshot: before } = lifecycleFixture({ complete: false }),
+    recorded = before.reviews[0]!;
+  assert.equal(before.task?.status, "in_review");
+  assert.equal(recorded.verdict, "approved");
+  assert.equal(before.consents.length, 1);
+
+  const command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "ReworkTask" as const,
+          taskId: recorded.taskId,
+          executionId: recorded.executionId,
+          reviewId: recorded.reviewId,
+          reason: "Pre-merge CI run 40701875942 is red on this approved cut.",
+        },
+      ),
+      eventId: "event-consented-rework",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-28T02:00:00.000Z",
+    },
+    returned = applyTransition(before, command, {
+      actorBinding: implementer,
+      capability: "task-rework@v1",
+      capabilityRef: "cap-rework-consented",
+      reworkBudget: 3,
+    }),
+    returnedExecution = returned.snapshot.executions.find(({ executionId }) => executionId === recorded.executionId);
+
+  assert.equal(returned.event.type, "submission_returned");
+  assert.equal(returned.snapshot.task?.status, "active");
+  assert.equal(returned.snapshot.task?.currentNode, "implementation");
+  assert.equal(returned.snapshot.task?.iteration, (before.task?.iteration ?? 0) + 1);
+  assert.equal(returnedExecution?.state, "changes_requested");
+  assert.equal(
+    returned.snapshot.consents.length,
+    before.consents.length,
+    "the owner's consent is not revoked by the return",
+  );
+});
+
+test("an approved cut without consent is still not returnable as rework", () => {
+  const { snapshot: approved } = lifecycleFixture({ complete: false }),
+    recorded = approved.reviews[0]!,
+    withoutConsent = { ...approved, consents: [] },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: withoutConsent.revision,
+        },
+        {
+          type: "ReworkTask" as const,
+          taskId: recorded.taskId,
+          executionId: recorded.executionId,
+          reviewId: recorded.reviewId,
+          reason: "Return this approved cut.",
+        },
+      ),
+      eventId: "event-unconsented-rework",
+      workspaceRevision: withoutConsent.revision + 1,
+      occurredAt: "2026-10-28T02:00:00.000Z",
+    };
+
+  assert.throws(
+    () =>
+      applyTransition(withoutConsent, command, {
+        actorBinding: implementer,
+        capability: "task-rework@v1",
+        capabilityRef: "cap-rework-unconsented",
+        reworkBudget: 3,
+      }),
+    /Task rework requires a current changes_requested review, an owner-confirmed blocker finding, or an owner-consented approved cut/u,
+  );
+});

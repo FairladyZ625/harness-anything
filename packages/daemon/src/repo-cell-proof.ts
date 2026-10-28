@@ -411,7 +411,7 @@ export async function proofFor(
     if (!task || !isSamePerson(task.createdBy, command.actor))
       throw cellCriterionError(
         "invalid_proof",
-        "Only the task-owning principal may return an exhausted or owner-blocked review cut to rework.",
+        "Only the task-owning principal may return an exhausted, owner-blocked, or owner-consented review cut to rework.",
         "rework",
         "repo-cell-proof/proofFor.ReworkTask",
         [`ha task rework ${command.taskId} --reason <why the owner is returning this cut>`],

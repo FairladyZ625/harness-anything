@@ -533,19 +533,20 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-command-transitions/rework.validate",
         "invalid_transition",
-        "The owner returns an unleased in_review cut after a current changes_requested review exhausts the automatic rework budget, or after the owner confirms an escalated finding as a blocker.",
+        "The owner returns an unleased in_review cut after a current changes_requested review exhausts the automatic rework budget, after the owner confirms an escalated finding as a blocker, or after the owner consented the current approved cut and a pre-merge failure requires rework.",
       ),
       criterion(
         "repo-cell-proof/proofFor.ReworkTask",
         "invalid_proof",
-        "The authenticated task-owning principal supplies the effective exhausted rework budget or a current owner-confirmed blocker, and an auditable reason.",
+        "The authenticated task-owning principal supplies the exhausted rework budget, a current owner-confirmed blocker, or a current owner consent, and an auditable reason.",
       ),
     ]),
     concurrency: taskConcurrency(
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
     ),
-    explain: "Return exhausted or owner-blocked cuts to rework with an owner reason; resume the worker.",
+    explain:
+      "Return exhausted, owner-blocked, or owner-consented cuts to rework with an owner reason; resume the worker.",
   }),
   lifecycle("consent", {
     input: input([

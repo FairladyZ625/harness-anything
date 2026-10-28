@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  consentedApprovedReviewForExecution,
   currentSubmittedExecutions,
   discardedFindingCategories,
   getExecutableEntityAction,
@@ -108,20 +109,27 @@ export function buildCommand(
         (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted" && value.submission,
       ),
       currentDigest = submitted?.submission ? submissionDigest(submitted.submission) : undefined,
-      review = submitted
-        ? (snapshot.reviews.findLast(
+      currentReviews = submitted
+        ? snapshot.reviews.filter(
             (value) =>
               value.executionId === submitted.executionId &&
               value.iteration === submitted.iteration &&
-              value.verdict === "changes_requested" &&
               value.submissionDigest === currentDigest,
-          ) ??
-          snapshot.reviews.findLast(
+          )
+        : [],
+      review = submitted
+        ? (currentReviews.findLast((value) => value.verdict === "changes_requested") ??
+          // Consent is the owner's merge verdict, not a lock on the frozen cut: when a pre-merge
+          // check (a red CI run) fails afterwards, the same owner return applies to the approved cut.
+          consentedApprovedReviewForExecution(
+            snapshot.reviews,
+            snapshot.consents,
+            submitted,
+            snapshot.reviewDispositions ?? [],
+          )?.review ??
+          currentReviews.findLast(
             (value) =>
-              value.executionId === submitted.executionId &&
-              value.iteration === submitted.iteration &&
               value.verdict === "approved" &&
-              value.submissionDigest === currentDigest &&
               snapshot.reviewDispositions?.some(
                 (disposition) =>
                   disposition.submissionDigest === currentDigest &&
@@ -134,8 +142,9 @@ export function buildCommand(
     if (!submitted || !review)
       throw cellCodedError(
         "invalid_transition",
-        `Task ${taskId} has no current changes_requested review or owner-confirmed blocker to return; ` +
-          `use ha task review-consent ${taskId} to decide an escalated finding, or wait for the current review.`,
+        `Task ${taskId} has no current changes_requested review, owner-confirmed blocker, or consented ` +
+          `approved cut to return; if consent is still pending run ha task review-consent ${taskId}; ` +
+          `after consent a pre-merge failure returns with ha task rework ${taskId} --reason <why>.`,
       );
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReworkTask",
