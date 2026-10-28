@@ -444,22 +444,24 @@ test("every task-bound mission sends progress to a file and keeps the rule model
   // model-neutral here; the Codex-specific turn boundary rides a skill mounted by Codex Agents.
   for (const riskTier of ["low", "medium", "high", undefined] as const) {
     const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
-    assert.match(mission, /进度写进文件/u, `riskTier=${String(riskTier)} routes progress to a file`);
-    assert.match(mission, /ha task progress append/u, "the progress log is a concrete file channel");
+    assert.match(mission, /进度写进本次派工要求你写的报告/u, `riskTier=${String(riskTier)} routes progress to a file`);
     assert.doesNotMatch(
       mission,
       /不带工具调用|不会被唤醒|结束会话/u,
       "the universal layer carries no provider-specific turn semantics",
     );
-    assert.equal(mission.match(/进度写进文件/gu)?.length, 1, "one injection point");
+    assert.equal(mission.match(/进度写进/gu)?.length, 1, "one injection point");
   }
-  // Reviewers write reports, not progress messages: the same section reaches them.
-  assert.match(explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true), /进度写进文件/u);
+  // Reviewers write one report and cannot run worker publication commands; the shared line must
+  // still hold for them without advertising a write their boundary rejects.
+  const review = explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true);
+  assert.match(review, /进度写进本次派工要求你写的报告/u);
+  assert.doesNotMatch(review, /ha task progress append|ha task submit|ha task push/u);
   // The assembled prompt (role baseline + mission) still carries the rule exactly once.
   const assembled = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Go.", "medium"), "worker");
-  assert.equal(assembled.match(/进度写进文件/gu)?.length, 1);
+  assert.equal(assembled.match(/进度写进/gu)?.length, 1);
   // Unbound prompts have no task package and no progress surface.
-  assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /进度写进文件/u);
+  assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /进度写进/u);
 });
 
 test("the self-iteration closeout rides only a dispatch whose declaration mounts the skill", () => {
