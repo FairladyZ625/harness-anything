@@ -20,7 +20,7 @@ type ReworkContext = {
   readonly review: { readonly reviewId: string; readonly reason: string };
   /** Ledger-relative path of the review report the reviewer registered, when one exists. */
   readonly reportPath: string | null;
-  /** The owner's reason for a consented approved cut; absent for an automatic review return. */
+  /** The owner's reason for a non-changes_requested ReworkTask; absent when the review verdict leads. */
   readonly ownerReturnReason: string | null;
 };
 
@@ -65,9 +65,14 @@ export async function continueReviewRework(
     reviewId = cell.requiredCellText(command.reviewId, "reviewId"),
     review = read.snapshot.reviews.find((value) => value.reviewId === reviewId),
     execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined,
-    // A ReworkTask on a consented approved cut has no changes_requested verdict to continue from:
-    // the owner's reason is the work order. The kernel already bound that consent to this cut.
-    ownerReturnReason = command.type === "ReworkTask" ? command.reason : null;
+    // A ReworkTask whose review is not changes_requested is an owner return: an approved cut the
+    // owner already consented (pre-merge CI red) or one with a confirmed blocker has no review
+    // verdict to continue from, so the owner's reason is the work order. A changes_requested return
+    // keeps the review verdict and reviewer reason in the prompt even when the owner issued it.
+    ownerReturnReason =
+      command.type === "ReworkTask" && review !== undefined && review.verdict !== "changes_requested"
+        ? command.reason
+        : null;
   if (!review || !execution?.submission || (review.verdict !== "changes_requested" && ownerReturnReason === null))
     return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
