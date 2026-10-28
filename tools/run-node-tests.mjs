@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,6 +19,7 @@ import {
   testChildEnvironment,
 } from "./node-test-runner-lib.mjs";
 import { discoverTestFileTimeouts, discoverTestTierManifest } from "./test-tier-manifest.mjs";
+import { removeTemporaryDirectorySync } from "./temporary-directory-cleanup.mjs";
 import { renderToolHelp, runNodeTestsCommand } from "./tool-command-contract.mjs";
 import { readTestQuarantine } from "./test-quarantine.mjs";
 
@@ -261,8 +262,8 @@ const exitCode = await new Promise((resolveRun) => {
     removeSignalForwarding();
     void termination.then(() => {
       refreshActivity();
-      rmSync(activityRoot, { recursive: true, force: true });
-      rmSync(testTemporaryRoot, { recursive: true, force: true });
+      sweepRunnerTemporaryRoot(activityRoot);
+      sweepRunnerTemporaryRoot(testTemporaryRoot);
       resolveRun(code);
     });
   };
@@ -290,6 +291,18 @@ for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fil
 // the failing-tests recap — the assertion details a red lane exists to show — is written last
 // and is exactly what gets lost. Exit naturally so pending writes drain first.
 process.exitCode = exitCode;
+
+// Windows reports EPERM while a just-terminated child or a scanner still holds a path, and an
+// uncaught throw here used to abort the whole shard before its remaining files ran. Retry the
+// bounded way the platform assumption calls for, then warn: a leftover temp directory is not a
+// test failure, so it must not rewrite the run's verdict.
+function sweepRunnerTemporaryRoot(root) {
+  try {
+    removeTemporaryDirectorySync(root);
+  } catch (error) {
+    console.error(`[node-test-cleanup] ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 function fileOutcome(file) {
   if ((failuresByFile.get(file) ?? 0) > 0) return "fail";

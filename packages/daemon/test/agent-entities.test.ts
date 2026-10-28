@@ -208,7 +208,13 @@ test("agent validate reports skill paths dispatch cannot resolve", async () => {
       report.issues.map(({ code }) => code),
       ["agent_skill_not_found"],
     );
-    assert.match(report.issues.map(({ message }) => message).join("\n"), /skills\/not-there/u);
+    assert.match(
+      report.issues
+        .map(({ message }) => message)
+        .join("\n")
+        .replaceAll("\\", "/"),
+      /skills\/not-there/u,
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

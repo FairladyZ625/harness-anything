@@ -190,7 +190,7 @@ test("GUI launch reports a missing renderer bundle before daemon acquisition", a
     assert.equal(receipt.code, "gui_build_failed");
     assert.equal(receipt.error.code, "gui_build_failed");
     assert.equal(receipt.diagnostic.kind, "validation");
-    assert.match(receipt.diagnostic.expectation, /dist\/index\.html/u);
+    assert.match(receipt.diagnostic.expectation.replaceAll("\\", "/"), /dist\/index\.html/u);
     assert.match(receipt.diagnostic.expectation, /reinstall @harness-anything\/gui/u);
     assert.equal(daemonAcquisitions, 0, "a missing GUI bundle must not start the daemon");
   } finally {
@@ -255,7 +255,7 @@ test("GUI launch refuses a GUI package whose preload bundle is missing", async (
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "gui_build_failed");
     assert.equal(receipt.diagnostic.kind, "validation");
-    assert.match(receipt.diagnostic.expectation, /dist-electron\/electron-preload\.cjs/u);
+    assert.match(receipt.diagnostic.expectation.replaceAll("\\", "/"), /dist-electron\/electron-preload\.cjs/u);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -281,7 +281,7 @@ test("GUI launch refuses a GUI package whose bundled main process is missing", a
     const receipt = JSON.parse(output.stdout) as { code: string; diagnostic: { expectation: string } };
     assert.equal(output.status, 1);
     assert.equal(receipt.code, "gui_build_failed");
-    assert.match(receipt.diagnostic.expectation, /dist-electron\/electron-main\.js/u);
+    assert.match(receipt.diagnostic.expectation.replaceAll("\\", "/"), /dist-electron\/electron-main\.js/u);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
