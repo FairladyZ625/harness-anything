@@ -79,7 +79,7 @@ test("An imported directory keeps its empty directories through publication and 
     });
 
     const receipt = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       ),
       entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
@@ -155,7 +155,7 @@ test("Instance identity is independent of source bytes, source path and retries"
 
     const importOf = async (locator: string, expectedVersion: number) => {
       const receipt = await cell!.run(
-        { kind: "entity-import", entityKind: researchKind, locator, expectedVersion },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator, expectedVersion },
         binding,
       );
       return {
@@ -174,7 +174,13 @@ test("Instance identity is independent of source bytes, source path and retries"
 
     // Same source presented again, from another node: one operation, one entity, no second mint.
     const retry = await cell.run(
-      { kind: "entity-import", entityKind: researchKind, locator: "research/left.md", expectedVersion: 0 },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: "research/left.md",
+        expectedVersion: 0,
+      },
       secondaryNodeBinding,
     );
     assert.equal(retry.outcome, "no_changes", JSON.stringify(retry));
@@ -188,7 +194,13 @@ test("Instance identity is independent of source bytes, source path and retries"
     // A stale fence from a second node is refused rather than silently applied.
     writeFileSync(path.join(rootDir, "research", "left.md"), `${shared}More.\n`);
     const stale = await cell.run(
-      { kind: "entity-import", entityKind: researchKind, locator: "research/left.md", expectedVersion: 0 },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: "research/left.md",
+        expectedVersion: 0,
+      },
       secondaryNodeBinding,
     );
     assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
@@ -246,7 +258,13 @@ test("Update retires only dropped files and delete retires every bound file with
       now: () => "2026-09-09T06:00:00.000Z",
     });
 
-    const request = { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+    const request = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: sourcePath,
+        expectedVersion: 0,
+      },
       first = await cell.run(request, binding),
       entityId = (JSON.parse(String(first.evidence)) as { preview: { entityId: string } }).preview.entityId,
       root = `entities/research/${entityId}`;
@@ -344,7 +362,13 @@ test("A deleted source imports again as a new entity while retries inside one bi
       ownerId: "entity-rebind-center",
       now: () => "2026-09-09T10:00:00.000Z",
     });
-    const importRequest = { kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
+    const importRequest = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator,
+        expectedVersion: 0,
+      },
       idOf = (evidence: unknown) =>
         (JSON.parse(String(evidence)) as { preview: { entityId: string } }).preview.entityId;
 
@@ -438,7 +462,7 @@ test("Deleting an entity retires its declared empty directories and leaves user 
     });
 
     const imported = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       ),
       entityId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId,
@@ -518,7 +542,13 @@ test("Deleting an entity is refused for a caller with no repository write role",
       now: () => "2026-09-09T12:00:00.000Z",
     });
     const imported = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: "research/governed.md", expectedVersion: 0 },
+        {
+          mode: "snapshot",
+          kind: "entity-import",
+          entityKind: researchKind,
+          locator: "research/governed.md",
+          expectedVersion: 0,
+        },
         binding,
       ),
       entityId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId;
@@ -591,7 +621,7 @@ test("A user's own empty directory inside an entity's content root survives that
 
     const importOf = async (locator: string) => {
         const receipt = await cell!.run(
-          { kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
+          { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
           binding,
         );
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -688,7 +718,7 @@ test("Relinking an entity retires none of its directories and none of another ow
     });
     const importOf = async (locator: string) => {
         const receipt = await cell!.run(
-          { kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
+          { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
           binding,
         );
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));

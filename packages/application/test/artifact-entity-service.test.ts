@@ -208,13 +208,46 @@ test("import mode is required and its guidance is executable", async () => {
     countRelationChanges: () => 0,
   });
   await assert.rejects(
-    service.prepare({ kind: contract.typeIdentity, locator: "docs/minutes.md", expectedVersion: 0 }, envelope),
+    service.prepare(
+      {
+        kind: contract.typeIdentity,
+        locator: "https://feishu.example/minutes?id=2&view=full",
+        locatorKind: "url",
+        expectedVersion: 0,
+      },
+      envelope,
+    ),
     (error: unknown) => {
       const message = String((error as Error).message);
       assert.match(message, /reference records only the locator/u);
       assert.match(message, /snapshot reads and stores the source bytes/u);
-      assert.match(message, /--mode reference --expected-version 0/u);
-      assert.match(message, /--mode snapshot --expected-version 0/u);
+      assert.match(
+        message,
+        /--locator 'https:\/\/feishu\.example\/minutes\?id=2&view=full' --locator-kind url --mode reference --expected-version 0/u,
+      );
+      assert.match(
+        message,
+        /--locator 'https:\/\/feishu\.example\/minutes\?id=2&view=full' --locator-kind url --mode snapshot --expected-version 0/u,
+      );
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    service.prepare(
+      {
+        kind: contract.typeIdentity,
+        locator: "/Users/example/ZeYu-AI-Brain/minutes.md",
+        locatorKind: "local-path",
+        expectedVersion: 0,
+      },
+      envelope,
+    ),
+    (error: unknown) => {
+      const message = String((error as Error).message);
+      assert.match(message, /--locator-kind local-path --mode reference/u);
+      assert.match(message, /Snapshot reads repository-path or URL sources/u);
+      assert.match(message, /--locator 'docs\/minutes\.md' --locator-kind repository-path --mode snapshot/u);
       return true;
     },
   );

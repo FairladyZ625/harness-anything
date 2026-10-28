@@ -422,7 +422,6 @@ export {
 export {
   contractForDeclarationEvent,
   entityDeletedWritePlan,
-  entityReferenceDeclaredWritePlan,
   agentRetiredWritePlan,
   entityUpsertWritePlan,
   isEntityDeclarationEvent,

@@ -99,6 +99,7 @@ test("Two Kinds declared at runtime carry file and directory content through the
     // Kind one: a directory source with binary bytes and an empty directory.
     const surveyImport = await cell.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: surveyRef,
           locator: "surveys/north",
@@ -116,6 +117,7 @@ test("Two Kinds declared at runtime carry file and directory content through the
     // Kind two: a single file source. Two kinds, two id spaces, one code path.
     const ledgerImport = await cell.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: ledgerRef,
           locator: "ledgers/2026.md",
@@ -150,6 +152,7 @@ test("Two Kinds declared at runtime carry file and directory content through the
     writeFileSync(path.join(rootDir, "surveys", "north", "raw", "scan.pdf"), binary);
     const updated = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "surveys/north",
@@ -222,7 +225,7 @@ test("A source object above the per-object ceiling is refused and the exact boun
     });
 
     const refused = await cell.run(
-      { kind: "entity-import", entityKind: researchKind, locator: "oversize", expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: "oversize", expectedVersion: 0 },
       binding,
     );
     assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
@@ -237,7 +240,7 @@ test("A source object above the per-object ceiling is refused and the exact boun
     );
 
     const accepted = await cell.run(
-      { kind: "entity-import", entityKind: researchKind, locator: "boundary", expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: "boundary", expectedVersion: 0 },
       binding,
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));

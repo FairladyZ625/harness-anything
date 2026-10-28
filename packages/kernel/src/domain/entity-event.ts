@@ -665,7 +665,8 @@ function validateReferencePayload(
   const manifestErrors = validateEntityOwnedContent(payload.ownedContent);
   if (manifestErrors.length) return manifestErrors;
   const manifest = payload.ownedContent as EntityOwnedContentV1,
-    root = entityContentRoot(contract, String(payload.entityId)) + "/";
+    contentRoot = entityContentRoot(contract, String(payload.entityId)),
+    root = contentRoot + "/";
   if (
     manifest.ownerRef !== String(payload.entityKind) + "/" + String(payload.entityId) ||
     manifest.schemaId !== contract.schema.$id ||
@@ -673,9 +674,8 @@ function validateReferencePayload(
     manifest.content.length !== 0 ||
     manifest.bindings.length !== 0 ||
     manifest.directories.length !== 0 ||
-    [...manifest.retirements.map(({ path }) => path), ...manifest.directoryRetirements.map(({ path }) => path)].some(
-      (path) => !path.startsWith(root),
-    )
+    manifest.retirements.some(({ path }) => !path.startsWith(root)) ||
+    manifest.directoryRetirements.some(({ path }) => path !== contentRoot && !path.startsWith(root))
   )
     return ["entity reference may only retire previously owned content"];
   const resolution = "reference:" + String(payload.declaredContentVersion ?? "unversioned"),

@@ -147,7 +147,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     const observer = makeTaskEventReader({ repoId, rootDir }),
       beforeEvents = observer.read().events.length,
       beforeStatus = git(rootDir, "status", "--porcelain=v1"),
-      request = { kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
+      request = { mode: "snapshot", kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
       previewReceipt = await cell.run({ ...request, dryRun: true }, binding);
     assert.equal(previewReceipt.outcome, "pending", JSON.stringify(previewReceipt));
     const preview = JSON.parse(String(previewReceipt.evidence)) as {
@@ -421,7 +421,7 @@ test("URL source resolution does not block a concurrent repository write", async
     assert.ok(address && typeof address === "object");
     const url = `http://127.0.0.1:${String(address.port)}/hanging.md`;
     const importing = cell.run(
-      { kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
       binding,
     );
     const started = Date.now();
@@ -486,6 +486,7 @@ test("URL source resolution times out when response body never completes", async
     const started = Date.now(),
       imported = await cell.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: kindRef,
           locator: `http://127.0.0.1:${String(address.port)}/partial.md`,
@@ -568,6 +569,7 @@ test("URL source resolution completes while seven writers keep the repository qu
     const started = Date.now(),
       imported = await cell.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: kindRef,
           locator: `http://127.0.0.1:${String(address.port)}/note.md`,
@@ -614,7 +616,13 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
       now: () => "2026-09-05T02:00:00.000Z",
     });
 
-    const request = { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+    const request = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: sourcePath,
+        expectedVersion: 0,
+      },
       first = await cell.run(request, binding),
       replay = await cell.run(request, secondaryNodeBinding),
       firstPreview = (
@@ -685,7 +693,13 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     mkdirSync(fallbackSource, { recursive: true });
     writeFileSync(path.join(fallbackSource, "notes.md"), "No heading.\n");
     const fallback = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: fallbackPath, expectedVersion: 0 },
+        {
+          mode: "snapshot",
+          kind: "entity-import",
+          entityKind: researchKind,
+          locator: fallbackPath,
+          expectedVersion: 0,
+        },
         binding,
       ),
       fallbackList = await cell.run({ kind: "entity-list", entityKind: researchKind }, binding),
@@ -737,7 +751,7 @@ test("Artifact import publishes original bytes to Git and the worktree independe
     });
 
     const receipt = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       ),
       entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
@@ -811,7 +825,7 @@ test("Artifact import owns empty and non-text files across a directory source", 
     });
 
     const receipt = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       ),
       entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,

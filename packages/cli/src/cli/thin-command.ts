@@ -55,7 +55,6 @@ import { parseRouted, parseStorageRoute } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
 import { parseTask } from "./thin-command-task.ts";
 import { preferTaskActionHelp } from "./task-action-help.ts";
-import { artifactEntityImportGuidance } from "./artifact-entity-import-guidance.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
 
 type LifecyclePublicationAction =
@@ -152,13 +151,8 @@ export function renderThinHelp(
   works: readonly ThinHelpWorkEntry[] = [],
 ): string {
   const rows = [
-      ...thinCliCommands.map(({ id, usage, summary, help }) => {
+      ...thinCliCommands.map(({ usage, summary, help }) => {
         const preferred = preferTaskActionHelp({ usage, summary, help });
-        if (id === "entity-import")
-          return {
-            ...preferred,
-            help: [preferred.help, artifactEntityImportGuidance].filter(Boolean).join("\n"),
-          };
         return usage.startsWith("ha task create ")
           ? {
               ...preferred,

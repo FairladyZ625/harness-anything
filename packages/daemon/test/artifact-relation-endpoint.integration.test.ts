@@ -11,6 +11,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+  externalIssueKind = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
   binding = withPolicyGroup(
     {
       actor: {
@@ -18,21 +19,17 @@ const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
         executor: { kind: "agent" as const, id: "artifact-relation-edge" },
       },
       source: "local" as const,
+      sourceNodeId: "node-artifact-relation",
     },
     "contributor",
   );
 
 test("A vertical artifact entity is a relation endpoint for its declared triple only", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-relation-")),
-    sourcePath = "docs/adr-0001.md",
     repoId = workspaceId("artifact-relation");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    mkdirSync(path.join(rootDir, "docs"), { recursive: true });
-    writeFileSync(path.join(rootDir, sourcePath), "# Adopt the event ledger\n\nFirst observation.\n");
-    git(rootDir, "add", sourcePath);
-    git(rootDir, "commit", "-qm", "add artifact source");
     cell = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(rootDir),
@@ -40,12 +37,41 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
       now: monotonicClock(),
     });
     const imported = await cell.run(
-      { kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
+      {
+        kind: "entity-import",
+        entityKind: kind,
+        locator: "/Users/example/ZeYu-AI-Brain/meeting-minutes.md",
+        locatorKind: "local-path",
+        mode: "reference",
+        contentVersion: "sha256:declared-meeting-version",
+        expectedVersion: 0,
+      },
       binding,
     );
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));
-    const entityRef = `${kind}/${String((imported as { readonly entityId?: string }).entityId)}`,
-      proposed = await cell.run(proposal("Artifact relation endpoint"), binding),
+    const importEvidence = receiptJson(imported) as {
+        readonly mode: string;
+        readonly contentState: string;
+        readonly message: string;
+        readonly preview: { readonly entityId: string };
+      },
+      entityId = importEvidence.preview.entityId,
+      entityRef = `${kind}/${entityId}`;
+    assert.equal(importEvidence.mode, "reference");
+    assert.equal(importEvidence.contentState, "unobserved");
+    assert.equal(importEvidence.message, "Reference registered; content not fetched.");
+    assert.equal(imported.proof?.worktreeVisible, false);
+
+    const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
+      entities = (JSON.parse(String(listed.evidence)) as { readonly entities: readonly { readonly id: string }[] })
+        .entities;
+    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+    assert.deepEqual(
+      entities.map(({ id }) => id),
+      [entityId],
+    );
+
+    const proposed = await cell.run(proposal("Artifact relation endpoint"), binding),
       decisionId = String(receiptJson(proposed).decisionId);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
 
@@ -111,6 +137,18 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
     assert.equal("allowedTriples" in (reversed.diagnostic ?? {}), false);
     assert.equal("allowedTriples" in (invalidTarget.diagnostic ?? {}), false);
 
+    const related = await cell.run({ kind: "relation-list", entity: entityRef }, binding),
+      relatedRows = (
+        JSON.parse(String(related.evidence)) as {
+          readonly rows: readonly { readonly sourceRef: string; readonly targetRef: string; readonly state: string }[];
+        }
+      ).rows;
+    assert.equal(related.outcome, "applied", JSON.stringify(related));
+    assert.deepEqual(
+      relatedRows.map(({ sourceRef, targetRef, state }) => ({ sourceRef, targetRef, state })),
+      [{ sourceRef: entityRef, targetRef: `decision/${decisionId}`, state: "active" }],
+    );
+
     await cell.close();
     cell = undefined;
     const relationId = deriveRelationId({
@@ -123,9 +161,168 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
       rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-04T00:01:00.000Z" });
     try {
       rebuilt.rebuild();
-      const edge = rebuilt.readRelationEdge(relationId);
+      const edge = rebuilt.readRelationEdge(relationId),
+        record = rebuilt.getEntity(kind, entityId);
       assert.equal(edge?.sourceRef, entityRef, "the artifact edge must survive a cold rebuild");
       assert.equal(edge?.state, "active");
+      assert.equal(record?.value.locator.kind, "local-path");
+      assert.equal(record?.value.contentVersion, null);
+      assert.equal(record?.value.observationMode, "reference");
+      assert.equal(record?.value.contentState, "unobserved");
+      assert.equal(record?.value.declaredContentVersion, "sha256:declared-meeting-version");
+      assert.equal(record?.value.source.includes("node-artifact-relation"), true);
+    } finally {
+      rebuilt.close();
+    }
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("URL, local-path, and local-kb references are queryable and relate to Work", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-reference-relations-")),
+    repoId = workspaceId("artifact-reference-relations");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "artifact-reference-center",
+      now: monotonicClock(),
+    });
+    const workId = "task-reference-work",
+      work = await cell.run({ kind: "task-create", taskId: workId, title: "External documents Work" }, binding);
+    assert.equal(work.outcome, "applied", JSON.stringify(work));
+
+    const otherEdge = withPolicyGroup(
+      {
+        actor: binding.actor,
+        source: "local" as const,
+        sourceNodeId: "node-artifact-reference-second-edge",
+      },
+      "contributor",
+    );
+    const missingMode = await cell.run(
+      {
+        kind: "entity-import",
+        entityKind: externalIssueKind,
+        locator: "https://feishu.example/docs/meeting?id=42",
+        locatorKind: "url",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(missingMode.code, "invalid_command", JSON.stringify(missingMode));
+    assert.match(JSON.stringify(missingMode), /Choose an explicit import mode/u);
+    assert.match(JSON.stringify(missingMode), /--mode reference --expected-version 0/u);
+    assert.match(JSON.stringify(missingMode), /--mode snapshot --expected-version 0/u);
+
+    const urlRequest = {
+        kind: "entity-import",
+        entityKind: externalIssueKind,
+        locator: "https://feishu.example/docs/meeting?id=42",
+        locatorKind: "url",
+        mode: "reference",
+        contentVersion: "revision-42",
+        expectedVersion: 0,
+      },
+      [urlFirst, urlRetry] = await Promise.all([cell.run(urlRequest, binding), cell.run(urlRequest, otherEdge)]);
+    assert.deepEqual(
+      [urlFirst.outcome, urlRetry.outcome].sort(),
+      ["applied", "no_changes"],
+      JSON.stringify({ urlFirst, urlRetry }),
+    );
+    assert.equal(urlFirst.opId, urlRetry.opId);
+    assert.equal(urlFirst.entityId, urlRetry.entityId);
+    const changedVersion = await cell.run({ ...urlRequest, contentVersion: "revision-43" }, otherEdge);
+    assert.equal(changedVersion.code, "revision_conflict", JSON.stringify(changedVersion));
+    const urlReceipt = urlFirst.outcome === "applied" ? urlFirst : urlRetry;
+    t.diagnostic(`sample-reference-receipt=${JSON.stringify(urlReceipt)}`);
+
+    const references = [
+      urlReceipt,
+      await cell.run(
+        {
+          kind: "entity-import",
+          entityKind: externalIssueKind,
+          locator: "/Users/example/ZeYu-AI-Brain/meeting-minutes.md",
+          locatorKind: "local-path",
+          mode: "reference",
+          contentVersion: "sha256:brain-version-42",
+          expectedVersion: 0,
+        },
+        binding,
+      ),
+      await cell.run(
+        {
+          kind: "entity-import",
+          entityKind: externalIssueKind,
+          locator: "local-kb:brain:minutes/2026-10-28",
+          locatorKind: "external-key",
+          mode: "reference",
+          expectedVersion: 0,
+        },
+        binding,
+      ),
+    ];
+    const entityIds = references.map((receipt) => {
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(receipt.proof?.worktreeVisible, false);
+      return String(receipt.entityId);
+    });
+    assert.equal(new Set(entityIds).size, 3);
+
+    const listed = await cell.run({ kind: "entity-list", entityKind: externalIssueKind }, binding),
+      entities = (JSON.parse(String(listed.evidence)) as { readonly entities: readonly { readonly id: string }[] })
+        .entities;
+    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+    assert.deepEqual(entities.map(({ id }) => id).sort(), [...entityIds].sort());
+
+    for (const entityId of entityIds) {
+      const entityRef = `${externalIssueKind}/${entityId}`,
+        related = await cell.run(
+          {
+            kind: "relation-relate",
+            sourceRef: entityRef,
+            targetRef: `task/${workId}`,
+            relationType: "relates",
+            rationale: "The external source supports this Work.",
+            expectedVersion: 0,
+          },
+          binding,
+        );
+      assert.equal(related.outcome, "applied", JSON.stringify(related));
+      const relationList = await cell.run({ kind: "relation-list", entity: entityRef }, binding),
+        rows = (
+          JSON.parse(String(relationList.evidence)) as {
+            readonly rows: readonly {
+              readonly sourceRef: string;
+              readonly targetRef: string;
+              readonly state: string;
+            }[];
+          }
+        ).rows;
+      assert.equal(relationList.outcome, "applied", JSON.stringify(relationList));
+      assert.deepEqual(
+        rows.map(({ sourceRef, targetRef, state }) => ({ sourceRef, targetRef, state })),
+        [{ sourceRef: entityRef, targetRef: `task/${workId}`, state: "active" }],
+      );
+    }
+
+    await cell.close();
+    cell = undefined;
+    const rebuildStore = makeTaskEventReader({ repoId, rootDir }),
+      rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-04T00:02:00.000Z" });
+    try {
+      rebuilt.rebuild();
+      for (const entityId of entityIds) {
+        const record = rebuilt.getEntity(externalIssueKind, entityId);
+        assert.equal(record?.value.observationMode, "reference");
+        assert.equal(record?.value.contentState, "unobserved");
+        assert.equal(record?.value.contentVersion, null);
+      }
     } finally {
       rebuilt.close();
     }

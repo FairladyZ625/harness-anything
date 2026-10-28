@@ -283,7 +283,7 @@ export const agentProtocolCommands = Object.freeze([
           field: "mode",
           enum: ["reference", "snapshot"],
           description:
-            "Required at execution. reference records a locator without reading it; snapshot stores observed bytes in Harness.",
+            "Select --mode explicitly. reference records the locator without reading it; use it in personal or non-central repositories when the original should stay authoritative and easy to update. snapshot reads and stores observed bytes in Harness; use it for file documents governed by a central repository. Examples: ha entity import --kind <kind> --mode reference --expected-version 0 --locator https://example.invalid/minutes --locator-kind url; ha entity import --kind <kind> --mode snapshot --expected-version 0 --locator docs/minutes.md --locator-kind repository-path.",
         },
       ),
       cliInput(
@@ -295,7 +295,7 @@ export const agentProtocolCommands = Object.freeze([
           field: "locatorKind",
           enum: ["repository-path", "url", "external-key", "local-path"],
           description:
-            "Selects the locator grammar. Reference accepts any URL scheme, a file URL, or provider:project:key; local paths resolve only on the registering node.",
+            "Selects the locator grammar. Reference supports repository-path, url with any absolute scheme, local-path (a file URL or absolute path), and external-key (provider:project:key). A local path is resolvable only on the registering node.",
         },
       ),
       cliInput(

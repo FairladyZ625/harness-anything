@@ -76,3 +76,28 @@ it("disabled mode prevents changes through native buttons", () => {
   }
   expect(changed).not.toHaveBeenCalled();
 });
+
+it("supports a deliberately unselected state", () => {
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  const changed = vi.fn();
+  act(() =>
+    root.render(
+      <SegCtl
+        label="Import mode"
+        value={null}
+        onChange={changed}
+        options={[
+          { value: "reference", label: "Reference" },
+          { value: "snapshot", label: "Snapshot" },
+        ]}
+      />,
+    ),
+  );
+  const buttons = container.querySelectorAll("button");
+  expect([...buttons].map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+  expect(container.querySelector('[data-testid="seg-ctl-thumb"]')).toBeNull();
+  act(() => buttons[0]?.click());
+  expect(changed).toHaveBeenCalledWith("reference");
+});

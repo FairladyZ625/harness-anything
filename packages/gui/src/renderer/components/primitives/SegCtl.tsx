@@ -10,7 +10,7 @@ export function SegCtl<T extends string>({
   label,
   disabled = false,
 }: {
-  readonly value: T;
+  readonly value: T | null;
   readonly options: readonly {
     readonly value: T;
     readonly label: string;
@@ -40,7 +40,7 @@ export function SegCtl<T extends string>({
       className="inline-flex flex-wrap gap-0.5 rounded-sm border border-border bg-surface p-0.5"
     >
       {options.map((option) => {
-        const selected = option.value === value;
+        const selected = value !== null && option.value === value;
         return (
           <button
             key={option.value}

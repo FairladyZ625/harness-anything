@@ -84,6 +84,7 @@ test("entity import/update/archive/delete resolve kind display ids to the same o
     // spelling find the instance the write created.
     const firstImport = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: "release-runbook",
         locator: "runbooks/first.md",
@@ -104,6 +105,7 @@ test("entity import/update/archive/delete resolve kind display ids to the same o
     // 3. The same import stated with the stable ref replays: both spellings are one operation.
     const replayedImport = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "runbooks/first.md",
@@ -118,6 +120,7 @@ test("entity import/update/archive/delete resolve kind display ids to the same o
     // 4. The bare kindId is the third accepted spelling.
     const secondImport = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef.slice("entity-kind/".length),
         locator: "runbooks/second.md",
@@ -166,7 +169,13 @@ test("entity import/update/archive/delete resolve kind display ids to the same o
 
     // 6. An undeclared Kind is refused as undeclared, on both the import and the mutation surface.
     for (const unknown of [
-      { kind: "entity-import", locator: "runbooks/first.md", expectedVersion: 0, attributes: { summary: "first" } },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        locator: "runbooks/first.md",
+        expectedVersion: 0,
+        attributes: { summary: "first" },
+      },
       { kind: "entity-update", entityId, expectedVersion: updated.revision, title: "no such kind" },
     ] as const) {
       const refused = await cell.run({ ...unknown, entityKind: "no-such-runbook" }, binding);
@@ -188,6 +197,7 @@ test("entity import/update/archive/delete resolve kind display ids to the same o
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     const archivedImport = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: "release-runbook",
         locator: "runbooks/first.md",

@@ -47,7 +47,7 @@ test(
     const entityKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16";
     const imported = await f.host.run(
       "lease-repo",
-      { kind: "entity-import", entityKind, locator: "research/edge-content", expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind, locator: "research/edge-content", expectedVersion: 0 },
       localAuthFixture(),
     );
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));

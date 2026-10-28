@@ -35,6 +35,7 @@ import "../../styles.css";
 function ComponentCatalog() {
   const { mode, setMode } = useTheme();
   const { preference, setPreference } = useMotionPreference();
+  const [entityImportMode, setEntityImportMode] = useState<"reference" | "snapshot" | null>(null);
   const [narrow, setNarrow] = useState(false);
   const [focusOpen, setFocusOpen] = useState(false);
   const [focusSelected, setFocusSelected] = useState("0");
@@ -141,6 +142,17 @@ function ComponentCatalog() {
               options={[
                 { value: "local", label: "本地" },
                 { value: "remote", label: "远程" },
+              ]}
+            />
+          </div>
+          <div>
+            <SegCtl
+              label="实体登记模式"
+              value={entityImportMode}
+              onChange={setEntityImportMode}
+              options={[
+                { value: "reference", label: "引用", tip: "只登记 locator，不读取来源内容。" },
+                { value: "snapshot", label: "快照", tip: "读取并保存观测到的来源字节。" },
               ]}
             />
           </div>

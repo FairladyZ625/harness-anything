@@ -416,25 +416,48 @@ export function resolveArtifactLocator(
 function missingArtifactImportModeGuidance(request: ArtifactEntityImportRequest): string {
   const kind = request.kind || "<kind>",
     locator = request.locator || "<locator>",
-    version = Number.isSafeInteger(request.expectedVersion) ? String(request.expectedVersion) : "0";
+    version = Number.isSafeInteger(request.expectedVersion) ? String(request.expectedVersion) : "0",
+    locatorKind = request.locatorKind ?? inferArtifactLocatorKind(locator),
+    snapshotSupportsLocator = locatorKind === "repository-path" || locatorKind === "url",
+    snapshotLocator = snapshotSupportsLocator ? locator : "docs/minutes.md",
+    snapshotLocatorKind = snapshotSupportsLocator ? locatorKind : "repository-path",
+    quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   return [
     "Choose an explicit import mode:",
     "- reference records only the locator without reading it; use this for a personal/non-central repository when the source should stay authoritative and easy to update.",
     "- snapshot reads and stores the source bytes in Harness; use this for file documents governed by a central repository.",
     "For URL, local path, or external key references, choose --locator-kind url|local-path|external-key. Local paths resolve only on the registering node.",
+    ...(snapshotSupportsLocator
+      ? []
+      : [
+          "Snapshot reads repository-path or URL sources. For a local path or external key, first place the document in the repository and use its relative path.",
+        ]),
     "next: ha entity import --kind " +
-      kind +
+      quote(kind) +
       " --locator " +
-      locator +
-      " --locator-kind url --mode reference --expected-version " +
+      quote(locator) +
+      " --locator-kind " +
+      locatorKind +
+      " --mode reference" +
+      (request.contentVersion ? " --content-version " + quote(request.contentVersion) : "") +
+      " --expected-version " +
       version,
     "next: ha entity import --kind " +
-      kind +
+      quote(kind) +
       " --locator " +
-      locator +
-      " --locator-kind repository-path --mode snapshot --expected-version " +
+      quote(snapshotLocator) +
+      " --locator-kind " +
+      snapshotLocatorKind +
+      " --mode snapshot --expected-version " +
       version,
   ].join("\n");
+}
+
+function inferArtifactLocatorKind(value: string): ArtifactLocator["kind"] {
+  if (value.startsWith("file:") || path.isAbsolute(value) || path.win32.isAbsolute(value)) return "local-path";
+  if (/^[^/:]+:[^/:]+:.+$/u.test(value)) return "external-key";
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value)) return "url";
+  return "repository-path";
 }
 
 function titleFromLocator(locator: ArtifactLocator): string {

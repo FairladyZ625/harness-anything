@@ -54,6 +54,7 @@ test("the declared entity action input admits attributes at the JSON-RPC ingress
       repo: { repoId: "workspace-consumer" },
       payload: {
         action: {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
           locator: "surveys/north",
@@ -74,6 +75,7 @@ test("the declared entity action input admits attributes at the JSON-RPC ingress
       payload: {
         entityKind: "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
         locator: "surveys/north",
+        mode: "snapshot",
         expectedVersion: 0,
         attributes: { region: "north" },
       },
@@ -115,6 +117,7 @@ test("stated attributes are judged against the version the instance is pinned to
 
     const imported = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "surveys/north.md",
@@ -135,12 +138,19 @@ test("stated attributes are judged against the version the instance is pinned to
 
     // A required attribute the caller never stated, and one the Kind never declared: both refused at the action.
     const missing = await cell.run(
-      { kind: "entity-import", entityKind: surveyRef, locator: "surveys/south.md", expectedVersion: 0 },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: surveyRef,
+        locator: "surveys/south.md",
+        expectedVersion: 0,
+      },
       binding,
     );
     assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
     const undeclared = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "surveys/south.md",
@@ -152,6 +162,7 @@ test("stated attributes are judged against the version the instance is pinned to
     assert.equal(undeclared.outcome, "op_rejected", JSON.stringify(undeclared));
     const wrongType = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "surveys/south.md",
@@ -197,6 +208,7 @@ test("stated attributes are judged against the version the instance is pinned to
     // A new instance pins version 2, so version 2's required attribute is the one it has to satisfy.
     const underV1Only = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "surveys/east.md",
@@ -208,6 +220,7 @@ test("stated attributes are judged against the version the instance is pinned to
     assert.equal(underV1Only.outcome, "op_rejected", JSON.stringify(underV1Only));
     const underV2 = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "surveys/east.md",
@@ -263,6 +276,7 @@ test("the same source imported into a second Kind is a separate import intent", 
 
     const first = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "shared/note.md",
@@ -275,7 +289,13 @@ test("the same source imported into a second Kind is a separate import intent", 
     await waitForFixturePublication(cell, first.opId, binding);
 
     const second = await cell.run(
-      { kind: "entity-import", entityKind: dossierRef, locator: "shared/note.md", expectedVersion: 0 },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: dossierRef,
+        locator: "shared/note.md",
+        expectedVersion: 0,
+      },
       binding,
     );
     assert.equal(
@@ -293,6 +313,7 @@ test("the same source imported into a second Kind is a separate import intent", 
     // A retry inside the same Kind is still the same intent and replays the accepted outcome.
     const retry = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "shared/note.md",
@@ -321,6 +342,7 @@ test("the same source imported into a second Kind is a separate import intent", 
     await waitForFixturePublication(cell, deleted.opId, binding);
     const reimported = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: surveyRef,
         locator: "shared/note.md",
@@ -377,7 +399,7 @@ test("owned content is readable by entity identity after the source is gone", as
     const dossierRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
 
     const imported = await cell.run(
-      { kind: "entity-import", entityKind: dossierRef, locator: "shared", expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind: dossierRef, locator: "shared", expectedVersion: 0 },
       binding,
     );
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));

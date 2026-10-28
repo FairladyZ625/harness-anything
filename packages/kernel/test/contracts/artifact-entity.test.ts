@@ -261,7 +261,7 @@ test("reference declarations carry locator metadata only and rebuild without a c
       declaredContentVersion: "revision-17",
     }),
     resolution = "reference:revision-17",
-    event = compileEntityReferenceDeclared({
+    referenceInput = {
       contract: artifact.entityKindContract as EntityStoreKindContract,
       contractSnapshot: artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
       descriptor,
@@ -278,11 +278,27 @@ test("reference declarations carry locator metadata only and rebuild without a c
       actor,
       source: "local",
       occurredAt: "2026-09-02T00:00:00.000Z",
-    });
+    },
+    event = compileEntityReferenceDeclared(referenceInput);
   assert.equal(event.blobs.length, 0);
   assert.equal(event.event.type, "entity_reference_declared");
   assert.deepEqual(validateCurrentEntityEvent(event.event), []);
   assert.doesNotThrow(() => assertEntityEventInputs(event.event, event.plan, event.blobs));
+  const rootRetirement = compileEntityReferenceDeclared({
+    ...referenceInput,
+    eventId: "event-reference-root-retirement",
+    retiredDirectories: [`entities/adrs/${entityId}`],
+  });
+  assert.deepEqual(validateCurrentEntityEvent(rootRetirement.event), []);
+  assert.throws(
+    () =>
+      compileEntityReferenceDeclared({
+        ...referenceInput,
+        eventId: "event-reference-outside-retirement",
+        retiredDirectories: ["entities/adrs/another-entity"],
+      }),
+    /entity reference may only retire previously owned content/u,
+  );
   const rebuilt = createEntityStore(entitySource([event.event], new Map()));
   const record = rebuilt.get<ArtifactDescriptor>(artifact.typeIdentity, entityId);
   assert.equal(record?.documentPath, null);

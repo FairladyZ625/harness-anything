@@ -46,6 +46,7 @@ export const entityImportGuiActions = Object.freeze([
     shape({
       entityKind: "string",
       locator: "string",
+      mode: "string",
       expectedVersion: "number",
       title: "string?",
       attributes: "json?",
