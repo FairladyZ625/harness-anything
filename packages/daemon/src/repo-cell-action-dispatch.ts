@@ -43,6 +43,7 @@ import { runEntityPinAction } from "./entity-pin-action.ts";
 import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
 import { readWork } from "./work-read.ts";
 import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
+import { readVerticalKindAction } from "./vertical-kind-read.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -140,6 +141,8 @@ export function executeRepoAction(
           proof,
         };
   }
+  if (action.kind === "vertical-kind-list" || action.kind === "vertical-kind-show")
+    return readVerticalKindAction(cell, action, binding);
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "entity-pin" || action.kind === "entity-unpin") return runEntityPinAction(cell, action, binding);
   if (action.kind === "runtime-incident-dismiss") return runIncidentDismissAction(cell, action, binding);

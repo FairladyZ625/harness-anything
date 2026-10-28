@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { ParseResult, Schema } from "effect";
 import { VerticalCompletionDeclarationSchema } from "./completion-source.ts";
 import { RelationTypeSchema } from "./entity-relations.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
@@ -313,10 +313,51 @@ export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
     validateDecisionDeclarations(definition);
     return definition;
   } catch (error) {
-    throw new Error(`${String(error)}\nFor a pre-completion declaration, run ha migrate completion --help.`, {
-      cause: error,
-    });
+    throw Object.assign(
+      new Error(`${verticalDecodeDetail(error)}\nFor a pre-completion declaration, run ha migrate completion --help.`, {
+        cause: error,
+      }),
+      // A declaration that does not decode is the caller's input being wrong, not the service failing:
+      // the code lets the CLI hint name the field that needs repair instead of the generic fallback.
+      { code: VERTICAL_DECLARATION_INVALID },
+    );
   }
+}
+
+/** The declaration the caller supplied does not decode; the code travels to the receipt. */
+export const VERTICAL_DECLARATION_INVALID = "vertical_declaration_invalid" as const;
+
+/** Per-issue cap: one wrong nested shape can produce a hundred sibling rows, and the first two name
+ *  the mistake. The count keeps the truncation honest instead of silently shrinking the answer. */
+const VERTICAL_DECODE_ISSUE_LIMIT = 8;
+/** Effect restates the whole rejected subtree in a sibling issue; the field path is the actionable
+ *  half and the restatement only drowns it. */
+const VERTICAL_DECODE_MESSAGE_LIMIT = 200;
+
+/**
+ * The exact field path Effect rejected, one issue per line. `String(ParseError)` prints the whole
+ * structural signature of the schema — 14 KB for one missing `decisionClaimRef` — which reached the
+ * CLI receipt as its remediation sentence and named no field. The ArrayFormatter form is the same
+ * judgement in the vocabulary the person editing the declaration can act on
+ * (`entityKinds.3.relations.0.decisionClaimRef: Expected string, actual undefined`); `cause` still
+ * carries the original for callers that want it.
+ */
+function verticalDecodeDetail(error: unknown): string {
+  if (!ParseResult.isParseError(error)) return String(error);
+  const issues = ParseResult.ArrayFormatter.formatErrorSync(error),
+    lines = issues.slice(0, VERTICAL_DECODE_ISSUE_LIMIT).map((issue) => {
+      const message =
+        issue.message.length > VERTICAL_DECODE_MESSAGE_LIMIT
+          ? `${issue.message.slice(0, VERTICAL_DECODE_MESSAGE_LIMIT)}…`
+          : issue.message;
+      return `${issue.path.length > 0 ? issue.path.join(".") : "<declaration>"}: ${message}`;
+    });
+  if (lines.length === 0) return "The declaration did not decode into a vertical definition.";
+  return [
+    "The vertical declaration was rejected:",
+    ...lines.map((line) => `  ${line}`),
+    ...(issues.length > lines.length ? [`  … ${issues.length - lines.length} more issue(s)`] : []),
+  ].join("\n");
 }
 
 export const VERTICAL_DECLARATION_OUTDATED = "vertical_declaration_outdated" as const;

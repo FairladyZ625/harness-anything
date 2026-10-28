@@ -6,6 +6,7 @@ import {
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
+  workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
@@ -13,37 +14,133 @@ import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-flee
 const agentHistoryLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
 
 export const agentProtocolCommands = Object.freeze([
-  // Artifact kind authoring is a GUI surface: these descriptors keep the repo.vertical.kind.* RPCs
-  // routed through the center write path without exposing a CLI command.
+  // Artifact kind authoring is a CLI surface over the same center actions the GUI calls. The five
+  // commands below are the thin projections of `repo.vertical.kind.*`: no second write path exists.
+  // A declaration is always fenced by the Kind's own accepted revision, so `--expected-version 0`
+  // states the intent to create and an existing Kind answers by its stable identity or qualified id.
+  defineRepoReadCommand({
+    id: "vertical-kind-list",
+    phase: "Governed-Entity-W2",
+    path: ["vertical", "kind", "list"],
+    summary:
+      "List the declared Artifact kinds with their stable kindId, qualified id, revision fence and newest schema version.",
+    method: "repo.task.read",
+    inputs: [cliInput("--include-retired", "boolean", false, { code: "invalid_field" })],
+  }),
+  defineRepoReadCommand({
+    id: "vertical-kind-show",
+    phase: "Governed-Entity-W2",
+    path: ["vertical", "kind", "show", "<kind>"],
+    summary:
+      "Show one declared Artifact kind, including every immutable schema version and its relations; retired kinds stay readable.",
+    method: "repo.task.read",
+    positional: "kindId",
+    inputs: [],
+  }),
   defineCenterForwardWriteCommand({
     id: "vertical-kind-upsert",
     actionKind: "vertical-kind-upsert",
-    internal: true,
     phase: "Governed-Entity-W2",
-    path: ["vertical", "_kind-upsert"],
-    summary: "Create one Artifact kind, or restate the mutable facets of an existing one.",
-    method: "repo.vertical.kind.upsert",
-    inputs: [],
+    path: ["vertical", "kind", "upsert"],
+    summary:
+      "Create one Artifact kind from a declaration, or restate the mutable facets of an existing one under its revision fence.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--kind",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          description: "address an existing Kind by kindId, kindRef or qualified id; defaults to declaration.id",
+        },
+      ),
+      cliInput("--declaration", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
+      cliInput(
+        "--from-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          format: workspacePathFormat,
+          conflictsWith: ["--declaration"],
+          jsonFields: [
+            "id",
+            "entityType",
+            "idPrefix",
+            "display",
+            "descriptorSchemaRef",
+            "store",
+            "locatorKinds",
+            "attributes",
+          ],
+          jsonAllowedFields: [
+            "id",
+            "entityType",
+            "idPrefix",
+            "display",
+            "descriptorSchemaRef",
+            "store",
+            "locatorKinds",
+            "attributes",
+            "relations",
+            "maturityVocabulary",
+            "kindId",
+            "revision",
+            "schemaVersions",
+            "retired",
+            "retiredAt",
+            "reason",
+          ],
+        },
+      ),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+      ),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "vertical-kind-publish-schema",
     actionKind: "vertical-kind-publish-schema",
-    internal: true,
     phase: "Governed-Entity-W2",
-    path: ["vertical", "_kind-publish-schema"],
-    summary: "Publish the next immutable attribute schema version of one Artifact kind.",
-    method: "repo.vertical.kind.publishSchema",
-    inputs: [],
+    path: ["vertical", "kind", "publish-schema", "<kind>"],
+    summary:
+      "Publish the next immutable attribute schema version of one Artifact kind; published versions are never rewritten.",
+    method: "repo.task.run",
+    positional: "kindId",
+    inputs: [
+      cliInput("--attributes", "single", true, { code: "missing_field" }, { projection: "json-object" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+      ),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "vertical-kind-retire",
     actionKind: "vertical-kind-retire",
-    internal: true,
     phase: "Governed-Entity-W2",
-    path: ["vertical", "_kind-retire"],
-    summary: "Retire one Artifact kind with a required reason while preserving its declaration.",
-    method: "repo.vertical.kind.retire",
-    inputs: [],
+    path: ["vertical", "kind", "retire", "<kind>"],
+    summary: "Retire one Artifact kind with a required reason while preserving its declaration and instances.",
+    method: "repo.task.run",
+    positional: "kindId",
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }, { minLength: 1, maxLength: 199 }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+      ),
+    ],
   }),
   defineRepoReadCommand({
     id: "agenda",

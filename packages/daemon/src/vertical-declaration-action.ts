@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   applyVerticalKindCommand,
+  compileVerticalContract,
   compileVerticalDeclarationEvent,
   decodeVerticalDefinition,
   normalizeHistoricalVerticalDocument,
@@ -161,6 +162,20 @@ function candidate(
     });
   // Fail-closed revalidation of the command's constructed kind rows before acceptance.
   const definition = decodeVerticalDefinition(command.definition);
+  // The declaration compiles to the registry every kind-addressed write resolves through. A row that
+  // decodes but cannot compile — an unapproved decision pin on a declared relation is the motivating
+  // case — would otherwise be accepted here and then reject the *import* of every kind, not just this
+  // one. Compiling at the write boundary charges the defect to the command that introduced it.
+  try {
+    compileVerticalContract(definition);
+  } catch (error) {
+    // Compilation is the declaration's second validation pass, so its refusal is the caller's input
+    // being wrong. The kernel's decode path names the same condition; keep the receipt code aligned
+    // so the CLI can show the compiler's sentence as the repair hint.
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      code: "vertical_declaration_invalid",
+    });
+  }
   return {
     type: retire ? "vertical_kind_retired" : "vertical_kind_upserted",
     definition,

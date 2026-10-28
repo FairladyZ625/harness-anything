@@ -12,6 +12,7 @@ import { parseProvider } from "./thin-command-provider.ts";
 import { parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import { parseEntityAssignment, parseRoutedSpecial } from "./thin-command-router-special.ts";
+import { parseVerticalKindRouted } from "./thin-command-vertical-kind.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 type RoutedParser = (
@@ -263,6 +264,7 @@ export function parseRouted(
     );
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") return parseEntityRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "vertical") return parseVerticalKindRouted(route, args, rootDir, repoId, json, inputs);
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
