@@ -405,6 +405,7 @@ export { artifactEntityImportActionInput } from "./artifact-entity-actions.ts";
 
 export {
   compileEntityContentObserved,
+  compileEntityReferenceDeclared,
   compileEntityArchived,
   compileEntityUpdated,
   compileEntityTargetMissing,
@@ -415,11 +416,13 @@ export {
   type AgentRetiredBundle,
   type EntityDeletedBundle,
   type EntityTargetMissingBundle,
+  type EntityReferenceDeclaredBundle,
   type EntityUpsertBundle,
 } from "./entity-event-compile.ts";
 export {
   contractForDeclarationEvent,
   entityDeletedWritePlan,
+  entityReferenceDeclaredWritePlan,
   agentRetiredWritePlan,
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
@@ -443,6 +446,7 @@ export {
   artifactObservationId,
   artifactMutationOperationId,
   canonicalArtifactLocator,
+  canonicalArtifactReferenceSourceIdentity,
   canonicalSourceIdentity,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,

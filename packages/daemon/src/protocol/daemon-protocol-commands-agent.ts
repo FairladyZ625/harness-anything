@@ -275,6 +275,40 @@ export const agentProtocolCommands = Object.freeze([
         code: "missing_field",
       }),
       cliInput(
+        "--mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "mode",
+          enum: ["reference", "snapshot"],
+          description:
+            "Required at execution. reference records a locator without reading it; snapshot stores observed bytes in Harness.",
+        },
+      ),
+      cliInput(
+        "--locator-kind",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "locatorKind",
+          enum: ["repository-path", "url", "external-key", "local-path"],
+          description:
+            "Selects the locator grammar. Reference accepts any URL scheme, a file URL, or provider:project:key; local paths resolve only on the registering node.",
+        },
+      ),
+      cliInput(
+        "--content-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "contentVersion",
+          description: "Optional caller-declared version for reference mode; never treated as observed content.",
+        },
+      ),
+      cliInput(
         "--expected-version",
         "single",
         true,

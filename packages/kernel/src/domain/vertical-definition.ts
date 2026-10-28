@@ -7,7 +7,7 @@ import type { VerticalDecisionDeclarations } from "./decision-point.ts";
  * schema layer has decoded and accepted the raw input; the schema module anchors its decoded type
  * to the shapes below at compile time, so drift between the two fails the type check here.
  */
-export const artifactLocatorKinds = Object.freeze(["repository-path", "url", "external-key"] as const);
+export const artifactLocatorKinds = Object.freeze(["repository-path", "url", "external-key", "local-path"] as const);
 export type ArtifactLocatorKind = (typeof artifactLocatorKinds)[number];
 
 export interface VerticalTemplateLocalePolicy {

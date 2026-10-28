@@ -267,6 +267,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const base = {
         actor: runtimeExecutionActor(execution),
         source: execution.source,
+        sourceNodeId:
+          typeof execution.source === "object" && execution.source.kind === "node"
+            ? execution.source.nodeId
+            : `local:${input.daemonId}`,
         executionPrincipal: execution,
         writerEpoch: auth.writerEpoch,
         withWriterEpochFence: auth.withWriterEpochFence,
@@ -290,6 +294,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ? principal
         : {
             ...principal,
+            sourceNodeId:
+              typeof principal.source === "object" && principal.source.kind === "node"
+                ? principal.source.nodeId
+                : `local:${input.daemonId}`,
             keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
           };
     return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;

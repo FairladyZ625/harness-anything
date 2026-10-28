@@ -737,6 +737,8 @@ export function prepareAgentEntityDelete(input: {
       );
     }
   }
+  if (!current.documentSha256)
+    throw entityError("content_not_ready", `${kind} ${entityId} has no accepted declaration document.`);
   return { entityId, baseBlobSha256: current.documentSha256 };
 }
 

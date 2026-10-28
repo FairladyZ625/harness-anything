@@ -253,6 +253,30 @@ export function applyEvent(
       } else markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
       return;
     }
+    if (event.type === "entity_reference_declared") {
+      const contract = contractForDeclarationEvent(event),
+        entity = interpretEntityValue(contract, event.payload.descriptor),
+        contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
+      if (contractErrors.length) throw new Error(contractErrors.join("; "));
+      if (entity.id !== event.payload.entityId) throw new Error("entity reference identity mismatch");
+      runSql(
+        db,
+        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+        event.opId,
+        event.workspaceRevision,
+        eventJson,
+      );
+      projectInterpretedEntityValue(
+        db,
+        contract,
+        entity,
+        event.workspaceRevision,
+        "event:" + event.opId,
+        "current",
+        "reference:" + (event.payload.declaredContentVersion ?? "unobserved"),
+      );
+      return;
+    }
     const claim = event.payload.declarationDocumentClaim,
       bytes = readBlob(claim.sha256);
     if (!bytes || bytes.byteLength !== claim.size)

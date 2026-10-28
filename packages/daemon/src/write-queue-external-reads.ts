@@ -47,7 +47,7 @@ export function readBeforeWriteQueue(
     return started.then(
       (annotate) => async (action, binding) => annotate(await context.executeAction(action, binding)),
     );
-  if (action.kind === "entity-import")
+  if (action.kind === "entity-import" && action.mode === "snapshot")
     return prepareArtifactEntityImportSource({
       rootDir: context.rootDir,
       repositoryId: context.input.repoId,

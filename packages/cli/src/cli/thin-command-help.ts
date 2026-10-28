@@ -9,6 +9,7 @@ import {
   writerEpochMigrationCommand,
 } from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
+import { artifactEntityImportGuidance } from "./artifact-entity-import-guidance.ts";
 
 export type ThinHelpCatalogEntry = {
   readonly id: string;
@@ -121,6 +122,9 @@ export function renderThinCapabilities(): string {
     "Harness Anything CLI capabilities",
     "",
     ...Object.entries(cliCapabilities).flatMap(([domain, ids]) => [`${domain}:`, ...ids.map((id) => `  ${id}`)]),
+    "",
+    "entity import:",
+    artifactEntityImportGuidance,
   ].join("\n");
 }
 

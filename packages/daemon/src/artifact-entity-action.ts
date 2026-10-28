@@ -384,6 +384,7 @@ export async function runArtifactEntityImport(input: {
   readonly sourceResolution?: ArtifactSourceResolution;
 }): Promise<ArtifactImportReceipt> {
   const service = makeArtifactEntityService({
+      repositoryId: input.repositoryId,
       contracts: input.contracts,
       resolveSource: (locator, contract) =>
         input.sourceResolution
@@ -413,6 +414,11 @@ export async function runArtifactEntityImport(input: {
         kind: requiredArtifactText(input.action.entityKind, "entityKind"),
         locator: requiredArtifactText(input.action.locator, "locator"),
         expectedVersion: Number(input.action.expectedVersion),
+        ...(input.action.mode === "reference" || input.action.mode === "snapshot" ? { mode: input.action.mode } : {}),
+        ...(typeof input.action.locatorKind === "string"
+          ? { locatorKind: input.action.locatorKind as ArtifactDescriptor["locator"]["kind"] }
+          : {}),
+        ...(typeof input.action.contentVersion === "string" ? { contentVersion: input.action.contentVersion } : {}),
         ...(typeof input.action.title === "string" ? { title: input.action.title } : {}),
         ...(typeof input.action.entityId === "string" ? { entityId: input.action.entityId } : {}),
         ...(typeof input.action.sourceIdentity === "string" ? { sourceIdentity: input.action.sourceIdentity } : {}),
@@ -424,6 +430,10 @@ export async function runArtifactEntityImport(input: {
       {
         actor: input.binding.actor,
         source: input.binding.source,
+        sourceNodeId:
+          typeof input.binding.source === "object" && input.binding.source.kind === "node"
+            ? input.binding.source.nodeId
+            : input.binding.sourceNodeId,
         occurredAt: input.now(),
         workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
       },
@@ -441,6 +451,9 @@ export async function runArtifactEntityImport(input: {
       entityId: prepared.preview.entityId,
       evidence: JSON.stringify({
         schema: "artifact-entity-import-result/v1",
+        mode: prepared.preview.mode,
+        contentState: prepared.preview.contentState,
+        ...(prepared.preview.mode === "reference" ? { message: "Reference registered; content not fetched." } : {}),
         preview: prepared.preview,
         dryRun: false,
         commitSha: appended.commitSha?.sha ?? null,
@@ -654,9 +667,11 @@ export function describeCurrentArtifact(
   // that was actually asked for, so an unreadable blob stays an error about that entity, and the fold never has
   // to be rebuilt because the reader is holding a different compiled contract than the one that filled it.
   const descriptor =
-      state.declarationClaimSha === null
-        ? null
-        : readArtifactDescriptor(contract, artifactDeclarationDocument(store, state.declarationClaimSha)),
+      state.inlineDescriptor !== undefined
+        ? readArtifactDescriptor(contract, state.inlineDescriptor)
+        : state.declarationClaimSha === null
+          ? null
+          : readArtifactDescriptor(contract, artifactDeclarationDocument(store, state.declarationClaimSha)),
     ownedContent = state.ownedContent,
     pinned = pinnedArtifactKindContract(
       contract,

@@ -85,8 +85,7 @@ export function readDistillEntity(projection: any, entityRef: string): DistillEn
 }
 
 export function artifactDescriptorFromProjection(value: Readonly<Record<string, unknown>>): ArtifactDescriptor {
-  if (
-    !exactFields(value, [
+  const required = [
       "schema",
       "typeIdentity",
       "kindVersion",
@@ -96,10 +95,19 @@ export function artifactDescriptorFromProjection(value: Readonly<Record<string, 
       "contentVersion",
       "attributes",
       "source",
-    ]) ||
-    ![value.schema, value.typeIdentity, value.entityId, value.title, value.contentVersion, value.source].every(
-      nonEmptyString,
-    ) ||
+    ],
+    optional = ["observationMode", "contentState", "declaredContentVersion"];
+  if (
+    !required.every((field) => Object.hasOwn(value, field)) ||
+    Object.keys(value).some((field) => !required.includes(field) && !optional.includes(field)) ||
+    ![value.schema, value.typeIdentity, value.entityId, value.title, value.source].every(nonEmptyString) ||
+    (typeof value.contentVersion !== "string" && value.contentVersion !== null) ||
+    (typeof value.contentVersion === "string" && !value.contentVersion) ||
+    (value.observationMode !== undefined &&
+      value.observationMode !== "reference" &&
+      value.observationMode !== "snapshot") ||
+    (value.contentState !== undefined && value.contentState !== "unobserved" && value.contentState !== "observed") ||
+    (value.declaredContentVersion !== undefined && typeof value.declaredContentVersion !== "string") ||
     !Number.isSafeInteger(value.kindVersion) ||
     typeof value.attributes !== "object" ||
     value.attributes === null ||
@@ -208,6 +216,8 @@ function distillSubject(input: {
   if (typeof input.action.entityRef === "string") {
     const entityRef = requiredDistillText(input.action.entityRef, "entityRef"),
       resolved = input.readEntity(entityRef);
+    if (resolved.descriptor.contentVersion === null)
+      throw distillActionError("content_not_ready", `Artifact entity ${entityRef} has no observed content version.`);
     return {
       kind: "artifact-entity",
       ref: entityRef,

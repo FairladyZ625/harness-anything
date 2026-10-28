@@ -31,7 +31,7 @@ export const ARTIFACT_DESCRIPTOR_FIELDS = Object.freeze([
 /** Attribute values are pure JSON scalars: they describe the material, never how to act on it. */
 export type ArtifactAttributeValue = string | number | boolean;
 
-export type ArtifactLocatorKind = "repository-path" | "url" | "external-key";
+export type ArtifactLocatorKind = "repository-path" | "url" | "external-key" | "local-path";
 
 export interface ArtifactLocator {
   readonly kind: ArtifactLocatorKind;
@@ -47,7 +47,10 @@ export interface ArtifactDescriptor {
   readonly entityId: string;
   readonly title: string;
   readonly locator: ArtifactLocator;
-  readonly contentVersion: string;
+  readonly contentVersion: string | null;
+  readonly observationMode?: "reference" | "snapshot";
+  readonly contentState?: "unobserved" | "observed";
+  readonly declaredContentVersion?: string;
   readonly attributes: Readonly<Record<string, ArtifactAttributeValue>>;
   readonly source: string;
 }
@@ -64,7 +67,8 @@ export type ArtifactSourceIdentityInput =
       readonly provider: string;
       readonly project: string;
       readonly externalKey: string;
-    };
+    }
+  | { readonly kind: "local-path"; readonly nodeId: string; readonly url: string };
 
 export type ArtifactContentWitness =
   | { readonly kind: "git-object"; readonly objectId: string }
@@ -98,6 +102,13 @@ export function canonicalSourceIdentity(input: ArtifactSourceIdentityInput): str
     return `repo:${repositoryId}:${documentPath}`;
   }
   if (input.kind === "url") return canonicalArtifactUrl(input.url);
+  if (input.kind === "local-path") {
+    const nodeId = requiredIdentityPart(input.nodeId, "sourceNodeId"),
+      url = canonicalArtifactUrl(input.url);
+    if (!url.startsWith("file:"))
+      throw new ArtifactEntityContractError("Local path source identity must be a file URL.");
+    return "local-path:" + nodeId + ":" + url;
+  }
   return [
     requiredIdentityPart(input.provider, "provider"),
     requiredIdentityPart(input.project, "project"),
@@ -112,11 +123,11 @@ export function canonicalArtifactUrl(value: string): string {
   } catch {
     throw new ArtifactEntityContractError("Artifact URL must be an absolute URL.");
   }
-  if (!(["http:", "https:"] as const).includes(parsed.protocol as "http:" | "https:"))
-    throw new ArtifactEntityContractError("Artifact URL must use http or https.");
+  if (!parsed.protocol) throw new ArtifactEntityContractError("Artifact URL must be absolute.");
   if (parsed.username || parsed.password)
     throw new ArtifactEntityContractError("Artifact URL must not contain credentials.");
   parsed.hash = "";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return parsed.toString();
   const sorted = [...parsed.searchParams.entries()].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
     leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey),
   );
@@ -184,13 +195,16 @@ export function artifactDescriptorSchema(
       locator: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: artifact.locatorKinds },
+          kind: { type: "string", enum: ["repository-path", "url", "external-key", "local-path"] },
           value: { type: "string", minLength: 1 },
         },
         required: ["kind", "value"],
         additionalProperties: false,
       },
-      contentVersion: { type: "string", minLength: 1 },
+      contentVersion: { type: ["string", "null"] },
+      observationMode: { type: "string", enum: ["reference", "snapshot"] },
+      contentState: { type: "string", enum: ["unobserved", "observed"] },
+      declaredContentVersion: { type: "string", minLength: 1 },
       attributes: attributesSchema(schemaVersion.attributes),
       source: { type: "string", minLength: 1 },
     },
@@ -245,7 +259,35 @@ export function canonicalArtifactLocator(locator: ArtifactLocator): ArtifactLoca
   if (locator.kind === "repository-path")
     return Object.freeze({ kind: locator.kind, value: normalizeRelativeDocumentPath(locator.value) });
   if (locator.kind === "url") return Object.freeze({ kind: locator.kind, value: canonicalArtifactUrl(locator.value) });
+  if (locator.kind === "local-path") {
+    const value = canonicalArtifactUrl(locator.value);
+    if (!value.startsWith("file:")) throw new ArtifactEntityContractError("Local path locator must be a file URL.");
+    return Object.freeze({ kind: locator.kind, value });
+  }
   return Object.freeze({ kind: locator.kind, value: canonicalExternalLocator(locator.value) });
+}
+
+export function canonicalArtifactReferenceSourceIdentity(
+  locator: ArtifactLocator,
+  repositoryId: string,
+  nodeId?: string,
+): string {
+  if (locator.kind === "local-path") {
+    const node = requiredIdentityPart(nodeId, "sourceNodeId");
+    return "node:" + node + ":local-path:" + node + ":" + canonicalArtifactLocator(locator).value;
+  }
+  if (locator.kind === "external-key") {
+    const canonical = canonicalExternalLocator(locator.value);
+    if (canonical.startsWith("local-kb:")) {
+      const node = requiredIdentityPart(nodeId, "sourceNodeId");
+      return "node:" + node + ":" + canonical;
+    }
+    return canonical;
+  }
+  if (locator.kind === "repository-path")
+    return canonicalSourceIdentity({ kind: "repository-path", repositoryId, path: locator.value });
+  const url = canonicalArtifactUrl(locator.value);
+  return /^https?:/iu.test(url) ? url : "url:" + url;
 }
 
 export function artifactEntityContractSnapshot(input: {
@@ -263,7 +305,7 @@ export function artifactEntityContractSnapshot(input: {
     descriptorSchemaRef: input.declaration.descriptorSchemaRef,
     idPrefix: input.declaration.idPrefix,
     pathTemplate: input.declaration.store.pathTemplate,
-    locatorKinds: [...input.declaration.locatorKinds] as ArtifactLocatorKind[],
+    locatorKinds: [...new Set([...input.declaration.locatorKinds, "local-path"])] as ArtifactLocatorKind[],
   });
 }
 
@@ -302,13 +344,16 @@ export function artifactEntityContractFromSnapshot(
         locator: {
           type: "object",
           properties: {
-            kind: { type: "string", enum: decoded.locatorKinds },
+            kind: { type: "string", enum: ["repository-path", "url", "external-key", "local-path"] },
             value: { type: "string", minLength: 1 },
           },
           required: ["kind", "value"],
           additionalProperties: false,
         },
-        contentVersion: { type: "string", minLength: 1 },
+        contentVersion: { type: ["string", "null"] },
+        observationMode: { type: "string", enum: ["reference", "snapshot"] },
+        contentState: { type: "string", enum: ["unobserved", "observed"] },
+        declaredContentVersion: { type: "string", minLength: 1 },
         attributes: { type: "object", properties: {}, required: [], additionalProperties: true },
         source: { type: "string", minLength: 1 },
       },
@@ -352,7 +397,9 @@ export function decodeArtifactEntityContractSnapshot(
     value.pathTemplate.split("{id}").length !== 2 ||
     !Array.isArray(value.locatorKinds) ||
     value.locatorKinds.length === 0 ||
-    value.locatorKinds.some((kind) => !(["repository-path", "url", "external-key"] as const).includes(kind as never)) ||
+    value.locatorKinds.some(
+      (kind) => !(["repository-path", "url", "external-key", "local-path"] as const).includes(kind as never),
+    ) ||
     new Set(value.locatorKinds).size !== value.locatorKinds.length
   )
     throw new ArtifactEntityContractError("Artifact entity contract snapshot is invalid.");
@@ -448,14 +495,23 @@ function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {
   return (
     isRecord(value) &&
     ARTIFACT_DESCRIPTOR_FIELDS.every((field) => Object.hasOwn(value, field)) &&
-    Object.keys(value).every((field) => (ARTIFACT_DESCRIPTOR_FIELDS as readonly string[]).includes(field)) &&
+    Object.keys(value).every((field) =>
+      [...ARTIFACT_DESCRIPTOR_FIELDS, "observationMode", "contentState", "declaredContentVersion"].includes(
+        field as never,
+      ),
+    ) &&
     typeof value.schema === "string" &&
     typeof value.typeIdentity === "string" &&
     Number.isSafeInteger(value.kindVersion) &&
     Number(value.kindVersion) >= 1 &&
     typeof value.entityId === "string" &&
     typeof value.title === "string" &&
-    typeof value.contentVersion === "string" &&
+    (typeof value.contentVersion === "string" || value.contentVersion === null) &&
+    (value.observationMode === undefined ||
+      value.observationMode === "reference" ||
+      value.observationMode === "snapshot") &&
+    (value.contentState === undefined || value.contentState === "unobserved" || value.contentState === "observed") &&
+    (value.declaredContentVersion === undefined || typeof value.declaredContentVersion === "string") &&
     isRecord(value.attributes) &&
     Object.values(value.attributes).every(
       (attribute) => typeof attribute === "string" || typeof attribute === "number" || typeof attribute === "boolean",
@@ -479,6 +535,22 @@ function canonicalExternalLocator(value: string): string {
 }
 
 export function canonicalArtifactSourceIdentity(value: string): string {
+  if (value.startsWith("url:")) return "url:" + canonicalArtifactUrl(value.slice("url:".length));
+  if (value.startsWith("node:")) {
+    const separator = value.indexOf(":", "node:".length);
+    if (separator < 0) throw new ArtifactEntityContractError("Node source identity is incomplete.");
+    const nodeId = requiredIdentityPart(value.slice("node:".length, separator), "sourceNodeId");
+    return "node:" + nodeId + ":" + canonicalArtifactSourceIdentity(value.slice(separator + 1));
+  }
+  if (value.startsWith("local-path:")) {
+    const separator = value.indexOf(":", "local-path:".length);
+    if (separator < 0) throw new ArtifactEntityContractError("Local path source identity is incomplete.");
+    const nodeId = requiredIdentityPart(value.slice("local-path:".length, separator), "sourceNodeId"),
+      url = canonicalArtifactUrl(value.slice(separator + 1));
+    if (!url.startsWith("file:"))
+      throw new ArtifactEntityContractError("Local path source identity must be a file URL.");
+    return "local-path:" + nodeId + ":" + url;
+  }
   if (value.startsWith("repo:")) {
     const separator = value.indexOf(":", "repo:".length);
     if (separator < 0) throw new ArtifactEntityContractError("Repository source identity is incomplete.");
@@ -488,7 +560,7 @@ export function canonicalArtifactSourceIdentity(value: string): string {
       path: value.slice(separator + 1),
     });
   }
-  if (/^https?:\/\//iu.test(value)) return canonicalArtifactUrl(value);
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value) || value.startsWith("file:")) return canonicalArtifactUrl(value);
   return canonicalExternalLocator(value);
 }
 

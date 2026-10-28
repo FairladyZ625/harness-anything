@@ -66,6 +66,9 @@ const artifactEntityImportProtocolInput = Object.freeze({
     { field: "entityKind", type: "string", required: true },
     { field: "locator", type: "string", required: true },
     { field: "expectedVersion", type: "number", required: true },
+    { field: "mode", type: "string", required: false },
+    { field: "locatorKind", type: "string", required: false },
+    { field: "contentVersion", type: "string", required: false },
     { field: "title", type: "string", required: false },
     { field: "entityId", type: "string", required: false },
     { field: "sourceIdentity", type: "string", required: false },
@@ -97,7 +100,23 @@ export function validateCatalogActionPayload(value: JsonObject): readonly string
   const declaration = taskActionProtocolByIngress.get(action.kind);
   if (declaration) return validateProjectedTaskActionInput(action.kind, declaration.input, action);
   if (action.kind === "entity-import")
-    return validateProjectedTaskActionInput(action.kind, artifactEntityImportProtocolInput, action);
+    return [
+      ...validateProjectedTaskActionInput(action.kind, artifactEntityImportProtocolInput, action),
+      ...(action.mode !== undefined && !["reference", "snapshot"].includes(String(action.mode))
+        ? [validationError("action:entity-import", "action.mode", action.mode, "must be reference or snapshot")]
+        : []),
+      ...(action.locatorKind !== undefined &&
+      !["repository-path", "url", "external-key", "local-path"].includes(String(action.locatorKind))
+        ? [
+            validationError(
+              "action:entity-import",
+              "action.locatorKind",
+              action.locatorKind,
+              "must be repository-path, url, external-key, or local-path",
+            ),
+          ]
+        : []),
+    ];
   return [];
 }
 
