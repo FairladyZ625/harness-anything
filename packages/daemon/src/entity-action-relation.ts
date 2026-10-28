@@ -162,6 +162,12 @@ export function executeRelationAction(input: {
   if (action.kind === "relation-relate") {
     if (!assignment && action.relationType === "assigned-to")
       reject("invalid_command", "assigned-to is managed by the entity assign Action; use ha <kind> assign.");
+    // A ref the grammar does not recognize and a ref whose entity is absent both read as
+    // `currentVersion: null`, so the existence check below would answer a spelling mistake with
+    // "does not exist ... (looked up at projection watermark N, write head N)" and send the caller
+    // hunting a projection delay. Judge the grammar first and name the accepted spelling.
+    requireRelationEndpointRef(sourceRef!, "source");
+    if (!assignment) requireRelationEndpointRef(targetRef!, "target");
     if (source?.currentVersion === null)
       reject("entity_not_found", `Relation source ${sourceRef} does not exist${lookupNote}`);
     if (target?.currentVersion === null && !assignment)
@@ -606,6 +612,26 @@ function relationNoChanges(input: {
 function requiredRelationText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   reject("invalid_command", `${field} is required.`);
+}
+
+/**
+ * The Relation write boundary judges an endpoint's grammar before its existence. Both failures
+ * collapse to `currentVersion: null` further down, and only one of them is the caller's typo:
+ * `task:<id>` reads as an external harness alias, a bare id has no kind segment, and neither can
+ * name a local entity no matter how current the projection is.
+ */
+function requireRelationEndpointRef(ref: string, endpoint: "source" | "target"): void {
+  const flag = endpoint === "source" ? "--source-ref" : "--target-ref",
+    parsed = parseEntityRef(ref);
+  if (parsed !== null && !parsed.externalHarness) return;
+  reject(
+    "invalid_entity_ref",
+    parsed?.externalHarness
+      ? `Relation ${endpoint} ${ref} names harness ${String(parsed.harnessAlias)} and cannot be related in this ` +
+          `repository. Use a local ref: ${flag} task/<task-id>.`
+      : `Relation ${endpoint} "${ref}" is not an Entity ref. Write <kind>/<id>, e.g. ${flag} task/<task-id> ` +
+          `(the id alone and "kind:id" are both unrecognized).`,
+  );
 }
 
 function supersedesDecisionTargetId(action: RepoTaskAction): string | null {

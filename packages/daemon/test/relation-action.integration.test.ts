@@ -256,8 +256,8 @@ test("immediate relate observes all newly created endpoints across twenty writer
       const receipt = await cell.run(
         {
           kind: "relation-relate",
-          sourceRef: missing === "source" ? "task/missing_source" : "task/task_immediate_source_0",
-          targetRef: missing === "target" ? "task/missing_target" : "task/task_immediate_target_0",
+          sourceRef: missing === "source" ? "task/task_missing_source" : "task/task_immediate_source_0",
+          targetRef: missing === "target" ? "task/task_missing_target" : "task/task_immediate_target_0",
           relationType: "depends-on",
           rationale: "Missing endpoint control",
           expectedVersion: 0,
@@ -267,7 +267,9 @@ test("immediate relate observes all newly created endpoints across twenty writer
       t.diagnostic(JSON.stringify({ missing, receipt }));
       assert.equal(receipt.code, "entity_not_found");
       assert.ok(
-        String(receipt.rejectionExplanation).startsWith(`Relation ${missing} task/missing_${missing} does not exist (`),
+        String(receipt.rejectionExplanation).startsWith(
+          `Relation ${missing} task/task_missing_${missing} does not exist (`,
+        ),
         JSON.stringify(receipt.rejectionExplanation),
       );
       const cut = lookupCutOf(receipt.rejectionExplanation);
@@ -556,7 +558,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
       missingSource = await cell.run(
         {
           kind: "relation-relate",
-          sourceRef: "task/missing_source",
+          sourceRef: "task/task_missing_source",
           targetRef: "task/task_relation_b",
           relationType: "depends-on",
           rationale: "A missing source must not publish a relation.",
@@ -571,7 +573,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
       {
         kind: "relation-relate",
         sourceRef: "task/task_relation_a",
-        targetRef: "task/missing_target",
+        targetRef: "task/task_missing_target",
         relationType: "depends-on",
         rationale: "A missing target must not publish a relation.",
         expectedVersion: 0,
@@ -808,6 +810,84 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
       rows.map(({ relationId: id, state }) => ({ id, state })),
       [{ id: relationId, state: "retired" }],
     );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a task created in this turn is relatable at once, and a misspelled endpoint is refused as a ref, not as a missing entity", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-fresh-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("relation-fresh"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-fresh-test" }),
+    reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    const sourceId = "task_f8c0fcc24c2934ca89edc8f634",
+      targetId = "task_ce9d456dbf60d47c5e3f0ee271";
+    for (const [taskId, title] of [
+      [sourceId, "Fresh source"],
+      [targetId, "Fresh target"],
+    ] as const)
+      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+    // Symptom task_f8c0fcc24c2934ca89edc8f634: both tasks exist, list, and dispatch, yet relating them
+    // failed. The canonical spelling relates them in the very next writer turn, with no projection wait.
+    const created = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `task/${sourceId}`,
+        targetRef: `task/${targetId}`,
+        relationType: "depends-on",
+        rationale: "A freshly created task is an endpoint immediately.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    // A typo used to arrive as `entity_not_found ... (looked up at projection watermark N, write head N)`,
+    // which reads as a projection delay although the watermark already equals the write head. Both
+    // non-canonical spellings now name the grammar and the accepted form instead, and publish nothing.
+    const beforeMisspellings = reader.readHead()?.revision;
+    for (const [sourceRef, targetRef, missing, attempted] of [
+      [`task:${sourceId}`, `task/${targetId}`, "source", `task:${sourceId}`],
+      [sourceId, `task/${targetId}`, "source", sourceId],
+      [`task/${sourceId}`, `task:${targetId}`, "target", `task:${targetId}`],
+    ] as const) {
+      const rejected = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef,
+          targetRef,
+          relationType: "relates",
+          rationale: "A misspelled endpoint must not read as a missing entity.",
+          expectedVersion: 0,
+        },
+        binding,
+      );
+      assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+      assert.equal(rejected.code, "invalid_entity_ref", JSON.stringify(rejected));
+      const explanation = String(rejected.rejectionExplanation);
+      assert.match(explanation, new RegExp(`${missing} "${attempted}" is not an Entity ref`, "u"), explanation);
+      assert.match(explanation, /task\/<task-id>/u, explanation);
+      assert.doesNotMatch(explanation, /looked up at projection watermark/u, explanation);
+    }
+    assert.equal(reader.readHead()?.revision, beforeMisspellings, "a ref typo publishes no event");
+    // A well-formed ref that names no entity keeps its own answer: the grammar is not the problem.
+    const absent = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: "task/task_absent_but_well_formed",
+        targetRef: `task/${targetId}`,
+        relationType: "relates",
+        rationale: "A canonical ref for an absent task stays entity_not_found.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(absent.outcome, "op_rejected", JSON.stringify(absent));
+    assert.equal(absent.code, "entity_not_found", JSON.stringify(absent));
+    assert.match(String(absent.rejectionExplanation), /^Relation source task\/task_absent_but_well_formed /u);
+    assert.ok(lookupCutOf(absent.rejectionExplanation));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
