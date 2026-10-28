@@ -349,10 +349,7 @@ function evaluateCompletion(
       return one(
         "review_missing",
         "review",
-        `ha task review-consent ${task.taskId} --execution-id ${executionId} ` +
-          `--review-id '${reviewId.replaceAll("'", "'\\''")}' ` +
-          `--finding-id '${findingId.replaceAll("'", "'\\''")}' ` +
-          "--finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> --rationale <why>",
+        findingRulingCommand(task.taskId, executionId, reviewId, findingId),
         `Finding ${reviewId}/${findingId} escalated because automated review could not classify it safely; ` +
           "the task owner must choose a disposition for this finding.",
       );
@@ -445,6 +442,20 @@ export function reviewConsentCommands(
   return approvedReviewHistoryForExecution(reviews, execution).map(
     (review) =>
       `ha task review-consent ${taskId} --execution-id ${execution.executionId} --review-id ${review.reviewId}`,
+  );
+}
+
+/**
+ * The one rendering of an owner's per-finding ruling command. Completion guidance prints it, and
+ * a consent attempt on the wrong finding repeats it for the finding that actually escalated, so
+ * the two paths can never drift.
+ */
+export function findingRulingCommand(taskId: string, executionId: string, reviewId: string, findingId: string): string {
+  const quoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  return (
+    `ha task review-consent ${taskId} --execution-id ${executionId} ` +
+    `--review-id ${quoted(reviewId)} --finding-id ${quoted(findingId)} ` +
+    "--finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> --rationale <why>"
   );
 }
 

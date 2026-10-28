@@ -23,6 +23,7 @@ import type {
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
 import { closeoutReadiness, currentCutSettlement } from "./closeout-readiness.ts";
+import { findingRulingCommand } from "./completion-readiness.ts";
 import { isValidCloseoutGateRecord } from "./settings-closeout.ts";
 import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
@@ -471,7 +472,8 @@ export const consent: Transition = {
               snapshot.reviewDispositions ?? [],
             )
           : null,
-        isEscalated = settlement?.escalated.some(
+        escalated = settlement?.escalated ?? [],
+        isEscalated = escalated.some(
           (value) => value.reviewId === command.reviewId && value.findingId === command.findingId,
         );
       if (command.disposedReviewIds?.length)
@@ -489,7 +491,18 @@ export const consent: Transition = {
         issues.push(
           lifecycleContractIssue(
             "invalid_transition",
-            "owner rulings apply only to an escalated finding on the current submission",
+            escalated.length
+              ? "owner rulings apply only to an escalated finding on the current submission; " +
+                  "escalated findings awaiting disposition: " +
+                  escalated
+                    .map(
+                      (value) =>
+                        `${value.reviewId}/${value.findingId} -> ` +
+                        findingRulingCommand(command.taskId, command.executionId, value.reviewId, value.findingId),
+                    )
+                    .join("; ")
+              : "owner rulings apply only to an escalated finding on the current submission; " +
+                  "no finding on the current submission is escalated",
           ),
         );
       if (recorded?.verdict !== "approved")

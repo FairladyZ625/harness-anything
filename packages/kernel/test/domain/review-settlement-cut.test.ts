@@ -251,6 +251,76 @@ test("the task owner can adjudicate one escalated finding through review consent
   );
 });
 
+test("a ruling on a settled finding names the escalated findings the owner must dispose", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    targetDigest = submissionDigest(original.executions[0]!.submission!),
+    escalated = {
+      ...recorded,
+      findings: [
+        {
+          findingId: "F-escalated",
+          blocking: false,
+          text: "Automated triage could not classify this finding.",
+          category: "correctness" as const,
+        },
+        {
+          findingId: "F-settled",
+          blocking: false,
+          text: "A confident nit that never blocked.",
+          category: "correctness" as const,
+        },
+      ],
+    },
+    settledTriage: ReviewFindingTriageV1 = {
+      schema: "review-finding-triage/v1",
+      reviewId: escalated.reviewId,
+      findingId: "F-settled",
+      targetDigest,
+      selected: "nit",
+      probabilities: { blocker: 0, non_blocking: 0.01, nit: 0.98, pre_existing: 0.005, false_positive: 0.005 },
+      model: "triage-model",
+      bindingDigest: digest,
+      decidedAt: "2026-10-26T00:02:00.000Z",
+    },
+    before = { ...original, reviews: [escalated], consents: [], reviewFindingTriages: [settledTriage] },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: escalated.taskId,
+          executionId: escalated.executionId,
+          reviewId: escalated.reviewId,
+          consentId: "consent-settled-finding-ruling",
+          reviewDigest: reviewDigest(escalated),
+          contentDigest: escalated.contentDigest,
+          findingId: "F-settled",
+          findingDisposition: "nit" as const,
+          rationale: "This finding is a nit; the reviewer already classified it.",
+        },
+      ),
+      eventId: "event-settled-finding-ruling",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    };
+  assert.throws(
+    () =>
+      applyTransition(before, command, {
+        actorBinding: implementer,
+        capability: "execution-consent@v1",
+        capabilityRef: "cap-consent-settled-finding-ruling",
+        reviewFindingTriages: [settledTriage],
+      } satisfies ReviewConsentProof),
+    /escalated findings awaiting disposition: review-execution\/F-escalated -> ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --finding-id 'F-escalated'/u,
+  );
+});
+
 test("an owner ruling of blocker returns the submitted cut to its worker", () => {
   const { snapshot: original } = lifecycleFixture({ complete: false }),
     recorded = original.reviews[0]!,
