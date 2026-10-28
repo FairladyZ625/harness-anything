@@ -41,26 +41,23 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
-test("sweepRunnerTemporaryRoot returns a spent cleanup's message instead of throwing", () => {
-  // The Windows failure this covers: a scanner holds the per-run temp root, the bounded retries
-  // are spent, and the throw used to abort the shard before its queued files ran. The run's verdict
-  // must stay tied to its tests, so the sweep reports the failure to its caller instead.
-  const swept = [];
-  const failure = sweepRunnerTemporaryRoot("/tmp/ha-node-test-spent", (root) => {
-    swept.push(root);
-    throw new Error("temporary directory cleanup failed after 5 attempts (EPERM) at /tmp/ha-node-test-spent");
+test("sweepRunnerTemporaryRoot reports one cleanup failure without throwing", () => {
+  const calls = [];
+  const failure = sweepRunnerTemporaryRoot("/tmp/ha-node-test-held", (root, options) => {
+    calls.push({ root, options });
+    throw Object.assign(new Error("EPERM, Permission denied: /tmp/ha-node-test-held"), { code: "EPERM" });
   });
-  assert.deepEqual(swept, ["/tmp/ha-node-test-spent"]);
+  assert.deepEqual(calls, [{ root: "/tmp/ha-node-test-held", options: { recursive: true, force: true } }]);
   assert.match(failure ?? "", /EPERM/u);
 });
 
 test("sweepRunnerTemporaryRoot returns null after a successful sweep", () => {
-  const swept = [];
+  const calls = [];
   assert.equal(
-    sweepRunnerTemporaryRoot("/tmp/ha-node-test-clean", (root) => swept.push(root)),
+    sweepRunnerTemporaryRoot("/tmp/ha-node-test-clean", (root, options) => calls.push({ root, options })),
     null,
   );
-  assert.deepEqual(swept, ["/tmp/ha-node-test-clean"]);
+  assert.deepEqual(calls, [{ root: "/tmp/ha-node-test-clean", options: { recursive: true, force: true } }]);
 });
 
 test("parseRunnerArgs accepts tier and slow summary options", () => {

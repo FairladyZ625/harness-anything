@@ -292,10 +292,8 @@ for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fil
 // and is exactly what gets lost. Exit naturally so pending writes drain first.
 process.exitCode = exitCode;
 
-// Windows reports EPERM while a just-terminated child or a scanner still holds a path, and an
-// uncaught throw here used to abort the whole shard before its remaining files ran. Retry the
-// bounded way the platform assumption calls for, then warn: a leftover temp directory is not a
-// test failure, so it must not rewrite the run's verdict.
+// A timed-out test can leave a handle in its process tree. Report one failed cleanup attempt without
+// throwing from the completion path, which would hide the test results already collected.
 function sweepTemporaryRoot(root) {
   const failure = sweepRunnerTemporaryRoot(root);
   if (failure !== null) console.error(`[node-test-cleanup] ${failure}`);

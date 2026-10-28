@@ -1,6 +1,5 @@
 import { linkSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, posix, resolve } from "node:path";
-import { removeTemporaryDirectorySync } from "./temporary-directory-cleanup.mjs";
 import { parseToolOptions, runNodeTestsCommand, toolOption, toolValue, toolValues } from "./tool-command-contract.mjs";
 
 export function parseRunnerArgs(args) {
@@ -282,14 +281,12 @@ export function boundedCiSummary(text) {
 }
 
 /**
- * Sweeps one per-run temporary root through the bounded cleanup shared by the gates. Returns the
- * failure message when the retries are spent, or null. A caller that prints the message keeps the
- * run's verdict tied to its tests: on Windows a scanner or a just-terminated child can hold the
- * path, and throwing out of the async completion used to abort every file still queued behind it.
+ * Removes one per-run temporary root once. Returns a cleanup failure to the caller instead of
+ * throwing out of the completion path and losing every file result queued behind it.
  */
-export function sweepRunnerTemporaryRoot(root, remove = removeTemporaryDirectorySync) {
+export function sweepRunnerTemporaryRoot(root, remove = rmSync) {
   try {
-    remove(root);
+    remove(root, { recursive: true, force: true });
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);

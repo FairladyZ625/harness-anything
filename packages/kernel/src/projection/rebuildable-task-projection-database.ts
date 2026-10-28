@@ -70,6 +70,10 @@ export class ProjectionEventStreamIncompleteError extends Error {
 }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
+// A reader may be closed while another reader is synchronously using the shared connection. Defer
+// the path-wide close until that outer transaction returns, while still making teardown eager once
+// no session can be using the handle.
+const pendingProjectionCloses = new Set<string>();
 const projectionBusyTimeoutMs = 250;
 let queryOnlySession: {
   readonly projectionPath: string;
@@ -128,6 +132,10 @@ export function closeQueryOnlyProjectionConnection(projectionPath: string): void
 // name and the open handles keep working -- and EPERM on Windows, so a discard has to close every
 // handle on the path rather than only the caller's. Each owner reopens on its next use.
 function closeProjectionHandlesAt(resolvedProjectionPath: string): void {
+  if (queryOnlySession?.projectionPath === resolvedProjectionPath) {
+    pendingProjectionCloses.add(resolvedProjectionPath);
+    return;
+  }
   const closers = projectionClosers.get(resolvedProjectionPath);
   if (closers === undefined) return;
   for (const close of [...closers]) close();
@@ -224,6 +232,7 @@ export function withQueryOnlyDatabaseSession<A>(
     throw error;
   } finally {
     queryOnlySession = null;
+    if (pendingProjectionCloses.delete(resolvedProjectionPath)) closeProjectionHandlesAt(resolvedProjectionPath);
   }
 }
 export function discardDatabase(
