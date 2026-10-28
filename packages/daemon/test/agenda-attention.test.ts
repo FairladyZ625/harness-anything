@@ -90,3 +90,19 @@ test("an awaiting-ruling ask outranks every other waiting kind and never reads a
   assert.equal(ruling.reasons[0]?.contribution, 96);
   assert.ok(ruling.score > blocked.score, `${ruling.score} must outrank ${blocked.score}`);
 });
+
+test("a guard escalation is a CEO handling item, below a real owner ruling", () => {
+  const scoreOf = (kind: "ruling" | "needs-handling") =>
+    attentionScore({
+      kind,
+      since: "2026-09-29T11:00:00.000Z",
+      now: "2026-09-29T12:00:00.000Z",
+      risk: "low",
+      downstreamBlocked: 0,
+      pinned: false,
+    });
+  const handling = scoreOf("needs-handling"),
+    ruling = scoreOf("ruling");
+  assert.deepEqual(handling.reasons[0], { label: "需要 CEO 处理", contribution: 80 });
+  assert.ok(handling.score < ruling.score, `${handling.score} must stay below the ruling ${ruling.score}`);
+});

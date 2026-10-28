@@ -46,6 +46,8 @@ export const ATTENTION_META: Readonly<
   "unsubmitted-delivery": { tone: "bad", rank: 2 },
   // 无人值守派工停下等裁决:和 awaiting-you 同为「球在你手里」,用同一档橙(不是待评审的琥珀)。
   ruling: { tone: "bad", rank: 1 },
+  // 守卫拒绝的升级:要 CEO 处理,但不是提问,同样顶置。
+  "needs-handling": { tone: "bad", rank: 1 },
 };
 
 /** 注意力行接回源行:行上的动作(答复/裁决/跳转)需要源读面的完整行。 */
@@ -119,7 +121,7 @@ export function attentionEntries(
  * (dec_E369B861 CH3),都住「跟进与返工」。已答复跟进(answered)与阻塞/停滞
  * (blocked/stalled)同样不冒充需要用户。
  */
-export type DecisionKind = "awaiting-you" | "decision" | "ruling";
+export type DecisionKind = "awaiting-you" | "decision" | "ruling" | "needs-handling";
 
 export interface DecisionRow {
   /** attentionItem 的 ref(relation/<id> · execution/<id> · decision/<id>)。 */
@@ -142,7 +144,7 @@ export interface DecisionRow {
 }
 
 export const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind =>
-  kind === "awaiting-you" || kind === "decision" || kind === "ruling";
+  kind === "awaiting-you" || kind === "decision" || kind === "ruling" || kind === "needs-handling";
 
 export function decisionRows(agenda: AgendaSuccess | undefined): readonly DecisionRow[] {
   if (agenda === undefined) return [];

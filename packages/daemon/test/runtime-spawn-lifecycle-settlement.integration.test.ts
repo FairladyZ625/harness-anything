@@ -1372,6 +1372,7 @@ test("a real dispatch that stops for an owner ruling settles awaiting_ruling and
       for (const option of options) assert.match(settled.result?.text ?? "", new RegExp(option, "u"));
       const agenda = await cell.read("repo.agenda.read", { limit: 50 }),
         rulingRow = (agenda.awaitingRuling ?? []).find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
+      assert.equal(rulingRow?.attention, "question");
       assert.equal(rulingRow?.question, question, JSON.stringify(agenda.awaitingRuling));
       assert.deepEqual(rulingRow?.options, options);
       assert.equal(rulingRow?.executionId, row?.executionId);
@@ -1383,7 +1384,7 @@ test("a real dispatch that stops for an owner ruling settles awaiting_ruling and
         true,
         JSON.stringify(agenda.attentionItems),
       );
-      assert.match(agenda.summary, /等你裁决 \(1\)/u);
+      assert.match(agenda.summary, /待你处理 \(1\)/u);
       assert.match(agenda.summary, new RegExp(question, "u"));
       const published = readFileSync(
         path.join(root, "harness", packagePath, "artifacts", "rulings", `${String(receipt.dispatchId)}.md`),

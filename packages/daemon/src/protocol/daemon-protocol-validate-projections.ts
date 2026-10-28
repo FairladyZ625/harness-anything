@@ -65,19 +65,23 @@ export function agendaExecutionRow(value: unknown): boolean {
 }
 
 export function agendaRulingRow(value: unknown): boolean {
+  const required = [
+    "taskId",
+    "title",
+    "work",
+    "pinned",
+    "dispatchId",
+    "executionId",
+    "attention",
+    "question",
+    "options",
+    "askedAt",
+    "blockingAssessment",
+  ];
   return (
-    exactRecord(value, [
-      "taskId",
-      "title",
-      "work",
-      "pinned",
-      "dispatchId",
-      "executionId",
-      "question",
-      "options",
-      "askedAt",
-      "blockingAssessment",
-    ]) &&
+    recordWith(value, required) &&
+    Object.keys(value).every((field) => required.includes(field) || field === "rulingPath") &&
+    ["question", "guard"].includes(String(value.attention)) &&
     [value.taskId, value.title, value.dispatchId, value.executionId, value.question, value.askedAt].every(nonEmpty) &&
     agendaWorkRef(value.work) &&
     typeof value.pinned === "boolean" &&
@@ -193,6 +197,7 @@ function agendaAttentionItem(value: unknown): boolean {
       "audit-finding",
       "unsubmitted-delivery",
       "ruling",
+      "needs-handling",
     ].includes(String(value.kind)) &&
     ["mine", "stuck"].includes(String(value.region)) &&
     (value.workTaskId === null || nonEmpty(value.workTaskId)) &&

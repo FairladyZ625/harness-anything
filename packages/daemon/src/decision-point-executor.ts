@@ -34,6 +34,7 @@ import {
   incidentActionBinding,
   incidentDecisionFields,
   incidentDispositionQuestionVersion,
+  incidentGuardPlan,
   planIncidentAction,
   type IncidentActionEvidence,
   type IncidentActionPlan,
@@ -71,6 +72,7 @@ export function openDecisionPointExecutor(input: {
   }): Promise<void> => {
     const outcome = await executeIncidentAction({
         cell: args.cell,
+        taskId: args.taskId,
         plan: args.plan,
         binding: incidentActionBinding(input.rootDir, args.dispatchId),
         dispatchId: args.dispatchId,
@@ -85,6 +87,7 @@ export function openDecisionPointExecutor(input: {
         dispatchId: args.dispatchId,
         selected: args.selected,
         action: outcome.action,
+        attention: outcome.attention,
         status: outcome.status,
         reason,
         successorDispatchId: outcome.successorDispatchId,
@@ -100,6 +103,7 @@ export function openDecisionPointExecutor(input: {
       status: outcome.status === "applied" ? "applied" : "failed",
       selected: args.selected,
       action: outcome.action,
+      attention: outcome.attention,
       reason,
       successorDispatchId: outcome.successorDispatchId,
       budget: args.budget,
@@ -250,9 +254,8 @@ export function openDecisionPointExecutor(input: {
             leaseOccupied: snapshot?.lease != null,
             resumable: Boolean(dispatch?.resume),
             agentId: dispatch?.agentId ?? null,
-            budgetRemaining: incident?.fields
-              ? incident.fields.reworkBudget.limit - incident.fields.reworkBudget.used
-              : 0,
+            roundsUsed: incident?.fields?.roundsUsed ?? dispatchRead.dispatches.length,
+            budget: incident?.fields?.reworkBudget ?? { used: 0, limit: 0 },
             // A continuation inherits the worktree; with no measured HEAD there is no known base
             // to continue from, so automatic execution is not admissible.
             headKnown: incident?.fields !== undefined && incident.fields.headStatus !== "unavailable",
@@ -271,16 +274,8 @@ export function openDecisionPointExecutor(input: {
               note,
               budget: recordBudget,
             }),
-          escalate = (guard: string) =>
-            apply(
-              "needs_attention",
-              {
-                action: "needs_attention",
-                guard,
-                rationale: `question: Decisions API could not safely select an incident action for dispatch ${dispatchId}: ${guard}`,
-              },
-              null,
-            ),
+          escalate = (guard: string, next = `ha task dispatches ${task.taskId}`) =>
+            apply("needs_attention", incidentGuardPlan({ taskId: task.taskId, guard, evidence, next }), null),
           /** The provider is an accelerator, never the only route to a disposition: when it cannot
            * answer, the preference list picks the option and the same gate decides whether it is
            * admissible. The receipt keeps the provider failure in its reason. */
@@ -290,11 +285,7 @@ export function openDecisionPointExecutor(input: {
             if (fallback.kind === "escalate")
               return apply(
                 "needs_attention",
-                {
-                  action: "needs_attention",
-                  guard: fallback.guard,
-                  rationale: `question: ${fallback.guard} ${unavailable}.`,
-                },
+                { ...fallback.plan, rationale: `${fallback.plan.rationale} ${unavailable}.` },
                 null,
               );
             return apply(

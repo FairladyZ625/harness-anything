@@ -1116,6 +1116,7 @@ function isRuntimeAttemptOutcome(
       "provider_quota",
       "worker_stop",
       "awaiting_ruling",
+      "needs_attention",
       "gate_red",
       "completed_without_final_text",
     ].includes(String(value.classification)) &&

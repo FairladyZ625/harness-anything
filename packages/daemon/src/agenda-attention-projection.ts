@@ -117,13 +117,13 @@ export function buildAttentionItems(input: {
       ...input.awaitingDecision.map((row) =>
         add(`decision/${row.decisionId}`, row.title, "decision", "mine", row.proposedAt, undefined, row.riskTier),
       ),
-      // 派工停下等裁决:和「等你答复」一样是球在业主手里,只是问题来自无人值守 worker 的
-      // 裁决产物而不是 awaits 关系边。ref 用 dispatch id,与 dispatch 行同一把键。
+      // 派工停下待业主处理:真提问才是裁决;守卫拒绝的升级只是 CEO 要处理的事,分值也分开。
+      // ref 用 dispatch id,与 dispatch 行同一把键。
       ...input.awaitingRuling.map((row) =>
         add(
           `dispatch/${row.dispatchId}`,
           row.title,
-          "ruling",
+          row.attention === "question" ? "ruling" : "needs-handling",
           "mine",
           row.askedAt,
           taskSource(row.taskId),

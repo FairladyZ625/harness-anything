@@ -974,8 +974,9 @@ export interface AgendaDecisionReviewRow extends AgendaDecisionRow {
   readonly reviewers: readonly Pick<DaemonDecisionReviewDispatchRow, "dispatchId" | "reviewer" | "findingCount">[];
 }
 /**
- * 「等业主裁决」行:无人值守派工停下等答复,球完全在业主手里。问题与选项来自任务包里的
- * 问句与选项来自 worker 的 ruling artifact 或 daemon 的 incident decision receipt。
+ * 「待业主处理」行:无人值守派工的提问,或自动处置被守卫拒绝后的升级。`attention` 区分二者:
+ * question 的答案来自 worker ruling artifact 或 daemon receipt;guard 不是提问,行上的 question
+ * 字段携带可直接执行的处理说明。
  */
 export interface AgendaRulingRow {
   readonly taskId: string;
@@ -984,6 +985,7 @@ export interface AgendaRulingRow {
   readonly pinned: boolean;
   readonly dispatchId: string;
   readonly executionId: string;
+  readonly attention: "question" | "guard";
   readonly question: string;
   readonly options: readonly string[];
   /** Worker-authored rulings have an artifact; daemon incident escalation is carried by the dispatch receipt. */

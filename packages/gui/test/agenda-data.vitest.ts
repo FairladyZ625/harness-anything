@@ -331,6 +331,7 @@ describe("agenda bridge validation", () => {
           pinned: false,
           dispatchId: "dispatch_incident",
           executionId: "execution_incident",
+          attention: "question",
           question: "question: Decisions provider failed with decision_transport.",
           options: [],
           askedAt: AT,

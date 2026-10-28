@@ -24,6 +24,11 @@ export const incidentDispositionOptions = [
 ] as const;
 export type IncidentDispositionOption = (typeof incidentDispositionOptions)[number];
 
+/** What a `needs_attention` disposition actually asks of the owner. A `question` is a worker or
+ * provider asking for a ruling; a `guard` is the daemon refusing every automatic action, which the
+ * owner must handle but must never be shown as a question. */
+export type IncidentAttention = "question" | "guard";
+
 export interface IncidentDecisionFields {
   readonly toolCallCount: number | null;
   readonly headStatus: "unchanged" | "changed" | "unavailable" | "no-previous-run";
@@ -74,23 +79,64 @@ export interface IncidentActionEvidence {
   readonly leaseOccupied: boolean;
   readonly resumable: boolean;
   readonly agentId: string | null;
-  readonly budgetRemaining: number;
+  /** Completed dispatches for this task, the round number the owner-visible reason names. */
+  readonly roundsUsed: number;
+  readonly budget: { readonly used: number; readonly limit: number };
   /** Whether the worktree HEAD is measurably known. A restart inherits the worktree; without a
    * measured HEAD there is no base to continue from, so automatic execution fails closed. */
   readonly headKnown: boolean;
 }
+
+export type IncidentGuardPlan = {
+  readonly action: "needs_attention";
+  readonly attention: "guard";
+  readonly rationale: string;
+  /** Why this option was refused, without the option and dispatch wrapper. */
+  readonly guard: string;
+};
 
 export type IncidentActionPlan =
   | { readonly action: "resume"; readonly payload: JsonObject }
   | { readonly action: "rerun"; readonly payload: JsonObject }
   | {
       readonly action: "needs_attention";
+      readonly attention: IncidentAttention;
       readonly rationale: string;
       /** Why this option was refused, without the option and dispatch wrapper. The provider-less
        * default reads it to name the guard in its own receipt. */
       readonly guard: string;
     }
   | { readonly action: "no_action" };
+
+/** The owner-facing command that re-dispatches this incident under the same worker identity, or
+ * acquires the execution when the source dispatch has no identity to reuse. */
+export function redispatchCommand(taskId: string, agentId: string | null): string {
+  return agentId === null ? `ha task start ${taskId}` : `ha agent run ${agentId} --task ${taskId}`;
+}
+
+/** A guard refusal is a CEO handling item, never a question: the reason names the worker stop, the
+ * exhausted redispatch budget, and the command that moves the incident forward. `next` is explicit:
+ * `undefined` uses the default redispatch command, `null` says this refusal has no safe automatic
+ * successor (a running dispatch or an accepted submission), and a string names the command. */
+export function incidentGuardPlan(input: {
+  readonly taskId: string;
+  readonly guard: string;
+  readonly evidence: Pick<IncidentActionEvidence, "roundsUsed" | "budget" | "agentId">;
+  readonly next?: string | null;
+}): IncidentGuardPlan {
+  const next = input.next === undefined ? redispatchCommand(input.taskId, input.evidence.agentId) : input.next;
+  return {
+    action: "needs_attention",
+    attention: "guard",
+    guard: input.guard,
+    rationale: [
+      `needs_attention: ${input.guard}`,
+      `Worker stopped without a submitted delivery on round ${String(input.evidence.roundsUsed)};`,
+      `automatic redispatch budget ${String(input.evidence.budget.used)}/${String(input.evidence.budget.limit)} used.`,
+      ...(next === null ? [] : [`Next: ${next}`]),
+    ].join(" "),
+  };
+}
 
 /** The daemon-side eligibility gate: the provider only chooses; admissibility is decided here and
  * every doubt escalates instead of launching (fail-closed, never a silent rerun). */
@@ -100,28 +146,33 @@ export function planIncidentAction(input: {
   readonly dispatchId: string;
   readonly evidence: IncidentActionEvidence;
 }): IncidentActionPlan {
-  const escalate = (guard: string): IncidentActionPlan => ({
-    action: "needs_attention",
-    guard,
-    rationale: `question: Decisions API could not safely apply "${input.selected}" for dispatch ${input.dispatchId}: ${guard}`,
-  });
+  const escalate = (guard: string, next?: string | null): IncidentActionPlan =>
+    incidentGuardPlan({
+      taskId: input.taskId,
+      guard,
+      evidence: input.evidence,
+      ...(next === undefined ? {} : { next }),
+    });
   if (!(incidentDispositionOptions as readonly string[]).includes(input.selected))
     return escalate("the selected option id is not declared by the incident disposition contract.");
-  const automaticGuards = (): string | null =>
+  const automaticGuards = (): { readonly guard: string; readonly next?: string | null } | null =>
     input.evidence.submitted
-      ? "the task already has an accepted submission."
+      ? { guard: "the task already has an accepted submission.", next: null }
       : input.evidence.successorActive
-        ? "another dispatch for this task is already running."
+        ? { guard: "another dispatch for this task is already running.", next: null }
         : input.evidence.leaseOccupied
-          ? "the task lease is occupied."
-          : input.evidence.budgetRemaining <= 0
-            ? "the automatic disposition budget is exhausted."
+          ? { guard: "the task lease is occupied.", next: null }
+          : input.evidence.budget.used >= input.evidence.budget.limit
+            ? { guard: "the automatic disposition budget is exhausted." }
             : !input.evidence.headKnown
-              ? "the worktree HEAD is unknown, so no automatic restart has a known base."
+              ? {
+                  guard: "the worktree HEAD is unknown, so no automatic restart has a known base.",
+                  next: `ha task start ${input.taskId}`,
+                }
               : null;
   if (input.selected === "needs_attention") {
     const rationale = awaitRationale(input.taskId, input.dispatchId);
-    return { action: "needs_attention", rationale, guard: rationale };
+    return { action: "needs_attention", attention: "question", rationale, guard: rationale };
   }
   if (input.selected === "no_action") {
     if (input.evidence.submitted || input.evidence.successorActive) return { action: "no_action" };
@@ -130,7 +181,7 @@ export function planIncidentAction(input: {
   if (input.selected === "switch_declared_next")
     return escalate("a worker-stop incident is not a provider fault, so the declared fallback ladder stays closed.");
   const guard = automaticGuards();
-  if (guard) return escalate(guard);
+  if (guard) return escalate(guard.guard, guard.next);
   if (input.selected === "resume_original") {
     if (!input.evidence.resumable) return escalate("the source dispatch has no resumable provider session.");
     return { action: "resume", payload: incidentSpawnPayload(input.taskId, input.dispatchId, true, null) };
@@ -157,7 +208,11 @@ export type DefaultIncidentDisposition =
       readonly selected: (typeof defaultDispositionPreference)[number];
       readonly plan: IncidentActionPlan;
     }
-  | { readonly kind: "escalate"; readonly guard: string };
+  | {
+      readonly kind: "escalate";
+      readonly guard: string;
+      readonly plan: Extract<IncidentActionPlan, { readonly action: "needs_attention" }>;
+    };
 
 /** The disposition when the Decisions provider cannot answer: the provider accelerates the choice,
  * it is never the only route to one. Each candidate goes through the same admissibility gate; the
@@ -168,14 +223,18 @@ export function defaultIncidentDisposition(input: {
   readonly dispatchId: string;
   readonly evidence: IncidentActionEvidence;
 }): DefaultIncidentDisposition {
-  let guard = "no declared automatic disposition is admissible.";
+  let refusal: Extract<IncidentActionPlan, { readonly action: "needs_attention" }> = incidentGuardPlan({
+    taskId: input.taskId,
+    guard: "no declared automatic disposition is admissible.",
+    evidence: input.evidence,
+  });
   for (const selected of defaultDispositionPreference) {
     const plan = planIncidentAction({ ...input, selected });
     if (plan.action !== "needs_attention") return { kind: "execute", selected, plan };
-    guard = plan.guard;
+    refusal = plan;
   }
   // Every candidate was refused; the deepest refusal (rerun needs the most) names the real guard.
-  return { kind: "escalate", guard };
+  return { kind: "escalate", guard: refusal.guard, plan: refusal };
 }
 
 function incidentSpawnPayload(
@@ -206,16 +265,18 @@ export function incidentActionBinding(rootDir: string, dispatchId: string): Repo
 
 export interface IncidentActionOutcome {
   readonly action: DecisionActionRecord["action"];
+  readonly attention: IncidentAttention | null;
   readonly status: "applied" | "failed";
   readonly reason: string | null;
   readonly successorDispatchId: string | null;
 }
 
 /** Execute one disposition through the existing single entry point: spawn admission for
- * resume/rerun. Owner escalation is carried by the source dispatch's durable decision receipt and
- * projected into the existing awaiting-ruling agenda group. */
+ * resume/rerun. An owner escalation is carried by the source dispatch's durable decision receipt;
+ * its `attention` value is what keeps a guard refusal out of the ruling queue. */
 export async function executeIncidentAction(input: {
   readonly cell: RepoCell;
+  readonly taskId: string;
   readonly plan: IncidentActionPlan;
   readonly binding: RepoCellBinding | null;
   readonly dispatchId: string;
@@ -223,10 +284,11 @@ export async function executeIncidentAction(input: {
   readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
 }): Promise<IncidentActionOutcome> {
   if (input.plan.action === "no_action")
-    return { action: "no_action", status: "applied", reason: null, successorDispatchId: null };
+    return { action: "no_action", attention: null, status: "applied", reason: null, successorDispatchId: null };
   if (input.plan.action === "needs_attention")
     return {
       action: "needs_attention",
+      attention: input.plan.attention,
       status: "applied",
       reason: input.plan.rationale,
       successorDispatchId: null,
@@ -234,8 +296,9 @@ export async function executeIncidentAction(input: {
   if (!input.binding)
     return {
       action: "needs_attention",
+      attention: "guard",
       status: "applied",
-      reason: `question: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}.`,
+      reason: `needs_attention: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}. Next: ${redispatchCommand(input.taskId, null)}`,
       successorDispatchId: null,
     };
   try {
@@ -243,13 +306,20 @@ export async function executeIncidentAction(input: {
       receipt = await input.cell.spawnRuntime(input.plan.payload, binding),
       successorDispatchId = typeof receipt.dispatchId === "string" ? receipt.dispatchId : null;
     if (!successorDispatchId) throw new Error("the spawn receipt names no successor dispatch.");
-    return { action: input.plan.action, status: "applied", reason: null, successorDispatchId };
+    return {
+      action: input.plan.action,
+      attention: null,
+      status: "applied",
+      reason: null,
+      successorDispatchId,
+    };
   } catch (error) {
     const launchFailure = (error instanceof Error ? error.message : String(error)).slice(0, 512);
     return {
       action: "needs_attention",
+      attention: "guard",
       status: "applied",
-      reason: `launch failed: ${launchFailure}`,
+      reason: `needs_attention: launch failed: ${launchFailure} (automatic ${input.plan.action} for dispatch ${input.dispatchId}). Next: ${redispatchCommand(input.taskId, null)}`,
       successorDispatchId: null,
     };
   }

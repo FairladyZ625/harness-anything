@@ -428,6 +428,7 @@ interface RuntimePayloads {
         | "provider_quota"
         | "worker_stop"
         | "awaiting_ruling"
+        | "needs_attention"
         | "gate_red"
         | "completed_without_final_text";
       readonly reason: string;
@@ -665,6 +666,7 @@ function validateAgentRuntimePayloadFields(
             "provider_quota",
             "worker_stop",
             "awaiting_ruling",
+            "needs_attention",
             "gate_red",
             "completed_without_final_text",
           ].includes(String(value.attempt.classification)) ||

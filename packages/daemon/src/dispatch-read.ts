@@ -465,7 +465,7 @@ function canonicalDispatchRow(
     decisionAction = dispatchStream?.decisionActionRecord
       ? incidentActionFromRecord(dispatchStream.decisionActionRecord)
       : null,
-    ownerRuling =
+    ownerEscalation =
       decisionAction !== null && decisionAction.status !== "claimed" && decisionAction.action === "needs_attention"
         ? decisionAction
         : null,
@@ -504,9 +504,13 @@ function canonicalDispatchRow(
     fallbackReason = dispatchStream?.records.findLast(
       (record) => record.kind === "fallback_state" && typeof record.reason === "string",
     )?.reason,
+    // Only a real question earns the awaiting-ruling classification. A guard refusal is CEO
+    // handling work, so it reads as needs_attention even though the action is the same.
     classification =
-      ownerRuling !== null
-        ? "awaiting_ruling"
+      ownerEscalation !== null
+        ? ownerEscalation.attention === "question"
+          ? "awaiting_ruling"
+          : "needs_attention"
         : (outcomeEvent?.payload.attempt?.classification ??
           (isClassification(archive?.classification) ? archive.classification : null)),
     providerSessionId =
@@ -559,7 +563,7 @@ function canonicalDispatchRow(
     provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
     classification,
     reason:
-      ownerRuling?.reason ??
+      ownerEscalation?.reason ??
       (typeof fallbackReason === "string" ? fallbackReason : null) ??
       outcomeEvent?.payload.attempt?.reason ??
       (typeof archive?.reason === "string" ? archive.reason : null),
@@ -674,6 +678,7 @@ function isClassification(value: unknown): value is NonNullable<TaskDispatchRow[
     value === "provider_quota" ||
     value === "worker_stop" ||
     value === "awaiting_ruling" ||
+    value === "needs_attention" ||
     value === "gate_red" ||
     value === "completed_without_final_text"
   );

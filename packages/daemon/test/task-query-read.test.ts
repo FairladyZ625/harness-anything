@@ -596,6 +596,7 @@ test("agenda projects incident escalation receipts, including a rejected owner w
       pinned: false,
       dispatchId: currentDispatchId,
       executionId,
+      attention: "question",
       question:
         "question: Decisions provider failed with decision_transport; owner await write settled as op_rejected.",
       options: [],
@@ -609,9 +610,92 @@ test("agenda projects incident escalation receipts, including a rejected owner w
       },
     },
   ]);
-  assert.match(result.summary, /等你裁决 \(1\)/u);
+  assert.match(result.summary, /待你处理 \(1\)/u);
   assert.match(result.summary, /Decisions provider failed with decision_transport/u);
   assert.match(result.summary, /owner await write settled as op_rejected/u);
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda labels a guard escalation as needs-handling instead of an owner question", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incident-guard-agenda-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const taskId = "task_incident_guard",
+    executionId = "execution_incident_guard",
+    dispatchId = "dispatch_aa3456789abcdef012345678",
+    reason =
+      "needs_attention: the automatic disposition budget is exhausted. Worker stopped without a submitted delivery on round 4; automatic redispatch budget 3/3 used. Next: ha agent run worker_agent --task task_incident_guard",
+    event = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_dispatch_requested",
+      occurredAt: "2026-10-28T11:00:00.000Z",
+      payload: {
+        taskId,
+        executionId,
+        dispatchId,
+        runtimeSessionId: "runtime_incident_guard",
+        attemptGroupId: dispatchId,
+        attemptIndex: 0,
+        startedAt: "2026-10-28T11:00:00.000Z",
+      },
+    } as never,
+    task = protocolTaskRow(taskId, [], { status: "active" }),
+    taskWithExecution = {
+      ...task,
+      packagePath: `tasks/${taskId}`,
+      snapshot: { ...task.snapshot, executions: [executionRow(executionId, 1, "active", taskId)] },
+    };
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId,
+    executionId,
+    runtimeSessionId: "runtime_incident_guard",
+    instanceId: "instance-codex",
+    startedAt: "2026-10-28T11:00:00.000Z",
+    binding: { actor: { principal: { personId: "person-owner" } }, source: "local" },
+  });
+  appendIncidentActionReceipt(rootDir, dispatchId, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    status: "applied",
+    selected: "needs_attention",
+    action: "needs_attention",
+    attention: "guard",
+    reason,
+    successorDispatchId: null,
+    budget: { used: 3, limit: 3, source: "repository" },
+    decidedAt: "2026-10-28T11:01:00.000Z",
+  });
+  const base = projectionStub({ taskRows: [taskWithExecution] }),
+    projection = {
+      ...base,
+      readDocuments: () => ({ documents: [] }),
+      readRuntimeDispatchesByTaskExecution: () => [{ event }],
+      readRuntimeDispatchByResumeSource: () => null,
+      readRuntimeDispatchesByAttemptGroup: () => [],
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(rootDir),
+      projection,
+      readPinnedEntities: () => [],
+      now: () => new Date("2026-10-28T12:00:00.000Z"),
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.awaitingRuling?.map(({ dispatchId: id, attention, options }) => [id, attention, options]),
+    [[dispatchId, "guard", []]],
+  );
+  const guard = result.attentionItems.find(({ ref }) => ref === `dispatch/${dispatchId}`);
+  assert.equal(guard?.kind, "needs-handling");
+  assert.deepEqual(guard?.attention.reasons[0], { label: "需要 CEO 处理", contribution: 80 });
+  assert.doesNotMatch(result.summary, /等你裁决 \(1\)/u);
+  assert.match(result.summary, /待你处理 \(1\)/u);
+  assert.match(result.summary, /需要处理: needs_attention: the automatic disposition budget is exhausted/u);
+  assert.match(result.summary, /Next: ha agent run worker_agent --task task_incident_guard/u);
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 

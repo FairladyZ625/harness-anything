@@ -1047,6 +1047,7 @@ test("the canonical dispatch row carries the executed incident disposition", asy
     status: "applied",
     selected: "rerun_same_identity",
     action: "rerun",
+    attention: null,
     reason: null,
     successorDispatchId: "dispatch_successor_000000000001",
     budget: { used: 1, limit: 3, source: "repository" },
@@ -1064,6 +1065,7 @@ test("the canonical dispatch row carries the executed incident disposition", asy
     status: "applied",
     selected: "rerun_same_identity",
     action: "rerun",
+    attention: null,
     reason: null,
     successorDispatchId: "dispatch_successor_000000000001",
     budget: { used: 1, limit: 3, source: "repository" },
@@ -1080,7 +1082,7 @@ test("the canonical dispatch row carries the executed incident disposition", asy
   );
 });
 
-test("an incident escalation settles into the existing awaiting-ruling dispatch classification", async (t) => {
+test("an incident question settles into the existing awaiting-ruling dispatch classification", async (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-incident-escalation-"));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   openDispatchStream(rootDir, {
@@ -1098,6 +1100,7 @@ test("an incident escalation settles into the existing awaiting-ruling dispatch 
     status: "applied",
     selected: "needs_attention",
     action: "needs_attention",
+    attention: "question",
     reason: "question: Decisions provider failed with decision_transport.",
     successorDispatchId: null,
     budget: { used: 0, limit: 3, source: "repository" },
@@ -1112,5 +1115,44 @@ test("an incident escalation settles into the existing awaiting-ruling dispatch 
     row = result.dispatches[0]!;
   assert.equal(row.classification, "awaiting_ruling");
   assert.equal(row.reason, "question: Decisions provider failed with decision_transport.");
+  assert.deepEqual(validateDaemonTaskDispatches(result), []);
+});
+
+test("a guard escalation is needs_attention rather than a fabricated awaiting-ruling question", async (t) => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-incident-guard-"));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId,
+    executionId: "execution-1",
+    runtimeSessionId,
+    instanceId: "instance-1",
+    startedAt: "2026-08-23T00:00:00.000Z",
+    binding: { actor: { principal: { personId: "person_owner_1" } }, source: "local" },
+  });
+  const reason =
+    "needs_attention: the automatic disposition budget is exhausted. Worker stopped without a submitted delivery on round 4; automatic redispatch budget 3/3 used. Next: ha agent run worker_agent --task task-1";
+  appendIncidentActionReceipt(rootDir, dispatchId, {
+    pointId: "runtime-incident-worker-stop",
+    questionVersion: "runtime-incident-disposition/v1",
+    status: "applied",
+    selected: "needs_attention",
+    action: "needs_attention",
+    attention: "guard",
+    reason,
+    successorDispatchId: null,
+    budget: { used: 3, limit: 3, source: "repository" },
+    decidedAt: "2026-10-19T00:00:01.000Z",
+  });
+
+  const result = readTaskDispatches({
+      projection: fixture(session("exited", "stopped")).projection,
+      taskId,
+      rootDir,
+    }),
+    row = result.dispatches[0]!;
+  assert.equal(row.classification, "needs_attention");
+  assert.notEqual(row.classification, "awaiting_ruling");
+  assert.equal(row.reason, reason);
   assert.deepEqual(validateDaemonTaskDispatches(result), []);
 });

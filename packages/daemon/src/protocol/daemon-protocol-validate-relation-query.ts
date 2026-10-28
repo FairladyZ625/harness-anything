@@ -270,6 +270,7 @@ function validTaskDispatchAttemptValues(value: Record<string, unknown>): boolean
         "provider_quota",
         "worker_stop",
         "awaiting_ruling",
+        "needs_attention",
         "gate_red",
         "completed_without_final_text",
       ].includes(String(value.classification))) &&
@@ -398,6 +399,7 @@ function validTaskDispatchDecisionAction(value: unknown): boolean {
   return (
     dispatchText(value.selected) &&
     ["resume", "rerun", "needs_attention", "no_action"].includes(String(value.action)) &&
+    (value.attention === null || value.attention === "question" || value.attention === "guard") &&
     [value.reason, value.successorDispatchId].every((field) => field === null || typeof field === "string") &&
     (value.budget === null ||
       (isJsonObject(value.budget) &&

@@ -6,6 +6,7 @@ export type DispatchExitClassification =
   | "worker_stop"
   /** The worker stopped to await an owner ruling; the question rides the ruling artifact. */
   | "awaiting_ruling"
+  | "needs_attention"
   | "gate_red"
   | "completed_without_final_text";
 

@@ -622,6 +622,7 @@ export function makeTaskQueryReadModel(input: {
                 pinned: row.snapshot.task?.pinned ?? false,
                 dispatchId,
                 executionId: dispatch.payload.executionId,
+                attention: "question",
                 question: ruling.question,
                 options: ruling.options,
                 rulingPath: ruling.path,
@@ -648,6 +649,7 @@ export function makeTaskQueryReadModel(input: {
                 receipt === null ||
                 receipt.status === "claimed" ||
                 receipt.action !== "needs_attention" ||
+                receipt.attention === null ||
                 receipt.reason === null ||
                 !dispatch.payload.executionId ||
                 isResumed(dispatch)
@@ -660,6 +662,7 @@ export function makeTaskQueryReadModel(input: {
                 pinned: row.snapshot.task?.pinned ?? false,
                 dispatchId,
                 executionId: dispatch.payload.executionId,
+                attention: receipt.attention,
                 question: receipt.reason,
                 options: [],
                 askedAt: receipt.decidedAt,

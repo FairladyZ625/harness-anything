@@ -98,15 +98,18 @@ export function renderAgendaSummary(
       `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
     rulingLine = (row: AgendaRulingRow) =>
-      `- dispatch ${row.dispatchId} / ${row.taskId} ${row.title} — ${row.question}` +
-      (row.options.length
-        ? `\n  选项: ${row.options.map((option, index) => `${String(index + 1)}. ${option}`).join("；")}`
-        : "") +
-      // 有选项的是 worker ruling，答复走续跑；无选项的是事故回执，人工裁决也可显式关闭。
-      (row.options.length
-        ? `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"`
-        : `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"` +
-          `；或关闭: ha runtime incident-dismiss ${row.dispatchId} --reason "<理由>"`),
+      // 守卫升级不是提问:没有可答复的选项,处理命令已由 daemon 写进 reason。
+      row.attention === "guard"
+        ? `- dispatch ${row.dispatchId} / ${row.taskId} ${row.title} — 需要处理: ${row.question}`
+        : `- dispatch ${row.dispatchId} / ${row.taskId} ${row.title} — ${row.question}` +
+          (row.options.length
+            ? `\n  选项: ${row.options.map((option, index) => `${String(index + 1)}. ${option}`).join("；")}`
+            : "") +
+          // 有选项的是 worker ruling，答复走续跑；无选项的是事故回执，人工裁决也可显式关闭。
+          (row.options.length
+            ? `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"`
+            : `\n  下一步: ha agent run <agent-id> --resume-dispatch ${row.dispatchId} --prompt "<答复>"` +
+              `；或关闭: ha runtime incident-dismiss ${row.dispatchId} --reason "<理由>"`),
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
       `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
@@ -153,8 +156,8 @@ export function renderAgendaSummary(
       groups.awaitingDecision.map(decisionLine),
     ),
     section(
-      "等你裁决",
-      "无人值守派工的 worker ruling 或事故升级；答复后续派同一会话",
+      "待你处理",
+      "无人值守派工的提问需要裁决；守卫升级不是提问，按 reason 里的 Next 命令重派或换身份",
       (groups.awaitingRuling ?? []).map(rulingLine),
     ),
     section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),
