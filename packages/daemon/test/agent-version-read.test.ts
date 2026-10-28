@@ -6,9 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import {
   compileAgentRetired,
+  createEntityStore,
   makeTaskEventStore,
   makeTaskProjection,
-  openEntityStore,
   sha256Text,
 } from "@harness-anything/kernel";
 import { prepareAgentEntityInstall } from "../src/agent-entities.ts";
@@ -59,11 +59,10 @@ function fixture(bodies: readonly Record<string, unknown>[]): Fixture {
     const prepared = prepareAgentEntityInstall({
         rootDir,
         action: { kind: "agent-install", declaration: body },
-        entityStore: openEntityStore(rootDir),
       }),
       revision = (store.readHead()?.revision ?? 0) + 1;
     store.append(
-      openEntityStore(rootDir).upsert({
+      createEntityStore(store).upsert({
         entityKind: "agent",
         entity: prepared.declaration,
         eventId: `event-${index}`,

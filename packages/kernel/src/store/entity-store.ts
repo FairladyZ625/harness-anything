@@ -184,11 +184,6 @@ export function openEntityStoreWithClose(rootInput: HarnessLayoutInput): OpenedE
   };
 }
 
-/** Convenience for a store whose handle outlives the call, e.g. one kept for the process lifetime. */
-export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
-  return openEntityStoreWithClose(rootInput).store;
-}
-
 function entityEventRecord(
   event: StoredEntityEventV1,
   source: EntityEventSource,

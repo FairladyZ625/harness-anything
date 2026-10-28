@@ -5,7 +5,7 @@ import {
   activateEmptyCanonicalGeneration,
   createEntityStore,
   makeTaskEventStore,
-  openEntityStore,
+  openEntityStoreWithClose,
   openSqliteEventStore,
   requireEntityStoreKindContract,
   sha256Text,
@@ -60,26 +60,32 @@ export function run(input: TestEntityAction): unknown {
   const action = entityAction(input);
   if (input.kind.endsWith("-validate"))
     return validateAgentEntityAction({ rootDir: input.rootDir, runtimeInstances: input.runtimeInstances, action });
-  const entityStore = openEntityStore(input.rootDir);
-  if (input.kind === "agent-list")
+  // The listing handle is a real read-only SQLite connection: close it before returning, or the
+  // caller's own repository teardown stays EPERM on Windows.
+  const opened = openEntityStoreWithClose(input.rootDir);
+  try {
+    if (input.kind === "agent-list")
+      return {
+        schema: "agent-list/v1",
+        agents: opened.store.list("agent").map(({ value }) => catalogRow(value, "instructions")),
+      };
+    if (input.kind === "squad-list")
+      return {
+        schema: "squad-list/v1",
+        squads: opened.store.list("squad").map(({ value }) => catalogRow(value, "roster")),
+      };
+    if (input.kind === "agent-inspect")
+      return {
+        schema: "agent-inspection/v1",
+        agent: readAgentDeclaration({ rootDir: input.rootDir, agentId: input.agentId! }),
+      };
     return {
-      schema: "agent-list/v1",
-      agents: entityStore.list("agent").map(({ value }) => catalogRow(value, "instructions")),
+      schema: "squad-inspection/v1",
+      squad: readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId! }),
     };
-  if (input.kind === "squad-list")
-    return {
-      schema: "squad-list/v1",
-      squads: entityStore.list("squad").map(({ value }) => catalogRow(value, "roster")),
-    };
-  if (input.kind === "agent-inspect")
-    return {
-      schema: "agent-inspection/v1",
-      agent: readAgentDeclaration({ rootDir: input.rootDir, agentId: input.agentId! }),
-    };
-  return {
-    schema: "squad-inspection/v1",
-    squad: readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId! }),
-  };
+  } finally {
+    opened.close();
+  }
 }
 
 function catalogRow(value: unknown, omitted: "instructions" | "roster"): object {

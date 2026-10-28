@@ -13,7 +13,7 @@ import {
   makeTaskEventReader,
   openSqliteEventStore,
   sha256Bytes,
-  openEntityStore,
+  openEntityStoreWithClose,
 } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -469,8 +469,13 @@ test("Agent retire publishes lifecycle state, is idempotent by operation, and bl
       const event = eventStore.event(retired.opId);
       assert.equal(event?.type, "agent_retired");
       if (event?.type === "agent_retired") assert.equal(event.payload.successor, "replacement-agent");
-      const stored = openEntityStore(rootDir).get("agent", declaration.id);
-      assert.equal((stored?.value as { lifecycleState: string }).lifecycleState, "retired");
+      const opened = openEntityStoreWithClose(rootDir);
+      try {
+        const stored = opened.store.get("agent", declaration.id);
+        assert.equal((stored?.value as { lifecycleState: string }).lifecycleState, "retired");
+      } finally {
+        opened.close();
+      }
     } finally {
       eventStore.close();
     }

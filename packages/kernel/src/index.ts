@@ -288,7 +288,6 @@ export {
   createEntityStore,
   ledgerGitPath,
   makeTaskEventReader,
-  openEntityStore,
   openEntityStoreWithClose,
   resolveLedgerGitLayout,
   eventShapeMigrations,

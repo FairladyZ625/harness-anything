@@ -106,7 +106,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput) {
   if (!branch) throw new Error(`canonicalRoot must have an attached default Git branch: ${ledger.rootDir}`);
   return writeDaemonRegistryRepo({ ...input, canonicalRoot, authoredBranch: branch });
 }
-export { createEntityStore, openEntityStore, openEntityStoreWithClose } from "../store/entity-store.ts";
+export { createEntityStore, openEntityStoreWithClose } from "../store/entity-store.ts";
 export type { OpenedEntityStore } from "../store/entity-store.ts";
 export type { EntityStore } from "../store/entity-store.ts";
 
