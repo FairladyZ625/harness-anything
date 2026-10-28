@@ -44,15 +44,27 @@ export function initialFallbackAttempt(
   health?: Parameters<typeof resolveRuntimeInstanceCandidates>[0]["health"],
   now?: string,
 ): RuntimeFallbackAttempt | undefined {
-  if (providerSessionId) return undefined;
-  const pin = requestedInstance ?? agent?.instance;
-  // The candidate list is computed only when no instance was explicitly requested: it is both the
-  // anchor source and the availability check a declared pin would otherwise bypass — a declaration
-  // whose model or kind no enabled instance can serve fails with agent_model_unavailable here. An
-  // explicit request skips it: the operator's pick is validated against the anchor below and by
-  // prepareLaunch, and may name an instance the machine store does not list.
+  // A resumed dispatch inherits its provider session's instance, and its fallback continuation is a
+  // fresh session, never a resume: the chain still belongs to this dispatch. Anchoring it at the
+  // resumed instance keeps the provider that just failed as attempt 0 and lets later attempts switch
+  // providers like a fresh dispatch. Without this a resumed dispatch had no chain at all, so the same
+  // provider fault that switched providers on a fresh dispatch ended the resumed one outright.
+  // A resumed session the projection does not carry cannot anchor that chain — a guessed anchor would
+  // record attempt 0 under a provider that never ran — so it keeps the pre-existing no-chain behavior.
+  const resumedInstanceId = providerSessionId
+    ? sessions.find((session) => session.providerSessionId === providerSessionId)?.instanceId
+    : undefined;
+  if (providerSessionId && resumedInstanceId === undefined) return undefined;
+  // A declared instance preference does not re-route an already-admitted session — resume admission
+  // accepted that provider and the launch resumes it — but it still anchors fresh dispatches.
+  const pin = resumedInstanceId === undefined ? (requestedInstance ?? agent?.instance) : undefined,
+    anchorId = resumedInstanceId ?? requestedInstance ?? agent?.instance;
+  // The candidate list is computed only when nothing anchored the chain: it is both the anchor source
+  // and the availability check an anchor would otherwise bypass — a declaration whose model or kind no
+  // enabled instance can serve fails with agent_model_unavailable here. An explicit or resumed anchor
+  // skips it: that provider is validated below and by prepareLaunch / resume admission.
   const candidatesForAnchor =
-      requestedInstance === undefined
+      anchorId === undefined
         ? resolveRuntimeInstanceCandidates({
             requested: undefined,
             agent,
@@ -64,8 +76,7 @@ export function initialFallbackAttempt(
             now,
           })
         : undefined,
-    anchorId = pin ?? candidatesForAnchor?.[0],
-    anchor = instances.find((instance) => instance.instanceId === anchorId);
+    anchor = instances.find((instance) => instance.instanceId === (anchorId ?? candidatesForAnchor?.[0]));
   // Each candidate kind resolves its own model: --model override > the runtimes row for
   // that kind > the instance default, so a cross-kind fallback still launches a valid model.
   // A bare dispatch (no Agent declaration) instead pins the anchor's model for the whole
@@ -83,6 +94,9 @@ export function initialFallbackAttempt(
       (agent !== null && !agentRuntimeKindMatches(agent.runtimes, anchor.kindId)))
   )
     return undefined;
+  // A resumed provider may sit outside the availability filter (resume admission admitted it, and the
+  // launch resumes it whether or not it is enabled or cooling down now), so it leads the chain and is
+  // not repeated among the instances this dispatch would fall back to.
   const derivedInstances = resolveRuntimeInstanceCandidates({
       requested: undefined,
       agent,
@@ -93,13 +107,15 @@ export function initialFallbackAttempt(
       sessions,
       health,
       now,
-    }),
+    }).filter((instanceId) => instanceId !== resumedInstanceId),
     requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
-    candidates = derivedInstances.slice(requestedIndex).map((instanceId) => ({
+    candidates = [
+      ...(resumedInstanceId === undefined ? [] : [resumedInstanceId]),
+      ...derivedInstances.slice(requestedIndex),
+    ].map((instanceId) => ({
       instance: instanceId,
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
     }));
-  if (requestedIndex < 0) return undefined;
   // A single-candidate group is legitimate (owner ruling 2026-10-21 14:35, T4): with no
   // successor row to switch to, its rounds retry the same instance and stay bounded by
   // providerMaxRetries, so the first provider failure is not the dispatch's last word.

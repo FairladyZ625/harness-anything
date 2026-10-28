@@ -475,3 +475,53 @@ test("Retry-After seconds and dates decode once at observation time; absolute re
     "2026-10-11T05:00:00.000Z",
   );
 });
+
+// The DeepSeek Harness Messages adapter reports a broken SSE stream as `MALFORMED_RESPONSE` or
+// `STREAM_CLOSED` over ACP; none of those turns produced an answer to judge, so all of them are the
+// provider's fault and must switch providers rather than fail the dispatch. The diagnostics below are
+// the adapter's own catalogue as measured from the installed 0.2.1-rc.2 bundle. A well-formed body it
+// still refused stays a task failure: those are not transport faults.
+test("every Messages stream-integrity diagnostic retries while well-formed refusals stay task failures", () => {
+  const retryable = [
+    "DeepSeek Messages SSE event type mismatch",
+    "DeepSeek Messages SSE contains invalid JSON",
+    "DeepSeek Messages stream: tool input is invalid JSON",
+    "DeepSeek Messages stream: unsupported delta text_delta for tool-call",
+    "DeepSeek Messages stream: delta/stop without an open block",
+    "DeepSeek Messages stream: message_stop without settled blocks and stop reason",
+    "DeepSeek Messages stream idle timeout",
+    "DeepSeek Messages transport failed",
+    "DeepSeek Messages stream ended before message_stop",
+  ];
+  const taskFailures = [
+    "DeepSeek Messages expected a JSON object",
+    "DeepSeek Messages expected a string field",
+    "DeepSeek Messages returned no content",
+    "DeepSeek Messages returned no response body",
+    "DeepSeek Messages request aborted",
+    "DeepSeek Messages request failed (404)",
+  ];
+  for (const diagnostic of retryable) {
+    const text = `Internal error: turn failed: ${diagnostic}`,
+      providerFault = providerFaultFromStderr("deepseek-harness", text),
+      result = classifyRuntimeExit(
+        active({ kindId: "deepseek-harness", providerOutcome: "failed", failureText: text, providerFault }),
+        1,
+      );
+    assert.equal(providerFault?.code, "server_error", diagnostic);
+    assert.equal(result.classification, "provider_fault", diagnostic);
+  }
+  for (const diagnostic of taskFailures) {
+    const text = `Internal error: turn failed: ${diagnostic}`,
+      result = classifyRuntimeExit(
+        active({
+          kindId: "deepseek-harness",
+          providerOutcome: "failed",
+          failureText: text,
+          providerFault: providerFaultFromStderr("deepseek-harness", text),
+        }),
+        1,
+      );
+    assert.equal(result.classification, "gate_red", diagnostic);
+  }
+});
