@@ -594,14 +594,28 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
   const authProbes = useQueries({
     queries: listedInstances.map((instance) => {
       const needsProbe = instance.authReadiness.code === "runtime_auth_not_checked";
+      // A probe may execute the provider CLI, so its cache key carries only the fields that decide
+      // the authentication answer: which binary is bound, how it authenticates, which state root it
+      // reads, and the daemon's own readiness verdict. The catalog's read timestamp is not one of
+      // them: a reread caused by enabling/disabling the instance (or any other config-only write)
+      // must reuse the answer instead of paying for another probe.
+      const authFingerprint = [
+        instance.installationId,
+        instance.authMode,
+        instance.isolationState,
+        instance.authReadiness.status,
+        instance.authReadiness.code ?? "",
+      ].join("\u0000");
       return {
-        queryKey: ["runtime-instance-auth", repoId, instance.instanceId, machine.dataUpdatedAt],
+        queryKey: ["runtime-instance-auth", repoId, instance.instanceId, authFingerprint],
         queryFn: () => runtimeInstanceClient.probe(instance.instanceId, repoId),
         // Provider auth commands may invoke the provider executable. Probe the visible carrier;
         // probing every catalog row at once created a second daemon request storm on cold entry.
         enabled: needsProbe && instance.instanceId === autoProbeInstanceId,
         retry: false,
-        staleTime: 2_000,
+        // A not-checked verdict is not a reusable answer: when the key returns to it (for example
+        // after a daemon generation reset), the next mount probes again.
+        staleTime: needsProbe ? 0 : 2_000,
         ...(needsProbe ? {} : { initialData: instance }),
       };
     }),

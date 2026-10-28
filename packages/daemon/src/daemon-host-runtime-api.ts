@@ -566,14 +566,19 @@ export function createDaemonHostRuntimeApi(
         evaluatedAtCut: "runtime-instances:current",
         now: context.now(),
       });
-      // Only an explicit probe, a write that binds an installation id, or the very first catalog
-      // read on a machine that has never recorded an installation needs this machine's provider
-      // CLIs executed. Every later list reads the node's recorded observations: re-witnessing on
-      // each read is what turned a ~2 ms registry read into ~2 s.
+      // Only an explicit probe, a write that binds an installation id, the very first catalog
+      // read on a machine that has never recorded an installation, or the first update on such a
+      // machine (legacy installation-identity migration needs the witness) requires this machine's
+      // provider CLIs executed. Every later list reads the node's recorded observations:
+      // re-witnessing on each read is what turned a ~2 ms registry read into ~2 s. An update that
+      // does not bind an installation (enable/disable, rename, permission, base URL, credential)
+      // never reads the witness snapshot, so re-running every provider CLI there only delayed the
+      // receipt.
       const needsInstallationWitness =
         payload.probe === true ||
         actionKind === "runtime-instance-create" ||
-        actionKind === "runtime-instance-update" ||
+        (actionKind === "runtime-instance-update" &&
+          (payload.installationId !== undefined || context.instances.recordedInstallations() === null)) ||
         (actionKind === "runtime-instance-list" && context.instances.recordedInstallations() === null);
       if (needsInstallationWitness) await context.instances.refreshInstallations();
       const receipt = (await context.instances.command({
