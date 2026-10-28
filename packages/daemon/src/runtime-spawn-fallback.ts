@@ -109,9 +109,14 @@ export function initialFallbackAttempt(
       now,
     }).filter((instanceId) => instanceId !== resumedInstanceId),
     requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
+    // A pin the availability filter removed (a cooling instance, or one outside the allowlist) is
+    // still attempt 0 — prepareRuntimeInstance validates the hard pin itself — so it must lead the
+    // chain. `slice(-1)` would have recorded the last row as candidates[0] and lost the pin.
+    successors = requestedIndex < 0 ? derivedInstances : derivedInstances.slice(requestedIndex),
     candidates = [
+      ...(pin !== undefined && requestedIndex < 0 ? [pin] : []),
       ...(resumedInstanceId === undefined ? [] : [resumedInstanceId]),
-      ...derivedInstances.slice(requestedIndex),
+      ...successors,
     ].map((instanceId) => ({
       instance: instanceId,
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),

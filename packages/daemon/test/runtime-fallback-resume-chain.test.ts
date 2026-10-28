@@ -107,3 +107,36 @@ test("a fresh dispatch still derives its chain from the declared order", () => {
     ["ds-bailian", "ds-harness-api"],
   );
 });
+
+test("a cooling pinned instance still leads the chain instead of the last allowlist row", () => {
+  const attempt = initialFallbackAttempt(
+    agent,
+    "ds-bailian",
+    undefined,
+    undefined,
+    "task-review:task_1:exe_1:reviewer",
+    "dispatch_successor",
+    "mission",
+    [instance("ds-bailian"), instance("ds-harness-api")],
+    [],
+    ["ds-bailian", "ds-harness-api"],
+    [
+      {
+        instanceId: "ds-bailian",
+        failureStreak: 1,
+        cooldownUntil: null,
+        frozenUntil: null,
+        frozen: true,
+        reason: "HTTP 429",
+        lastFailureAt: "2026-10-28T00:00:00.000Z",
+        lastResetAt: null,
+      },
+    ],
+  );
+  assert.ok(attempt);
+  assert.deepEqual(
+    attempt.candidates.map(({ instance: instanceId }) => instanceId),
+    ["ds-bailian", "ds-harness-api"],
+    "attempt 0 ran on the pin, so the chain must record it before the first successor",
+  );
+});

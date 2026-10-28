@@ -5,6 +5,7 @@ import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import {
   agentRuntimeModelMatches,
+  agentRuntimeTargetForKind,
   agentRuntimeTargetSummary,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
@@ -175,10 +176,25 @@ export function resolveRuntimeInstanceCandidates(input: {
       return [session.instanceId];
     }
   }
+  // A declaration's `instance` pin names the instance the dispatch wants, but it is not a launchable
+  // route on its own: when that instance is disabled or no longer declares the model the dispatch
+  // will ask for, the resolver must report the declaration-level cause (missing kind/model) instead
+  // of letting the instance store throw its lower-level disabled/model error. An explicit request
+  // from the operator keeps the hard pin and its precise error.
+  let unusableDeclaredPin: string | undefined;
   if (input.requested) {
     assertAllowed(input.requested);
     assertDeclarationServes(input.requested);
-    return [input.requested];
+    const pinned = input.instances.find((row) => row.instanceId === input.requested),
+      pinnedModel =
+        input.model ??
+        (pinned === undefined
+          ? undefined
+          : agentRuntimeTargetForKind(input.agent?.runtimes ?? [], pinned.kindId)?.model),
+      served =
+        pinned?.enabled === true && (pinnedModel === undefined || agentRuntimeModelMatches(pinned.models, pinnedModel));
+    if (input.agent?.instance !== input.requested || served) return [input.requested];
+    unusableDeclaredPin = input.requested;
   }
   // input.model is the dispatch-level override (--model); the per-kind declared model lives
   // on the matching runtimes row and applies only when no override was given.
@@ -191,7 +207,13 @@ export function resolveRuntimeInstanceCandidates(input: {
       "This repository has no runtime instance allowlist. Run ha init or enable an instance in repository settings before dispatching.",
     );
   const unavailable = input.unavailableReasons ?? [],
-    instances = input.instances.filter((instance) => allowed.includes(instance.instanceId));
+    allowedInstances = input.instances.filter((instance) => allowed.includes(instance.instanceId)),
+    // An unusable declaration pin is not a machine instance the declaration can use; excluding it
+    // from the candidate set makes the report below name the missing runtime kind or model instead
+    // of repeating that stale instance's disabled/model state. The allowlist emptiness check below
+    // still reads `allowedInstances`, so a repository whose only allowed instance is that pin reports
+    // the declaration-level cause rather than a false "no instance is allowed".
+    instances = allowedInstances.filter((instance) => instance.instanceId !== unusableDeclaredPin);
   for (const instance of input.instances)
     if (!allowed.includes(instance.instanceId))
       unavailable.push(
@@ -245,7 +267,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
-    if (instances.length === 0)
+    if (allowedInstances.length === 0)
       throw runtimeSpawnError(
         "runtime_instance_not_allowed",
         `No runtime instance is allowed for this repository. Allowed instances: ${allowedNames}. ` +

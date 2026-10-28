@@ -392,6 +392,63 @@ for (const code of [
   });
 }
 
+test("a declaration instance pin that cannot serve the override model reports the declaration-level error", () => {
+  const pinned = instance("codex-pinned", "codex", "provider-codex", ["other-model"]),
+    other = instance("codex-other", "codex", "provider-codex", ["other-model"]),
+    declared: RuntimeAgent = { ...agent(), runtimes: [{ type: "codex" }], instance: "codex-pinned" };
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "codex-pinned",
+        agent: declared,
+        model: "missing-model",
+        instances: [pinned, other],
+        sessions: [],
+        allowedInstanceIds: ["codex-pinned", "codex-other"],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code: string }).code === "agent_model_unavailable" &&
+      error.message.includes("No enabled runtime instance declares model missing-model"),
+  );
+});
+
+test("a disabled declaration instance pin reports the declared runtime kind, not the store error", () => {
+  const pinned = { ...instance("agy-pinned", "agy", "provider-agy", ["agy-model"]), enabled: false } as never,
+    other = instance("codex-other", "codex", "provider-codex", ["codex-model"]),
+    declared: RuntimeAgent = { ...agent(), runtimes: [{ type: "agy" }], instance: "agy-pinned" };
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "agy-pinned",
+        agent: declared,
+        instances: [pinned, other],
+        sessions: [],
+        allowedInstanceIds: ["agy-pinned", "codex-other"],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code: string }).code === "agent_runtime_unavailable" &&
+      error.message ===
+        "Agent multi-runtime requires agy, but no enabled instance of those runtime kinds is available on this node. " +
+          "Candidates: agy: runtime_instance_not_found (no local instance)",
+  );
+});
+
+test("an explicit instance request keeps the hard pin when that instance is disabled", () => {
+  const pinned = { ...instance("codex-pinned", "codex", "provider-codex", ["other-model"]), enabled: false } as never;
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      requested: "codex-pinned",
+      agent: agent(),
+      instances: [pinned],
+      sessions: [],
+      allowedInstanceIds: ["codex-pinned"],
+    }),
+    ["codex-pinned"],
+  );
+});
+
 test("unknown explicit instances keep their machine-catalog error instead of a repository rejection", () => {
   assert.throws(
     () =>
