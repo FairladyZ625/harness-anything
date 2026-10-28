@@ -335,11 +335,15 @@ export const runtimeKinds = [
           clean.splice(execIndex + 1, 1);
           clean.splice(clean.lastIndexOf("-") - 1, 1);
         }
-        const mode = codexPermissionMode(clean);
-        if (mode === null) throw new Error("Codex resume arguments carry no declared permission mode.");
-        const freshBlock = codexFreshPermissionArgs[mode],
-          freshIndex = contiguousIndex(clean, freshBlock);
-        if (freshIndex >= 0) clean.splice(freshIndex, freshBlock.length, ...codexResumePermissionArgs[mode]);
+        // Named permission profiles are already valid for exec and exec resume. Adding a
+        // legacy sandbox block here would override the profile's exact callback socket grant.
+        if (!clean.some((token) => token.startsWith("default_permissions="))) {
+          const mode = codexPermissionMode(clean);
+          if (mode === null) throw new Error("Codex resume arguments carry no declared permission mode.");
+          const freshBlock = codexFreshPermissionArgs[mode],
+            freshIndex = contiguousIndex(clean, freshBlock);
+          if (freshIndex >= 0) clean.splice(freshIndex, freshBlock.length, ...codexResumePermissionArgs[mode]);
+        }
         // Fail closed rather than spawn an argv the resume parser is known to reject: a block this
         // transform could not recognise would otherwise turn the dispatch into a `gate_red`.
         if (clean.includes("--sandbox"))

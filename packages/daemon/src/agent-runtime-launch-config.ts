@@ -79,7 +79,10 @@ export function launchArgs(
   return launch.argumentTemplate.flatMap((token) => {
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
-    if (token === "$permission") return permission;
+    // A CLI --sandbox override selects Codex's legacy policy and discards named profiles.
+    // The callback profile replaces that block for both fresh and resumed launches.
+    if (token === "$permission")
+      return config.kindId === "codex" && callbackRelayPath && callbackProfileParent ? [] : permission;
     if (token === "$callback-relay-socket")
       return config.kindId === "codex" && callbackRelayPath && callbackProfileParent
         ? [
@@ -88,7 +91,7 @@ export function launchArgs(
             "--config",
             `permissions.harness-callback-relay.extends=${tomlString(callbackProfileParent)}`,
             ...(permissionMode === "workspace-write"
-              ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}']
+              ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="read",":tmpdir"="read"}']
               : []),
             "--config",
             `permissions.harness-callback-relay.network.unix_sockets={${tomlString(callbackRelayPath)}="allow"}`,
