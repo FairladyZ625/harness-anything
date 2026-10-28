@@ -26,6 +26,7 @@ import {
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
+  sweepRunnerTemporaryRoot,
   validateManifest,
 } from "./node-test-runner-lib.mjs";
 import {
@@ -39,6 +40,28 @@ import {
 } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+
+test("sweepRunnerTemporaryRoot returns a spent cleanup's message instead of throwing", () => {
+  // The Windows failure this covers: a scanner holds the per-run temp root, the bounded retries
+  // are spent, and the throw used to abort the shard before its queued files ran. The run's verdict
+  // must stay tied to its tests, so the sweep reports the failure to its caller instead.
+  const swept = [];
+  const failure = sweepRunnerTemporaryRoot("/tmp/ha-node-test-spent", (root) => {
+    swept.push(root);
+    throw new Error("temporary directory cleanup failed after 5 attempts (EPERM) at /tmp/ha-node-test-spent");
+  });
+  assert.deepEqual(swept, ["/tmp/ha-node-test-spent"]);
+  assert.match(failure ?? "", /EPERM/u);
+});
+
+test("sweepRunnerTemporaryRoot returns null after a successful sweep", () => {
+  const swept = [];
+  assert.equal(
+    sweepRunnerTemporaryRoot("/tmp/ha-node-test-clean", (root) => swept.push(root)),
+    null,
+  );
+  assert.deepEqual(swept, ["/tmp/ha-node-test-clean"]);
+});
 
 test("parseRunnerArgs accepts tier and slow summary options", () => {
   assert.deepEqual(parseRunnerArgs(["--tier", "fast", "--slow-threshold-ms", "250", "--slow-limit=3"], testTierNames), {

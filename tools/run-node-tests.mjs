@@ -16,10 +16,10 @@ import {
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
+  sweepRunnerTemporaryRoot,
   testChildEnvironment,
 } from "./node-test-runner-lib.mjs";
 import { discoverTestFileTimeouts, discoverTestTierManifest } from "./test-tier-manifest.mjs";
-import { removeTemporaryDirectorySync } from "./temporary-directory-cleanup.mjs";
 import { renderToolHelp, runNodeTestsCommand } from "./tool-command-contract.mjs";
 import { readTestQuarantine } from "./test-quarantine.mjs";
 
@@ -262,8 +262,8 @@ const exitCode = await new Promise((resolveRun) => {
     removeSignalForwarding();
     void termination.then(() => {
       refreshActivity();
-      sweepRunnerTemporaryRoot(activityRoot);
-      sweepRunnerTemporaryRoot(testTemporaryRoot);
+      sweepTemporaryRoot(activityRoot);
+      sweepTemporaryRoot(testTemporaryRoot);
       resolveRun(code);
     });
   };
@@ -296,12 +296,9 @@ process.exitCode = exitCode;
 // uncaught throw here used to abort the whole shard before its remaining files ran. Retry the
 // bounded way the platform assumption calls for, then warn: a leftover temp directory is not a
 // test failure, so it must not rewrite the run's verdict.
-function sweepRunnerTemporaryRoot(root) {
-  try {
-    removeTemporaryDirectorySync(root);
-  } catch (error) {
-    console.error(`[node-test-cleanup] ${error instanceof Error ? error.message : String(error)}`);
-  }
+function sweepTemporaryRoot(root) {
+  const failure = sweepRunnerTemporaryRoot(root);
+  if (failure !== null) console.error(`[node-test-cleanup] ${failure}`);
 }
 
 function fileOutcome(file) {
