@@ -198,6 +198,76 @@ test("terminal settlement keeps a clean task exit unknown without its execution 
   assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
 });
 
+test("a post-submit stall settles the accepted cut and names the remaining owner handoff", async (context) => {
+  const fixture = workerGitFixture(context, "settle-submitted-stall", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      stalledAt: "2026-10-28T01:12:28.628Z",
+      stallTimeoutMs: 300_000,
+      lossReason: "Dispatch stalled after 300000 ms without provider or workspace progress.",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    outcomeBodies: string[] = [],
+    fallbackTerminals: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true, true),
+      settleFallback: async (_active, attempt, terminal) => {
+        fallbackTerminals.push({ classification: attempt.classification, outcome: terminal.outcome });
+      },
+    },
+    runtime,
+    null,
+  );
+
+  assert.equal(outcomes[0]?.outcome, "succeeded", "the accepted submission is the durable delivery witness");
+  assert.match(outcomeBodies[0]!, /accepted submission/u);
+  assert.match(outcomeBodies[0]!, /stalled during post-submit wrap-up/u);
+  assert.match(outcomeBodies[0]!, /owner\/CEO/u);
+  assert.match(outcomeBodies[0]!, /PR/u);
+  assert.deepEqual(fallbackTerminals, [{ classification: "provider_fault", outcome: "succeeded" }]);
+  assert.equal(
+    git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(),
+    git(fixture.worker, "rev-parse", "HEAD").trim(),
+  );
+});
+
+test("a pre-submit stall remains failed without an accepted execution submission", async (context) => {
+  const fixture = workerGitFixture(context, "settle-unsubmitted-stall", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      stalledAt: "2026-10-28T01:12:28.628Z",
+      stallTimeoutMs: 300_000,
+      lossReason: "Dispatch stalled after 300000 ms without provider or workspace progress.",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    fallbackTerminals: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null),
+      settleFallback: async (_active, attempt, terminal) => {
+        fallbackTerminals.push({ classification: attempt.classification, outcome: terminal.outcome });
+      },
+    },
+    runtime,
+    null,
+  );
+
+  assert.equal(outcomes[0]?.outcome, "failed");
+  assert.deepEqual(fallbackTerminals, [{ classification: "provider_fault", outcome: "failed" }]);
+});
+
 test("task settlement archives a bounded, scrubbed conclusion and the worktree exit HEAD", async (context) => {
   const fixture = workerGitFixture(context, "settle-continuation-context", { reachableRemote: true }),
     conclusion = `Last conclusion secret=do-not-persist ${"x".repeat(9_000)}`,
