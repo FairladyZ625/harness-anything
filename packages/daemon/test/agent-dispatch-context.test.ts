@@ -471,7 +471,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
         readonly cwd: string;
         readonly permissionMode?: string;
         readonly prompt: string;
-        readonly additionalWritableDirectories?: readonly string[];
+        readonly callbackRelayPath?: string;
       }
     | undefined;
   let launches = 0;
@@ -547,10 +547,8 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(prepared?.cwd, path.join(root, "harness", packagePath));
       assert.equal(prepared?.permissionMode, override === "read-only" ? "read-only" : "workspace-write");
-      assert.deepEqual(
-        prepared?.additionalWritableDirectories,
-        override === "read-only" ? undefined : [path.join("/tmp", `harness-anything-${process.getuid?.() ?? 0}`)],
-      );
+      if (process.platform === "win32") assert.equal(prepared?.callbackRelayPath, undefined);
+      else assert.match(prepared?.callbackRelayPath ?? "", /^\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
       assert.ok(prepared?.prompt.includes(`Worker repository root: ${prepared.cwd}`));
     }
     assert.equal(launches, 3);
@@ -571,7 +569,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(prepared?.cwd, workerRoot);
     assert.equal(prepared?.permissionMode, "bypass");
-    assert.equal(prepared?.additionalWritableDirectories, undefined);
+    assert.equal(prepared?.callbackRelayPath, undefined);
     useZcode = true;
     await createTask(cell, root, {
       taskId: "task_package_zcode",

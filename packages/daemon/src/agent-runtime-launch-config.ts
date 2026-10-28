@@ -66,10 +66,12 @@ export function launchArgs(
   effort: string | null = null,
   permissionMode: RuntimePermissionMode | undefined = undefined,
   fast = false,
-  additionalWritableDirectories: readonly string[] = [],
+  callbackRelayPath?: string,
 ): string[] {
   const declaration = runtimeKindForId(config.kindId),
     launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
+    callbackProfileParent =
+      permissionMode === "workspace-write" ? ":workspace" : permissionMode === "read-only" ? ":read-only" : undefined,
     permission = permissionMode
       ? ((providerSessionId ? launch.resumePermissionArgs : undefined)?.[permissionMode] ??
         launch.permissionArgs[permissionMode])
@@ -78,13 +80,18 @@ export function launchArgs(
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
     if (token === "$permission") return permission;
-    if (token === "$additional-writable-dirs")
-      return config.kindId === "codex" &&
-        permissionMode === "workspace-write" &&
-        additionalWritableDirectories.length > 0
+    if (token === "$callback-relay-socket")
+      return config.kindId === "codex" && callbackRelayPath && callbackProfileParent
         ? [
             "--config",
-            `sandbox_workspace_write.writable_roots=[${additionalWritableDirectories.map(tomlString).join(",")}]`,
+            'default_permissions="harness-callback-relay"',
+            "--config",
+            `permissions.harness-callback-relay.extends=${tomlString(callbackProfileParent)}`,
+            ...(permissionMode === "workspace-write"
+              ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}']
+              : []),
+            "--config",
+            `permissions.harness-callback-relay.network.unix_sockets={${tomlString(callbackRelayPath)}="allow"}`,
           ]
         : [];
     if (token === "$resume-command" || token === "$resume") {

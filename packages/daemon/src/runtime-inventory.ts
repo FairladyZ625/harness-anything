@@ -304,7 +304,7 @@ export const runtimeKinds = [
         "$resume-command",
         "--json",
         "$permission",
-        "$additional-writable-dirs",
+        "$callback-relay-socket",
         "--model",
         "$model",
         "$effort-config",

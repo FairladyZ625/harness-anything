@@ -98,7 +98,7 @@ test("permission defaults open and tightens through the instance record or a sin
     const relayEnabled = await store.prepareLaunch("codex-open", {
       cwd: "/workspace/repo",
       prompt: "Relay enabled",
-      additionalWritableDirectories: ["/tmp/harness-anything-501"],
+      callbackRelayPath: "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock",
     });
     assert.deepEqual(relayEnabled.args, [
       "exec",
@@ -110,7 +110,13 @@ test("permission defaults open and tightens through the instance record or a sin
       "--config",
       "sandbox_workspace_write.exclude_slash_tmp=true",
       "--config",
-      'sandbox_workspace_write.writable_roots=["/tmp/harness-anything-501"]',
+      'default_permissions="harness-callback-relay"',
+      "--config",
+      'permissions.harness-callback-relay.extends=":workspace"',
+      "--config",
+      'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}',
+      "--config",
+      'permissions.harness-callback-relay.network.unix_sockets={"/tmp/harness-anything-501/r-0123456789abcdef01234567.sock"="allow"}',
       "--model",
       "gpt-5.6-sol",
       "-",
@@ -119,7 +125,7 @@ test("permission defaults open and tightens through the instance record or a sin
       cwd: "/workspace/repo",
       prompt: "Resume relay",
       providerSessionId: "session-relay",
-      additionalWritableDirectories: ["/tmp/harness-anything-501"],
+      callbackRelayPath: "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock",
     });
     assert.deepEqual(resumedRelay.args, [
       "exec",
@@ -132,7 +138,13 @@ test("permission defaults open and tightens through the instance record or a sin
       "--config",
       "sandbox_workspace_write.exclude_slash_tmp=true",
       "--config",
-      'sandbox_workspace_write.writable_roots=["/tmp/harness-anything-501"]',
+      'default_permissions="harness-callback-relay"',
+      "--config",
+      'permissions.harness-callback-relay.extends=":workspace"',
+      "--config",
+      'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}',
+      "--config",
+      'permissions.harness-callback-relay.network.unix_sockets={"/tmp/harness-anything-501/r-0123456789abcdef01234567.sock"="allow"}',
       "--model",
       "gpt-5.6-sol",
       "session-relay",
