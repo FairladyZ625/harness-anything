@@ -18,10 +18,11 @@ export function runtimeTaskExecutionFrozenError(taskId: string, status: string):
       actual: status,
       expectation:
         status === "in_review"
-          ? `The implementation is frozen at the review gate. A cut the owner already consented whose pre-merge ` +
-            `checks fail (for example CI red) returns with ha task rework ${taskId} --reason <why>; the same ` +
-            `command returns a changes_requested verdict past the automatic rework budget, while an approved ` +
-            `review still awaiting consent uses ha task review-consent ${taskId}. ` +
+          ? `The implementation is frozen at the review gate. If the latest review is changes_requested and the ` +
+            `automatic rework budget is exhausted, the owner must run ha task rework ${taskId} --reason <why>; ` +
+            `a cut the owner already consented whose pre-merge checks fail (for example CI red) also returns ` +
+            `with the same command, while an approved review still awaiting consent uses ` +
+            `ha task review-consent ${taskId}. ` +
             `A read-only Agent may inspect the frozen cut with ha agent run <read-only-agent-id> --task ${taskId}.`
           : `Expected a task in implementation; wait for the cut's review verdict or attach a read-only Agent ` +
             `(permissionMode read-only in its declaration) with ha agent run <read-only-agent-id> --task ${taskId}`,
