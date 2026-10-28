@@ -614,7 +614,7 @@ export async function spawnKeycloak(): Promise<{
   readonly url: string;
   readonly bind: (userRoot: string) => void;
   readonly control: <T = unknown>(message: RealmControl) => Promise<T>;
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
 }> {
   const child = fork(path.join(import.meta.dirname, "fixtures/keycloak-realm-child.ts"), [], {
       stdio: ["ignore", "ignore", "inherit", "ipc"],
@@ -626,7 +626,8 @@ export async function spawnKeycloak(): Promise<{
         throw new Error("fixture Keycloak process exited before it was ready");
       }),
     ])) as [{ readonly url: string }];
-  let chain: Promise<unknown> = Promise.resolve();
+  let chain: Promise<unknown> = Promise.resolve(),
+    closePromise: Promise<void> | undefined;
   return {
     url: ready.url,
     bind: (userRoot) => {
@@ -648,7 +649,19 @@ export async function spawnKeycloak(): Promise<{
       return reply;
     },
     close: () => {
+      if (closePromise !== undefined) return closePromise;
+      if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+      const exited = once(child, "exit").then(() => undefined);
+      let timeout: ReturnType<typeof setTimeout>;
+      const deadline = new Promise<void>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("fixture Keycloak process did not exit within 5 seconds after close")),
+          5_000,
+        );
+      });
       child.kill();
+      closePromise = Promise.race([exited, deadline]).finally(() => clearTimeout(timeout));
+      return closePromise;
     },
   };
 }

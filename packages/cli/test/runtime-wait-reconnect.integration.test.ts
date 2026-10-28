@@ -260,7 +260,7 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
     await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
     assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
     assert.ok(!invocation.closed, "the wait must stay parked until the daemon disappears");
-    fixture.die();
+    await fixture.die();
     const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_gone");
@@ -349,7 +349,7 @@ test("runtime status --wait still reports daemon_gone within a bounded time afte
       awaitRequests += 1;
       if (awaitRequests === 1) {
         setTimeout(() => {
-          fixture.die();
+          void fixture.die();
         }, 20);
       }
       return;
@@ -439,7 +439,7 @@ test("runtime status --wait reports an operator stop honestly instead of burning
     // The operator's stop writes the marker before the daemon drains, so the wait can tell a stop
     // apart from a restart handoff: it reports the stop and never tries to reconnect.
     writeDaemonStoppedMarker(fixture.userRoot, fixture.daemonId);
-    fixture.die();
+    await fixture.die();
     const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_stopped_by_operator");
@@ -808,7 +808,7 @@ test("task dispatch wait classifies an unreachable daemon as daemon_gone", async
     await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
     assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
     assert.ok(!invocation.closed, "the task wait must stay parked until the daemon disappears");
-    fixture.die();
+    await fixture.die();
     const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_gone");
@@ -824,7 +824,7 @@ interface FixtureDaemon {
   readonly userRoot: string;
   readonly daemonId: string;
   onRequest: (socket: net.Socket, request: RpcRequest) => void;
-  readonly die: () => void;
+  readonly die: () => Promise<void>;
   readonly restart: () => Promise<void>;
   readonly close: () => Promise<void>;
 }
@@ -1112,9 +1112,10 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
       ],
     }),
   );
-  let server: net.Server;
+  let server: net.Server, serverClose: Promise<void> | undefined;
   const start = async (): Promise<void> => {
-      rmSync(socketPath, { force: true });
+      if (process.platform !== "win32") rmSync(socketPath, { force: true });
+      serverClose = undefined;
       server = net.createServer((socket) => {
         sockets.add(socket);
         socket.once("close", () => sockets.delete(socket));
@@ -1142,28 +1143,26 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
       userRoot,
       daemonId,
       onRequest: () => undefined,
-      die: () => {
+      die: async () => {
         rmSync(daemonPidPath(userRoot, daemonId), { force: true });
-        if (server.listening) server.close();
+        if (serverClose === undefined) {
+          const closingServer = server;
+          serverClose = closingServer.listening
+            ? new Promise<void>((resolve, reject) => {
+                closingServer.close((error) => (error ? reject(error) : resolve()));
+              })
+            : Promise.resolve();
+        }
         for (const socket of sockets) socket.destroy();
-        rmSync(socketPath, { force: true });
+        await serverClose;
+        if (process.platform !== "win32") rmSync(socketPath, { force: true });
       },
       restart: async () => {
-        await new Promise<void>((resolve) => {
-          if (!server.listening) resolve();
-          else {
-            server.once("close", resolve);
-            fixture.die();
-          }
-        });
+        await fixture.die();
         await start();
       },
       close: async () => {
-        fixture.die();
-        await new Promise<void>((resolve) => {
-          if (!server.listening) resolve();
-          else server.close(() => resolve());
-        });
+        await fixture.die();
         rmSync(parent, { recursive: true, force: true });
       },
     } satisfies FixtureDaemon;

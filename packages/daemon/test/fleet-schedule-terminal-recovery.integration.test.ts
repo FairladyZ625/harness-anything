@@ -227,7 +227,7 @@ for (const restart of [false, true])
     // appended only after the claim settlement, so adoption retries settlement before publishing.
     assert.equal(readDispatchStream(workspaceRoot, String(launched.dispatchId))?.terminalOutcome ?? null, null);
     if (restart) {
-      runtime.close();
+      await runtime.close();
       runtime = createRuntime();
     }
     const restoredCenter = await startCenter(center.port);

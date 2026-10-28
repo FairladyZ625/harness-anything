@@ -419,7 +419,7 @@ test(
         try {
           stop(fixture, "edge");
         } finally {
-          realm.close();
+          await realm.close();
           rmSync(fixture.root, { recursive: true, force: true });
         }
       }
@@ -656,7 +656,7 @@ test(
         try {
           stop(fixture, "edge");
         } finally {
-          realm.close();
+          await realm.close();
           rmSync(fixture.root, { recursive: true, force: true });
         }
       }
