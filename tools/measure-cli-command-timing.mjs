@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { lastReceipt, smokeIdentity } from "./fixtures/smoke-identity.mjs";
 import { repoRoot } from "./gates/git.mjs";
 
 const PROBE_TASK = "task-cli-timing-probe";
@@ -154,7 +155,7 @@ const SCOPED_ENVIRONMENT_KEYS = Object.freeze([
   "HA_CLI_TIMING_SHA",
 ]);
 
-function invoke(fixture, argv, { timing = true } = {}) {
+function invoke(fixture, argv, { timing = true, input } = {}) {
   const baseEnv = { ...process.env };
   for (const key of SCOPED_ENVIRONMENT_KEYS) delete baseEnv[key];
   const startedAt = performance.now(),
@@ -162,6 +163,7 @@ function invoke(fixture, argv, { timing = true } = {}) {
       encoding: "utf8",
       // Task-show receipts can exceed spawnSync's 1 MiB default; maxBuffer caps collection only.
       maxBuffer: 256 * 1024 * 1024,
+      input,
       env: {
         ...baseEnv,
         HOME: fixture.home,
@@ -189,6 +191,10 @@ export function lastTimingRecord(stderr) {
     }
   }
   return null;
+}
+
+function withReceipt(result) {
+  return { ...result, receipt: lastReceipt(result.stdout ?? "") };
 }
 
 function sample(fixture, command, sampleId) {
@@ -338,6 +344,17 @@ export function buildMeasurement({ sha, sourceStatus, options, measured, roundRa
   };
 }
 
+export async function prepareFixtureIdentity(fixture, run = invoke) {
+  const identity = await smokeIdentity(fixture.repo, "alpha");
+  try {
+    identity.prepare((args, input) => withReceipt(run(fixture, ["--json", ...args], { timing: false, input })));
+  } catch (error) {
+    await identity.close();
+    throw error;
+  }
+  return identity;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv),
     rootDir = options.rootDir ?? repoRoot(),
@@ -346,7 +363,14 @@ export async function main(argv = process.argv.slice(2)) {
       .split("\n")
       .filter(Boolean),
     fixture = makeFixture(rootDir, sha);
+  let identity;
   try {
+    // The product has no anonymous first run: `ha init` refuses with rbac_not_configured until this
+    // machine has a Keycloak authority (dec_D60FAA451F24160E970323B6F3). The fixture therefore
+    // installs one through the same CLI bootstrap every user takes, against the shared
+    // external-provider identity fixture the other no-Keycloak integration tests use; there is no
+    // timing-specific identity path and no daemon file is written by hand.
+    identity = await prepareFixtureIdentity(fixture);
     const initialized = invoke(
       fixture,
       ["--json", "init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"],
@@ -385,6 +409,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 0;
   } finally {
     invoke(fixture, ["--json", "daemon", "stop"], { timing: false });
+    await identity?.close();
     if (!options.keepFixture) rmSync(fixture.fixtureRoot, { recursive: true, force: true, maxRetries: 5 });
     else process.stdout.write(`fixture=${fixture.fixtureRoot}\n`);
   }
