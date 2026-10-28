@@ -11,8 +11,11 @@ import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import {
   REPLAY_TASK_GRAPH,
+  createLedgerBackup,
   eventObjectTarget,
+  openSqliteEventStore,
   registerDaemonRepo,
+  runCompletionGenerationConversion,
   serializeCanonicalEvent,
   serializeEventHead,
   sha256Text,
@@ -32,6 +35,7 @@ import { localUserDaemonEndpoint } from "../../packages/daemon/src/client/local-
 import { streamAgentRuntimeAt } from "../../packages/daemon/src/client/local-json-rpc-stream.ts";
 import { openDaemonConnLog } from "../../packages/daemon/src/conn-log.ts";
 import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol/version.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../../packages/daemon/src/dispatch-stream.ts";
 import { assessHermeticConfig } from "../test-hermetic-preflight.mjs";
 import {
   closeServer,
@@ -51,6 +55,11 @@ import { renderTimeline } from "../logs/log-timeline.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const workloadFailureEvidenceLimit = 20;
+// The attach read path resolves liveness from the dispatch stream, and that reader only accepts
+// the canonical dispatch id shape. The stream below is the same `openDispatchStream` +
+// `appendRuntimeWorkerRecord` pair the real runtime spawn writes.
+const soakDispatchId = "dispatch_5ca7f00d5ca7f00d5ca7f00d";
+const soakRuntimeSessionId = "runtime-session-soak";
 
 const soakActor = Object.freeze({ principal: { personId: "person-soak" }, executor: null });
 const runtimeDefinition = Object.freeze({
@@ -132,8 +141,8 @@ export function createSoakEvents({ taskCount, eventCount }) {
     capabilities: ["structured_witness", "attach"],
   });
   append("agent-runtime-event/v1", "runtime_dispatch_requested", {
-    dispatchId: "dispatch-soak",
-    runtimeSessionId: "runtime-session-soak",
+    dispatchId: soakDispatchId,
+    runtimeSessionId: soakRuntimeSessionId,
     instanceId: runtimeDefinition.instanceId,
     installationId: runtimeDefinition.installationId,
     kindId: runtimeDefinition.kindId,
@@ -142,7 +151,7 @@ export function createSoakEvents({ taskCount, eventCount }) {
     definitionSnapshot: runtimeDefinition,
   });
   append("agent-runtime-event/v1", "runtime_session_started", {
-    runtimeSessionId: "runtime-session-soak",
+    runtimeSessionId: soakRuntimeSessionId,
     instanceId: runtimeDefinition.instanceId,
     installationId: runtimeDefinition.installationId,
     kindId: runtimeDefinition.kindId,
@@ -271,6 +280,8 @@ async function runSoak(config = readConfig()) {
   const resultsDir = path.resolve(config.resultsDir),
     parent = mkdtempSync(path.join(tmpdir(), "harness-nightly-soak-"));
   const rootDir = path.join(parent, "repo"),
+    legacyRoot = path.join(parent, "legacy"),
+    backupDir = path.join(parent, "backup"),
     userRoot = path.join(parent, "user"),
     home = path.join(parent, "home"),
     daemonId = `nightly-soak-${process.pid}`,
@@ -285,10 +296,10 @@ async function runSoak(config = readConfig()) {
     console.log(`[soak] hermetic user-root=${userRoot} daemon-id=${daemonId}`);
     const fixtureStarted = performance.now(),
       events = createSoakEvents(config);
-    const conversion = initializeFixture({ rootDir, userRoot, repoId, events });
+    const conversion = initializeFixture({ rootDir, legacyRoot, backupDir, userRoot, repoId, events });
     console.log(
       `[soak] fixture tasks=${config.taskCount} events=${events.length} generated+converted=${Math.round(performance.now() - fixtureStarted)}ms ` +
-        `(legacy snapshot -> operator conversion -> activated generation ${conversion.generation}, revision ${conversion.revision})`,
+        `(legacy snapshot -> generation 1 conversion -> verified backup -> operator completion conversion -> activated generation ${conversion.generation}, revision ${conversion.revision})`,
     );
 
     realm = await serveKeycloak();
@@ -347,7 +358,7 @@ async function runSoak(config = readConfig()) {
     detach = await streamAgentRuntimeAt({
       socketPath: endpoint,
       repoId,
-      payload: { runtimeSessionId: "runtime-session-soak", afterCursor: "stream:0" },
+      payload: { runtimeSessionId: soakRuntimeSessionId, afterCursor: "stream:0" },
       onValue: (value) => {
         if (value && typeof value === "object" && "ok" in value && value.ok === true) streamAttached = true;
       },
@@ -435,24 +446,24 @@ async function runSoak(config = readConfig()) {
   }
 }
 
-function initializeFixture({ rootDir, userRoot, repoId, events }) {
-  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(path.join(rootDir, "README.md"), "# Nightly daemon soak fixture\n", "utf8");
+export function initializeFixture({ rootDir, legacyRoot, backupDir, userRoot, repoId, events }) {
+  mkdirSync(path.join(legacyRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(legacyRoot, "README.md"), "# Nightly daemon soak fixture\n", "utf8");
   writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
+    path.join(legacyRoot, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
     "utf8",
   );
 
   for (const event of events) {
-    const target = path.join(rootDir, eventObjectTarget(event.opId));
+    const target = path.join(legacyRoot, eventObjectTarget(event.opId));
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, serializeCanonicalEvent(event), "utf8");
   }
   const last = events.at(-1),
     eventBody = serializeCanonicalEvent(last);
   writeFileSync(
-    path.join(rootDir, "harness/events/head.json"),
+    path.join(legacyRoot, "harness/events/head.json"),
     serializeEventHead({
       revision: last.workspaceRevision,
       opId: last.opId,
@@ -460,22 +471,51 @@ function initializeFixture({ rootDir, userRoot, repoId, events }) {
     }),
     "utf8",
   );
-  git(rootDir, "init", "--quiet");
-  git(rootDir, "config", "user.name", "Nightly Soak");
-  git(rootDir, "config", "user.email", "soak@example.test");
-  git(rootDir, "add", "README.md", "harness");
-  git(rootDir, "commit", "--quiet", "-m", "nightly soak fixture");
+  git(legacyRoot, "init", "--quiet");
+  git(legacyRoot, "config", "user.name", "Nightly Soak");
+  git(legacyRoot, "config", "user.email", "soak@example.test");
+  git(legacyRoot, "add", "README.md", "harness");
+  git(legacyRoot, "commit", "--quiet", "-m", "nightly soak fixture");
   // The deterministic snapshot is generation-0 legacy history. The daemon refuses to attach
   // unconverted legacy history by design, so the fixture goes through the same operator
   // conversion any stopped legacy repository must take: immutable snapshot -> generation-1
-  // SQLite conversion -> activation certificate. No soak-specific activation shortcut exists.
-  git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-  const snapshotPath = legacyGenerationSnapshotPath(rootDir);
-  createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: rootDir });
-  const converted = convertLegacyGeneration({ rootDir, snapshotPath });
-  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath });
-  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
-  return { generation: converted.destinationGeneration, revision: converted.destinationRevision };
+  // SQLite conversion -> verified backup -> completion conversion to generation 3 -> activation
+  // certificate. Generation 3 is the only generation an ordinary reader opens; there is no
+  // soak-specific activation shortcut and no prebuilt scale repository.
+  git(legacyRoot, "update-ref", "refs/ha/canonical", "HEAD");
+  const snapshotPath = legacyGenerationSnapshotPath(legacyRoot);
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: legacyRoot });
+  convertLegacyGeneration({ rootDir: legacyRoot, snapshotPath });
+  preflightConvertedGenerationActivation({ repoId, rootDir: legacyRoot, snapshotPath });
+  createLedgerBackup({ rootInput: legacyRoot, backupDir, generation: 1 });
+  const conversion = { backupDir, invalidateDerivedState: () => undefined };
+  runCompletionGenerationConversion({ ...conversion, mode: "convert", destinationRoot: rootDir });
+  runCompletionGenerationConversion({ ...conversion, mode: "activate", destinationRoot: rootDir });
+  // A stream can only attach to a live runtime session, and liveness is read from the dispatch
+  // stream the runtime worker host writes. Record the same process_started witness against this
+  // fixture process so the fault-control stream exercises the real attach path instead of a
+  // synthetic session row the product would (correctly) refuse as unattachable.
+  openDispatchStream(rootDir, {
+    dispatchId: soakDispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId: soakRuntimeSessionId,
+    instanceId: runtimeDefinition.instanceId,
+    kindId: runtimeDefinition.kindId,
+    startedAt: new Date().toISOString(),
+  });
+  appendRuntimeWorkerRecord(rootDir, soakDispatchId, {
+    kind: "process_started",
+    occurredAt: new Date().toISOString(),
+    pid: process.pid,
+  });
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+  try {
+    registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    return { generation: 3, revision: store.revision() };
+  } finally {
+    store.close();
+  }
 }
 
 async function runLoadPhase({
