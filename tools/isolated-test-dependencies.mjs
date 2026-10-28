@@ -113,15 +113,26 @@ function installRuntimeDownloads(root, runtimeRoot) {
   }
 }
 
+function restoreWorkspaceLinks(root, workspaces) {
+  for (const name of workspaces) {
+    const manifest = JSON.parse(readFileSync(path.join(root, name, "package.json")));
+    const destination = path.join(root, "node_modules", manifest.name);
+    if (lstatSync(destination, { throwIfNoEntry: false })) rmSync(destination, { recursive: true, force: true });
+    mkdirSync(path.dirname(destination), { recursive: true });
+    symlinkSync(path.join(root, name), destination, process.platform === "win32" ? "junction" : "dir");
+  }
+}
+
 function rebuildWorkspaces(root, workspaces, install) {
+  const rootManifest = JSON.parse(readFileSync(path.join(root, "package.json")));
+  if (rootManifest.scripts?.typecheck) install(root, ["run", "typecheck", "--ignore-scripts"]);
   for (const name of workspaces) {
     const manifest = JSON.parse(readFileSync(path.join(root, name, "package.json")));
     for (const hook of ["preinstall", "install", "postinstall", "prepare"])
       if (manifest.scripts?.[hook]) install(root, ["run", hook, "--workspace", name, "--ignore-scripts"]);
   }
-  const manifest = JSON.parse(readFileSync(path.join(root, "package.json")));
   for (const hook of ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"])
-    if (manifest.scripts?.[hook]) install(root, ["run", hook, "--ignore-scripts"]);
+    if (rootManifest.scripts?.[hook]) install(root, ["run", hook, "--ignore-scripts"]);
 }
 
 function publishedGenerationKey(current) {
@@ -279,6 +290,7 @@ export function prepareDependencies(
       renameSync(pending, current);
     }
     lock.exec("COMMIT");
+    restoreWorkspaceLinks(root, workspaces);
     prepareWorkspaceBuild(root, cacheRoot, key, workspaces, install, lock, hit);
   } finally {
     lock.close();

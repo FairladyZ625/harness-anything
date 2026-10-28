@@ -191,18 +191,22 @@ test(
   async (t) => {
     const fixture = await fleetNodeClaimFixture(t);
     const edge = await fleetEdgeHostFixture(t, fixture, {
+      waitForAttachments: false,
       beforeOpen: (edgeRoot) => {
         const oldLedger = openSqliteEventStore({ repoId: "lease-repo", rootInput: edgeRoot, generation: 2 });
         oldLedger.close();
       },
     });
-    const status = edge.host.status().repos.find((repo) => repo.repoId === "lease-repo");
-    t.diagnostic(JSON.stringify({ state: status?.state, lastError: status?.lastError, mode: status?.mode }));
+    const attachmentSettled = await attachmentsSettleWithin(edge.host, 15_000);
+    assert.equal(attachmentSettled, true);
+    const status = edge.host.status().repos.find((repo) => repo.repoId === "lease-repo"),
+      generationTwoPath = sqliteLedgerPath(edge.edgeRoot, 2),
+      generationThreeActivationPath = `${sqliteLedgerPath(edge.edgeRoot, 3)}.activation.json`;
     assert.equal(status?.mode, "remote-edge");
     assert.equal(status?.state, "attached");
     assert.equal(status?.lastError, null);
-    assert.equal(existsSync(sqliteLedgerPath(edge.edgeRoot, 2)), false);
-    assert.equal(existsSync(`${sqliteLedgerPath(edge.edgeRoot, 3)}.activation.json`), true);
+    assert.equal(existsSync(generationTwoPath), false);
+    assert.equal(existsSync(generationThreeActivationPath), true);
   },
 );
 
@@ -212,6 +216,7 @@ test(
   async (t) => {
     const fixture = await fleetNodeClaimFixture(t);
     const edge = await fleetEdgeHostFixture(t, fixture, {
+      waitForAttachments: false,
       beforeOpen: (edgeRoot) => {
         const oldLedger = openSqliteEventStore({ repoId: "lease-repo", rootInput: edgeRoot, generation: 2 });
         oldLedger.close();
@@ -220,9 +225,28 @@ test(
         writeFileSync(activationPath, "{}\n");
       },
     });
+    const attachmentSettled = await attachmentsSettleWithin(edge.host, 15_000);
+    assert.equal(attachmentSettled, true);
     const status = edge.host.status().repos.find((repo) => repo.repoId === "lease-repo");
     assert.equal(status?.mode, "remote-edge");
     assert.equal(status?.state, "unavailable");
     assert.equal(existsSync(sqliteLedgerPath(edge.edgeRoot, 2)), true);
   },
 );
+
+async function attachmentsSettleWithin(
+  host: { readonly attachmentsSettled: () => Promise<void> },
+  timeoutMs: number,
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      host.attachmentsSettled().then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}

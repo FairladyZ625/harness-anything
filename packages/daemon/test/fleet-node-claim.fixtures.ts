@@ -41,9 +41,7 @@ export async function fleetNodeClaimFixture(
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
-    stateRoot = path.join(root, "state"),
-    keyFile = path.join(root, "tls.key"),
-    certFile = path.join(root, "tls.crt");
+    stateRoot = path.join(root, "state");
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   const git = (...args: readonly string[]): string =>
     execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
@@ -60,30 +58,10 @@ export async function fleetNodeClaimFixture(
   const registration = { canonicalRoot: repo, repoId: "lease-repo", userRoot, createConvenienceLinks: false } as const;
   if (seedCenterSettings) await registerSettledBootstrappedDaemonRepo(registration);
   else registerDaemonRepo(registration);
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      keyFile,
-      "-out",
-      certFile,
-      "-subj",
-      "/CN=localhost",
-      "-days",
-      "1",
-      "-addext",
-      "subjectAltName=DNS:localhost",
-    ],
-    { stdio: "ignore" },
-  );
   await seedRepository?.(repo);
-  const key = readFileSync(keyFile),
-    cert = readFileSync(certFile);
+  const key = readFileSync(new URL("./fixtures/test-localhost.key.pem", import.meta.url)),
+    cert = readFileSync(new URL("./fixtures/test-localhost.cert.pem", import.meta.url));
+  writeFileSync(path.join(root, "tls.crt"), cert);
   const owners = await fleetNodeOwners({
     userRoot,
     owners: { "node-one": "person-one", "node-two": "person-one", "center-node": "person-center" },
@@ -91,7 +69,8 @@ export async function fleetNodeClaimFixture(
     localPersonId: "lease-owner",
   });
   const hosts: DaemonHost[] = [],
-    centers: FleetTlsCenter[] = [];
+    centers: FleetTlsCenter[] = [],
+    dependentClosers: Array<() => Promise<void>> = [];
   const openCenter = async (
     host: DaemonHost,
     port?: number,
@@ -133,9 +112,15 @@ export async function fleetNodeClaimFixture(
     await host.close();
   };
   const closeFixtures = async () => {
-    const centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
+    const dependentResults = await Promise.allSettled(
+        dependentClosers
+          .splice(0)
+          .reverse()
+          .map((close) => close()),
+      ),
+      centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
       hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
-      results = [...centerResults, ...hostResults];
+      results = [...dependentResults, ...centerResults, ...hostResults];
     await owners.close();
     rmSync(root, { recursive: true, force: true });
     const unexpected = results
@@ -217,6 +202,7 @@ export async function fleetNodeClaimFixture(
     openHost,
     openCenter,
     closeHost,
+    trackDependentCloser: (close: () => Promise<void>) => dependentClosers.push(close),
     eventCount,
     close: closeFixtures,
   };

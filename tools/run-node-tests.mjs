@@ -318,6 +318,9 @@ function ensureFreshDaemonBuild() {
     markerPath: join(daemonRoot, "dist/build-id.txt"),
     lockPath: join(root, "node_modules/.cache/harness-daemon-build.lock"),
     listInputs: () => daemonBuildInputs(root, daemonRoot),
+    allowIsolatedCheckoutBuild:
+      process.env.HARNESS_DAEMON_USER_ROOT !== undefined &&
+      resolve(process.env.HARNESS_DAEMON_USER_ROOT) === resolve(root, ".test-isolation-state"),
     build: () => {
       console.log("[daemon-build] packages/daemon/dist is missing or older than its sources; building it once.");
       const build = spawnSync("npm", ["run", "build", "--workspace", "@harness-anything/daemon"], {

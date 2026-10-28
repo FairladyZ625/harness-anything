@@ -23,6 +23,7 @@ export async function fleetEdgeHostFixture(
   f: Pick<FleetFixture, "root" | "repo"> & {
     readonly center: Pick<FleetFixture["center"], "port">;
     readonly owners: { readonly url: string; readonly keycloak: Pick<FleetFixture["owners"]["keycloak"], "fetch"> };
+    readonly trackDependentCloser?: FleetFixture["trackDependentCloser"];
   },
   options: {
     readonly name?: string;
@@ -117,11 +118,6 @@ export async function fleetEdgeHostFixture(
     userRoot: edgeUser,
     oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch, ...options.oidcPorts }),
   });
-  t.after(async () => {
-    await host.close();
-    rmSync(root, { recursive: true, force: true });
-  });
-  if (options.waitForAttachments !== false) await host.attachmentsSettled();
   const rpc = createJsonRpcProtocolServer({
     host,
     build: { commit: null },
@@ -129,7 +125,14 @@ export async function fleetEdgeHostFixture(
     sessionPrincipal: () => host.sessionPrincipal(auth),
     emit: async () => undefined,
   });
-  t.after(() => rpc.close());
+  const closeEdge = async () => {
+    rpc.close();
+    await host.close();
+    rmSync(root, { recursive: true, force: true });
+  };
+  if (f.trackDependentCloser) f.trackDependentCloser(closeEdge);
+  else t.after(closeEdge);
+  if (options.waitForAttachments !== false) await host.attachmentsSettled();
   await rpc.handle({
     jsonrpc: "2.0",
     id: 0,

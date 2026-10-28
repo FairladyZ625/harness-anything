@@ -1146,7 +1146,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             await options.host.settleMaterialization(repoId, "fleet center close");
         }
       } finally {
-        writerEpoch.close();
+        try {
+          writerEpoch.close();
+        } finally {
+          replicationSlots.close();
+        }
       }
     },
     replicaReceipt: () => {

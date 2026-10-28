@@ -120,7 +120,10 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     sourcePath = "docs/adr-0001.md",
     absoluteSource = path.join(rootDir, sourcePath),
     repoId = workspaceId("artifact-import");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    observer: ReturnType<typeof makeTaskEventReader> | undefined,
+    artifactReader: ReturnType<typeof makeTaskEventReader> | undefined,
+    rebuildStore: ReturnType<typeof makeTaskEventReader> | undefined;
   try {
     initRepo(rootDir);
     mkdirSync(path.dirname(absoluteSource), { recursive: true });
@@ -144,8 +147,9 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.equal(explained.subjects[0]?.actions[0]?.available, null);
 
-    const observer = makeTaskEventReader({ repoId, rootDir }),
-      beforeEvents = observer.read().events.length,
+    const observerReader = makeTaskEventReader({ repoId, rootDir });
+    observer = observerReader;
+    const beforeEvents = observerReader.read().events.length,
       beforeStatus = git(rootDir, "status", "--porcelain=v1"),
       request = { mode: "snapshot", kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
       previewReceipt = await cell.run({ ...request, dryRun: true }, binding);
@@ -311,7 +315,8 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.equal(archiveRetry.outcome, "no_changes", JSON.stringify(archiveRetry));
     assert.equal(archiveRetry.opId, archived.opId);
-    const artifactEvents = makeTaskEventReader({ repoId, rootDir })
+    artifactReader = makeTaskEventReader({ repoId, rootDir });
+    const artifactEvents = artifactReader
       .read()
       .events.filter((event) => event.schema === "entity-event/v1" && event.payload.entityKind === kind);
     assert.deepEqual(
@@ -360,12 +365,13 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     await cell.close();
     cell = undefined;
 
-    const rebuildStore = makeTaskEventReader({ repoId, rootDir }),
-      rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-02T02:01:00.000Z" });
+    const reader = makeTaskEventReader({ repoId, rootDir });
+    rebuildStore = reader;
+    const rebuilt = makeTaskProjection({ rootDir, eventStore: reader, now: () => "2026-09-02T02:01:00.000Z" });
     try {
       const receipt = rebuilt.rebuild(),
         row = rebuilt.getEntity(kind, entityId);
-      assert.equal(receipt.watermark, rebuildStore.readHead()?.revision);
+      assert.equal(receipt.watermark, reader.readHead()?.revision);
       assert.equal(row?.id, entityId);
       assert.equal(row?.workspaceRevision, archived.revision);
       assert.equal(row?.value.contentVersion, "revision:manual-2");
@@ -377,6 +383,11 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     }
   } finally {
     await cell?.close();
+    await Promise.all(
+      [observer, artifactReader, rebuildStore]
+        .filter((reader): reader is ReturnType<typeof makeTaskEventReader> => reader !== undefined)
+        .map((reader) => reader.drain()),
+    );
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -783,6 +794,7 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    git(rootDir, "config", "core.autocrlf", "true");
     mkdirSync(path.join(absoluteSource, "notes"), { recursive: true });
     const readmeContent = "# Directory artifacts\n\nResearch summary.\n",
       evidenceContent = "<p>first observation</p>\n";
@@ -916,9 +928,11 @@ test("Artifact import publishes original bytes to Git and the worktree independe
     repoId = workspaceId("binary-artifact-import"),
     // NUL and 0xFF are the point: a byte sequence no UTF-8 decode round-trips.
     bytes = Buffer.concat([Buffer.from("%PDF-1.7\n%"), Buffer.from([0, 255, 10, 128, 1]), Buffer.from("\n%%EOF\n")]);
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    binaryReader: ReturnType<typeof makeTaskEventReader> | undefined;
   try {
     initRepo(rootDir);
+    git(rootDir, "config", "core.autocrlf", "false");
     mkdirSync(path.dirname(absoluteSource), { recursive: true });
     mkdirSync(path.join(rootDir, path.dirname(unrelatedPath)), { recursive: true });
     writeFileSync(absoluteSource, bytes);
@@ -941,18 +955,18 @@ test("Artifact import publishes original bytes to Git and the worktree independe
       ownedPath = `entities/research/${entityId}/raw.pdf`;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
 
-    const store = makeTaskEventReader({ repoId, rootDir }),
-      observed = store.read().events.find((event) => event.opId === receipt.opId) as unknown as {
-        payload: {
-          ownedContent: {
-            content: readonly { sha256: string; byteLength: number }[];
-            bindings: readonly { path: string }[];
-          };
+    binaryReader = makeTaskEventReader({ repoId, rootDir });
+    const observed = binaryReader.read().events.find((event) => event.opId === receipt.opId) as unknown as {
+      payload: {
+        ownedContent: {
+          content: readonly { sha256: string; byteLength: number }[];
+          bindings: readonly { path: string }[];
         };
       };
+    };
     const owned = observed.payload.ownedContent.content.find(({ byteLength }) => byteLength === bytes.byteLength);
     assert.ok(owned, "the accepted event must own a content object the size of the source");
-    assert.deepEqual(Buffer.from(store.readContentBlob(owned.sha256) ?? []), bytes);
+    assert.deepEqual(Buffer.from(binaryReader.readContentBlob(owned.sha256) ?? []), bytes);
     assert.ok(
       observed.payload.ownedContent.bindings.some(({ path: bound }) => bound === ownedPath),
       `owned content must bind under the entity, saw ${JSON.stringify(observed.payload.ownedContent.bindings)}`,
@@ -979,6 +993,7 @@ test("Artifact import publishes original bytes to Git and the worktree independe
     );
   } finally {
     await cell?.close();
+    await binaryReader?.drain();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -990,9 +1005,11 @@ test("Artifact import owns empty and non-text files across a directory source", 
     repoId = workspaceId("directory-binary-import"),
     latin1 = Buffer.from([0xc0, 0xc1, 0xf5, 0xff]),
     duplicate = Buffer.from("identical bytes\n");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    directoryReader: ReturnType<typeof makeTaskEventReader> | undefined;
   try {
     initRepo(rootDir);
+    git(rootDir, "config", "core.autocrlf", "false");
     mkdirSync(path.join(absoluteSource, "nested"), { recursive: true });
     writeFileSync(path.join(absoluteSource, "invalid.bin"), latin1);
     writeFileSync(path.join(absoluteSource, "zero.bin"), Buffer.alloc(0));
@@ -1023,17 +1040,17 @@ test("Artifact import owns empty and non-text files across a directory source", 
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "one.txt")), duplicate);
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "nested/two.txt")), duplicate);
 
-    const store = makeTaskEventReader({ repoId, rootDir }),
-      manifest = (
-        store.read().events.find((event) => event.opId === receipt.opId) as unknown as {
-          payload: {
-            ownedContent: {
-              content: readonly { sha256: string; byteLength: number }[];
-              bindings: readonly { path: string }[];
-            };
+    directoryReader = makeTaskEventReader({ repoId, rootDir });
+    const manifest = (
+      directoryReader.read().events.find((event) => event.opId === receipt.opId) as unknown as {
+        payload: {
+          ownedContent: {
+            content: readonly { sha256: string; byteLength: number }[];
+            bindings: readonly { path: string }[];
           };
-        }
-      ).payload.ownedContent;
+        };
+      }
+    ).payload.ownedContent;
     assert.equal(
       manifest.content.filter(({ sha256: digest }) => digest === sha256("identical bytes\n")).length,
       1,
@@ -1045,6 +1062,7 @@ test("Artifact import owns empty and non-text files across a directory source", 
     );
   } finally {
     await cell?.close();
+    await directoryReader?.drain();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

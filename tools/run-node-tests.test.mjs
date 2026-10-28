@@ -681,6 +681,19 @@ test("ensureFreshBuild reports a stale build in the main checkout without buildi
   }
 });
 
+test("ensureFreshBuild builds an isolated test checkout with its own user root", () => {
+  const fixture = buildFixture();
+  try {
+    rmSync(path.join(fixture.root, ".git"));
+    mkdirSync(path.join(fixture.root, ".git"));
+    assert.equal(ensureFreshBuild({ ...fixture.options, allowIsolatedCheckoutBuild: true }), "built");
+    assert.equal(fixture.builds, 1);
+    assert.equal(existsSync(fixture.lockPath), false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("ensureFreshBuild releases the lock when the build throws and takes over a dead owner's lock", () => {
   const fixture = buildFixture();
   try {

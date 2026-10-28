@@ -187,9 +187,16 @@ export function runsCliEntry(files, readSource) {
  * runs from, and replacing it restarts that daemon on whatever the tree holds, committed or not.
  * @returns {"fresh"|"built"|"stale"}
  */
-export function ensureFreshBuild({ checkoutRoot, markerPath, lockPath, listInputs, build }) {
+export function ensureFreshBuild({
+  checkoutRoot,
+  markerPath,
+  lockPath,
+  listInputs,
+  build,
+  allowIsolatedCheckoutBuild = false,
+}) {
   if (!buildIsStale(markerPath, listInputs())) return "fresh";
-  if (!isLinkedWorktree(checkoutRoot)) return "stale";
+  if (!isLinkedWorktree(checkoutRoot) && !allowIsolatedCheckoutBuild) return "stale";
   mkdirSync(dirname(lockPath), { recursive: true });
   while (!tryAcquireBuildLock(lockPath)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
   try {

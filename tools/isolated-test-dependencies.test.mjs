@@ -20,10 +20,17 @@ import { cacheLimitBytes, dependencyInputs, prepareDependencies, treeBytes } fro
 function fixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dependency-cache-"));
   const cache = path.join(root, "cache");
-  function workspace(name) {
+  function workspace(name, { typecheck = false } = {}) {
     const dir = path.join(root, name);
     mkdirSync(path.join(dir, "packages", "local"), { recursive: true });
-    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "fixture", workspaces: ["packages/*"] }));
+    writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "fixture",
+        workspaces: ["packages/*"],
+        ...(typecheck ? { scripts: { typecheck: "compile project references" } } : {}),
+      }),
+    );
     writeFileSync(
       path.join(dir, "packages/local/package.json"),
       JSON.stringify({ name: "local", scripts: { prepare: "compile current source" } }),
@@ -269,6 +276,47 @@ test("warm preparation restores dependencies and rebuilds workspaces against cur
       install(root, args);
     });
     assert.equal(readFileSync(path.join(second, "packages/local/output"), "utf8"), "new");
+  }));
+
+test("builds composite references before workspace lifecycle hooks", () =>
+  fixture(({ cache, workspace }) => {
+    const first = workspace("first", { typecheck: true });
+    writeFileSync(path.join(first, "packages/local/source"), "source");
+    prepareDependencies(first, cache, install);
+
+    const second = workspace("second", { typecheck: true });
+    writeFileSync(path.join(second, "packages/local/source"), "source");
+    const calls = [];
+    prepareDependencies(second, cache, (root, args) => {
+      calls.push(args);
+      install(root, args);
+    });
+    assert.deepEqual(calls, [
+      ["run", "typecheck", "--ignore-scripts"],
+      ["run", "prepare", "--workspace", "packages/local", "--ignore-scripts"],
+    ]);
+  }));
+
+test("restores workspace package links when a cache hit contains a directory copy", () =>
+  fixture(({ cache, workspace }) => {
+    const first = workspace("first");
+    writeFileSync(path.join(first, "packages/local/source"), "source");
+    prepareDependencies(first, cache, install);
+    const cachedPackage = path.join(cache, "current/node_modules/local");
+    rmSync(cachedPackage, { recursive: true, force: true });
+    mkdirSync(cachedPackage, { recursive: true });
+    writeFileSync(path.join(cachedPackage, "stale"), "old workspace copy");
+
+    const restored = workspace("restored");
+    writeFileSync(path.join(restored, "packages/local/source"), "source");
+    prepareDependencies(restored, cache, (root, args) => {
+      assert.notEqual(args[0], "ci", "the second preparation should restore the cache hit");
+      install(root, args);
+    });
+    assert.equal(
+      realpathSync(path.join(restored, "node_modules/local")),
+      realpathSync(path.join(restored, "packages/local")),
+    );
   }));
 
 test("build cache follows snapshot bytes and remains independent after source changes", () =>
