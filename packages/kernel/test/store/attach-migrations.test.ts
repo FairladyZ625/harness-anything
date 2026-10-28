@@ -219,14 +219,14 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
       schema: "event-shape-migration/v1",
       eventId: `event-upgrade-${migration}`,
       workspaceRevision: 1,
-      opId: `upgrade-${migration}`,
+      opId: `upgrade-${migration.replaceAll(".", "-")}`,
       type: "event_shape_migration_applied",
       actor,
       source: "local",
       occurredAt: "2026-10-20T00:00:00.000Z",
       payload: { migration, version: 1, sourceRevision: 0, affectedEvents: 1 },
     }) as unknown as PersistedCanonicalEventV1;
-  const { store, events } = fakeStore([
+  const { store, events, reads } = fakeStore([
     migrationEvent("settings.ci"),
     migrationEvent("vertical.completion.sources"),
     envelope(
@@ -244,7 +244,15 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
     "settings.closeout.codeDoc",
     "vertical.completion.closeoutCodeDoc",
   ]);
-  assert.equal(events.length, 6);
+  // The other pending steps matched nothing; their scan still settles them, so the next attach
+  // finds every step recorded and reads no history.
+  assert.equal(
+    events.length,
+    4 + attachMigrationRegistry.filter((entry) => entry.kind === "event-migration").length - 2,
+  );
+  const batchesAfterFirstAttach = reads.readBatch;
+  assert.deepEqual(applyAttachMigrations({ store }).applied, []);
+  assert.equal(reads.readBatch, batchesAfterFirstAttach);
 });
 
 test("legacy submission facts stay readable without an attach migration event", () => {
@@ -294,7 +302,13 @@ test("legacy submission facts stay readable without an attach migration event", 
     false,
   );
   assert.deepEqual(applyAttachMigrations({ store }).applied, []);
-  assert.equal(events.length, 1);
+  assert.deepEqual(
+    events.slice(1).map((event) => event.type),
+    attachMigrationRegistry
+      .filter((entry) => entry.kind === "event-migration")
+      .map(() => "event_shape_migration_applied"),
+    "a scan that matched nothing settles every step instead of leaving it pending for the next attach",
+  );
   assert.deepEqual(
     (events[0] as unknown as { payload: { execution: { submission: unknown } } }).payload.execution.submission,
     legacySubmission,

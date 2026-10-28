@@ -337,7 +337,10 @@ export function applyAttachMigrations(input: {
     if (migration.kind === "read-conclusion") continue;
     if (applied.has(migration.name)) continue;
     const affectedCount = affectedEvents.get(migration.name) ?? 0;
-    if (affectedCount === 0) continue;
+    // A completed scan settles the migration even when nothing matched: writers can no longer emit
+    // the retired shape, so without this marker every attach rescans the whole ledger to rediscover
+    // the same zero. An empty ledger has nothing to settle.
+    if (total === 0) continue;
     const revision = (input.store.readHead()?.revision ?? 0) + 1,
       opId = `upgrade-${migration.name.replaceAll(".", "-")}`,
       event: EventShapeMigrationEventV1 = {
@@ -357,7 +360,7 @@ export function applyAttachMigrations(input: {
         },
       };
     input.store.append({ event, plan: eventShapeMigrationWritePlan(event), blobs: [] });
-    appliedNow.push(migration.name);
+    if (affectedCount > 0) appliedNow.push(migration.name);
     applied.add(migration.name);
   }
   return {
