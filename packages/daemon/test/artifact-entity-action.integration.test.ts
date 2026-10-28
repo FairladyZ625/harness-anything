@@ -920,6 +920,62 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
   }
 });
 
+test("Directory artifact content version is stable across Git autocrlf settings", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-autocrlf-")),
+    sourcePaths = ["research/autocrlf-true", "research/autocrlf-false"] as const,
+    files = {
+      "README.md": "# Autocrlf comparison\n\nSame logical input.\n",
+      "notes.md": "A second line of evidence.\n",
+    };
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    for (const [index, sourcePath] of sourcePaths.entries()) {
+      git(rootDir, "config", "core.autocrlf", index === 0 ? "true" : "false");
+      for (const [name, content] of Object.entries(files)) {
+        const filePath = path.join(rootDir, sourcePath, name);
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        writeFileSync(filePath, content);
+      }
+      git(rootDir, "add", sourcePath);
+      git(rootDir, "commit", "-qm", `add autocrlf ${index === 0 ? "true" : "false"} source`);
+      assert.deepEqual(readFileSync(path.join(rootDir, sourcePath, "README.md")), Buffer.from(files["README.md"]));
+    }
+
+    assert.equal(
+      git(rootDir, "rev-parse", `HEAD:${sourcePaths[0]}/README.md`),
+      git(rootDir, "rev-parse", `HEAD:${sourcePaths[1]}/README.md`),
+      "Git stores the same canonical blob for the same input under either setting",
+    );
+    cell = await openRepoCell({
+      repoId: workspaceId("directory-autocrlf-digest"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "directory-autocrlf-center",
+      now: () => "2026-09-05T03:00:00.000Z",
+    });
+
+    const versions = await Promise.all(
+      sourcePaths.map(async (sourcePath) => {
+        const receipt = await cell!.run(
+            { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+            binding,
+          ),
+          preview = (
+            JSON.parse(String(receipt.evidence)) as {
+              preview: { candidateContentVersion: string };
+            }
+          ).preview;
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        return preview.candidateContentVersion;
+      }),
+    );
+    assert.equal(versions[0], versions[1]);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Artifact import publishes original bytes to Git and the worktree independently of the source", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-binary-artifact-import-")),
     sourcePath = "evidence/raw.pdf",

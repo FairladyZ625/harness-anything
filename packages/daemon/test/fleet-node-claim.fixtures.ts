@@ -61,6 +61,7 @@ export async function fleetNodeClaimFixture(
   await seedRepository?.(repo);
   const key = readFileSync(new URL("./fixtures/test-localhost.key.pem", import.meta.url)),
     cert = readFileSync(new URL("./fixtures/test-localhost.cert.pem", import.meta.url));
+  writeFileSync(path.join(root, "tls.key"), key);
   writeFileSync(path.join(root, "tls.crt"), cert);
   const owners = await fleetNodeOwners({
     userRoot,
