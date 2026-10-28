@@ -69,14 +69,17 @@ export function incidentActionFromRecord(record: Readonly<Record<string, unknown
     (record.successorDispatchId !== null && typeof record.successorDispatchId !== "string")
   )
     return null;
-  const budget = record.budget;
+  const budget = record.budget,
+    attention = incidentAttention(action, record);
   if (budget !== null && !validBudget(budget)) return null;
+  if (attention === undefined) return null;
   return {
     pointId: record.pointId,
     questionVersion: record.questionVersion,
     status: status as "applied" | "failed",
     selected: record.selected,
     action: action as "resume" | "rerun" | "needs_attention" | "no_action",
+    attention,
     reason: (record.reason ?? null) as string | null,
     successorDispatchId: (record.successorDispatchId ?? null) as string | null,
     budget: (budget ?? null) as SettledIncidentAction["budget"],
@@ -110,12 +113,29 @@ export function dismissIncidentActionReceipt(
     status: "applied",
     selected: "no_action",
     action: "no_action",
+    attention: null,
     reason,
     successorDispatchId: null,
     budget: null,
     decidedAt,
   });
   return { settled: "dismissed" };
+}
+
+/** A settled action's owner-attention kind. `undefined` means a stored value this daemon never
+ * writes; `null` means the action cannot need owner attention. Receipts written before the field
+ * existed are mapped once here, at the boundary both readers share. */
+function incidentAttention(
+  action: string,
+  record: Readonly<Record<string, unknown>>,
+): "question" | "guard" | null | undefined {
+  const stored = record.attention;
+  if (stored !== undefined && stored !== null && stored !== "question" && stored !== "guard") return undefined;
+  if (action !== "needs_attention") return null;
+  if (stored === "question" || stored === "guard") return stored;
+  // The old writer used `question:` for both real asks and guard refusals. Preserve the legacy
+  // question reading here rather than making every historical ask disappear from the ruling queue.
+  return typeof record.reason === "string" && record.reason.startsWith("question:") ? "question" : "guard";
 }
 
 function validBudget(value: unknown): boolean {

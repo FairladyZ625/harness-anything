@@ -9,7 +9,8 @@ export type AgendaAttentionKind =
   | "archive"
   | "audit-finding"
   | "unsubmitted-delivery"
-  | "ruling";
+  | "ruling"
+  | "needs-handling";
 
 export type AgendaAttentionRegion = "mine" | "stuck";
 
@@ -34,6 +35,8 @@ const BASE = {
   answered: ["已答复待跟进", 30],
   // 无人值守派工停下等业主裁决:球完全在业主手里,分数紧随「等你答复」。
   ruling: ["等待业主裁决", 96],
+  // 自动处置被守卫拒绝:要 CEO 处理,但不是 worker/provider 提出的问题,不能冒充裁决。
+  "needs-handling": ["需要 CEO 处理", 80],
   archive: ["已结束可归档", 5],
   "audit-finding": ["审计发现", 85],
   "unsubmitted-delivery": ["未提交交付", 80],

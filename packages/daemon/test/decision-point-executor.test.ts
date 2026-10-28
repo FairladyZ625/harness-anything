@@ -917,8 +917,11 @@ test("the deterministic default still escalates when a guard forbids every autom
   assert.equal(relates.length, 0, "an escalation rides the durable receipt, not a second relation");
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.action?.attention, "guard");
+  assert.match(String(stored[0]?.action?.reason), /^needs_attention:/u);
   assert.match(String(stored[0]?.action?.reason), /budget is exhausted/u);
   assert.match(String(stored[0]?.action?.reason), /Decisions API unavailable/u);
+  assert.doesNotMatch(String(stored[0]?.action?.reason), /question:/u);
 });
 test("two concurrent outcome callbacks reserve once, ask once and launch once", async (t) => {
   const rootDir = isolatedRoot();
@@ -980,7 +983,10 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored.length, 1);
   assert.equal(stored[0]?.action?.action, "needs_attention");
+  assert.equal(stored[0]?.action?.attention, "guard");
   assert.equal(stored[0]?.action?.status, "applied");
+  assert.match(String(stored[0]?.action?.reason), /^needs_attention:/u);
+  assert.doesNotMatch(String(stored[0]?.action?.reason), /question:/u);
   assert.deepEqual(stored[0]?.action?.budget, { used: 1, limit: 1, source: "repository" });
 });
 

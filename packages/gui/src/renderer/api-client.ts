@@ -804,6 +804,7 @@ function isAgendaRulingRow(value: unknown): value is AgendaRulingRow {
     typeof value.pinned === "boolean" &&
     typeof value.dispatchId === "string" &&
     typeof value.executionId === "string" &&
+    (value.attention === "question" || value.attention === "guard") &&
     typeof value.question === "string" &&
     Array.isArray(value.options) &&
     value.options.every((option) => typeof option === "string") &&

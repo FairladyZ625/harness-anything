@@ -256,6 +256,7 @@ export interface AgentRuntimeSessionGroupRoundDto {
     | "provider_quota"
     | "worker_stop"
     | "awaiting_ruling"
+    | "needs_attention"
     | "gate_red"
     | "completed_without_final_text"
     | null;
@@ -799,6 +800,7 @@ function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGro
         "provider_quota",
         "worker_stop",
         "awaiting_ruling",
+        "needs_attention",
         "gate_red",
         "completed_without_final_text",
       ].includes(String(value.classification))) &&

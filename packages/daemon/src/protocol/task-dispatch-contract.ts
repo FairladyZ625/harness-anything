@@ -44,6 +44,9 @@ export type TaskDispatchDecisionAction =
       readonly status: "applied" | "failed";
       readonly selected: string;
       readonly action: "resume" | "rerun" | "needs_attention" | "no_action";
+      /** Why an owner escalation needs attention: a real `question`, or a `guard` refusal that is
+       * CEO handling work but not a ruling request. `null` for every non-escalation action. */
+      readonly attention: "question" | "guard" | null;
       readonly reason: string | null;
       readonly successorDispatchId: string | null;
       readonly budget: { readonly used: number; readonly limit: number; readonly source: "task" | "repository" } | null;
@@ -92,6 +95,7 @@ export interface TaskDispatchRow {
     | "provider_quota"
     | "worker_stop"
     | "awaiting_ruling"
+    | "needs_attention"
     | "gate_red"
     | "completed_without_final_text"
     | null;

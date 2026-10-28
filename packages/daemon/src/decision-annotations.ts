@@ -33,6 +33,8 @@ export interface DecisionActionRecord {
   readonly dispatchId: string;
   readonly selected: string;
   readonly action: "resume" | "rerun" | "needs_attention" | "no_action";
+  /** Why a needs_attention action is owner business: a real question, or a guard refusal. */
+  readonly attention: "question" | "guard" | null;
   readonly status: "applied" | "failed";
   readonly reason: string | null;
   readonly successorDispatchId: string | null;
