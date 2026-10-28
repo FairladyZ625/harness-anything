@@ -10,3 +10,5 @@ export type { DecisionProjectionRow } from "./projection/decision-event-projecti
 export type { FactProjectionRow } from "./projection/fact-event-projection.ts";
 export type { FactAnchorRow, RelationFactRow, RelationGraphEdgeRow } from "./projection/relation-graph-projection.ts";
 export type { ProjectionWarning } from "./projection/types.ts";
+
+export { todoIsOpen, type Todo } from "./domain/todo.ts";

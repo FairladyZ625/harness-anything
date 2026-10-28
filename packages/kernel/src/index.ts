@@ -387,3 +387,7 @@ export type { GateRun, CompletionWitnessResult } from "./domain/gate-run.ts";
 export { completionPredicateIssues } from "./schemas/completion-predicate.ts";
 
 export { compileGateRunChange } from "./domain/gate-run-publication.ts";
+
+export { todoIsOpen, changeTodo, type Todo } from "./domain/todo.ts";
+
+export { compileRelationCreatedEvent } from "./domain/relation-event.ts";

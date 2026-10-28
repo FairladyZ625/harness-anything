@@ -4,6 +4,7 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+import { todoGuiActions } from "./daemon-protocol-gui-todo.ts";
 import { entityDeclarationGuiActions, entityImportGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
 import { taskCompletionGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
 import {
@@ -293,6 +294,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/docs",
     "repo-read",
   ),
+  ...todoGuiActions,
   ...entityImportGuiActions,
   // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs
   // (repo-cell-api → waitForReceiptAcceptance); `ha` settles every write through them.

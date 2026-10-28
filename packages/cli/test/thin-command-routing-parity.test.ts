@@ -482,6 +482,16 @@ test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(cliCapabilities, {
     access: ["permission-request-create", "permission-request-decide", "permission-request-withdraw"],
     agenda: ["agenda"],
+    todo: [
+      "todo-add",
+      "todo-archive",
+      "todo-done",
+      "todo-list",
+      "todo-promote",
+      "todo-relate",
+      "todo-reopen",
+      "todo-show",
+    ],
     backup: ["backup-retention", "ledger-backup"],
     bootstrap: ["rbac-bootstrap"],
     agent: [

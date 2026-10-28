@@ -24,6 +24,7 @@ export type ViewId =
   | "overview"
   | "work"
   | "agenda"
+  | "todos"
   | "workspace"
   | "board"
   | "collaboration"

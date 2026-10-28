@@ -14,6 +14,7 @@ import { formatEntityRef, parseEntityRef } from "../../src/domain/entity-ref.ts"
 
 const actor = { principal: { personId: "person-base-entity" }, executor: null };
 const identityByKind: Readonly<Record<EntityKind, string>> = {
+  todo: "todo_0123456789abcdef01234567",
   task: "task_01K7ZBASEENTITY",
   fact: "F-BASEENTITY",
   decision: "dec_BASEENTITY",
@@ -30,7 +31,7 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   relation: "rel_b75516c583945a52",
 };
 
-test("all thirteen registered kinds are referenceable relation endpoints from one type contract", () => {
+test("all registered kinds are referenceable relation endpoints from one type contract", () => {
   const registeredKinds = entityKindContracts.map(({ kind }) => kind).sort();
   const referenceableKinds: EntityKind[] = [];
   const endpointKinds: EntityKind[] = [];
@@ -47,7 +48,7 @@ test("all thirteen registered kinds are referenceable relation endpoints from on
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 13);
+  assert.equal(registeredKinds.length, 14);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
   assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {

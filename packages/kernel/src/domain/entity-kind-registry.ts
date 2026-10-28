@@ -1,3 +1,5 @@
+import { todoSchema } from "./todo.ts";
+import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
@@ -741,6 +743,20 @@ export const entityKindContracts = withDeclaredEntityActions([
     actionCatalog: relationActionCatalog,
     entityStore: null,
     authoring: { kind: "relation-event", contractRef: "relation-event/v1" },
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "todo",
+    ...entityTypeContractFields("todo"),
+    schema: todoSchema,
+    relations: {
+      directions: ["directed"],
+      edges: canonicalRelationDirections.filter((edge) => edge.sourceKind === "todo"),
+    },
+    canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
+    actionCatalog: createTodoActionCatalog((id) => entityAction("todo", requireEntityTypeContract("todo").id, id)),
+    entityStore: genericEntityStore("todos/{id}.json"),
+    authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
   },
   {

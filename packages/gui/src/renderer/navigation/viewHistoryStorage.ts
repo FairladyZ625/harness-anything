@@ -46,6 +46,7 @@ const VIEW_ID_LIST = [
   "overview",
   "work",
   "agenda",
+  "todos",
   "workspace",
   "board",
   "collaboration",

@@ -239,6 +239,18 @@ function resourceName(resource: AuthorizationResource): string {
  */
 function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCellAction>[0]): AuthorizationDecision {
   switch (input.action.kind) {
+    case "todo-add":
+      return authorizeRepoCellAction(input);
+    case "todo-done":
+      return authorizeRepoCellAction(input);
+    case "todo-reopen":
+      return authorizeRepoCellAction(input);
+    case "todo-archive":
+      return authorizeRepoCellAction(input);
+    case "todo-relate":
+      return authorizeRepoCellAction(input);
+    case "todo-promote":
+      return authorizeRepoCellAction(input);
     case "agent-assign":
       return authorizeRepoCellAction(input);
     case "agent-delete":
@@ -785,6 +797,7 @@ function actionTarget(action: RepoTaskAction): EntityRef {
     ["task", action.taskId],
     ["decision", action.decisionId],
     ["fact", action.factId],
+    ["todo", action.todoId],
     ["execution", action.executionId],
     ["schedule", action.scheduleId],
     ["agent", action.agentId],

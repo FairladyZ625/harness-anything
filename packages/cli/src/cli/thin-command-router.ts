@@ -249,6 +249,22 @@ export function parseRouted(
     );
   }
   if (rootCommand === "doc") return parseDoc(route.id, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "todo") {
+    const field = route.id === "todo-add" ? "text" : "todoId";
+    const positional = route.id === "todo-list" ? {} : { [field]: args[2] };
+    if (route.id !== "todo-list" && !nonEmpty(args[2])) return rejected("missing_field", `Use ${route.usage}.`, json);
+    return parseProjected(
+      route.id,
+      args.slice(route.id === "todo-list" ? 2 : 3),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      positional,
+      {},
+      route.method,
+    );
+  }
   if (rootCommand === "fact") return parseFact(route.id, args, rootDir, repoId, json, inputs);
   if (rootCommand === "decision") return parseDecision(route, args, rootDir, repoId, json, inputs);
   if (route.id === "distill-candidate" || route.id === "distill-promote")

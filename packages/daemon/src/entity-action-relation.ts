@@ -429,7 +429,7 @@ function relationTargetWitness(
   };
 }
 
-function relationDocumentUpdates(
+export function relationDocumentUpdates(
   projection: TaskProjection,
   event: RelationEventV1,
   current: ReturnType<TaskProjection["readRelationEdge"]>,

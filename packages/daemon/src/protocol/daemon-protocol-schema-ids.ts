@@ -126,6 +126,7 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "awaitingYou",
     "answeredForYou",
     "attentionItems",
+    "todos",
     "regionWeights",
     "inFlight",
     "stalled",

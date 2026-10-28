@@ -1,5 +1,12 @@
 /** Presentation is declared beside the action; policy evaluation does not consume it. */
 export const actionPresentation = {
+  "todo-add": { domain: "todo", name: "添加待办", description: "记录一句话待办。" },
+  "todo-done": { domain: "todo", name: "完成待办", description: "勾选完成并收起。" },
+  "todo-archive": { domain: "todo", name: "归档待办", description: "将待办收纳到归档。" },
+  "todo-reopen": { domain: "todo", name: "找回待办", description: "恢复到未完成清单。" },
+  "todo-relate": { domain: "todo", name: "关联待办", description: "为待办添加可选关系。" },
+  "todo-promote": { domain: "todo", name: "升级待办", description: "创建任务并关联原待办。" },
+
   "repository-read": { domain: "repository", name: "读取仓库", description: "查看获授权仓库中的内容。" },
   "agent-assign": { domain: "agent", name: "指派代理", description: "将代理配置指派给人员、工作组或节点。" },
   "agent-unassign": { domain: "agent", name: "取消代理指派", description: "解除代理配置的当前指派。" },
@@ -422,6 +429,12 @@ export const actionDeclarations = Object.freeze([
   runtimeAdmin("runtime-instance-update"),
   canonical("runtime-run", null, "repo-write"),
   canonical("runtime-spawn", null, "repo-write"),
+  canonical("todo-add", "todo/add", "repo-write"),
+  canonical("todo-done", "todo/done", "repo-write"),
+  canonical("todo-archive", "todo/archive", "repo-write"),
+  canonical("todo-reopen", "todo/reopen", "repo-write"),
+  canonical("todo-relate", "todo/relate", "repo-write"),
+  canonical("todo-promote", "todo/promote", "repo-write"),
   canonical("schedule-claim", "schedule/claim", "repo-write"),
   canonical("schedule-assign", "schedule/assign", "repo-write"),
   canonical("schedule-create", "schedule/create", "repo-write"),

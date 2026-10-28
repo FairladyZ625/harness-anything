@@ -295,6 +295,7 @@ test("agenda labels each task row with its nearest work root and --work keeps on
     projection = {
       ...stub,
       read: (taskId: string) => ({ ...readyCut, packagePath: null, snapshot: byId.get(taskId)?.snapshot ?? {} }),
+      listEntities: () => [],
       readTaskIndex: () => ({
         ...readyCut,
         rows: rows.map(({ taskId, snapshot: { task } }) => ({
@@ -1392,6 +1393,7 @@ function projectionStub(
     decisionAgendaRows = options.decisionAgenda ?? [],
     decisions = options.decisions ?? {};
   return {
+    listEntities: () => [],
     readTaskIndex: () => ({
       ...cut,
       page: null,
