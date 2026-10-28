@@ -1386,6 +1386,42 @@ describe("runtime entry split (W6 IA)", () => {
     expect(probe).toHaveBeenCalledWith("provider-selected", "repo-a");
   });
 
+  it("does not repeat an authentication probe when the catalog is reread without an auth change", async () => {
+    const unchecked = {
+      ...providerInstance,
+      authState: "unknown" as const,
+      authReadiness: { status: "not-ready" as const, code: "runtime_auth_not_checked", hint: "not checked" },
+    };
+    const probe = vi.spyOn(runtimeInstanceClient, "probe").mockResolvedValue({
+      ...unchecked,
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+    });
+    await mountProviders("provider/provider-edit");
+    const client = mounted.at(-1)!.client;
+    const publishCatalog = async (instance: typeof unchecked) => {
+      await act(async () => {
+        client.setQueryData(runtimeInstanceCatalogQuery("repo-a").queryKey, {
+          instances: [instance],
+          installations: providerInstallations,
+        });
+      });
+      await flushEffects();
+    };
+
+    await publishCatalog(unchecked);
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    // A catalog reread (same instance values, new object and read timestamp) is what an
+    // enable/disable receipt triggers. Auth did not change, so the answer is reused.
+    await publishCatalog({ ...unchecked });
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    // Rebinding the installation does change the answer, so it probes again.
+    await publishCatalog({ ...unchecked, installationId: "codex-install-b" });
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the provider draft while an update is pending or rejected, then closes on success", async () => {
     let reject!: (error: Error) => void;
     const update = vi.spyOn(runtimeInstanceClient, "update").mockImplementation(

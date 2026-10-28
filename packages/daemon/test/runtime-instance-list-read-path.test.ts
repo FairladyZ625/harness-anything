@@ -95,6 +95,110 @@ test("runtime instance list serves the recorded observations instead of re-witne
   }
 });
 
+test("a config-only update reuses the recorded witness; only an installation binding re-witnesses", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-update-read-path-")),
+    userRoot = path.join(parent, "user");
+  let discoveries = 0;
+  const host = await openDaemonHost({
+    daemonId: "runtime-update-read-path",
+    userRoot,
+    runtimeDiscover: () => {
+      discoveries += 1;
+      return [codexWitness];
+    },
+  });
+  try {
+    const created = (await host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "codex-config-only",
+        name: "Codex config only",
+        kindId: "codex",
+        installationId: codexWitness.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        authMode: "subscription",
+      },
+      auth,
+    )) as Record<string, unknown>;
+    assert.equal(created.ok, true, JSON.stringify(created));
+    discoveries = 0;
+
+    // Enabling/disabling and renaming never read the witness snapshot: the toggle is a config
+    // write, so re-running every provider CLI here only delays the receipt behind a catalog reread.
+    for (const patch of [{ enabled: false }, { enabled: true }, { name: "Codex renamed" }]) {
+      const updated = (await host.runtimeInstance(
+        "daemon.runtimeInstance.update",
+        { instanceId: "codex-config-only", ...patch },
+        auth,
+      )) as Record<string, unknown>;
+      assert.equal(updated.ok, true, JSON.stringify(updated));
+      assert.equal(discoveries, 0, `config-only update ${JSON.stringify(patch)} must not re-witness`);
+    }
+
+    // Binding an installation is the one update that consumes a fresh witness.
+    const rebound = (await host.runtimeInstance(
+      "daemon.runtimeInstance.update",
+      { instanceId: "codex-config-only", installationId: codexWitness.installationId },
+      auth,
+    )) as Record<string, unknown>;
+    assert.equal(rebound.ok, true, JSON.stringify(rebound));
+    assert.equal(discoveries, 1, "an installation binding still observes the machine");
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("the first update on a machine with no recorded witness still observes the machine", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-update-bootstrap-")),
+    userRoot = path.join(parent, "user");
+  // An instance can predate the recorded-installations file (the store's create writes instances,
+  // not witnesses). Its first update must still see the witness so legacy identity migration can
+  // run; only once the machine has a record may config-only updates skip discovery.
+  const seed = openRuntimeInstanceStore({ userRoot, discover: () => [codexWitness] });
+  seed.command({
+    kind: "runtime-instance-create",
+    instanceId: "codex-legacy-first-update",
+    name: "Codex legacy",
+    kindId: "codex",
+    installationId: codexWitness.installationId,
+    providerId: "openai",
+    models: ["gpt-5.6-sol"],
+    authMode: "subscription",
+  });
+  let discoveries = 0;
+  const host = await openDaemonHost({
+    daemonId: "runtime-update-bootstrap",
+    userRoot,
+    runtimeDiscover: () => {
+      discoveries += 1;
+      return [codexWitness];
+    },
+  });
+  try {
+    const first = (await host.runtimeInstance(
+      "daemon.runtimeInstance.update",
+      { instanceId: "codex-legacy-first-update", enabled: false },
+      auth,
+    )) as Record<string, unknown>;
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(discoveries, 1, "the first update on an unrecorded machine still observes");
+
+    discoveries = 0;
+    const second = (await host.runtimeInstance(
+      "daemon.runtimeInstance.update",
+      { instanceId: "codex-legacy-first-update", enabled: true },
+      auth,
+    )) as Record<string, unknown>;
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(discoveries, 0, "a recorded witness makes later config-only updates cheap");
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("a steady-state list starts no provider process, and a probe still does", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-list-no-spawn-")),
     userRoot = path.join(parent, "user"),
