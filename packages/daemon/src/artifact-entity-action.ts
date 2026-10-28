@@ -21,6 +21,7 @@ import {
   compileVerticalContract,
   pinnedArtifactKindContract,
   composeCanonicalRelationDirections,
+  resolveGovernedRelationAuthority,
   ARTIFACT_ENTITY_ID_BYTES,
   entityDocumentPath,
   entityContentRoot,
@@ -64,14 +65,18 @@ export function canonicalVertical(
 ): {
   readonly revision: number;
   readonly contract: CompiledVerticalContract;
+  readonly authority: ReturnType<typeof resolveGovernedRelationAuthority>;
 } {
   const { revision, definition } = requireCanonicalVerticalDeclaration(projection),
-    key = `${repositoryId}\0${revision}`,
+    authority = resolveGovernedRelationAuthority(projection, definition),
+    // A declaration's meaning depends on the decisions it cites, so the cache key carries the
+    // resolved authority as well as the declaration revision.
+    key = `${repositoryId}\0${revision}\0${JSON.stringify(authority)}`,
     cached = compiledVerticals.get(key);
-  if (cached) return { revision, contract: cached };
-  const compiled = compileVerticalContract(definition);
+  if (cached) return { revision, contract: cached, authority };
+  const compiled = compileVerticalContract(definition, authority);
   compiledVerticals.set(key, compiled);
-  return { revision, contract: compiled };
+  return { revision, contract: compiled, authority };
 }
 
 export function compiledArtifactKinds(
@@ -117,10 +122,12 @@ export function relationDirectionRegistry(
   repositoryId: string,
 ): readonly CanonicalRelationDirection[] {
   const vertical = canonicalVertical(projection, repositoryId),
-    key = `${repositoryId}\0${vertical.revision}`,
+    key = `${repositoryId}\0${vertical.revision}\0${JSON.stringify(vertical.authority)}`,
     cached = compiledDirections.get(key);
   if (cached) return cached;
-  const directions = composeCanonicalRelationDirections(compiledRelationDirections(vertical.contract));
+  const directions = composeCanonicalRelationDirections(
+    compiledRelationDirections(vertical.contract, vertical.authority),
+  );
   compiledDirections.set(key, directions);
   return directions;
 }

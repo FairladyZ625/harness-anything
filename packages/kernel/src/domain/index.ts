@@ -259,6 +259,7 @@ export {
   pinnedArtifactKindContract,
 } from "./vertical-contract.ts";
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
+export { resolveGovernedRelationAuthority } from "./governed-relation-authority.ts";
 export { composeCanonicalRelationDirections, declaredRelationTriples } from "./relation-direction.ts";
 export type { CanonicalRelationDirection } from "./relation-direction.ts";
 export { findRelationCycleWitnesses } from "./relation-cycle.ts";

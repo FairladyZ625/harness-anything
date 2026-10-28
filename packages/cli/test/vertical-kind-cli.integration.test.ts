@@ -190,6 +190,65 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
     assert.equal(movedStore.code, "destructive_kind_change", JSON.stringify(movedStore));
     assert.match(String(movedStore.rejectionExplanation), /pathTemplate is immutable/u, JSON.stringify(movedStore));
 
+    // Identity facets that shape every stored descriptor are immutable for the same reason: changing
+    // them would leave already-imported instances unable to update or archive.
+    const movedDescriptor = await runCli(cell, root, [
+      "vertical",
+      "kind",
+      "upsert",
+      "--kind",
+      kindRef,
+      "--declaration",
+      JSON.stringify({ ...externalDocument, descriptorSchemaRef: "schema://task-frontmatter" }),
+      "--expected-version",
+      String(kindRevision),
+    ]);
+    assert.equal(movedDescriptor.outcome, "op_rejected", JSON.stringify(movedDescriptor));
+    assert.equal(movedDescriptor.code, "destructive_kind_change", JSON.stringify(movedDescriptor));
+    assert.match(
+      String(movedDescriptor.rejectionExplanation),
+      /descriptorSchemaRef is immutable/u,
+      JSON.stringify(movedDescriptor),
+    );
+
+    const movedLocators = await runCli(cell, root, [
+      "vertical",
+      "kind",
+      "upsert",
+      "--kind",
+      kindRef,
+      "--declaration",
+      JSON.stringify({ ...externalDocument, locatorKinds: ["url"] }),
+      "--expected-version",
+      String(kindRevision),
+    ]);
+    assert.equal(movedLocators.outcome, "op_rejected", JSON.stringify(movedLocators));
+    assert.equal(movedLocators.code, "destructive_kind_change", JSON.stringify(movedLocators));
+    assert.match(
+      String(movedLocators.rejectionExplanation),
+      /locatorKinds are immutable/u,
+      JSON.stringify(movedLocators),
+    );
+
+    const lifecycleViaUpsert = await runCli(cell, root, [
+      "vertical",
+      "kind",
+      "upsert",
+      "--kind",
+      kindRef,
+      "--declaration",
+      JSON.stringify({ ...externalDocument, retired: false }),
+      "--expected-version",
+      String(kindRevision),
+    ]);
+    assert.equal(lifecycleViaUpsert.outcome, "op_rejected", JSON.stringify(lifecycleViaUpsert));
+    assert.equal(lifecycleViaUpsert.code, "destructive_kind_change", JSON.stringify(lifecycleViaUpsert));
+    assert.match(
+      String(lifecycleViaUpsert.rejectionExplanation),
+      /Retirement is not an upsert facet/u,
+      JSON.stringify(lifecycleViaUpsert),
+    );
+
     const duplicateCreate = await runCli(cell, root, [
       "vertical",
       "kind",
@@ -288,6 +347,36 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
     assert.equal(entity.value.kindVersion, 2);
     assert.deepEqual(entity.value.attributes, { category: "meeting-minutes", owner: "qa" });
 
+    // A facet change is refused after instances exist too, and the stored instance keeps updating
+    // under the descriptor it was imported with instead of becoming permanently unmaintainable.
+    const locatorsAfterImport = await runCli(cell, root, [
+      "vertical",
+      "kind",
+      "upsert",
+      "--kind",
+      kindRef,
+      "--declaration",
+      JSON.stringify({ ...externalDocument, locatorKinds: ["url"] }),
+      "--expected-version",
+      String(v2Revision),
+    ]);
+    assert.equal(locatorsAfterImport.code, "destructive_kind_change", JSON.stringify(locatorsAfterImport));
+    const updatedEntity = await runCli(cell, root, [
+      "entity",
+      "update",
+      kindRef,
+      "--id",
+      entityId,
+      "--expected-version",
+      String(imported.revision),
+      "--attributes",
+      JSON.stringify({ category: "meeting-minutes", owner: "lead" }),
+    ]);
+    assert.equal(updatedEntity.outcome, "applied", JSON.stringify(updatedEntity));
+    const reread = await runCli(cell, root, ["entity", "get", kindRef, "--id", entityId]),
+      rereadEntity = (evidence(reread) as { entity: { value: { attributes: unknown } } }).entity;
+    assert.deepEqual(rereadEntity.value.attributes, { category: "meeting-minutes", owner: "lead" });
+
     // 7. Attach a real Relation from the imported entity to a task, using only the CLI command shape.
     const task = await cell.run(
       { kind: "task-create", taskId: "task_external_document", title: "External document relation target" },
@@ -335,6 +424,47 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
       String(v2Revision),
     ]);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+
+    // Retirement is not an upsert facet: the archived Kind cannot be resurrected or have its reason
+    // rewritten, and it stays closed to new imports.
+    const resurrection = await runCli(cell, root, [
+      "vertical",
+      "kind",
+      "upsert",
+      "--kind",
+      kindRef,
+      "--declaration",
+      JSON.stringify({ ...externalDocument, retired: false }),
+      "--expected-version",
+      String(retired.revision),
+    ]);
+    assert.equal(resurrection.outcome, "op_rejected", JSON.stringify(resurrection));
+    assert.equal(resurrection.code, "destructive_kind_change", JSON.stringify(resurrection));
+    const reasonRewrite = await runCli(cell, root, [
+      "vertical",
+      "kind",
+      "upsert",
+      "--kind",
+      kindRef,
+      "--declaration",
+      JSON.stringify({ ...externalDocument, reason: "rewritten reason" }),
+      "--expected-version",
+      String(retired.revision),
+    ]);
+    assert.equal(reasonRewrite.code, "destructive_kind_change", JSON.stringify(reasonRewrite));
+    const importAfterRetire = await runCli(cell, root, [
+      "entity",
+      "import",
+      "--kind",
+      kindRef,
+      "--locator",
+      sourcePath,
+      "--expected-version",
+      "0",
+      "--attributes",
+      JSON.stringify({ category: "meeting-minutes", owner: "qa" }),
+    ]);
+    assert.equal(importAfterRetire.outcome, "op_rejected", JSON.stringify(importAfterRetire));
 
     const active = await runCli(cell, root, ["vertical", "kind", "list"]),
       activeKinds = (evidence(active) as { kinds: readonly { kindRef?: string; id: string }[] }).kinds;

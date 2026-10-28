@@ -6,12 +6,17 @@ import {
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
-  workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
 /** History pages accept 1..500 rows; the reader enforces the same bound. */
 const agentHistoryLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
+// `ha vertical kind upsert` reads the declaration in the calling CLI (the fleet channel forwards one
+// object, and `kindId` may default from the file), so its path is relative to the selected root —
+// `--root` or the current directory — not to the center's workspace root that `workspacePathFormat`
+// names. Reusing that wording here told callers the wrong directory.
+const callerRootPathFormat =
+  "<path; relative paths resolve from the selected root (--root), defaulting to the current directory>";
 
 export const agentProtocolCommands = Object.freeze([
   // Artifact kind authoring is a CLI surface over the same center actions the GUI calls. The five
@@ -62,7 +67,7 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
-          format: workspacePathFormat,
+          format: callerRootPathFormat,
           conflictsWith: ["--declaration"],
           jsonFields: [
             "id",
@@ -88,9 +93,6 @@ export const agentProtocolCommands = Object.freeze([
             "kindId",
             "revision",
             "schemaVersions",
-            "retired",
-            "retiredAt",
-            "reason",
           ],
         },
       ),

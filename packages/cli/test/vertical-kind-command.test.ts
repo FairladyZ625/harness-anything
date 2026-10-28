@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -153,4 +153,24 @@ test("Artifact kind command failures name the fence and the declaration repair",
   assert.equal(both.ok ? "ok" : both.code, "invalid_field");
   assert.equal(noDeclaration.ok ? "ok" : noDeclaration.code, "missing_field");
   assert.equal(unknown.ok ? "ok" : unknown.code, "unknown_field");
+});
+
+test("upsert --from-file resolves from the selected root, defaulting to the caller's directory", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-vertical-kind-path-")),
+    sub = path.join(root, "nested");
+  try {
+    mkdirSync(sub);
+    writeFileSync(path.join(root, "external-document.json"), JSON.stringify(declaration));
+    const argv = ["vertical", "kind", "upsert", "--from-file", "external-document.json", "--expected-version", "0"],
+      fromSelectedRoot = parseThinCommand(argv, root),
+      fromCallerDirectory = parseThinCommand(argv, sub),
+      explicitRoot = parseThinCommand(["--root", root, ...argv], sub);
+    assert.equal(fromSelectedRoot.ok, true, JSON.stringify(fromSelectedRoot));
+    // The help states this rule: a relative path starts at the selected root, which is the current
+    // directory unless --root names another workspace.
+    assert.equal(fromCallerDirectory.ok ? "ok" : fromCallerDirectory.code, "invalid_field");
+    assert.equal(explicitRoot.ok, true, JSON.stringify(explicitRoot));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
