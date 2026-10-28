@@ -91,7 +91,7 @@ export function launchArgs(
             "--config",
             `permissions.harness-callback-relay.extends=${tomlString(callbackProfileParent)}`,
             ...(permissionMode === "workspace-write"
-              ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="read",":tmpdir"="read"}']
+              ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}']
               : []),
             "--config",
             `permissions.harness-callback-relay.network.unix_sockets={${tomlString(callbackRelayPath)}="allow"}`,

@@ -241,7 +241,7 @@ test("Codex callback socket grant is emitted once for fresh and resume with work
       "--config",
       'permissions.harness-callback-relay.extends=":workspace"',
       "--config",
-      'permissions.harness-callback-relay.filesystem={":slash_tmp"="read",":tmpdir"="read"}',
+      'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}',
       "--config",
       `permissions.harness-callback-relay.network.unix_sockets={"${relayPath}"="allow"}`,
     ];
