@@ -49,7 +49,11 @@ export type TaskDispatchDecisionAction =
       readonly attention: "question" | "guard" | null;
       readonly reason: string | null;
       readonly successorDispatchId: string | null;
-      readonly budget: { readonly used: number; readonly limit: number; readonly source: "task" | "repository" } | null;
+      readonly budget: {
+        readonly used: number;
+        readonly limit: number;
+        readonly source: "task" | "repository" | "daemon";
+      } | null;
       readonly decidedAt: string;
     };
 

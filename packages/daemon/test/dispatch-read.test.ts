@@ -1141,7 +1141,7 @@ test("a guard escalation is needs_attention rather than a fabricated awaiting-ru
     attention: "guard",
     reason,
     successorDispatchId: null,
-    budget: { used: 3, limit: 3, source: "repository" },
+    budget: { used: 3, limit: 3, source: "daemon" },
     decidedAt: "2026-10-19T00:00:01.000Z",
   });
 

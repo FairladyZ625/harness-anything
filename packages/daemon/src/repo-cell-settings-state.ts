@@ -275,9 +275,11 @@ function authoredInitializationOf(settings: SettingsV1, documentBody: string): A
 }
 
 /**
- * The one automatic rework round limit: the repository `reviewReturnBudget` setting, or the
- * bootstrap default before Settings are projected. A changes_requested verdict below it reopens
- * the implementation round; at or beyond it the cut awaits the owner.
+ * The review-return round limit: the repository `reviewReturnBudget` setting, or the bootstrap
+ * default before Settings are projected. A changes_requested verdict below it reopens the
+ * implementation round; at or beyond it the cut awaits the owner. This budget only governs review
+ * returns; automatic continuation after a no-progress worker stop has its own fixed allowance
+ * (`incidentContinuationBudget`), so raising this setting cannot extend that loop.
  */
 export function readEffectiveReviewReturnBudget(projection: Pick<TaskProjectionQueries, "getEntity">): number {
   const projected = projection.getEntity("settings", "repository")?.value as

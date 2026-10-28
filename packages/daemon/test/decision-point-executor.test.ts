@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,7 +30,11 @@ import {
   openDecisionAnnotationStore,
   readDecisionAnnotationsByDispatch,
 } from "../src/decision-annotations.ts";
-import { appendIncidentActionReceipt, readIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
+import {
+  appendIncidentActionReceipt,
+  incidentContinuationUsed,
+  readIncidentActionReceipt,
+} from "../src/decision-incident-receipt.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   pointId = "dispatch-stop-reason",
@@ -83,6 +88,24 @@ const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
 
 function isolatedRoot(): string {
   return mkdtempSync(path.join(os.tmpdir(), "ha-decision-point-"));
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+/** A real worktree commit is the only way to exercise the measured HEAD path: the daemon runs
+ * `git rev-parse HEAD` on the workspace binding, so the fixture must be a real repository. */
+function commitWorktree(rootDir: string): { readonly path: string; readonly head: string } {
+  const worktree = path.join(rootDir, "worktree");
+  mkdirSync(worktree, { recursive: true });
+  git(worktree, "init", "-q");
+  git(worktree, "config", "user.name", "Decision Point Test");
+  git(worktree, "config", "user.email", "decision-point@example.invalid");
+  writeFileSync(path.join(worktree, "progress.txt"), "progress\n");
+  git(worktree, "add", "progress.txt");
+  git(worktree, "commit", "-qm", "progress");
+  return { path: worktree, head: git(worktree, "rev-parse", "HEAD") };
 }
 
 const testOperatorSession = {
@@ -291,7 +314,7 @@ test("report projection follows the catalog summary cap and rejects empty or tru
   assert.equal(projectDecisionInput({ point, event, report: "[report truncated]" }), null);
 });
 
-test("incident projection keeps missing tool metrics distinct and carries the continuation and effective budget", () => {
+test("incident projection keeps missing tool metrics distinct and carries the continuation streak and fixed budget", () => {
   const event = outcomeEvent() as Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>;
   const incidentPoint = {
     ...point,
@@ -320,13 +343,13 @@ test("incident projection keeps missing tool metrics distinct and carries the co
       exitHead: "a".repeat(40),
       currentHead: "b".repeat(40),
       roundsUsed: 2,
-      reworkBudget: { used: 1, limit: 3, source: "repository" },
+      continuationBudget: { used: 1, limit: 3, source: "daemon" },
     },
   } as never);
   assert.ok(projected);
   assert.match(projected.state, /tool_call_count: unavailable/u);
   assert.match(projected.state, /head_status: changed/u);
-  assert.match(projected.state, /rework_budget: used=1 limit=3 source=repository/u);
+  assert.match(projected.state, /rework_budget: used=1 limit=3 source=daemon/u);
   assert.match(projected.state, /last_conclusion: Tests passed; delivery not submitted\./u);
   assert.deepEqual(projected.fields, [
     "dispatch.classification",
@@ -485,8 +508,9 @@ function fakeIncidentCell(input: {
 }) {
   const spawns: Array<{ readonly payload: Record<string, unknown>; readonly binding: unknown }> = [],
     relates: Array<{ readonly action: Record<string, unknown>; readonly binding: unknown }> = [],
+    runtimeContextReads: Array<Readonly<Record<string, unknown>> | undefined> = [],
     cell = {
-      read: async (method: string) => {
+      read: async (method: string, payload?: Readonly<Record<string, unknown>>) => {
         if (method === "repo.agentRuntime.sessions.read")
           return {
             status: "ready",
@@ -541,7 +565,8 @@ function fakeIncidentCell(input: {
               reviewReturnBudget: input.reviewReturnBudget ?? 3,
             },
           };
-        if (method === "repo.tasks.runtimeContext.read")
+        if (method === "repo.tasks.runtimeContext.read") {
+          runtimeContextReads.push(payload);
           return {
             schema: "task-runtime-context-read/v1",
             ok: true as const,
@@ -557,6 +582,7 @@ function fakeIncidentCell(input: {
               workspace: input.workspace ?? null,
             },
           };
+        }
         throw new Error(`Unexpected fake read ${method}`);
       },
       spawnRuntime: async (payload: Record<string, unknown>, binding: unknown) => {
@@ -569,7 +595,7 @@ function fakeIncidentCell(input: {
         return { outcome: "applied" };
       },
     } as unknown as RepoCell;
-  return { cell, spawns, relates };
+  return { cell, spawns, relates, runtimeContextReads };
 }
 
 /** The action actor comes from the source dispatch's persisted stream binding (fallback-continuation precedent). */
@@ -589,6 +615,26 @@ function seedIncidentStream(rootDir: string, target = dispatchId): void {
       },
       source: "local",
     },
+  });
+}
+
+function seedAppliedIncidentAction(
+  rootDir: string,
+  target: string,
+  budget: { readonly used: number; readonly limit: number; readonly source: "task" | "repository" | "daemon" },
+  decidedAt: string,
+): void {
+  seedIncidentStream(rootDir, target);
+  appendIncidentActionReceipt(rootDir, target, {
+    pointId: incidentPointId,
+    questionVersion: incidentDispositionQuestionVersion,
+    status: "applied",
+    selected: "rerun_same_identity",
+    action: "rerun",
+    reason: null,
+    successorDispatchId: `${target}_successor`,
+    budget,
+    decidedAt,
   });
 }
 
@@ -696,10 +742,10 @@ test("an admissible resume choice launches one successor through the existing sp
   assert.equal(stored[0]?.action?.action, "resume");
   assert.equal(stored[0]?.action?.status, "applied");
   assert.equal(stored[0]?.action?.successorDispatchId, "dispatch_successor_000000000001");
-  assert.deepEqual(stored[0]?.action?.budget, { used: 0, limit: 3, source: "repository" });
+  assert.deepEqual(stored[0]?.action?.budget, { used: 1, limit: 3, source: "daemon" });
   assert.match(requests[0]!, /tool_call_count: 7/u);
   assert.match(requests[0]!, /head_status: no-previous-run/u);
-  assert.match(requests[0]!, /rework_budget: used=0 limit=3 source=repository/u);
+  assert.match(requests[0]!, /rework_budget: used=0 limit=3 source=daemon/u);
   assert.match(requests[0]!, /rounds_used: 1/u);
 });
 
@@ -891,7 +937,7 @@ test("the deterministic default still escalates when a guard forbids every autom
     action: "rerun",
     reason: null,
     successorDispatchId: "dispatch_prior_successor",
-    budget: { used: 0, limit: 3, source: "repository" },
+    budget: { used: 3, limit: 3, source: "daemon" },
     decidedAt: "2026-10-18T00:00:01.000Z",
   });
   const executor = openTestExecutor({
@@ -963,7 +1009,7 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
     action: "rerun",
     reason: null,
     successorDispatchId: "dispatch_prior_successor",
-    budget: { used: 0, limit: 3, source: "repository" },
+    budget: { used: 3, limit: 3, source: "daemon" },
     decidedAt: "2026-10-18T00:00:01.000Z",
   });
   const executor = openTestExecutor({
@@ -987,7 +1033,172 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
   assert.equal(stored[0]?.action?.status, "applied");
   assert.match(String(stored[0]?.action?.reason), /^needs_attention:/u);
   assert.doesNotMatch(String(stored[0]?.action?.reason), /question:/u);
-  assert.deepEqual(stored[0]?.action?.budget, { used: 1, limit: 1, source: "repository" });
+  assert.deepEqual(stored[0]?.action?.budget, { used: 3, limit: 3, source: "daemon" });
+});
+
+test("a measured worktree HEAD change resets the continuation budget even at the limit", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  // Three applied redispatches with the old lifetime counter would exhaust any limit of three.
+  // The latest receipt carries streak 3; the current stop measured a new commit, so it resets.
+  const priorIds = [
+    "dispatch_00000000000000000000b001",
+    "dispatch_00000000000000000000b002",
+    "dispatch_00000000000000000000b003",
+  ];
+  for (const [index, priorId] of priorIds.entries())
+    seedAppliedIncidentAction(
+      rootDir,
+      priorId,
+      { used: index + 1, limit: 3, source: "repository" },
+      `2026-10-18T00:00:0${String(index)}.000Z`,
+    );
+  const worktree = commitWorktree(rootDir);
+  let requestState = "";
+  const executor = openTestExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: {
+          decide: async (request) => {
+            requestState = request.state[0] ?? "";
+            return choiceAnswer("rerun_same_identity");
+          },
+        },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, runtimeContextReads } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      continuationContext: {
+        dispatchId: priorIds[2]!,
+        lastConclusion: "committed progress on the worktree",
+        exitHead: "a".repeat(40),
+      },
+      workspace: { kind: "worktree", path: worktree.path, state: "materialized" },
+      priorDispatches: priorIds.map((priorId) => ({
+        dispatchId: priorId,
+        receipt: readIncidentActionReceipt(rootDir, priorId),
+      })),
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.deepEqual(
+    runtimeContextReads[0],
+    { taskId: "task-1", excludeDispatchId: dispatchId },
+    "the settlement read must skip the dispatch being settled, or HEAD compares with itself",
+  );
+  assert.equal(spawns.length, 1, "a progressing stop must not inherit an exhausted no-progress streak");
+  assert.match(requestState, /head_status: changed/u);
+  assert.match(requestState, /rework_budget: used=0 limit=3 source=daemon/u);
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  if (receipt === null || receipt.status === "claimed") assert.fail("expected an applied receipt");
+  assert.deepEqual(receipt.budget, { used: 0, limit: 3, source: "daemon" });
+});
+
+test("the repository review-return budget does not gate automatic continuation", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const priorId = "dispatch_00000000000000000000c001";
+  seedAppliedIncidentAction(
+    rootDir,
+    priorId,
+    // The old counter made this one applied action equal to reviewReturnBudget: 1. The new
+    // streak reads 1 of 3 and must keep going.
+    { used: 1, limit: 3, source: "repository" },
+    "2026-10-18T00:00:01.000Z",
+  );
+  let requestState = "";
+  const executor = openTestExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: {
+          decide: async (request) => {
+            requestState = request.state[0] ?? "";
+            return choiceAnswer("rerun_same_identity");
+          },
+        },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns, runtimeContextReads } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      reviewReturnBudget: 1,
+      priorDispatches: [{ dispatchId: priorId, receipt: readIncidentActionReceipt(rootDir, priorId) }],
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.deepEqual(runtimeContextReads[0], { taskId: "task-1", excludeDispatchId: dispatchId });
+  assert.equal(spawns.length, 1, "reviewReturnBudget changes must not open or close the continuation gate");
+  assert.match(requestState, /rework_budget: used=1 limit=3 source=daemon/u);
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  if (receipt === null || receipt.status === "claimed") assert.fail("expected an applied receipt");
+  assert.deepEqual(receipt.budget, { used: 2, limit: 3, source: "daemon" });
+});
+
+test("the continuation streak reads the newest recorded disposition and is reset by measured progress", () => {
+  const applied = (used: number, decidedAt: string, action: "resume" | "rerun" | "needs_attention" | "no_action") =>
+      ({
+        pointId: incidentPointId,
+        questionVersion: incidentDispositionQuestionVersion,
+        status: "applied",
+        selected: action === "resume" ? "resume_original" : action === "rerun" ? "rerun_same_identity" : action,
+        action,
+        attention: action === "needs_attention" ? "guard" : null,
+        reason: action === "needs_attention" ? "needs_attention: a guard" : null,
+        successorDispatchId: action === "resume" || action === "rerun" ? "dispatch_successor" : null,
+        budget: { used, limit: 3, source: "daemon" },
+        decidedAt,
+      }) as const,
+    rows = [
+      { decisionAction: applied(2, "2026-10-18T00:00:02.000Z", "rerun") },
+      { decisionAction: applied(1, "2026-10-18T00:00:01.000Z", "resume") },
+      {
+        decisionAction: {
+          pointId: incidentPointId,
+          questionVersion: incidentDispositionQuestionVersion,
+          status: "claimed",
+          decidedAt: "2026-10-18T00:00:03.000Z",
+        } as const,
+      },
+    ];
+  assert.equal(incidentContinuationUsed(rows, false), 2, "the newest recorded disposition carries the streak");
+  assert.equal(incidentContinuationUsed(rows, true), 0, "a measured HEAD change resets the streak");
+  assert.equal(
+    incidentContinuationUsed(
+      [...rows, { decisionAction: applied(0, "2026-10-18T00:00:04.000Z", "needs_attention") }],
+      false,
+    ),
+    0,
+    "a progressing stop that escalates still persists the reset",
+  );
+  assert.equal(
+    incidentContinuationUsed(
+      [
+        {
+          decisionAction: {
+            pointId: incidentPointId,
+            questionVersion: incidentDispositionQuestionVersion,
+            status: "applied",
+            selected: "no_action",
+            action: "no_action",
+            attention: null,
+            reason: "owner dismissed the incident",
+            successorDispatchId: null,
+            budget: null,
+            decidedAt: "2026-10-18T00:00:05.000Z",
+          } as const,
+        },
+      ],
+      false,
+    ),
+    0,
+    "an owner dismissal carries no streak and starts the next count at zero",
+  );
+  assert.equal(incidentContinuationUsed([], false), 0, "a task with no recorded disposition starts at zero");
 });
 
 test("a disabled provider takes the deterministic default instead of waiting for a ruling", async (t) => {
@@ -1131,14 +1342,14 @@ test("incident projection scrubs worker prose before it leaves the daemon", () =
       exitHead: "a".repeat(40),
       currentHead: "b".repeat(40),
       roundsUsed: 2,
-      reworkBudget: { used: 1, limit: 2, source: "task" },
+      continuationBudget: { used: 1, limit: 2, source: "daemon" },
     },
   });
   assert.ok(projected);
   assert.ok(!projected.state.includes("/Users/zeyu"), "report local paths must be redacted");
   assert.ok(!projected.state.includes("/home/worker"), "conclusion local paths must be redacted");
   assert.match(projected.state, /last_conclusion: .*LOCAL_PATH/u);
-  assert.match(projected.state, /rework_budget: used=1 limit=2 source=task/u);
+  assert.match(projected.state, /rework_budget: used=1 limit=2 source=daemon/u);
   assert.ok(projected.state.includes("a".repeat(40)) && projected.state.includes("b".repeat(40)));
 });
 
@@ -1217,7 +1428,7 @@ test("the automatic budget counts durable dispatch receipts after the annotation
     action: "rerun",
     reason: null,
     successorDispatchId: "dispatch_retired_successor_01",
-    budget: { used: 0, limit: 1, source: "repository" },
+    budget: { used: 3, limit: 3, source: "daemon" },
     decidedAt: retiredAt,
   });
   const filler = Array.from({ length: decisionAnnotationRetention }, (_, index) => {

@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
+import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import {
@@ -11,6 +12,7 @@ import {
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
 import type { DecisionActionRecord } from "./decision-annotations.ts";
+import { incidentContinuationUsed } from "./decision-incident-receipt.ts";
 
 /** The fixed executable contract: a question with this version chooses exactly one of the five
  * disposition options (dec_EB24AB3EA19FA0A023FBE65C92). Any other selection id is not admissible. */
@@ -29,6 +31,12 @@ export type IncidentDispositionOption = (typeof incidentDispositionOptions)[numb
  * owner must handle but must never be shown as a question. */
 export type IncidentAttention = "question" | "guard";
 
+/** The fixed automatic-continuation allowance: how many consecutive stops without measured
+ * worktree progress the daemon may redispatch before it escalates to the owner. It is a daemon
+ * constant, not the repository's review-return budget: review returns bound how many times a
+ * reviewer may send a delivery back, while this allowance only bounds a no-progress loop. */
+export const incidentContinuationBudget = 3;
+
 export interface IncidentDecisionFields {
   readonly toolCallCount: number | null;
   readonly headStatus: "unchanged" | "changed" | "unavailable" | "no-previous-run";
@@ -36,7 +44,14 @@ export interface IncidentDecisionFields {
   readonly exitHead: string | null;
   readonly currentHead: string | null;
   readonly roundsUsed: number;
-  readonly reworkBudget: { readonly used: number; readonly limit: number; readonly source: "task" | "repository" };
+  /** Consecutive no-progress automatic redispatches consumed through this stop. The declared
+   * decision input id (`task.reworkBudget`) and its projected label are frozen contract names;
+   * the measured value is this continuation allowance, independent of review returns. */
+  readonly continuationBudget: {
+    readonly used: number;
+    readonly limit: number;
+    readonly source: "daemon";
+  };
 }
 
 /** Assemble the daemon-measured incident fields from the same reads runtime preparation uses.
@@ -45,10 +60,8 @@ export interface IncidentDecisionFields {
 export async function incidentDecisionFields(input: {
   readonly rootDir: string;
   readonly runtimeContext: DaemonTaskRuntimeContextResult;
-  readonly dispatchCount: number;
+  readonly dispatches: readonly TaskDispatchRow[];
   readonly toolCallCount: number | null;
-  readonly effectiveBudget: number;
-  readonly used: number;
 }): Promise<IncidentDecisionFields> {
   const workspace = input.runtimeContext.snapshot.workspace,
     cwd =
@@ -63,11 +76,11 @@ export async function incidentDecisionFields(input: {
     lastConclusion: context.lastConclusion,
     exitHead: context.exitHead,
     currentHead: context.currentHead,
-    roundsUsed: input.dispatchCount,
-    reworkBudget: {
-      used: input.used,
-      limit: input.effectiveBudget,
-      source: "repository",
+    roundsUsed: input.dispatches.length,
+    continuationBudget: {
+      used: incidentContinuationUsed(input.dispatches, context.headStatus === "changed"),
+      limit: incidentContinuationBudget,
+      source: "daemon",
     },
   };
 }
@@ -132,7 +145,7 @@ export function incidentGuardPlan(input: {
     rationale: [
       `needs_attention: ${input.guard}`,
       `Worker stopped without a submitted delivery on round ${String(input.evidence.roundsUsed)};`,
-      `automatic redispatch budget ${String(input.evidence.budget.used)}/${String(input.evidence.budget.limit)} used.`,
+      `automatic redispatch budget ${String(input.evidence.budget.used)}/${String(input.evidence.budget.limit)} used on consecutive stops without worktree progress.`,
       ...(next === null ? [] : [`Next: ${next}`]),
     ].join(" "),
   };

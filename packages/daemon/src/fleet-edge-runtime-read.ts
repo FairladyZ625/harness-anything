@@ -21,7 +21,12 @@ export function readEdgeRuntimeRepository(
     if (method === "repo.tasks.runtimeContext.read") {
       if (typeof payload.taskId !== "string" || !payload.taskId) throw new Error("Task context requires a task id");
       return {
-        ...readTaskRuntimeContext(input.workspaceRoot, source, payload.taskId),
+        ...readTaskRuntimeContext(
+          input.workspaceRoot,
+          source,
+          payload.taskId,
+          typeof payload.excludeDispatchId === "string" ? payload.excludeDispatchId : null,
+        ),
         ...frame,
       } as unknown as JsonObject;
     }

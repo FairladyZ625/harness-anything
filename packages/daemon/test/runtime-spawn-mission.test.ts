@@ -75,6 +75,20 @@ test("continuation seed selects the newest archived dispatch across task executi
     lastConclusion: "latest conclusion",
     exitHead: "new-head",
   });
+  assert.deepEqual(
+    latestRuntimeContinuationSeed(
+      projection,
+      "task_x",
+      ["execution_old", "execution_current"],
+      "dispatch_fedcba987654321001234567",
+    ),
+    {
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      lastConclusion: "old conclusion",
+      exitHead: "old-head",
+    },
+    "settlement skips its own archive and seeds the comparison from the previous stop",
+  );
 });
 
 test("a malformed latest dispatch archive surfaces its parse error instead of falling back to older context", () => {
