@@ -53,6 +53,9 @@ test(
         phase = body.lastIndexOf("RELAY_SUBMIT") > body.lastIndexOf("RELAY_SHOW") ? "submit" : "show",
         callId = `call_${phase}`,
         output = parsed.input.find((item) => item.type === "function_call_output" && item.call_id === callId);
+      t.diagnostic(
+        JSON.stringify({ request: request.url, phase, inputTypes: parsed.input.map((item) => item.type), output }),
+      );
       if (output) outputs.set(phase, String(output.output));
       const item = output
         ? {
@@ -99,14 +102,16 @@ test(
       path.join(parent, "codex.mjs"),
       `
       import { spawn } from "node:child_process";
-      import { writeFileSync } from "node:fs";
+      import { appendFileSync, writeFileSync } from "node:fs";
       if (process.argv[2] === "login" && process.argv[3] === "status") process.exit(0);
       const args = process.argv.slice(2), phase = args.includes("resume") ? "resume" : "fresh";
+      const log = ${JSON.stringify(parent)} + "/" + phase + ".log";
+      writeFileSync(log, JSON.stringify({args, cwd: process.cwd(), home: process.env.CODEX_HOME}) + "\\n");
       const child = spawn("codex", [...args, "--skip-git-repo-check"], { env: process.env, stdio: ["pipe", "pipe", "pipe"] });
       process.stdin.pipe(child.stdin);
       let stdout = "", stderr = "";
-      child.stdout.on("data", chunk => { stdout += chunk; process.stdout.write(chunk); });
-      child.stderr.on("data", chunk => { stderr += chunk; process.stderr.write(chunk); });
+      child.stdout.on("data", chunk => { stdout += chunk; appendFileSync(log, chunk); process.stdout.write(chunk); });
+      child.stderr.on("data", chunk => { stderr += chunk; appendFileSync(log, chunk); process.stderr.write(chunk); });
       child.on("close", code => {
         writeFileSync(${JSON.stringify(parent)} + "/" + phase + ".json", JSON.stringify({args, cwd: process.cwd(), home: process.env.CODEX_HOME, code, stdout, stderr}));
         process.exitCode = code;
@@ -268,7 +273,10 @@ function waitForFile(file: string): Promise<LaunchResult> {
     const watcher = watch(path.dirname(file), check),
       deadline = setTimeout(() => {
         watcher.close();
-        reject(new Error(`Codex did not exit: ${file}`));
+        const log = file.replace(/\.json$/u, ".log");
+        reject(
+          new Error(`Codex did not exit: ${file}\n${existsSync(log) ? readFileSync(log, "utf8") : "No launch log"}`),
+        );
       }, 75_000);
     function check(): void {
       if (!existsSync(file)) return;

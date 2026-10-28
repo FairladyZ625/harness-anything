@@ -206,6 +206,16 @@ export function assertOwnedSocketDirectory(target: string): void {
     throw new Error(`socket directory is unsafe: ${target} is not a directory owned by uid ${uid}`);
 }
 
+/** A relay is bound before dispatch: mkdirSecurely verifies its owner and sets 0700.
+ * The daemon injects that exact endpoint into the worker, whose sandbox cannot read or
+ * replace its parent. Reuse the bind-time check for this endpoint rather than requiring
+ * filesystem access to /tmp just to connect. Ordinary clients still verify the owner. */
+export function assertDaemonSocketDirectory(endpoint: string, env: NodeJS.ProcessEnv = process.env): void {
+  if (process.platform === "win32" || !path.isAbsolute(endpoint)) return;
+  if (env.HARNESS_DAEMON_RELAY === "1" && endpoint === resolveLocalDaemonEndpoint({ env })) return;
+  assertOwnedSocketDirectory(path.dirname(endpoint));
+}
+
 /** Remote secrets use the existing user-managed loopback tunnel, never a bare remote TCP host. */
 export function assertRuntimeCredentialEndpoint(endpoint: string): void {
   if (!endpoint.startsWith("tcp://")) return;

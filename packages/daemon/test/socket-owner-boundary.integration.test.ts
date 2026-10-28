@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { connectSocket } from "../src/client/local-json-rpc-client.ts";
+import { assertDaemonSocketDirectory, perUserSocketRoot } from "../src/client/local-daemon-target.ts";
 import type { JsonRpcRequest } from "../src/protocol/json-rpc-types.ts";
 import { createUnixSocketTransportServer, type UnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 
@@ -18,6 +19,20 @@ import { createUnixSocketTransportServer, type UnixSocketTransportServer } from 
 // predicate as lstat reporting a directory another local user created. The symlink shapes need
 // no simulation at all.
 const foreignUid = 4242;
+
+test("relay mode only reuses ownership verification for the validated injected endpoint", () => {
+  if (process.platform === "win32") return;
+  const relay = path.join(perUserSocketRoot(), `r-${randomBytes(12).toString("hex")}.sock`);
+  assert.doesNotThrow(() =>
+    assertDaemonSocketDirectory(relay, { HARNESS_DAEMON_RELAY: "1", HARNESS_DAEMON_ENDPOINT: relay }),
+  );
+  for (const endpoint of ["/tmp/foreign.sock", path.join(perUserSocketRoot(), "daemon.sock")]) {
+    assert.throws(
+      () => assertDaemonSocketDirectory(endpoint, { HARNESS_DAEMON_RELAY: "1", HARNESS_DAEMON_ENDPOINT: endpoint }),
+      /daemon_target_conflict/u,
+    );
+  }
+});
 
 function plantedSocketRoot(prefix: string): { readonly parent: string; readonly socketRoot: string } {
   // Socket addresses bind directly under sticky /tmp: the isolated runner's TMPDIR exceeds the
