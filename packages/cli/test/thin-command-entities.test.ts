@@ -1063,6 +1063,26 @@ test("Relation relate names missing concurrency and rationale fields with execut
   });
 });
 
+test("Relation relate help states the endpoint ref grammar and both --expected-version modes", () => {
+  const command = daemonProtocolCommands.find(({ id }) => id === "relation-relate");
+  assert.ok(command);
+  const helpLine = (flag: string) => command.help.split("\n").find((line) => line.trim().startsWith(`${flag} —`));
+  for (const flag of ["--source-ref", "--target-ref"] as const) {
+    const line = helpLine(flag);
+    assert.ok(line, flag);
+    // The ref grammar is the same fact the write boundary rejects a bare id and kind:id for.
+    assert.match(line ?? "", /format: <kind>\/<id>/u, line);
+    assert.match(line ?? "", /task\/<task-id>/u, line);
+    assert.match(line ?? "", /task:<task-id> are not refs/u, line);
+  }
+  // A freshly created Relation starts at revision 0; asking again after an answer uses the retired
+  // revision. `ha relation relate --help` used to name neither, so callers guessed the value.
+  assert.match(command.help, /--expected-version [^\n]*pass 0 to create a new Relation/u);
+  assert.match(command.help, /--expected-version [^\n]*retired revision to re-ask/u);
+  assert.match(command.summary, /task\/<task-id>/u);
+  assert.match(command.summary, /a bare id or kind:id is rejected as an invalid ref, not a missing entity/u);
+});
+
 test("Agent and Squad package sources resolve against caller cwd independently of repository selection", () => {
   const caller = path.resolve("caller"),
     repository = path.resolve("repository");
