@@ -111,6 +111,9 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
       JSON.stringify({
         ...externalDocument,
         id: "external-document-missing-claim",
+        // A distinct prefix keeps each negative case on the failure it names: the compiler rejects a
+        // reused idPrefix before the field this assertion is about is reached.
+        idPrefix: "EXTDM",
         relations: [
           {
             ...externalDocument.relations[0],
@@ -138,6 +141,10 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
       JSON.stringify({
         ...externalDocument,
         id: "external-document-bad-pin",
+        // Distinct identity facets keep this case about the pin: the compiler rejects a reused
+        // idPrefix or pathTemplate first, and that would mask the refusal this assertion names.
+        idPrefix: "EXTDB",
+        store: { pathTemplate: "docs/external-bad-pin/{id}.json" },
         relations: [
           {
             ...externalDocument.relations[0],

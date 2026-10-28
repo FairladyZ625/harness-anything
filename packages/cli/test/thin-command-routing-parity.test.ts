@@ -435,7 +435,15 @@ test("vertical exposes validate and the kind authoring commands while retired en
   for (const argv of [
     ["vertical", "kind", "list"],
     ["vertical", "kind", "show", "runbook"],
-    ["vertical", "kind", "upsert", "--from-file", "kind.json", "--expected-version", "0"],
+    [
+      "vertical",
+      "kind",
+      "upsert",
+      "--declaration",
+      '{"id":"runbook","entityType":"artifact"}',
+      "--expected-version",
+      "0",
+    ],
     [
       "vertical",
       "kind",

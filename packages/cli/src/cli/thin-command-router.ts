@@ -264,7 +264,13 @@ export function parseRouted(
     );
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") return parseEntityRouted(route, args, rootDir, repoId, json, inputs);
-  if (rootCommand === "vertical") return parseVerticalKindRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "vertical") {
+    // Only the kind authoring verbs are routed here; `ha vertical validate` shares the root and is a
+    // preset command, so an unclaimed shape must fall through to the preset parser rather than be
+    // returned as an unsupported command.
+    const kind = parseVerticalKindRouted(route, args, rootDir, repoId, json, inputs);
+    if (kind) return kind;
+  }
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
