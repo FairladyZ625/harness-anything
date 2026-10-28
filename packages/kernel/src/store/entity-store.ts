@@ -150,23 +150,43 @@ export function createEntityStore(
   };
 }
 
-export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
+/** One read-only ledger handle behind an {@link EntityStore}, with the close its owner owes it. */
+export interface OpenedEntityStore {
+  readonly store: EntityStore;
+  readonly close: () => void;
+}
+
+/**
+ * Opens a read-only ledger handle for entity reads. The caller owns `close`: this handle is a real
+ * SQLite connection, so leaving it open keeps the ledger file (and its WAL) live. That is invisible
+ * on POSIX, where unlinking a busy file just detaches the name, and EPERM on Windows, where a caller
+ * that tears a temporary repository down after using the store cannot delete it.
+ */
+export function openEntityStoreWithClose(rootInput: HarnessLayoutInput): OpenedEntityStore {
   const canonical = openSqliteEventStore({ rootInput, readOnly: true });
-  return createEntityStore({
-    readBatch: (cursor, maxItems) => {
-      const start = cursor === null ? 0 : Number(cursor),
-        events = canonical.eventsAfter(start, maxItems),
-        next = start + events.length;
-      return {
-        sourceRevision: canonical.revision(),
-        events,
-        cursor: events.length ? String(next) : cursor,
-        done: next === canonical.revision(),
-        accessedItems: events.length,
-      };
-    },
-    readContentBlob: canonical.readContentObject,
-  });
+  return {
+    close: canonical.close,
+    store: createEntityStore({
+      readBatch: (cursor, maxItems) => {
+        const start = cursor === null ? 0 : Number(cursor),
+          events = canonical.eventsAfter(start, maxItems),
+          next = start + events.length;
+        return {
+          sourceRevision: canonical.revision(),
+          events,
+          cursor: events.length ? String(next) : cursor,
+          done: next === canonical.revision(),
+          accessedItems: events.length,
+        };
+      },
+      readContentBlob: canonical.readContentObject,
+    }),
+  };
+}
+
+/** Convenience for a store whose handle outlives the call, e.g. one kept for the process lifetime. */
+export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
+  return openEntityStoreWithClose(rootInput).store;
 }
 
 function entityEventRecord(

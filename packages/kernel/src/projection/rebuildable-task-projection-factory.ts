@@ -41,6 +41,7 @@ import type {
 } from "./rebuildable-task-projection-types.ts";
 import {
   closeDatabase,
+  closeQueryOnlyProjectionConnection,
   discardDatabase,
   ProjectionIdentityMismatchError,
   ProjectionSchemaMismatchError,
@@ -354,6 +355,11 @@ export function makeTaskProjectionReader(options: {
           publishedHead = null;
         }
       }),
-    close: () => undefined,
+    // A reader opens a cached query-only connection on its first session and keeps it for every
+    // later one. That cache is process-wide, so "close" cannot be a no-op: the daemon's cell close
+    // is the documented point after which the repository tree may be removed, and an open handle
+    // there is invisible on POSIX but EPERM on Windows. Releases every handle on this projection
+    // file, including owners another reader still holds, and the next session reopens.
+    close: () => closeQueryOnlyProjectionConnection(projectionPath),
   };
 }

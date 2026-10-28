@@ -6,7 +6,7 @@ import {
   attributeEntityActionCriterion,
   consumeKnownError,
   getExecutableEntityAction,
-  openEntityStore,
+  openEntityStoreWithClose,
   type EntityStore,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -425,23 +425,30 @@ export function readSquadDeclaration(input: {
   readonly squadId: string;
   readonly entityStore?: AgentDeclarationReader;
 }): SquadDeclarationV1 {
-  const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
-    squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
-    missing = [squad.leader, ...squad.workers].filter((id) => {
-      try {
-        readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore });
-        return false;
-      } catch (error) {
-        consumeKnownError(error);
-        return true;
-      }
-    });
-  if (missing.length)
-    throw entityError(
-      "squad_agent_not_found",
-      `Squad ${squad.id} references unavailable agents: ${[...new Set(missing)].join(", ")}.`,
-    );
-  return squad;
+  // A supplied store belongs to the caller; one opened here is a real ledger handle this call owes
+  // a close, or the temporary repository its caller removes afterwards stays live on Windows.
+  const opened = input.entityStore === undefined ? openEntityStoreWithClose(input.rootDir) : null,
+    entityStore = input.entityStore ?? opened!.store;
+  try {
+    const squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
+      missing = [squad.leader, ...squad.workers].filter((id) => {
+        try {
+          readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore });
+          return false;
+        } catch (error) {
+          consumeKnownError(error);
+          return true;
+        }
+      });
+    if (missing.length)
+      throw entityError(
+        "squad_agent_not_found",
+        `Squad ${squad.id} references unavailable agents: ${[...new Set(missing)].join(", ")}.`,
+      );
+    return squad;
+  } finally {
+    opened?.close();
+  }
 }
 export interface SquadDispatchSelection {
   readonly squadId: string;
@@ -457,45 +464,50 @@ export function resolveSquadDispatch(input: {
     readonly list: (kind: string) => readonly { readonly id: string; readonly value: unknown }[];
   };
 }): SquadDispatchSelection {
-  const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
-  if (input.squadId) {
-    const squad = readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId, entityStore });
-    if (squad.leader !== input.leaderId)
-      throw entityError("squad_leader_mismatch", `Agent ${input.leaderId} is not the leader of squad ${squad.id}.`);
-    if (input.workerId && !squad.workers.includes(input.workerId))
-      throw entityError("squad_member_not_found", `Agent ${input.workerId} is not a worker in squad ${squad.id}.`);
-    return {
-      squadId: squad.id,
-      leader: readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
-      worker: input.workerId
-        ? readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore })
-        : null,
-    };
+  const opened = input.entityStore === undefined ? openEntityStoreWithClose(input.rootDir) : null,
+    entityStore = input.entityStore ?? opened!.store;
+  try {
+    if (input.squadId) {
+      const squad = readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId, entityStore });
+      if (squad.leader !== input.leaderId)
+        throw entityError("squad_leader_mismatch", `Agent ${input.leaderId} is not the leader of squad ${squad.id}.`);
+      if (input.workerId && !squad.workers.includes(input.workerId))
+        throw entityError("squad_member_not_found", `Agent ${input.workerId} is not a worker in squad ${squad.id}.`);
+      return {
+        squadId: squad.id,
+        leader: readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
+        worker: input.workerId
+          ? readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore })
+          : null,
+      };
+    }
+    if (!input.workerId)
+      throw entityError("squad_not_found", `A squad id is required to dispatch leader ${input.leaderId}.`);
+    const matches: SquadDispatchSelection[] = [];
+    for (const { id: squadId, value } of entityStore.list("squad")) {
+      const squad = parseSquadDeclarationV1(value);
+      if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
+      const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
+        worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore });
+      readSquadDeclaration({ rootDir: input.rootDir, squadId, entityStore });
+      matches.push({ squadId, leader, worker });
+    }
+    if (matches.length === 0)
+      throw entityError(
+        "squad_member_not_found",
+        `Agent ${input.workerId} is not a declared worker for leader ${input.leaderId}.`,
+      );
+    if (matches.length > 1)
+      throw entityError(
+        "squad_member_ambiguous",
+        `Agent ${input.workerId} is declared in multiple squads for leader ${input.leaderId}: ${matches
+          .map(({ squadId }) => squadId)
+          .join(", ")}.`,
+      );
+    return matches[0]!;
+  } finally {
+    opened?.close();
   }
-  if (!input.workerId)
-    throw entityError("squad_not_found", `A squad id is required to dispatch leader ${input.leaderId}.`);
-  const matches: SquadDispatchSelection[] = [];
-  for (const { id: squadId, value } of entityStore.list("squad")) {
-    const squad = parseSquadDeclarationV1(value);
-    if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
-    const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
-      worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore });
-    readSquadDeclaration({ rootDir: input.rootDir, squadId, entityStore });
-    matches.push({ squadId, leader, worker });
-  }
-  if (matches.length === 0)
-    throw entityError(
-      "squad_member_not_found",
-      `Agent ${input.workerId} is not a declared worker for leader ${input.leaderId}.`,
-    );
-  if (matches.length > 1)
-    throw entityError(
-      "squad_member_ambiguous",
-      `Agent ${input.workerId} is declared in multiple squads for leader ${input.leaderId}: ${matches
-        .map(({ squadId }) => squadId)
-        .join(", ")}.`,
-    );
-  return matches[0]!;
 }
 function validateEntityDeclarationSource(input: {
   readonly rootDir: string;
@@ -581,8 +593,10 @@ export function prepareAgentEntityInstall(input: {
       decoded.issues[0]?.message ?? "Entity package is invalid.",
       `${kind}/declaration-schema`,
     );
-  const declaration = decoded.declaration,
-    current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
+  // Only this lookup needs the ledger: read through a handle this call owns and close it, so an
+  // install preparation whose caller then removes its fixture repository can do so on Windows.
+  const current = storedDeclarationForInstall(input.rootDir, input.entityStore, kind, decoded.declaration.id),
+    declaration = decoded.declaration;
   const projectedLifecycle =
     kind === "agent" ? input.projection?.getEntity("agent", declaration.id)?.value.lifecycleState : undefined;
   if (kind === "agent" && (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired"))
@@ -854,6 +868,41 @@ function decodeDeclaration(
     ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })), source }
     : { declaration: value as AgentDeclarationV1 & SquadDeclarationV1, source };
 }
+/**
+ * Runs one read against a caller-supplied entity store, or against a ledger handle this call opens
+ * and closes. The handle is a real SQLite connection: leaving it open outlives the read and blocks
+ * a Windows teardown of the repository. Every entity read that can open its own store goes through
+ * here instead of keeping a process-lifetime handle per call.
+ */
+function withEntityStore<T>(
+  rootDir: string,
+  entityStore: AgentDeclarationReader | undefined,
+  read: (store: AgentDeclarationReader) => T,
+): T {
+  if (entityStore !== undefined) return read(entityStore);
+  const opened = openEntityStoreWithClose(rootDir);
+  try {
+    return read(opened.store);
+  } finally {
+    opened.close();
+  }
+}
+/** Install admission compares against the installed declaration; a handle opened here is closed
+ *  before the preparation returns, so the caller's later teardown is not blocked on Windows. */
+function storedDeclarationForInstall(
+  rootDir: string,
+  entityStore: EntityStore | undefined,
+  kind: AgentEntityKind,
+  id: string,
+): { readonly value: Readonly<Record<string, unknown>> | null; readonly workspaceRevision: number | null } {
+  if (entityStore !== undefined) return repairableStoredDeclaration(entityStore, kind, id);
+  const opened = openEntityStoreWithClose(rootDir);
+  try {
+    return repairableStoredDeclaration(opened.store, kind, id);
+  } finally {
+    opened.close();
+  }
+}
 function readStoredDeclaration(
   rootDir: string,
   kind: AgentEntityKind,
@@ -861,7 +910,7 @@ function readStoredDeclaration(
   entityStore?: AgentDeclarationReader,
 ): unknown {
   if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
-  const stored = (entityStore ?? openEntityStore(rootDir)).get(kind, id);
+  const stored = withEntityStore(rootDir, entityStore, (store) => store.get(kind, id));
   if (!stored) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
   return stored.value;
 }

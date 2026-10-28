@@ -2,7 +2,7 @@ import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import {
   consumeKnownError,
   entitySlug,
-  openEntityStore,
+  openEntityStoreWithClose,
   parseAgentDeclarationV1,
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";
@@ -118,19 +118,27 @@ export function readAgentDeclarationResolution(input: {
   readonly entityStore?: AgentDeclarationReader;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
-  const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
-  let stored: ReturnType<AgentDeclarationReader["get"]>;
+  // A caller that supplies its own store owns its handle. One we open here must be closed on
+  // every exit: the handle keeps the ledger file live, which is invisible on POSIX and EPERM on
+  // Windows when the caller tears its temporary repository down afterwards.
+  const opened = input.entityStore === undefined ? openEntityStoreWithClose(input.rootDir) : null,
+    entityStore = input.entityStore ?? opened!.store;
   try {
-    stored = entityStore.get("agent", input.agentId);
-  } catch (error) {
-    // An installed declaration the current schema cannot parse is a per-agent reinstall need,
-    // never a silent fallthrough to the bundled layer: installed shadows bundled by design.
-    if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
-    throw agentDeclarationInvalidError(input.agentId, error);
+    let stored: ReturnType<AgentDeclarationReader["get"]>;
+    try {
+      stored = entityStore.get("agent", input.agentId);
+    } catch (error) {
+      // An installed declaration the current schema cannot parse is a per-agent reinstall need,
+      // never a silent fallthrough to the bundled layer: installed shadows bundled by design.
+      if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+      throw agentDeclarationInvalidError(input.agentId, error);
+    }
+    if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
+    const bundled = readBundledAgentDeclaration(input.agentId);
+    return bundled ? { declaration: bundled, layer: "bundled" } : null;
+  } finally {
+    opened?.close();
   }
-  if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
-  const bundled = readBundledAgentDeclaration(input.agentId);
-  return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
 
 export function readAgentDeclaration(input: {
