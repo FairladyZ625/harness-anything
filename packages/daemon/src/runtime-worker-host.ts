@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
+import {
+  dispatchStreamPath,
+  openDispatchStreamAppender,
+  readDispatchStreamHeader,
+  scrubProviderValue,
+} from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { tailRuntimeSteerCommands } from "./runtime-worker-control.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";
@@ -27,17 +32,40 @@ type RuntimeWorkerManifest = {
   readonly model?: string;
 };
 
-// Codex compacts inside the turn (core/src/session/turn.rs keeps looping after a mid-turn
-// compaction), but the sampling request that follows a compaction can return no assistant
-// message; Codex then ends that turn normally with `task_complete.last_agent_message: null`
-// and `exec` exits 0. A dispatched worker still owns its task at that point, so the host
-// resumes the same thread rather than letting settlement read a stop. The judgment is only
-// the observable shape — a completed compaction, no non-empty agent message after it, a clean
-// exit — and every later resume must reproduce that shape, so this is not a retry on failure.
-// The bound matches Codex's own empty-continuation breaker (three turns without activity), and
-// it stops a session that answers every compaction with nothing from looping forever.
-const compactionContinuationPrompt = "Continue the current task from where it left off.",
-  maxCompactionContinuations = 3;
+// One `codex exec` invocation is one *turn*, and a dispatched worker needs many: 40–90 tool calls
+// over 5–10 minutes is normal. The provider ends the turn as soon as it stops calling tools, so a
+// worker that still owes its task an action ends the turn all the time — with a progress note as
+// its last message ("现在需要定位……先看……", dispatch_6c01d1b7), or with no message at all after a
+// mid-turn reconnect (dispatch_2ae120ca, dispatch_727ffebf), or after a mid-turn compaction that
+// produced no answer (task_9850fe1f). Settlement reads every one of those as `worker_stop`
+// ("exited without a submitted delivery") and spends one automatic disposition on it, so the host
+// continues the same thread while the worker still owes an action.
+//
+// What a worker owes is an action, never prose: `ha task submit` for a delivery, the review
+// registration for a reviewer, or the ruling file an unattended turn must write instead of
+// stopping. Each leaves a machine-readable trace in the stream (a command item, a file change), so
+// this judgment never reads the model's text.
+//
+// A turn is only continued when the dispatch has run a *command*: that is the shape of a worker
+// that spent the dispatch's provider time on the task (dispatch_2ae120ca: 48 commands before the
+// note). A turn whose only "work" is one file write and then a stop is the early-exit family
+// settlement already reports, and continuing it would put a second provider turn behind turns that
+// never did any work — which is exactly what turned integration fixtures into extra turns.
+//
+// A squad turn delivers a structured decision and a taskless run delivers its final text, so both
+// are outside the judgment. Every continuation must re-earn its own evidence: each resumed turn
+// that ends the same way is one more turn of the same dispatch, and the bound stops a session that
+// ends every turn without settling.
+const continuationPrompt = "Continue the current task from where it left off.",
+  maxContinuations = 3;
+
+// `ha task submit <task-id>` / `ha task review-execution <task-id> …`, including the same verb
+// reached through a wrapper (`npx harness-anything task submit …`, a compound shell line). The
+// verb plus a task id is the stable part; a worker that only *read* about the verb (`--help`, a
+// grep) has not attempted the action.
+const settleCommand = /\btask\s+(?:submit|review-execution)\s+task_[0-9A-Za-z]{6,}/u,
+  // The blocking exit of an unattended turn, written into the task package.
+  rulingArtifactPath = /(?:^|[\\/])artifacts[\\/]rulings[\\/][^\\/]+$/u;
 
 // `exec` drops the app-server's ContextCompaction item (`map_completed_item_mut` has no arm
 // for it), so the only compaction trace in the JSON stream is the warning Codex emits right
@@ -103,6 +131,14 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     first = await iterator.next();
   if (first.done) throw new Error("runtime worker manifest is missing");
   const manifest = parseManifest(first.value);
+  // The dispatch header names what this run owes: only a direct task-bound dispatch has a settle
+  // action to perform (a squad turn delivers a structured decision, a taskless run its final
+  // text). The spawner opens the stream before it starts this host, so the header is already here.
+  const dispatch = readDispatchStreamHeader(manifest.rootDir, manifest.dispatchId),
+    // A read-only attach cannot submit or register a review: its delivery is the report it writes,
+    // so it owes no settle action and must never be continued into a write-capable turn.
+    owesSettleAction =
+      dispatch !== null && dispatch.taskId !== null && dispatch.squadId === undefined && dispatch.role !== "read-only";
   // The control channel is the dispatch stream, not this process's stdin: the daemon that
   // steers may be a successor that adopted the host after a restart and has no pipe to it.
   const control = { handler: null as ((prompt: string) => void) | null };
@@ -143,7 +179,11 @@ export async function runRuntimeWorkerHost(): Promise<void> {
   // Continuations already granted to this dispatch: the bound is the dispatch's, not a process's.
   let settled = false,
     terminationRequested = false,
-    compactionContinuations = 0;
+    continuations = 0,
+    // Dispatch-wide, not per attempt: the settle action stays attempted across resumes, and a
+    // dispatch that ever ran a command keeps that evidence for its later turns.
+    settleAttempted = false,
+    commandWorkObserved = false;
   process.once("SIGTERM", () => {
     terminationRequested = true;
     queuedPrompt = null;
@@ -212,15 +252,19 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       if (acp) control.handler = acp.steer;
       let outputBuffer = "";
       // Per-attempt compaction recollection. A resume starts a new process and a new turn, so
-      // each attempt's trace is independent: the continuation only happens when its own attempt
-      // compacted after tool work and then completed a turn without answering. `toolWorkSinceAnswer`
-      // separates the two compaction phases Codex emits the same warning for: mid-turn (tool work
-      // pending, so the answer never came) and post-turn (the answer came first, then the warning,
-      // which must not be read as an empty turn).
+      // each attempt's trace is independent: the compaction continuation only happens when its own
+      // attempt compacted after tool work and then completed a turn without answering.
+      // `toolWorkSinceAnswer` separates the two compaction phases Codex emits the same warning for:
+      // mid-turn (tool work pending, so the answer never came) and post-turn (the answer came
+      // first, then the warning, which must not be read as an empty turn).
       let compactionCompleted = false,
+        turnCompleted = false,
         turnCompletedAfterCompaction = false,
         agentMessageAfterCompaction = false,
-        toolWorkSinceAnswer = false;
+        toolWorkSinceAnswer = false,
+        // One refusal per attempt: the three arms share the same argv, so a second attempt at the
+        // resume shape would only repeat the same failure.
+        continuationRefused = false;
       const consumeOutput = (chunk: string, flush = false): void => {
         outputBuffer += chunk;
         const lines = outputBuffer.split(/\r?\n/u);
@@ -240,7 +284,12 @@ export async function runRuntimeWorkerHost(): Promise<void> {
               turnCompletedAfterCompaction = false;
               agentMessageAfterCompaction = false;
             } else if (compactionCompleted && codexAgentMessageText(parsed).trim()) agentMessageAfterCompaction = true;
-            if (parsed.type === "turn.completed" && compactionCompleted) turnCompletedAfterCompaction = true;
+            if (parsed.type === "turn.completed") {
+              turnCompleted = true;
+              if (compactionCompleted) turnCompletedAfterCompaction = true;
+            }
+            if (codexSettleAction(parsed)) settleAttempted = true;
+            if (codexCommandCompleted(parsed)) commandWorkObserved = true;
             if (state.toolEnd && state.toolEnd !== "") toolWorkSinceAnswer = true;
             else if (codexAgentMessageText(parsed).trim()) toolWorkSinceAnswer = false;
           }
@@ -268,46 +317,89 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       );
       // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
       await acp?.done;
+      const steer = declaration?.steer;
       if (
         !terminationRequested &&
         queuedPrompt !== null &&
-        declaration?.steer?.strategy === "interrupt-resume" &&
+        steer?.strategy === "interrupt-resume" &&
         providerSessionId
       ) {
-        clearTimeout(interruptTimer);
-        interruptTimer = undefined;
-        args = [...declaration.steer.resumeArgs(baseArgs, providerSessionId)];
-        prompt = queuedPrompt;
-        queuedPrompt = null;
-        activeTools.clear();
-        interrupted = false;
-        append({ kind: "steer_resumed", providerSessionId, occurredAt: new Date().toISOString() });
-        continue;
+        const resumed = continuationArgs(append, steer.resumeArgs, baseArgs, providerSessionId);
+        if (resumed === null) continuationRefused = true;
+        else {
+          clearTimeout(interruptTimer);
+          interruptTimer = undefined;
+          args = [...resumed];
+          prompt = queuedPrompt;
+          queuedPrompt = null;
+          activeTools.clear();
+          interrupted = false;
+          append({ kind: "steer_resumed", providerSessionId, occurredAt: new Date().toISOString() });
+          continue;
+        }
       }
       if (
         !terminationRequested &&
         queuedPrompt === null &&
-        declaration?.steer?.strategy === "interrupt-resume" &&
+        steer?.strategy === "interrupt-resume" &&
         providerSessionId &&
-        compactionContinuations < maxCompactionContinuations &&
+        continuations < maxContinuations &&
         compactionCompleted &&
         toolWorkSinceAnswer &&
         turnCompletedAfterCompaction &&
         !agentMessageAfterCompaction &&
         exitCode === 0
       ) {
-        compactionContinuations += 1;
-        args = [...declaration.steer.resumeArgs(baseArgs, providerSessionId)];
-        prompt = compactionContinuationPrompt;
-        activeTools.clear();
-        interrupted = false;
-        append({
-          kind: "compaction_continued",
-          providerSessionId,
-          continuation: compactionContinuations,
-          occurredAt: new Date().toISOString(),
-        });
-        continue;
+        const resumed = continuationArgs(append, steer.resumeArgs, baseArgs, providerSessionId);
+        if (resumed === null) continuationRefused = true;
+        else {
+          continuations += 1;
+          args = [...resumed];
+          prompt = continuationPrompt;
+          activeTools.clear();
+          interrupted = false;
+          append({
+            kind: "compaction_continued",
+            providerSessionId,
+            continuation: continuations,
+            occurredAt: new Date().toISOString(),
+          });
+          continue;
+        }
+      }
+      // The dispatch turn ended before the worker performed any settle action: a progress note, a
+      // silent turn after a reconnect, or an empty compaction answer. Nothing was delivered, the
+      // worker ran commands and still owes one of its exits, so continue the thread instead of
+      // letting settlement read a stop and spend a disposition on it.
+      if (
+        !terminationRequested &&
+        queuedPrompt === null &&
+        steer?.strategy === "interrupt-resume" &&
+        providerSessionId &&
+        continuations < maxContinuations &&
+        owesSettleAction &&
+        !settleAttempted &&
+        commandWorkObserved &&
+        !continuationRefused &&
+        turnCompleted &&
+        exitCode === 0
+      ) {
+        const resumed = continuationArgs(append, steer.resumeArgs, baseArgs, providerSessionId);
+        if (resumed === null) continuationRefused = true;
+        else {
+          continuations += 1;
+          args = [...resumed];
+          prompt = continuationPrompt;
+          activeTools.clear();
+          interrupted = false;
+          append({
+            kind: "turn_continued",
+            providerSessionId,
+            continuation: continuations,
+            occurredAt: new Date().toISOString(),
+          });
+          continue;
+        }
       }
       finish(child.pid === undefined ? null : exitCode, signal);
       break;
@@ -349,6 +441,54 @@ function codexAgentMessageText(value: Record<string, unknown>): string {
   return value.type === "item.completed" && item?.type === "agent_message" && typeof item.text === "string"
     ? item.text
     : "";
+}
+
+/** Whether a completed Codex item is one of the worker's settle actions: the CLI delivery/review
+ * offer, or the ruling artifact an unattended turn writes instead of stopping. Both are actions,
+ * so both are readable from the item alone — the assistant's own message never decides this. */
+function codexSettleAction(value: Record<string, unknown>): boolean {
+  const item = value.item as Record<string, unknown> | undefined;
+  if (value.type !== "item.completed" || item === null || item === undefined) return false;
+  if (item.type === "command_execution")
+    return settleCommand.test(typeof item.command === "string" ? item.command : "");
+  if (item.type !== "file_change") return false;
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  return changes.some((change) => {
+    const record = change as Record<string, unknown> | null;
+    return typeof record?.path === "string" && rulingArtifactPath.test(record.path);
+  });
+}
+
+/** Whether a completed Codex item is a command the worker actually ran, as opposed to a file edit.
+ * The turn continuation asks for this, not for any item: a dispatch that ran commands spent the
+ * provider time the continuation exists to protect. */
+function codexCommandCompleted(value: Record<string, unknown>): boolean {
+  const item = value.item as Record<string, unknown> | undefined;
+  return value.type === "item.completed" && item?.type === "command_execution";
+}
+
+/** The resume argv for `providerSessionId`, or null when this dispatch's argv has no resume shape.
+ * A continuation is an optimization, never a reason to lose the dispatch: a provider launched with
+ * an argv the resume subcommand cannot express is settled with the evidence it already has, and
+ * the refusal is recorded instead of thrown out of the host. */
+function continuationArgs(
+  append: (value: Readonly<Record<string, unknown>>) => void,
+  resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[],
+  baseArgs: readonly string[],
+  providerSessionId: string,
+): readonly string[] | null {
+  try {
+    return resumeArgs(baseArgs, providerSessionId);
+  } catch (error) {
+    consumeKnownError(error);
+    append({
+      kind: "continuation_refused",
+      providerSessionId,
+      reason: scrubProviderValue(error instanceof Error ? error.message : String(error)) as string,
+      occurredAt: new Date().toISOString(),
+    });
+    return null;
+  }
 }
 
 function providerSteerState(
