@@ -120,6 +120,15 @@ export async function publishExit(
       (await runtimeDeliveryWitness(context, active))
     )
       outcome = "succeeded";
+    const submittedStall =
+      !cancelled &&
+      active.task !== null &&
+      active.role !== "reviewer" &&
+      active.permissionMode !== "read-only" &&
+      active.stalledAt !== null &&
+      active.stalledAt !== undefined &&
+      hasAcceptedExecutionSubmission(context, active);
+    if (submittedStall) outcome = "succeeded";
     const reviewSuperseded =
       outcome !== "succeeded" && active.role === "reviewer" && active.task && context.input.projection
         ? (() => {
@@ -193,6 +202,11 @@ export async function publishExit(
     // usage read side picks it up.
     const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
+    if (submittedStall)
+      body +=
+        `\n\nTask ${active.task!.taskId} execution ${active.task!.executionId} has an accepted submission; ` +
+        "the submitted cut is delivered. The runtime stalled during post-submit wrap-up. The owner/CEO should " +
+        "open or link the PR and finish any missing delivery report or handoff before review.";
     if (reviewResultMissing) body = `${body}\n\nReview ${reviewId} was not registered before reviewer settlement.`;
     if (
       !active.finalText?.trim() &&
@@ -710,17 +724,19 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
     return true;
   // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
   // repository-diff witness; absence must settle unknown rather than abort terminal publication.
-  if (!context.input.projection) return false;
-  const projection = context.requiredRuntimeProjection(context.input),
-    snapshot = projection.read(active.task.taskId).snapshot,
+  return hasAcceptedExecutionSubmission(context, active);
+}
+
+function hasAcceptedExecutionSubmission(context: RuntimeSpawnerContext, active: ActiveRuntime): boolean {
+  if (!active.task || !context.input.projection) return false;
+  const snapshot = context.requiredRuntimeProjection(context.input).read(active.task.taskId).snapshot,
     submission = snapshot.executions.find(
       (execution) => execution.executionId === active.task?.executionId,
     )?.submission;
   // Submission is the accepted delivery witness. The submit boundary already validates the
   // preset contract and durably records the accepted submission; settlement must not derive its
   // meaning again from outputShape or require a commitSha.
-  if (!submission) return false;
-  return true;
+  return submission !== null && submission !== undefined;
 }
 
 export function runtimeResultText(
