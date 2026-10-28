@@ -41,7 +41,10 @@ export function resolveGovernedRelationAuthority(
       decisionId: declared.decisionId,
       state: state.state,
       contentPin,
-      claimIds: state.claims.map(({ id }) => id),
+      // A governed relation cites the decision's chosen option (`CH1`), not a fulfillment claim
+      // (`C1`); DecisionDocumentState.claims is the latter. The shipped canonical vertical and every
+      // accepted relation use chosen ids, so this authority must read the same field.
+      claimIds: state.chosen.map(({ id }) => id),
     });
   }
   return { decisions: [...decisions.values()] };

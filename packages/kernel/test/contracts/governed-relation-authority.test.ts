@@ -11,7 +11,8 @@ const baseVertical = JSON.parse(
     readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
   ) as Record<string, unknown> & { entityKinds: unknown[]; projectionSchemas: unknown[] },
   kindId = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
-  otherPin = `sha256:${"b".repeat(64)}` as const;
+  otherPin = `sha256:${"b".repeat(64)}` as const,
+  canonicalPin = "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb" as const;
 
 test("a relation may cite any accepted decision, not only the canonical receipt", () => {
   const definition = decodedVertical(artifact(relation())),
@@ -47,6 +48,30 @@ test("the canonical receipt remains the fallback when the projection cannot show
   assert.doesNotThrow(() => compileVerticalContract(definition, authority));
 });
 
+test("the shipped canonical vertical compiles against the real decision shape", () => {
+  // The production projection stores chosen options as `CH*` and fulfillment claims as `C*`; the
+  // governed relations in this asset all cite CH1. Reading `claims` here used to break the whole
+  // compiled vertical, so this test compiles the real file instead of a synthesized authority.
+  const definition = decodeVerticalDefinition(
+      JSON.parse(
+        readFileSync(new URL("../../../preset/assets/software-coding/vertical.json", import.meta.url), "utf8"),
+      ) as unknown,
+    ),
+    authority = resolveGovernedRelationAuthority(
+      {
+        readDecisionDocumentState: (decisionId) =>
+          decisionId === "dec_29CCC98CD0241D0C9806AC1CF1"
+            ? decisionState({ decisionId, contentPin: canonicalPin })
+            : null,
+      },
+      definition,
+    ),
+    compiled = compileVerticalContract(definition, authority),
+    directions = compiledRelationDirections(compiled, authority);
+  assert.equal(directions.length, 4, JSON.stringify(directions));
+  assert.ok(directions.every(({ governance }) => governance?.decisionClaimRef.endsWith("/CH1")));
+});
+
 function decisionState(input: {
   readonly decisionId: string;
   readonly contentPin: `sha256:${string}`;
@@ -54,7 +79,9 @@ function decisionState(input: {
   return {
     decisionId: input.decisionId,
     state: "in_effect",
-    claims: [{ id: "CH1", text: "claim", loadBearing: true, fulfillment: null }],
+    chosen: [{ id: "CH1", text: "chosen option" }],
+    rejected: [],
+    claims: [{ id: "C1", text: "fulfillment claim", loadBearing: true, fulfillment: null }],
     contentPins: [{ digest: input.contentPin, state: "in_effect", pinnedAt: "2026-10-29T00:00:00.000Z" }],
   } as unknown as DecisionDocumentState;
 }
