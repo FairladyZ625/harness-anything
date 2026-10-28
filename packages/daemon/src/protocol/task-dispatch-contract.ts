@@ -98,6 +98,7 @@ export interface TaskDispatchRow {
     | "provider_fault"
     | "provider_quota"
     | "worker_stop"
+    | "dispatch_stalled"
     | "awaiting_ruling"
     | "needs_attention"
     | "gate_red"

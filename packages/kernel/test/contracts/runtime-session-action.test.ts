@@ -126,10 +126,14 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   assert.equal(draft.event.payload.endedAt, command.endedAt);
   assert.deepEqual(draft.event.payload.runtimeMetrics, command.runtimeMetrics);
   assert.deepEqual(draft.event.payload.attempt, command.attempt);
-  const plain = { classification: "worker_stop", reason: "Stopped" };
-  assert.doesNotThrow(() =>
-    action.execution!.compile!({ ...compileInput, action: { ...command, attempt: plain }, currentEntity: current }),
-  );
+  // A stall is its own classification: the ledger must accept it without a provider fault.
+  for (const attempt of [
+    { classification: "worker_stop", reason: "Stopped" },
+    { classification: "dispatch_stalled", reason: "Dispatch stalled after 300000 ms without progress." },
+  ])
+    assert.doesNotThrow(() =>
+      action.execution!.compile!({ ...compileInput, action: { ...command, attempt }, currentEntity: current }),
+    );
   for (const attempt of [
     { ...command.attempt, faultClass: "other" },
     { ...command.attempt, resetAt: "tomorrow" },

@@ -120,11 +120,26 @@ export type DispatchStreamActivity = {
   readonly observedAt: string;
 };
 
+/** Why the watchdog judged an attempt stalled, written before anything is terminated so the
+ *  stream can answer "last progress, in-flight calls, live processes" after the fact. */
+export type DispatchStallEvidence = {
+  readonly lastProgressAt: string;
+  readonly stallTimeoutMs: number;
+  readonly idleMs: number;
+  readonly inFlightToolCalls: readonly {
+    readonly toolCallId: string;
+    readonly startedAt: string;
+    readonly timeoutMs: number | null;
+  }[];
+  /** Child pids alive at judgment; null when the process table could not be read. */
+  readonly liveProcessPids: readonly number[] | null;
+};
+
 export interface DispatchStreamWriter {
   readonly ref: string;
   readonly appendProviderEvent: (value: unknown, occurredAt: string) => void;
   readonly appendWorkspaceActivity: (occurredAt: string) => void;
-  readonly appendStalled: (occurredAt: string) => void;
+  readonly appendStalled: (occurredAt: string, evidence?: DispatchStallEvidence) => void;
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
   readonly appendExitNotification: (
     value: {
@@ -243,8 +258,9 @@ export function openDispatchStream(
         kind: "workspace_activity",
         occurredAt,
       }),
-    appendStalled: (occurredAt) =>
+    appendStalled: (occurredAt, evidence) =>
       appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        ...evidence,
         schema: streamSchema,
         kind: "dispatch_stalled",
         occurredAt,
@@ -1115,6 +1131,7 @@ function isRuntimeAttemptOutcome(
       "provider_fault",
       "provider_quota",
       "worker_stop",
+      "dispatch_stalled",
       "awaiting_ruling",
       "needs_attention",
       "gate_red",

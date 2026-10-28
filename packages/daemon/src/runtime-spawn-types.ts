@@ -45,8 +45,16 @@ export interface RuntimeProcess {
   readonly onExit: (listener: (code: number | null, lossReason?: string) => void) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
+  /** Live descendants of this runtime's root process, excluding the root itself. The probe
+   *  reports unavailability as a failure result rather than an empty list: the watchdog must
+   *  keep its historical deadline when the process table cannot be read. */
+  readonly liveDescendantPids?: () => Promise<LiveDescendantProbeResult>;
   readonly release?: () => void;
 }
+
+export type LiveDescendantProbeResult =
+  | { readonly available: true; readonly pids: readonly number[] }
+  | { readonly available: false };
 
 export type RuntimeLauncher = (
   input: PreparedRuntimeLaunch,
@@ -174,6 +182,10 @@ export type ActiveRuntime = {
   readonly stallTimeoutMs: number;
   /** Last provider event or workspace change observed by the owner daemon. */
   lastProgressAtMs: number;
+  /** Provider-announced tool calls that have not settled yet, with the observation time and the
+   * call's own timeout when the provider declared one. A long command legitimately produces no
+   * frames while it runs, so this ledger — not a timer reset — is the evidence the watchdog defers on. */
+  inFlightToolCalls: Map<string, InFlightToolCall>;
   workspaceActivityCount: number;
   stalledAt: string | null;
   recordProviderProgress: (() => void) | null;
@@ -248,10 +260,25 @@ export type ProviderFrame = {
   readonly providerFault?: RuntimeProviderFault;
   /** A provider-declared stream reconnect (`Reconnecting... n/m (...)`), not a failure frame. */
   readonly providerReconnect?: ProviderReconnect;
-  readonly toolStep?: { readonly id: string; readonly settled: boolean };
+  /** Tool-call lifecycle announced by this frame. A started call opens an entry in the runtime's
+   * in-flight ledger; a settled one closes it. `timeoutMs` is the provider's own bound when it
+   * declares one, which is what the stall watchdog may defer to. */
+  readonly toolCalls?: readonly ProviderToolCallLifecycle[];
   /** Model ids the provider advertised on session establishment (ACP kinds). */
   readonly observedModels?: readonly string[];
   readonly observedCurrentModel?: string;
+};
+
+export type ProviderToolCallLifecycle = {
+  readonly id: string;
+  readonly settled: boolean;
+  readonly timeoutMs?: number;
+};
+
+/** One provider-announced tool call as the daemon saw it start. */
+export type InFlightToolCall = {
+  readonly startedAtMs: number;
+  readonly timeoutMs: number | null;
 };
 
 /** One provider stream reconnect. Codex spends a bounded `attempt/limit` budget on most of them, but

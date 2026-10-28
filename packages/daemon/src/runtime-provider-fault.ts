@@ -161,7 +161,7 @@ export function classifyRuntimeExit(
   if (active.stalledAt !== null && active.stalledAt !== undefined)
     return {
       ...classified(
-        "provider_fault",
+        "dispatch_stalled",
         `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`,
       ),
       outcome: "failed",

@@ -1936,7 +1936,7 @@
   "views.settingsView.runtimeProviderHandshakeTimeoutMsEffect": "慢容器或慢模型宿主超过这个时限会让派工在启动阶段失败；调高它，而不是反复重试。",
   "views.settingsView.runtimeStallTimeoutMsLabel": "派工停滞超时（毫秒）",
   "views.settingsView.runtimeStallTimeoutMsDescription": "派工没有供应方事件或工作区文件变更时允许的最长时间。",
-  "views.settingsView.runtimeStallTimeoutMsEffect": "超时的派工会被终止，并按配置的供应方备用策略结算。",
+  "views.settingsView.runtimeStallTimeoutMsEffect": "只有在没有在途工具调用且没有存活子进程时才会终止派工，并以 dispatch_stalled 结算，不再切换供应方。",
   "views.liveFloor.statusStalled": "已停滞",
   "views.settingsView.runtimeProviderMaxWaitSecondsEffect": "达到此等待预算或任务期限后，接续链停止等待。",
   "decisionProvider.typeDialogTitle": "新建 Provider",

@@ -158,6 +158,7 @@ export type RepoWriterCapabilityName =
   | "runtimeLaunch"
   | "runtimeTerminate"
   | "runtimeTerminateTree"
+  | "runtimeLiveDescendantPids"
   | "bootstrap"
   | "runtimeOutcome"
   | "runtimeSignal"

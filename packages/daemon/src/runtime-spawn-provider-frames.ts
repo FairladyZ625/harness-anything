@@ -65,21 +65,31 @@ export function parseClaudeFrame(value: Record<string, unknown>, providerSession
     const message = isPlainRecord(value.message) ? value.message : null,
       content = message && Array.isArray(message.content) ? message.content : null;
     if (!content) throw new Error("Claude assistant frame is incomplete");
-    const plan = content.filter(isPlainRecord).find((item) => item.type === "tool_use" && item.name === "TodoWrite");
+    const plan = content.filter(isPlainRecord).find((item) => item.type === "tool_use" && item.name === "TodoWrite"),
+      toolCalls = claudeToolUses(content);
     return {
       signals: content.flatMap(claudeContent),
       toolCallObserved: content.some(
         (item) => isPlainRecord(item) && ["tool_use", "server_tool_use"].includes(String(item.type)),
       ),
+      ...(toolCalls.length ? { toolCalls } : {}),
       planObserved: plan !== undefined,
       ...(plan ? { planIncomplete: planHasIncompleteItems(plan) } : {}),
     };
   }
-  if (value.type === "user")
+  if (value.type === "user") {
+    const content = isPlainRecord(value.message) && Array.isArray(value.message.content) ? value.message.content : [],
+      toolCalls = content.flatMap((item) =>
+        isPlainRecord(item) && item.type === "tool_result" && typeof item.tool_use_id === "string"
+          ? [{ id: item.tool_use_id, settled: true }]
+          : [],
+      );
     return {
       writeItemObserved:
         isPlainRecord(value.tool_use_result) && ["create", "update"].includes(String(value.tool_use_result.type)),
+      ...(toolCalls.length ? { toolCalls } : {}),
     };
+  }
   if (value.type === "result")
     return {
       finalText: value.result as string,
@@ -108,6 +118,13 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
   if (value.type === "thread.started") {
     if (!providerSessionId) throw new Error("Codex thread frame is incomplete");
     return {};
+  }
+  if (value.type === "item.started") {
+    // A started tool item announces work that will produce no further frames until it settles:
+    // the only observation the stall watchdog has for the whole command.
+    const item = value.item;
+    if (!isPlainRecord(item) || typeof item.id !== "string" || typeof item.type !== "string") return {};
+    return codexToolItemTypes.has(item.type) ? { toolCalls: [{ id: item.id, settled: false }] } : {};
   }
   if (value.type === "item.completed" || value.type === "item.updated") {
     const item = value.item;
@@ -142,6 +159,16 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
         toolCallObserved: true,
         toolCallSucceeded: codexToolItemSucceeded(itemType, item),
         writeItemObserved: itemType === "file_change" && item.status === "completed",
+        ...(typeof item.id === "string"
+          ? {
+              toolCalls: [
+                {
+                  id: item.id,
+                  settled: value.type === "item.completed" || ["completed", "failed"].includes(String(item.status)),
+                },
+              ],
+            }
+          : {}),
       };
     if (["plan", "todo", "todo_list"].includes(itemType))
       return {
@@ -191,10 +218,12 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
       const { conversation_id: conversation, step_index: index, ...tool } = update;
       return {
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(tool) }],
-        toolStep: {
-          id: `${String(conversation)}:${String(index)}`,
-          settled: update.state === "DONE" || update.state === "ERROR",
-        },
+        toolCalls: [
+          {
+            id: `${String(conversation)}:${String(index)}`,
+            settled: update.state === "DONE" || update.state === "ERROR",
+          },
+        ],
       };
     }
     return {};
@@ -276,7 +305,10 @@ export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId
       return { signals: [{ type: "activity", activity: "message", content: content.text }] };
     if (kind === "agent_thought_chunk" && typeof content?.text === "string" && content.text)
       return { signals: [{ type: "activity", activity: "thinking", content: content.text }] };
-    if (kind === "tool_call")
+    if (kind === "tool_call") {
+      const toolCallId = typeof update.toolCallId === "string" ? update.toolCallId : null,
+        rawInput = isPlainRecord(update.rawInput) ? update.rawInput : null,
+        timeoutMs = rawInput?.timeoutMs;
       return {
         signals: [
           {
@@ -287,16 +319,35 @@ export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId
         ],
         toolCallObserved: true,
         writeItemObserved: acpWriteToolKinds.has(String(update.kind)),
+        ...(toolCallId === null
+          ? {}
+          : {
+              toolCalls: [
+                {
+                  id: toolCallId,
+                  settled: acpToolCallSettled(update.status),
+                  ...(typeof timeoutMs === "number" && Number.isSafeInteger(timeoutMs) && timeoutMs > 0
+                    ? { timeoutMs }
+                    : {}),
+                },
+              ],
+            }),
       };
+    }
     if (kind === "tool_call_update") {
-      const status = String(update.status ?? "");
-      return status === "failed"
-        ? {
-            signals: [
-              { type: "activity", activity: "tool", content: `tool call failed: ${String(update.toolCallId ?? "")}` },
-            ],
-          }
-        : {};
+      const status = String(update.status ?? ""),
+        toolCall =
+          typeof update.toolCallId === "string" ? { id: update.toolCallId, settled: acpToolCallSettled(status) } : null;
+      return {
+        ...(toolCall === null ? {} : { toolCalls: [toolCall] }),
+        ...(status === "failed"
+          ? {
+              signals: [
+                { type: "activity", activity: "tool", content: `tool call failed: ${String(update.toolCallId ?? "")}` },
+              ],
+            }
+          : {}),
+      };
     }
     if (kind === "plan") {
       const entries = Array.isArray(update.entries) ? update.entries : [];
@@ -328,6 +379,20 @@ export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId
 }
 
 const acpWriteToolKinds: ReadonlySet<string> = new Set(["edit", "delete", "move"]);
+
+/** ACP settles a tool call on any terminal status; pending/in_progress keeps it in flight. */
+function acpToolCallSettled(status: unknown): boolean {
+  return ["completed", "failed", "cancelled"].includes(String(status));
+}
+
+/** Claude announces a tool call once per `tool_use` id; the matching `tool_result` settles it. */
+function claudeToolUses(content: readonly unknown[]): readonly { readonly id: string; readonly settled: boolean }[] {
+  return content.flatMap((item) =>
+    isPlainRecord(item) && ["tool_use", "server_tool_use"].includes(String(item.type)) && typeof item.id === "string"
+      ? [{ id: item.id, settled: false }]
+      : [],
+  );
+}
 
 /** Codex's tool item types. `collab_tool_call` is the sub-agent tool (`wait`): the provider reports
  * it settled exactly like any other tool, so it belongs here rather than in the unobserved types. */

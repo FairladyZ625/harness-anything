@@ -255,6 +255,7 @@ export interface AgentRuntimeSessionGroupRoundDto {
     | "provider_fault"
     | "provider_quota"
     | "worker_stop"
+    | "dispatch_stalled"
     | "awaiting_ruling"
     | "needs_attention"
     | "gate_red"
@@ -799,6 +800,7 @@ function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGro
         "provider_fault",
         "provider_quota",
         "worker_stop",
+        "dispatch_stalled",
         "awaiting_ruling",
         "needs_attention",
         "gate_red",

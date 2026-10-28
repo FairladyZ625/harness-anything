@@ -4,6 +4,9 @@ export type DispatchExitClassification =
   | "provider_fault"
   | "provider_quota"
   | "worker_stop"
+  /** The idle watchdog cancelled an attempt that produced no observable progress. The provider is
+   *  not implicated: this must not spend another provider's budget on the same silence. */
+  | "dispatch_stalled"
   /** The worker stopped to await an owner ruling; the question rides the ruling artifact. */
   | "awaiting_ruling"
   | "needs_attention"

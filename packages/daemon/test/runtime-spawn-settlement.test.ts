@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
+import { isProviderFailureClassification } from "../src/runtime-fallback-contract.ts";
+import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
@@ -57,7 +59,7 @@ test("exit zero without final output remains unknown despite an internal plan he
   );
 });
 
-test("a stalled dispatch is classified as a provider fault for the fallback policy", () => {
+test("a stalled dispatch is classified as dispatch_stalled, not a provider fault", () => {
   const result = classifyRuntimeExit(
     active({
       stalledAt: "2026-10-24T00:05:00.000Z",
@@ -67,17 +69,18 @@ test("a stalled dispatch is classified as a provider fault for the fallback poli
     null,
   );
   assert.equal(result.outcome, "failed");
-  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.classification, "dispatch_stalled");
+  assert.equal(isProviderFailureClassification(result.classification), false);
   assert.match(result.reason, /30,?000 ms/u);
 });
 
-test("stalled settlement hands the attempt to the normal fallback hook", async () => {
+test("stalled settlement never enters the provider fallback chain", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-fallback-"));
   try {
     const runtime = tasklessSettlementRuntime(rootDir, "partial work");
     Object.assign(runtime, { stalledAt: "2026-10-24T00:05:00.000Z", stallTimeoutMs: 30_000 });
-    const attempts: Record<string, unknown>[] = [],
-      context = {
+    const terminals: RuntimeAttemptTerminal[] = [],
+      context: RuntimeSpawnerContext = {
         exiting: new Set<string>(),
         processes: new Map([[runtime.runtimeSessionId, runtime]]),
         input: {
@@ -86,22 +89,25 @@ test("stalled settlement hands the attempt to the normal fallback hook", async (
           now: () => "2026-10-24T00:05:01.000Z",
           stream: { publish: () => ({}) },
           remote: { archive: async () => ({ outcome: "applied" }) },
+          onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => terminals.push(terminal),
         },
         resultMediaType: "text/markdown",
         runtimeResultText: () => "partial work",
         markProtocolError: () => undefined,
         publishRuntimeEvent: async () => ({}),
-        settleFallback: async (_active: unknown, attempt: Record<string, unknown>) => attempts.push(attempt),
+        settleFallback: (activeRuntime: ActiveRuntime, attempt, terminal) =>
+          settleFallbackAttempt(context, activeRuntime, attempt, terminal),
       } as unknown as RuntimeSpawnerContext;
     await publishExit(context, runtime, null);
-    assert.equal(attempts[0]?.classification, "provider_fault");
-    assert.match(String(attempts[0]?.reason), /30,?000 ms/u);
+    assert.equal(terminals.length, 1, "a stalled attempt reaches the terminal hook, not a fallback");
+    assert.equal(terminals[0]?.outcome, "failed");
+    assert.match(String(terminals[0]?.reason), /stalled/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("the idle watchdog reaches stalled settlement and fallback after the frozen deadline", async () => {
+test("the idle watchdog reaches stalled settlement and dispatch_stalled after the frozen deadline", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-watchdog-"));
   const originalNow = Date.now;
   const originalSetTimeout = globalThis.setTimeout;
@@ -184,7 +190,7 @@ test("the idle watchdog reaches stalled settlement and fallback after the frozen
 
     assert.deepEqual(stalledAt, ["2026-10-24T00:00:10.000Z"]);
     assert.equal(runtime.stalledAt, "2026-10-24T00:00:10.000Z");
-    assert.equal(fallbackAttempts[0]?.classification, "provider_fault");
+    assert.equal(fallbackAttempts[0]?.classification, "dispatch_stalled");
     disposeActiveRuntimeObservations(runtime);
   } finally {
     Date.now = originalNow;

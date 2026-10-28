@@ -22,6 +22,7 @@ import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type {
+  LiveDescendantProbeResult,
   ResumeProcessEvent,
   ResumeProcessObservation,
   RuntimeLauncher,
@@ -211,12 +212,40 @@ type PosixProcessRow = {
 };
 
 async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
-  const output = await runProcessTextAsync("ps", ["-axo", "pid=,ppid=,pgid="]);
+  // Bounded: this table is also consulted on the stall watchdog's path, where a hung `ps` would
+  // otherwise prevent the very settlement that decides the attempt.
+  const output = await runProcessTextAsync(
+    "ps",
+    ["-axo", "pid=,ppid=,pgid="],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { timeoutMs: 10_000 },
+  );
   return output.split(/\r?\n/u).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);
     if (!match) return [];
     return [{ pid: Number(match[1]), parentPid: Number(match[2]), processGroupId: Number(match[3]) }];
   });
+}
+
+/** Live children of one runtime root, asked of the OS. A platform that cannot enumerate the
+ *  table, or a probe that failed, reports unavailability so the caller keeps its historical
+ *  deadline rather than reading silence as an empty subtree. */
+async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProbeResult> {
+  if (!Number.isInteger(rootPid) || rootPid < 1 || process.platform === "win32") return { available: false };
+  try {
+    const rows = await readPosixProcessRows();
+    return {
+      available: true,
+      pids: descendantProcessRows(rows, rootPid)
+        .map(({ pid }) => pid)
+        .filter((pid) => pid !== rootPid),
+    };
+  } catch {
+    return { available: false };
+  }
 }
 
 function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
@@ -623,6 +652,7 @@ function observeDispatchProcess(
         removeRuntimeCallbackRelay(dispatchId);
       }
     },
+    liveDescendantPids: () => liveDescendantPidsOf(pid),
     release: () => {
       released = true;
       clearInterval(timer);

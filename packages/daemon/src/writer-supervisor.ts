@@ -427,6 +427,10 @@ export async function openWriterSupervisor(
         await runtimeProcesses.get(processId)?.terminateTree?.();
         return null;
       }
+      case "runtimeLiveDescendantPids": {
+        const processId = (call.payload as { processId: string }).processId;
+        return (await runtimeProcesses.get(processId)?.liveDescendantPids?.()) ?? { available: false };
+      }
       case "bootstrap":
         input.onBootstrap?.(call.payload as never);
         return null;
