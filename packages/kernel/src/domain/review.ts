@@ -8,8 +8,24 @@ import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.t
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { timestamp } from "./timestamp.ts";
 import { reviewConsentConflicts } from "./review-consent-validity.ts";
-import { reviewFindingCategories, reviewFindingDispositions, reviewFindingLabels } from "./review-settlement.ts";
-import type { ReviewFindingDisposition } from "./review-settlement.ts";
+export const reviewFindingCategories = [
+  "correctness",
+  "completeness",
+  "ci-required",
+  "migration",
+  "decision-break",
+  "security-auth",
+  "data-loss",
+  "style",
+  "diagnostic",
+  "cleanup",
+] as const;
+export type ReviewFindingCategory = (typeof reviewFindingCategories)[number];
+export const reviewFindingLabels = ["Important", "Nit", "Pre-existing"] as const;
+export type ReviewFindingLabel = (typeof reviewFindingLabels)[number];
+/** Historical owner ruling vocabulary retained only so admitted events remain readable. */
+export const reviewFindingDispositions = ["blocker", "non_blocking", "nit", "pre_existing", "false_positive"] as const;
+export type ReviewFindingDisposition = (typeof reviewFindingDispositions)[number];
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
 export type ReviewResponseDisposition = "adopt" | "rebut";
@@ -99,10 +115,9 @@ export interface ReviewDispositionV1 {
   readonly actor: ActorAxes;
   readonly source: WriteSource;
   readonly disposedAt: string;
-  /** One owner ruling for an escalated categorized finding on this exact submission cut. */
+  /** Historical per-finding ruling; current consent writes no longer produce this field. */
   readonly findingRuling?: ReviewFindingRulingV1;
 }
-
 export interface ReviewFindingRulingV1 {
   readonly targetDigest: SubmissionDigest;
   readonly reviewId: string;
@@ -155,7 +170,6 @@ export function validateReviewDispositionV1(
     ? []
     : [invalidReviewIssue("review disposition must bind named reviews, rationale, content cut, actor, and source")];
 }
-
 function validReviewFindingRuling(value: unknown, allowUnknownFields: boolean): boolean {
   if (!isRecord(value)) return false;
   const fields = ["targetDigest", "reviewId", "findingId", "disposition", "rationale"] as const;

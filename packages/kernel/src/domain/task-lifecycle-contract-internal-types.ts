@@ -23,8 +23,6 @@ import type { DomainStatus } from "./lifecycle-status.ts";
 import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 import type { CompletionDeliveryStatus } from "./closeout-readiness.ts";
-import type { ReviewFindingDisposition } from "./review-settlement.ts";
-import type { ReviewFindingTriageV1 } from "./review-settlement.ts";
 
 // Shared public contract shapes and internal transition protocol.
 /** The owner's forward adjudication on one cut, keyed (executionId, iteration): the corridor
@@ -43,8 +41,6 @@ export interface TaskLifecycleSnapshot {
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewResponses?: readonly TaskReviewResponseV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
-  /** Center-owned settlement inputs joined into read snapshots, never written to Task events. */
-  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly edgesTaken: readonly TaskEdgeTaken[];
   readonly lease: LeaseV1 | null;
@@ -140,8 +136,6 @@ export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent">
   readonly contentDigest: `sha256:${string}`;
   readonly disposedReviewIds?: readonly string[];
   readonly rationale?: string;
-  readonly findingId?: string;
-  readonly findingDisposition?: ReviewFindingDisposition;
 }
 export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
   readonly executionId: string;
@@ -242,8 +236,6 @@ export interface ReviewConsentProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "execution-consent@v1";
   readonly capabilityRef: string;
-  /** Center-owned triage journal records used to admit one owner ruling for a currently escalated finding. */
-  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
 }
 export interface CompleteTaskProof {
   readonly capability: "task-complete@v1";

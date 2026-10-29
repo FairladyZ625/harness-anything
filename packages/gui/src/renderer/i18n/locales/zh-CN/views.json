@@ -2163,13 +2163,4 @@
   "views.liveFloor.endedWindowNote": "近 24 小时",
   "views.liveFloor.endedReportToggle": "报告",
   "views.liveFloor.stageOther": "其他",
-  "views.settingsView.reviewThresholdCorrectnessLabel": "正确性分诊门槛",
-  "views.settingsView.reviewThresholdCorrectnessDescription": "correctness/completeness 类 finding 的分诊需要多少百分比置信度才能结案。",
-  "views.settingsView.reviewThresholdCorrectnessEffect": "低于该值会升级给人，除非 Critic 同意；只能把内置的 80 抬高，不能降低。",
-  "views.settingsView.reviewThresholdMigrationLabel": "迁移分诊门槛",
-  "views.settingsView.reviewThresholdMigrationDescription": "CI、migration、decision-break 类 finding 的分诊需要多少百分比置信度才能结案。",
-  "views.settingsView.reviewThresholdMigrationEffect": "低于该值会升级给人，除非 Critic 同意；只能把内置的 85 抬高，不能降低。",
-  "views.settingsView.reviewThresholdSecurityAuthLabel": "安全分诊门槛",
-  "views.settingsView.reviewThresholdSecurityAuthDescription": "security-auth/data-loss 类 finding 的分诊需要多少百分比置信度才能结案。",
-  "views.settingsView.reviewThresholdSecurityAuthEffect": "低于该值会升级给人，除非 Critic 同意；只能把内置的 90 抬高，不能降低。"
 }

@@ -470,23 +470,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "ReviewResponseDisposition",
     words: ["adopt", "rebut"],
   },
-  // dec_6A77D43B8523823ABA1F5E4D3C CH3: the five per-finding dispositions the triage Decision
-  // point selects, and the three outcomes a reviewed cut can settle to.
+  // Historical finding ruling vocabulary remains registered solely so admitted records and wire
+  // mirrors stay readable after per-finding triage was removed from current writes.
   {
     id: "review.finding.disposition",
     entity: "Review",
-    field: "finding disposition",
-    module: "packages/kernel/src/domain/review-settlement.ts",
+    field: "historical finding disposition",
+    module: "packages/kernel/src/domain/review.ts",
     anchor: "reviewFindingDispositions",
     words: ["blocker", "non_blocking", "nit", "pre_existing", "false_positive"],
-  },
-  {
-    id: "review.settlement.outcome",
-    entity: "Review",
-    field: "settlement outcome",
-    module: "packages/kernel/src/domain/review-settlement.ts",
-    anchor: "#outcome",
-    words: ["passed", "changes_requested", "escalated"],
   },
   {
     id: "decision.review.verdict",

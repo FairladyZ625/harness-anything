@@ -9,7 +9,7 @@ import {
   type DecisionReviewFindingV1,
   type DecisionReviewResponseV1,
 } from "./decision-event.ts";
-import { reviewFindingCategories, reviewFindingLabels } from "./review-settlement.ts";
+import { reviewFindingCategories, reviewFindingLabels } from "./review.ts";
 import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import type { CanonicalRelationDirection } from "./relation-direction.ts";

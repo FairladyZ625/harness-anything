@@ -553,9 +553,8 @@ const decisionActionCatalog = Object.freeze({
   ref: "kernel/decision-event/v1",
   actions: Object.freeze([
     decisionWriteAction("propose", "decision-propose"),
-    // Accept is the one Decision write whose guard failure must guide the operator: settlement
-    // attributes review-required rejections to this criterion and forwards the dispatch-review
-    // command as receipt nextActions.
+    // Accept is the one Decision write whose guard failure must guide the operator: review-required
+    // rejections are attributed to this criterion and forward dispatch-review as receipt nextActions.
     ...decisionTransitionDefinitions.flatMap(({ action }) => {
       if (action === "supersede") return [entityAction("decision", decisionIdentity, action, decisionExposure)];
       return [

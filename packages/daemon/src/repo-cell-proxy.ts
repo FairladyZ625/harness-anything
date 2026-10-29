@@ -566,7 +566,7 @@ export async function openRepoCellProxy(
             rootDir: input.rootDir,
             projection: projection as TaskProjection,
             readPinnedEntities: projection.listPinnedEntities,
-            judgments: repoCellTaskQueryJudgmentsFor(projection, input.rootDir),
+            judgments: repoCellTaskQueryJudgmentsFor(projection),
           }).guiTasks(taskListQuery(payload)),
         ) as never;
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;

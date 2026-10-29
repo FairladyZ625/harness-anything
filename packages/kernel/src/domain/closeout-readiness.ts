@@ -7,12 +7,6 @@ import { consentedApprovedReviewForExecution, reviewsForExecution } from "./revi
 import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
-import {
-  settleReviewFindings,
-  type ReviewFindingSettlement,
-  type ReviewFindingTriageV1,
-  type SettleableReviewFinding,
-} from "./review-settlement.ts";
 import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
@@ -86,8 +80,6 @@ export interface CloseoutSnapshot {
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
-  /** Per-finding triage answers the center recorded for this cut's categorized findings. */
-  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
   readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
@@ -198,61 +190,6 @@ export function closeoutReadiness(
     ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}),
     gates,
   };
-}
-
-/**
- * The findings of one cut that enter per-finding settlement, in review order. A finding without a
- * recorded category is not settled: the pre-triage review path keeps owning it (a category is only
- * written by a reviewer that answered the triage question). The center's triage producer asks about
- * exactly these findings, so the question it pays for and the judgment that reads the answer cannot
- * drift apart.
- */
-export function cutReviewFindings(
-  reviews: readonly ReviewV1[],
-  execution: ExecutionV1,
-): readonly SettleableReviewFinding[] {
-  return reviewsForExecution(reviews, execution).flatMap((review) =>
-    (review.findings ?? []).flatMap((finding) =>
-      finding.category === undefined
-        ? []
-        : [
-            {
-              reviewId: review.reviewId,
-              findingId: finding.findingId,
-              category: finding.category,
-              label: finding.label ?? ("Important" as const),
-              text: finding.text,
-              reviewerBlocking: finding.blocking,
-              ...(finding.evidenceDigest === undefined || finding.anchor === undefined
-                ? {}
-                : { evidence: { anchor: finding.anchor, evidenceDigest: finding.evidenceDigest } }),
-              ...(finding.priorFindingRefs === undefined ? {} : { priorFindingRefs: finding.priorFindingRefs }),
-            },
-          ],
-    ),
-  );
-}
-
-/**
- * The per-finding settlement of one cut, or null for a cut that raised no categorized finding. Only
- * findings bound to this execution/iteration enter, so a prior cut's settlement cannot pass a new one.
- */
-export function currentCutSettlement(
-  reviews: readonly ReviewV1[],
-  execution: ExecutionV1,
-  triages: readonly ReviewFindingTriageV1[],
-  dispositions: readonly ReviewDispositionV1[] = [],
-): ReviewFindingSettlement | null {
-  const findings = cutReviewFindings(reviews, execution);
-  if (findings.length === 0 || !execution.submission) return null;
-  // The cut a settlement answers is its submission digest: an amend mints a new one, and a record
-  // minted for the old cut must not answer the new one (B-3: `(reviewId, findingId)` is reusable).
-  return settleReviewFindings({
-    findings,
-    triages,
-    targetDigest: submissionDigest(execution.submission),
-    rulings: dispositions.flatMap((value) => (value.findingRuling ? [value.findingRuling] : [])),
-  });
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

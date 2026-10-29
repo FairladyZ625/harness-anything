@@ -140,7 +140,7 @@ export type ExecutionSubmittedEvent = TaskEventEnvelope<
     readonly supersedesSubmissionId?: string;
   }
 >;
-/** The owning CEO's triage forward: the submitted cut enters the independent review gate. */
+/** The owning CEO's review forward: the submitted cut enters the independent review gate. */
 export type SubmissionForwardedEvent = TaskEventEnvelope<
   "submission_forwarded",
   {

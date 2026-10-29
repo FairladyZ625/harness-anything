@@ -19,19 +19,11 @@ export function reviewFindingScopePrompt(phase: ReviewPromptPhase): string {
 }
 
 /**
- * The per-finding category every reported finding carries (dec_6A77D43B8523823ABA1F5E4D3C CH2/CH3).
+ * Report finding categories are retained as advisory report metadata.
  *
- * `category` is what lets the center settle findings one at a time instead of judging a whole cut
- * from a single verdict: style, diagnostic noise and cleanup are discarded before settlement, and
- * the rest are measured against a per-category confidence floor. It is only safe to ask for this
- * now that a producer writes the triage records — without one, a categorized finding could only
- * escalate. The words are the parser's exact vocabulary, not a paraphrase of it.
+ * The words are the parser's exact vocabulary and do not decide completion.
  */
 export const reviewFindingCategoryPrompt =
   "Give every finding a `category`, one of: correctness, completeness, security-auth, data-loss, " +
-  "ci-required, migration, decision-break, style, diagnostic, cleanup. Use style, diagnostic or cleanup " +
-  "only when the finding changes no behaviour; those three are discarded before settlement. A finding " +
-  "that breaks a project hard rule (data loss, security or authorization, a required CI conclusion, a " +
-  "breaking in-effect decision, an undeleted old path, or a persisted-format change without a migration) " +
-  "must also carry its evidence anchor and evidenceDigest: a hard-rule finding without complete evidence " +
-  "escalates to a person instead of settling.";
+  "ci-required, migration, decision-break, style, diagnostic, cleanup. Keep the finding text and evidence " +
+  "anchors in the report; category is advisory metadata and does not decide completion.";

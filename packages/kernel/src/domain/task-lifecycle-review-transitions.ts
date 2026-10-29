@@ -3,13 +3,8 @@ import { digest } from "./digest.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import { validateReviewFindings, validateReviewResolutions, validateTaskReviewResponseV1 } from "./review.ts";
-import { isDiscardedCategory, reviewFindingDispositions } from "./review-settlement.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
-import {
-  describeReviewConsentConflicts,
-  isReviewDispositionEligible,
-  reviewConsentConflicts,
-} from "./review-consent-validity.ts";
+import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -22,8 +17,7 @@ import type {
   TaskCompletedEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
-import { closeoutReadiness, currentCutSettlement } from "./closeout-readiness.ts";
-import { findingRulingCommand } from "./completion-readiness.ts";
+import { closeoutReadiness } from "./closeout-readiness.ts";
 import { isValidCloseoutGateRecord } from "./settings-closeout.ts";
 import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
@@ -93,19 +87,6 @@ function reviewIssues(
     issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
   else issues.push(...validateReviewFindings(command.findings));
   if (command.resolutions !== undefined) issues.push(...validateReviewResolutions(command.resolutions));
-  // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
-  // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
-  if (
-    command.verdict === "changes_requested" &&
-    command.findings !== undefined &&
-    !command.findings.some((item) => item.blocking && !isDiscardedCategory(item.category ?? "correctness"))
-  )
-    issues.push(
-      lifecycleContractIssue(
-        "invalid_review",
-        "changes_requested review requires a blocking finding outside style/diagnostic/cleanup",
-      ),
-    );
   return issues;
 }
 
@@ -333,9 +314,7 @@ export const consent: Transition = {
         (value) => value.reviewId === command.reviewId && value.executionId === command.executionId,
       ),
       currentSubmissionDigest = current?.submission ? submissionDigest(current.submission) : undefined,
-      hasDispositionAction = Boolean(
-        command.disposedReviewIds?.length || command.findingId || command.findingDisposition,
-      ),
+      hasDispositionAction = Boolean(command.disposedReviewIds?.length),
       consentAlreadyCurrent =
         !hasDispositionAction &&
         currentSubmissionDigest !== undefined &&
@@ -361,17 +340,6 @@ export const consent: Transition = {
               actor: command.actor,
               source: command.source,
               disposedAt: command.occurredAt,
-              ...(command.findingId && command.findingDisposition
-                ? {
-                    findingRuling: {
-                      targetDigest: currentSubmissionDigest!,
-                      reviewId: command.reviewId,
-                      findingId: command.findingId,
-                      disposition: command.findingDisposition,
-                      rationale: command.rationale ?? "",
-                    },
-                  }
-                : {}),
             }
           : undefined,
       conflicts = current?.submission
@@ -395,7 +363,7 @@ export const consent: Transition = {
               value.executionId === command.executionId &&
               value.iteration === current?.iteration &&
               value.submissionDigest === currentSubmissionDigest &&
-              isReviewDispositionEligible(value),
+              value.verdict === "changes_requested",
           )
           .map((value) => value.reviewId),
       );
@@ -427,72 +395,8 @@ export const consent: Transition = {
         command.disposedReviewIds.some((reviewId) => !dispositionEligibleReviews.has(reviewId)))
     )
       issues.push(
-        lifecycleContractIssue(
-          "invalid_proof",
-          "review disposition may name current changes_requested reviews or approved reviews with unclassified findings",
-        ),
+        lifecycleContractIssue("invalid_proof", "review disposition may name current changes_requested reviews"),
       );
-    if ((command.findingId === undefined) !== (command.findingDisposition === undefined))
-      issues.push(
-        lifecycleContractIssue("invalid_proof", "finding ruling requires both --finding-id and --finding-disposition"),
-      );
-    if (command.findingDisposition !== undefined && !reviewFindingDispositions.includes(command.findingDisposition))
-      issues.push(lifecycleContractIssue("invalid_proof", "finding ruling disposition is not supported"));
-    if (command.findingId !== undefined && command.findingDisposition !== undefined) {
-      const alreadyRuled = (snapshot.reviewDispositions ?? []).some(
-          (value) =>
-            value.submissionDigest === currentSubmissionDigest &&
-            value.findingRuling?.reviewId === command.reviewId &&
-            value.findingRuling.findingId === command.findingId,
-        ),
-        settlement = current?.submission
-          ? currentCutSettlement(
-              snapshot.reviews,
-              current,
-              proof.reviewFindingTriages ?? [],
-              snapshot.reviewDispositions ?? [],
-            )
-          : null,
-        escalated = settlement?.escalated ?? [],
-        isEscalated = escalated.some(
-          (value) => value.reviewId === command.reviewId && value.findingId === command.findingId,
-        );
-      if (command.disposedReviewIds?.length)
-        issues.push(
-          lifecycleContractIssue("invalid_proof", "a finding ruling cannot be combined with whole-review disposal"),
-        );
-      if (alreadyRuled)
-        issues.push(
-          lifecycleContractIssue(
-            "invalid_proof",
-            "this finding already has an owner ruling for the current submission",
-          ),
-        );
-      if (!isEscalated)
-        issues.push(
-          lifecycleContractIssue(
-            "invalid_transition",
-            escalated.length
-              ? "owner rulings apply only to an escalated finding on the current submission; " +
-                  "escalated findings awaiting disposition: " +
-                  escalated
-                    .map(
-                      (value) =>
-                        `${value.reviewId}/${value.findingId} -> ` +
-                        findingRulingCommand(command.taskId, command.executionId, value.reviewId, value.findingId),
-                    )
-                    .join("; ")
-              : "owner rulings apply only to an escalated finding on the current submission; " +
-                  "no finding on the current submission is escalated",
-          ),
-        );
-      if (recorded?.verdict !== "approved")
-        issues.push(lifecycleContractIssue("invalid_transition", "finding rulings require a current approved review"));
-      if (proof.reviewFindingTriages === undefined)
-        issues.push(
-          lifecycleContractIssue("invalid_proof", "owner finding ruling requires the center's current triage records"),
-        );
-    }
     if (conflicts.length)
       issues.push(
         lifecycleContractIssue(
@@ -536,9 +440,7 @@ export const consent: Transition = {
         source: command.source,
         consentedAt: command.occurredAt,
       },
-      hasDispositionAction = Boolean(
-        command.disposedReviewIds?.length || command.findingId || command.findingDisposition,
-      ),
+      hasDispositionAction = Boolean(command.disposedReviewIds?.length),
       disposition: ReviewDispositionV1 | undefined = hasDispositionAction
         ? {
             schema: "review-disposition/v1",
@@ -552,17 +454,6 @@ export const consent: Transition = {
             actor: command.actor,
             source: command.source,
             disposedAt: command.occurredAt,
-            ...(command.findingId && command.findingDisposition
-              ? {
-                  findingRuling: {
-                    targetDigest: submissionDigest(current.submission!),
-                    reviewId: command.reviewId,
-                    findingId: command.findingId,
-                    disposition: command.findingDisposition,
-                    rationale: command.rationale!,
-                  },
-                }
-              : {}),
           }
         : undefined;
     return {

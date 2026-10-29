@@ -1,4 +1,4 @@
-import type { ReviewV1, ReviewVerdict } from "./review.ts";
+import type { ReviewVerdict } from "./review.ts";
 
 export interface ReviewValidityRecord {
   readonly reviewId: string;
@@ -22,13 +22,6 @@ export interface ReviewConsentConflict {
   readonly verdict: ReviewValidityRecord["verdict"];
   readonly reviewSubmissionDigest: `sha256:${string}` | undefined;
   readonly currentSubmissionDigest: `sha256:${string}`;
-}
-/** Only changes-requested reviews or approved reviews with pre-triage findings can be disposed. */
-export function isReviewDispositionEligible(review: Pick<ReviewV1, "verdict" | "findings">): boolean {
-  return (
-    review.verdict === "changes_requested" ||
-    (review.verdict === "approved" && (review.findings ?? []).some((finding) => finding.category === undefined))
-  );
 }
 /** Review ids removed from a cut by its dispositions: bound to the current submission digest and stated with a rationale. */
 export function disposedReviewIdsForSubmission(

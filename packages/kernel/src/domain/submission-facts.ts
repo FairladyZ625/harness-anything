@@ -20,9 +20,8 @@ export const historicalReadConclusions = Object.freeze([
     conclusion:
       "Findings written before this field existed stay byte-identical and are never backfilled: a " +
       "submission/content digest pins a cut, so rewriting a finding would change an accepted cut's " +
-      "identity. `closeoutReadiness` treats an unanswered category on the current cut as unresolved " +
-      "review, and the registered exit is the existing `review-disposition/v1` channel bound to that " +
-      "cut's digest (the Decision side uses `reviewOverrides` the same way).",
+      "identity. Findings remain report content; the current review verdict and owner consent decide " +
+      "completion, while historical disposition records remain readable without migration.",
   },
 ] as const);
 

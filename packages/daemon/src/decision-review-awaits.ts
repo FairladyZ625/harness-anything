@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import {
   decisionAcceptReviewReadiness,
-  decisionReviewContentDigest,
   deriveRelationId,
   getExecutableEntityAction,
   type AuthorizationDecision,
@@ -12,7 +11,6 @@ import {
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { decisionReviewAwaitRationale } from "./decision-review-read.ts";
-import { reviewTriageRecordsFor } from "./review-finding-triage.ts";
 import { executeRelationAction, reject } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -93,16 +91,8 @@ function reconcileDecisionReviewAwait(input: DecisionReviewAwaitInput): void {
     nextAction =
       decision.body === null
         ? null
-        : decisionAcceptReviewReadiness(
-            decision,
-            decision.body.body,
-            input.readSettings().decisionReviewRequirement,
-            reviewTriageRecordsFor(input.rootDir, {
-              kind: "decision",
-              id: input.decisionId,
-              digest: decisionReviewContentDigest(decision, decision.body.body),
-            }),
-          ).next.action,
+        : decisionAcceptReviewReadiness(decision, decision.body.body, input.readSettings().decisionReviewRequirement)
+            .next.action,
     shouldAwait =
       decision.state === "proposed" && (nextAction === "override-review" || nextAction === "respond-review");
   if (shouldAwait) {

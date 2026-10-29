@@ -431,20 +431,6 @@ export function reviewConsentCommands(
   );
 }
 
-/**
- * The one rendering of an owner's per-finding ruling command. Completion guidance prints it, and
- * a consent attempt on the wrong finding repeats it for the finding that actually escalated, so
- * the two paths can never drift.
- */
-export function findingRulingCommand(taskId: string, executionId: string, reviewId: string, findingId: string): string {
-  const quoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
-  return (
-    `ha task review-consent ${taskId} --execution-id ${executionId} ` +
-    `--review-id ${quoted(reviewId)} --finding-id ${quoted(findingId)} ` +
-    "--finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> --rationale <why>"
-  );
-}
-
 export function reviewDispositionCommand(taskId: string, executionId: string, reviewId: string): string {
   const quoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
   return (

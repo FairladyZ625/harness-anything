@@ -2,7 +2,7 @@ import { type SessionProvenanceV1 } from "./agent-runtime.ts";
 import type { DocEventChange } from "./doc-sync.contract.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { type ActorIdentity, type EventEnvelope, type FrozenWritePlan } from "./write-chain.contract.ts";
-import type { ReviewFindingCategory, ReviewFindingLabel } from "./review-settlement.ts";
+import type { ReviewFindingCategory, ReviewFindingLabel } from "./review.ts";
 
 export const decisionEventTypes = [
   "decision_proposed",
@@ -44,10 +44,8 @@ export const decisionTransitionDefinitions = Object.freeze([
 }[]);
 export type DecisionTransitionDefinition = (typeof decisionTransitionDefinitions)[number];
 export type DecisionTransitionAction = DecisionTransitionDefinition["action"];
-/**
- * The Action criterion a review-required accept rejection is attributed to, so settlement can
- * surface the dispatch-review escape hatch as receipt nextActions instead of a bare refusal.
- */
+/** The Action criterion a review-required accept rejection is attributed to, so receipts can surface
+ * the dispatch-review escape hatch instead of a bare refusal. */
 export const DECISION_ACCEPT_REVIEW_CRITERION_REF = "decision/accept-review-readiness";
 export const policyStates = ["draft", "active", "retired"] as const;
 export type PolicyState = (typeof policyStates)[number];
@@ -113,9 +111,9 @@ export interface DecisionReviewFindingV1 {
   readonly findingId: string;
   readonly text: string;
   readonly anchor?: string;
-  /** One settled or discarded category; absent on historical reviews. */
+  /** Advisory finding category; absent on historical reviews. */
   readonly category?: ReviewFindingCategory;
-  /** The Anthropic-aligned label the reviewer claims; input to triage, never the verdict. */
+  /** The reviewer's advisory label; it never replaces the review verdict. */
   readonly label?: ReviewFindingLabel;
   /** Hash of the minimal evidence this finding rests on. */
   readonly evidenceDigest?: `sha256:${string}`;

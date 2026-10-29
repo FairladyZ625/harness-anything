@@ -5,7 +5,6 @@ import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 import { settingsLocales } from "./settings.ts";
 import { taskClasses } from "./task.ts";
 import { priorityTiers, taskWorkKinds } from "./task-metadata.ts";
-import { reviewFindingDispositions } from "./review-settlement.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -562,16 +561,12 @@ export const declarations: readonly Declaration[] = Object.freeze([
       wire(cli("reviewId", "string", true, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       cli("dispose", "string-array", false, "--dispose", "repeated"),
       cli("rationale", "string", false, "--rationale"),
-      cli("findingId", "string", false, "--finding-id"),
-      cli("findingDisposition", "string", false, "--finding-disposition", "single", {
-        enum: reviewFindingDispositions,
-      }),
     ]),
     criteria: Object.freeze([
       criterion(
         "task-lifecycle-review-transitions/consent.validate",
         "invalid_proof",
-        "Consent selects an approved review or an owner-disposed changes_requested review of the current submission and pins review, content, and submission digests; owner override requires the task owner's principal and a rationale for every disposed review. An escalated finding can be adjudicated once with --finding-id and --finding-disposition.",
+        "Consent selects an approved review or an owner-disposed changes_requested review of the current submission and pins review, content, and submission digests; owner override requires the task owner's principal and a rationale for every disposed review.",
       ),
     ]),
     concurrency: taskConcurrency(
