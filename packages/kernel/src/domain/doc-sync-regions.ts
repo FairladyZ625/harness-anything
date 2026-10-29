@@ -116,6 +116,33 @@ export function opaqueProof(): {
   return { proofs: [], differences: [], unresolved: [] };
 }
 
+/** Heading anchors are Markdown structure; fenced and indented code examples are content. */
+function headingMatches(markdown: string): { readonly index: number; readonly text: string }[] {
+  const matches: { index: number; text: string }[] = [];
+  let offset = 0,
+    fence: { marker: string; length: number } | null = null;
+  for (const line of markdown.split("\n")) {
+    const content = line.endsWith("\r") ? line.slice(0, -1) : line,
+      delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(content);
+    if (fence === null && delimiter) {
+      fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+    } else if (fence !== null) {
+      if (
+        delimiter &&
+        delimiter[1]![0] === fence.marker &&
+        delimiter[1]!.length >= fence.length &&
+        !delimiter[2]!.trim()
+      )
+        fence = null;
+    } else {
+      const match = /^#{1,6} +(.+)$/u.exec(content);
+      if (match) matches.push({ index: offset, text: match[1]! });
+    }
+    offset += line.length + 1;
+  }
+  return matches;
+}
+
 function regions(
   body: string,
   mediaType: string,
@@ -141,12 +168,12 @@ function regions(
     prose = body.slice(length);
     offset = length;
   }
-  const matches = [...prose.matchAll(/^#{1,6} +(.+)$/gmu)];
-  const ids = matches.map((match) => `heading/${match[1]!.trim().toLowerCase()}`);
+  const matches = headingMatches(prose);
+  const ids = matches.map((match) => `heading/${match.text.trim().toLowerCase()}`);
   if (new Set(ids).size !== ids.length) return { regions: [], error: "duplicate heading anchor" };
   if (!matches.length) result.push({ id: "prose/*", mode: "additive", body: prose, offset });
   else {
-    if ((matches[0]!.index ?? 0) > 0)
+    if (matches[0]!.index > 0)
       result.push({
         id: "prose/*",
         mode: "additive",
@@ -154,7 +181,7 @@ function regions(
         offset,
       });
     matches.forEach((match, index) => {
-      const start = match.index ?? 0,
+      const start = match.index,
         end = matches[index + 1]?.index ?? prose.length;
       result.push({
         id: ids[index]!,
