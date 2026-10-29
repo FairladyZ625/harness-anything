@@ -797,7 +797,7 @@ export const settingsFieldProtocolProjection = {
       description: "Maximum time a dispatch may go without provider or workspace progress, in milliseconds.",
       group: "schedules-nodes",
       effect:
-        "A dispatch with no in-flight tool call and no live child process is settled as dispatch_stalled; it does not move to another provider.",
+        "Without an in-flight tool call or live child, silence settles as dispatch_stalled; no provider fallback.",
       name: "--runtime-stall-timeout-ms",
       kind: "single",
       regex: "^[1-9][0-9]{4,}$",
