@@ -49,7 +49,8 @@ test("retired People mutations are absent from the durable authorization invento
   // deletes decision-supersede.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate: the manual forward/return
   // commands retire with the automatic review loop. Both deletions land in one inventory.
-  assert.equal(durablePolicyActions.length, 166);
+  // task_8c579f0d2c896668e2fd92ab85 adds six durable Todo writes through ActionDeclaration.
+  assert.equal(durablePolicyActions.length, 172);
   assert.equal(durablePolicyActions.includes("task-adjudicate"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);

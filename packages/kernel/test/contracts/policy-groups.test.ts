@@ -33,7 +33,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
   // Owner 2026-10-24 (task_a242ec14) deletes decision-supersede: supersede is driven by the relation.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual forward/return commands.
-  assert.equal(actionDeclarations.length, 167);
+  // task_8c579f0d2c896668e2fd92ab85 adds six Todo action declarations.
+  assert.equal(actionDeclarations.length, 173);
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),
