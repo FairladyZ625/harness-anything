@@ -330,7 +330,7 @@ export const runtimeKinds = [
         const clean = [...args],
           execIndex = clean.indexOf("exec"),
           inputIndex = clean.lastIndexOf("-");
-        if (execIndex < 0 || inputIndex < execIndex) throw new Error("Codex resume arguments lack exec stdin input.");
+        if (execIndex < 0 || inputIndex < execIndex) return null;
         if (clean[execIndex + 1] === "resume") {
           clean.splice(execIndex + 1, 1);
           clean.splice(clean.lastIndexOf("-") - 1, 1);
@@ -339,15 +339,15 @@ export const runtimeKinds = [
         // legacy sandbox block here would override the profile's exact callback socket grant.
         if (!clean.some((token) => token.startsWith("default_permissions="))) {
           const mode = codexPermissionMode(clean);
-          if (mode === null) throw new Error("Codex resume arguments carry no declared permission mode.");
+          if (mode === null) return null;
           const freshBlock = codexFreshPermissionArgs[mode],
             freshIndex = contiguousIndex(clean, freshBlock);
           if (freshIndex >= 0) clean.splice(freshIndex, freshBlock.length, ...codexResumePermissionArgs[mode]);
         }
-        // Fail closed rather than spawn an argv the resume parser is known to reject: a block this
-        // transform could not recognise would otherwise turn the dispatch into a `gate_red`.
-        if (clean.includes("--sandbox"))
-          throw new Error("Codex resume arguments still carry the fresh --sandbox flag.");
+        // Fail closed without throwing: a block this transform could not recognise would otherwise
+        // spawn an argv the resume parser rejects and turn the dispatch into a `gate_red`. Null lets
+        // the caller settle on the evidence it already has and record `continuation_refused`.
+        if (clean.includes("--sandbox")) return null;
         const options = clean.slice(execIndex + 1, clean.lastIndexOf("-"));
         return [...clean.slice(0, execIndex + 1), "resume", ...options, providerSessionId, "-"];
       },

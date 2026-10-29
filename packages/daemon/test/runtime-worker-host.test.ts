@@ -671,10 +671,19 @@ const codexCompactionWarning =
   "Heads up: Long threads and multiple compactions can cause the model to be less accurate. Start a new thread when possible to keep threads small and targeted.";
 
 /** Runs one Codex-shaped dispatch to completion and returns the provider invocations and the
- * records the worker host appended. `frames` decides what each invocation emits. */
+ * records the worker host appended. `frames` decides what each invocation emits. `identity`
+ * decides whether the dispatch owes a settle action: the header's own task/squad fields are what
+ * the host reads to judge a turn end. */
 async function driveCodexWorker(
   name: string,
   frames: (invocation: number) => Record<string, unknown>[],
+  identity: {
+    readonly taskId?: string | null;
+    readonly squadId?: string;
+    readonly role?: string;
+    /** Provider argv; production fresh `exec` argv by default. */
+    readonly args?: readonly string[];
+  } = {},
 ): Promise<{
   readonly invocations: { readonly args: string[]; readonly prompt: string }[];
   readonly records: Record<string, unknown>[];
@@ -703,8 +712,10 @@ async function driveCodexWorker(
   chmodSync(executablePath, 0o755);
   openDispatchStream(rootDir, {
     dispatchId,
-    taskId: null,
+    taskId: identity.taskId ?? null,
     executionId: null,
+    ...(identity.squadId === undefined ? {} : { squadId: identity.squadId }),
+    ...(identity.role === undefined ? {} : { role: identity.role }),
     runtimeSessionId,
     instanceId: "codex-test",
     startedAt: new Date().toISOString(),
@@ -723,8 +734,9 @@ async function driveCodexWorker(
       executablePath,
       // Production fresh-exec argv, built by the same `launchArgs` the daemon uses: the first
       // iteration's fixture hand-wrote `exec --json --model … -`, which no launch ever produces, so
-      // it could not observe the fresh `--sandbox` block leaking into the resume argv.
-      args: codexHostLaunchArgs("bypass"),
+      // it could not observe the fresh `--sandbox` block leaking into the resume argv. A case that
+      // owns a hand-written argv passes it explicitly to prove the host settles instead of crashing.
+      args: [...(identity.args ?? codexHostLaunchArgs("bypass"))],
       env: {
         ...runtimeWorkerProviderEnvironment(process.env),
         STEER_TRACE: tracePath,
@@ -848,19 +860,27 @@ test("a turn-end compaction after a final answer is not an empty turn", { timeou
   }
 });
 
-test("an empty Codex turn without a compaction stays a stop: no retry loop", { timeout: 20_000 }, async () => {
-  const read = await driveCodexWorker("empty-without-compaction", () => [
-    codexToolCompleted,
-    { type: "turn.completed", usage: { input_tokens: 1200, output_tokens: 0 } },
-  ]);
-  try {
-    assert.equal(read.invocations.length, 1);
-    assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 0);
-    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
-  } finally {
-    read.cleanup();
-  }
-});
+test(
+  "an empty Codex turn without a compaction on a taskless dispatch stays a stop: no retry loop",
+  {
+    timeout: 20_000,
+  },
+  async () => {
+    // No settle action is owed here: a taskless run delivers its final text, so there is nothing to
+    // continue for. The task-bound counterpart of this shape is bounded by the turn-continuation test.
+    const read = await driveCodexWorker("empty-without-compaction", () => [
+      codexToolCompleted,
+      { type: "turn.completed", usage: { input_tokens: 1200, output_tokens: 0 } },
+    ]);
+    try {
+      assert.equal(read.invocations.length, 1);
+      assert.equal(read.records.filter((record) => record.kind === "compaction_continued").length, 0);
+      assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+    } finally {
+      read.cleanup();
+    }
+  },
+);
 
 test("compaction continuations are bounded per dispatch, one compaction each", { timeout: 20_000 }, async () => {
   // A session that always answers a compaction with nothing: the third continuation is the last,
@@ -882,3 +902,216 @@ test("compaction continuations are bounded per dispatch, one compaction each", {
 async function eventually(check: () => boolean): Promise<void> {
   while (!check()) await new Promise<void>((resolve) => setImmediate(resolve));
 }
+
+/** The progress note dispatch_2ae120ca ended its turn with, then kept working after it. */
+const codexProgressNote = "现在需要定位 unix_sockets 没有生效的环节——先看 daemon 上报与真实 session 的 sandbox 命令。";
+
+/** The reconnect frame the same dispatch carried before the turn completed with no answer. */
+const codexReconnectFrame = {
+  type: "error",
+  message:
+    "Reconnecting... 1/5 (stream disconnected before completion: Our servers are currently overloaded. Please try again later.)",
+} as const;
+
+const codexAgentMessage = (id: string, text: string) =>
+  ({ type: "item.completed", item: { id, type: "agent_message", text } }) as const;
+
+const codexDeliveredSettle = {
+  type: "item.completed",
+  item: {
+    id: "settle-1",
+    type: "command_execution",
+    command: "/bin/zsh -c 'ha task submit task_074ecb459989ae394b77c7cf70'",
+    status: "completed",
+    exit_code: 1,
+  },
+} as const;
+
+test("a task-bound Codex turn that ends on a progress note resumes the same thread", { timeout: 20_000 }, async () => {
+  // The incident shape (dispatch_2ae120ca): a progress note, a reconnect, more tool work, then
+  // turn.completed with exit 0 and nothing delivered. Settlement used to read this as a worker
+  // stop and spend an automatic disposition on it.
+  const read = await driveCodexWorker(
+    "progress-note-end",
+    (invocation) =>
+      invocation === 0
+        ? [
+            codexToolCompleted,
+            codexAgentMessage("message-1", codexProgressNote),
+            codexReconnectFrame,
+            { type: "item.completed", item: { id: "tool-2", type: "command_execution", command: "sed -n '1,80p' x" } },
+            { type: "turn.completed", usage: { input_tokens: 1159924, output_tokens: 7277 } },
+          ]
+        : [
+            {
+              type: "item.completed",
+              item: {
+                id: "settle-1",
+                type: "command_execution",
+                command: "/bin/zsh -c 'ha task submit task_074ecb459989ae394b77c7cf70'",
+                status: "completed",
+                exit_code: 0,
+              },
+            },
+            codexAgentMessage("message-2", "submitted the delivery"),
+            { type: "turn.completed", usage: { input_tokens: 1200000, output_tokens: 7400 } },
+          ],
+    { taskId: "task_074ecb459989ae394b77c7cf70" },
+  );
+  try {
+    assert.equal(read.invocations.length, 2);
+    assert.match(read.invocations[1]!.prompt, /Continue the current task/u);
+    assert.deepEqual(read.invocations[1]!.args, [
+      "exec",
+      "resume",
+      "--json",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--model",
+      "test-model",
+      "provider-thread-compaction",
+      "-",
+    ]);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("a turn that already attempted the delivery is never resumed", { timeout: 20_000 }, async () => {
+  // The rejected-submit shape: the worker performed its settle action and reported why the task
+  // is not delivered. The host must not nag it into another turn; settlement owns that reason.
+  const read = await driveCodexWorker(
+    "settle-attempted",
+    () => [
+      codexToolCompleted,
+      codexDeliveredSettle,
+      codexAgentMessage("message-1", "submit 被拒：CI 还是红的，先报告原因。"),
+      { type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } },
+    ],
+    { taskId: "task_074ecb459989ae394b77c7cf70" },
+  );
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 0);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("a task-bound turn whose only work is a file edit is not resumed", { timeout: 20_000 }, async () => {
+  // Integration fixtures and early exits: a turn that wrote one file and stopped never ran the
+  // commands a dispatched worker spends its provider time on, so it is settled, not continued.
+  const read = await driveCodexWorker(
+    "file-edit-only",
+    () => [
+      {
+        type: "item.completed",
+        item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" },
+      },
+      codexAgentMessage("message-1", codexProgressNote),
+      { type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } },
+    ],
+    { taskId: "task_074ecb459989ae394b77c7cf70" },
+  );
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 0);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("a dispatch whose argv has no resume shape settles instead of crashing", { timeout: 20_000 }, async () => {
+  // A provider launched with an argv the resume subcommand cannot express (no declared permission
+  // block) must not take the dispatch down with it: the host records the refusal and exits, so the
+  // daemon still settles the attempt from the evidence it has.
+  const read = await driveCodexWorker(
+    "argv-without-resume-shape",
+    () => [codexToolCompleted, { type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } }],
+    { taskId: "task_074ecb459989ae394b77c7cf70", args: ["exec", "--json", "-"] },
+  );
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 0);
+    assert.equal(read.records.filter((record) => record.kind === "continuation_refused").length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("a turn that wrote the ruling artifact is a real stop", { timeout: 20_000 }, async () => {
+  // A blocked unattended turn writes its ruling and stops; prose is irrelevant, the artifact is
+  // the exit the mission contract declares.
+  const read = await driveCodexWorker(
+    "ruling-written",
+    () => [
+      codexToolCompleted,
+      {
+        type: "item.completed",
+        item: {
+          id: "file-1",
+          type: "file_change",
+          changes: [
+            {
+              path: "/tmp/repo/harness/tasks/task_074ecb459989ae394b77c7cf70-x/artifacts/rulings/dispatch_x.md",
+              kind: "add",
+            },
+          ],
+        },
+      },
+      codexAgentMessage("message-1", "裁决请求已写入，按约定停下。"),
+      { type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } },
+    ],
+    { taskId: "task_074ecb459989ae394b77c7cf70" },
+  );
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 0);
+  } finally {
+    read.cleanup();
+  }
+});
+
+test("a squad or taskless turn delivers without a settle action and is not resumed", { timeout: 20_000 }, async () => {
+  const narration = () => [
+    codexToolCompleted,
+    codexAgentMessage("message-1", codexProgressNote),
+    { type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } },
+  ];
+  for (const [name, identity] of [
+    ["squad-leader-turn", { taskId: "task_074ecb459989ae394b77c7cf70", squadId: "debug-squad" }],
+    ["taskless-turn", {}],
+    ["read-only-attach", { taskId: "task_074ecb459989ae394b77c7cf70", role: "read-only" }],
+  ] as const) {
+    const read = await driveCodexWorker(name, narration, identity);
+    try {
+      assert.equal(read.invocations.length, 1, name);
+      assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 0, name);
+    } finally {
+      read.cleanup();
+    }
+  }
+});
+
+test("turn continuations are bounded per dispatch, one settle attempt each", { timeout: 20_000 }, async () => {
+  // A session that ends every turn the same way: the third continuation is the last, so the
+  // dispatch still settles instead of looping.
+  const read = await driveCodexWorker(
+    "turn-continuation-bounded",
+    () => [
+      codexToolCompleted,
+      codexAgentMessage("message-1", codexProgressNote),
+      { type: "turn.completed", usage: { input_tokens: 2000, output_tokens: 0 } },
+    ],
+    { taskId: "task_074ecb459989ae394b77c7cf70" },
+  );
+  try {
+    assert.equal(read.invocations.length, 4);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 3);
+    assert.equal(read.records.filter((record) => record.kind === "process_exit").length, 1);
+  } finally {
+    read.cleanup();
+  }
+});

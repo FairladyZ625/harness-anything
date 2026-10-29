@@ -71,6 +71,7 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
   // The mode matrix has its own test below; this one pins the declaration itself and the shape
   // transitions both call sites perform, so it uses the production builder rather than a toy argv.
   const codexResume = resumeSteer(codex).resumeArgs(codexLaunchArgs("workspace-write"), "thread-123");
+  assert.ok(codexResume !== null, "a production fresh-exec argv always resumes");
   // `codex exec resume` has its own parser and rejects `--sandbox` (exit 2), so the fresh
   // permission block must be replaced by the declared resume block for the same mode.
   assert.deepEqual(codexResume, [
@@ -133,6 +134,24 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
   );
 });
 
+test("Codex resume refuses an argv it cannot express without throwing", () => {
+  // The host records `continuation_refused` and settles on the evidence it already has. Null is
+  // the contract: an exception here would escape the worker host and leave the dispatch unsettled.
+  const codex = runtimeKinds.find((entry) => entry.kindId === "codex")!;
+  const steer = codex.steer as Extract<NonNullable<typeof codex.steer>, { strategy: "interrupt-resume" }>;
+  for (const [label, args] of [
+    ["no exec subcommand", ["--json", "-"]],
+    ["no exec stdin input", ["exec", "--json"]],
+    ["no declared permission mode", ["exec", "--json", "-"]],
+    [
+      "a fresh sandbox block this transform does not recognise",
+      ["exec", "--json", "--sandbox", "workspace-write", "-"],
+    ],
+  ] as const) {
+    assert.equal(steer.resumeArgs(args, "thread-123"), null, label);
+  }
+});
+
 /** Production fresh-launch argv for one codex permission mode: what `prepareLaunch` hands the
  * worker host. Driving the real builder keeps this test off a hand-written toy argv. */
 function codexLaunchArgs(
@@ -166,10 +185,12 @@ function codexLaunchArgs(
 
 const codexResumeArgs = (args: readonly string[], thread = "thread-123"): readonly string[] => {
   const kind = runtimeKinds.find((entry) => entry.kindId === "codex")!;
-  return (kind.steer as Extract<NonNullable<typeof kind.steer>, { strategy: "interrupt-resume" }>).resumeArgs(
+  const resumed = (kind.steer as Extract<NonNullable<typeof kind.steer>, { strategy: "interrupt-resume" }>).resumeArgs(
     args,
     thread,
   );
+  if (resumed === null) assert.fail(`codex resume argv was refused for ${JSON.stringify(args)}`);
+  return resumed;
 };
 
 test("Codex resume rebuilds each mode's declared resume permission block instead of the fresh one", () => {
