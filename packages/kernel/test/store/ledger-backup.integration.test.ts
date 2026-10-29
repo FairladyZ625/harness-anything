@@ -247,7 +247,13 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
       events: [event],
     });
     store.close();
-    const before = openSqliteEventStore({ databasePath, generation: 1, readOnly: true }).readCommandOutcome(event.opId);
+    const beforeReader = openSqliteEventStore({ databasePath, generation: 1, readOnly: true });
+    let before: ReturnType<typeof beforeReader.readCommandOutcome>;
+    try {
+      before = beforeReader.readCommandOutcome(event.opId);
+    } finally {
+      beforeReader.close();
+    }
     createLedgerBackup({ generation: 1, rootInput: root, backupDir });
     rmSync(databasePath, { force: true });
     const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }),

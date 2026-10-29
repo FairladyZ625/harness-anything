@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup, revokeTestPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -195,7 +196,7 @@ test(
     } finally {
       writeFileSync(release, "exit");
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempStoreRoot(root);
     }
   },
 );

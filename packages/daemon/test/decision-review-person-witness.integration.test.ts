@@ -35,6 +35,7 @@ const ownerBinding = (personId: string, executorId: string) =>
 
 interface ReviewStage {
   readonly cell: Awaited<ReturnType<typeof openRepoCell>>;
+  readonly authority: ReturnType<typeof openPersistentWriterEpoch>;
   readonly owner: ReturnType<typeof ownerBinding>;
   readonly reviewer: ReturnType<typeof reviewerBinding>;
   readonly decisionId: string;
@@ -107,18 +108,25 @@ async function stageDecision(reviewId: string): Promise<ReviewStage> {
         reportRef,
       }),
     );
-    return { cell, owner, reviewer, decisionId, rootDir };
+    return { cell, authority, owner, reviewer, decisionId, rootDir };
   } catch (error) {
-    await cell?.close();
-    authority.close();
-    removeTempStoreRoot(rootDir);
+    try {
+      await cell?.close();
+    } finally {
+      authority.close();
+      removeTempStoreRoot(rootDir);
+    }
     throw error;
   }
 }
 
 async function closeStage(stage: ReviewStage): Promise<void> {
-  await stage.cell.close();
-  removeTempStoreRoot(stage.rootDir);
+  try {
+    await stage.cell.close();
+  } finally {
+    stage.authority.close();
+    removeTempStoreRoot(stage.rootDir);
+  }
 }
 
 test("a from-file changes_requested review and its response resolve the proposal owner as an awaits target", async () => {

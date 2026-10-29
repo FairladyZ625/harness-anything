@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   readdirSync,
   realpathSync,
-  rmSync,
   statSync,
   truncateSync,
   writeFileSync,
@@ -16,6 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
+import { removeTempStoreRoot } from "../packages/kernel/test/store/helpers.ts";
 import {
   copyLayout,
   copyRepoId,
@@ -141,7 +141,7 @@ test("copy layout: the source harness.yaml decides the local root, not a default
     assert.ok(copyRepoId(defaultRoot).certificate.includes(".harness/store/generations/3/"));
     assert.match(copyRepoId(defaultRoot).certificate, /ledger\.sqlite\.activation\.json$/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -182,7 +182,7 @@ test("snapshot: the harness clone carries objects and config, not the authored t
       "attach's ledger-git probe still resolves the copy",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -280,7 +280,7 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.cleanup.daemonStopped, true);
     assert.equal(processAlive(receipt.build.pid), false, "no daemon left behind");
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -302,7 +302,7 @@ test("one command: medium submission records missing local auth and still cold-r
     assert.equal(receipt.cleanup.daemonStopped, true);
     assert.equal(processAlive(receipt.build.pid), false, "no daemon left behind");
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -401,7 +401,7 @@ test(
         assert.deepEqual(leftovers, [], `${signal}: no ha-oldcopy-* residue in the system temp dir`);
       }
     } finally {
-      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempStoreRoot(parent);
     }
   },
 );
@@ -433,6 +433,6 @@ test("empty-ledger copy: raw failure in the receipt, non-zero exit, cleanup stil
     assert.equal(existsSync(receipt.cleanup.tempRoot), false, "temp root removed even after failure");
     if (receipt.build?.pid) assert.equal(processAlive(receipt.build.pid), false, "no daemon left behind after failure");
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(parent);
   }
 });

@@ -13,6 +13,7 @@ import {
   taskLifecycleWritePlan,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
@@ -42,14 +43,17 @@ after(() => {
 
 test("work owner appends without a lease while outsider and ordinary task require one, including cold replay", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-work-progress-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  t.after(async () => {
+    await cell?.close();
+    removeTempStoreRoot(rootDir);
+  });
   initRepo(rootDir);
-  const cell = await openRepoCell({
+  cell = await openRepoCell({
     repoId: workspaceId("work-progress"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "work-progress",
   });
-  t.after(() => cell.close());
   const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   for (const [taskId, presetId, taskClass] of [
     ["task_work_progress", "create-work", "work"],
@@ -78,6 +82,8 @@ test("work owner appends without a lease while outsider and ordinary task requir
   const store = makeTaskEventStore({ repoId: "work-progress", rootDir });
   const projection = makeTaskProjection({ rootDir, eventStore: store });
   try {
+    await cell.close();
+    cell = undefined;
     projection.rebuild();
     const rows = projection.readProgress("task_work_progress").rows;
     assert.deepEqual(
@@ -92,14 +98,19 @@ test("work owner appends without a lease while outsider and ordinary task requir
 
 test("task create rejects ids that cannot form task entity references", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-id-ref-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("task-id-ref"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "task-id-ref-create",
+  }).catch((error: unknown) => {
+    removeTempStoreRoot(rootDir);
+    throw error;
   });
-  t.after(() => cell.close());
+  t.after(async () => {
+    await cell.close();
+    removeTempStoreRoot(rootDir);
+  });
   const rejected = await cell.run(
     { kind: "task-create", taskId: "t0", title: "Invalid id" },
     withPolicyGroup({ actor, source: "local" }, "admin"),
@@ -250,7 +261,7 @@ test("task create publishes complete metadata and first-class relations survive 
     assert.equal(edge?.targetRef, "task/task_dependency");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -626,20 +637,25 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     assert.equal(edge?.relationType, "depends-on");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
 test("a lifecycle rejection bound to a declared criterion reports the guard's own reason", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-reason-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("task-rejection-reason"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "task-rejection-reason",
+  }).catch((error: unknown) => {
+    removeTempStoreRoot(rootDir);
+    throw error;
   });
-  t.after(() => cell.close());
+  t.after(async () => {
+    await cell.close();
+    removeTempStoreRoot(rootDir);
+  });
   await cell.run(
     { kind: "task-create", taskId: "task-reason", title: "Reason" },
     withPolicyGroup({ actor, source: "local" }, "admin"),
@@ -807,7 +823,7 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
     assert.equal(reopen.outcome, "op_rejected");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -917,7 +933,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
     replay.close();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -961,7 +977,7 @@ test("batch archive preflights every selected task before publishing any event",
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -1031,7 +1047,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
     assert.match(String(receipt.evidence), /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -1097,7 +1113,7 @@ test("task move refuses cyclic parents and the receipt names the landed work", a
     assert.equal(child?.metadata?.parentTaskId, "task_movable");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -1177,7 +1193,7 @@ test("task move re-hangs a leased task while every other amendment stays fenced"
     assert.equal(movedTask?.metadata?.parentTaskId, "task_lease_work_b");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -1238,7 +1254,7 @@ test("task amend refuses to retitle a plan with unsynced local edits, then retit
     assert.equal(existsSync(path.join(rootDir, ".harness", "conflicts", "doc-sync")), false);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

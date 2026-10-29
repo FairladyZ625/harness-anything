@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 
 import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
 
@@ -471,7 +472,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -592,7 +593,7 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
     );
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -766,7 +767,7 @@ test(
         } catch (error) {
           consumeKnownError(error);
         }
-      rmSync(parent, { recursive: true, force: true });
+      removeTempStoreRoot(parent);
     }
   },
 );
@@ -952,7 +953,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -1073,7 +1074,7 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
   } finally {
     if (previousLimit === undefined) delete process.env[TASK_WIP_LIMIT_ENV];
     else process.env[TASK_WIP_LIMIT_ENV] = previousLimit;
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 

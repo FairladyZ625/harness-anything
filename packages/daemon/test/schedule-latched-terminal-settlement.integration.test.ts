@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 
 const settlementActor = withPolicyGroup(
   {
@@ -231,7 +232,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -523,7 +524,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(root);
   }
 });
 

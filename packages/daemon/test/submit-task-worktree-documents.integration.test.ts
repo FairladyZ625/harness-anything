@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readFileSync,
   renameSync,
-  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -22,6 +21,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 
 test("task submit refreshes rename-replaced artifacts and carries new worktree artifacts", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-worktree-docs-")),
@@ -176,6 +176,6 @@ test("task submit refreshes rename-replaced artifacts and carries new worktree a
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
