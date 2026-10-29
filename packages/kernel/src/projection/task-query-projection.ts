@@ -947,10 +947,12 @@ export function readTaskRelationPage(
     values.push("");
   }
   const filterFreshness = query.freshness !== undefined,
-    sqlLimit = pageLimit === null || filterFreshness ? "" : " LIMIT ?";
+    // The placeholder and its bind are one decision: the freshness cut computes witnesses per row, so it
+    // filters the merged rows in memory and pages after filtering without an SQL LIMIT.
+    sqlLimitBind = pageLimit === null || filterFreshness ? null : pageLimit + 1;
   let sql: string;
   let sqlValues: (string | number)[];
-  if (pageLimit !== null && !filterFreshness) {
+  if (sqlLimitBind !== null) {
     const predicate = where.length ? ` WHERE ${where.join(" AND ")}` : "";
     sql = [
       "SELECT * FROM (",
@@ -960,16 +962,14 @@ export function readTaskRelationPage(
       ")",
       " ORDER BY relation_id LIMIT ?",
     ].join(" ");
-    sqlValues = [...values, pageLimit + 1, ...values, pageLimit + 1, pageLimit + 1];
+    sqlValues = [...values, sqlLimitBind, ...values, sqlLimitBind, sqlLimitBind];
   } else {
     sql = [
       `SELECT * FROM (${taskRows} UNION ALL ${eventRows})`,
       where.length ? ` WHERE ${where.join(" AND ")}` : "",
       " ORDER BY relation_id",
-      sqlLimit,
     ].join("");
     sqlValues = [...values];
-    if (pageLimit !== null) sqlValues.push(pageLimit + 1);
   }
   const selected = queryRows(db, sql, ...sqlValues),
     witnesses = readEntityVersionWitnesses(db, relationWitnessRefs(selected)),
