@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -164,7 +165,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
     );
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -313,6 +314,6 @@ test("Fact admission never appends against a projection more than one catch-up r
     assert.equal(store.readHead()?.revision, 4097, "collision must be found before append");
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });

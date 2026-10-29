@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -332,7 +333,7 @@ test("declare-executor traces the authoring dispatch across executions and never
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -424,6 +425,6 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
     assert.match(JSON.stringify(refused), /no non-reviewer runtime dispatch/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });

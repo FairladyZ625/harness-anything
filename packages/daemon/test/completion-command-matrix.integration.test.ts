@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -111,12 +112,12 @@ async function fixture(script: string, metadata: unknown, mixed = false) {
       events,
       close: async () => {
         await cell.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempStoreRoot(root);
       },
     };
   } catch (error) {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
     throw error;
   }
 }

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -77,7 +78,7 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
       "stop must clear the singleton lock it outlived",
     );
   } finally {
-    rmSync(fixture.parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempStoreRoot(fixture.parent);
   }
 });
 
@@ -265,7 +266,7 @@ test("force refuses to signal a pid the daemon slot no longer claims", async () 
     assert.equal(await alive(innocent.pid), true, "a pid the slot no longer claims must not be signalled");
     innocent.kill("SIGKILL");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -398,7 +399,7 @@ test("a generation that recorded its exit is not read as a starting daemon", () 
     lifecycle.record({ event: "process_exit", outcome: "stop_requested" });
     assert.equal(readDaemonStartProgress(launchSpec(userRoot, daemonId), 0), null);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -439,7 +440,7 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
   } finally {
     clearTimeout(replace);
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -488,7 +489,7 @@ test("a daemon handoff that keeps recording attach progress is waited out past t
     clearTimeout(successor);
     clearTimeout(bind);
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -531,7 +532,7 @@ test("daemon_stopping without autostart resends to the successor and never launc
     assert.equal(calls, 2, "the idempotent request is resent to the successor exactly once");
     assert.equal(launches, 0, "a caller without autostart never launches a daemon");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -566,7 +567,7 @@ test("restart budget exhaustion returns daemon_restarting without resending", as
     });
     assert.equal(calls.length, 1);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -596,7 +597,7 @@ test("daemon lifecycle commands preserve daemon_stopping without waiting or rese
     assert.equal(result.code, "daemon_stopping");
     assert.equal(calls, 1);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -795,7 +796,7 @@ function stop(userRoot: string): void {
 function cleanup(parent: string): void {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempStoreRoot(parent);
       return;
     } catch (error) {
       if (attempt >= 10) throw error;
@@ -1034,7 +1035,7 @@ async function stopCleanup(fixture: StopFixture): Promise<void> {
   }
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
   rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
-  rmSync(fixture.parent, { recursive: true, force: true });
+  removeTempStoreRoot(fixture.parent);
 }
 
 interface DrainFixture {
@@ -1242,5 +1243,5 @@ async function drainCleanup(fixture: Fixture): Promise<void> {
   }
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
   rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
-  rmSync(fixture.parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  removeTempStoreRoot(fixture.parent);
 }

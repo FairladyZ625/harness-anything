@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -114,7 +115,7 @@ test("CLI imports two immutable legacy Git Harness repositories into a SQLite ce
     );
   } finally {
     stop(userRoot, center);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 

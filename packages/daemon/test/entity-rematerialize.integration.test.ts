@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -243,7 +244,7 @@ test("entity rematerialize renders relative graph links and is idempotent at one
   } finally {
     projection.close();
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

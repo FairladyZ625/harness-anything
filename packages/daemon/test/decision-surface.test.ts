@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -310,7 +311,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(decisionEvents.filter((event) => event.type === "decision_repinned").length, 2);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -333,7 +334,7 @@ test("decision propose rejects its heading-only default body", async () => {
     assert.equal(proposed.code, "body_placeholder");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -411,7 +412,7 @@ test("decision accept preserves the proposal fulfillments and dry-run uses admis
     assert.equal(rejectedPreview.code, "invalid_transition");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -481,7 +482,7 @@ test("Evidence relations reject non-claim sources before writing and identify th
     assert.equal(related.outcome, "applied", JSON.stringify(related));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -533,7 +534,7 @@ test("the decisions readiness cache key never reserializes the decision rows", a
     assert.ok(updated.decisions.every(({ readiness }) => readiness));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

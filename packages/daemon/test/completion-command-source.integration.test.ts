@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { mkdtempSync, mkdirSync, writeFileSync, cpSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -249,6 +250,6 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     assert.equal(currentGateRun(final.payload.execution, "version-pinned")?.result, "pass");
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });

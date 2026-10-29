@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -110,14 +111,14 @@ async function stageDecision(reviewId: string): Promise<ReviewStage> {
   } catch (error) {
     await cell?.close();
     authority.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
     throw error;
   }
 }
 
 async function closeStage(stage: ReviewStage): Promise<void> {
   await stage.cell.close();
-  rmSync(stage.rootDir, { recursive: true, force: true });
+  removeTempStoreRoot(stage.rootDir);
 }
 
 test("a from-file changes_requested review and its response resolve the proposal owner as an awaits target", async () => {

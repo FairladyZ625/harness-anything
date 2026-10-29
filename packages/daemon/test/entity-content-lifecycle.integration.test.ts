@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -126,7 +127,7 @@ test("An imported directory keeps its empty directories through publication and 
     assert.ok(existsSync(path.join(rootDir, "harness", root, "outbox", "pending")));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -229,7 +230,7 @@ test("Instance identity is independent of source bytes, source path and retries"
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", ownedFile), "utf8"), shared);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -335,7 +336,7 @@ test("Update retires only dropped files and delete retires every bound file with
     assert.notEqual(reimportedId, entityId);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -430,7 +431,7 @@ test("A deleted source imports again as a new entity while retries inside one bi
     assert.equal((JSON.parse(String(secondRetry.evidence)) as { entityId: string }).entityId, secondId);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -520,7 +521,7 @@ test("Deleting an entity retires its declared empty directories and leaves user 
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -587,7 +588,7 @@ test("Deleting an entity is refused for a caller with no repository write role",
     assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -689,7 +690,7 @@ test("A user's own empty directory inside an entity's content root survives that
     assert.ok(statSync(neighbourHeld("spool")).isDirectory(), "the surviving entity keeps everything it declared");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -759,7 +760,7 @@ test("Relinking an entity retires none of its directories and none of another ow
     assert.equal(readFileSync(steadyHeld("README.md"), "utf8"), "# Steady\n");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

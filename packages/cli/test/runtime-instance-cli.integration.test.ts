@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -136,7 +137,7 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     assert.equal((missing.receipt.error as Record<string, unknown>).code, "runtime_instance_not_found");
   } finally {
     runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 

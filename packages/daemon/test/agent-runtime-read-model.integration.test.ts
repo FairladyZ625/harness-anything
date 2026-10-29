@@ -1,8 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import fs, { mkdtempSync, rmSync } from "node:fs";
+import fs, { mkdtempSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -561,7 +562,7 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -593,7 +594,7 @@ test("task dispatch read accepts one bounded batch and degrades missing tasks pe
     assert.deepEqual(validateDaemonTaskDispatches(result), []);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -737,7 +738,7 @@ test("member totals use the same task-group normalization as the pre-paging sess
     });
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -750,7 +751,7 @@ async function withRuntime<T>(use: (fixture: ReturnType<typeof fixture>) => T | 
     return await use(current);
   } finally {
     current?.projection.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 }
 function fixture(rootDir: string) {
@@ -1045,7 +1046,7 @@ test("provider output publication does not scale full projection reads with line
   } finally {
     stream.close();
     projection.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -1241,7 +1242,7 @@ function withMissingInstallationRuntime(
     use({ reads: makeAgentRuntimeReadModel({ store, projection }), store, projection, stream, rootDir });
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 }
 

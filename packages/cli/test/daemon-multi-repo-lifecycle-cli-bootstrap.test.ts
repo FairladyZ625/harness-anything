@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
@@ -32,7 +33,7 @@ import {
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", async (t) => {
   const fixture = await setupEmpty(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
     // No explicit daemon was started: init must auto-start the resident daemon
@@ -333,13 +334,13 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     );
   } finally {
     stop(fixture.repo, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("local init isolates the ledger from later project commits and removes tracked runtime paths", async (t) => {
   const fixture = await setupEmpty(t, "local");
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     git(fixture.repo, "init", "--quiet");
     git(fixture.repo, "config", "user.name", "Project Owner");
@@ -402,13 +403,13 @@ test("local init isolates the ledger from later project commits and removes trac
     );
   } finally {
     stop(fixture.repo, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("center registration keeps an external ledger repository readable and writable", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
     const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
@@ -467,7 +468,7 @@ test("center registration keeps an external ledger repository readable and writa
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
@@ -476,7 +477,7 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
     packagePath = path.join(fixture.alpha, "package.json"),
     original =
       '{\n\t"name": "project-owned",\n\t"scripts": {\n\t\t"test": "node --test",\n\t\t"ha": "project-ha"\n\t},\n\t"marker": "keep exactly"\n}\n';
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     writeFileSync(packagePath, original);
     git(fixture.alpha, "add", "package.json");
@@ -512,7 +513,7 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
     assert.equal(readFileSync(packagePath, "utf8"), expected);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
@@ -522,7 +523,7 @@ test("init at a configured authored root writes the machine documents where ever
     // read from a file whose own path depends on it. It names the authored root and nothing else.
     declarationPath = path.join(fixture.repo, "harness/harness.yaml"),
     declaration = "layout:\n  authoredRoot: ledger\n";
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     mkdirSync(path.dirname(declarationPath), { recursive: true });
     writeFileSync(declarationPath, declaration);
@@ -586,14 +587,14 @@ test("init at a configured authored root writes the machine documents where ever
     );
   } finally {
     stop(fixture.repo, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", async (t) => {
   const fixture = await setup(t),
     source = makeCanary(fixture.root);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -692,14 +693,14 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("hard daemon crash projects an admitted child to outcome_unknown without respawn", async (t) => {
   const fixture = await setup(t),
     source = makeCanary(fixture.root, "setTimeout(() => process.exit(0), 2_000);", []);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -734,13 +735,13 @@ test("hard daemon crash projects an admitted child to outcome_unknown without re
     assert.equal((unknown.phases as string[]).filter((phase) => phase === "spawned").length, 1);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("one RepoCell lock failure closes only that repo admission", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   let held: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     held = await openRepoCell({
@@ -779,13 +780,13 @@ test("one RepoCell lock failure closes only that repo admission", async (t) => {
   } finally {
     stop(fixture.beta, fixture.userRoot);
     await held?.close();
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("one invalid registry entry stays visible and removable without blocking healthy repos", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -835,6 +836,6 @@ test("one invalid registry entry stays visible and removable without blocking he
     assert.equal(removed, undefined);
   } finally {
     stop(fixture.beta, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });

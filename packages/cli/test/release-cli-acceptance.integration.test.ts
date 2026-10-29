@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import test from "node:test";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { truncateSync } from "node:fs";
 import { RAW_ARTIFACT_MAX_BYTES } from "@harness-anything/kernel";
 import * as shared from "./release-cli-acceptance.fixture.ts";
@@ -177,7 +178,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -396,7 +397,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -603,7 +604,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
     if (existsSync(path.join(parent, "restored-user")))
       runMaybe(path.join(parent, "restored-repo"), path.join(parent, "restored-user"), ["daemon", "stop"]);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -695,7 +696,7 @@ test("release acceptance: a relative artifact source names the caller's file, an
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -886,6 +887,6 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });

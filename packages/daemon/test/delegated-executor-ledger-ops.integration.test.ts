@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -135,7 +136,7 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
     assert.match(String(otherSession.rejectionExplanation), /not canonically bound/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

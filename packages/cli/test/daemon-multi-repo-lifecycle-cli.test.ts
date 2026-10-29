@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -47,7 +48,7 @@ import {
 
 test("daemon stop requires a mounted root unless --daemon-id is explicit", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -89,14 +90,14 @@ test("daemon stop requires a mounted root unless --daemon-id is explicit", async
     assert.equal(attached.ok, true, JSON.stringify(attached));
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async (t) => {
   const fixture = await setup(t),
     ledgerReaders = trackLedgerReaders();
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, [
       "daemon",
@@ -528,14 +529,14 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     await ledgerReaders.drain();
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("real CLI files subtask-expansion packages under a work and reads the work back", async (t) => {
   const fixture = await setup(t),
     ledgerReaders = trackLedgerReaders();
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -643,13 +644,13 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     await ledgerReaders.drain();
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     // npm is npm.cmd on Windows, and Node refuses to execute a .cmd directly, so this failed
     // with ENOENT before the measurement even started -- a launcher defect wearing a
@@ -752,7 +753,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     t.diagnostic(`latency-round-ratios=${ratios.map((value) => value.toFixed(3)).join(",")}`);
   } finally {
     stop(fixture.alpha, fixture.userRoot, builtCli);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
@@ -760,7 +761,7 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
   const fixture = await setup(t),
     configPath = path.join(fixture.alpha, "harness/harness.yaml"),
     overlayPath = path.join(fixture.alpha, "harness/governance/task-scaffold.json");
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     writeFileSync(
       configPath,
@@ -808,13 +809,13 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
     assert.equal(stream.events[2]?.schema, "doc-event/v1");
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("existing c606 pair upgrades additively and explicit name is the only config byte change", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     const configPath = path.join(fixture.alpha, "harness/harness.yaml"),
       peoplePath = path.join(fixture.alpha, "harness/people.yaml"),
@@ -884,13 +885,13 @@ test("existing c606 pair upgrades additively and explicit name is the only confi
     assert.equal(readFileSync(configPath, "utf8"), `name: "Renamed"\n${originalConfig}`);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("an existing config without a legacy people file initializes through Keycloak", async (t) => {
   const fixture = await setupEmpty(t, "partial");
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     mkdirSync(path.join(fixture.repo, "harness"));
     const configPath = path.join(fixture.repo, "harness/harness.yaml"),
@@ -910,13 +911,13 @@ test("an existing config without a legacy people file initializes through Keyclo
     assert.equal(existsSync(path.join(fixture.repo, "harness/context")), true);
   } finally {
     stop(fixture.repo, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("existing architecture assets remain byte-owned and a half model is not completed", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     const architectureRoot = path.join(fixture.alpha, "harness/context/architecture"),
       readme = "# Project Architecture\n\nProject-owned without builtin anchors.\n",
@@ -947,13 +948,13 @@ test("existing architecture assets remain byte-owned and a half model is not com
     assert.equal((initialized.drifted as string[]).includes("harness/context/architecture/README.md"), true);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("repository overlay is additive, preserves authored prose, and rejects an invalid plan before publication", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     const custom = "# Existing Context\n\nOwned by the project.\n",
       customAgents = "# Existing Agents\n\nProject-owned.\n",
@@ -1027,7 +1028,7 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
     assert.notEqual(initialized.commit, before);
     stop(fixture.alpha, fixture.userRoot);
     const invalid = await setup(t);
-    t.after(() => rmSync(invalid.root, { recursive: true, force: true }));
+    t.after(() => removeTempStoreRoot(invalid.root));
     writeFileSync(
       path.join(invalid.alpha, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: invalid.json\n",
@@ -1053,16 +1054,16 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
     assert.equal(git(invalid.alpha, "status", "--porcelain"), invalidStatus);
     assert.equal(existsSync(path.join(invalid.alpha, "harness/context")), false);
     stop(invalid.alpha, invalid.userRoot);
-    rmSync(invalid.root, { recursive: true, force: true });
+    removeTempStoreRoot(invalid.root);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("a changed overlay path leaves the prior authored document and reports it as governance drift", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     const config =
         "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance/repository-scaffold.json\n",
@@ -1112,13 +1113,13 @@ test("a changed overlay path leaves the prior authored document and reports it a
     assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/new-project.md"), "utf8"), oldBody);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 
 test("old-only standards fail closed before repository scaffold publication", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempStoreRoot(fixture.root));
   try {
     mkdirSync(path.join(fixture.alpha, "harness/standards"), {
       recursive: true,
@@ -1147,6 +1148,6 @@ test("old-only standards fail closed before repository scaffold publication", as
     assert.equal(existsSync(path.join(fixture.alpha, "harness/context")), false);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });

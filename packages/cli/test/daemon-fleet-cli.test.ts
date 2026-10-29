@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/test/replica-catch-up.fixture.ts";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
@@ -420,7 +421,7 @@ test(
           stop(fixture, "edge");
         } finally {
           await realm.close();
-          rmSync(fixture.root, { recursive: true, force: true });
+          removeTempStoreRoot(fixture.root);
         }
       }
     }
@@ -657,7 +658,7 @@ test(
           stop(fixture, "edge");
         } finally {
           await realm.close();
-          rmSync(fixture.root, { recursive: true, force: true });
+          removeTempStoreRoot(fixture.root);
         }
       }
     }
@@ -1056,7 +1057,7 @@ test("fleet edge sync and daemon connection failures return receipts instead of 
     assert.doesNotMatch(unreachable.stderr, /Node\.js v\d/u, unreachable.stderr);
     assert.equal((JSON.parse(unreachable.stdout) as Record<string, unknown>).code, "daemon_unavailable");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -1185,7 +1186,7 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
     assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
     assert.equal(stopped.receipt.ok, true);
     assert.equal(stopped.receipt.draining, undefined);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.root);
   }
 });
 

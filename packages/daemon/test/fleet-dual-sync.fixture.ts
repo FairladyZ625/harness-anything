@@ -5,9 +5,10 @@
 // single-round control plus the mirror materializer.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -284,7 +285,7 @@ export async function dualSyncFixture(
       await center.close();
       await host.close();
       await owners.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempStoreRoot(root);
     },
   };
 }

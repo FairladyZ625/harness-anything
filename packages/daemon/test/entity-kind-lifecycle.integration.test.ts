@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -326,7 +327,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     assert.equal(stale.code, "revision_conflict", JSON.stringify(stale));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -485,6 +486,6 @@ test("Kind fences are per Kind, and an accepted Kind outlives its worktree mater
     assert.equal(archived.outcome, "applied", JSON.stringify(archived));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });

@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -459,7 +460,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.match(String(preview.mission), /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -592,7 +593,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     assert.equal(launches, 4, "the unsupported provider must never start with bypass permissions");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -745,7 +746,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(launchCalls, 1, "second dry-run must not reach prepareLaunch");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -871,7 +872,7 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
     assert.match(block, new RegExp(decisionIds[0]!.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -954,6 +955,6 @@ test("a dispatch whose declaration mounts self-iteration carries the closeout st
     assert.doesNotMatch(String(plain.prompt), /# Self-iteration closeout/u, "the opt-in is the only trigger");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import {
   compileDecisionWrite,
   compileFactWrite,
@@ -50,7 +51,7 @@ export function withFixture(
     });
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 }
 export function withDecisionFixture(
@@ -76,7 +77,7 @@ export function withDecisionFixture(
     });
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 }
 export function decisionEvent(

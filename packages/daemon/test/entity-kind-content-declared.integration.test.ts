@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -196,7 +197,7 @@ test("Two Kinds declared at runtime carry file and directory content through the
     assert.deepEqual(Buffer.from(store.readContentBlob(scan.contentSha256) ?? []), binary);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -260,7 +261,7 @@ test("A source object above the per-object ceiling is refused and the exact boun
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -313,7 +314,7 @@ test("Publishing a Kind schema version is refused for a caller with no repositor
     assert.equal((JSON.parse(String(allowed.evidence)) as { kindVersion: number }).kindVersion, 2);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

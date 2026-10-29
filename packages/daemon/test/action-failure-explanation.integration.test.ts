@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -235,7 +236,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     assert.ok(denied.authorizationDecision.nextActions.length > 0);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -393,7 +394,7 @@ test("holding every action in Keycloak does not lift self-review, lease, or huma
   } finally {
     await cell?.close();
     await served.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -433,7 +434,7 @@ test("post-accept response loss remains operational and never invents an Action 
     assert.doesNotMatch(JSON.stringify(receipt), /criteria\/publication_indeterminate/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 

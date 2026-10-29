@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
@@ -189,7 +190,7 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
   } finally {
     await crashed?.close();
     await recovered?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -279,7 +280,7 @@ test("An entity import interrupted before acceptance leaves nothing accepted and
   } finally {
     await crashed?.close();
     await recovered?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -402,7 +403,7 @@ test("An entity import under a superseded writer epoch writes nothing while the 
     newAuthority.close();
     await stale?.close().catch(() => undefined);
     await current?.close().catch(() => undefined);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -494,7 +495,7 @@ test("An import and the delete that ends it leave the source untouched, and a re
   } finally {
     await first?.close();
     await second?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -622,7 +623,7 @@ test("An instance pinned to schema v1 reads back unchanged from a cold process a
   } finally {
     await declaring?.close();
     await cold?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -1005,7 +1006,7 @@ test(
       assert.equal(existsSync(absoluteSource), false, "the recovery must owe nothing to the deleted source");
     } finally {
       for (const child of [doomed, successor]) if (child?.pid !== undefined) child.kill("SIGKILL");
-      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempStoreRoot(parent);
     }
   },
 );

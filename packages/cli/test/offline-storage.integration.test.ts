@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -98,7 +99,7 @@ test("daemon backup rejects an unavailable registered source through human rende
     backupDir = path.join(os.tmpdir(), `ha-cli-missing-backup-${process.pid}-${Date.now()}`),
     userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-missing-user-"));
   register(userRoot, missingRoot, "missing");
-  rmSync(missingRoot, { recursive: true, force: true });
+  removeTempStoreRoot(missingRoot);
   const result = invokeCliResult(["backup", backupDir, "--root", missingRoot], userRoot),
     receipt = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
   try {
@@ -109,8 +110,8 @@ test("daemon backup rejects an unavailable registered source through human rende
     assert.equal(rendered.stream, "stderr");
     assert.match(rendered.text, /daemon_spawn_root_missing/u);
   } finally {
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempStoreRoot(backupDir);
+    removeTempStoreRoot(userRoot);
   }
 });
 
@@ -178,10 +179,10 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     assert.equal(repeated.status, 1);
     assert.match(String((JSON.parse(repeated.stdout) as { hint: string }).hint), /already exists/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(restoredRoot, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempStoreRoot(root);
+    removeTempStoreRoot(backupDir);
+    removeTempStoreRoot(restoredRoot);
+    removeTempStoreRoot(userRoot);
   }
 });
 
@@ -246,7 +247,7 @@ test("real CLI refuses a backup whose accepted content is absent or has the wron
     console.log(`CONTENT_RESTORE=${incomplete.stdout.trim()}`);
   } finally {
     invokeCliResult(["daemon", "stop"], userRoot);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -275,10 +276,10 @@ test("offline restore --to leaves the serving daemon's writer epoch lease intact
     successor.close();
     live.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(restoredRoot, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempStoreRoot(root);
+    removeTempStoreRoot(backupDir);
+    removeTempStoreRoot(restoredRoot);
+    removeTempStoreRoot(userRoot);
   }
 });
 
@@ -315,9 +316,9 @@ test("CLI backup receipt stays below spawnSync's default buffer for a manifest a
         JSON.stringify({ manifestBytes: manifest.byteLength, receiptBytes: Buffer.byteLength(backupResult.stdout) }),
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempStoreRoot(root);
+    removeTempStoreRoot(backupDir);
+    removeTempStoreRoot(userRoot);
   }
 });
 
@@ -349,8 +350,8 @@ test("daemon restore drill reads retention from harness.yaml and defaults to thr
     assert.equal((defaulted.removedShadowRoots as readonly string[]).length, 1);
     assert.equal(readdirSync(shadowParent).filter((entry) => entry.startsWith("restore-drill-")).length, 3);
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempStoreRoot(root);
+    removeTempStoreRoot(backupDir);
+    removeTempStoreRoot(userRoot);
   }
 });

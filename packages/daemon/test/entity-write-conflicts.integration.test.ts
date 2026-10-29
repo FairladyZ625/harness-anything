@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,7 +131,7 @@ test("two edges at the same entity fence distinguish new intent from an exact re
     assert.equal((await cell.run(deletion, binding)).opId, deleted.opId);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -283,7 +284,7 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
   } finally {
     client?.close();
     await daemon?.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -311,6 +312,6 @@ test("real SQLite writer divergence remains fatal while rejected entity CAS is r
     );
   } finally {
     store.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });

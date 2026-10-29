@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, chmodSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -55,7 +56,7 @@ async function fixture(t: TestContext) {
   const hosts: Awaited<ReturnType<typeof openDaemonHost>>[] = [];
   t.after(async () => {
     for (const host of hosts) await host.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   });
   const open = async (
     daemonId: string,

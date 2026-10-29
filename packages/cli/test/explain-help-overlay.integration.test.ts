@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -135,7 +136,7 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     );
   } finally {
     if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -197,7 +198,7 @@ test("ha explain reports submit availability for the same actor that can submit"
     assert.equal(submit?.available, true, JSON.stringify(submit));
   } finally {
     if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 

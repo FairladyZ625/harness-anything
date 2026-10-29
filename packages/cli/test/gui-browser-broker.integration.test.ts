@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -87,7 +88,7 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
     assert.equal(admittedWrite.headers["access-control-allow-origin"], undefined);
   } finally {
     await broker.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 
@@ -162,7 +163,7 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previousDaemonId;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -238,7 +239,7 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previousDaemonId;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 

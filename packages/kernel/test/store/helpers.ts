@@ -12,6 +12,11 @@ export function closeTempStoreResourcesUnder(rootDir: string): void {
   closeSqliteEventStoresUnder(rootDir);
 }
 
+export function removeTempStoreRoot(rootDir: string): void {
+  closeTempStoreResourcesUnder(rootDir);
+  rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+}
+
 export function withTempStore<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-kernel-store-"));
   try {

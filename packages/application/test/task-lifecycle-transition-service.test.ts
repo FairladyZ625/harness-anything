@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -234,7 +235,7 @@ test("transition service freezes targets and makes create/start idempotent by op
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -289,7 +290,7 @@ test("transition service publishes aggregate-authored task status idempotently",
     assert.equal(eventStore.read().events.filter((event) => event.schema === "task-event/v1").length, 3);
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -357,7 +358,7 @@ test("transition republishes a historical task without its retired longRunning m
     assert.equal(Object.hasOwn(JSON.parse(contract.body).metadata, "longRunning"), false);
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -594,7 +595,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
     );
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -727,7 +728,7 @@ test("10,000 old events do not block a new write", async (context) => {
       `independent-write-ratio=paired-whole-history-over-bounded samples=${ratios.length} p50=${ratio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -986,7 +987,7 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       await eventStore.drain();
     } finally {
       projection?.close();
-      rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempStoreRoot(rootDir);
     }
   }
 });
@@ -1020,7 +1021,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     assert.equal(projection.reserveLease(lease("recovered"), "2026-08-11T00:00:00.000Z").taskId, "task-recovered");
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempStoreRoot(rootDir);
   }
 });
 

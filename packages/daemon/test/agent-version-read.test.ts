@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -120,7 +121,7 @@ test("history lists every version newest-first with the body digest the content 
     assert.deepEqual(validateAgentHistory(history), []);
     assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.agent.history.read", history));
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -157,7 +158,7 @@ test("history paging crosses the last page and then reports no more rows", () =>
     assert.deepEqual(exhausted.versions, []);
     assert.equal(exhausted.hasMore, false);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -171,7 +172,7 @@ test("--no-summary reads no body: history still answers from the claim alone", (
     );
     assert.deepEqual(validateAgentHistory(history), []);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -183,7 +184,7 @@ test("a missing agent is agent_not_found, not an empty history", () => {
       (error: Error & { readonly code?: string }) => error.code === "agent_not_found",
     );
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -210,7 +211,7 @@ test("a stored declaration this cut cannot interpret is unavailable, not missing
         return true;
       });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -257,7 +258,7 @@ test("retiring an agent does not add a version and does not move the revision", 
       "fixture sanity: the projection row revision did advance, so the read would fail if it used it",
     );
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -287,7 +288,7 @@ test("one version read returns the retained body and its difference to the live 
     assert.deepEqual(current.fields, [], "the live version differs from itself in no field");
     assert.equal(current.truncated, false);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -308,7 +309,7 @@ test("an out-of-range revision is agent_version_not_found, not a neighbouring ve
       (error: Error & { readonly code?: string }) => error.code === "agent_version_not_found",
     );
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 
@@ -355,7 +356,7 @@ test("diff states instructions as lines and skills/runtimes as set changes", () 
     assert.deepEqual(empty.fields, []);
     assert.equal(empty.truncated, false);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(f.rootDir);
   }
 });
 

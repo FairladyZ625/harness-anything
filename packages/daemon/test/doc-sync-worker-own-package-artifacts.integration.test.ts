@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -106,7 +107,7 @@ test("doc sync carries a worker's atomic replacement of an existing own-package 
       assert.equal(event.payload.changes[0]?.path, fixture.artifactPath, "the tracked task-package path is rewritten");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.rootDir);
   }
 });
 
@@ -133,7 +134,7 @@ test("artifact add refuses an existing destination and names the base-sha doc ch
     assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), body);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(fixture.rootDir);
   }
 });
 
@@ -173,6 +174,6 @@ test("a worker's path selection that leaves its task package stays a cross-task 
       { code: "execution_credential_rejected" },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });

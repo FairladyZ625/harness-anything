@@ -1,8 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { removeTempStoreRoot } from "../../kernel/test/store/helpers.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -49,7 +50,7 @@ test("artifact add publishes inline content through the canonical artifact write
     );
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 test("command evidence and text artifacts reach the ledger without their raw credentials", async () => {
@@ -126,7 +127,7 @@ test("command evidence and text artifacts reach the ledger without their raw cre
     assert.match(storedSource, /\[REDACTED\]/u);
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempStoreRoot(root);
   }
 });
 test("artifact add is the untracked UTF-8 canonical subset of doc submit", async () => {
@@ -308,7 +309,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
     }
   } finally {
     await seed.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempStoreRoot(parent);
   }
 });
 
@@ -365,7 +366,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
     assert.equal(settled.receiptId, unknown.opId);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -418,7 +419,7 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     assert.equal(accepted.commitSha, null);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -459,7 +460,7 @@ test("a renamed task plan H1 remains authored prose and submits normally", async
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -523,7 +524,7 @@ test("amending the title retitles the published plan through the typed route and
     assert.equal(resubmitted.outcome, "applied", JSON.stringify(resubmitted));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -642,7 +643,7 @@ test("a legacy-drifted plan heals via doc sync and a title amend refuses until t
     assert.equal(rows(healed.evidence)[0]?.state, "clean", JSON.stringify(healed));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
@@ -673,7 +674,7 @@ test("authored CRLF prose is canonicalized on scanner read and submitted as LF",
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });
 
