@@ -9,7 +9,7 @@ import {
 export const todoProtocolCommands = todoActionDefinitions.map(({ id, read, summary, fields }) => {
   const command = {
     id: `todo-${id}`,
-    phase: "Todo",
+    phase: "W3",
     path: id === "list" ? ["todo", id] : ["todo", id, id === "add" ? "<text>" : "<todo-id>"],
     summary,
     method: read ? "repo.task.read" : "repo.task.run",
