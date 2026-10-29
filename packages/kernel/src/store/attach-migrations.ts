@@ -13,7 +13,7 @@ import {
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { RETIRED_SETTINGS_PATHS } from "../domain/settings.ts";
 import { historicalReadConclusions } from "../domain/index.ts";
-import type { CanonicalEventStore } from "./task-event-store-types.ts";
+import { TaskEventStoreError, type CanonicalEventStore } from "./task-event-store-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 
 export type AttachMigrationRegistryEntry =
@@ -308,22 +308,34 @@ export function applyAttachMigrations(input: {
         entry.kind === "event-migration" && !applied.has(entry.name),
     ),
     affectedEvents = new Map(pending.map(({ name }) => [name, 0])),
-    total = input.store.readHead()?.revision ?? 0;
+    total = input.store.readHead()?.revision ?? 0,
+    canPersistWatermarks =
+      input.store.readAttachMigrationScanWatermarks !== undefined &&
+      input.store.recordAttachMigrationScanWatermarks !== undefined,
+    watermarks = canPersistWatermarks ? input.store.readAttachMigrationScanWatermarks!() : new Map<string, number>(),
+    scanFrom = pending.length === 0 ? total : Math.min(...pending.map(({ name }) => watermarks.get(name) ?? 0));
 
-  if (pending.length > 0) {
-    let cursor: string | null = null,
+  if (pending.some(({ name }) => (watermarks.get(name) ?? 0) > total))
+    throw new TaskEventStoreError("invalid_store", "attach migration scan watermark is ahead of the ledger head");
+
+  if (pending.length > 0 && scanFrom < total) {
+    let cursor: string | null = String(scanFrom),
       scanned = 0;
+    const scanTotal = total - scanFrom;
     for (;;) {
       const batch = input.store.readBatch(cursor, attachMigrationBatchSize);
       for (const event of batch.events) {
         if (isEventShapeMigrationEvent(event)) applied.add(event.payload.migration);
         for (const migration of pending) {
-          if (migration.matches(event, input.store.readContentBlob))
+          if (
+            event.workspaceRevision > (watermarks.get(migration.name) ?? 0) &&
+            migration.matches(event, input.store.readContentBlob)
+          )
             affectedEvents.set(migration.name, affectedEvents.get(migration.name)! + 1);
         }
       }
       scanned += batch.events.length;
-      if (batch.events.length > 0) input.onProgress?.({ applied: scanned, total });
+      if (batch.events.length > 0) input.onProgress?.({ applied: scanned, total: scanTotal });
       if (batch.done) break;
       if (batch.cursor === cursor) throw new Error("attach migration scan did not advance its event cursor");
       cursor = batch.cursor;
@@ -337,10 +349,7 @@ export function applyAttachMigrations(input: {
     if (migration.kind === "read-conclusion") continue;
     if (applied.has(migration.name)) continue;
     const affectedCount = affectedEvents.get(migration.name) ?? 0;
-    // A completed scan settles the migration even when nothing matched: writers can no longer emit
-    // the retired shape, so without this marker every attach rescans the whole ledger to rediscover
-    // the same zero. An empty ledger has nothing to settle.
-    if (total === 0) continue;
+    if (affectedCount === 0) continue;
     const revision = (input.store.readHead()?.revision ?? 0) + 1,
       opId = `upgrade-${migration.name.replaceAll(".", "-")}`,
       event: EventShapeMigrationEventV1 = {
@@ -360,8 +369,14 @@ export function applyAttachMigrations(input: {
         },
       };
     input.store.append({ event, plan: eventShapeMigrationWritePlan(event), blobs: [] });
-    if (affectedCount > 0) appliedNow.push(migration.name);
+    appliedNow.push(migration.name);
     applied.add(migration.name);
+  }
+  if (canPersistWatermarks) {
+    const completed = pending
+      .filter(({ name }) => !watermarks.has(name) || watermarks.get(name)! < total)
+      .map(({ name }) => ({ migration: name, revision: total }));
+    if (completed.length > 0) input.store.recordAttachMigrationScanWatermarks!(completed);
   }
   return {
     applied: appliedNow,

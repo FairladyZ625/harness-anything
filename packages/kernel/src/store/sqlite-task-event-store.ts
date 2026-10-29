@@ -475,6 +475,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     },
     readBatch: (cursor, maxItems) => sqliteBatch(sqlite, cursor, maxItems, readContent),
     readContentBlob: readContent,
+    readAttachMigrationScanWatermarks: sqlite.attachMigrationScanWatermarks,
+    recordAttachMigrationScanWatermarks: (watermarks) => {
+      if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
+      const record = () => sqlite.recordAttachMigrationScanWatermarks(watermarks);
+      if (options.withAppendFence) options.withAppendFence(record);
+      else record();
+    },
     layout: () => "sharded-sha256-2/v1",
     append,
     lastAppendLayout: () => latestAppendLayout,

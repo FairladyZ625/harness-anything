@@ -60,18 +60,9 @@ test("attach applies retired settings migration without a manual command and is 
     ),
   ]);
   assert.deepEqual(applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" }).applied, ["settings.ci"]);
-  // The one scan settles every step: only settings.ci matched, the others record zero affected events.
-  const settled = events.length,
-    markers = events
-      .slice(1)
-      .map((next) => (next as unknown as { payload: { migration: string; affectedEvents: number } }).payload);
-  assert.ok(markers.length > 1);
-  assert.deepEqual(
-    markers.filter(({ affectedEvents }) => affectedEvents > 0).map(({ migration }) => migration),
-    ["settings.ci"],
-  );
+  assert.equal(events.length, 2);
   assert.deepEqual(applyAttachMigrations({ store }).applied, []);
-  assert.equal(events.length, settled);
+  assert.equal(events.length, 2);
 });
 
 test("historical vertical declarations remain readable after hosted CI retirement", () => {

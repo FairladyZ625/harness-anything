@@ -178,6 +178,10 @@ export interface SqliteEventStore {
   readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
+  readonly attachMigrationScanWatermarks: () => ReadonlyMap<string, number>;
+  readonly recordAttachMigrationScanWatermarks: (
+    watermarks: readonly { readonly migration: string; readonly revision: number }[],
+  ) => void;
   readonly queryEvents: (input: {
     readonly type?: string;
     readonly entity?: string;
@@ -699,6 +703,21 @@ function openSqliteEventStoreInternal(
       query("SELECT event_json FROM event WHERE revision<? ORDER BY revision DESC LIMIT ?", [revision, limit]).map(
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
+    attachMigrationScanWatermarks: () =>
+      new Map(
+        query("SELECT migration, revision FROM attach_migration_scan_meta").map(
+          (row) => [String(row.migration), Number(row.revision)] as const,
+        ),
+      ),
+    recordAttachMigrationScanWatermarks: (watermarks) =>
+      transaction(() => {
+        for (const { migration, revision } of watermarks)
+          query(
+            "INSERT INTO attach_migration_scan_meta(migration, revision) VALUES (?, ?) " +
+              "ON CONFLICT(migration) DO UPDATE SET revision=excluded.revision",
+            [migration, revision],
+          );
+      }),
     queryEvents: (input) => queryEvents(query, input),
     close: registerLedgerClose(databasePath, db),
   };
@@ -780,6 +799,9 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
     ) STRICT;
     CREATE TABLE IF NOT EXISTS document_head_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL CHECK(revision>=0)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS attach_migration_scan_meta (
+      migration TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>=0)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS command_outcome (
       op_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('accepted_durable','rejected')),
