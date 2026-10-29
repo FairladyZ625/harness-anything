@@ -62,6 +62,9 @@ async function recordReview(
   verdict: "approved" | "changes_requested",
   reviewExecutionId = executionId,
   binding: typeof owner | ReturnType<typeof reviewerActor> = reviewerActor(sessionId),
+  findings: readonly Record<string, unknown>[] = [
+    { findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." },
+  ],
 ) {
   const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`,
     report = `${f.packagePath}/artifacts/reports/${reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId}.md`;
@@ -73,7 +76,7 @@ async function recordReview(
       verdict,
       reason: verdict === "approved" ? "The submitted cut is sound." : "The submitted cut needs revision.",
       evidenceChecked: ["closeout.md"],
-      findings: [{ findingId: "fixture-finding", blocking: true, text: "Fixture review requires another pass." }],
+      findings,
       resolutions: [],
     }),
   );
@@ -475,7 +478,15 @@ test("consent refuses an approved review while another review dispatch on the cu
     const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
     assert.ok(dispatch?.type === "runtime_dispatch_requested");
     // The independent lane's approved verdict lands while the dispatched functional re-review runs.
-    const approved = await recordReview(f, "migration-reviewer", "review-migration-approved", "approved");
+    const approved = await recordReview(
+      f,
+      "migration-reviewer",
+      "review-migration-approved",
+      "approved",
+      executionId,
+      undefined,
+      [],
+    );
     assert.equal(approved.outcome, "applied", JSON.stringify(approved));
     const consentOf = () =>
       f.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-migration-approved" });

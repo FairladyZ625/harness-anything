@@ -22,8 +22,13 @@ import type {
   TaskCompletedEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
-import { closeoutReadiness, currentCutSettlement } from "./closeout-readiness.ts";
-import { findingRulingCommand } from "./completion-readiness.ts";
+import {
+  closeoutReadiness,
+  currentCutSettlement,
+  reviewConsentBlockers,
+  unfiledReviewFindings,
+} from "./closeout-readiness.ts";
+import { findingRulingCommand, reviewDispositionCommand } from "./completion-readiness.ts";
 import { isValidCloseoutGateRecord } from "./settings-closeout.ts";
 import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
@@ -417,7 +422,23 @@ export const consent: Transition = {
               isReviewDispositionEligible(value),
           )
           .map((value) => value.reviewId),
-      );
+      ),
+      consentBlockers = current?.submission
+        ? reviewConsentBlockers(snapshot.reviews, current, proof.reviewFindingTriages ?? [], [
+            ...(snapshot.reviewDispositions ?? []),
+            ...(proposedDisposition ? [proposedDisposition] : []),
+          ])
+        : [],
+      settlement = current?.submission
+        ? currentCutSettlement(snapshot.reviews, current, proof.reviewFindingTriages ?? [], [
+            ...(snapshot.reviewDispositions ?? []),
+            ...(proposedDisposition ? [proposedDisposition] : []),
+          ])
+        : null,
+      unfiled =
+        current?.submission && !hasDispositionAction
+          ? unfiledReviewFindings(snapshot.reviews, current, snapshot.reviewDispositions ?? [])
+          : [];
     if (hasDispositionAction && command.actor.principal.personId !== snapshot.task?.createdBy.principal.personId)
       issues.push(
         lifecycleContractIssue("invalid_proof", "review override consent requires the task owner's principal"),
@@ -520,6 +541,35 @@ export const consent: Transition = {
             `with ha task review-consent ${command.taskId} --execution-id ${command.executionId} ` +
             `--review-id ${command.reviewId} ${conflicts.map((value) => `--dispose ${value.reviewId}`).join(" ")} ` +
             "--rationale <why>",
+        ),
+      );
+    if (consentBlockers.length && !hasDispositionAction)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "owner consent cannot waive unresolved findings: " +
+            consentBlockers.map(({ reviewId, findingId }) => `${reviewId}/${findingId}`).join(", ") +
+            "; resolve them first with " +
+            [
+              ...consentBlockers.flatMap(({ reviewId, findingId }) => {
+                const isEscalated = settlement?.escalated.some(
+                    (value) => value.reviewId === reviewId && value.findingId === findingId,
+                  ),
+                  isUnfiled = unfiled.some((value) => value.reviewId === reviewId && value.findingId === findingId);
+                if (isEscalated)
+                  return [findingRulingCommand(command.taskId, command.executionId, reviewId, findingId)];
+                if (isUnfiled) return [reviewDispositionCommand(command.taskId, command.executionId, reviewId)];
+                return [];
+              }),
+              ...(consentBlockers.some(
+                ({ reviewId, findingId }) =>
+                  !settlement?.escalated.some(
+                    (value) => value.reviewId === reviewId && value.findingId === findingId,
+                  ) && !unfiled.some((value) => value.reviewId === reviewId && value.findingId === findingId),
+              )
+                ? [`ha task dispatch-review ${command.taskId}`]
+                : []),
+            ].join("; "),
         ),
       );
     if (

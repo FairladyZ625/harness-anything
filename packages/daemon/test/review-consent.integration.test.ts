@@ -11,6 +11,7 @@ import { revokeTestPolicyGroup, withPolicyGroup } from "./keycloak-policy.fixtur
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { reviewTriageStorePath } from "../src/review-finding-triage.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
 const originalPath = process.env.PATH;
@@ -71,7 +72,7 @@ function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-test("review-consent derives the recorded Review digests without a packet and rejects retired packet inputs", async () => {
+test("review-consent uses center triage and derives the recorded Review digests without a packet", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-consent-derived-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const repoId = workspaceId("consent-derived"),
@@ -109,7 +110,14 @@ test("review-consent derives the recorded Review digests without a packet and re
         verdict: "approved",
         reason: "Independent review passed.",
         evidenceChecked: ["tests"],
-        findings: [],
+        findings: [
+          {
+            findingId: "finding-consent-triage",
+            blocking: false,
+            text: "A low-risk correctness note was classified non-blocking.",
+            category: "correctness",
+          },
+        ],
         resolutions: [],
       }),
     );
@@ -120,6 +128,34 @@ test("review-consent derives the recorded Review digests without a packet and re
     )) as unknown as Record<string, unknown>;
     const reviewEvent = store().readEvent(String(reviewed.opId));
     if (reviewEvent?.type !== "review_recorded") throw new Error("review event missing");
+    const consentSubmission = reviewEvent.payload.execution.submission;
+    if (!consentSubmission) throw new Error("review submission missing");
+    const targetDigest = submissionDigest(consentSubmission),
+      triagePath = reviewTriageStorePath(rootDir);
+    mkdirSync(path.dirname(triagePath), { recursive: true });
+    writeFileSync(
+      triagePath,
+      JSON.stringify({
+        schema: "review-finding-triage-store/v1",
+        records: [
+          {
+            schema: "review-finding-triage/v1",
+            reviewId: "review-derived",
+            findingId: "finding-consent-triage",
+            targetDigest,
+            selected: "non_blocking",
+            probabilities: { blocker: 0.02, non_blocking: 0.92, nit: 0.02, pre_existing: 0.02, false_positive: 0.02 },
+            model: "reviewer-model",
+            bindingDigest: targetDigest,
+            decidedAt: "2026-10-26T00:02:00.000Z",
+            target: { kind: "task", id: taskId, digest: targetDigest },
+            thresholds: {},
+            rulesVersion: "rules-v1",
+            inputDigest: targetDigest,
+          },
+        ],
+      }),
+    );
 
     const beforeTypo = store().readHead()?.revision,
       typo = (await cell.run(

@@ -45,6 +45,11 @@ export interface CloseoutAssessment {
   readonly blockingFindings?: readonly { readonly reviewId: string; readonly findingId: string }[];
   readonly gates: readonly CloseoutGateResult[];
 }
+
+export interface CloseoutFindingRef {
+  readonly reviewId: string;
+  readonly findingId: string;
+}
 export interface CloseoutProjectionAvailability {
   readonly consents: "known" | "unknown";
   readonly gateWitnesses: "known" | "unknown";
@@ -190,49 +195,39 @@ export function closeoutReadiness(
           snapshot.reviewDispositions ?? [],
         )
       : null,
-    ownerBlockingFindings =
-      settlement?.blockers.filter(({ reviewId, findingId }) => {
-        const targetDigest = submissionDigest(execution.submission!);
-        return (snapshot.reviewDispositions ?? []).some(
+    reviewOwed = effectiveGates?.review !== false || forwarded,
+    consentReviewBlockers = reviewConsentBlockers(
+      snapshot.reviews,
+      execution,
+      snapshot.reviewFindingTriages ?? [],
+      snapshot.reviewDispositions ?? [],
+      settlement,
+    ),
+    escalatedFindingRefs = settlement?.escalated.map(({ reviewId, findingId }) => ({ reviewId, findingId })) ?? [],
+    targetDigest = submissionDigest(execution.submission),
+    blockingFindingRefs =
+      settlement?.blockers.filter(({ reviewId, findingId }) =>
+        (snapshot.reviewDispositions ?? []).some(
           (value) =>
             value.submissionDigest === targetDigest &&
             value.findingRuling?.targetDigest === targetDigest &&
             value.findingRuling.reviewId === reviewId &&
             value.findingRuling.findingId === findingId &&
             value.findingRuling.disposition === "blocker",
-        );
-      }) ?? [],
-    reviewOwed = effectiveGates?.review !== false || forwarded,
-    // A cut that raised a finding with no category is unresolved review — except for a review the
-    // owner already disposed at this submission digest. Without that exit the predicate would
-    // retroactively redefine every historical finding (the field did not exist when they were
-    // written) as an open review, and no disposition or consent could clear it: the owner would have
-    // no route at all. Dispositions are the same channel the Decision side honors for exactly this.
-    unfiledFindings =
-      findingsRecorded &&
-      (() => {
-        const disposed = disposedReviewIdsForSubmission(
-          snapshot.reviewDispositions ?? [],
-          submissionDigest(execution.submission!),
-        );
-        return reviewsForExecution(snapshot.reviews, execution).some(
-          (review) =>
-            !disposed.has(review.reviewId) && (review.findings ?? []).some((finding) => finding.category === undefined),
-        );
-      })(),
+        ),
+      ) ?? [],
     reviewSatisfied =
-      !unfiledFindings && (settlement !== null ? settlement.outcome === "passed" : approved.length > 0 || consented);
+      consentReviewBlockers.length === 0 &&
+      (settlement === null
+        ? approved.length > 0 || consented !== undefined
+        : settlement.outcome === "passed" || consented !== undefined);
   if (reviewOwed && !reviewSatisfied)
     return {
       readiness: "incomplete",
       executionId: execution.executionId,
       blocker: "review",
-      ...(settlement?.escalated.length
-        ? { escalatedFindings: settlement.escalated.map(({ reviewId, findingId }) => ({ reviewId, findingId })) }
-        : {}),
-      ...(ownerBlockingFindings.length
-        ? { blockingFindings: ownerBlockingFindings.map(({ reviewId, findingId }) => ({ reviewId, findingId })) }
-        : {}),
+      ...(escalatedFindingRefs.length ? { escalatedFindings: escalatedFindingRefs } : {}),
+      ...(blockingFindingRefs.length ? { blockingFindings: blockingFindingRefs } : {}),
       gates,
     };
   if (effectiveGates?.consent !== false && !consented)
@@ -301,6 +296,81 @@ export function currentCutSettlement(
     targetDigest: submissionDigest(execution.submission),
     rulings: dispositions.flatMap((value) => (value.findingRuling ? [value.findingRuling] : [])),
   });
+}
+
+/** Findings an explicit owner consent cannot waive on a Task cut. Shared settlement remains unchanged. */
+export function reviewConsentBlockers(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  triages: readonly ReviewFindingTriageV1[],
+  dispositions: readonly ReviewDispositionV1[] = [],
+  knownSettlement?: ReviewFindingSettlement | null,
+): readonly CloseoutFindingRef[] {
+  if (!execution.submission) return [];
+  const targetDigest = submissionDigest(execution.submission),
+    rawFindings = reviewsForExecution(reviews, execution).flatMap((review) =>
+      (review.findings ?? []).map((finding) => ({ review, finding })),
+    ),
+    settlement = knownSettlement ?? currentCutSettlement(reviews, execution, triages, dispositions),
+    unfiled = unfiledReviewFindings(reviews, execution, dispositions),
+    refs = new Map<string, CloseoutFindingRef>();
+  for (const finding of unfiled) {
+    refs.set(`${finding.reviewId}/${finding.findingId}`, finding);
+  }
+  for (const settled of settlement?.findings ?? []) {
+    if (settled.outcome === "escalated") {
+      refs.set(`${settled.reviewId}/${settled.findingId}`, {
+        reviewId: settled.reviewId,
+        findingId: settled.findingId,
+      });
+      continue;
+    }
+    if (settled.outcome !== "blocked") continue;
+    const triage = triages.find(
+      (value) =>
+        value.reviewId === settled.reviewId &&
+        value.findingId === settled.findingId &&
+        value.targetDigest === targetDigest,
+    );
+    const raw = rawFindings.find(
+      ({ review, finding }) => review.reviewId === settled.reviewId && finding.findingId === settled.findingId,
+    )?.finding;
+    const consentExempt =
+      settled.category === "ci-required" &&
+      raw?.blocking === false &&
+      triage?.selected !== "blocker" &&
+      triage?.critic?.selected !== "blocker" &&
+      !dispositions.some(
+        (value) =>
+          value.submissionDigest === targetDigest &&
+          value.findingRuling?.targetDigest === targetDigest &&
+          value.findingRuling.reviewId === settled.reviewId &&
+          value.findingRuling.findingId === settled.findingId &&
+          value.findingRuling.disposition === "blocker",
+      );
+    if (!consentExempt)
+      refs.set(`${settled.reviewId}/${settled.findingId}`, {
+        reviewId: settled.reviewId,
+        findingId: settled.findingId,
+      });
+  }
+  return [...refs.values()];
+}
+
+export function unfiledReviewFindings(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  dispositions: readonly ReviewDispositionV1[],
+): readonly CloseoutFindingRef[] {
+  if (!execution.submission) return [];
+  const disposed = disposedReviewIdsForSubmission(dispositions, submissionDigest(execution.submission));
+  return reviewsForExecution(reviews, execution).flatMap((review) =>
+    disposed.has(review.reviewId)
+      ? []
+      : (review.findings ?? [])
+          .filter((finding) => finding.category === undefined)
+          .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
+  );
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */
