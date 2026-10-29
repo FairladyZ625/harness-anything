@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import {
+  compileRelationCreatedEvent,
+  compileRelationDocumentWrite,
+  deriveRelationId,
   sessionProvenance,
   taskBootstrapWritePlan,
+  type CanonicalWriteBundle,
   type WriteReceiptDraft as WriteReceipt,
   type TaskMetadataV1,
 } from "@harness-anything/kernel";
@@ -11,6 +15,9 @@ import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { receiptLayoutRoots, taskCreateGuidance, workspaceRelativePath } from "./receipt-guidance.ts";
 import { workReceiptLine } from "./work-read.ts";
+import { relationDocumentUpdates } from "./entity-action-relation.ts";
+import { relationDirectionRegistry } from "./artifact-entity-action.ts";
+import { taskDecisionGuidance } from "@harness-anything/preset/internal/preset-command-contract";
 
 export function readResult(
   cell: RepoCellOperationalContext,
@@ -106,7 +113,9 @@ export function createTask(
 ): WriteReceipt {
   const prepared = prepareTaskCreateAt(cell, action, binding);
   if (!("compiled" in prepared)) return prepared;
-  const appended = cell.store.append(prepared.compiled);
+  const appended = cell.store.append(
+    prepared.relation === undefined ? prepared.compiled : { ...prepared.relation, preceding: [prepared.compiled] },
+  );
   // Append has accepted this exact operation. Later publication/receipt failures cannot reject it.
   try {
     const publication = cell.publicPublication(appended);
@@ -143,6 +152,7 @@ export interface PreparedTaskCreate {
   readonly compiled: ReturnType<typeof compileRepoTaskBootstrap> & {
     readonly plan: ReturnType<typeof taskBootstrapWritePlan>;
   };
+  readonly relation?: CanonicalWriteBundle;
   readonly fields: PreparedTaskCreateFields;
 }
 
@@ -194,6 +204,7 @@ export function prepareTaskCreateAt(
       }`,
     } as WriteReceipt;
   }
+  const decisionTarget = taskDecisionTarget(cell, canonicalAction);
   const taskId = cell.createTaskId(canonicalAction, binding, cell.input.repoId);
   if (cell.projection.readTaskExists(taskId)) return cell.rejected(opId, "task_exists");
   if (typeof canonicalAction.parentTaskId === "string" && !cell.projection.readTaskExists(canonicalAction.parentTaskId))
@@ -318,6 +329,8 @@ export function prepareTaskCreateAt(
       event,
       plan: taskBootstrapWritePlan(event),
     },
+    relation =
+      decisionTarget === null ? undefined : compileTaskDecisionRelation(cell, compiled, decisionTarget, binding),
     commonFields = {
       taskId,
       taskStatus: "planned" as const,
@@ -356,6 +369,7 @@ export function prepareTaskCreateAt(
         opId,
         canonicalVisible: false,
       }),
+      ...(decisionTarget === null ? { next: [{ command: taskDecisionGuidance }] } : {}),
       commitSha: null,
       summary: `would create task ${taskId} at ${workspaceRelativePath(
         roots,
@@ -364,11 +378,80 @@ export function prepareTaskCreateAt(
     };
     return preview;
   }
-  return { compiled, fields: common };
+  return { compiled, ...(relation === undefined ? {} : { relation }), fields: common };
+}
+
+function taskDecisionTarget(cell: RepoCellOperationalContext, action: RepoTaskAction): string | null {
+  const decisionRef = action.decisionRef;
+  if (decisionRef === undefined || decisionRef === null || decisionRef === "") {
+    if (
+      (action.presetId === "create-work" || action.taskClass === "work") &&
+      action.createMode !== "import" &&
+      action.createMode !== "migration"
+    )
+      throw cell.cellCodedError(
+        "decision_required",
+        'Work requires an in_effect Decision. Run ha decision list; if none fits, run ha decision propose --help, then accept the selected Decision with ha decision accept <decision-id> --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision <decision-id>.',
+      );
+    return null;
+  }
+  if (typeof decisionRef !== "string" || !/^dec_[A-Za-z0-9_-]+(?:\/CH[1-9][0-9]*)?$/u.test(decisionRef))
+    throw cell.cellCodedError("invalid_field", "--decision must be <decision-id>[/CH<n>], for example dec_.../CH1.");
+  const [decisionId, clauseId = "CH1"] = decisionRef.split("/"),
+    decision = cell.projection.readDecision(decisionId!).decision;
+  if (decision === null)
+    throw cell.cellCodedError(
+      "decision_not_found",
+      `Decision ${decisionId} does not exist. Run ha decision list; if none fits, run ha decision propose --help, then accept the selected Decision with ha decision accept <decision-id> --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision <decision-id>.`,
+    );
+  if (decision.state !== "in_effect")
+    throw cell.cellCodedError(
+      "decision_not_in_effect",
+      `Decision ${decisionId} is ${decision.state}. Run ha decision list; if it is the selected direction, accept it with ha decision accept ${decisionId} --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision ${decisionId}.`,
+    );
+  if (!decision.chosen.some(({ id }) => id === clauseId))
+    throw cell.cellCodedError(
+      "decision_clause_not_found",
+      `Decision ${decisionId} has no chosen clause ${clauseId}; use a clause shown by ha decision show ${decisionId}.`,
+    );
+  return `decision/${decisionId}/${clauseId}`;
+}
+
+function compileTaskDecisionRelation(
+  cell: RepoCellOperationalContext,
+  compiled: PreparedTaskCreate["compiled"],
+  target: string,
+  binding: RepoCellBinding,
+): CanonicalWriteBundle {
+  const source = `task/${compiled.event.payload.task.taskId}`,
+    targetVersion = cell.projection.readEntityVersionWitness(target).currentVersion;
+  if (targetVersion === null)
+    throw cell.cellCodedError("decision_clause_not_found", `Decision target ${target} is unavailable.`);
+  const event = compileRelationCreatedEvent({
+    record: {
+      relation_id: deriveRelationId({ source, target, type: "implements", direction: "directed" }),
+      source,
+      target,
+      type: "implements",
+      direction: "directed",
+      origin: "declared",
+      state: "active",
+      rationale: "Task created to implement its accepted Decision.",
+      targetObservedVersion: targetVersion,
+    },
+    directions: relationDirectionRegistry(cell.projection, cell.input.repoId),
+    actor: binding.actor,
+    source: binding.source,
+    opId: `${compiled.event.opId}-decision-relation`,
+    occurredAt: compiled.event.occurredAt,
+    workspaceRevision: compiled.event.workspaceRevision + 1,
+  });
+  return compileRelationDocumentWrite(event, relationDocumentUpdates(cell.projection, event, null));
 }
 
 export function applyPreparedTaskCreate(cell: RepoCellOperationalContext, prepared: PreparedTaskCreate): void {
   cell.projection.apply(prepared.compiled.event, prepared.compiled.plan);
+  if (prepared.relation) cell.projection.apply(prepared.relation.event, prepared.relation.plan);
   cell.knownTaskIds?.add(prepared.fields.taskId);
 }
 
@@ -396,6 +479,7 @@ export function preparedTaskCreateReceipt(
       opId: compiled.event.opId,
       canonicalVisible: proof.canonicalVisible,
     }),
+    ...(prepared.relation === undefined ? { next: [{ command: taskDecisionGuidance }] } : {}),
     commitSha: publication.commitSha,
     cut: publication.cut,
     summary: proof.canonicalVisible

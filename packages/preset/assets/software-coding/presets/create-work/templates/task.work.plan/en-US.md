@@ -80,7 +80,7 @@ Dispatch injects the execution surface from current Decisions linked by active d
 ## Implementation Plan
 
 - Create or confirm the charter decision and keep its `dec_*` anchor in this work map.
-- Run `ha work create --title "<name>"` to create the work root.
+- Run `ha work create --title "<name>" --decision <decision-id>`, using an in-effect Decision, to create the work root.
 - Read the create-work `PRESET.md`, `harness.yaml`, and nearby works; keep this map current.
 - Create each child task with `ha task create --work <root-task-id>` and keep the wave table aligned with `ha work show`.
 - Validate links, required sections, duplicate rows, and status agreement; run the relevant repository checks and record evidence.

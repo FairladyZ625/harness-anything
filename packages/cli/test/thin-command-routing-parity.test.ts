@@ -945,6 +945,12 @@ test("task-create help renders recommended presets only from effective catalog r
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
   const createHelp = renderThinHelp([], "task", "ha task create");
   assert.match(createHelp, /--profile — optional; value; format: <profile/u);
+  assert.match(createHelp, /--decision — optional; value/u);
+  assert.match(
+    createHelp,
+    /如果这个 task 落实一项方向性裁决（改方案、定预算、定模型、定入口），先立 decision 再关联；评审意见拆出的后续任务可以不关联。/u,
+  );
+  assert.match(createHelp, /--decision <decision-id>\[\/CH<n>\]/u);
   assert.match(
     createHelp,
     /small localized change or docs-only work[\s\S]*ordinary feature work[\s\S]*data, security/u,
@@ -970,6 +976,8 @@ test("task-create help renders recommended presets only from effective catalog r
   for (const help of [renderThinHelp([], "task", "ha task create"), renderThinHelp([], "work", "ha work create")]) {
     assert.match(help, /--title — (optional|required); value; format: <one focus only — move the explanation/u);
   }
+  const workCreateHelp = renderThinHelp([], "work", "ha work create");
+  assert.match(workCreateHelp, /--decision — required; value/u);
 });
 
 test("human preset and task receipts print resolved completion contracts byte-for-byte", () => {
@@ -1169,6 +1177,7 @@ test("thin parser derives closed preset and task-create payloads from descriptor
 
 test("work create, list, and show route to the task-create and work read actions", () => {
   assert.equal(parseThinCommand(["work", "create"]).ok, false);
+  assert.equal(parseThinCommand(["work", "create", "--title", "Missing decision"]).ok, false);
   assert.equal(parseThinCommand(["work", "show"]).ok, false);
   assert.equal(parseThinCommand(["task", "create", "--title", "slice", "--parent", "task-root"]).ok, false);
   assert.equal(parseThinCommand(["subtask", "create", "--parent", "task-root", "--title", "slice"]).ok, false);
@@ -1177,6 +1186,8 @@ test("work create, list, and show route to the task-create and work read actions
       "create",
       "--title",
       "Release 2",
+      "--decision",
+      "dec_release/CH1",
       "--locale",
       "zh-CN",
       "--plan-file",
@@ -1184,6 +1195,7 @@ test("work create, list, and show route to the task-create and work read actions
       "--dry-run",
     ]),
     member = parseThinCommand(["task", "create", "--work", "task-root", "--title", "slice one"]),
+    decisionTask = parseThinCommand(["task", "create", "--title", "Decision task", "--decision", "dec_release"]),
     list = parseThinCommand(["work", "list", "--all", "--limit", "5"]),
     show = parseThinCommand(["work", "show", "task-root"]);
   assert.equal(work.ok, true, JSON.stringify(work));
@@ -1192,6 +1204,7 @@ test("work create, list, and show route to the task-create and work read actions
     assert.deepEqual(work.command.action, {
       kind: "task-create",
       title: "Release 2",
+      decisionRef: "dec_release/CH1",
       locale: "zh-CN",
       presetId: "create-work",
       taskClass: "work",
@@ -1203,6 +1216,13 @@ test("work create, list, and show route to the task-create and work read actions
   assert.equal(member.ok, true, JSON.stringify(member));
   if (member.ok)
     assert.deepEqual(member.command.action, { kind: "task-create", title: "slice one", parentTaskId: "task-root" });
+  assert.equal(decisionTask.ok, true, JSON.stringify(decisionTask));
+  if (decisionTask.ok)
+    assert.deepEqual(decisionTask.command.action, {
+      kind: "task-create",
+      title: "Decision task",
+      decisionRef: "dec_release",
+    });
   assert.equal(list.ok, true, JSON.stringify(list));
   if (list.ok) {
     assert.equal(list.command.method, "repo.task.read");
@@ -1664,7 +1684,7 @@ test("gate rerun projects the declared Task action and rejects missing identity"
 test("task create and work create payloads pass the repo.task.create wire shape", () => {
   for (const argv of [
     ["task", "create", "--title", "parity"],
-    ["work", "create", "--title", "parity"],
+    ["work", "create", "--title", "parity", "--decision", "dec_parity"],
   ]) {
     const parsed = parseThinCommand(argv, "/repo");
     assert.equal(parsed.ok, true, argv.join(" "));

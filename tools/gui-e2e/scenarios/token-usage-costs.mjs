@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { createAcceptedDecision } from "./decision-fixtures.mjs";
 
 /**
  * Token 消耗页的金额维度(task_*-token-api):按 API 公开价折算的金额在页首、排行、趋势、
@@ -152,8 +153,9 @@ const now = Date.now(),
 async function seedTasks(endpoint, repoId) {
   const create = (payload) =>
     requestDaemonJsonRpcAt(endpoint, "repo.task.create", { repo: { repoId }, payload }, 5_000);
+  const decisionRef = await createAcceptedDecision(endpoint, repoId, "Token usage cost work direction");
   for (const work of [WORK_READ, WORK_DOCS]) {
-    const created = await create({ ...work, presetId: "create-work", taskClass: "work", locale: "zh-CN" });
+    const created = await create({ ...work, presetId: "create-work", taskClass: "work", locale: "zh-CN", decisionRef });
     assert.equal(created.ok, true, `work fixture ${work.taskId} create failed: ${JSON.stringify(created)}`);
   }
   for (const task of TASKS) {

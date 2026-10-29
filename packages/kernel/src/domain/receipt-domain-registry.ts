@@ -176,6 +176,7 @@ export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields,
   readonly visibility?: ReceiptVisibility;
   readonly proof?: ReceiptProof;
   readonly detail?: WriteReceiptDetail;
+  readonly next?: readonly { readonly command?: string; readonly action?: string; readonly reason?: string }[];
   readonly commitSha?: string | null;
   readonly authorizationDecision?: AuthorizationDecision;
   readonly unmetCriteria?: readonly EntityActionUnmetCriterionV1[];
@@ -242,6 +243,7 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "diagnostic",
     "cut",
     "freshness",
+    "next",
   ]),
 });
 export function validateWriteReceipt(value: unknown): readonly string[] {
@@ -279,6 +281,17 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     (!Array.isArray(value.guidance) || value.guidance.some((entry) => !isReceiptGuidance(entry)))
   )
     errors.push("guidance must be an array of structured guidance entries");
+  if (
+    "next" in value &&
+    (!Array.isArray(value.next) ||
+      value.next.some(
+        (entry) =>
+          !isReceiptDomainRecord(entry) ||
+          (!isNonEmptyString(entry.command) && !isNonEmptyString(entry.action)) ||
+          (entry.reason !== undefined && !isNonEmptyString(entry.reason)),
+      ))
+  )
+    errors.push("next must be an array of actionable receipt guidance entries");
   if ("diagnostic" in value && !isReceiptDiagnostic(value.diagnostic))
     errors.push("diagnostic must be a structured receipt diagnostic");
   if ("effects" in value && (!Array.isArray(value.effects) || value.effects.some((entry) => !isNonEmptyString(entry))))

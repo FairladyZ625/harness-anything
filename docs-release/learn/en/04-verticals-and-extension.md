@@ -121,8 +121,8 @@ violated, the write is refused rather than waved through.
 A **work**, as above, is a composite — an assembly of existing primitives, not
 a fourth primitive. It needs no new store because parent links and relations
 already let you group and organize the entities you have. In the CLI it is one
-root task created with `ha work create`, and every task filed under it with
-`ha task create --work <id>`.
+root task created with `ha work create --decision <decision-id>` from an in-effect
+Decision, and every task filed under it with `ha task create --work <id>`.
 
 A **dossier** is what a work produces when it closes: a record of *what was
 built*. At a work's exit, a checker the vertical installed fails closed

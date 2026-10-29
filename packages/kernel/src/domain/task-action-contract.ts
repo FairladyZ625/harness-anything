@@ -61,6 +61,7 @@ const createPacketFields = Object.freeze([
   field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
   field("title", "string", true),
   wire(field("taskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+  wire(field("decisionRef"), { pattern: "^dec_[A-Za-z0-9_-]+(?:/CH[1-9][0-9]*)?$" }),
   field("idempotencyKey"),
   wire(field("parentTaskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   field("workKind", "string", false, taskWorkKinds),
@@ -114,6 +115,9 @@ const createInput = input([
   wire(cli("taskId", "string", false, "--id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   cli("idempotencyKey", "string", false, "--idempotency-key"),
   wire(cli("parentTaskId", "string", false, "--work"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+  wire(cli("decisionRef", "string", false, "--decision"), {
+    pattern: "^dec_[A-Za-z0-9_-]+(?:/CH[1-9][0-9]*)?$",
+  }),
   cli("workKind", "string", false, "--kind", "single", { enum: taskWorkKinds }),
   cli("riskTier", "string", false, "--risk-tier", "single", { enum: priorityTiers }),
   cli("urgency", "string", false, "--urgency", "single", { enum: priorityTiers }),
@@ -709,6 +713,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
 
 const receiptFields: readonly EntityActionInputField[] = Object.freeze(
   [...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional].map((name) => {
+    if (name === "next") return field(name, "json-object-array");
     if (name !== "proof")
       return field(
         name,
@@ -760,6 +765,10 @@ const createResult = Object.freeze({
 
 const createFailureCodes = Object.freeze([
   "missing_field",
+  "decision_required",
+  "decision_not_found",
+  "decision_not_in_effect",
+  "decision_clause_not_found",
   "invalid_field",
   "invalid_command",
   "invalid_title",

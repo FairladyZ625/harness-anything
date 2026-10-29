@@ -7,7 +7,11 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  acceptedWorkDecision,
+  openBootstrappedRepoCell as openRepoCell,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-agenda-work" }, executor: { kind: "agent", id: "codex-sol" } } as const;
@@ -35,9 +39,10 @@ async function withInterleavedWorks(
       ownerId: name,
       now: () => "2026-10-08T12:00:00.000Z",
     });
+    const decisionRef = await acceptedWorkDecision(cell, binding, name);
     for (const action of [
-      { kind: "task-create", taskId: OTHER_WORK, title: "Other work", taskClass: "work" },
-      { kind: "task-create", taskId: RELEASE_WORK, title: "Release work", taskClass: "work" },
+      { kind: "task-create", taskId: OTHER_WORK, title: "Other work", taskClass: "work", decisionRef },
+      { kind: "task-create", taskId: RELEASE_WORK, title: "Release work", taskClass: "work", decisionRef },
       ...OTHER_LANES.map((taskId) => ({
         kind: "task-create",
         taskId,

@@ -15,7 +15,11 @@ import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  acceptedWorkDecision,
+  openBootstrappedRepoCell as openRepoCell,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -111,7 +115,11 @@ async function createTask(
   },
   planTitle?: string,
 ): Promise<string> {
-  const created = await cell.run({ kind: "task-create", ...spec }, binding);
+  const decisionRef = spec.taskClass === "work" ? await acceptedWorkDecision(cell, binding, spec.taskId) : undefined,
+    created = await cell.run(
+      { kind: "task-create", ...spec, ...(decisionRef === undefined ? {} : { decisionRef }) },
+      binding,
+    );
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFixturePublication(cell, created.opId, binding);
   const packagePath = (created as Record<string, unknown>).packagePath;

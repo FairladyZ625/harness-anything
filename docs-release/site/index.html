@@ -727,7 +727,7 @@
               <tbody>
                 <tr><td><code>ha init</code></td><td><span lang="en">Create the <code>harness/</code> layout in the current repo.</span><span lang="zh">在当前仓库创建 <code>harness/</code> 布局。</span></td></tr>
                 <tr><td><code>ha task create --title …</code></td><td><span lang="en">Create a new task package.</span><span lang="zh">创建一个新任务包。</span></td></tr>
-                <tr><td><code>ha work create --title …</code> · <code>ha task create --work &lt;id&gt;</code></td><td><span lang="en">Start a work · file a task under it.</span><span lang="zh">开一个工作 · 把任务归入它。</span></td></tr>
+                <tr><td><code>ha work create --title … --decision &lt;id&gt;</code> · <code>ha task create --work &lt;id&gt;</code></td><td><span lang="en">Start a work from an accepted Decision · file a task under it.</span><span lang="zh">依据已生效决策创建工作 · 把任务归入它。</span></td></tr>
                 <tr><td><code>ha task start &lt;id&gt;</code></td><td><span lang="en">Acquire or reuse an execution lease.</span><span lang="zh">取得或复用 execution lease。</span></td></tr>
                 <tr><td><code>ha status</code> · <code>ha check</code></td><td><span lang="en">Summarize state · run health checks.</span><span lang="zh">总结状态 · 运行健康检查。</span></td></tr>
                 <tr><td><code>ha graph</code></td><td><span lang="en">Render the relation graph as a self-contained HTML panorama.</span><span lang="zh">把关系图渲染成自包含 HTML 全景。</span></td></tr>
@@ -754,7 +754,7 @@
 <span class="c">$</span> ha task progress append &lt;id&gt; <span class="k">--text</span> "Implemented first slice"
 
 <span class="c"># group related tasks into a work</span>
-<span class="c">$</span> ha work create <span class="k">--title</span> "Login hardening"
+<span class="c">$</span> ha work create <span class="k">--title</span> "Login hardening" <span class="k">--decision</span> &lt;decision-id&gt;
 <span class="c">$</span> ha task create <span class="k">--work</span> &lt;id&gt; <span class="k">--title</span> "Fix redirect loop"
 <span class="c">$</span> ha agenda <span class="k">--work</span> &lt;id&gt;
 

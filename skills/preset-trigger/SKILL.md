@@ -28,7 +28,7 @@ ha capabilities preset
 A **work** is the only grouping concept: one root task plus the tasks filed under it (its `parentTaskId` subtree). When several tasks serve one goal, group them in a work instead of leaving them flat.
 
 ```bash
-ha work create --title "<work name>"                      # root task on the create-work preset
+ha work create --title "<work name>" --decision <decision-id> # create-work root from an in-effect Decision
 ha task create --work <work-id> --title "<title>" --preset <id>
 ha work list                                              # open works; --all includes closed ones
 ha work show <work-id>                                    # goal, subtree counts, open tasks
@@ -43,7 +43,7 @@ ha agenda --work <work-id>                                # the agenda narrowed 
 
 - `architecture-rot-audit`: Detect structural architecture drift.
 - `code-impact-analysis`: Map a proposed change across code, tests, docs, dependencies, and operations.
-- `create-work`: The root of a work; its `task_plan.md` is the work map. Start it with `ha work create --title "<name>"`.
+- `create-work`: The root of a work; its `task_plan.md` is the work map. Start it with `ha work create --title "<name>" --decision <decision-id>` using an in-effect Decision.
 - `decision-conformance`: Prove implementation alignment with accepted decisions.
 - `docs-task`: Plan design, documentation, or chore work without a code commit.
 - `gui-development`: GUI pages, shared components, and GUI acceptance using the existing product design system.

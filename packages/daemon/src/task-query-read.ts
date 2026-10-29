@@ -522,6 +522,23 @@ export function makeTaskQueryReadModel(input: {
         query.principalId === undefined
           ? null
           : projection.readTaskRelationsBySources(assignmentSources, "assigned-to"),
+      workRoots = projection.readTaskIndex({ workRootsOnly: true, activePackagesOnly: true }),
+      workRelations =
+        workRoots.rows.length === 0
+          ? null
+          : projection.readTaskRelationsBySources(
+              workRoots.rows.map(({ taskId }) => `task/${taskId}`),
+              "implements",
+            ),
+      unanchoredWorks = workRoots.rows
+        .filter(
+          ({ taskId }) =>
+            !workRelations?.rows.some(
+              (edge) =>
+                edge.sourceRef === `task/${taskId}` && edge.relationType === "implements" && relationIsCurrent(edge),
+            ),
+        )
+        .map(({ taskId, title }) => ({ taskId, title })),
       reads = [
         ...(active?.reads ?? []),
         ...(blocked?.reads ?? []),
@@ -532,6 +549,8 @@ export function makeTaskQueryReadModel(input: {
         ...(awaits === null ? [] : [awaits]),
         ...(answered === null ? [] : [answered]),
         ...(assignments === null ? [] : [assignments]),
+        workRoots,
+        ...(workRelations === null ? [] : [workRelations]),
       ],
       assignmentFor = (sourceRef: string) => {
         if (query.principalId === undefined) return true;
@@ -876,6 +895,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingDecisionReview,
         awaitingDecision,
         awaitingRuling,
+        unanchoredWorks,
         waitingOnOthers,
         dispatchable,
       }),

@@ -15,6 +15,7 @@ import {
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
+  acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
   seedSettingsEvent,
   waitForFixturePublication,
@@ -51,11 +52,22 @@ test("work owner appends without a lease while outsider and ordinary task requir
   });
   t.after(() => cell.close());
   const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  const decisionRef = await acceptedWorkDecision(cell, binding, "work-progress");
   for (const [taskId, presetId, taskClass] of [
     ["task_work_progress", "create-work", "work"],
     ["task_leaf_progress", "standard-task", "standard"],
   ] as const) {
-    const created = await cell.run({ kind: "task-create", taskId, title: taskId, presetId, taskClass }, binding);
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId,
+        title: taskId,
+        presetId,
+        taskClass,
+        ...(taskClass === "work" ? { decisionRef } : {}),
+      },
+      binding,
+    );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
   }
   const append = { kind: "task-progress-append", taskId: "task_work_progress", text: "Owner inspection", evidence: [] };
@@ -1046,9 +1058,10 @@ test("task move refuses cyclic parents and the receipt names the landed work", a
       ownerId: "task-move-guard",
     });
     const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    const decisionRef = await acceptedWorkDecision(cell, binding, "task-move-guard");
     for (const action of [
-      { kind: "task-create", taskId: "task_friction_work", title: "Friction work", taskClass: "work" },
-      { kind: "task-create", taskId: "task_other_work", title: "Other work", taskClass: "work" },
+      { kind: "task-create", taskId: "task_friction_work", title: "Friction work", taskClass: "work", decisionRef },
+      { kind: "task-create", taskId: "task_other_work", title: "Other work", taskClass: "work", decisionRef },
       {
         kind: "task-create",
         taskId: "task_movable",
@@ -1112,9 +1125,10 @@ test("task move re-hangs a leased task while every other amendment stays fenced"
       ownerId: "task-move-lease",
     });
     const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    const decisionRef = await acceptedWorkDecision(cell, binding, "task-move-lease");
     for (const action of [
-      { kind: "task-create", taskId: "task_lease_work_a", title: "Lease work a", taskClass: "work" },
-      { kind: "task-create", taskId: "task_lease_work_b", title: "Lease work b", taskClass: "work" },
+      { kind: "task-create", taskId: "task_lease_work_a", title: "Lease work a", taskClass: "work", decisionRef },
+      { kind: "task-create", taskId: "task_lease_work_b", title: "Lease work b", taskClass: "work", decisionRef },
     ] as const) {
       const created = await cell.run(action, binding);
       assert.equal(created.outcome, "applied", JSON.stringify(action));
