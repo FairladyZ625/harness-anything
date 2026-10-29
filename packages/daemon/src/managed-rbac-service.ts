@@ -23,6 +23,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessExitAsync, runProcessText } from "./process-port.ts";
 import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { transientTransportFailure } from "./oidc-session-helpers.ts";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import {
   alignSessionLifetime,
@@ -704,12 +705,26 @@ export class ManagedRbacService {
   }
 
   async #waitUntilReady(): Promise<Record<string, unknown>> {
-    let result: Record<string, unknown> = { status: "not_checked" };
+    let result: Record<string, unknown> = { status: "not_checked" },
+      transportFailure: unknown = null;
     for (let attempt = 0; attempt < 120; attempt += 1) {
-      result = await this.health();
-      if (result.ready === true) return result;
+      const healthAttempt = await healthReadinessAttempt(() => this.health());
+      if ("transportFailure" in healthAttempt) {
+        transportFailure = healthAttempt.transportFailure;
+      } else {
+        result = healthAttempt.result;
+        transportFailure = null;
+        if (result.ready === true) return result;
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, 250));
     }
+    if (transportFailure)
+      throw Object.assign(
+        new Error("Keycloak realm health could not be reached before the readiness deadline.", {
+          cause: transportFailure,
+        }),
+        { code: "rbac_health_failed" },
+      );
     throw managedRbacError("rbac_health_failed", `Keycloak realm health returned HTTP ${String(result.status)}.`);
   }
 
@@ -1204,4 +1219,15 @@ function run(command: string, args: readonly string[]): void {
 
 function managedRbacError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+async function healthReadinessAttempt(
+  health: () => Promise<Record<string, unknown>>,
+): Promise<{ readonly result: Record<string, unknown> } | { readonly transportFailure: unknown }> {
+  try {
+    return { result: await health() };
+  } catch (error) {
+    if (transientTransportFailure(error)) return { transportFailure: error };
+    throw error;
+  }
 }

@@ -39,7 +39,7 @@ export function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
-const transientDeviceTransportCodes = new Set([
+const transientTransportCodes = new Set([
   "ECONNRESET",
   "ECONNREFUSED",
   "EHOSTUNREACH",
@@ -53,7 +53,8 @@ const transientDeviceTransportCodes = new Set([
   "UND_ERR_BODY_TIMEOUT",
 ]);
 
-export function transientDeviceTransportFailure(error: unknown): boolean {
+/** Recognizes Node fetch's structured network failures so lifecycle callers can use their existing bounded waits. */
+export function transientTransportFailure(error: unknown): boolean {
   if (!(error instanceof TypeError)) return false;
   let cause: unknown = error,
     depth = 0;
@@ -63,7 +64,7 @@ export function transientDeviceTransportFailure(error: unknown): boolean {
       cause !== null &&
       "code" in cause &&
       typeof cause.code === "string" &&
-      transientDeviceTransportCodes.has(cause.code)
+      transientTransportCodes.has(cause.code)
     )
       return true;
     cause = cause instanceof Error ? cause.cause : undefined;
