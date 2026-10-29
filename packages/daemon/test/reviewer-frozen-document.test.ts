@@ -123,6 +123,10 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
       assert.equal(receipt.outcome, "applied");
       assert.equal(receipt.revision, 7);
       assert.equal(receipt.evidence, bytes.toString(path.endsWith(".png") ? "base64" : "utf8"));
+      // The frozen read names the exact blob it just verified so byte-anchored readers never
+      // have to treat a base64 body as the content itself.
+      assert.equal(receipt.detail?.paths[0]?.currentBlobSha256, digest(bytes));
+      assert.equal(receipt.detail?.paths[0]?.baseBlobSha256, digest(bytes));
     }
   }
   const otherTask = runDocAction({

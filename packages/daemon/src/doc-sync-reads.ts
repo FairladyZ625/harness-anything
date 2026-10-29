@@ -57,7 +57,9 @@ export function readAction(input: Input): WriteReceipt {
   } catch {
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
   }
-  const principal = input.binding.executionPrincipal;
+  const current = input.store.currentCut(),
+    lease = null,
+    principal = input.binding.executionPrincipal;
   if (principal?.role === "reviewer" && principal.taskId !== null && principal.executionId !== null) {
     const task = input.projection.read(principal.taskId),
       execution = task.snapshot.executions.find((entry) => entry.executionId === principal.executionId),
@@ -81,13 +83,31 @@ export function readAction(input: Input): WriteReceipt {
         evidence: artifact.body,
         visibility: "center",
         proof: proof(anchor.revision, anchor.revision, true, false),
+        // Binary artifacts arrive as base64 text; the verified blob identity is the byte-level
+        // answer a reader needs, so raw and base64 bodies never become the comparison basis.
+        detail: {
+          kind: "doc_sync",
+          code: "doc-show",
+          baseLedgerSha: current,
+          currentLedgerSha: current,
+          paths: [
+            {
+              path: requested,
+              baseBlobSha256: artifact.anchor.blobSha256,
+              currentBlobSha256: artifact.anchor.blobSha256,
+              candidateBlobSha256: null,
+            },
+          ],
+          holder: null,
+          differences: [],
+          unresolvedTouches: [],
+          deletions: [],
+        },
       };
     }
   }
   if (!directPaths(input.rootDir, paths) || paths.some((candidate) => !resolveDocRoute(candidate).allowed))
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
-  const current = input.store.currentCut(),
-    lease = null;
   // Dispatch credentials grant repository-wide read visibility; task lease checks remain for
   // ordinary node reads without an execution principal.
   const scope = input.binding.executionPrincipal ? [] : scopeTouches(input, paths);
