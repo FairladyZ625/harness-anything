@@ -42,14 +42,18 @@ function acpKind<K extends RuntimeKindId>(
   auth: {
     shape: "subscription-only" | "separate";
     modes: readonly RuntimeAuthMode[];
-    subscriptionProbe: readonly string[];
+    subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
     subscriptionProbeTimeoutMs: number;
+    commands?: Readonly<Record<"login" | "logout", readonly string[]>>;
     acpAuthMethod?: string;
     acpCredentialKey?: string;
     endpoints?: { baseUrl: RuntimeEndpointAvailability };
   },
-  modelFamily: "open" | "codex-only" | "gemini-only" = "open",
-  authFile: string | null = null,
+  options: {
+    readonly modelFamily?: "open" | "codex-only" | "gemini-only";
+    readonly authFile?: string | null;
+    readonly nodeAbi?: number;
+  } = {},
 ): RuntimeProviderDeclaration & { readonly kindId: K } {
   return {
     kindId,
@@ -60,7 +64,8 @@ function acpKind<K extends RuntimeKindId>(
       command,
       configDirectory,
       configHomeEnvironment: null,
-      authFile,
+      authFile: options.authFile ?? null,
+      ...(options.nodeAbi === undefined ? {} : { nodeAbi: options.nodeAbi }),
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
@@ -72,6 +77,7 @@ function acpKind<K extends RuntimeKindId>(
       subscriptionProbe: auth.subscriptionProbe,
       subscriptionProbeTimeoutMs: auth.subscriptionProbeTimeoutMs,
       endpoints: auth.endpoints ?? { baseUrl: "none" },
+      ...(auth.commands ? { commands: auth.commands } : {}),
       ...(auth.acpAuthMethod ? { acpAuthMethod: auth.acpAuthMethod } : {}),
       ...(auth.acpCredentialKey ? { acpCredentialKey: auth.acpCredentialKey } : {}),
     },
@@ -91,7 +97,7 @@ function acpKind<K extends RuntimeKindId>(
       transcriptReachability: "dispatch_stream_only",
       everyFrame: true,
     },
-    gui: { modelFamily, effort: "none", effortValues: [] },
+    gui: { modelFamily: options.modelFamily ?? "open", effort: "none", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
       sessionIdEveryFrame: "supported",
@@ -289,6 +295,8 @@ export const runtimeKinds = [
       apiKeyIsolation: "enforced",
       subscriptionProbe: ["login", "status"],
       subscriptionProbeTimeoutMs: 5_000,
+      // Codex signs in through `codex login`/`codex logout`, not `codex auth <action>`.
+      commands: { login: ["login"], logout: ["logout"] },
       // API-key instances write model_providers.<id>.base_url into the generated
       // config.toml; absent means the provider's built-in endpoint.
       endpoints: { baseUrl: "optional" },
@@ -829,12 +837,33 @@ export const runtimeKinds = [
     acpAuthMethod: "openai",
     acpCredentialKey: "openai_api_key",
   }),
-  acpKind("minimax-code", "MiniMax Code", "mcode", ["acp"], ".minimax-code", {
-    shape: "subscription-only",
-    modes: ["subscription"],
-    subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
-  }),
+  // `mcode` is a `#!/usr/bin/env node` entry whose bundled better-sqlite3 prebuild is
+  // built for Node 24 (ABI 137); a PATH node 26 (ABI 147) dies in NODE_MODULE_VERSION
+  // before ACP initialize. The data directory is `~/.minimax` (the package's
+  // `.minimax-code` string is an npm install-path heuristic), the CLI signs in with
+  // top-level `login`/`logout`, and `--version` exits 0 signed out — its own
+  // auth-state.json carries both the status and the expiry the probe needs.
+  acpKind(
+    "minimax-code",
+    "MiniMax Code",
+    "mcode",
+    ["acp"],
+    ".minimax",
+    {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: {
+        kind: "json-auth-state",
+        file: "auth/prod/cn/mcode-public/auth-state.json",
+        statusField: "status",
+        readyStatus: "authenticated",
+        expiresAtField: "expiresAtMs",
+      },
+      subscriptionProbeTimeoutMs: 10_000,
+      commands: { login: ["login"], logout: ["logout"] },
+    },
+    { authFile: "auth", nodeAbi: 137 },
+  ),
   acpKind("mistral-vibe", "Mistral Vibe", "vibe-acp", [], ".vibe", {
     shape: "subscription-only",
     modes: ["subscription"],
@@ -1028,6 +1057,7 @@ export const runtimeKinds = [
 
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
 export type RuntimeKindInventory = (typeof runtimeKinds)[number] &
+  RuntimeProviderDeclaration &
   RuntimeKind & {
     readonly steer?: RuntimeProviderDeclaration["steer"];
   };
@@ -1086,6 +1116,12 @@ export function runtimeKindForId(kindId: string): RuntimeKindInventory {
   const found = runtimeKinds.find((kind) => kind.kindId === kindId);
   if (!found) throw new Error(`Unknown runtime kind: ${kindId}`);
   return found;
+}
+
+/** The provider's own sign-in argv for one action. A kind whose CLI exposes a top-level
+ * `login`/`logout` declares it; every other kind keeps the `auth <action>` form. */
+export function runtimeAuthArgs(kindId: string, action: "login" | "logout"): readonly string[] {
+  return runtimeKindForId(kindId).auth.commands?.[action] ?? ["auth", action];
 }
 
 /** The configuration key that stores this kind's reasoning effort ("effort" or

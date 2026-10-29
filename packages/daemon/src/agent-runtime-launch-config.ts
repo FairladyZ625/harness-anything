@@ -133,19 +133,28 @@ export async function providerSubscriptionReadiness(
   try {
     const declaration = runtimeKindForId(input.installation.kindId),
       probe = declaration.auth.subscriptionProbe;
-    if (!Array.isArray(probe)) {
-      const authFile = declaration.executable.authFile,
-        key = "acpCredentialKey" in declaration.auth ? declaration.auth.acpCredentialKey : undefined,
-        home = input.env.HOME ?? input.env.USERPROFILE;
-      if (!authFile || !key || !home)
+    if (typeof probe === "object" && "kind" in probe) {
+      const home = input.env.HOME ?? input.env.USERPROFILE;
+      if (!home)
         return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
-      const file = path.join(providerConfigDirectory(home, input.installation.kindId), authFile);
-      // Existence of the file plus a non-empty declared key is the whole check;
-      // the secret value itself is never read out, logged, or forwarded.
-      return existsSync(file) &&
-        new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*"[^"]+"`, "mu").test(readFileSync(file, "utf8"))
-        ? available()
-        : unavailable("runtime_subscription_required", hint);
+      const directory = providerConfigDirectory(home, input.installation.kindId);
+      if (probe.kind === "file-key") {
+        const authFile = declaration.executable.authFile,
+          key = "acpCredentialKey" in declaration.auth ? declaration.auth.acpCredentialKey : undefined;
+        if (!authFile || !key)
+          return unavailable(
+            "runtime_auth_probe_failed",
+            "Provider authentication probe could not determine readiness.",
+          );
+        const file = path.join(directory, authFile);
+        // Existence of the file plus a non-empty declared key is the whole check;
+        // the secret value itself is never read out, logged, or forwarded.
+        return existsSync(file) &&
+          new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*"[^"]+"`, "mu").test(readFileSync(file, "utf8"))
+          ? available()
+          : unavailable("runtime_subscription_required", hint);
+      }
+      return jsonAuthStateReadiness(path.join(directory, probe.file), probe, hint);
     }
     await runExecutable(platform, input.installation.executablePath, probe, {
       env: input.env,
@@ -180,6 +189,40 @@ export async function providerSubscriptionReadiness(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+type JsonAuthStateProbe = Extract<
+  RuntimeProviderDeclaration["auth"]["subscriptionProbe"],
+  { readonly kind: "json-auth-state" }
+>;
+
+/**
+ * Read the provider's own login-state document. A CLI that exits 0 on `--version`
+ * whether or not anyone is signed in cannot answer readiness; its auth-state file
+ * records both the status and the expiry, so a stale login is distinguishable from
+ * a fresh one and from no login at all. Missing file = never signed in; malformed
+ * file = the probe could not determine anything (not a credential verdict).
+ */
+function jsonAuthStateReadiness(file: string, probe: JsonAuthStateProbe, hint: string): RuntimeAuthReadiness {
+  // A missing document is the one state this can decide locally: nobody ever signed in.
+  // A read or parse failure (permissions, a half-written file) is left to throw into the
+  // caller's existing boundary, which reports it as "the probe could not determine
+  // readiness" — a read failure must not masquerade as a credential verdict.
+  if (!existsSync(file)) return unavailable("runtime_subscription_required", hint);
+  const state: unknown = JSON.parse(readFileSync(file, "utf8"));
+  if (typeof state !== "object" || state === null || Array.isArray(state))
+    return unavailable("runtime_auth_probe_failed", "Provider authentication state is not an object.");
+  const record = state as Record<string, unknown>,
+    expiresAt = record[probe.expiresAtField];
+  if (record[probe.statusField] !== probe.readyStatus) return unavailable("runtime_subscription_required", hint);
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt))
+    return unavailable("runtime_auth_probe_failed", "Provider authentication state has no expiry.");
+  return expiresAt <= Date.now()
+    ? unavailable(
+        "runtime_subscription_expired",
+        "Provider subscription sign-in has expired; run the instance login to sign in again.",
+      )
+    : available();
 }
 
 export const credentialUnavailableHint = "The configured runtime API credential is unavailable.";

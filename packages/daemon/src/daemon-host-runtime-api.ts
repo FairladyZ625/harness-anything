@@ -667,7 +667,7 @@ export function createDaemonHostRuntimeApi(
       if (!["login", "logout"].includes(operation))
         throw context.hostCodedError("unsupported_command", `Unsupported runtime auth method: ${method}.`);
       await context.instances.refreshInstallations();
-      const command = context.instances.prepareAuthCommand(
+      const command = await context.instances.prepareAuthCommand(
           context.requiredText(payload.instanceId, "instanceId"),
           operation as "login" | "logout",
         ),

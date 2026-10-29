@@ -71,12 +71,14 @@ import {
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
 import { applyGithubLaunchCredential } from "./runtime-github-credentials.ts";
 import {
+  runtimeAuthArgs,
   runtimeEffortField,
   runtimeEffortRidesProviderConfig,
   runtimeKindForId,
   runtimeKindIds,
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
+import { withNodeAbiEnvironment } from "./runtime-node-abi.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
@@ -252,7 +254,10 @@ export function openRuntimeInstanceStore(input: {
       );
     }
   }
-  function prepareAuthCommand(instanceId: string, action: "login" | "logout"): PreparedRuntimeAuthCommand {
+  async function prepareAuthCommand(
+    instanceId: string,
+    action: "login" | "logout",
+  ): Promise<PreparedRuntimeAuthCommand> {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
@@ -282,13 +287,13 @@ export function openRuntimeInstanceStore(input: {
       config.instanceId,
       unavailable("runtime_auth_in_progress", `Provider-native ${action} is running in this instance terminal.`),
     );
-    const args = config.kindId === "codex" ? [action] : ["auth", action];
+    const args = runtimeAuthArgs(config.kindId, action);
     return {
       instanceId: config.instanceId,
       name: config.name,
       executablePath: installation.executablePath,
       args,
-      env: authEnvironment(config),
+      env: await withNodeAbiEnvironment(authEnvironment(config), config.kindId, platform),
       cwd: path.join(instancesRoot, config.instanceId),
     };
   }
@@ -335,7 +340,11 @@ export function openRuntimeInstanceStore(input: {
           ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
           : null,
       env = {
-        ...authEnvironment(config, launchTempDirectory ?? undefined),
+        ...(await withNodeAbiEnvironment(
+          authEnvironment(config, launchTempDirectory ?? undefined),
+          config.kindId,
+          platform,
+        )),
         ...(permissionMode ? launch.permissionEnvironment?.[permissionMode] : undefined),
       },
       args = launchArgs(

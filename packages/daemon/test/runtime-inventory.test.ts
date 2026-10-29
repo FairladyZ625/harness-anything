@@ -1,12 +1,14 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { runtimeKinds } from "../src/runtime-inventory.ts";
+import { providerConfigDirectory } from "../src/agent-runtime-instance-storage.ts";
+import { runtimeAuthArgs, runtimeKinds } from "../src/runtime-inventory.ts";
+import { withNodeAbiEnvironment } from "../src/runtime-node-abi.ts";
 
 /**
  * Launch-config bearing assertions for the 12 ACP providers introduced in PR #2779.
@@ -39,7 +41,13 @@ const acpLaunchContracts = [
     acpAuthMethod: "openai",
     acpCredentialKey: "openai_api_key",
   },
-  { kindId: "minimax-code", command: "mcode", argumentTemplate: ["acp"] },
+  {
+    kindId: "minimax-code",
+    command: "mcode",
+    argumentTemplate: ["acp"],
+    configDirectory: ".minimax",
+    authCommands: { login: ["login"], logout: ["logout"] },
+  },
   { kindId: "mistral-vibe", command: "vibe-acp", argumentTemplate: [], acpAuthMethod: "browser-auth" },
   { kindId: "junie", command: "junie", argumentTemplate: ["--acp=true"] },
   { kindId: "codebuddy", command: "codebuddy", argumentTemplate: ["--acp"] },
@@ -58,8 +66,188 @@ test("the 12 ACP provider launch contracts stay pinned", () => {
     assert.deepEqual(kind.launch.argumentTemplate, expected.argumentTemplate, `${expected.kindId} argumentTemplate`);
     assert.equal(kind.auth.acpAuthMethod, expected.acpAuthMethod, `${expected.kindId} acpAuthMethod`);
     assert.equal(kind.auth.acpCredentialKey, expected.acpCredentialKey, `${expected.kindId} acpCredentialKey`);
+    // A kind's data directory is part of its launch contract too: mcode reads `~/.minimax`,
+    // and a wrong cell makes every enforced instance read an empty login store.
+    if ("configDirectory" in expected)
+      assert.equal(kind.executable.configDirectory, expected.configDirectory, `${expected.kindId} configDirectory`);
+    if ("authCommands" in expected)
+      assert.deepEqual(kind.auth.commands, expected.authCommands, `${expected.kindId} auth commands`);
   }
 });
+
+test("minimax-code declares the data directory, ABI and login-state probe its CLI actually uses", () => {
+  const kind = runtimeKinds.find((entry) => entry.kindId === "minimax-code")!,
+    home = mkdtempSync(path.join(tmpdir(), "ha-minimax-declaration-"));
+  try {
+    // `mcode provider list` creates ~/.minimax in an empty HOME; `.minimax-code` is an
+    // npm install-path heuristic inside the package, not the data directory.
+    assert.equal(providerConfigDirectory(home, "minimax-code"), path.join(home, ".minimax"));
+    assert.equal(kind.executable.authFile, "auth");
+    // better-sqlite3 in mcode 0.4.6 is a Node 24 build (ABI 137); the Node 26 shell is 147.
+    assert.equal(kind.executable.nodeAbi, 137);
+    // A command probe that exits 0 signed out cannot report readiness; the provider's own
+    // auth-state document carries both status and expiry.
+    assert.deepEqual(kind.auth.subscriptionProbe, {
+      kind: "json-auth-state",
+      file: "auth/prod/cn/mcode-public/auth-state.json",
+      statusField: "status",
+      readyStatus: "authenticated",
+      expiresAtField: "expiresAtMs",
+    });
+    assert.notDeepEqual(kind.auth.subscriptionProbe, ["--version"]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("sign-in argv is generated from each kind's declaration", () => {
+  // The store used to special-case codex and send every other kind `auth <action>`;
+  // mcode has no `auth` subcommand, so the declaration is now the only source.
+  assert.deepEqual(runtimeAuthArgs("minimax-code", "login"), ["login"]);
+  assert.deepEqual(runtimeAuthArgs("minimax-code", "logout"), ["logout"]);
+  assert.deepEqual(runtimeAuthArgs("codex", "login"), ["login"]);
+  assert.deepEqual(runtimeAuthArgs("codex", "logout"), ["logout"]);
+  // A kind that declares no top-level command keeps the existing form.
+  assert.deepEqual(runtimeAuthArgs("claude", "login"), ["auth", "login"]);
+  assert.deepEqual(runtimeAuthArgs("copilot", "logout"), ["auth", "logout"]);
+});
+
+test("a declared Node ABI puts a matching interpreter ahead of an incompatible PATH node", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-node-abi-resolution-"));
+  try {
+    const incompatible = fakeNode(root, "abi-147", "147"),
+      matching = fakeNode(root, "abi-137", "137"),
+      env = { PATH: [path.dirname(incompatible), path.dirname(matching)].join(path.delimiter), HOME: root },
+      resolved = await withNodeAbiEnvironment(env, "minimax-code", process.platform, {
+        hostExecutable: path.join(root, "no-host-node"),
+      });
+    assert.equal(resolved.PATH?.split(path.delimiter)[0], path.dirname(matching));
+    // The rest of PATH survives: only the interpreter's directory moves to the front.
+    assert.equal(resolved.PATH?.split(path.delimiter)[1], path.dirname(incompatible));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unmatched declared Node ABI is a named refusal, never a fallback", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-node-abi-refusal-"));
+  try {
+    const incompatible = fakeNode(root, "abi-147", "147");
+    await assert.rejects(
+      async () =>
+        withNodeAbiEnvironment({ PATH: path.dirname(incompatible), HOME: root }, "minimax-code", process.platform, {
+          hostExecutable: path.join(root, "no-host-node"),
+        }),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "runtime_node_abi_unavailable" &&
+        /Node ABI 137/u.test((error as Error).message) &&
+        /ABI 147/u.test((error as Error).message) &&
+        /Refusing to launch/u.test((error as Error).message),
+    );
+    // A kind with no ABI declaration is untouched: the resolver must not rewrite every launch.
+    const untouched = { PATH: path.dirname(incompatible) };
+    assert.equal(await withNodeAbiEnvironment(untouched, "claude", process.platform), untouched);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** A POSIX shell shim standing in for a node binary that reports one ABI. */
+function fakeNode(root: string, directory: string, abi: string): string {
+  const target = path.join(root, directory, "node");
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, ["#!/bin/sh", `printf '%s' '${abi}'`, ""].join("\n"));
+  chmodSync(target, 0o755);
+  return target;
+}
+
+test(
+  "the real mcode ACP initializes under the catalog's Node ABI resolution",
+  {
+    timeout: 30_000,
+    skip: mcodeBinary() === null ? "requires the mcode CLI on PATH to exercise its ACP handshake" : false,
+  },
+  async (t) => {
+    const binary = mcodeBinary()!,
+      home = mkdtempSync(path.join(tmpdir(), "ha-minimax-acp-"));
+    try {
+      let env: NodeJS.ProcessEnv;
+      try {
+        env = await withNodeAbiEnvironment({ ...process.env, HOME: home }, "minimax-code", process.platform);
+      } catch (error) {
+        // A host that has mcode but no Node 24 anywhere is the declared-ABI refusal, not a
+        // handshake failure; the resolver's own test above pins that verdict.
+        if ((error as { readonly code?: string }).code !== "runtime_node_abi_unavailable") throw error;
+        t.skip(`no Node ABI 137 interpreter on this host: ${(error as Error).message}`);
+        return;
+      }
+      const result = spawnSync(binary, ["acp"], { encoding: "utf8", env, input: initializeRequest(), timeout: 20_000 });
+      assert.equal(result.stderr.includes("NODE_MODULE_VERSION"), false, result.stderr);
+      const response = JSON.parse(
+        result.stdout.split(/\r?\n/u).find((line) => line.trim().startsWith("{")) ?? "null",
+      ) as { readonly result?: { readonly agentInfo?: { readonly name?: string } } } | null;
+      assert.equal(response?.result?.agentInfo?.name, "minimax-code", result.stdout || result.stderr);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "mcode under an explicitly incompatible PATH node still fails and names both ABIs",
+  {
+    timeout: 30_000,
+    skip: incompatibleNode() === null ? "requires a second node ABI on PATH for the negative control" : false,
+  },
+  () => {
+    const binary = mcodeBinary();
+    if (binary === null) return;
+    const home = mkdtempSync(path.join(tmpdir(), "ha-minimax-acp-negative-"));
+    try {
+      // Deliberately bypass the resolver: this is the pre-fix launch shape, and it must
+      // stay visibly broken rather than getting swallowed by a fallback.
+      const env = {
+          ...process.env,
+          HOME: home,
+          PATH: [path.dirname(incompatibleNode()!), process.env.PATH ?? ""].join(path.delimiter),
+        },
+        result = spawnSync(binary, ["acp"], { encoding: "utf8", env, input: initializeRequest(), timeout: 20_000 });
+      assert.match(result.stderr, /NODE_MODULE_VERSION 137/u);
+      assert.match(result.stderr, /NODE_MODULE_VERSION 147/u);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
+function initializeRequest(): string {
+  return `${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientInfo: { name: "harness-anything", version: "0.0.1" },
+    },
+  })}\n`;
+}
+
+function mcodeBinary(): string | null {
+  const found = spawnSync(process.platform === "win32" ? "where" : "which", ["mcode"], { encoding: "utf8" }),
+    first = found.status === 0 ? found.stdout.trim().split(/\r?\n/u)[0] : "";
+  return first && existsSync(first) ? first : null;
+}
+
+/** A `node` on PATH whose ABI differs from the 137 mcode's addon was built for. */
+function incompatibleNode(): string | null {
+  const found = spawnSync("which", ["-a", "node"], { encoding: "utf8" });
+  for (const candidate of (found.stdout ?? "").split(/\r?\n/u).filter(Boolean)) {
+    const probe = spawnSync(candidate, ["-p", "process.versions.modules"], { encoding: "utf8" });
+    if (probe.status === 0 && probe.stdout.trim() !== "137") return candidate;
+  }
+  return null;
+}
 
 test("Codex and Claude declare steer resume, every ACP kind steers in place, others declare nothing", () => {
   const codex = runtimeKinds.find((entry) => entry.kindId === "codex")!,

@@ -428,7 +428,7 @@ test("subscription auth commands use the witnessed executable and instance-only 
       providerConfigDirectory = path.join(stateRoot, "home", ".codex");
     if (process.platform !== "win32") assert.equal(statSync(providerConfigDirectory).mode & 0o777, 0o700);
     assert.equal(existsSync(path.join(stateRoot, "home", ".claude")), false);
-    const command = store.prepareAuthCommand("codex-sub", "login");
+    const command = await store.prepareAuthCommand("codex-sub", "login");
     assert.equal(command.executablePath, observed.executablePath);
     assert.deepEqual(command.args, ["login"]);
     assert.equal(command.cwd, stateRoot);
@@ -439,10 +439,10 @@ test("subscription auth commands use the witnessed executable and instance-only 
         CODEX_HOME: providerConfigDirectory,
       }),
     );
-    assert.deepEqual(store.prepareAuthCommand("codex-sub", "logout").args, ["logout"]);
+    assert.deepEqual((await store.prepareAuthCommand("codex-sub", "logout")).args, ["logout"]);
     store.command({ kind: "runtime-instance-update", instanceId: "codex-sub", enabled: false });
-    assert.deepEqual(store.prepareAuthCommand("codex-sub", "login").args, ["login"]);
-    assert.deepEqual(store.prepareAuthCommand("codex-sub", "logout").args, ["logout"]);
+    assert.deepEqual((await store.prepareAuthCommand("codex-sub", "login")).args, ["login"]);
+    assert.deepEqual((await store.prepareAuthCommand("codex-sub", "logout")).args, ["logout"]);
     store.create({
       schemaVersion: 1,
       instanceId: "codex-api",
@@ -453,7 +453,7 @@ test("subscription auth commands use the witnessed executable and instance-only 
       model: "gpt-5.6-sol",
       auth: { mode: "api-key", credentialRef: "keychain:harness/codex-api" },
     });
-    assert.throws(
+    await assert.rejects(
       () => store.prepareAuthCommand("codex-api", "login"),
       (error: unknown) => codedAs(error, "runtime_auth_mode_mismatch"),
     );

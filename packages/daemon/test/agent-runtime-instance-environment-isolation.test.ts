@@ -82,7 +82,7 @@ test("claude isolation defaults to the operator environment and stays enforced o
         cwd: "/workspace/repo",
         prompt: "Reuse the operator login",
       }),
-      login = store.prepareAuthCommand("claude-operator", "login"),
+      login = await store.prepareAuthCommand("claude-operator", "login"),
       keyLaunch = await store.prepareLaunch("claude-operator-key", {
         cwd: "/workspace/repo",
         prompt: "Key in operator env",
@@ -364,7 +364,7 @@ test(
         claude: {},
         auth: { mode: "subscription" },
       });
-      const login = store.prepareAuthCommand("claude-shared-auth", "login"),
+      const login = await store.prepareAuthCommand("claude-shared-auth", "login"),
         claudeCredentials = path.join(
           userRoot,
           "runtime-instances",
@@ -706,7 +706,7 @@ test("linux instances keep the POSIX isolation shape distinct from the host", as
       claude: {},
       auth: { mode: "subscription" },
     });
-    const command = store.prepareAuthCommand("claude-linux", "login"),
+    const command = await store.prepareAuthCommand("claude-linux", "login"),
       stateRoot = path.join(userRoot, "runtime-instances", "claude-linux");
     assert.deepEqual(command.env, {
       PATH: "/runtime/tools",
