@@ -210,6 +210,8 @@ function entityChain(f, reader, index) {
     "import",
     "--kind",
     kind,
+    "--mode",
+    "snapshot",
     "--locator",
     locator,
     "--expected-version",

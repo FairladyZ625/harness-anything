@@ -132,7 +132,20 @@ function importOp(f, kind, tag) {
       key: locator,
       values: [title],
       blobs: [issueBody(`/bench/${encodeURIComponent(tag)}`)],
-      argv: ["entity", "import", "--kind", kind, "--locator", locator, "--expected-version", "0", "--title", title],
+      argv: [
+        "entity",
+        "import",
+        "--kind",
+        kind,
+        "--mode",
+        "snapshot",
+        "--locator",
+        locator,
+        "--expected-version",
+        "0",
+        "--title",
+        title,
+      ],
     };
   }
   const locator = `inputs/${kind}/${tag}`,
@@ -149,7 +162,20 @@ function importOp(f, kind, tag) {
     key: locator,
     values: [title],
     blobs: [text, binary],
-    argv: ["entity", "import", "--kind", kind, "--locator", locator, "--expected-version", "0", "--title", title],
+    argv: [
+      "entity",
+      "import",
+      "--kind",
+      kind,
+      "--mode",
+      "snapshot",
+      "--locator",
+      locator,
+      "--expected-version",
+      "0",
+      "--title",
+      title,
+    ],
   };
 }
 
