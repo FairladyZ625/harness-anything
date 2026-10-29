@@ -65,6 +65,20 @@ test("attach applies retired settings migration without a manual command and is 
   assert.equal(events.length, 2);
 });
 
+test("attach records a separate step for retired review thresholds", () => {
+  const { store, events } = fakeStore([
+    event(
+      "settings-event/v1",
+      { settings: { review: { thresholds: { correctness: 80, migration: 85, securityAuth: 90 } } } },
+      "old-review-thresholds",
+    ),
+  ]);
+  assert.deepEqual(applyAttachMigrations({ store, now: () => "2026-10-20T00:00:01.000Z" }).applied, [
+    "settings.review.thresholds",
+  ]);
+  assert.equal(events.length, 2);
+});
+
 test("historical vertical declarations remain readable after hosted CI retirement", () => {
   assert.deepEqual(
     normalizeHistoricalVerticalDocument({

@@ -2162,5 +2162,5 @@
   "views.liveFloor.endedEmpty": "No sessions ended in the last 24 hours.",
   "views.liveFloor.endedWindowNote": "last 24 hours",
   "views.liveFloor.endedReportToggle": "Report",
-  "views.liveFloor.stageOther": "Other",
+  "views.liveFloor.stageOther": "Other"
 }
