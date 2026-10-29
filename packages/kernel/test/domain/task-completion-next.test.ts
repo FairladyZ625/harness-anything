@@ -341,6 +341,18 @@ test("a recorded changes_requested review guides the owner's disposition instead
   assert.equal(taskCompletionNext(at(3), context).next?.action, "ha task dispatch-review task-1");
 });
 
+test("a dismissed review is not an effective review and guides a fresh dispatch", () => {
+  const reviewed = at(4),
+    dismissed = {
+      ...reviewed,
+      reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-dismissed", verdict: "dismissed" as const }],
+    },
+    result = taskCompletionNext(dismissed, context);
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.next?.action, "ha task dispatch-review task-1");
+  assert.match(result.next?.reason ?? "", /no recorded review/u);
+});
+
 test("completion readiness names an owner finding ruling when approved review settlement escalates", () => {
   const reviewed = at(4),
     escalated = {

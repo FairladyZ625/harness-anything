@@ -390,8 +390,9 @@ function evaluateCompletion(
         `The current finding settlement has ${String(assessment.blockingFindings.length)} blocker(s); ` +
           "the task owner must return this cut to implementation.",
       );
-    const recorded = reviewsForExecution(snapshot.reviews, execution);
-    if (recorded.length === 0)
+    const recorded = reviewsForExecution(snapshot.reviews, execution),
+      effectiveReviews = recorded.filter((review) => review.verdict !== "dismissed");
+    if (effectiveReviews.length === 0)
       return one(
         "review_missing",
         "review",
