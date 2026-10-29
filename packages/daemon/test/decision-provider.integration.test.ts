@@ -155,7 +155,7 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    return new Response(JSON.stringify({ error: { code: 404, message: "Not Found" } }), {
+    return new Response(JSON.stringify({ error: { code: 404, message: "Invalid URL" } }), {
       status: 404,
       headers: { "content-type": "application/json" },
     });
@@ -208,11 +208,15 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
       credentialRef: "credential:v1:probe-key",
     });
     requests.length = 0;
-    await assert.rejects(
-      service.command({ kind: "provider-probe", providerId: "v1-endpoint" }),
-      (error: unknown) =>
-        typeof error === "object" && error !== null && "code" in error && error.code === "decision_transport",
-    );
+    await assert.rejects(service.command({ kind: "provider-probe", providerId: "v1-endpoint" }), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: string }).code, "decision_transport");
+      assert.match(error.message, /HTTP 404/u);
+      assert.match(error.message, /NotFoundResponseError/u);
+      assert.match(error.message, /Invalid URL/u);
+      assert.equal(error.message.match(/HTTP 404/gu)?.length, 1);
+      return true;
+    });
     assert.deepEqual(
       requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
       ["POST /api/v1/api/alpha/decisions"],
@@ -454,4 +458,225 @@ test("DecisionPort exhausts transient retries without hiding the rate-limit reas
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+test("DecisionPort reports the HTTP status, SDK error class, and provider message of terminal failures", async (t) => {
+  const scenarios = [
+    {
+      label: "unauthorized",
+      status: 401,
+      name: "UnauthorizedResponseError",
+      code: "provider_credential_unavailable",
+      providerMessage: "No auth credentials found",
+    },
+    {
+      label: "payment required",
+      status: 402,
+      name: "PaymentRequiredResponseError",
+      code: "decision_transport",
+      providerMessage: "Insufficient credits to run this request",
+    },
+    {
+      label: "unsupported endpoint",
+      status: 404,
+      name: "NotFoundResponseError",
+      code: "decision_transport",
+      providerMessage: "Invalid URL",
+    },
+  ] as const;
+  for (const scenario of scenarios) {
+    await t.test(scenario.label, async () => {
+      const parent = mkdtempSync(path.join(tmpdir(), `ha-decision-provider-${scenario.label.replaceAll(" ", "-")}-`)),
+        calls: number[] = [],
+        vault: CredentialPort = {
+          issue: () => "credential:v1:test-key",
+          store: async () => undefined,
+          resolve: async () => "test-key",
+          remove: async () => undefined,
+        },
+        service = openDecisionProviderService({
+          userRoot: parent,
+          vault,
+          sleep: async () => undefined,
+          invokeDecision: async () => {
+            calls.push(calls.length + 1);
+            const providerErrorBody = { error: { code: scenario.status, message: scenario.providerMessage } };
+            throw Object.assign(new Error(scenario.providerMessage), {
+              name: scenario.name,
+              statusCode: scenario.status,
+              error: providerErrorBody.error,
+              data$: { ...providerErrorBody, body$: JSON.stringify(providerErrorBody) },
+            });
+          },
+        });
+      try {
+        await service.command({
+          kind: "provider-create",
+          type: "decisions",
+          providerId: "decision-a",
+          name: "Decision A",
+          model: "baseten/elephant-1:free",
+          credentialRef: "credential:v1:test-key",
+        });
+        await assert.rejects(
+          service.port.decide({
+            subjectRef: "dispatch/terminal-failure",
+            providerId: "decision-a",
+            questionSetVersion: "noul/v1",
+            state: ["text"],
+            question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+          }),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            assert.equal((error as Error & { code?: string }).code, scenario.code);
+            assert.equal((error as Error & { retries?: number }).retries, 0);
+            assert.match(error.message, new RegExp(`HTTP ${String(scenario.status)}`, "u"));
+            assert.ok(error.message.includes(scenario.name), error.message);
+            assert.ok(error.message.includes(scenario.providerMessage), error.message);
+            return true;
+          },
+        );
+        // 401/402/404 are terminal: the underlying cause must be visible, and nothing may be retried.
+        assert.equal(calls.length, 1);
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("DecisionPort retries only failures with transient evidence and never echoes the API key", async (t) => {
+  const apiKey = "sk-test-secret-value-12345",
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => apiKey,
+      remove: async () => undefined,
+    };
+  await t.test("a 5xx response retries and keeps the final cause", async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-5xx-retry-")),
+      calls: number[] = [],
+      delays: number[] = [],
+      service = openDecisionProviderService({
+        userRoot: parent,
+        vault,
+        sleep: async (delayMs) => void delays.push(delayMs),
+        invokeDecision: async () => {
+          calls.push(calls.length + 1);
+          throw Object.assign(new Error("upstream unavailable"), {
+            name: "ServiceUnavailableResponseError",
+            statusCode: 503,
+          });
+        },
+      });
+    try {
+      await service.command({
+        kind: "provider-create",
+        type: "decisions",
+        providerId: "decision-a",
+        name: "Decision A",
+        model: "model-a",
+        credentialRef: "credential:v1:test-key",
+      });
+      await assert.rejects(
+        service.port.decide({
+          subjectRef: "dispatch/server-failure",
+          providerId: "decision-a",
+          questionSetVersion: "noul/v1",
+          state: ["text"],
+          question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+        }),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message.includes("HTTP 503") &&
+          error.message.includes("ServiceUnavailableResponseError") &&
+          error.message.includes("Retried 3 time(s)"),
+      );
+      assert.equal(calls.length, 4);
+      assert.deepEqual(delays, [250, 500, 1_000]);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  await t.test("a decision_transport error without transient evidence is not retried", async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-terminal-transport-")),
+      calls: number[] = [],
+      service = openDecisionProviderService({
+        userRoot: parent,
+        vault,
+        sleep: async () => undefined,
+        invokeDecision: async () => {
+          calls.push(calls.length + 1);
+          throw Object.assign(new Error("upstream rejected the request"), { code: "decision_transport" });
+        },
+      });
+    try {
+      await service.command({
+        kind: "provider-create",
+        type: "decisions",
+        providerId: "decision-a",
+        name: "Decision A",
+        model: "model-a",
+        credentialRef: "credential:v1:test-key",
+      });
+      await assert.rejects(
+        service.port.decide({
+          subjectRef: "dispatch/terminal-transport",
+          providerId: "decision-a",
+          questionSetVersion: "noul/v1",
+          state: ["text"],
+          question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+        }),
+        (error: unknown) =>
+          error instanceof Error &&
+          (error as Error & { code?: string }).code === "decision_transport" &&
+          !error.message.includes("Retried"),
+      );
+      assert.equal(calls.length, 1);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  await t.test("the provider message never echoes the API key", async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-key-redaction-")),
+      service = openDecisionProviderService({
+        userRoot: parent,
+        vault,
+        sleep: async () => undefined,
+        invokeDecision: async () => {
+          throw Object.assign(new Error(`Incorrect API key provided: ${apiKey}.`), {
+            name: "UnauthorizedResponseError",
+            statusCode: 401,
+          });
+        },
+      });
+    try {
+      await service.command({
+        kind: "provider-create",
+        type: "decisions",
+        providerId: "decision-a",
+        name: "Decision A",
+        model: "model-a",
+        credentialRef: "credential:v1:test-key",
+      });
+      await assert.rejects(
+        service.port.decide({
+          subjectRef: "dispatch/key-redaction",
+          providerId: "decision-a",
+          questionSetVersion: "noul/v1",
+          state: ["text"],
+          question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+        }),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message.includes("[redacted]") &&
+          !error.message.includes(apiKey) &&
+          error.message.includes("HTTP 401"),
+      );
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
 });
