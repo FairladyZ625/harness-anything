@@ -140,3 +140,24 @@ test("a cooling pinned instance still leads the chain instead of the last allowl
     "attempt 0 ran on the pin, so the chain must record it before the first successor",
   );
 });
+
+test("a pinned fallback chain accepts the shared case-insensitive model resolution", () => {
+  const catalogModel = "Deepseek-V4.1-Flash",
+    attempt = initialFallbackAttempt(
+      agent,
+      "ds-bailian",
+      undefined,
+      undefined,
+      "task-review:task_1:exe_1:reviewer",
+      "dispatch_successor",
+      "mission",
+      [{ ...instance("ds-bailian"), models: [catalogModel], defaultModel: catalogModel }, instance("ds-harness-api")],
+      [],
+      ["ds-bailian", "ds-harness-api"],
+    );
+  assert.ok(attempt, "a catalog case variant still admits its pinned fallback chain");
+  assert.deepEqual(
+    attempt.candidates.map(({ instance: instanceId }) => instanceId),
+    ["ds-bailian", "ds-harness-api"],
+  );
+});

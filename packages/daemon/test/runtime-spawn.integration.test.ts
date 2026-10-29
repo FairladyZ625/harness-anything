@@ -275,7 +275,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     userRoot = path.join(parent, "user"),
     executablePath = writeProviderExecutable(path.join(parent, "codex-agent-model-stub.mjs"), "process.exit(0)\n"),
     repoId = "runtime-agent-model",
-    models = ["instance-default", "agent-declared", "command-override"] as const,
+    models = ["instance-default", "agent-declared", "command-override", "gpt-5.6-sol", "Deepseek-V4.1-Flash"] as const,
     runtimeInstallation = {
       installationId: "installation-codex-agent-model",
       kindId: "codex" as const,
@@ -437,6 +437,20 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       role: "worker",
       prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"],
       preset: "standard-task",
+    },
+    {
+      schema: "agent-declaration/v1",
+      id: "family-model",
+      name: "Family Model",
+      instructions: "Use the sole compatible model in this runtime family.",
+      runtimes: [{ type: "codex", model: "gpt-6.1-astra" }],
+    },
+    {
+      schema: "agent-declaration/v1",
+      id: "case-model",
+      name: "Case Model",
+      instructions: "Use the model catalog spelling for this declaration.",
+      runtimes: [{ type: "codex", model: "deepseek-v4.1-flash" }],
     },
     {
       schema: "agent-declaration/v1",
@@ -624,6 +638,60 @@ test("runtime spawn resolves command model, Agent model, then instance default w
           (launched?.prompt ?? "").indexOf("# Standard Task") &&
         (launched?.prompt ?? "").indexOf("# Standard Task") < (launched?.prompt ?? "").indexOf("# Mission"),
     );
+    const resolvedFamily = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "family-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Use the declared family's sole model.",
+        taskId: null,
+        dispatchKey: "family-model-explicit-instance",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.model, "gpt-5.6-sol");
+    assert.match(
+      (resolvedFamily.runtimeSelection as { readonly reason: string }).reason,
+      /Agent family-model declares model gpt-6\.1-astra, which resolves to gpt-5\.6-sol on instance codex-agent-model/u,
+    );
+    const resolvedCase = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "case-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Resolve the declaration to the instance catalog spelling.",
+        taskId: null,
+        dispatchKey: "case-model-explicit-instance",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.model, "Deepseek-V4.1-Flash");
+    assert.match(
+      (resolvedCase.runtimeSelection as { readonly reason: string }).reason,
+      /Agent case-model declares model deepseek-v4\.1-flash, which resolves to Deepseek-V4\.1-Flash on instance codex-agent-model/u,
+    );
+    const unavailableStarted = performance.now();
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-agent-model",
+          agentId: "declared-model",
+          model: "missing-model",
+          cwd: { scope: "repo-root" },
+          prompt: "Reject a model outside the instance catalog before mission preparation.",
+          taskId: null,
+          dispatchKey: "missing-model-explicit-instance",
+        },
+        binding,
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof Error, String(error));
+        assert.equal("code" in error ? error.code : undefined, "invalid_runtime_model", error.message);
+        assert.match(error.message, /Supported models: instance-default, agent-declared/u);
+        return true;
+      },
+    );
+    assert.ok(performance.now() - unavailableStarted < 1_000, "an incompatible explicit instance should fail quickly");
     const readOnly = await cell.spawnRuntime(
       {
         runtimeInstanceId: "codex-agent-model",

@@ -749,6 +749,112 @@ test("one enabled instance dispatches two supported models without reauth", asyn
   }
 });
 
+test("explicit launch resolves a case-insensitive declaration to the instance catalog spelling", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-case-model-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      resolveCredential: () => "instance-secret",
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "ds-bailian",
+      name: "Deepseek Bailian",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "deepseek",
+      models: ["Deepseek-V4.1-Flash"],
+      defaultModel: "Deepseek-V4.1-Flash",
+      enabled: true,
+      auth: { mode: "api-key", credentialRef: "credential:v1:ds-bailian" },
+    });
+    const prepared = await store.prepareLaunch("ds-bailian", {
+      cwd: "/workspace/repo",
+      prompt: "Review the migration.",
+      model: "deepseek-v4.1-flash",
+    });
+    assert.equal(prepared.definition.model, "Deepseek-V4.1-Flash");
+    assert.equal(prepared.args[prepared.args.indexOf("--model") + 1], "Deepseek-V4.1-Flash");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit launch rejects an unavailable model with an actionable instance hint", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-reject-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      resolveCredential: () => "instance-secret",
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "ds-bailian-empty-family",
+      name: "Deepseek Bailian Other",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "deepseek",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      auth: { mode: "api-key", credentialRef: "credential:v1:ds-bailian-empty-family" },
+    });
+    const started = performance.now();
+    await assert.rejects(
+      store.prepareLaunch("ds-bailian-empty-family", {
+        cwd: "/workspace/repo",
+        prompt: "Reject quickly.",
+        model: "deepseek-v4.1-flash",
+      }),
+      (error: unknown) =>
+        codedAs(error, "invalid_runtime_model") &&
+        error.message.includes("Supported models: gpt-5.6-sol") &&
+        error.message.includes("Use --model <supported-model>") &&
+        error.message.includes("--instance <instance-id>"),
+    );
+    assert.ok(
+      performance.now() - started < 1_000,
+      "model rejection should happen before installation or credential work",
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit launch resolves a provider/model declaration to its sole same-family catalog model", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-family-model-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      resolveCredential: () => "instance-secret",
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-family-model",
+      name: "Codex Family Model",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      auth: { mode: "api-key", credentialRef: "credential:v1:codex-family-model" },
+    });
+    const prepared = await store.prepareLaunch("codex-family-model", {
+      cwd: "/workspace/repo",
+      prompt: "Use the only model in the requested family.",
+      model: '["openai","GPT-6.1-Astra"]',
+    });
+    assert.equal(prepared.definition.model, "gpt-5.6-sol");
+    assert.equal(prepared.args[prepared.args.indexOf("--model") + 1], "gpt-5.6-sol");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("Codex effort is a per-launch override and never mutates the instance", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-effort-"));
   try {

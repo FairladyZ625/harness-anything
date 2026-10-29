@@ -6,7 +6,7 @@ import type { ActiveRuntime, RuntimeSessionSelection, RuntimeSpawnerInput } from
 export async function resolveRuntimeDispatchResources(
   input: Pick<RuntimeSpawnerInput, "readSettings" | "runtimeInstances" | "runtimeProviderHealth">,
   remote: RuntimeSpawnerInput["remote"],
-  projection: TaskProjection,
+  projection: TaskProjection | null,
   processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
 ): Promise<
   readonly [
@@ -16,12 +16,12 @@ export async function resolveRuntimeDispatchResources(
     readonly import("./runtime-provider-health.ts").RuntimeProviderHealth[],
   ]
 > {
-  const runtimeSessions = remote ? await remote.readRuntimeSessions() : projection.readRuntimeSessions(),
+  const runtimeSessions = remote ? await remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
     localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
     runtimeInstances = input.runtimeInstances?.() ?? [];
   const settings = remote
       ? input.readSettings?.()
-      : (projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined),
+      : (projection!.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined),
     allowedInstanceIds = settings?.runtime?.allowedInstances,
     health = input.runtimeProviderHealth?.list() ?? [];
   return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health];

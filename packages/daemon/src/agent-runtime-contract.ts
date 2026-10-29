@@ -73,34 +73,58 @@ export const agentRuntimeTargetForKind = <T extends { readonly type: string }>(
 export const agentRuntimeTargetSummary = (runtimes: readonly { readonly type: string }[]): string =>
   runtimes.length === 0 ? "any" : runtimes.map((target) => target.type).join(", ");
 /**
- * How well one instance's model catalog answers a declared model: 2 when the exact string is
- * listed, 1 when only a case-insensitive spelling is (providers publish `Deepseek-V4.1-Flash`
- * where a declaration writes `deepseek-v4.1-flash`), 0 when absent.
+ * How well one instance's model catalog answers a declared model: 3 when the exact string is
+ * listed, 2 when only a case-insensitive spelling is (providers publish `Deepseek-V4.1-Flash`
+ * where a declaration writes `deepseek-v4.1-flash`), 1 when the only model in the same named family
+ * is unambiguous, and 0 when absent.
  *
- * Model ids are provider identifiers, so this is deliberately the ONLY tolerant comparison in the
- * resolver: matching case-insensitively everywhere would let two distinct catalog entries collapse
- * into one candidate, while matching nowhere strands a declaration on a same-kind instance it did
- * not name. Ranking by tier keeps the exact spelling ahead of a case variant, so the choice is
- * explainable instead of depending on catalog order.
+ * Model ids are provider identifiers, so exact spelling stays strongest. Case folding is limited
+ * to this resolver; the family fallback is accepted only when exactly one catalog entry shares the
+ * model's leading family token. Ranking by tier keeps both stronger matches ahead of that fallback.
  */
-export const agentRuntimeModelTier = (models: readonly string[], requested: string | undefined): 0 | 1 | 2 => {
-  if (requested === undefined) return 2;
-  if (models.includes(requested)) return 2;
-  const folded = requested.toLowerCase();
-  return models.some((model) => model.toLowerCase() === folded) ? 1 : 0;
+export type AgentRuntimeModelMatchTier = 0 | 1 | 2 | 3;
+export interface AgentRuntimeModelResolution {
+  readonly model: string;
+  readonly tier: Exclude<AgentRuntimeModelMatchTier, 0>;
+}
+function modelIntent(value: string): string {
+  // ACP providers may serialize a provider/model choice as ["provider", "model"], while an
+  // instance catalog exposes only the model id. Resolve that authored intent against the leaf id.
+  return /^\[\s*"[^"]+"\s*,\s*"([^"]+)"\s*\]$/u.exec(value)?.[1] ?? value;
+}
+function modelFamily(value: string): string {
+  const intent = modelIntent(value),
+    versionedFamily = /^([a-z][a-z0-9]*?)-(?:v)?\d+(?:\.\d+)*(?:-|$)/iu.exec(intent)?.[1];
+  return versionedFamily?.toLowerCase() ?? intent.toLowerCase();
+}
+/** The sole implementation for exact, case-insensitive, and unique same-family model resolution. */
+export const agentRuntimeModelResolution = (
+  models: readonly string[],
+  requested: string | undefined,
+): AgentRuntimeModelResolution | null => {
+  if (requested === undefined) return null;
+  const intent = modelIntent(requested);
+  if (models.includes(intent)) return { model: intent, tier: 3 };
+  const folded = intent.toLowerCase(),
+    caseInsensitive = models.find((model) => model.toLowerCase() === folded);
+  if (caseInsensitive !== undefined) return { model: caseInsensitive, tier: 2 };
+  const family = modelFamily(intent),
+    sameFamily = models.filter((model) => modelFamily(model) === family);
+  return sameFamily.length === 1 ? { model: sameFamily[0]!, tier: 1 } : null;
 };
+export const agentRuntimeModelTier = (
+  models: readonly string[],
+  requested: string | undefined,
+): AgentRuntimeModelMatchTier =>
+  requested === undefined ? 3 : (agentRuntimeModelResolution(models, requested)?.tier ?? 0);
 /** Whether an instance's catalog can serve the requested model at all (any tier above zero). */
 export const agentRuntimeModelMatches = (models: readonly string[], requested: string | undefined): boolean =>
   agentRuntimeModelTier(models, requested) > 0;
 /**
- * The catalog's own spelling of a requested model. The instance store validates `models` membership
- * verbatim, so a declaration that differs only by letter case must launch the instance's spelling —
- * never its own — or `selectRuntimeModel` rejects a pairing the resolver just accepted.
+ * The catalog entry chosen for a request; the instance store validates its model list verbatim.
  */
 export const agentRuntimeModelSpelling = (models: readonly string[], requested: string): string | null => {
-  if (models.includes(requested)) return requested;
-  const folded = requested.toLowerCase();
-  return models.find((model) => model.toLowerCase() === folded) ?? null;
+  return agentRuntimeModelResolution(models, requested)?.model ?? null;
 };
 /** Every declared runtime row pins a model, so no dispatch can land on an instance default. */
 export const agentDeclaresExplicitModels = (

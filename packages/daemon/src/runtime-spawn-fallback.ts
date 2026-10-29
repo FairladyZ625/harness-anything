@@ -20,7 +20,11 @@ import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.t
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
-import { agentRuntimeTargetForKind, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeModelMatches,
+  agentRuntimeTargetForKind,
+  agentRuntimeKindMatches,
+} from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -89,7 +93,7 @@ export function initialFallbackAttempt(
   if (
     pin &&
     (!anchor.enabled ||
-      !anchor.models.includes(model) ||
+      !agentRuntimeModelMatches(anchor.models, model) ||
       (anchor.authReadiness.status !== "ready" && anchor.authReadiness.code !== "runtime_auth_not_checked") ||
       (agent !== null && !agentRuntimeKindMatches(agent.runtimes, anchor.kindId)))
   )
@@ -109,10 +113,12 @@ export function initialFallbackAttempt(
       now,
     }).filter((instanceId) => instanceId !== resumedInstanceId),
     requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
-    // A pin the availability filter removed (a cooling instance, or one outside the allowlist) is
-    // still attempt 0 — prepareRuntimeInstance validates the hard pin itself — so it must lead the
-    // chain. `slice(-1)` would have recorded the last row as candidates[0] and lost the pin.
-    successors = requestedIndex < 0 ? derivedInstances : derivedInstances.slice(requestedIndex),
+    // The pin stays attempt 0 even when model-tier ranking puts another compatible row first; keep
+    // all successors in resolver order, since slicing at the pin would drop those earlier rows.
+    successors =
+      pin === undefined || requestedIndex < 0
+        ? derivedInstances
+        : [pin, ...derivedInstances.filter((instanceId) => instanceId !== pin)],
     candidates = [
       ...(pin !== undefined && requestedIndex < 0 ? [pin] : []),
       ...(resumedInstanceId === undefined ? [] : [resumedInstanceId]),

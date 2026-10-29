@@ -116,6 +116,8 @@ export function dispatchMissionForPermission(mission: string, permissionMode: st
 
 export function resolveRuntimeInstanceCandidates(input: {
   readonly requested?: string;
+  /** The operator explicitly pinned the instance; the pin's model mismatch is the actionable error. */
+  readonly explicitlyRequested?: boolean;
   readonly providerSessionId?: string;
   readonly unavailableReasons?: string[];
   readonly agent: RuntimeAgent | null;
@@ -193,6 +195,18 @@ export function resolveRuntimeInstanceCandidates(input: {
           : agentRuntimeTargetForKind(input.agent?.runtimes ?? [], pinned.kindId)?.model),
       served =
         pinned?.enabled === true && (pinnedModel === undefined || agentRuntimeModelMatches(pinned.models, pinnedModel));
+    if (
+      pinned?.enabled === true &&
+      pinnedModel !== undefined &&
+      !agentRuntimeModelMatches(pinned.models, pinnedModel) &&
+      (input.explicitlyRequested === true || input.agent?.instance !== input.requested)
+    )
+      throw runtimeSpawnError(
+        "invalid_runtime_model",
+        `Model ${pinnedModel} is not available on runtime instance ${input.requested}. ` +
+          `Supported models: ${pinned.models.join(", ")}. ` +
+          "Use --model <supported-model> or run ha runtime instance list, then retry with --instance <instance-id>.",
+      );
     if (input.agent?.instance !== input.requested || served) return [input.requested];
     unusableDeclaredPin = input.requested;
   }
@@ -254,9 +268,8 @@ export function resolveRuntimeInstanceCandidates(input: {
       (declaredType === undefined || declaredType === instance.kindId) &&
       (declaredTargets === undefined || agentRuntimeKindMatches(declaredTargets, instance.kindId)),
   );
-  // Membership admits a case-insensitive spelling because providers publish `Deepseek-V4.1-Flash`
-  // where a declaration writes `deepseek-v4.1-flash`; the ranking below still puts the verbatim
-  // spelling first, so tolerance never reorders a catalog that lists both.
+  // One resolver admits exact, case-insensitive, or unique same-family models; its tier ranking
+  // still gives exact spellings priority over the more permissive matches.
   const declared = declaredModel
     ? typed.filter((instance) => agentRuntimeModelMatches(instance.models, declaredModel))
     : typed.filter((instance) => {

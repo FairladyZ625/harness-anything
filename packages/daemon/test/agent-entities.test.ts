@@ -1169,3 +1169,26 @@ test("install and validate warn when a valid declaration leaves the instance cho
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("Agent install accepts a sole same-family catalog model", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-single-model-family-")),
+    declaration = {
+      ...agent,
+      id: "gpt-family-reviewer",
+      name: "GPT family reviewer",
+      runtimes: [{ type: "codex", model: "gpt-6.1-astra" }],
+    };
+  try {
+    const report = (await install({
+      rootDir,
+      kind: "agent-install",
+      declaration,
+      runtimeInstances: [
+        { instanceId: "codex-single-family", kindId: "codex", models: ["gpt-5.6-sol"], enabled: true },
+      ],
+    })) as { readonly warnings?: readonly unknown[] };
+    assert.deepEqual(report.warnings ?? [], []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
