@@ -230,7 +230,7 @@ export function TodosView({
                   </EntityRefLink>
                 ))}
               </div>
-              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100">
+              <div className="flex shrink-0 items-center gap-0.5 text-text-faint transition-colors group-hover:text-text-muted group-focus-within:text-text-muted">
                 <Button
                   size="sm"
                   variant="ghost"

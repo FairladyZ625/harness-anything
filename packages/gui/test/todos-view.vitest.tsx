@@ -105,7 +105,7 @@ describe("TodosView", () => {
     expect(document.querySelector(`[data-testid="todo-${openTodo.id}"]`)).not.toBeNull();
   });
 
-  it("keeps one text-first row, hides actions until hover/focus, and exposes keyboard actions", async () => {
+  it("keeps one text-first row with always-reachable actions and keyboard access", async () => {
     const client = mount();
     await settle(client);
     const row = document.querySelector(`[data-testid="todo-${openTodo.id}"]`)!;
@@ -116,10 +116,11 @@ describe("TodosView", () => {
     expect(actions.getAttribute("aria-label")).toBe("详情与关联");
     expect(actions.getAttribute("data-tip")).toBe("详情与关联");
     expect(actions.tabIndex).toBe(0);
+    expect(actions.parentElement?.className).not.toContain("opacity-0");
     actions.focus();
     expect(document.activeElement).toBe(actions);
-    expect(actions.parentElement?.className).toContain("group-hover:opacity-100");
-    expect(actions.parentElement?.className).toContain("group-focus-within:opacity-100");
+    expect(actions.parentElement?.className).toContain("group-hover:text-text-muted");
+    expect(actions.parentElement?.className).toContain("group-focus-within:text-text-muted");
   });
 
   it("switches completed and archived views and focuses the add input in the empty state", async () => {
