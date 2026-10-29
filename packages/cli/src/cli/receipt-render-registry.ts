@@ -12,6 +12,7 @@ import {
   renderScheduleRuns,
   renderScheduleShow,
 } from "./thin-command-schedule.ts";
+import { renderTodoList } from "./thin-command-todo.ts";
 
 export interface RenderedCliReceipt {
   readonly stream: "stdout" | "stderr";
@@ -45,6 +46,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["schedule-reckon", renderScheduleReceipt],
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
+  ["todo-list", renderTodoList],
   ["squad-list", renderSquadListReceipt],
   ["squad-status", renderSquadStatusReceipt],
   ["event-list", renderEventListReceipt],

@@ -6,6 +6,7 @@ export interface TodoRow extends Todo {
   readonly open: boolean;
   readonly revision: number;
   readonly ref: string;
+  readonly relations: readonly { readonly ref: string; readonly title: string }[];
 }
 export interface TodoDetail {
   readonly todo: TodoRow;
