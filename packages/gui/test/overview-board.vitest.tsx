@@ -16,6 +16,7 @@ import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@h
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
 import {
   AT,
+  HEALTH,
   HEALTH_DOWN,
   WORKS,
   WORKS_EMPTY,
@@ -883,7 +884,7 @@ describe("总览:系统状态弱化与异常提升", () => {
     vi.stubGlobal("harness", previous);
   });
 
-  it("daemon 无响应与投影落后升成显眼状态点", async () => {
+  it("daemon 无响应仍是显眼状态点，且不被投影读数抢走", async () => {
     const failedRunAt = minutesAgo(60),
       pullRequestRunAt = minutesAgo(120);
     const restore = (globalThis as { harness?: unknown }).harness;
@@ -953,19 +954,47 @@ describe("总览:系统状态弱化与异常提升", () => {
           : Promise.reject(new Error("no bridge in test")),
     });
     const container = mount({
-      health: {
-        ...HEALTH_DOWN,
-        projection: { lag: 3, status: "ready" },
-      },
+      health: { ...HEALTH_DOWN, projection: { ...HEALTH_DOWN.projection, lag: 3, status: "pending" } },
     });
-    await flushUntil(() => textOf(container.querySelector('[data-testid="overview-topbar"]')).includes("投影落后 3"));
+    await flushUntil(() =>
+      textOf(container.querySelector('[data-testid="overview-topbar"]')).includes("daemon 无响应"),
+    );
     const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
     expect(textOf(topbar)).toContain("daemon 无响应");
-    expect(textOf(topbar)).toContain("投影落后 3");
+    // 新判定里 daemon 无响应是 down,不再并列一个「投影落后」pill(投影读不出来时后者没有增量)。
+    expect(textOf(topbar)).not.toContain("投影落后 3");
     // 正常小字被异常替代,不再同时出现。
     expect(textOf(topbar)).not.toContain("daemon 正常");
     unmount();
     vi.stubGlobal("harness", restore);
+  });
+
+  it("持续跨过宽限的投影落后才升成告警状态点", async () => {
+    const container = mount({
+      health: {
+        ...HEALTH,
+        projection: { ...HEALTH.projection, lag: 3, status: "pending" },
+        transient: { lagSince: minutesAgo(2), unknownSince: null, lagAgeSec: 120, unknownAgeSec: null },
+      },
+    });
+    await flushUntil(() => textOf(container.querySelector('[data-testid="overview-topbar"]')).includes("投影落后 3"));
+    const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
+    expect(textOf(topbar)).toContain("投影落后 3");
+    expect(textOf(topbar)).not.toContain("daemon 正常");
+    unmount();
+  });
+
+  it("瞬时投影落后保持中性，不在顶栏升成告警", async () => {
+    const container = mount({
+      health: {
+        ...HEALTH,
+        projection: { ...HEALTH.projection, lag: 3, status: "pending" },
+        transient: { lagSince: minutesAgo(0), unknownSince: null, lagAgeSec: 2, unknownAgeSec: null },
+      },
+    });
+    await flushUntil(() => container.querySelector('[data-testid="overview-topbar"]') !== null);
+    expect(textOf(container.querySelector('[data-testid="overview-topbar"]'))).not.toContain("投影落后 3");
+    unmount();
   });
 
   it("全局搜索入口接真实动作(打开 ⌘K 命令面板)", () => {

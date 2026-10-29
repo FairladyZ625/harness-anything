@@ -69,14 +69,14 @@ it("侧栏顶行(HARNESS 行)是拖拽区并在顶部给红绿灯让位,主题�
             empty: false,
             error: null,
           }}
-          health={
-            {
-              daemon: { state: "responsive", observedAgeSec: 0, uptimeMs: 0 },
-              cell: { state: "loaded", queueDepth: 0, problem: null },
-              projection: { lag: 0, status: "ready" },
-              ledgerChange: { at: null, ageSec: null },
-            } as never
-          }
+          health={{
+            daemon: { state: "responsive", observedAgeSec: 0, uptimeMs: 0 },
+            cell: { state: "attached", queueDepth: 0, problem: null },
+            projection: { lag: 0, loading: false, status: "ready", isolatedRows: 0, hydrating: false },
+            transient: { lagSince: null, unknownSince: null, lagAgeSec: null, unknownAgeSec: null },
+            mount: null,
+            ledgerChange: { at: null, ageSec: null },
+          }}
           onOpenSystem={() => {}}
         />
       </QueryClientProvider>,

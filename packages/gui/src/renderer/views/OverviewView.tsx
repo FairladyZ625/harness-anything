@@ -15,7 +15,7 @@ import {
 } from "../overview-data.ts";
 import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
-import type { RuntimeHealth } from "../model/runtime-health.ts";
+import { runtimeHealthAssessment, type RuntimeHealth } from "../model/runtime-health.ts";
 import type { TaskRow } from "../model/types.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 import { t } from "../i18n/index.tsx";
@@ -217,6 +217,7 @@ export function OverviewView({
     return awaitsRow === undefined ? null : () => deps.onAnswer({ mode: "answer", row: awaitsRow });
   };
 
+  const healthAssessment = runtimeHealthAssessment(health);
   const quietLine = health.daemon.state === "responsive" && (health.projection.lag ?? 0) <= 0;
 
   const worksTag =
@@ -252,9 +253,10 @@ export function OverviewView({
             {t("views.overviewView.collaborationEntry", { total: String(collaboration.total) })}
           </button>
         )}
-        {(health.projection.lag ?? 0) > 0 && (
+        {/* 同一判定口径:只有跨过宽限的落后才出告警 pill;瞬时落后是「同步中」,不在这里报警。 */}
+        {healthAssessment.level === "degraded" && healthAssessment.cause?.kind === "projection-lag" && (
           <StatusPill tone="warn">
-            {t("views.overviewView.topProjectionLag", { lag: String(health.projection.lag) })}
+            {t("views.overviewView.topProjectionLag", { lag: String(healthAssessment.cause.lag) })}
           </StatusPill>
         )}
         {quietLine && (

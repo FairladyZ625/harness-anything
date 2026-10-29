@@ -281,10 +281,12 @@ describe("预算截断的水化:行集不完整时不得声称已追平(BF1 经 
     const line = projectionLine(container);
     expect(line).toContain("行集加载中");
     expect(line).not.toContain("落后 0 revisions");
-    // 整体灯不得是「运行正常」:降级,但不是 daemon 挂了的红。
+    // 整体灯不得是「运行正常」:水化未完是「启动中」中性档,既不是已追平,也不是降级/daemon 挂。
     const panel = container.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
     expect(panel.textContent).not.toContain("运行正常");
-    expect(container.querySelector('[data-testid="sidebar-system-status-lamp"]')?.className).toContain("bg-stale");
+    expect(panel.textContent).toContain("启动中");
+    expect(panel.textContent).not.toContain("降级运行");
+    expect(container.querySelector('[data-testid="sidebar-system-status-lamp"]')?.className).toContain("bg-text-faint");
     // 看板标题:部分行集不能当台账规模报「共 N」。
     const summary = headerSummary(container);
     expect(summary).not.toContain("共");

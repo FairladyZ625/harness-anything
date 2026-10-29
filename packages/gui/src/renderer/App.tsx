@@ -377,7 +377,9 @@ function AppShell() {
   }, [projectTasks, workspaceSummaryQuery.data?.decisions.inboxCount]);
 
   // 系统运行区输入(派生收敛在 model/use-app-runtime-health.ts;读面不变)。
+  // 换代挂载的全局进度直接数同一个 systemQuery.repos,不新增读面或轮询。
   const runtimeHealth = useAppRuntimeHealth({
+    repoKey: activeRepoId,
     daemon: systemQuery.data
       ? {
           ok: !systemQuery.isError,
@@ -401,6 +403,13 @@ function AppShell() {
         }
       : null,
     projectionLoading: tasksQuery.isLoading,
+    mount:
+      enabledRepos.length === 0
+        ? null
+        : {
+            attached: enabledRepos.filter((repo) => repo.cellState === "attached").length,
+            total: enabledRepos.length,
+          },
     projectTasks,
   });
 
