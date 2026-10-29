@@ -3,6 +3,7 @@ import {
   type GeneratedTaskActionProtocolDeclaration,
 } from "./daemon-protocol-commands-task.ts";
 import type { artifactEntityImportActionInput } from "@harness-anything/kernel";
+import type { CloseoutAssessment } from "@harness-anything/kernel/internal/domain/closeout-readiness";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   consent,
@@ -234,14 +235,42 @@ export function executionEvidence(value: unknown): boolean {
   );
 }
 
+// The kernel's CloseoutAssessment is the contract source. The `satisfies` anchors below make a
+// kernel field addition or rename fail typecheck here instead of silently isolating every row that
+// carries the new field on the wire (the escalated-findings regression this guard prevents).
+const closeoutAssessmentFieldNames = Object.keys({
+    readiness: true,
+    executionId: true,
+    blocker: true,
+    escalatedFindings: true,
+    blockingFindings: true,
+    gates: true,
+  } satisfies Record<keyof CloseoutAssessment, true>),
+  closeoutFindingRefFieldNames = Object.keys({
+    reviewId: true,
+    findingId: true,
+  } satisfies Record<keyof NonNullable<CloseoutAssessment["escalatedFindings"]>[number], true>);
+
+function closeoutFindingRefs(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (finding) =>
+        exactRecord(finding, closeoutFindingRefFieldNames) && nonEmpty(finding.reviewId) && nonEmpty(finding.findingId),
+    )
+  );
+}
+
 export function closeoutAssessment(value: unknown): boolean {
   if (
     !recordWith(value, ["readiness", "gates"]) ||
-    Object.keys(value).some((key) => !["readiness", "executionId", "blocker", "gates"].includes(key)) ||
+    Object.keys(value).some((key) => !closeoutAssessmentFieldNames.includes(key)) ||
     !["not_required", "missing", "incomplete", "ready", "passed", "failed"].includes(String(value.readiness)) ||
     (value.executionId !== undefined && !nonEmpty(value.executionId)) ||
     (value.blocker !== undefined &&
       !["execution", "review", "consent", "gate", "lineage", "projection_unknown"].includes(String(value.blocker))) ||
+    (value.escalatedFindings !== undefined && !closeoutFindingRefs(value.escalatedFindings)) ||
+    (value.blockingFindings !== undefined && !closeoutFindingRefs(value.blockingFindings)) ||
     !Array.isArray(value.gates)
   )
     return false;
