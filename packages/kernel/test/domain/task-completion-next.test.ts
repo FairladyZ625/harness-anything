@@ -10,7 +10,13 @@ import {
   type TaskMetadataV1,
 } from "../../src/index.ts";
 import { emptyTaskLifecycleSnapshot } from "../../src/domain/task-lifecycle.contract.ts";
-import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
+import {
+  applyTransition,
+  normalizeTaskLifecycleCommand,
+  reviewDigest,
+  type ReviewConsentProof,
+} from "../../src/domain/task-lifecycle.contract.ts";
+import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 const fixture = lifecycleFixture();
 const at = (count: number) => fixture.events.slice(0, count).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
@@ -385,6 +391,95 @@ test("completion readiness names an owner finding ruling when approved review se
   assert.match(result.next!.reason, /Finding review-execution\/F-escalated escalated/u);
   assert.match(result.next!.reason, /the task owner must choose a disposition for this finding/u);
   assert.doesNotMatch(result.next!.action, /dispatch-review/u);
+});
+
+test("a finding ruling consent reaches delivery despite historical returned review rounds", () => {
+  const reviewed = at(4),
+    submitted = reviewed.executions[0]!,
+    approved = reviewed.reviews[0]!,
+    // Rejected resolution attempts emit no Review event; the durable state keeps the prior rounds.
+    history = Array.from({ length: 5 }, (_, iteration) => {
+      const executionId = `execution-history-${String(iteration)}`;
+      return {
+        execution: {
+          ...submitted,
+          executionId,
+          iteration,
+          state: "changes_requested" as const,
+          closedAt: `2026-08-11T00:0${String(iteration + 1)}:00.000Z`,
+        },
+        review: {
+          ...approved,
+          reviewId: `review-history-${String(iteration)}`,
+          executionId,
+          iteration,
+          verdict: "changes_requested" as const,
+          resolutions: [],
+        },
+      };
+    }),
+    currentReview = {
+      ...approved,
+      iteration: 5,
+      findings: [
+        {
+          findingId: "N-15-01",
+          blocking: false,
+          text: "An escalated non-blocking finding for owner disposition.",
+          category: "correctness" as const,
+        },
+      ],
+    },
+    before = {
+      ...reviewed,
+      task: { ...reviewed.task!, iteration: 5 },
+      executions: [...history.map(({ execution }) => execution), { ...submitted, iteration: 5 }],
+      reviews: [...history.map(({ review }) => review), currentReview],
+      consents: [],
+      reviewDispositions: [],
+      reviewFindingTriages: [],
+    },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: currentReview.taskId,
+          executionId: currentReview.executionId,
+          reviewId: currentReview.reviewId,
+          consentId: "consent-current-finding-after-history",
+          reviewDigest: reviewDigest(currentReview),
+          contentDigest: currentReview.contentDigest,
+          findingId: "N-15-01",
+          findingDisposition: "non_blocking" as const,
+          rationale: "Accept the finding as follow-up owned outside this cut.",
+        },
+      ),
+      eventId: "event-current-finding-after-history",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-29T10:06:00.000Z",
+    },
+    consented = applyTransition(before, command, {
+      actorBinding: implementer,
+      capability: "execution-consent@v1",
+      capabilityRef: "cap-consent-current-finding-after-history",
+      reviewFindingTriages: [],
+    } satisfies ReviewConsentProof).snapshot,
+    disposition = consented.reviewDispositions?.at(-1),
+    result = taskCompletionNext(consented, {
+      ...context,
+      delivery: { required: true, merged: false, targetBranch: "main" },
+    });
+
+  assert.equal(disposition?.disposedReviewIds.length, 0);
+  assert.equal(consented.consents.at(-1)?.reviewId, currentReview.reviewId);
+  assert.equal(result.blocker?.code, "delivery_missing");
+  assert.doesNotMatch(result.next?.reason ?? "", /no recorded review/u);
 });
 
 test("completion readiness lists every escalated finding command in one next action", () => {
