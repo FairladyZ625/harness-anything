@@ -340,7 +340,7 @@ export function createDaemonHostRepositoryApi(
         else if (!existsSync(backupDir)) throw new Error("restore --drill backup directory does not exist");
         const shadowParent =
           request.kind === "restore-drill" && request.shadowParent ? { shadowParent: request.shadowParent } : {};
-        let result: ReturnType<typeof backupRepo> | ReturnType<typeof drillRepoBackup>;
+        let result: ReturnType<typeof backupRepo> | Awaited<ReturnType<typeof drillRepoBackup>>;
         if (repo) {
           await context.waitForWarming(repo.repoId);
           result = await context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId).backup!(
@@ -357,7 +357,7 @@ export function createDaemonHostRepositoryApi(
           result =
             request.kind === "backup"
               ? backupRepo({ rootDir, backupDir })
-              : drillRepoBackup({ rootDir, backupDir, ...shadowParent });
+              : await drillRepoBackup({ rootDir, backupDir, ...shadowParent });
         }
         if (request.kind === "backup")
           return {
@@ -367,13 +367,14 @@ export function createDaemonHostRepositoryApi(
             ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
             authorizationDecision,
           };
-        const drill = result as ReturnType<typeof drillRepoBackup>;
+        const drill = result as Awaited<ReturnType<typeof drillRepoBackup>>;
         return {
           ok: true,
           schema: "ledger-restore-drill-receipt/v1",
           exitCode: 0,
           ...backupReceipt(backupDir, drill.manifest),
           shadowRoot: drill.shadowRoot,
+          ...(drill.projection ? { projection: drill.projection } : {}),
           removedShadowRoots: drill.removedShadowRoots,
           warnings: drill.warnings,
           authorizationDecision,
@@ -585,7 +586,7 @@ export function createDaemonHostRepositoryApi(
           registration: registeredRepo!,
           writerEpoch: context.writerEpochHighWatermark(request.repoId),
         });
-        drillRepoBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
+        await drillRepoBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
       }
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);

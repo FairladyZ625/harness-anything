@@ -23,7 +23,9 @@ ha restore --drill /Volumes/offsite/harness-backup-2026-09-15
 
 The drill verifies the file inventory and digests, opens each SQLite snapshot read-only, checks its
 integrity and event chain, and restores only below the repository's `.harness/restore-drills`
-directory.
+directory. For generation 3 backups it also starts with the restored copy's projection cache absent,
+rebuilds the task projection from revision zero, and fails unless it reaches the manifest's accepted
+revision. The receipt includes the rebuilt projection watermark and state digest.
 
 For a real restore, choose an absolute destination that does not exist:
 

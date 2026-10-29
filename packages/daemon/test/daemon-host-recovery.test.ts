@@ -640,10 +640,39 @@ test("a corrupted purge backup fails its drill without deleting source data", as
     epochAuthority.close();
     const manifest = backupRepo({ rootDir, backupDir, registration, writerEpoch });
     writeFileSync(path.join(backupDir, "payload/harness/harness.yaml"), "corrupted\n");
-    assert.throws(() => drillRepoBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
+    await assert.rejects(drillRepoBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
     assert.equal(existsSync(path.join(rootDir, ".harness")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/harness.yaml")), true);
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 1);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("generation-three restore drill cold-rebuilds the task projection to the accepted watermark", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-restore-drill-replay-")),
+    rootDir = path.join(parent, "repo"),
+    backupDir = path.join(parent, "backup"),
+    userRoot = path.join(parent, "user"),
+    repoId = "host-restore-drill-replay";
+  rosterRepo(rootDir, repoId);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openSignedInHost({ daemonId: repoId, userRoot });
+  await host.attachmentsSettled();
+  try {
+    const registration = readDaemonRegistry({ userRoot }).repos[0]!,
+      epochAuthority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") }),
+      writerEpoch = epochAuthority.highWatermark(repoId);
+    epochAuthority.close();
+    const manifest = backupRepo({ rootDir, backupDir, registration, writerEpoch }),
+      drill = await drillRepoBackup({ rootDir, backupDir, manifest, shadowParent: path.join(parent, "drills") });
+    assert.equal(manifest.sqlite.generation, 3);
+    assert.deepEqual(drill.projection && { watermark: drill.projection.watermark }, {
+      watermark: manifest.accepted.revision,
+    });
+    assert.match(drill.projection?.stateDigest ?? "", /^sha256:[0-9a-f]{64}$/u);
+    assert.equal(existsSync(path.join(drill.shadowRoot, ".harness/cache/task.sqlite")), true);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

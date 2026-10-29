@@ -257,7 +257,7 @@ if (!isMainThread && workerData?.kind === "ledger-backup-verification" && parent
         backupMs = Math.round(performance.now() - backupStartedAt);
       phase = "drill";
       const drillStartedAt = performance.now();
-      drillRepoBackup({ rootDir: input.rootDir, backupDir: input.backupDir });
+      await drillRepoBackup({ rootDir: input.rootDir, backupDir: input.backupDir });
       const drillMs = Math.round(performance.now() - drillStartedAt);
       phase = "cleanup";
       const cleanupStartedAt = performance.now(),

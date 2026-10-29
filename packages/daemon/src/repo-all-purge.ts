@@ -3,6 +3,9 @@ import path from "node:path";
 import {
   createLedgerBackup,
   drillLedgerBackup,
+  makeTaskEventReader,
+  makeTaskProjection,
+  openSqliteEventStore,
   resolveHarnessLayout,
   restoreDrillRetentionFor,
   type DaemonRegistryRepo,
@@ -66,19 +69,46 @@ export function backupRepo(
   });
 }
 
-export function drillRepoBackup(input: {
+type LedgerRestoreDrill = ReturnType<typeof drillLedgerBackup> & {
+  readonly projection?: { readonly watermark: number; readonly stateDigest: string };
+};
+
+export async function drillRepoBackup(input: {
   readonly rootDir: string;
   readonly backupDir: string;
   readonly manifest?: LedgerBackupManifest;
   readonly shadowParent?: string;
-}): ReturnType<typeof drillLedgerBackup> {
+}): Promise<LedgerRestoreDrill> {
   const layout = resolveHarnessLayout(input.rootDir);
-  return drillLedgerBackup({
+  const drill = drillLedgerBackup({
     backupDir: input.backupDir,
     shadowParent: input.shadowParent ?? path.join(layout.localRoot, "restore-drills"),
     retention: restoreDrillRetentionFor(input.rootDir),
     ...(input.manifest ? { verifiedManifest: input.manifest } : {}),
   });
+  if (drill.manifest.sqlite.generation !== 3) return drill;
+
+  const identity = openSqliteEventStore({ rootInput: drill.shadowRoot, generation: 3, readOnly: true }),
+    repoId = identity.metadata().repoId;
+  identity.close();
+  const eventStore = makeTaskEventReader({ rootDir: drill.shadowRoot, repoId });
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
+  try {
+    projection = makeTaskProjection({ rootDir: drill.shadowRoot, eventStore });
+    const rebuilt = projection.rebuild(),
+      sourceWatermark = eventStore.readHead()?.revision ?? 0;
+    if (rebuilt.watermark !== sourceWatermark || sourceWatermark !== drill.manifest.accepted.revision)
+      throw new Error(
+        `restore drill projection stopped at ${rebuilt.watermark}; expected source watermark ${drill.manifest.accepted.revision}`,
+      );
+    return {
+      ...drill,
+      projection: { watermark: rebuilt.watermark, stateDigest: rebuilt.stateDigest },
+    };
+  } finally {
+    projection?.close();
+    await eventStore.drain();
+  }
 }
 
 export function removeRepoHarnessData(rootDir: string): readonly string[] {
