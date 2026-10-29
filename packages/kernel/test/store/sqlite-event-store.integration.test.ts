@@ -83,6 +83,42 @@ test("SQLite ledger opening rejects another repository or generation", (t) => {
   );
 });
 
+test("attach migration scan watermarks persist locally without changing the event stream", (t) => {
+  const databasePath = scratch("attach-migration-meta", t),
+    store = openSqliteEventStore({ repoId, databasePath, generation: 1 });
+  store.recordAttachMigrationScanWatermarks([
+    { migration: "closeout-overrides.codeDoc", revision: 0 },
+    { migration: "settings.ci", revision: 0 },
+  ]);
+  assert.deepEqual(
+    [...store.attachMigrationScanWatermarks()],
+    [
+      ["closeout-overrides.codeDoc", 0],
+      ["settings.ci", 0],
+    ],
+  );
+  assert.equal(store.revision(), 0);
+  assert.deepEqual(store.events(), []);
+  const position = store.replicationPosition();
+  store.close();
+
+  const reopened = openSqliteEventStore({ repoId, databasePath, generation: 1 });
+  try {
+    assert.deepEqual(
+      [...reopened.attachMigrationScanWatermarks()],
+      [
+        ["closeout-overrides.codeDoc", 0],
+        ["settings.ci", 0],
+      ],
+    );
+    assert.deepEqual(reopened.replicationPosition(), position);
+    assert.equal(reopened.revision(), 0);
+    assert.deepEqual(reopened.events(), []);
+  } finally {
+    reopened.close();
+  }
+});
+
 test("canonical adapter accepts in SQLite before independently verifying the Git follower", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-canonical-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));

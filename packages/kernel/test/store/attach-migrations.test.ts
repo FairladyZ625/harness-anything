@@ -22,8 +22,9 @@ import {
 import { validDocEventChange } from "../../src/domain/doc-sync-validation.ts";
 
 function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
-  const events = [...initial];
-  const reads = { queryEvents: 0, readBatch: 0 };
+  const events = [...initial],
+    watermarks = new Map<string, number>(),
+    reads = { queryEvents: 0, readBatch: 0, scannedRevisions: [] as number[] };
   const store = {
     read: () => ({ schema: "canonical-event-stream/v1" as const, revision: events.length, events }),
     readHead: () =>
@@ -44,6 +45,7 @@ function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
       const start = cursor === null ? 0 : Number(cursor),
         page = events.slice(start, start + maxItems),
         next = start + page.length;
+      reads.scannedRevisions.push(...page.map(({ workspaceRevision }) => workspaceRevision));
       return {
         sourceRevision: events.length,
         events: page,
@@ -52,16 +54,22 @@ function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
         accessedItems: page.length,
       };
     },
+    readAttachMigrationScanWatermarks: () => new Map(watermarks),
+    recordAttachMigrationScanWatermarks: (
+      entries: readonly { readonly migration: string; readonly revision: number }[],
+    ) => {
+      for (const { migration, revision } of entries) watermarks.set(migration, revision);
+    },
   } as unknown as CanonicalEventStore;
-  return { store, events, reads };
+  return { store, events, reads, watermarks };
 }
 
 const actor = { principal: { personId: "fixture" }, executor: null } as const;
-const envelope = (schema: string, payload: unknown, opId: string): PersistedCanonicalEventV1 =>
+const envelope = (schema: string, payload: unknown, opId: string, workspaceRevision = 1): PersistedCanonicalEventV1 =>
   ({
     schema,
     eventId: `event-${opId}`,
-    workspaceRevision: 1,
+    workspaceRevision,
     opId,
     type:
       schema === "task-event/v1"
@@ -189,6 +197,72 @@ test("attach migration registry covers each retired historical field and is idem
   assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
 });
 
+test("zero-match attach scans persist their local watermark and skip an unchanged head", () => {
+  const { store, events, reads, watermarks } = fakeStore([
+    envelope("task-event/v1", { task: { title: "Historical one" } }, "historical-one", 1),
+    envelope("task-event/v1", { task: { title: "Historical two" } }, "historical-two", 2),
+  ]);
+
+  applyAttachMigrations({ store });
+  assert.equal(events.length, 2, "zero matches do not append canonical marker events");
+  assert.deepEqual(
+    [...watermarks],
+    attachMigrationRegistry.filter((entry) => entry.kind === "event-migration").map(({ name }) => [name, 2]),
+  );
+  assert.deepEqual(reads.scannedRevisions, [1, 2]);
+
+  const completedReadBatches = reads.readBatch;
+  applyAttachMigrations({ store });
+  assert.equal(reads.readBatch, completedReadBatches, "the unchanged head requires no event batch read");
+  assert.equal(events.length, 2);
+});
+
+test("an advanced attach head scans only events after the saved watermark", () => {
+  const { store, events, reads, watermarks } = fakeStore([
+      envelope("task-event/v1", { task: { title: "Historical one" } }, "historical-one", 1),
+      envelope("task-event/v1", { task: { title: "Historical two" } }, "historical-two", 2),
+    ]),
+    migration = "closeout-overrides.fact";
+
+  applyAttachMigrations({ store });
+  const firstScanCount = reads.scannedRevisions.length;
+  events.push(envelope("task-event/v1", { task: { closeoutOverrides: { fact: false } } }, "new-retired-shape", 3));
+
+  const result = applyAttachMigrations({ store });
+  assert.deepEqual(reads.scannedRevisions.slice(firstScanCount), [3]);
+  assert.deepEqual(result.applied, [migration]);
+  assert.deepEqual(
+    events.slice(3).map((event) => event.type),
+    ["event_shape_migration_applied"],
+    "the existing positive-match marker path remains the only event write",
+  );
+  assert.equal(
+    (events[3] as unknown as { payload: { migration: string; affectedEvents: number } }).payload.migration,
+    migration,
+  );
+  assert.ok([...watermarks.values()].every((revision) => revision === 3));
+});
+
+test("a watermark ahead of the rolled-back head is discarded and rescanned", () => {
+  const { store, events, reads, watermarks } = fakeStore([
+    envelope("task-event/v1", { task: { title: "Historical one" } }, "historical-one", 1),
+    envelope("task-event/v1", { task: { title: "Historical two" } }, "historical-two", 2),
+  ]);
+
+  applyAttachMigrations({ store });
+  assert.ok([...watermarks.values()].every((revision) => revision === 2));
+
+  events.pop();
+  const previousReadBatches = reads.readBatch;
+  reads.scannedRevisions.length = 0;
+  assert.doesNotThrow(() => applyAttachMigrations({ store }));
+
+  assert.deepEqual(reads.scannedRevisions, [1], "the stale watermark causes a scan from revision zero");
+  assert.equal(reads.readBatch, previousReadBatches + 1);
+  assert.equal(events.length, 1, "a zero-match rescan does not append an event");
+  assert.ok([...watermarks.values()].every((revision) => revision === 1));
+});
+
 test("attach migration scan reports monotonic progress while paging historical events", () => {
   const { store, reads } = fakeStore(
       Array.from({ length: 513 }, (_, index) =>
@@ -294,7 +368,7 @@ test("legacy submission facts stay readable without an attach migration event", 
     false,
   );
   assert.deepEqual(applyAttachMigrations({ store }).applied, []);
-  assert.equal(events.length, 1);
+  assert.equal(events.length, 1, "a read conclusion does not append a zero-match migration event");
   assert.deepEqual(
     (events[0] as unknown as { payload: { execution: { submission: unknown } } }).payload.execution.submission,
     legacySubmission,

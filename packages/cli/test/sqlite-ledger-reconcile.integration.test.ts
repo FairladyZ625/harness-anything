@@ -69,6 +69,9 @@ test("local CLI initializes and accepts the native generation-3 SQLite ledger", 
       userRoot,
       run(root, userRoot, ["doc", "sync", "--submit", "--path", authoredPath]),
     );
+    // Let the Git follower certify this accepted write before the center takes over the writer
+    // epoch; a receipt read after takeover is correctly rejected as a stale local writer.
+    waitForAcceptedReceipt(root, userRoot, lastAccepted);
 
     const counts = sqliteCounts(root),
       authoredRoot = path.join(root, "harness"),
@@ -123,13 +126,9 @@ test("local CLI initializes and accepts the native generation-3 SQLite ledger", 
       assert.ok(centerLease.epoch > localLease.epoch, JSON.stringify({ localLease, centerLease }));
       assert.equal(existsSync(path.join(transportStateRoot, "writer-epochs.json")), false);
 
-      // Take no baseline of HEAD until the ledger's own settle signal has run: the wait re-reads the
-      // last accepted write through the daemon (a receipt wait is the follower's settle trigger), and
-      // the manifest check pins Git to the current SQLite cut. Center takeover has fenced local
-      // appends, so nothing can invalidate this precondition afterward — "HEAD is unchanged" then
-      // asserts exactly what the test means: a rejected write publishes nothing, whatever the async
-      // follower's timing.
-      waitForAcceptedReceipt(root, userRoot, lastAccepted);
+      // Center takeover fenced local appends only after the follower settled. The manifest check
+      // pins Git to the current SQLite cut, so "HEAD is unchanged" asserts that the rejected write
+      // publishes nothing, whatever the follower's later timing.
       const sqliteBeforeStaleWrite = sqliteCounts(root),
         gitBeforeStaleWrite = git(authoredRoot, "rev-parse", "HEAD"),
         baselineManifest = JSON.parse(git(authoredRoot, "show", "HEAD:events/segments/manifest.json")) as {
@@ -143,7 +142,11 @@ test("local CLI initializes and accepts the native generation-3 SQLite ledger", 
       const stale = invoke(root, userRoot, ["task", "create", "--title", "Rejected stale local write"]);
       assert.notEqual(stale.status, 0, `${stale.stderr}\n${JSON.stringify(stale.receipt)}`);
       assert.equal(stale.receipt.outcome, "op_rejected", JSON.stringify(stale.receipt));
-      assert.equal(stale.receipt.code, "writer_epoch_stale", JSON.stringify(stale.receipt));
+      assert.equal(stale.receipt.code, "repo_unavailable", JSON.stringify(stale.receipt));
+      assert.match(
+        String(stale.receipt.rejectionExplanation),
+        /writer epoch \d+ for sqlite-cli-reconcile is stale; current epoch is \d+/u,
+      );
       assert.deepEqual(sqliteCounts(root), sqliteBeforeStaleWrite);
       assert.equal(git(authoredRoot, "rev-parse", "HEAD"), gitBeforeStaleWrite);
       context.diagnostic(

@@ -219,6 +219,11 @@ export interface CanonicalEventStore {
   };
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
+  /** Local SQLite-only attach scan progress; these values are not canonical events or replicated state. */
+  readonly readAttachMigrationScanWatermarks?: () => ReadonlyMap<string, number>;
+  readonly recordAttachMigrationScanWatermarks?: (
+    watermarks: readonly { readonly migration: string; readonly revision: number }[],
+  ) => void;
   readonly layout: () => LedgerLayoutState;
   readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt;
   /** Persist a rejected command as an event-less commit inside the serialized writer turn. */

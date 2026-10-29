@@ -1,6 +1,8 @@
 # Persisted format migrations
 
-A persisted format change ships an attach migration registration and frozen historical sample tests in the same change. The daemon applies each registered step once, records it in the event stream, and only then opens the projection. Runtime readers normalize only the named historical fields owned by a registered step.
+A persisted format change ships an attach migration registration and frozen historical sample tests in the same change. The daemon applies each registered step before opening the projection; positive matches retain an event-stream marker, while scan completion is recorded in local SQLite metadata. Runtime readers normalize only the named historical fields owned by a registered step.
+
+Attach scan progress is stored in the local SQLite `attach_migration_scan_meta` table, not the event stream or replicated history; missing or ahead-of-head watermarks are discarded and safely rescanned from revision zero.
 
 An attach step can only fix a _canonical event_: it normalizes the named historical field during
 projection replay, which is why every entry below names a field of an accepted event. Node-local
