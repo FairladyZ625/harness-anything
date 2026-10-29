@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { artifactManifest, ManagedRbacService, managedRbacVersions } from "../src/managed-rbac-service.ts";
 import { validateCertificateNames } from "../src/tls-listener-admission.ts";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 test("managed RBAC pins supported platform artifacts and published checksums", () => {
   for (const platform of ["darwin-arm64", "darwin-x64", "linux-x64"] as const) {
@@ -250,7 +251,10 @@ const keycloakArgsWithoutListener = [
 ];
 
 /** A bootstrapped managed installation whose PostgreSQL and Keycloak launches report ready at once. */
-function managedFixture(startsUnder: (env: NodeJS.ProcessEnv) => boolean = () => true) {
+function managedFixture(
+  startsUnder: (env: NodeJS.ProcessEnv) => boolean = () => true,
+  fetchPort: typeof fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch,
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-listener-")),
     configFile = path.join(root, "rbac", "config.json"),
     certificateFile = path.join(root, "center.crt"),
@@ -298,7 +302,7 @@ function managedFixture(startsUnder: (env: NodeJS.ProcessEnv) => boolean = () =>
     )}\n`,
   );
   const service = new ManagedRbacService(root, {
-    fetch: (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch,
+    fetch: fetchPort,
     spawn: ((command: string, args: readonly string[], options: { env: NodeJS.ProcessEnv }) => {
       const name = path.basename(command),
         child = Object.assign(new EventEmitter(), {
@@ -317,6 +321,7 @@ function managedFixture(startsUnder: (env: NodeJS.ProcessEnv) => boolean = () =>
     }) as unknown as typeof import("node:child_process").spawn,
   });
   return {
+    root,
     service,
     certificateFile,
     certificateKeyFile,
@@ -331,6 +336,46 @@ function managedFixture(startsUnder: (env: NodeJS.ProcessEnv) => boolean = () =>
     },
   };
 }
+
+test("managed RBAC resume waits through a transient realm health connection refusal", async () => {
+  const keycloak = fakeKeycloak();
+  let healthAttempts = 0;
+  const managed = managedFixture(
+    () => true,
+    async (input, init) => {
+      if (new URL(String(input)).pathname === "/realms/harness" && healthAttempts++ === 0)
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),
+        });
+      return keycloak.fetch(input, init);
+    },
+  );
+  writeFileSync(path.join(managed.root, "rbac", "center-client-secret"), "fixture-secret");
+  try {
+    await managed.service.resume();
+    assert.equal(healthAttempts, 2, "resume retries realm readiness after a connection refusal");
+  } finally {
+    await managed.close();
+  }
+});
+
+test("managed RBAC resume surfaces an unclassified realm health failure immediately", async () => {
+  const failure = new Error("fixture realm health programming failure");
+  let healthAttempts = 0;
+  const managed = managedFixture(
+    () => true,
+    async () => {
+      healthAttempts += 1;
+      throw failure;
+    },
+  );
+  try {
+    await assert.rejects(managed.service.resume(), (error) => error === failure);
+    assert.equal(healthAttempts, 1, "unknown failures are not treated as startup transport transients");
+  } finally {
+    await managed.close();
+  }
+});
 
 function availablePort(): Promise<number> {
   return new Promise((resolve) => {

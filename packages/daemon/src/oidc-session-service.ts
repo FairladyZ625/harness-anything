@@ -15,7 +15,7 @@ import {
   realmRoles,
   requiredNumber,
   requiredString,
-  transientDeviceTransportFailure,
+  transientTransportFailure,
   unavailable,
 } from "./oidc-session-helpers.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -1041,7 +1041,7 @@ function deviceVerificationUri(authority: OidcLoginAuthority, fallback: string, 
  * inventing an answer. Returns whether the caught value was that failure; callers rethrow it as-is.
  */
 function tagDeviceTransportFailure(error: unknown): boolean {
-  if (!transientDeviceTransportFailure(error)) return false;
+  if (!transientTransportFailure(error)) return false;
   (error as TypeError & { code?: string }).code = "oidc_device_transport_unavailable";
   return true;
 }
