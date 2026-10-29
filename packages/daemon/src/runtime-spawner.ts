@@ -307,7 +307,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    const taskPackageRoot = dispatchTaskPackageRoot(input, taskId, role === "reviewer", remoteTask),
+    const taskPackageRoot = dispatchTaskPackageRoot(input, taskId, remoteTask),
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,

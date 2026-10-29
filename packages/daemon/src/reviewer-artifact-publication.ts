@@ -163,9 +163,14 @@ export function reviewerArtifactsForReview(
   if (!task.packagePath) return null;
   const packet = `${task.packagePath}/artifacts/reports/${dispatchId}.json`,
     report = `${task.packagePath}/artifacts/reports/${dispatchId}.md`,
-    requestedPacket = String(action.fromFile ?? "").replace(/^harness\//u, "");
-  if (action.reviewId !== `review-${dispatchId}` || requestedPacket !== packet) return null;
-  const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
+    authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot,
+    requestedValue = String(action.fromFile ?? ""),
+    packetAbsolute = path.resolve(authoredRoot, ...packet.split("/")),
+    requestedPacket = requestedValue.replace(/^harness\//u, ""),
+    packetNamed =
+      requestedPacket === packet ||
+      (path.isAbsolute(requestedValue) && path.resolve(requestedValue) === packetAbsolute);
+  if (action.reviewId !== `review-${dispatchId}` || !packetNamed) return null;
   for (const candidate of [packet, report])
     if (!existsSync(path.join(authoredRoot, ...candidate.split("/"))))
       throw cell.cellCodedError(
