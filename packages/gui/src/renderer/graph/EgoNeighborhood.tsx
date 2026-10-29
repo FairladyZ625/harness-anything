@@ -28,6 +28,7 @@ import { InteractiveEdge } from "./edges/InteractiveEdge";
 import { useColorMode, minimapMaskColor } from "./colorMode";
 import { EGO_DEFAULT_HOPS, useEgoCanvas } from "./useEgoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
+import type { GraphFocusNodeIds } from "./focusSet";
 import type { GovernedEntityRow } from "./governedEntities";
 import { defaultAxisFilter, defaultKindFilter, edgePassesKindFilter } from "./relationVisual";
 import {
@@ -95,7 +96,7 @@ export type EgoNeighborhoodProps = {
   /** 铺开跳数预算(父 ↑ / 子 ↓);缺省 = EGO_DEFAULT_HOPS(±2)。 */
   hops?: EgoHopBudget;
   /** 重点模式可见集(null = 不分层)。 */
-  focusSet?: { readonly taskIds: ReadonlySet<string>; readonly neighborIds: ReadonlySet<string> } | null;
+  focusSet?: GraphFocusNodeIds | null;
   /** 重点模式开关(翻转时从当前焦点重铺)。 */
   densityFocus?: boolean;
   onNavigateEntity?: (ref: string) => void;
@@ -157,7 +158,7 @@ function EgoNeighborhoodInner({
   // 重点模式可见集:task 裸 id + 非 task `<kind>/<id>`,与 ego 键空间一致。
   const allowedIds = useMemo(() => {
     if (!densityFocus || !focusSet) return null;
-    return new Set<string>([...focusSet.taskIds, ...focusSet.neighborIds]);
+    return new Set<string>([...focusSet.taskIds, ...focusSet.entitySeedIds, ...focusSet.neighborIds]);
   }, [densityFocus, focusSet]);
 
   const canvas = useEgoCanvas({

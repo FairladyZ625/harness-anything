@@ -3,8 +3,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { TerritoryChipNode } from "../src/renderer/graph/nodes/TerritoryNode.tsx";
-import type { TerritoryFoldFlowNode } from "../src/renderer/graph/territoryLayout.ts";
+import { TerritoryChipNode, TerritoryZoneNode } from "../src/renderer/graph/nodes/TerritoryNode.tsx";
+import type { TerritoryFoldFlowNode, TerritoryZoneFlowNode } from "../src/renderer/graph/territoryLayout.ts";
 import { ReactFlow, ReactFlowProvider } from "@xyflow/react";
 
 beforeAll(() => {
@@ -33,6 +33,57 @@ async function mount(node: React.ReactNode) {
   });
   return container;
 }
+
+describe("TerritoryZoneNode header count (重点模式 in focus mode)", () => {
+  function zoneNode(
+    chips: TerritoryZoneFlowNode["data"]["zone"]["chips"],
+    deferred: number | undefined,
+  ): TerritoryZoneFlowNode {
+    return {
+      id: "territory-zone:fact:orphan",
+      type: "territoryZone",
+      position: { x: 0, y: 0 },
+      data: {
+        zone: {
+          zoneId: "fact:anomaly:orphan",
+          title: "悬空(无宿主且无引用)",
+          entity: "fact",
+          groupId: "anomaly:orphan",
+          chips,
+          ...(deferred === undefined ? {} : { deferred }),
+        },
+        folded: false,
+        variant: "zone",
+        onFold: vi.fn(),
+      },
+    };
+  }
+
+  it("a block whose chips are all deferred says 0 / N instead of a bare 0", async () => {
+    const container = await mount(
+      createElement(TerritoryZoneNode, {
+        ...zoneNode([], 11),
+        selected: false,
+        dragging: false,
+        zIndex: 0,
+      }),
+    );
+    expect(container.querySelector<HTMLElement>("[data-testid='territory-zone-count']")?.textContent).toBe("0 / 11");
+  });
+
+  it("an unfolded block keeps the plain chip count", async () => {
+    const chip = { navRef: "fact/F-1", label: "F-1", entity: "fact" as const, groupId: "normal:work" };
+    const container = await mount(
+      createElement(TerritoryZoneNode, {
+        ...zoneNode([chip, { ...chip, navRef: "fact/F-2", label: "F-2" }], 0),
+        selected: false,
+        dragging: false,
+        zIndex: 0,
+      }),
+    );
+    expect(container.querySelector<HTMLElement>("[data-testid='territory-zone-count']")?.textContent).toBe("2");
+  });
+});
 
 describe("TerritoryChipNode (fold variants)", () => {
   it("deferred fold button triggers onRevealZone and has nodrag / cursor-pointer", async () => {

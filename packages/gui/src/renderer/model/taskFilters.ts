@@ -78,7 +78,17 @@ export function isTaskGraphFocusSeed(
   if (task.pinned === true) return true;
   if (isTaskArchiveNoise(task)) return false;
   if (!isTerminal(task)) return true;
-  return recentWindowCutoff(now) <= Date.parse(task.lastKnownAt);
+  return isWithinGraphFocusRecency(task.lastKnownAt, now);
+}
+
+/**
+ * 14 天重点窗口的唯一判定。关系图的 task/fact/decision 都经这里读窗口,不复制常量;
+ * 时间不可解析视为向窗外(冷),避免坏值把整块撑成「重点」。
+ */
+export function isWithinGraphFocusRecency(at: string | undefined, now: string): boolean {
+  if (at === undefined) return false;
+  const observedAt = Date.parse(at);
+  return !Number.isNaN(observedAt) && recentWindowCutoff(now) <= observedAt;
 }
 
 /**

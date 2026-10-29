@@ -59,6 +59,8 @@ export interface GraphViewProps {
   facts: FactRef[];
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   factAnchors?: ReadonlyArray<FactAnchorRow>;
+  /** agenda `repo.agenda.read` 的 pinned refs(唯一 pin 读面);task 的 pin 已在 TaskRow 上。 */
+  pinnedEntityRefs?: ReadonlyArray<string>;
   /** 运行时平面(agent/schedule)节点行与 agent→task 派发边;缺省 = 该平面缺席。 */
   agents?: ReadonlyArray<AgentNodeRow>;
   schedules?: ReadonlyArray<ScheduleNodeRow>;
@@ -103,6 +105,7 @@ const EMPTY_ANCHORS: ReadonlyArray<FactAnchorRow> = [];
 const EMPTY_AGENTS: ReadonlyArray<AgentNodeRow> = [];
 const EMPTY_SCHEDULES: ReadonlyArray<ScheduleNodeRow> = [];
 const EMPTY_RELATIONS: ReadonlyArray<RelationEdge> = [];
+const EMPTY_ENTITY_REFS: ReadonlyArray<string> = [];
 const EMPTY_GOVERNED: ReadonlyArray<GovernedEntityRow> = [];
 const EMPTY_KINDS: ReadonlyArray<EntityTypeOption> = [];
 
@@ -113,6 +116,7 @@ function GraphViewInner({
   facts,
   coverageRows,
   factAnchors,
+  pinnedEntityRefs = EMPTY_ENTITY_REFS,
   agents = EMPTY_AGENTS,
   schedules = EMPTY_SCHEDULES,
   runtimeRelations = EMPTY_RELATIONS,
@@ -274,18 +278,23 @@ function GraphViewInner({
   // ego 图与重点集每个 render 都会重建。三元边已过归档收口(graphFeed)。
   const graphRelations = useMemo(() => [...graphFeed.relations, ...runtimeRelations], [graphFeed, runtimeRelations]);
   // 重点集:整份台账(未过 status 筛选)上算,领地与聚光灯共用同一份。
-  // 重点模式关闭时为 null(不分层)。
+  // 重点模式关闭时为 null(不分层)。fact/decision 按自身时间/状态进种子;
+  // 置顶来自 agenda 的 pinned_entities(唯一 pin 读面),不在图里另存一份。
+  const pinnedRefs = useMemo(() => new Set(pinnedEntityRefs), [pinnedEntityRefs]);
   const focusSelection = useMemo(
     () =>
       density === "focus"
         ? selectGraphFocusSet({
             tasks,
+            decisions,
+            facts: graphFeed.facts,
             relations: graphRelations,
+            pinnedRefs,
             now: new Date().toISOString(),
             schedules,
           })
         : null,
-    [density, tasks, graphRelations, schedules],
+    [density, tasks, decisions, graphFeed, graphRelations, pinnedRefs, schedules],
   );
   const territory = useMemo(() => {
     if (viewMode !== "territory") return null;
@@ -463,11 +472,11 @@ function GraphViewInner({
         {viewMode === "territory" && territory && territory.deferredCount !== undefined && (
           <span
             data-testid="territory-deferred-count"
-            title="重点模式:pinned ∪ 非终态 ∪ 最近 14 天变更 + 一跳邻域之外的实体折叠在各块的「重点外 N 项」徽章;筛选面板可切回全部"
+            title="重点模式:置顶 ∪ 非终态 ∪ 最近 14 天变更(按 task / fact / decision 各自的时间与状态词表)+ 种子 task 的一跳非 task 邻域;其余实体折叠在各块的「重点外 N 项」徽章,筛选面板可切回全部"
           >
             <StatusTag
               tone="wait"
-              label={`重点外 ${territory.deferredCount}${focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}`}
+              label={`重点外 ${territory.deferredCount}${focusSelection ? ` · 重点 ${focusSelection.seedCount} 项` : ""}`}
             />
           </span>
         )}

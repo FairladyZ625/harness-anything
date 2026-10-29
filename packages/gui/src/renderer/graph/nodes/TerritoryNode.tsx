@@ -36,6 +36,10 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
   const axis = entityKindAxisVar(zone.entity);
   const headerH = zoneHeaderH(zone);
   const landing = data.variant === "landing";
+  // 重点模式可能把整块 chip 都折进「重点外 N 项」;块头报 `保留 / 全量`,让 0 条
+  // 不是「本块空了」而是「本块 11 条全在重点外,可展开」。
+  const totalChips = zone.chips.length + (zone.deferred ?? 0);
+  const countLabel = totalChips > zone.chips.length ? `${zone.chips.length} / ${totalChips}` : `${zone.chips.length}`;
   const onOpenWork = zone.entity === "task" && zone.groupId !== NO_WORK ? data.onOpenWork : undefined;
 
   return (
@@ -74,8 +78,16 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
           ) : (
             <span className="ui-body min-w-0 flex-1 truncate ui-body font-semibold text-text">{zone.title}</span>
           )}
-          <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
-            {zone.chips.length}
+          <span
+            data-testid="territory-zone-count"
+            title={
+              totalChips > zone.chips.length
+                ? `重点模式:本块 ${zone.chips.length} 个重点,共 ${totalChips} 个;点下方「重点外 N 项」展开本块`
+                : `本块 ${totalChips} 项`
+            }
+            className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint"
+          >
+            {countLabel}
           </span>
           <button
             type="button"

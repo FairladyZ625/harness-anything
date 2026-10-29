@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import type { TaskRow } from "../src/renderer/model/types.ts";
+import type { FactRef, TaskRow } from "../src/renderer/model/types.ts";
 import { applyTerritoryDensity, partitionForSkel } from "../src/renderer/graph/territory.ts";
 import { selectGraphFocusSet } from "../src/renderer/graph/focusSet.ts";
 import {
@@ -61,6 +61,30 @@ describe("重点模式偏好(localStorage,坏值回落默认开)", () => {
     expect(readGraphDensityFocusMode(null)).toBe(true);
     expect(() => writeGraphDensityFocusMode(null, false)).not.toThrow();
     expect(() => writeGraphDensityFocusMode(graphDensityPreferenceStorage(), false)).not.toThrow();
+  });
+});
+
+describe("applyTerritoryDensity(事实镜头:近期 fact 不再整块折叠)", () => {
+  const NOW = "2026-08-30T00:00:00.000Z";
+  const fact = (factId: string, at: string): FactRef => ({
+    anchor: `fact/${factId}`,
+    category: "finding",
+    text: factId,
+    at,
+    confidence: "high",
+  });
+
+  it("keeps the recent orphan fact and defers the old one (0/N block stays expandable)", () => {
+    const recent = fact("F-recent", "2026-08-20T00:00:00.000Z");
+    const old = fact("F-old", "2026-07-01T00:00:00.000Z");
+    const partition = partitionForSkel("fact", [], [], [old, recent], [], []);
+    const focus = selectGraphFocusSet({ tasks: [], decisions: [], facts: [old, recent], relations: [], now: NOW });
+    const applied = applyTerritoryDensity(partition, focus, new Set());
+    const refs = applied.zones.flatMap((zone) => zone.chips.map((chip) => chip.navRef));
+    expect(refs).toContain("fact/F-recent");
+    expect(refs).not.toContain("fact/F-old");
+    const orphanZone = applied.zones.find((zone) => zone.zoneId === "fact:anomaly:orphan");
+    expect(orphanZone?.deferred).toBe(1);
   });
 });
 

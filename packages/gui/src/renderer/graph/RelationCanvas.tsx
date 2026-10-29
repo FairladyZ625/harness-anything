@@ -7,6 +7,7 @@ import type { EgoHopBudget } from "./egoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import type { GovernedEntityRow } from "./governedEntities";
 import { parseEndpoint } from "./endpoint";
+import type { GraphFocusNodeIds } from "./focusSet";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { FocusSwitcher } from "../components/FocusSwitcher";
 import type { PaletteEntry } from "../components/CommandPalette";
@@ -67,7 +68,7 @@ export interface RelationCanvasProps {
   readonly historyVisible?: boolean;
   readonly rail?: RelationCanvasRail;
   readonly filters?: EgoNeighborhoodFilters;
-  readonly focusSet?: { readonly taskIds: ReadonlySet<string>; readonly neighborIds: ReadonlySet<string> } | null;
+  readonly focusSet?: GraphFocusNodeIds | null;
   readonly densityFocus?: boolean;
   readonly hops?: EgoHopBudget;
   readonly rememberSession?: boolean;

@@ -186,6 +186,11 @@ function AppShell() {
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
+  // 图重点集的置顶位:复用 agenda 的 pinned_entities 读面,不在图里另立 pin 状态。
+  const pinnedEntityRefs = useMemo(
+    () => (agendaQuery.data?.pinnedEntities ?? []).map(({ ref }) => ref),
+    [agendaQuery.data],
+  );
   // 工作根与任务所属工作只读 daemon 工作索引(dec_5F7E74F1):关系图领地、看板泳道、工作列表、
   // 重点工作、面包屑与「根任务即工作」的跳转判定都从这一份来,renderer 不另立规则。
   const workIndexQuery = useWorkIndexQuery(activeRepoId);
@@ -834,6 +839,7 @@ function AppShell() {
                   facts={facts}
                   coverageRows={coverageRows}
                   factAnchors={factAnchors}
+                  pinnedEntityRefs={pinnedEntityRefs}
                   agents={runtimePlane.agents}
                   schedules={runtimePlane.schedules}
                   runtimeRelations={runtimePlane.relations}
