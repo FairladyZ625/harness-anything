@@ -16,7 +16,11 @@ import {
   type ArchivedExecutionV0,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  acceptedWorkDecision,
+  openBootstrappedRepoCell as openRepoCell,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import {
   resolveTaskRootThreshold,
   resolveTaskWipLimit,
@@ -551,10 +555,14 @@ async function createReadyTask(
   options: { readonly taskClass?: "work" | "long_running"; readonly parentTaskId?: string } = {},
 ): Promise<void> {
   const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  const decisionRef = options.taskClass === "work" ? await acceptedWorkDecision(cell, binding, taskId) : undefined;
   await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
-      const created = await cell.run({ kind: "task-create", taskId, title, ...options }, binding);
+      const created = await cell.run(
+        { kind: "task-create", taskId, title, ...options, ...(decisionRef === undefined ? {} : { decisionRef }) },
+        binding,
+      );
       await waitForFixturePublication(cell, created.opId, binding);
       return created;
     },

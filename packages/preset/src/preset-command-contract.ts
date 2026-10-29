@@ -257,6 +257,8 @@ const taskCreateProfileFormat =
 export const titleFocusFormat =
   "<one focus only — move the explanation after a colon, parenthetical supplements, and decision/PR " +
   "numbers into the plan's Brief/Context (Decisions: the body)>";
+export const taskDecisionGuidance =
+  "如果这个 task 落实一项方向性裁决（改方案、定预算、定模型、定入口），先立 decision 再关联；评审意见拆出的后续任务可以不关联。";
 const taskCreateCliInputs = Object.freeze(
   taskCreateAction.input.fields.flatMap((field) => {
     if (!field.cli) return [];
@@ -284,7 +286,9 @@ export const presetCommands = Object.freeze([
       "Create a task package with its complete metadata. --work <id> files it under that work (the work root ",
       "or any task in it becomes its parent); without --work the task stands alone. Choose the work by its ",
       "goal — the task belongs where it serves that goal, not under whichever line is currently busy; with ",
-      "no fitting work, create one (ha work create) or file under a general work. A repository-diff task is ",
+      "no fitting work, create one with ha work create --title <name> --decision <id> or file under a general work. A repository-diff task is ",
+      taskDecisionGuidance,
+      " When applicable, pass --decision <decision-id>[/CH<n>] to associate the chosen clause.",
       "bound to its own git worktree, checked out on first start or dispatch and reclaimed when the task closes; ",
       "no command is needed.",
     ].join(""),
@@ -300,24 +304,32 @@ export const presetCommands = Object.freeze([
     path: ["work", "create"],
     summary:
       "Create a work: one root task whose task_plan.md is the work map. Add its tasks with " +
-      "ha task create --work <id>; read it with ha work show <id>.",
+      "ha task create --work <id>; read it with ha work show <id>. Work requires an accepted decision via --decision. " +
+      taskDecisionGuidance,
     method: "repo.task.create",
     inputs: [
       cliInput("--title", "single", true, { code: "missing_field" }, { field: "title", format: titleFocusFormat }),
-      ...taskCreateCliInputs.filter(({ name }) =>
-        [
-          "--work",
-          "--kind",
-          "--risk-tier",
-          "--urgency",
-          "--profile",
-          "--slug",
-          "--locale",
-          "--idempotency-key",
-          "--plan-file",
-          "--dry-run",
-        ].includes(name),
-      ),
+      ...taskCreateCliInputs
+        .filter(({ name }) =>
+          [
+            "--work",
+            "--decision",
+            "--kind",
+            "--risk-tier",
+            "--urgency",
+            "--profile",
+            "--slug",
+            "--locale",
+            "--idempotency-key",
+            "--plan-file",
+            "--dry-run",
+          ].includes(name),
+        )
+        .map((input) =>
+          input.name === "--decision"
+            ? { ...input, required: true, error: Object.freeze({ code: "decision_required" }) }
+            : input,
+        ),
     ],
   }),
   defineRepoReadCommand({

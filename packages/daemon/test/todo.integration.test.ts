@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { waitForFixturePublication, openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import {
+  acceptedWorkDecision,
+  waitForFixturePublication,
+  openBootstrappedRepoCell as openRepoCell,
+} from "./repo-settings.fixture.ts";
 import { readFileSync } from "node:fs";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -54,8 +58,9 @@ test("todos relate both ways, promote atomically once, publish and survive reope
   try {
     initRepo(rootDir);
     cell = await openRepoCell(input);
+    const decisionRef = await acceptedWorkDecision(cell, binding, "todo-promotion");
     const work = await cell.run(
-      { kind: "task-create", taskId: "task_todo_work", title: "Todo work", taskClass: "work" },
+      { kind: "task-create", taskId: "task_todo_work", title: "Todo work", taskClass: "work", decisionRef },
       binding,
     );
     assert.equal(work.outcome, "applied", JSON.stringify(work));

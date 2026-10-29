@@ -114,6 +114,7 @@ export type TaskCreateReceipt = WriteReceiptDraft & {
   readonly completionGates: readonly string[];
   readonly commitSha: string | null;
   readonly dryRun: boolean;
+  readonly next?: readonly { readonly command: string; readonly reason?: string }[];
 };
 
 export type TaskProgressReceipt = WriteReceiptDraft & {

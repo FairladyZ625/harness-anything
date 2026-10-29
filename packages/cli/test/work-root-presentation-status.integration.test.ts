@@ -4,6 +4,9 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { acceptedWorkDecision, openBootstrappedRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
+import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { createRuntimeFixture, published, run } from "./runtime-cli.fixtures.ts";
 
@@ -14,6 +17,29 @@ import { createRuntimeFixture, published, run } from "./runtime-cli.fixtures.ts"
 test("ha work list presents a planned work as active once a subtask starts", async (context) => {
   const { root, env } = createRuntimeFixture(context);
   gitRepository(root);
+  assert.equal(run(root, env, ["daemon", "stop"]).ok, true);
+  let decisionId: string;
+  try {
+    const cell = await openBootstrappedRepoCell({
+      repoId: workspaceId("runtime-cli"),
+      rootDir: canonicalRoot(root),
+      ownerId: "work-root-presentation-status",
+    });
+    try {
+      decisionId = await acceptedWorkDecision(
+        cell,
+        withPolicyGroup(
+          { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+          "contributor",
+        ),
+        "work-root-presentation-status",
+      );
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+  }
   const seed = (taskId: string, title: string, extra: readonly string[] = []) => {
     const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title, ...extra]),
       packagePath = String(created.packagePath);
@@ -22,7 +48,7 @@ test("ha work list presents a planned work as active once a subtask starts", asy
     run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     return taskId;
   };
-  const work = seed("task-work-status-root", "工作状态派生验收", ["--task-class", "work"]);
+  const work = seed("task-work-status-root", "工作状态派生验收", ["--task-class", "work", "--decision", decisionId]);
   seed("task-work-status-slice", "切片一", ["--work", work]);
   const statusOf = () => {
     const listed = run(root, env, ["work", "list", "--all"]) as unknown as {

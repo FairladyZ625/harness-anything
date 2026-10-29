@@ -128,7 +128,11 @@ test("preset trigger skill routes task creation through preset selection", () =>
   assert.match(body, /standard-task/u);
   assert.match(body, /decision-conformance/u);
   assert.match(body, /work-closeout/u);
-  assert.match(body, /ha work create --title/u, "a work is created through its own entry");
+  assert.match(
+    body,
+    /ha work create --title[^\n]*--decision/u,
+    "a work is created through its own entry with a Decision",
+  );
   assert.match(body, /ha task create --work <work-id>/u, "tasks are filed under a work with --work");
   assert.match(body, /ha agenda --work <work-id>/u);
   assert.doesNotMatch(

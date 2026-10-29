@@ -32,6 +32,7 @@ export const taskActionDescriptorProjection = {
     "diagnostic",
     "cut",
     "freshness",
+    "next",
   ],
   actions: [
     {

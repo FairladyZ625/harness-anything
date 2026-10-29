@@ -116,6 +116,24 @@ test("successful Decision proposals point to the canonical action explanation", 
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
 });
 
+test("task-create receipts render the optional Decision reminder as next guidance", () => {
+  const guidance =
+      "如果这个 task 落实一项方向性裁决（改方案、定预算、定模型、定入口），先立 decision 再关联；评审意见拆出的后续任务可以不关联。",
+    rendered = renderCliReceipt({
+      ok: true,
+      command: "task-create",
+      summary: "created task task-a",
+      presetId: "standard-task",
+      profileId: "baseline",
+      outputShape: "task-package",
+      completionGates: [],
+      guidance: [{ kind: "task-artifacts", args: { packagePath: "harness/tasks/task-a" } }],
+      next: [{ command: guidance }],
+    });
+  assert.match(rendered.text, /next: 如果这个 task 落实一项方向性裁决/u);
+  assert.match(rendered.text, /评审意见拆出的后续任务可以不关联。$/u);
+});
+
 test("settlement-none publication receipts render their next lane in text mode", () => {
   // task-push settles without canonical acceptance, so they reach the generic
   // successful-receipt renderer instead of the accepted_durable branch that appends `next`.

@@ -103,9 +103,26 @@ export function supersedeWithNewTask(
       `Use ha task show ${oldTaskId}; only active, non-superseded tasks can be superseded.`,
     );
   const metadata = old.snapshot.task.metadata,
-    createAction = {
+    decisionRelations =
+      old.snapshot.task.taskClass === "work"
+        ? cell.projection.readRelationQuery({
+            source: `task/${oldTaskId}`,
+            relationType: "implements",
+            state: "active",
+          }).rows
+        : [],
+    decisionRef =
+      decisionRelations.length === 1 ? decisionRelations[0]!.targetRef.replace(/^decision\//u, "") : undefined;
+  if (decisionRelations.length > 1)
+    throw cell.cellCodedError(
+      "decision_ambiguous",
+      `Work ${oldTaskId} implements multiple decisions; choose one accepted Decision before superseding it.`,
+    );
+  const createAction = {
       kind: "task-create",
       title: action.title,
+      taskClass: old.snapshot.task.taskClass,
+      ...(decisionRef === undefined ? {} : { decisionRef }),
       ...(typeof action.slug === "string" ? { slug: action.slug } : {}),
       ...(metadata
         ? {
@@ -140,10 +157,13 @@ export function supersedeWithNewTask(
         },
         binding,
         cell.now(),
-        { workspaceRevision: headRevision + 2, opId: outerOpId },
+        { workspaceRevision: headRevision + 2 + (preparedCreate.relation === undefined ? 0 : 1), opId: outerOpId },
       ),
     ),
-    appended = cell.store.append({ ...preparedSupersede.compiled, preceding: [preparedCreate.compiled] }),
+    appended = cell.store.append({
+      ...preparedSupersede.compiled,
+      preceding: [preparedCreate.compiled, ...(preparedCreate.relation === undefined ? [] : [preparedCreate.relation])],
+    }),
     publication = cell.publicPublication(appended);
   applyPreparedTaskCreate(cell, preparedCreate);
   cell.projection.apply(preparedSupersede.compiled.event, preparedSupersede.compiled.plan);

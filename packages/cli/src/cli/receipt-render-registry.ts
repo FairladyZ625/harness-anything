@@ -181,6 +181,7 @@ function renderTaskCreate(receipt: Record<string, unknown>): string {
     `outputShape: ${receipt.outputShape}`,
     `completionGates: ${JSON.stringify(receipt.completionGates)}`,
     ...guidance,
+    ...renderReceiptNext(receipt.next),
   ].join("\n");
 }
 

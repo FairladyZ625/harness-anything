@@ -21,7 +21,11 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import type { Snapshot } from "../src/repo-cell-types.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  acceptedWorkDecision,
+  openBootstrappedRepoCell as openRepoCell,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -302,12 +306,16 @@ export async function fixture(
   if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
+  const createOptions =
+    options.create?.taskClass === "work" && options.create.decisionRef === undefined
+      ? { ...options.create, decisionRef: await acceptedWorkDecision(cell, owner, taskId) }
+      : options.create;
   const created = await run({
     kind: "task-create",
     taskId,
     title: "Completion Review",
     presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
-    ...options.create,
+    ...createOptions,
   });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFixturePublication(cell, created.opId, owner);

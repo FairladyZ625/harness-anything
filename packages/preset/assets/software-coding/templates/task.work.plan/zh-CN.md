@@ -80,7 +80,7 @@ CI workflow、阈值与预算、required checks、凭据与宿主服务、删除
 ## Implementation Plan
 
 - 创建或确认 charter decision，并让它的 `dec_*` 锚出现在本工作地图中。
-- 运行 `ha work create --title "<name>"` 建工作根。
+- 运行 `ha work create --title "<name>" --decision <decision-id>`，依据已生效决策建工作根。
 - 阅读 create-work `PRESET.md`、`harness.yaml` 和相邻工作；保持本地图最新。
 - 用 `ha task create --work <根任务 id>` 建每个子任务，保持波次表与 `ha work show` 同步。
 - 校验链接、必需章节、重复行与状态一致性；运行相关仓库检查并记录 evidence。

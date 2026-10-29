@@ -23,7 +23,7 @@
 一个*工作*是一个根任务加归入它的任务，也是给任务分组的唯一方式；不带 `--work` 的任务独立存在。
 
 ```bash
-ha work create --title "Login hardening"      # 工作的根任务
+ha work create --title "Login hardening" --decision <decision-id> # 依据已生效 Decision 建立工作
 ha task create --work <id> --title "Fix redirect loop"
 ha work list                                  # 进行中的工作及进度；--all 列出全部
 ha work show <id>                             # 目标、子树计数、未完成任务

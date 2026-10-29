@@ -327,7 +327,7 @@ export function renderWorkPayload(payload: unknown): string | null {
     );
     return [
       "works:",
-      rows.join("\n") || "(none) — create one with ha work create --title <name>",
+      rows.join("\n") || "(none) — create one with ha work create --title <name> --decision <decision-id>",
       `count=${String(record.count)}  status=${String(record.status)}  sourceRevision=${String(record.sourceRevision)}`,
       "next: ha work show <task-id> · ha task create --work <task-id> --title <title>",
     ].join("\n");

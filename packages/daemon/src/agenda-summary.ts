@@ -69,7 +69,7 @@ export function renderAgendaSummary(
     | "waitingOnOthers"
     | "dispatchable"
     | "todos"
-  >,
+  > & { readonly unanchoredWorks?: readonly { readonly taskId: string; readonly title: string }[] },
 ): string {
   const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
     attentionLine = (row: DaemonAgendaResult["attentionItems"][number], index: number) =>
@@ -155,6 +155,11 @@ export function renderAgendaSummary(
       "待裁 Decision",
       "当前切面可裁决（有效批准或策略免审）；提案人仍需独立判断，下一步 ha decision accept|reject|defer",
       groups.awaitingDecision.map(decisionLine),
+    ),
+    section(
+      "无 decision 来源的 work",
+      "存量 work 提醒：如目标来自方向性裁决，请用 ha relation relate 补 implements 关联；不阻断 work 状态",
+      (groups.unanchoredWorks ?? []).map(({ taskId, title }) => `- ${taskId} ${title}`),
     ),
     section(
       "待你处理",

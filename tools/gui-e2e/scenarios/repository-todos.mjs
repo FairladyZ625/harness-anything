@@ -1,5 +1,6 @@
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import assert from "node:assert/strict";
+import { createAcceptedDecision } from "./decision-fixtures.mjs";
 
 export default {
   id: "repository-todos",
@@ -53,6 +54,7 @@ export default {
     const attached = page.getByTestId("attached-todos");
     await attached.getByText(title, { exact: true }).waitFor();
     await shot("task-attached-todos");
+    const decisionId = await createAcceptedDecision(fixture.endpoint, fixture.repoId, "Todo promotion work direction");
     const work = await requestDaemonJsonRpcAt(
       fixture.endpoint,
       "repo.task.create",
@@ -63,6 +65,7 @@ export default {
           taskId: "task_todo_work",
           presetId: "create-work",
           taskClass: "work",
+          decisionRef: decisionId,
         },
       },
       1000,

@@ -24,9 +24,59 @@ import {
 } from "../src/writer-epoch.ts";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
-import { policyTestCenter, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
+import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 const seededSettings = new Set<string>();
+const workDecisionByCell = new WeakMap<RepoCell, string>();
+
+export async function acceptedWorkDecision(cell: RepoCell, binding: RepoCellBinding, key: string): Promise<string> {
+  const existing = workDecisionByCell.get(cell);
+  if (existing !== undefined) return existing;
+  const decision = await cell.run(
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify({
+          title: `Fixture direction for ${key}`,
+          question: `Should fixture work ${key} be tied to an accepted direction?`,
+          riskTier: "low",
+          urgency: "low",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Tie the work to its accepted direction" }],
+          rejected: [{ id: "RJ1", text: "Leave it unlinked", whyNot: "The work loses its source" }],
+          claims: [],
+          fulfillments: [],
+        }),
+        body: `# Fixture direction for ${key}\n\n## 背景\n\nThe fixture needs an effective decision.\n\n## 权衡\n\nAn accepted decision anchors the work.\n\n## 结论\n\nTie the work to its accepted direction.\n`,
+      },
+      binding,
+    ),
+    decisionId = String((JSON.parse(String(decision.evidence)) as { readonly decisionId: string }).decisionId),
+    arbiter = withPolicyGroup(
+      {
+        actor: { principal: { personId: `person-arbiter-${key.replace(/[^a-z0-9]/giu, "-")}` }, executor: null },
+        source: "local" as const,
+      },
+      "maintainer",
+    ),
+    accepted = await cell.run(
+      {
+        kind: "decision-accept",
+        decisionId,
+        rationale: "The fixture records an effective work direction.",
+        judgmentOnlyRationale: "The fixture only needs an accepted decision as a work source.",
+      },
+      arbiter,
+    );
+  assert.equal(decision.outcome, "applied", JSON.stringify(decision));
+  assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+  await waitForFixturePublication(cell, decision.opId, binding);
+  await waitForFixturePublication(cell, accepted.opId, arbiter);
+  workDecisionByCell.set(cell, decisionId);
+  return decisionId;
+}
 
 function settingsBase(rootDir: string): string {
   const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");

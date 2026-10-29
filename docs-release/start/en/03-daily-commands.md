@@ -25,7 +25,7 @@ A _work_ is one root task plus the tasks filed under it. It is the only way to
 group tasks; without `--work`, a task stands alone.
 
 ```bash
-ha work create --title "Login hardening"      # the work's root task
+ha work create --title "Login hardening" --decision <decision-id> # an accepted Decision anchors the work
 ha task create --work <id> --title "Fix redirect loop"
 ha work list                                  # open works with progress; --all for every work
 ha work show <id>                             # goal, subtree counts, open tasks

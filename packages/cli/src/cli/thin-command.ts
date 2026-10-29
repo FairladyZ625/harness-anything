@@ -201,7 +201,7 @@ export function renderThinHelp(
           "  capabilities [--json] — Describe the contracted CLI command surface.",
           "  --version — Print the CLI package version.",
           "",
-          "Organize work — a work is one root task plus its subtree: ha work create --title <name>, then " +
+          "Organize work — a work is one root task plus its subtree: ha work create --title <name> --decision <id>, then " +
             "ha task create --work <id> --title <title>; ha work list · ha work show <id> · ha agenda --work <id>.",
           "",
           "Use ha <domain> --help for the commands in a domain.",
@@ -217,7 +217,7 @@ export function renderThinHelp(
           // never lands under whichever line happens to be busy.
           "File this task with --work <id>, chosen by the work's goal: the task belongs where it serves that",
           "goal, not under whichever line is currently busy (ha work show <id> states the goal). No fitting",
-          "work? ha work create --title <name> starts one, or file under a general work (defect fixes,",
+          "work? ha work create --title <name> --decision <id> starts one, or file under a general work (defect fixes,",
           "system-friction governance).",
         ]
       : [];

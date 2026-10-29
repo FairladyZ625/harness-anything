@@ -9,7 +9,7 @@ import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/cli
 import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { deriveRelationId, makeTaskEventReader } from "@harness-anything/kernel";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 // Windows teardown: rmSync below cannot remove a ledger file while one of this process's readers
@@ -206,6 +206,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
           "evidence under harness/tasks/task-alpha-alpha/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
+        "next: 如果这个 task 落实一项方向性裁决（改方案、定预算、定模型、定入口），先立 decision 再关联；评审意见拆出的后续任务可以不关联。",
       ].join("\n"),
     );
     const alpha = run(fixture.alpha, fixture.userRoot, [
@@ -539,6 +540,8 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
+    const vertical = run(fixture.alpha, fixture.userRoot, ["migrate", "vertical-declaration"]);
+    assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
     const catalog = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence)) as Array<{
       id: string;
       validity: string;
@@ -552,25 +555,106 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
         { id: "subtask-expansion", validity: "valid" },
       ],
     );
+    const decisionProposal = run(fixture.alpha, fixture.userRoot, [
+        "decision",
+        "propose",
+        "--json-input",
+        JSON.stringify({
+          title: "CLI fixture work direction",
+          question: "Should the work root record its accepted direction?",
+          riskTier: "medium",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Tie work to its accepted Decision" }],
+          rejected: [{ id: "RJ1", text: "Leave work unlinked", whyNot: "The work goal loses its source" }],
+          claims: [],
+          fulfillments: [],
+        }),
+        "--body",
+        "# CLI fixture work direction\n\n## Background\n\nThe fixture exercises work creation from an accepted direction.\n\n## Tradeoffs\n\nA relation makes the source inspectable.\n\n## Conclusion\n\nTie the work to the decision.\n",
+      ]),
+      decisionId = String((JSON.parse(String(decisionProposal.evidence)) as { decisionId: string }).decisionId);
+    assert.equal(decisionProposal.outcome, "applied", JSON.stringify(decisionProposal));
+    const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
+      "decision",
+      "accept",
+      decisionId,
+      "--rationale",
+      "The fixture accepts this work direction.",
+      "--judgment-only",
+      "The fixture owner accepts this direction.",
+    ]);
+    assert.equal(acceptedDecision.outcome, "applied", JSON.stringify(acceptedDecision));
+    const workPlan = realizedTaskPlan(
+        "Parent",
+        [
+          "Mission",
+          "Usage Questions",
+          "Wave Decomposition",
+          "Exit Criteria",
+          "Entry Conditions",
+          "Dependencies",
+          "Decision-Derived Authorization",
+          "PR/merge Operations",
+          "Checkpoint",
+          "Implementation Plan",
+        ]
+          .map(
+            (heading) =>
+              `## ${heading}\n\nThe fixture defines the accepted work scope and its observable completion evidence.`,
+          )
+          .join("\n\n"),
+      ),
+      planPath = path.join(fixture.alpha, "plans", "work.md");
+    mkdirSync(path.dirname(planPath), { recursive: true });
+    writeFileSync(planPath, workPlan);
     const work = run(fixture.alpha, fixture.userRoot, [
-      "task",
+      "work",
       "create",
-      "--id",
-      "task-parent",
-      "--admin",
       "--title",
       "Parent",
-      "--preset",
-      "create-work",
-      "--task-class",
-      "work",
+      "--decision",
+      decisionId,
+      "--plan-file",
+      "plans/work.md",
     ]);
     assert.equal(work.outcome, "applied", JSON.stringify(work));
+    const workId = String(work.taskId);
     // A new work root's receipt carries its title too, so the reader can recognize what was created.
     assert.match(
       String(work.summary),
-      /work: task-parent Parent \(new work root; add tasks with --work task-parent\)/u,
+      new RegExp(`work: ${workId} Parent \\(new work root; add tasks with --work ${workId}\\)`, "u"),
     );
+    const decisionTask = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "create",
+      "--title",
+      "Decision follow-up",
+      "--decision",
+      decisionId,
+    ]);
+    assert.equal(decisionTask.outcome, "applied", JSON.stringify(decisionTask));
+    assert.equal(decisionTask.next, undefined, "a linked task does not need the decision reminder");
+    const decisionTaskId = String(decisionTask.taskId);
+    const decisionRelationId = deriveRelationId({
+        source: `task/${decisionTaskId}`,
+        target: `decision/${decisionId}/CH1`,
+        type: "implements",
+        direction: "directed",
+      }),
+      decisionRelation = ledgerReaders
+        .open(fixture.alpha, "alpha")
+        .read()
+        .events.find((event) => event.schema === "relation-event/v1" && event.relationId === decisionRelationId);
+    assert.equal(decisionRelation?.schema, "relation-event/v1");
+    if (decisionRelation?.schema === "relation-event/v1")
+      assert.deepEqual(
+        { source: decisionRelation.payload.relation.source, target: decisionRelation.payload.relation.target },
+        { source: `task/${decisionTaskId}`, target: `decision/${decisionId}/CH1` },
+      );
     const child = run(fixture.alpha, fixture.userRoot, [
       "task",
       "create",
@@ -582,10 +666,10 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
       "--preset",
       "subtask-expansion",
       "--work",
-      "task-parent",
+      workId,
     ]);
     assert.equal(child.outcome, "applied", JSON.stringify(child));
-    assert.match(String(child.summary), /work: task-parent Parent/u);
+    assert.match(String(child.summary), new RegExp(`work: ${workId} Parent`, "u"));
     const standalone = run(fixture.alpha, fixture.userRoot, [
       "task",
       "create",
@@ -598,7 +682,10 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     assert.equal(standalone.outcome, "applied", JSON.stringify(standalone));
     assert.match(
       String(standalone.summary),
-      /work: none \(standalone task\)\ncandidate works:\n- task-parent Parent: ha task move task-standalone --parent task-parent\nnext: ha work list/u,
+      new RegExp(
+        `work: none \\(standalone task\\)\\ncandidate works:\\n- ${workId} Parent: ha task move task-standalone --parent ${workId}\\nnext: ha work list`,
+        "u",
+      ),
     );
     const childEvent = ledgerReaders
       .open(fixture.alpha, "alpha")
@@ -606,10 +693,10 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
       .events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-child");
     assert.equal(
       childEvent?.schema === "task-bootstrap-event/v1" ? childEvent.payload.task.metadata.parentTaskId : null,
-      "task-parent",
+      workId,
     );
     const children = JSON.parse(
-      String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", "task-parent"]).evidence),
+      String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", workId]).evidence),
     ) as { rows: Array<{ taskId: string }> };
     assert.deepEqual(
       children.rows.map(({ taskId }) => taskId),
@@ -618,15 +705,15 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     const works = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "list"]).evidence)) as {
         rows: Array<{ taskId: string; root: string; taskCount: number }>;
       },
-      shown = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "show", "task-parent"]).evidence)) as {
+      shown = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "show", workId]).evidence)) as {
         root: { taskId: string };
         openTasks: Array<{ taskId: string }>;
       };
     assert.deepEqual(
       works.rows.map(({ taskId, root, taskCount }) => ({ taskId, root, taskCount })),
-      [{ taskId: "task-parent", root: "declared", taskCount: 1 }],
+      [{ taskId: workId, root: "declared", taskCount: 1 }],
     );
-    assert.equal(shown.root.taskId, "task-parent");
+    assert.equal(shown.root.taskId, workId);
     assert.deepEqual(
       shown.openTasks.map(({ taskId }) => taskId),
       ["task-child"],
@@ -634,12 +721,22 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     // The human list carries the title beside the id, and the create help offers the same rows as
     // --work candidates, so a create can be filed from what ha work list already reports.
     const listText = runText(fixture.alpha, fixture.userRoot, ["work", "list"]);
-    assert.match(listText, /^works:\ntask-parent\tParent\t/u);
+    assert.match(listText, new RegExp(`^works:\\n${workId}\\tParent\\t`, "u"));
     const help = runText(fixture.alpha, fixture.userRoot, ["task", "create", "--help"]);
-    assert.match(help, /Active works \(1 shown, newest activity first[^)]*\):\n  task-parent — Parent/u);
+    assert.match(
+      help,
+      /如果这个 task 落实一项方向性裁决（改方案、定预算、定模型、定入口），先立 decision 再关联；评审意见拆出的后续任务可以不关联。/u,
+    );
+    assert.match(
+      help,
+      new RegExp(`Active works \\(1 shown, newest activity first[^)]*\\):\\n  ${workId} — Parent`, "u"),
+    );
     assert.match(help, /File this task with --work <id>, chosen by the work's goal/u);
     assert.match(help, /not under whichever line is currently busy/u);
-    assert.match(help, /No fitting\nwork\? ha work create --title <name> starts one, or file under a general work/u);
+    assert.match(
+      help,
+      /No fitting\nwork\? ha work create --title <name> --decision <id> starts one, or file under a general work/u,
+    );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     await ledgerReaders.drain();
