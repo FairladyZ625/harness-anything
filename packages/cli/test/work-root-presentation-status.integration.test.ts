@@ -4,6 +4,9 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { acceptedWorkDecision, openBootstrappedRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
+import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { createRuntimeFixture, published, run } from "./runtime-cli.fixtures.ts";
 
@@ -14,39 +17,29 @@ import { createRuntimeFixture, published, run } from "./runtime-cli.fixtures.ts"
 test("ha work list presents a planned work as active once a subtask starts", async (context) => {
   const { root, env } = createRuntimeFixture(context);
   gitRepository(root);
-  const decisionProposal = run(root, env, [
-      "decision",
-      "propose",
-      "--json-input",
-      JSON.stringify({
-        title: "Work status fixture direction",
-        question: "Should the work status fixture be anchored to an accepted direction?",
-        riskTier: "low",
-        urgency: "low",
-        vertical: "software/coding",
-        preset: "standard-task",
-        decisionClass: "ordinary",
-        appliesTo: { modules: ["cli"], productLines: [] },
-        chosen: [{ id: "CH1", text: "Anchor the fixture work to its accepted direction" }],
-        rejected: [{ id: "RJ1", text: "Leave the fixture work unlinked", whyNot: "The root would have no source" }],
-        claims: [],
-        fulfillments: [],
-      }),
-      "--body",
-      "# Work status fixture direction\n\n## Background\n\nThe fixture exercises derived work presentation.\n\n## Tradeoffs\n\nAn accepted direction keeps the root's source inspectable.\n\n## Conclusion\n\nAnchor the fixture work to the accepted direction.\n",
-    ]),
-    decisionId = String((JSON.parse(String(decisionProposal.evidence)) as { readonly decisionId: string }).decisionId);
-  assert.equal(decisionProposal.outcome, "applied", JSON.stringify(decisionProposal));
-  const acceptedDecision = run(root, env, [
-    "decision",
-    "accept",
-    decisionId,
-    "--rationale",
-    "The fixture records an effective work direction.",
-    "--judgment-only",
-    "The fixture only needs an accepted direction for its work root.",
-  ]);
-  assert.equal(acceptedDecision.outcome, "applied", JSON.stringify(acceptedDecision));
+  assert.equal(run(root, env, ["daemon", "stop"]).ok, true);
+  let decisionId: string;
+  try {
+    const cell = await openBootstrappedRepoCell({
+      repoId: workspaceId("runtime-cli"),
+      rootDir: canonicalRoot(root),
+      ownerId: "work-root-presentation-status",
+    });
+    try {
+      decisionId = await acceptedWorkDecision(
+        cell,
+        withPolicyGroup(
+          { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+          "contributor",
+        ),
+        "work-root-presentation-status",
+      );
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+  }
   const seed = (taskId: string, title: string, extra: readonly string[] = []) => {
     const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title, ...extra]),
       packagePath = String(created.packagePath);
