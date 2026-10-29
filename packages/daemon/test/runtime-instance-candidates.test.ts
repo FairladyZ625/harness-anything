@@ -5,7 +5,11 @@ import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
-import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "../src/runtime-instance-selection.ts";
+import {
+  agentRuntimeAmbiguityWarning,
+  runtimeInstanceModel,
+  selectedRuntimeInstance,
+} from "../src/runtime-instance-selection.ts";
 
 const instance = (
   instanceId: string,
@@ -624,6 +628,12 @@ test("provider/model declarations retain exact-match priority after extracting t
     }),
     ["codex-exact", "codex-casefold"],
   );
+});
+
+test("an exact provider/model catalog id is preserved before extracting its model", () => {
+  const tuple = '["deepseek-official","Deepseek-V4.1-Flash"]',
+    catalog = instance("deepseek-tuple", "deepseek-harness", "deepseek", [tuple]);
+  assert.equal(runtimeInstanceModel([catalog], "deepseek-tuple", tuple), tuple);
 });
 
 test("model compatibility rejects catalogs without an exact or case-insensitive match", () => {

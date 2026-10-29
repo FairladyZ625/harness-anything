@@ -96,10 +96,14 @@ export const agentRuntimeModelResolution = (
   requested: string | undefined,
 ): AgentRuntimeModelResolution | null => {
   if (requested === undefined) return null;
+  if (models.includes(requested)) return { model: requested, tier: 3 };
   const intent = modelIntent(requested);
   if (models.includes(intent)) return { model: intent, tier: 3 };
-  const folded = intent.toLowerCase(),
-    caseInsensitive = models.find((model) => model.toLowerCase() === folded);
+  const foldedRequest = requested.toLowerCase(),
+    caseInsensitiveRequest = models.find((model) => model.toLowerCase() === foldedRequest);
+  if (caseInsensitiveRequest !== undefined) return { model: caseInsensitiveRequest, tier: 2 };
+  const foldedIntent = intent.toLowerCase(),
+    caseInsensitive = models.find((model) => model.toLowerCase() === foldedIntent);
   if (caseInsensitive !== undefined) return { model: caseInsensitive, tier: 2 };
   return null;
 };
