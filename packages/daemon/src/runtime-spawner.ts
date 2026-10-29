@@ -44,6 +44,7 @@ import {
   dispatchMissionForPermission,
   decisionReviewTarget as parseDecisionReviewTarget,
   prepareRuntimeInstance,
+  resolveRuntimeInstanceCandidates,
   runtimeMissionName,
   resolveRuntimeMission,
   selfIterationCloseoutSection,
@@ -111,6 +112,42 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       input.prepareDaemonGitEnvironment?.(instanceId, provider).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
   let fallbackClosed = false;
+  const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
+    // A resumed dispatch carries its own model and instance in the recorded stream header; do not
+    // re-resolve it from the current declaration before the resume admission reads that header.
+    if (typeof payload.dispatchId === "string" || typeof payload.providerSessionId === "string") return;
+    const runtimeInstanceId =
+        typeof payload.runtimeInstanceId === "string"
+          ? requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId")
+          : undefined,
+      agentId =
+        typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
+          ? payload.agentId
+          : undefined,
+      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId) ?? null),
+      requested = runtimeInstanceId ?? agent?.instance;
+    if (requested === undefined) return;
+    const projection = input.remote ? null : requiredRuntimeProjection(input),
+      [sessions, instances, allowedInstanceIds, health] = await resolveRuntimeDispatchResources(
+        input,
+        input.remote,
+        projection,
+        processes,
+      );
+    resolveRuntimeInstanceCandidates({
+      ...(requested === undefined ? {} : { requested }),
+      ...(runtimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
+      ...(typeof payload.providerSessionId === "string" ? { providerSessionId: payload.providerSessionId } : {}),
+      agent,
+      ...(typeof payload.model === "string" ? { model: payload.model } : {}),
+      ...(typeof payload.runtimeKind === "string" ? { runtimeKind: payload.runtimeKind } : {}),
+      instances,
+      allowedInstanceIds,
+      sessions,
+      health,
+      now: input.now(),
+    });
+  };
   const extracted: RuntimeSpawnerContext = {
     input,
     requiredRuntimeStore,
@@ -321,18 +358,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : preparedWorktree,
         taskPackageRoot,
       );
-    const { taskMission, mission } = await resolveRuntimeMission({
-      rootDir: input.rootDir,
-      cwd,
-      taskId,
-      projection,
-      remoteTask,
-      taskSnapshot,
-      missionName,
-      explicitMission,
-      reviewerBinding: Boolean(reviewerBinding),
-    });
-    const fallbackMission = dispatchPromptTemplate(mission, newDispatchId);
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
@@ -359,13 +384,40 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "runtime_preconditions_unavailable",
         "Task-bound, scheduled, and read-only agent runtime spawn require a sealed daemon route before dispatch.",
       );
+    const requestedRuntimeInstanceId =
+      inheritedFallback?.candidates[inheritedFallback.candidateIndex ?? inheritedFallback.attemptIndex]?.instance ??
+      explicitRuntimeInstanceId ??
+      agent?.instance;
+    if (requestedRuntimeInstanceId !== undefined)
+      resolveRuntimeInstanceCandidates({
+        requested: requestedRuntimeInstanceId,
+        ...(payload.runtimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
+        providerSessionId: providerSessionId ?? undefined,
+        agent,
+        model,
+        instances: runtimeInstances,
+        allowedInstanceIds,
+        sessions: localRuntimeSessions,
+        health: providerHealth,
+        now: input.now(),
+      });
+    // A named instance and its model are validated before mission loading reads and assembles the
+    // submitted task cut; model errors must not wait behind review-context preparation.
+    const { taskMission, mission } = await resolveRuntimeMission({
+        rootDir: input.rootDir,
+        cwd,
+        taskId,
+        projection,
+        remoteTask,
+        taskSnapshot,
+        missionName,
+        explicitMission,
+        reviewerBinding: Boolean(reviewerBinding),
+      }),
+      fallbackMission = dispatchPromptTemplate(mission, newDispatchId);
     const selection = await prepareRuntimeInstance(
         {
-          requested:
-            inheritedFallback?.candidates[inheritedFallback.candidateIndex ?? inheritedFallback.attemptIndex]
-              ?.instance ??
-            explicitRuntimeInstanceId ??
-            agent?.instance,
+          requested: requestedRuntimeInstanceId,
           providerSessionId: providerSessionId ?? undefined,
           agent,
           model,
@@ -1103,12 +1155,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   };
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
-    prepareWorktree: (payload: JsonObject) =>
-      prepareDispatchWorktree(
+    prepareWorktree: async (payload: JsonObject) => {
+      // Explicit-instance and declared-Agent model failures must surface before checkout/setup
+      // work, which can run repository-configured install commands.
+      await preflightRuntimeSelection(payload);
+      return prepareDispatchWorktree(
         input,
         payload,
         readOnlyAttachDispatch(input, payload) ? () => null : projectedWorktreeBinding(input),
-      ),
+      );
+    },
     spawnHandoff: (
       checkpoint: RuntimeHandoffCheckpoint,
       payload: JsonObject,

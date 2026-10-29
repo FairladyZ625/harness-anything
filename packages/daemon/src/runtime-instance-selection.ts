@@ -1,5 +1,9 @@
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import { agentRuntimeModelTier, agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeModelResolution,
+  agentRuntimeModelTier,
+  agentRuntimeTargetForKind,
+} from "./agent-runtime-contract.ts";
 import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 
 /**
@@ -10,7 +14,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
  *  1. the declaration's runtimes row that admits the instance (an unbound dispatch shares one
  *     trailing row, which keeps its cross-kind behaviour unchanged);
  *  2. the declaration's `preferredInstances` order, when the instance is listed there;
- *  3. model-match tier: an exact catalog spelling (2) beats a case-insensitive one (1);
+ *  3. model-match tier: exact spelling beats case-insensitive spelling;
  *  4. live session load, dispatch only — see `prepareRuntimeInstance`;
  *  5. repository `runtime.allowedInstances` order, which the resolver already emits.
  *
@@ -48,8 +52,8 @@ export interface RuntimeInstanceRank {
   readonly rowIndex: number;
   /** Index in `preferredInstances`; `MAX_SAFE_INTEGER` when the declaration does not list it. */
   readonly preferenceIndex: number;
-  /** 2 exact model spelling, 1 case-insensitive spelling, 0 when no model matched. */
-  readonly modelTier: 0 | 1 | 2;
+  /** Exact spelling, case-insensitive spelling, or no match (3, 2, 0). */
+  readonly modelTier: 0 | 2 | 3;
 }
 
 export interface RuntimeInstanceRankInput {
@@ -59,8 +63,7 @@ export interface RuntimeInstanceRankInput {
   readonly instances: readonly RuntimeInstanceSummary[];
 }
 
-/** The model one instance must be asked for: the declaration/override when the catalog lists it
- *  verbatim, otherwise the catalog's own spelling of a case-insensitive match. */
+/** The model one instance must be asked for, using the shared declaration-to-catalog resolver. */
 export function runtimeInstanceModel(
   instances: readonly RuntimeInstanceSummary[],
   instanceId: string,
@@ -68,10 +71,9 @@ export function runtimeInstanceModel(
 ): string | null {
   const instance = instances.find((row) => row.instanceId === instanceId);
   if (instance === undefined) return requested ?? null;
-  if (requested === undefined) return instance.defaultModel;
-  if (instance.models.includes(requested)) return requested;
-  const folded = requested.toLowerCase();
-  return instance.models.find((model) => model.toLowerCase() === folded) ?? null;
+  return requested === undefined
+    ? instance.defaultModel
+    : (agentRuntimeModelResolution(instance.models, requested)?.model ?? null);
 }
 
 function declaredModelFor(input: RuntimeInstanceRankInput, instance: RuntimeInstanceSummary): string | undefined {
@@ -90,7 +92,7 @@ export function runtimeInstanceRank(input: RuntimeInstanceRankInput, instanceId:
   return {
     rowIndex: rowIndex === -1 ? runtimes.length : rowIndex,
     preferenceIndex: preferenceIndex === -1 ? Number.MAX_SAFE_INTEGER : preferenceIndex,
-    modelTier: instance === undefined ? 2 : agentRuntimeModelTier(instance.models, declaredModelFor(input, instance)),
+    modelTier: instance === undefined ? 3 : agentRuntimeModelTier(instance.models, declaredModelFor(input, instance)),
   };
 }
 
@@ -121,7 +123,7 @@ export function selectedRuntimeInstance(input: {
     launchModel = runtimeInstanceModel(input.instances, input.selected, declaredModel),
     preferred = input.agent?.preferredInstances ?? [],
     preferenceIndex = preferred.indexOf(input.selected),
-    tier = instance === undefined ? 2 : agentRuntimeModelTier(instance.models, declaredModel),
+    tier = instance === undefined ? 3 : agentRuntimeModelTier(instance.models, declaredModel),
     // Whether the model tier actually separated this instance from a competing candidate that
     // shares its runtime row. Without this the receipt would credit `exact-model` on a node where
     // every compatible instance spells the model identically — a true but hollow explanation.
@@ -141,8 +143,14 @@ export function selectedRuntimeInstance(input: {
       reason,
       model: launchModel,
     });
-  if (input.explicitlyRequested)
-    return selection("explicit-request", `The dispatch named instance ${input.selected} explicitly.`);
+  if (input.explicitlyRequested) {
+    const resolutionNote =
+      declaredModel !== undefined && launchModel !== null && declaredModel !== launchModel
+        ? ` ${input.model !== undefined ? "Requested model" : `Agent ${input.agent?.id ?? "dispatch"} declares model`} ` +
+          `${declaredModel}, which resolves to ${launchModel} on instance ${input.selected}.`
+        : "";
+    return selection("explicit-request", `The dispatch named instance ${input.selected} explicitly.${resolutionNote}`);
+  }
   if (input.resumedSession)
     return selection("resumed-session", `The resumed provider session runs on instance ${input.selected}.`);
   if (input.agent?.instance === input.selected)
@@ -153,13 +161,13 @@ export function selectedRuntimeInstance(input: {
       `Agent ${input.agent!.id} lists instance ${input.selected} at preferredInstances[${String(preferenceIndex)}]; ` +
         "it is enabled, compatible, and ready on this node.",
     );
-  if (declaredModel !== undefined && tier === 2 && modelSeparated)
+  if (declaredModel !== undefined && tier === 3 && modelSeparated)
     return selection(
       "exact-model",
       `Instance ${input.selected} (${kind}) lists the declared model ${declaredModel} verbatim, ` +
         "which ranks ahead of any instance matching it only case-insensitively.",
     );
-  if (declaredModel !== undefined && tier === 1)
+  if (declaredModel !== undefined && tier === 2)
     return selection(
       "case-insensitive-model",
       `Instance ${input.selected} (${kind}) lists the declared model ${declaredModel} only with different ` +

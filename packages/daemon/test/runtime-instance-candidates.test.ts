@@ -5,7 +5,11 @@ import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
-import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "../src/runtime-instance-selection.ts";
+import {
+  agentRuntimeAmbiguityWarning,
+  runtimeInstanceModel,
+  selectedRuntimeInstance,
+} from "../src/runtime-instance-selection.ts";
 
 const instance = (
   instanceId: string,
@@ -146,16 +150,20 @@ test("runtime row ranking retains explicit instance, model, and auth filtering",
     resolveRuntimeInstanceCandidates({ agent: agent(), model: "model-a", instances, sessions: [], allowedInstanceIds }),
     ["codex-ready"],
   );
-  assert.deepEqual(
-    resolveRuntimeInstanceCandidates({
-      requested: "devin-ready",
-      agent: agent(),
-      model: "model-a",
-      instances,
-      sessions: [],
-      allowedInstanceIds,
-    }),
-    ["devin-ready"],
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "devin-ready",
+        explicitlyRequested: true,
+        agent: agent(),
+        model: "model-a",
+        instances,
+        sessions: [],
+        allowedInstanceIds,
+      }),
+    (error: unknown) =>
+      (error as { code?: string; message?: string }).code === "invalid_runtime_model" &&
+      (error as { message?: string }).message?.includes("Supported models: model-b") === true,
   );
 });
 
@@ -602,6 +610,71 @@ test("a case-insensitive catalog spelling is compatible instead of agent_model_u
   );
 });
 
+test("provider/model declarations retain exact-match priority after extracting the catalog model", () => {
+  const declared: RuntimeAgent = {
+      ...agent(),
+      runtimes: [{ type: "codex", model: '["openai","GPT-6.1-Astra"]' }],
+    },
+    instances = [
+      instance("codex-casefold", "codex", "openai", ["gpt-6.1-astra"]),
+      instance("codex-exact", "codex", "openai", ["GPT-6.1-Astra"]),
+    ];
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: declared,
+      instances,
+      sessions: [],
+      allowedInstanceIds: ["codex-casefold", "codex-exact"],
+    }),
+    ["codex-exact", "codex-casefold"],
+  );
+});
+
+test("an exact provider/model catalog id is preserved before extracting its model", () => {
+  const tuple = '["deepseek-official","Deepseek-V4.1-Flash"]',
+    catalog = instance("deepseek-tuple", "deepseek-harness", "deepseek", [tuple]);
+  assert.equal(runtimeInstanceModel([catalog], "deepseek-tuple", tuple), tuple);
+});
+
+test("model compatibility rejects catalogs without an exact or case-insensitive match", () => {
+  const declared: RuntimeAgent = { ...agent(), runtimes: [{ type: "codex", model: "gpt-6.1-astra" }] };
+  for (const models of [["claude-sonnet"], ["gpt-5.6-sol"], ["gpt-5.6-sol", "gpt-5.6-terra"]])
+    assert.throws(
+      () =>
+        resolveRuntimeInstanceCandidates({
+          agent: declared,
+          instances: [instance("codex-no-match", "codex", "openai", models)],
+          sessions: [],
+          allowedInstanceIds: ["codex-no-match"],
+        }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { readonly code?: string }).code === "agent_model_unavailable" &&
+        error.message.includes("No enabled runtime instance declares model gpt-6.1-astra"),
+    );
+});
+
+test("an explicit instance with no matching model fails before launch preparation", () => {
+  const declared = deepseekReviewer(),
+    available = instance("ds-bailian", "deepseek-harness", "deepseek", ["gpt-5.6-sol"]);
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "ds-bailian",
+        agent: declared,
+        instances: [available],
+        sessions: [],
+        allowedInstanceIds: ["ds-bailian"],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { readonly code?: string }).code === "invalid_runtime_model" &&
+      error.message.includes("Supported models: gpt-5.6-sol") &&
+      error.message.includes("Use --model <supported-model>") &&
+      error.message.includes("--instance <instance-id>"),
+  );
+});
+
 test("preferredInstances orders same-row candidates ahead of the model tier and allowlist", () => {
   const instances = [
       deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]),
@@ -688,6 +761,22 @@ test("the selection reason reports an explicit request, a pin, and a declared pr
   );
   assert.equal(selectedRuntimeInstance({ agent, instances, selected: "ds-harness-api" }).basis, "declared-preference");
   assert.equal(selectedRuntimeInstance({ agent: null, instances, selected: "ds-bailian" }).basis, "runtime-row-order");
+});
+
+test("an explicit instance receipt records the declaration-to-catalog model resolution", () => {
+  const agent = deepseekReviewer(),
+    instances = [deepseekInstance("ds-bailian", ["Deepseek-V4.1-Flash"])],
+    selection = selectedRuntimeInstance({
+      agent,
+      instances,
+      selected: "ds-bailian",
+      explicitlyRequested: true,
+    });
+  assert.equal(selection.model, "Deepseek-V4.1-Flash");
+  assert.match(
+    selection.reason,
+    /Agent lab-glm-reviewer declares model deepseek-v4\.1-flash, which resolves to Deepseek-V4\.1-Flash on instance ds-bailian/u,
+  );
 });
 
 test("ambiguity warns while a pin or an exhaustive preference stays silent", () => {

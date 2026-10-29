@@ -966,6 +966,85 @@ test(
 );
 
 test(
+  "explicit task dispatch-review resolves a declared model to the instance catalog and reports the mapping",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      catalogModel: "Deepseek-V4.1-Flash",
+      agentModel: "deepseek-v4.1-flash",
+    });
+    try {
+      await f.install("review-first");
+      assert.equal((await f.submit()).outcome, "applied");
+      const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(first?.type === "runtime_dispatch_requested");
+      f.failPending();
+      await f.awaitOutcome(first.payload.runtimeSessionId);
+
+      const receipt = await f.run({
+        kind: "task-dispatch-review",
+        taskIds: [taskId],
+        runtimeInstanceId: "review-second",
+      });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(dispatchesOf(receipt)[0]?.instanceId, "review-second");
+      assert.equal(f.launches.at(-1)?.model, "Deepseek-V4.1-Flash");
+      assert.ok(
+        receipt.warnings?.some((warning) =>
+          /declares model deepseek-v4\.1-flash, which resolves to Deepseek-V4\.1-Flash on instance review-second/u.test(
+            warning,
+          ),
+        ),
+        JSON.stringify(receipt.warnings),
+      );
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "explicit task dispatch-review rejects an unavailable model before worktree setup",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      catalogModel: "Deepseek-V4.1-Flash",
+      agentModel: "deepseek-v4.1-flash",
+    });
+    try {
+      await f.install("review-first");
+      assert.equal((await f.submit()).outcome, "applied");
+      const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(first?.type === "runtime_dispatch_requested");
+      f.failPending();
+      await f.awaitOutcome(first.payload.runtimeSessionId);
+      await f.setWorktreeSetup(["run: exit 29"]);
+
+      const receipt = await f.run({
+        kind: "task-dispatch-review",
+        taskIds: [taskId],
+        runtimeInstanceId: "review-second",
+        model: "claude-sonnet",
+      });
+      assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+      assert.equal(receipt.code, "review_dispatch_failed");
+      const step = dispatchesOf(receipt)[0]!;
+      assert.equal(step.outcome, "failed", JSON.stringify(step));
+      assert.match(step.error ?? "", /Model claude-sonnet is not available on runtime instance review-second/u);
+      assert.match(step.error ?? "", /Supported models: Deepseek-V4\.1-Flash/u);
+      assert.doesNotMatch(step.error ?? "", /worktree_setup_failed/u);
+      assert.equal(f.launches.length, 1, "invalid model rejection must not launch a provider");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "a re-review resumes the prior reviewer provider session for the same task lane",
   { timeout: 30_000 },
   async () => {

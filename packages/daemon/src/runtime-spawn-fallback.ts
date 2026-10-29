@@ -20,7 +20,11 @@ import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.t
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
-import { agentRuntimeTargetForKind, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeModelMatches,
+  agentRuntimeTargetForKind,
+  agentRuntimeKindMatches,
+} from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -89,7 +93,7 @@ export function initialFallbackAttempt(
   if (
     pin &&
     (!anchor.enabled ||
-      !anchor.models.includes(model) ||
+      !agentRuntimeModelMatches(anchor.models, model) ||
       (anchor.authReadiness.status !== "ready" && anchor.authReadiness.code !== "runtime_auth_not_checked") ||
       (agent !== null && !agentRuntimeKindMatches(agent.runtimes, anchor.kindId)))
   )
@@ -108,13 +112,14 @@ export function initialFallbackAttempt(
       health,
       now,
     }).filter((instanceId) => instanceId !== resumedInstanceId),
-    requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
-    // A pin the availability filter removed (a cooling instance, or one outside the allowlist) is
-    // still attempt 0 — prepareRuntimeInstance validates the hard pin itself — so it must lead the
-    // chain. `slice(-1)` would have recorded the last row as candidates[0] and lost the pin.
-    successors = requestedIndex < 0 ? derivedInstances : derivedInstances.slice(requestedIndex),
+    configuredInstances = allowedInstanceIds?.filter((instanceId) => derivedInstances.includes(instanceId)),
+    fallbackOrder = configuredInstances ?? derivedInstances,
+    requestedIndex = pin ? fallbackOrder.indexOf(pin) : -1,
+    // A pinned attempt starts its fallback chain at its configured allowlist position; providers
+    // before it are not successors and must not be retried as fallbacks.
+    successors = pin === undefined || requestedIndex < 0 ? derivedInstances : fallbackOrder.slice(requestedIndex + 1),
     candidates = [
-      ...(pin !== undefined && requestedIndex < 0 ? [pin] : []),
+      ...(pin === undefined ? [] : [pin]),
       ...(resumedInstanceId === undefined ? [] : [resumedInstanceId]),
       ...successors,
     ].map((instanceId) => ({

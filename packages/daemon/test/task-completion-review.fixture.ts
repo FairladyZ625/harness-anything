@@ -137,6 +137,11 @@ export async function fixture(
     readonly closeoutProfile?: "standard" | "strict";
     readonly keycloakSession?: Parameters<typeof openRepoCell>[0]["keycloakSession"];
     readonly create?: Readonly<Record<string, unknown>>;
+    /** Override reviewer catalog and declaration model spellings for runtime-resolution tests. */
+    readonly catalogModel?: string;
+    readonly agentModel?: string;
+    /** Repository setup steps used to prove runtime admission precedes worktree preparation. */
+    readonly worktreeSetup?: readonly string[];
     /** Migration-window fixture: install the default reviewer in the pre-runtimes declaration
      * shape (`runtime_type` string plus top-level `model`) before the cell opens, appended as a
      * raw canonical command exactly the way the old daemon wrote it (current write paths refuse
@@ -146,7 +151,9 @@ export async function fixture(
   } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
-    repoId = workspaceId("completion-review");
+    repoId = workspaceId("completion-review"),
+    catalogModel = options.catalogModel ?? "review-model",
+    agentModel = options.agentModel ?? catalogModel;
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Completion Review Test");
   git(root, "config", "user.email", "review@example.invalid");
@@ -182,7 +189,13 @@ export async function fixture(
           ? []
           : [
               { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
-              ...(instancesAvailable ? [instance("review-first"), instance("review-second")] : []),
+              ...(instancesAvailable
+                ? ["review-first", "review-second"].map((instanceId) => ({
+                    ...instance(instanceId),
+                    models: [catalogModel],
+                    defaultModel: catalogModel,
+                  }))
+                : []),
             ],
       prepareRuntimeLaunch: (instanceId, request) => ({
         definition: {
@@ -192,7 +205,7 @@ export async function fixture(
           installationId: installation.installationId,
           kindId: "codex",
           providerId: "openai",
-          model: request.model ?? (instanceId === "ambient-first" ? "flash-model" : "review-model"),
+          model: request.model ?? (instanceId === "ambient-first" ? "flash-model" : catalogModel),
           reasoningEffort: null,
           fast: false,
           baseUrl: null,
@@ -275,15 +288,17 @@ export async function fixture(
       },
     });
   mkdirSync(path.join(root, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(root, "harness", "harness.yaml"),
+  const harnessConfig = (worktreeSetup?: readonly string[]) =>
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
-      "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
-      `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
-      (options.providerRoundBackoffBaseSeconds === undefined
-        ? ""
-        : `  runtime:\n    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`),
-  );
+    "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
+    `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
+    (options.providerRoundBackoffBaseSeconds === undefined
+      ? ""
+      : `  runtime:\n    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`) +
+    (worktreeSetup?.length
+      ? `  worktree:\n    setup:\n${worktreeSetup.map((step) => `      - ${JSON.stringify(step)}\n`).join("")}`
+      : "");
+  writeFileSync(path.join(root, "harness", "harness.yaml"), harnessConfig(options.worktreeSetup));
   if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
@@ -451,7 +466,7 @@ export async function fixture(
           id: "closeout-reviewer",
           name: "Independent reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
-          runtimes: [{ type: "codex", model: "review-model" }],
+          runtimes: [{ type: "codex", model: agentModel }],
           ...(instanceId === null ? {} : { instance: instanceId }),
           role: "worker",
         },
@@ -459,6 +474,11 @@ export async function fixture(
       assert.equal(installed.outcome, "applied", JSON.stringify(installed));
     },
     reopen: async () => {
+      await cell.close();
+      cell = await open();
+    },
+    setWorktreeSetup: async (steps: readonly string[]) => {
+      writeFileSync(path.join(root, "harness", "harness.yaml"), harnessConfig(steps));
       await cell.close();
       cell = await open();
     },

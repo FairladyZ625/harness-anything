@@ -1169,3 +1169,31 @@ test("install and validate warn when a valid declaration leaves the instance cho
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("Agent install rejects a different model with a shared version prefix", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-unavailable-model-")),
+    declaration = {
+      ...agent,
+      id: "gpt-family-reviewer",
+      name: "GPT family reviewer",
+      runtimes: [{ type: "codex", model: "gpt-6.1-astra" }],
+    };
+  try {
+    await assert.rejects(
+      () =>
+        install({
+          rootDir,
+          kind: "agent-install",
+          declaration,
+          runtimeInstances: [
+            { instanceId: "codex-single-family", kindId: "codex", models: ["gpt-5.6-sol"], enabled: true },
+          ],
+        }),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "agent_model_unavailable" &&
+        /ha runtime instance list/u.test(String((error as Error).message)),
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

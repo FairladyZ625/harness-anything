@@ -827,7 +827,8 @@ export async function dispatchTaskReview(
   const reviewerFromArgument =
       typeof action.agentId === "string" && action.agentId.length > 0 ? action.agentId : undefined,
     revision = cell.store.readHead()?.revision ?? 0,
-    steps: DispatchStep[] = [];
+    steps: DispatchStep[] = [],
+    warnings: string[] = [];
   for (const taskId of taskIds) {
     const fail = (error: string, reviewerId: string, executionId?: string) =>
       steps.push({
@@ -1013,7 +1014,16 @@ export async function dispatchTaskReview(
     try {
       // Already inside the center queue. Only launch admission is awaited; provider completion is not.
       const worktree = await cell.runtimeSpawner.prepareWorktree(payload);
-      await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree);
+      const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree),
+        selection = spawned.runtimeSelection;
+      if (selection !== null && typeof selection === "object" && !Array.isArray(selection)) {
+        const reason = "reason" in selection && typeof selection.reason === "string" ? selection.reason : undefined;
+        if (reason?.includes("resolves to")) {
+          const instanceId = "instanceId" in selection ? String(selection.instanceId) : "unknown",
+            basis = "basis" in selection && typeof selection.basis === "string" ? ` (${selection.basis})` : "";
+          warnings.push(`runtime instance: ${instanceId}${basis} — ${reason}`);
+        }
+      }
       // The spawner resolved the concrete instance; read it from the dispatch event this spawn
       // just applied so the receipt names the agent and instance that will run the review.
       const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
@@ -1040,7 +1050,9 @@ export async function dispatchTaskReview(
     opId: cell.operationId(action, binding, cell.input.repoId, revision),
     revision,
     ...(failed.length === 0 ? {} : { code: "review_dispatch_failed" }),
-    ...(failed.length === 0 ? {} : { warnings: failed.map((step) => `${step.taskId}: ${step.error ?? ""}`) }),
+    ...(failed.length === 0 && warnings.length === 0
+      ? {}
+      : { warnings: [...warnings, ...failed.map((step) => `${step.taskId}: ${step.error ?? ""}`)] }),
     ...(failed.length === steps.length
       ? { rejectionExplanation: failed.map((step) => `${step.taskId}: ${step.error ?? ""}`).join("; ") }
       : {}),

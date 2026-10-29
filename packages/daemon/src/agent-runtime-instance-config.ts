@@ -13,6 +13,7 @@ import type {
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "./runtime-permissions.ts";
+import { agentRuntimeModelSpelling } from "./agent-runtime-contract.ts";
 import {
   isRuntimeKindId,
   runtimeKindForId,
@@ -395,7 +396,8 @@ export function requireBoolean(value: unknown, field: string): boolean {
 
 export function selectRuntimeModel(config: RuntimeInstanceConfig, requested?: string): string {
   const model = requested === undefined ? config.defaultModel : requiredRuntimeInstanceText(requested, "model");
-  if (!config.models.includes(model))
+  const catalogModel = agentRuntimeModelSpelling(config.models, model);
+  if (catalogModel === null)
     throw runtimeInstanceError(
       "invalid_runtime_model",
       [
@@ -405,10 +407,11 @@ export function selectRuntimeModel(config: RuntimeInstanceConfig, requested?: st
         `${config.instanceId}`,
         ". Supported models: ",
         `${config.models.join(", ")}`,
-        ".",
+        ". Use --model <supported-model> or choose another runtime instance with --instance <instance-id>; " +
+          "run ha runtime instance list to see enabled instances.",
       ].join(""),
     );
-  return model;
+  return catalogModel;
 }
 
 export function selectRuntimeEffort(config: RuntimeInstanceConfig, requested?: string): string | null {
