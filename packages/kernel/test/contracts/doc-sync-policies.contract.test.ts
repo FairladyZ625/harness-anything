@@ -348,6 +348,44 @@ test("prose regions may be removed, renamed, or reordered while file deletion an
   assert.equal(reorderedResult.accepted, true, JSON.stringify(reorderedResult));
 });
 
+test("fenced and indented code examples are content, not heading anchors", () => {
+  const base = "# Notes\nBody\n",
+    prose = {
+      path: "context/notes.md",
+      baseBlobSha256: sha256Text(base),
+      policyId: DOC_POLICY_ID,
+    } as const,
+    fenced = [
+      "# Notes",
+      "Body",
+      "```text",
+      "# Notes",
+      "# N-8961-11",
+      "# N-8961-11",
+      "```",
+      "~~~sh",
+      "# Notes",
+      "# N-8961-12",
+      "# N-8961-12",
+      "~~~",
+      "    # Notes",
+      "    # indented code",
+      "",
+      "Tail.",
+      "",
+    ].join("\n"),
+    accepted = decide({ ...prose, candidate: claim(fenced) }, state(base), Buffer.from(fenced));
+  assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+
+  const duplicate = `${fenced}# Notes\nMore.\n`,
+    rejected = decide({ ...prose, candidate: claim(duplicate) }, state(base), Buffer.from(duplicate));
+  assert.equal(rejected.accepted, false);
+  if (!rejected.accepted) {
+    assert.equal(rejected.code, "unresolved_touch");
+    assert.equal(rejected.detail.unresolvedTouches[0]?.reason, "duplicate heading anchor");
+  }
+});
+
 test("prose policy accepts body replacement while freezing region proofs and content target", () => {
   const base = "# Notes\nOriginal sentence.\n",
     candidate = "# Notes\nReplacement sentence.\n",
