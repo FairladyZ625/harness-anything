@@ -106,6 +106,7 @@ const FIXTURE_TODO: TodoRow = {
   open: true,
   revision: 7,
   ref: `todo/${TODO_ID}`,
+  relations: [{ ref: `task/${TASK_A_ID}`, title: "G10 探针任务甲" }],
 };
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
@@ -888,6 +889,19 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     );
     const findings = scanDeadEntityIds(container, viewId, ENTITY_ID_NEEDLES);
     expect(findings).toEqual([]);
+  });
+
+  it("待办关联标题可激活并导航到其 ref", async () => {
+    const onNavigateEntity = vi.fn();
+    const container = await mountSurface(createElement(TodosView, { repoId: REPO_ID, onNavigateEntity }));
+    const relationLink = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "G10 探针任务甲",
+    );
+
+    expect(relationLink).not.toBeNull();
+    expect(relationLink!.title).toContain(`task/${TASK_A_ID}`);
+    await act(async () => relationLink!.click());
+    expect(onNavigateEntity).toHaveBeenCalledWith(`task/${TASK_A_ID}`);
   });
 
   it("额外表面:总池决策域进入专注裁决模式后无死 ID", async () => {
