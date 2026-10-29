@@ -56,7 +56,7 @@ test("two edges at the same entity fence distinguish new intent from an exact re
     assert.equal(kind.outcome, "applied", JSON.stringify(kind));
     const entityKind = JSON.parse(String(kind.evidence)).kindRef as string;
     const imported = await cell.run(
-      { kind: "entity-import", entityKind, locator: "source.md", expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind, locator: "source.md", expectedVersion: 0 },
       binding,
     );
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));
@@ -176,9 +176,21 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
     const kind = await run({ kind: "vertical-kind-upsert", kindId: declaration.id, expectedVersion: 0, declaration });
     assert.equal(kind.outcome, "applied", JSON.stringify(kind));
     const entityKind = JSON.parse(String(kind.evidence)).kindRef as string;
-    const imported = await run({ kind: "entity-import", entityKind, locator: "source.md", expectedVersion: 0 });
+    const imported = await run({
+      kind: "entity-import",
+      entityKind,
+      locator: "source.md",
+      mode: "snapshot",
+      expectedVersion: 0,
+    });
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));
-    const importRetry = await run({ kind: "entity-import", entityKind, locator: "source.md", expectedVersion: 0 });
+    const importRetry = await run({
+      kind: "entity-import",
+      entityKind,
+      locator: "source.md",
+      mode: "snapshot",
+      expectedVersion: 0,
+    });
     assert.equal(importRetry.outcome, "no_changes", JSON.stringify(importRetry));
     assert.equal(importRetry.entityId, imported.entityId);
     assert.equal(importRetry.opId, imported.opId);

@@ -116,11 +116,23 @@ test("Warm entity reads fold the accepted ledger forward instead of reloading it
       now: () => "2026-09-09T02:00:00.000Z",
     });
 
-    const adrRequest = { kind: "entity-import", entityKind: adrKind, locator: adrPath, expectedVersion: 0 },
+    const adrRequest = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: adrKind,
+        locator: adrPath,
+        expectedVersion: 0,
+      },
       imported = await cell.run(adrRequest, binding),
       adrId = entityIdOf(imported.evidence),
       importedResearch = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: researchPath, expectedVersion: 0 },
+        {
+          mode: "snapshot",
+          kind: "entity-import",
+          entityKind: researchKind,
+          locator: researchPath,
+          expectedVersion: 0,
+        },
         binding,
       ),
       researchId = entityIdOf(importedResearch.evidence);
@@ -285,7 +297,7 @@ test("An entity fold answers only for the ledger it was built from", async () =>
       });
       cells.push(cell);
       const imported = await cell.run(
-        { kind: "entity-import", entityKind: adrKind, locator: adrPath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: adrKind, locator: adrPath, expectedVersion: 0 },
         binding,
       );
       assert.equal(imported.outcome, "applied", JSON.stringify(imported));

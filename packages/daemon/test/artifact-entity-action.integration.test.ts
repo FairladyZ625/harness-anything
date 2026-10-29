@@ -9,10 +9,10 @@ import path from "node:path";
 import test from "node:test";
 import {
   entityContentPath,
-  requireEntityStoreKindContract,
   deriveArtifactContentVersion,
   makeTaskEventReader,
   makeTaskProjection,
+  requireEntityStoreKindContract,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -147,7 +147,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     const observer = makeTaskEventReader({ repoId, rootDir }),
       beforeEvents = observer.read().events.length,
       beforeStatus = git(rootDir, "status", "--porcelain=v1"),
-      request = { kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
+      request = { mode: "snapshot", kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
       previewReceipt = await cell.run({ ...request, dryRun: true }, binding);
     assert.equal(previewReceipt.outcome, "pending", JSON.stringify(previewReceipt));
     const preview = JSON.parse(String(previewReceipt.evidence)) as {
@@ -381,6 +381,189 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
   }
 });
 
+test("a snapshot can become a reference and reference entities support fenced update and delete", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-reference-mutations-")),
+    repoId = workspaceId("artifact-reference-mutations"),
+    sourcePath = "docs/reference-mutations.md";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.dirname(path.join(rootDir, sourcePath)), { recursive: true });
+    writeFileSync(path.join(rootDir, sourcePath), "# Reference mutation source\n\nSnapshot bytes.\n");
+    git(rootDir, "add", sourcePath);
+    git(rootDir, "commit", "-qm", "add reference mutation source");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "artifact-reference-mutations-center",
+      now: () => "2026-10-29T00:00:00.000Z",
+    });
+
+    const snapshot = await cell.run(
+      { kind: "entity-import", entityKind: kind, locator: sourcePath, mode: "snapshot", expectedVersion: 0 },
+      binding,
+    );
+    assert.equal(snapshot.outcome, "applied", JSON.stringify(snapshot));
+    await waitForFixturePublication(cell, snapshot.opId, binding);
+    const snapshotEvent = makeTaskEventReader({ repoId, rootDir })
+      .read()
+      .events.find((event) => event.opId === snapshot.opId);
+    assert.ok(
+      snapshotEvent?.schema === "entity-event/v1" && snapshotEvent.type === "entity_content_observed",
+      "accepted snapshot must retain its frozen Artifact contract",
+    );
+    const entityId = String(snapshot.entityId),
+      declarationPath = path.join(
+        rootDir,
+        "harness",
+        snapshotEvent.payload.artifactContract.pathTemplate.replace("{id}", entityId),
+      ),
+      contentRoot = declarationPath.replace(/\.json$/u, "");
+    assert.equal(existsSync(declarationPath), true);
+    assert.equal(existsSync(path.join(contentRoot, "reference-mutations.md")), true);
+
+    const reference = await cell.run(
+      {
+        kind: "entity-import",
+        entityKind: kind,
+        entityId,
+        locator: sourcePath,
+        locatorKind: "repository-path",
+        mode: "reference",
+        contentVersion: "revision:declared-17",
+        expectedVersion: snapshot.revision,
+      },
+      binding,
+    );
+    assert.equal(reference.outcome, "applied", JSON.stringify(reference));
+    await waitForFixturePublication(cell, reference.opId, binding);
+    assert.equal(existsSync(declarationPath), false, "snapshot declaration must retire on reference conversion");
+    assert.equal(existsSync(contentRoot), false, "snapshot-owned content must retire on reference conversion");
+
+    const updated = await cell.run(
+      {
+        kind: "entity-update",
+        entityKind: kind,
+        entityId,
+        expectedVersion: reference.revision,
+        title: "Reference mutation source revised",
+        contentVersion: "revision:declared-18",
+      },
+      secondaryNodeBinding,
+    );
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    assert.equal(updated.opId && String(updated.opId).startsWith("entity-update-"), true);
+    const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
+      row = (
+        JSON.parse(String(listed.evidence)) as {
+          readonly entities: readonly {
+            readonly id: string;
+            readonly value: {
+              readonly title: string;
+              readonly contentVersion: string | null;
+              readonly declaredContentVersion: string | null;
+              readonly observationMode: string;
+              readonly contentState: string;
+            };
+          }[];
+        }
+      ).entities.find(({ id }) => id === entityId);
+    assert.deepEqual(
+      row && {
+        title: row.value.title,
+        contentVersion: row.value.contentVersion,
+        declaredContentVersion: row.value.declaredContentVersion,
+        observationMode: row.value.observationMode,
+        contentState: row.value.contentState,
+      },
+      {
+        title: "Reference mutation source revised",
+        contentVersion: null,
+        declaredContentVersion: "revision:declared-18",
+        observationMode: "reference",
+        contentState: "unobserved",
+      },
+    );
+    const updateRetry = await cell.run(
+      {
+        kind: "entity-update",
+        entityKind: kind,
+        entityId,
+        expectedVersion: reference.revision,
+        title: "Reference mutation source revised",
+        contentVersion: "revision:declared-18",
+      },
+      binding,
+    );
+    assert.equal(updateRetry.outcome, "no_changes", JSON.stringify(updateRetry));
+    assert.equal(updateRetry.opId, updated.opId);
+
+    const deleted = await cell.run(
+      {
+        kind: "entity-delete",
+        entityKind: kind,
+        entityId,
+        expectedVersion: updated.revision,
+        reason: "retire the external reference",
+      },
+      secondaryNodeBinding,
+    );
+    assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+    const deleteRetry = await cell.run(
+      {
+        kind: "entity-delete",
+        entityKind: kind,
+        entityId,
+        expectedVersion: updated.revision,
+        reason: "retire the external reference",
+      },
+      binding,
+    );
+    assert.equal(deleteRetry.outcome, "no_changes", JSON.stringify(deleteRetry));
+    assert.equal(deleteRetry.opId, deleted.opId);
+    const afterDelete = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
+      afterDeleteRows = (
+        JSON.parse(String(afterDelete.evidence)) as { readonly entities: readonly { readonly id: string }[] }
+      ).entities;
+    assert.equal(
+      afterDeleteRows.some(({ id }) => id === entityId),
+      false,
+    );
+
+    const referenceEvents = makeTaskEventReader({ repoId, rootDir })
+      .read()
+      .events.filter(
+        (event) =>
+          event.schema === "entity-event/v1" &&
+          event.payload.entityKind === kind &&
+          event.payload.entityId === entityId,
+      );
+    assert.deepEqual(
+      referenceEvents.map(({ type }) => type),
+      ["entity_content_observed", "entity_reference_declared", "entity_reference_declared", "entity_deleted"],
+    );
+    assert.equal(
+      referenceEvents[2]?.type === "entity_reference_declared" && referenceEvents[2].payload.mutation,
+      "update",
+    );
+    assert.equal(referenceEvents[3]?.type === "entity_deleted" && referenceEvents[3].payload.referenceEntity, true);
+    await cell.close();
+    cell = undefined;
+
+    const rebuildStore = makeTaskEventReader({ repoId, rootDir }),
+      rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-10-29T00:01:00.000Z" });
+    try {
+      rebuilt.rebuild();
+      assert.equal(rebuilt.getEntity(kind, entityId), null, "reference deletion must replay into the read model");
+    } finally {
+      rebuilt.close();
+    }
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("URL source resolution does not block a concurrent repository write", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-artifact-import-")),
     repoId = workspaceId("url-artifact-import");
@@ -421,7 +604,7 @@ test("URL source resolution does not block a concurrent repository write", async
     assert.ok(address && typeof address === "object");
     const url = `http://127.0.0.1:${String(address.port)}/hanging.md`;
     const importing = cell.run(
-      { kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
       binding,
     );
     const started = Date.now();
@@ -486,6 +669,7 @@ test("URL source resolution times out when response body never completes", async
     const started = Date.now(),
       imported = await cell.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: kindRef,
           locator: `http://127.0.0.1:${String(address.port)}/partial.md`,
@@ -568,6 +752,7 @@ test("URL source resolution completes while seven writers keep the repository qu
     const started = Date.now(),
       imported = await cell.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: kindRef,
           locator: `http://127.0.0.1:${String(address.port)}/note.md`,
@@ -614,7 +799,13 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
       now: () => "2026-09-05T02:00:00.000Z",
     });
 
-    const request = { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+    const request = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: sourcePath,
+        expectedVersion: 0,
+      },
       first = await cell.run(request, binding),
       replay = await cell.run(request, secondaryNodeBinding),
       firstPreview = (
@@ -685,7 +876,13 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     mkdirSync(fallbackSource, { recursive: true });
     writeFileSync(path.join(fallbackSource, "notes.md"), "No heading.\n");
     const fallback = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: fallbackPath, expectedVersion: 0 },
+        {
+          mode: "snapshot",
+          kind: "entity-import",
+          entityKind: researchKind,
+          locator: fallbackPath,
+          expectedVersion: 0,
+        },
         binding,
       ),
       fallbackList = await cell.run({ kind: "entity-list", entityKind: researchKind }, binding),
@@ -737,7 +934,7 @@ test("Artifact import publishes original bytes to Git and the worktree independe
     });
 
     const receipt = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       ),
       entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
@@ -811,7 +1008,7 @@ test("Artifact import owns empty and non-text files across a directory source", 
     });
 
     const receipt = await cell.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       ),
       entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,

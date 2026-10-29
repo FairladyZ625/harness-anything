@@ -95,6 +95,7 @@ export default {
       await page.getByTestId("governed-entity-new").click();
       const wizard = page.getByTestId("new-entity-wizard");
       await wizard.waitFor();
+      await wizard.getByTestId("new-entity-wizard-mode-snapshot").click();
       await wizard.getByTestId("new-entity-wizard-source-repository-path").click();
       // 还没有同 kind 实体可推起点:给一个仓内目录再浏览。整串输完输入框才让位给浏览器。
       await wizard.getByLabel("浏览起点目录").fill(PROBE_DIRECTORY);
@@ -184,6 +185,7 @@ export default {
       // 8. v2 期新建实例:属性表单按**这一版声明**长出来,必填项没填就交不出去。
       await page.getByTestId("governed-entity-new").click();
       await wizard.waitFor();
+      await wizard.getByTestId("new-entity-wizard-mode-snapshot").click();
       await wizard.getByTestId("new-entity-wizard-source-repository-path").click();
       // 这个 kind 现在有既有实体了,浏览器直接落在它们的公共父目录上,不再问起点。
       assert.equal(
@@ -521,6 +523,7 @@ export default {
       // 3. 新建走 entity import:这个 kind 只声明 repository-path,向导直接给仓内浏览器。
       await page.getByTestId("governed-entity-new").click();
       await wizard.waitFor();
+      await wizard.getByTestId("new-entity-wizard-mode-snapshot").click();
       await wizard.getByLabel("浏览起点目录").fill(SHARED_SOURCE_DIRECTORY);
       await wizard.getByTestId("new-entity-wizard-seed-browse").click();
       await wizard.getByTestId(`repo-path-entry-${SHARED_SOURCE}`).click();
@@ -576,6 +579,7 @@ export default {
       await researchCard.click();
       await page.getByTestId("governed-entity-new").click();
       await wizard.waitFor();
+      await wizard.getByTestId("new-entity-wizard-mode-snapshot").click();
       await wizard.getByLabel("浏览起点目录").fill(SHARED_SOURCE_DIRECTORY);
       await wizard.getByTestId("new-entity-wizard-seed-browse").click();
       await wizard.getByTestId(`repo-path-entry-${SHARED_SOURCE}`).click();
@@ -594,6 +598,7 @@ export default {
       // 7. 真 PDF:读面对二进制不载字节,所以这里给事实卡而不是一个空的「预览」。
       await page.getByTestId("governed-entity-new").click();
       await wizard.waitFor();
+      await wizard.getByTestId("new-entity-wizard-mode-snapshot").click();
       await wizard.getByTestId(`repo-path-entry-${PDF_SOURCE}`).click();
       await wizard.getByTestId("new-entity-wizard-title-override").waitFor();
       await wizard.getByTestId("new-entity-wizard-title-override").fill("Research · PDF 探针");
@@ -627,6 +632,7 @@ export default {
       //    daemon 真实 GET 那个一次性 HTTP 服务,title 按 url 末段推导。
       await page.getByTestId("governed-entity-new").click();
       await wizard.waitFor();
+      await wizard.getByTestId("new-entity-wizard-mode-snapshot").click();
       await wizard.getByLabel("外部 URL").fill(issueUrl);
       await wizard.getByTestId("new-entity-wizard-title-override").waitFor();
       assert.match(

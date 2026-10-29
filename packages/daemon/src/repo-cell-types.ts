@@ -37,6 +37,8 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 };
 
 export interface RepoCellBinding {
+  /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
+  readonly sourceNodeId?: string;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
   readonly taskClaimant?: TaskClaimant;

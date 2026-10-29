@@ -40,7 +40,7 @@ test("real Entity import survives gen3 CLI conversion, retained content and a fr
     writeFileSync(path.join(root, "input", "zero.bin"), Buffer.alloc(0));
     cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "conversion-fixture" });
     const imported = await cell.run(
-      { kind: "entity-import", entityKind: kind, locator: "input", expectedVersion: 0 },
+      { mode: "snapshot", kind: "entity-import", entityKind: kind, locator: "input", expectedVersion: 0 },
       binding,
     );
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));

@@ -95,6 +95,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     // 2. Import an instance; it pins the kind's newest schema version and carries pure attributes.
     const firstImport = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "notes/first.md",
@@ -114,6 +115,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     // Negative: a non-scalar attribute value is refused rather than quietly dropped.
     const nonScalar = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "notes/second.md",
@@ -128,6 +130,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     // Negative: version 1 declares no `confidence`, so the pinned schema refuses it.
     const undeclared = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "notes/second.md",
@@ -191,6 +194,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     // 5. A new instance pins version 2 and may use the attribute version 2 introduced.
     const secondImport = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "notes/second.md",
@@ -249,6 +253,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     assert.equal(archived.outcome, "applied", JSON.stringify(archived));
     const blocked = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "notes/third.md",
@@ -416,6 +421,7 @@ test("Kind fences are per Kind, and an accepted Kind outlives its worktree mater
     // 3. An instance exists under the accepted Kind.
     const imported = await cell.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: noteRef,
         locator: "notes/first.md",

@@ -102,7 +102,9 @@ test(
       repoId: replicationRepoId,
       position: null,
       edgeBuildCommit: null,
-      taskEventShapeVersion: 3,
+      // Version 4 edges cannot parse/project entity_reference_declared; the center must reject them
+      // before sending a durable event that this implementation does not understand.
+      taskEventShapeVersion: 4,
     });
     assert.equal(response.type, "replica.reject");
     if (response.type !== "replica.reject") return;

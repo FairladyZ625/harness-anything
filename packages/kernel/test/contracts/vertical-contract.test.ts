@@ -55,6 +55,9 @@ test("artifact declarations compile to immutable BaseEntity and generic entity-s
     "title",
     "locator",
     "contentVersion",
+    "observationMode",
+    "contentState",
+    "declaredContentVersion",
     "attributes",
     "source",
   ]);

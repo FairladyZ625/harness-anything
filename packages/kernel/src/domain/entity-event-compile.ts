@@ -16,6 +16,7 @@ import {
   entityDeletedWritePlan,
   agentRetiredWritePlan,
   entityTargetMissingWritePlan,
+  entityReferenceDeclaredWritePlan,
   entityUpsertWritePlan,
   validateCurrentEntityEvent,
   type EntityArchivedEventV1,
@@ -25,6 +26,7 @@ import {
   type EntityDeletedEventV1,
   type EntityEventV1,
   type EntityTargetMissingEventV1,
+  type EntityReferenceDeclaredEventV1,
   type EntityUpdatedEventV1,
   type EntityUpsertEventV1,
 } from "./entity-event.ts";
@@ -62,6 +64,12 @@ export interface EntityContentObservedBundle {
 export interface EntityTargetMissingBundle {
   readonly event: EntityTargetMissingEventV1;
   readonly plan: FrozenWritePlan<"EntityTargetMissing">;
+  readonly blobs: readonly [];
+}
+
+export interface EntityReferenceDeclaredBundle {
+  readonly event: EntityReferenceDeclaredEventV1;
+  readonly plan: FrozenWritePlan<"EntityReferenceDeclared">;
   readonly blobs: readonly [];
 }
 
@@ -135,6 +143,7 @@ export function compileEntityContentObserved(
   },
 ): EntityContentObservedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
+    contentVersion = requireObservedContentVersion(descriptor),
     { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
     sourceContent = input.sourceContent ?? [],
     ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent, {
@@ -152,7 +161,7 @@ export function compileEntityContentObserved(
         ownedContent,
         locator: descriptor.locator,
         sourceIdentity: descriptor.source,
-        observedContentVersion: descriptor.contentVersion,
+        observedContentVersion: contentVersion,
         resolver: input.resolver,
         observationId: input.observationId,
         artifactContract: input.contractSnapshot,
@@ -191,6 +200,57 @@ export function compileEntityTargetMissing(
   return { event, plan: entityTargetMissingWritePlan(event), blobs: [] };
 }
 
+export function compileEntityReferenceDeclared(
+  input: EntityEventEnvelopeInput & {
+    readonly contract: EntityStoreKindContract;
+    readonly contractSnapshot: ArtifactEntityContractSnapshot;
+    readonly descriptor: ArtifactDescriptor;
+    readonly sourceNodeId?: string;
+    readonly mutation?: "update";
+    readonly observationId: string;
+    readonly retirements?: readonly EntityContentRetirement[];
+    readonly retiredDirectories?: readonly string[];
+  },
+): EntityReferenceDeclaredBundle {
+  const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor);
+  if (
+    descriptor.observationMode !== "reference" ||
+    descriptor.contentState !== "unobserved" ||
+    descriptor.contentVersion !== null
+  )
+    throw new Error("entity reference descriptor must remain unobserved");
+  const ownedContent = createEntityOwnedContent({
+      ownerRef: input.contract.kind + "/" + descriptor.entityId,
+      schemaId: input.contract.schema.$id,
+      schemaVersion: entitySchemaVersion(input.contract.schema.$id),
+      bindings: [],
+      retirements: input.retirements ?? [],
+      directoryRetirements: (input.retiredDirectories ?? []).map((path) => ({ path })),
+    }),
+    event: EntityReferenceDeclaredEventV1 = {
+      ...eventEnvelope(input),
+      type: "entity_reference_declared",
+      payload: {
+        entityKind: input.contract.kind,
+        entityId: descriptor.entityId,
+        descriptor,
+        locator: descriptor.locator,
+        sourceIdentity: descriptor.source,
+        ...(input.sourceNodeId === undefined ? {} : { sourceNodeId: input.sourceNodeId }),
+        ...(descriptor.declaredContentVersion === undefined
+          ? {}
+          : { declaredContentVersion: descriptor.declaredContentVersion }),
+        ...(input.mutation === undefined ? {} : { mutation: input.mutation }),
+        resolver: "reference",
+        observationId: input.observationId,
+        artifactContract: input.contractSnapshot,
+        ownedContent,
+      },
+    };
+  assertValidCurrent(event);
+  return { event, plan: entityReferenceDeclaredWritePlan(event), blobs: [] };
+}
+
 export function compileEntityUpdated(
   input: EntityEventEnvelopeInput & {
     readonly contract: EntityStoreKindContract;
@@ -207,6 +267,7 @@ export function compileEntityUpdated(
   },
 ): EntityUpdatedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
+    contentVersion = requireObservedContentVersion(descriptor),
     { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
     sourceContent = input.sourceContent ?? [],
     ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent, {
@@ -217,7 +278,7 @@ export function compileEntityUpdated(
     observationId = artifactObservationId({
       entityId: descriptor.entityId,
       locator: descriptor.locator,
-      resolution: descriptor.contentVersion,
+      resolution: contentVersion,
     }),
     event: EntityUpdatedEventV1 = {
       ...eventEnvelope(input),
@@ -229,7 +290,7 @@ export function compileEntityUpdated(
         ownedContent,
         locator: descriptor.locator,
         sourceIdentity: descriptor.source,
-        observedContentVersion: descriptor.contentVersion,
+        observedContentVersion: contentVersion,
         resolver: "descriptor-update",
         observationId,
         artifactContract: input.contractSnapshot,
@@ -273,7 +334,8 @@ export function compileEntityDeleted(
   input: EntityEventEnvelopeInput & {
     readonly entityKind: string;
     readonly entityId: string;
-    readonly baseBlobSha256: string;
+    readonly baseBlobSha256?: string;
+    readonly referenceEntity?: boolean;
     readonly reason: string;
     readonly contract?: EntityStoreKindContract;
     readonly contentRetirements?: readonly EntityContentRetirement[];
@@ -288,10 +350,16 @@ export function compileEntityDeleted(
       schemaId: contract.schema.$id,
       schemaVersion: entitySchemaVersion(contract.schema.$id),
       bindings: [],
-      retirements: [
-        { path, baseBlobSha256: input.baseBlobSha256 },
-        ...(input.contentRetirements ?? []).filter((retired) => retired.path !== path),
-      ],
+      retirements: input.referenceEntity
+        ? []
+        : input.baseBlobSha256
+          ? [
+              { path, baseBlobSha256: input.baseBlobSha256 },
+              ...(input.contentRetirements ?? []).filter((retired) => retired.path !== path),
+            ]
+          : (() => {
+              throw new Error("Entity delete requires its declaration document retirement.");
+            })(),
       // A delete states every directory the entity held, because it will hold none of them afterwards. Nothing
       // is derived from what happens to be on disk: a directory the entity never held is not named here and is
       // therefore never touched, however empty it is.
@@ -304,6 +372,7 @@ export function compileEntityDeleted(
         entityKind: contract.kind,
         entityId: input.entityId,
         reason: input.reason.trim(),
+        ...(input.referenceEntity === true ? { referenceEntity: true as const } : {}),
         ownedContent,
       },
     };
@@ -362,6 +431,17 @@ function eventEnvelope(input: EntityEventEnvelopeInput) {
 
 function blob(claim: EntityDeclarationClaim, body: string): EntityDeclarationBlob {
   return { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body };
+}
+
+function requireObservedContentVersion(descriptor: ArtifactDescriptor): string {
+  if (
+    typeof descriptor.contentVersion !== "string" ||
+    !descriptor.contentVersion ||
+    descriptor.observationMode === "reference" ||
+    descriptor.contentState === "unobserved"
+  )
+    throw new Error("observed artifact event requires an observed content version");
+  return descriptor.contentVersion;
 }
 
 function assertValidCurrent(event: EntityEventV1): void {

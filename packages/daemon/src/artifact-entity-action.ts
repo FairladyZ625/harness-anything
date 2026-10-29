@@ -12,11 +12,14 @@ import {
 } from "@harness-anything/application";
 import {
   compiledRelationDirections,
+  artifactObservationId,
   artifactEntityContractSnapshot,
   artifactMutationOperationId,
+  canonicalArtifactReferenceSourceIdentity,
   canonicalArtifactLocator,
   compileEntityArchived,
   compileEntityDeleted,
+  compileEntityReferenceDeclared,
   compileEntityUpdated,
   compileVerticalContract,
   pinnedArtifactKindContract,
@@ -254,39 +257,65 @@ export function executeArtifactEntityMutation(input: {
       source: input.binding.source,
       occurredAt: input.now(),
     },
+    mutationSourceNodeId =
+      typeof input.binding.source === "object" && input.binding.source.kind === "node"
+        ? input.binding.source.nodeId
+        : input.binding.sourceNodeId,
     pinned = pinnedArtifactKindContract(compiled, kindVersion) as unknown as EntityStoreKindContract,
     bundle =
       action.kind === "entity-update"
-        ? updatedBundle(
-            action,
-            current.descriptor,
-            compiled,
-            contractSnapshot,
-            { ...envelope, opId },
-            carriedContent(pinned, entityId, current.ownedContent),
-            carriedDirectories(pinned, entityId, current.ownedContent),
-            entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
-          )
+        ? current.descriptor.observationMode === "reference"
+          ? updatedReferenceBundle(
+              action,
+              current.descriptor,
+              pinned,
+              contractSnapshot,
+              { ...envelope, opId },
+              input.repositoryId,
+              mutationSourceNodeId,
+              current.sourceNodeId,
+            )
+          : updatedBundle(
+              action,
+              current.descriptor,
+              compiled,
+              contractSnapshot,
+              { ...envelope, opId },
+              carriedContent(pinned, entityId, current.ownedContent),
+              carriedDirectories(pinned, entityId, current.ownedContent),
+              entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
+            )
         : action.kind === "entity-delete"
-          ? compileEntityDeleted({
-              ...envelope,
-              eventId: `event-${opId}`,
-              opId,
-              contract: pinned,
-              entityKind: kind,
-              entityId,
-              // Every path the entity still binds is retired together; leaving its imported bytes on disk
-              // would strand files no event owns any more.
-              baseBlobSha256: declarationRetirement(pinned, entityId, current.ownedContent),
-              contentRetirements: (current.ownedContent?.bindings ?? []).map(({ path, contentSha256 }) => ({
-                path,
-                baseBlobSha256: contentSha256,
-              })) satisfies readonly EntityContentRetirement[],
-              // The directories go with the files, and only the ones the accepted manifest says the entity held:
-              // a directory the user made inside the content root was never the entity's and is not named here.
-              heldDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
-              reason: requiredArtifactText(action.reason, "reason"),
-            })
+          ? current.descriptor.observationMode === "reference"
+            ? compileEntityDeleted({
+                ...envelope,
+                eventId: `event-${opId}`,
+                opId,
+                contract: pinned,
+                entityKind: kind,
+                entityId,
+                referenceEntity: true,
+                reason: requiredArtifactText(action.reason, "reason"),
+              })
+            : compileEntityDeleted({
+                ...envelope,
+                eventId: `event-${opId}`,
+                opId,
+                contract: pinned,
+                entityKind: kind,
+                entityId,
+                // Every path the entity still binds is retired together; leaving its imported bytes on disk
+                // would strand files no event owns any more.
+                baseBlobSha256: declarationRetirement(pinned, entityId, current.ownedContent),
+                contentRetirements: (current.ownedContent?.bindings ?? []).map(({ path, contentSha256 }) => ({
+                  path,
+                  baseBlobSha256: contentSha256,
+                })) satisfies readonly EntityContentRetirement[],
+                // The directories go with the files, and only the ones the accepted manifest says the entity held:
+                // a directory the user made inside the content root was never the entity's and is not named here.
+                heldDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
+                reason: requiredArtifactText(action.reason, "reason"),
+              })
           : compileEntityArchived({
               ...envelope,
               eventId: `event-${opId}`,
@@ -371,6 +400,66 @@ function updatedBundle(
   });
 }
 
+function updatedReferenceBundle(
+  action: RepoTaskAction,
+  current: NonNullable<ArtifactEntityCurrent["descriptor"]>,
+  contract: EntityStoreKindContract,
+  contractSnapshot: ReturnType<typeof artifactEntityContractSnapshot>,
+  envelope: {
+    readonly opId: string;
+    readonly workspaceRevision: number;
+    readonly actor: RepoCellBinding["actor"];
+    readonly source: RepoCellBinding["source"];
+    readonly occurredAt: string;
+  },
+  repositoryId: string,
+  mutationSourceNodeId: string | undefined,
+  currentSourceNodeId: string | undefined,
+) {
+  const locator =
+      typeof action.locator === "string"
+        ? canonicalArtifactLocator({ kind: current.locator.kind, value: action.locator })
+        : current.locator,
+    sameLocator = locator.kind === current.locator.kind && locator.value === current.locator.value,
+    nodeLocal =
+      locator.kind === "local-path" || (locator.kind === "external-key" && locator.value.startsWith("local-kb:")),
+    sourceNodeId = nodeLocal ? (sameLocator ? currentSourceNodeId : mutationSourceNodeId) : undefined;
+  if (nodeLocal && !sourceNodeId)
+    throw new ArtifactEntityServiceError(
+      "invalid_command",
+      "A local reference update must run on the node that registers its locator.",
+    );
+  const sourceIdentity = sameLocator
+      ? current.source
+      : canonicalArtifactReferenceSourceIdentity(locator, repositoryId, sourceNodeId),
+    declaredContentVersion =
+      typeof action.contentVersion === "string" ? action.contentVersion.trim() : current.declaredContentVersion;
+  if (typeof action.contentVersion === "string" && !declaredContentVersion)
+    throw new ArtifactEntityServiceError("invalid_command", "contentVersion must be a non-empty string.");
+  const descriptor: ArtifactDescriptor = {
+      ...current,
+      locator,
+      source: sourceIdentity,
+      contentVersion: null,
+      observationMode: "reference",
+      contentState: "unobserved",
+      ...(declaredContentVersion === undefined ? {} : { declaredContentVersion }),
+      ...(typeof action.title === "string" ? { title: action.title.trim() } : {}),
+      ...(action.attributes === undefined ? {} : { attributes: action.attributes as ArtifactDescriptor["attributes"] }),
+    },
+    resolution = `reference:${declaredContentVersion ?? "unversioned"}`;
+  return compileEntityReferenceDeclared({
+    ...envelope,
+    eventId: `event-${envelope.opId}`,
+    contract,
+    contractSnapshot,
+    descriptor,
+    ...(sourceNodeId === undefined ? {} : { sourceNodeId }),
+    mutation: "update",
+    observationId: artifactObservationId({ entityId: descriptor.entityId, locator, resolution }),
+  });
+}
+
 export async function runArtifactEntityImport(input: {
   readonly rootDir: string;
   readonly repositoryId: string;
@@ -384,6 +473,7 @@ export async function runArtifactEntityImport(input: {
   readonly sourceResolution?: ArtifactSourceResolution;
 }): Promise<ArtifactImportReceipt> {
   const service = makeArtifactEntityService({
+      repositoryId: input.repositoryId,
       contracts: input.contracts,
       resolveSource: (locator, contract) =>
         input.sourceResolution
@@ -413,6 +503,11 @@ export async function runArtifactEntityImport(input: {
         kind: requiredArtifactText(input.action.entityKind, "entityKind"),
         locator: requiredArtifactText(input.action.locator, "locator"),
         expectedVersion: Number(input.action.expectedVersion),
+        ...(input.action.mode === "reference" || input.action.mode === "snapshot" ? { mode: input.action.mode } : {}),
+        ...(typeof input.action.locatorKind === "string"
+          ? { locatorKind: input.action.locatorKind as ArtifactDescriptor["locator"]["kind"] }
+          : {}),
+        ...(typeof input.action.contentVersion === "string" ? { contentVersion: input.action.contentVersion } : {}),
         ...(typeof input.action.title === "string" ? { title: input.action.title } : {}),
         ...(typeof input.action.entityId === "string" ? { entityId: input.action.entityId } : {}),
         ...(typeof input.action.sourceIdentity === "string" ? { sourceIdentity: input.action.sourceIdentity } : {}),
@@ -424,6 +519,10 @@ export async function runArtifactEntityImport(input: {
       {
         actor: input.binding.actor,
         source: input.binding.source,
+        sourceNodeId:
+          typeof input.binding.source === "object" && input.binding.source.kind === "node"
+            ? input.binding.source.nodeId
+            : input.binding.sourceNodeId,
         occurredAt: input.now(),
         workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
       },
@@ -441,6 +540,9 @@ export async function runArtifactEntityImport(input: {
       entityId: prepared.preview.entityId,
       evidence: JSON.stringify({
         schema: "artifact-entity-import-result/v1",
+        mode: prepared.preview.mode,
+        contentState: prepared.preview.contentState,
+        ...(prepared.preview.mode === "reference" ? { message: "Reference registered; content not fetched." } : {}),
         preview: prepared.preview,
         dryRun: false,
         commitSha: appended.commitSha?.sha ?? null,
@@ -654,9 +756,11 @@ export function describeCurrentArtifact(
   // that was actually asked for, so an unreadable blob stays an error about that entity, and the fold never has
   // to be rebuilt because the reader is holding a different compiled contract than the one that filled it.
   const descriptor =
-      state.declarationClaimSha === null
-        ? null
-        : readArtifactDescriptor(contract, artifactDeclarationDocument(store, state.declarationClaimSha)),
+      state.inlineDescriptor !== undefined
+        ? readArtifactDescriptor(contract, state.inlineDescriptor)
+        : state.declarationClaimSha === null
+          ? null
+          : readArtifactDescriptor(contract, artifactDeclarationDocument(store, state.declarationClaimSha)),
     ownedContent = state.ownedContent,
     pinned = pinnedArtifactKindContract(
       contract,
@@ -665,6 +769,7 @@ export function describeCurrentArtifact(
   return {
     descriptor,
     revision: state.revision,
+    ...(state.sourceNodeId === undefined ? {} : { sourceNodeId: state.sourceNodeId }),
     ownedContent,
     ownedDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), ownedContent),
     ownedPaths: (ownedContent?.bindings ?? []).map(({ path: bound, contentSha256 }) => ({

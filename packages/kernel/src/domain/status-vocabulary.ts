@@ -16,6 +16,7 @@ export type StatusEntity =
   | "SquadRun"
   | "WriteReceipt"
   | "AuthorizationDecision"
+  | "Artifact"
   | "EntityActionCriterion"
   | "Recovery"
   | "Materialization"
@@ -188,6 +189,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/receipt-acceptance.ts",
     anchor: "receiptWaitStates",
     words: ["satisfied", "timed_out"],
+  },
+  {
+    id: "artifact.contentState",
+    entity: "Artifact",
+    field: "contentState",
+    module: "packages/kernel/src/domain/artifact-entity.ts",
+    anchor: "#contentState",
+    words: ["unobserved", "observed"],
   },
   {
     id: "entity-action-criterion.status",

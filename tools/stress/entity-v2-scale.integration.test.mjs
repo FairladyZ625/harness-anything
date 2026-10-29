@@ -173,7 +173,7 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
     writeFileSync(path.join(directory, "README.md"), text);
     writeFileSync(path.join(directory, "sample.bin"), binary);
     return {
-      argv: ["entity", "import", "--kind", kind, "--locator", locator, "--expected-version", "0"],
+      argv: ["entity", "import", "--kind", kind, "--mode", "snapshot", "--locator", locator, "--expected-version", "0"],
       text,
       binary,
     };

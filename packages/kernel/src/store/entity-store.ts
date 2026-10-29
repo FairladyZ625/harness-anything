@@ -16,8 +16,8 @@ export interface StoredEntity<T = unknown> {
   readonly kind: string;
   readonly id: string;
   readonly value: T;
-  readonly documentPath: string;
-  readonly documentSha256: string;
+  readonly documentPath: string | null;
+  readonly documentSha256: string | null;
   readonly workspaceRevision: number;
 }
 
@@ -73,7 +73,8 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
         isEntityDeclarationEvent(previous) &&
         (isEntityDeclarationEvent(event) || event.type === "entity_deleted")
       )
-        cache.records.delete(previous.payload.declarationDocumentClaim.sha256);
+        if (previous.type !== "entity_reference_declared")
+          cache.records.delete(previous.payload.declarationDocumentClaim.sha256);
       if (isEntityDeclarationEvent(event)) latest.set(event.payload.entityId, event);
       else if (event.type === "entity_deleted") latest.delete(event.payload.entityId);
     }
@@ -93,9 +94,12 @@ export function createEntityStore(
       return requireEntityStoreKindContract(kind);
     } catch (error) {
       const declaration = [...(entityEventCache(source).get(kind)?.values() ?? [])].find(
-        (event) => event.type === "entity_content_observed",
+        (event) => event.type === "entity_content_observed" || event.type === "entity_reference_declared",
       );
-      if (declaration && declaration.type === "entity_content_observed")
+      if (
+        declaration &&
+        (declaration.type === "entity_content_observed" || declaration.type === "entity_reference_declared")
+      )
         return contractForDeclarationEvent(declaration);
       throw error;
     }
@@ -171,6 +175,22 @@ function entityEventRecord(
   contract: ReturnType<typeof requireEntityStoreKindContract>,
 ): StoredEntity {
   if (!isEntityDeclarationEvent(event)) throw new Error("entity target-missing event has no declaration document");
+  if (event.type === "entity_reference_declared") {
+    const eventContract = contractForDeclarationEvent(event);
+    if (eventContract.kind !== contract.kind) throw new Error("entity declaration contract kind mismatch");
+    const entity = interpretEntityValue(eventContract, event.payload.descriptor),
+      contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
+    if (contractErrors.length) throw new Error(contractErrors.join("; "));
+    if (entity.id !== event.payload.entityId) throw new Error("entity reference identity mismatch");
+    return deepFreeze({
+      kind: contract.kind,
+      id: event.payload.entityId,
+      value: entity.value,
+      documentPath: null,
+      documentSha256: null,
+      workspaceRevision: event.workspaceRevision,
+    });
+  }
   const claim = event.payload.declarationDocumentClaim,
     cache = entityEventCaches.get(source)!.records,
     cached = cache.get(claim.sha256);

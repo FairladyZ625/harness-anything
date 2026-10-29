@@ -275,6 +275,40 @@ export const agentProtocolCommands = Object.freeze([
         code: "missing_field",
       }),
       cliInput(
+        "--mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "mode",
+          enum: ["reference", "snapshot"],
+          description:
+            "Select --mode explicitly. reference records the locator without reading it; use it in personal or non-central repositories when the original should stay authoritative and easy to update. snapshot reads and stores observed bytes in Harness; use it for file documents governed by a central repository. Examples: ha entity import --kind <kind> --mode reference --expected-version 0 --locator https://example.invalid/minutes --locator-kind url; ha entity import --kind <kind> --mode snapshot --expected-version 0 --locator docs/minutes.md --locator-kind repository-path.",
+        },
+      ),
+      cliInput(
+        "--locator-kind",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "locatorKind",
+          enum: ["repository-path", "url", "external-key", "local-path"],
+          description:
+            "Selects the locator grammar. Reference supports repository-path, url with any absolute scheme, local-path (a file URL or absolute path), and external-key (provider:project:key). A local path is resolvable only on the registering node.",
+        },
+      ),
+      cliInput(
+        "--content-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "contentVersion",
+          description: "Optional caller-declared version for reference mode; never treated as observed content.",
+        },
+      ),
+      cliInput(
         "--expected-version",
         "single",
         true,

@@ -463,10 +463,100 @@ describe("new entity wizard (goal 1)", () => {
     expect(container.querySelector('[aria-label="外部 URL"]')).toBeNull();
   });
 
+  it("requires an explicit mode and keeps reference preview off source content", async () => {
+    const state = stubCrudBridge([crudRow("ADR-0001", "docs/adr/ADR-0001.md")]);
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    expect(container.querySelector('[data-testid="new-entity-wizard-submit"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="new-entity-wizard-mode-reference"]')?.getAttribute("aria-pressed"),
+    ).toBe("false");
+    await click(container, "new-entity-wizard-mode-reference");
+    await click(container, "repo-path-entry-docs/adr/ADR-0002.md");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="new-entity-wizard-locator"]')?.textContent).toBe(
+        "docs/adr/ADR-0002.md",
+      ),
+    );
+    expect(state.locatorCalls).not.toContain("docs/adr/ADR-0002.md");
+    expect(container.querySelector('[data-testid="new-entity-wizard-preview-area"]')?.textContent).toContain(
+      "ADR-0002",
+    );
+    await click(container, "new-entity-wizard-submit");
+    expect(state.imports).toEqual([
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "docs/adr/ADR-0002.md",
+        locatorKind: "repository-path",
+        mode: "reference",
+        expectedVersion: 0,
+      },
+    ]);
+  });
+
+  it("registers a node-local path and caller-declared version without reading source contents", async () => {
+    const state = stubCrudBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-reference");
+    await click(container, "new-entity-wizard-source-local-path");
+    await typeInto(container, "本机仓外路径(仅引用;只在登记节点定位)", "/Users/example/ZeYu-AI-Brain/minutes.md");
+    await typeInto(container, "调用方声明的内容版本", "revision-17");
+    expect(state.locatorCalls).toEqual([]);
+    await click(container, "new-entity-wizard-submit");
+    expect(state.imports).toEqual([
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "/Users/example/ZeYu-AI-Brain/minutes.md",
+        locatorKind: "local-path",
+        mode: "reference",
+        expectedVersion: 0,
+        contentVersion: "revision-17",
+      },
+    ]);
+  });
+
+  it("registers an external system key as a reference and leaves its declared version optional", async () => {
+    const state = stubCrudBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-reference");
+    await click(container, "new-entity-wizard-source-external-key");
+    await typeInto(container, "外部系统键(仅引用;例如 provider:project:key)", "local-kb:brain:minutes/2026-10-28");
+    expect(state.locatorCalls).toEqual([]);
+    await click(container, "new-entity-wizard-submit");
+    expect(state.imports).toEqual([
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "local-kb:brain:minutes/2026-10-28",
+        locatorKind: "external-key",
+        mode: "reference",
+        expectedVersion: 0,
+      },
+    ]);
+  });
+
+  it("does not read a directory README to preview a reference", async () => {
+    const state = stubCrudBridge([crudRow("ADR-0001", "docs/adr/ADR-0001.md")]);
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-reference");
+    await click(container, "repo-path-entry-docs/adr/research");
+    await click(container, "repo-path-browser-pick-directory");
+    expect(container.querySelector('[data-testid="new-entity-wizard-preview-area"]')?.textContent).toContain(
+      "research",
+    );
+    expect(state.locatorCalls).not.toContain("docs/adr/research/README.md");
+  });
+
   it("navigates directories, previews the derived title and id, then imports without a hand-written id", async () => {
     const state = stubCrudBridge([crudRow("ADR-0001", "docs/adr/ADR-0001.md")]);
     const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
     await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-snapshot");
     // 进入子目录:对子路径再发同一条目录读。
     await click(container, "repo-path-entry-docs/adr/research");
     expect(state.locatorCalls).toContain("docs/adr/research");
@@ -483,7 +573,14 @@ describe("new entity wizard (goal 1)", () => {
     // 导入:expectedVersion 恒 0,title 留空就不发,人不填任何身份字段。
     await click(container, "new-entity-wizard-submit");
     expect(state.imports).toEqual([
-      { repoId: REPO_ID, entityKind: ADR_KIND, locator: "docs/adr/research/notes.md", expectedVersion: 0 },
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "docs/adr/research/notes.md",
+        locatorKind: "repository-path",
+        mode: "snapshot",
+        expectedVersion: 0,
+      },
     ]);
     // 回执 applied 后:向导退出,行缓存刷新,新实体被选中,正文就是它自己收下的那一份。
     expect(container.querySelector('[data-testid="new-entity-wizard"]')).toBeNull();
@@ -498,6 +595,7 @@ describe("new entity wizard (goal 1)", () => {
     const state = stubCrudBridge([crudRow("ADR-0001", "docs/adr/ADR-0001.md")]);
     const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
     await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-snapshot");
     await click(container, "repo-path-entry-docs/adr/research");
     await click(container, "repo-path-browser-pick-directory");
     // 目录目标要等 listing → README 读的串行链加 id 推导,轮询到内容就位。
@@ -508,7 +606,14 @@ describe("new entity wizard (goal 1)", () => {
     );
     await click(container, "new-entity-wizard-submit");
     expect(state.imports).toEqual([
-      { repoId: REPO_ID, entityKind: ADR_KIND, locator: "docs/adr/research", expectedVersion: 0 },
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "docs/adr/research",
+        locatorKind: "repository-path",
+        mode: "snapshot",
+        expectedVersion: 0,
+      },
     ]);
   });
 });
@@ -553,6 +658,7 @@ describe("declared attributes on the new-entity wizard (E5)", () => {
     );
     const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
     await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-snapshot");
     await vi.waitFor(() =>
       expect(container.querySelector('[data-testid="new-entity-wizard-attributes"]')).not.toBeNull(),
     );
@@ -576,6 +682,7 @@ describe("declared attributes on the new-entity wizard (E5)", () => {
     );
     const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
     await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-snapshot");
     await click(container, "repo-path-entry-docs/adr/ADR-0002.md");
     await vi.waitFor(() => expect(container.querySelector('[data-testid="new-entity-wizard-submit"]')).not.toBeNull());
     expect(container.querySelector<HTMLButtonElement>('[data-testid="new-entity-wizard-submit"]')?.disabled).toBe(true);
@@ -593,6 +700,7 @@ describe("declared attributes on the new-entity wizard (E5)", () => {
     );
     const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
     await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-snapshot");
     await click(container, "repo-path-entry-docs/adr/ADR-0002.md");
     await vi.waitFor(() => expect(container.querySelector('select[aria-label="region"]')).not.toBeNull());
     await pickOption(container, "region", "north");
@@ -606,6 +714,8 @@ describe("declared attributes on the new-entity wizard (E5)", () => {
         repoId: REPO_ID,
         entityKind: ADR_KIND,
         locator: "docs/adr/ADR-0002.md",
+        locatorKind: "repository-path",
+        mode: "snapshot",
         expectedVersion: 0,
         attributes: { region: "north", fiscalYear: 2026, reviewed: true },
       },

@@ -61,7 +61,7 @@ test("two edges derive one identity and operation; replay precedes the Entity re
       readOperation: (opId) => operations.get(opId) ?? null,
       countRelationChanges: () => 3,
     }),
-    request = { kind: contract.typeIdentity, locator: "docs/adr.md", expectedVersion: 0 },
+    request = { kind: contract.typeIdentity, locator: "docs/adr.md", expectedVersion: 0, mode: "snapshot" as const },
     edgeOne = await service.prepare(request, envelope);
   operations.set(edgeOne.bundle.event.opId, edgeOne.bundle.event);
   current = { descriptor: JSON.parse(edgeOne.bundle.blobs[0]!.body) as ArtifactDescriptor, revision: 1 };
@@ -104,7 +104,7 @@ test("dry-run and missing resolution compile plans without mutating any dependen
       countRelationChanges: () => 0,
     }),
     prepared = await service.prepare(
-      { kind: contract.typeIdentity, locator: "docs/missing.md", expectedVersion: 0, dryRun: true },
+      { kind: contract.typeIdentity, locator: "docs/missing.md", expectedVersion: 0, mode: "snapshot", dryRun: true },
       envelope,
     );
   assert.equal(prepared.bundle, null);
@@ -134,11 +134,121 @@ test("a resolver network error is unknown, not an authoritative missing observat
   });
   await assert.rejects(
     service.prepare(
-      { kind: contract.typeIdentity, locator: "docs/adr.md", expectedVersion: 4 },
+      { kind: contract.typeIdentity, locator: "docs/adr.md", expectedVersion: 4, mode: "snapshot" },
       { ...envelope, workspaceRevision: 5 },
     ),
     (error: unknown) => (error as { code?: string }).code === "source_resolution_failed",
   );
   assert.deepEqual(current, { descriptor: null, revision: 4 });
   assert.equal(operationReads, 0, "a network error does not become an observation operation");
+});
+
+test("reference mode registers URL, local path, and external key without resolving content", async () => {
+  let resolverCalls = 0;
+  const referenceContract = {
+    ...contract,
+    declaration: {
+      ...contract.declaration,
+      locatorKinds: ["repository-path", "url", "external-key", "local-path"] as const,
+    },
+  } as typeof contract;
+  const service = makeArtifactEntityService({
+    repositoryId: "canonical",
+    contracts: [referenceContract],
+    resolveSource: async () => {
+      resolverCalls += 1;
+      throw new Error("reference must not resolve");
+    },
+    readCurrent: () => null,
+    resolveSourceBinding: () => ({ entityId: null, generation: 0 }),
+    randomEntityIdBytes: () => new Uint8Array(ARTIFACT_ENTITY_ID_BYTES),
+    readOperation: () => null,
+    countRelationChanges: () => 2,
+  });
+  for (const request of [
+    {
+      locator: "https://feishu.example/minutes?id=2",
+      locatorKind: "url" as const,
+      contentVersion: "revision-2",
+    },
+    {
+      locator: "/Users/example/ZeYu-AI-Brain/minutes.md",
+      locatorKind: "local-path" as const,
+      contentVersion: "sha256:declared",
+    },
+    {
+      locator: "local-kb:brain:minutes/2026-10-28",
+      locatorKind: "external-key" as const,
+    },
+  ]) {
+    const prepared = await service.prepare(
+      { kind: referenceContract.typeIdentity, expectedVersion: 0, mode: "reference", ...request },
+      { ...envelope, sourceNodeId: "node-edge-1" },
+    );
+    assert.equal(prepared.preview.mode, "reference");
+    assert.equal(prepared.preview.contentState, "unobserved");
+    assert.equal(prepared.preview.candidateContentVersion, null);
+    assert.equal(prepared.preview.relationChanges, 2);
+    assert.equal(prepared.bundle?.event.type, "entity_reference_declared");
+    assert.equal(prepared.bundle?.blobs.length, 0);
+  }
+  assert.equal(resolverCalls, 0);
+});
+
+test("import mode is required and its guidance is executable", async () => {
+  const service = makeArtifactEntityService({
+    contracts: [contract],
+    resolveSource: async () => {
+      throw new Error("not reached");
+    },
+    readCurrent: () => null,
+    resolveSourceBinding: () => ({ entityId: null, generation: 0 }),
+    randomEntityIdBytes: () => new Uint8Array(ARTIFACT_ENTITY_ID_BYTES),
+    readOperation: () => null,
+    countRelationChanges: () => 0,
+  });
+  await assert.rejects(
+    service.prepare(
+      {
+        kind: contract.typeIdentity,
+        locator: "https://feishu.example/minutes?id=2&view=full",
+        locatorKind: "url",
+        expectedVersion: 0,
+      },
+      envelope,
+    ),
+    (error: unknown) => {
+      const message = String((error as Error).message);
+      assert.match(message, /reference records only the locator/u);
+      assert.match(message, /snapshot reads and stores the source bytes/u);
+      assert.match(
+        message,
+        /--locator 'https:\/\/feishu\.example\/minutes\?id=2&view=full' --locator-kind url --mode reference --expected-version 0/u,
+      );
+      assert.match(
+        message,
+        /--locator 'https:\/\/feishu\.example\/minutes\?id=2&view=full' --locator-kind url --mode snapshot --expected-version 0/u,
+      );
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    service.prepare(
+      {
+        kind: contract.typeIdentity,
+        locator: "/Users/example/ZeYu-AI-Brain/minutes.md",
+        locatorKind: "local-path",
+        expectedVersion: 0,
+      },
+      envelope,
+    ),
+    (error: unknown) => {
+      const message = String((error as Error).message);
+      assert.match(message, /--locator-kind local-path --mode reference/u);
+      assert.match(message, /Snapshot reads repository-path or URL sources/u);
+      assert.match(message, /--locator 'docs\/minutes\.md' --locator-kind repository-path --mode snapshot/u);
+      return true;
+    },
+  );
 });

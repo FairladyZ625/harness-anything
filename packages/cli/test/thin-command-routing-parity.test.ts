@@ -16,7 +16,13 @@ import { unknownFieldViolation } from "@harness-anything/daemon/internal/protoco
 import { taskCreateGuidance } from "@harness-anything/daemon/internal/receipt-guidance";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { workspacePathFormat } from "@harness-anything/preset/internal/preset-command-contract";
-import { cliCapabilities, deriveThinCliInputs, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import {
+  cliCapabilities,
+  deriveThinCliInputs,
+  parseThinCommand,
+  renderThinCapabilities,
+  renderThinHelp,
+} from "../src/cli/thin-command.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
@@ -272,6 +278,8 @@ test("entity import and update carry declared attributes as one typed JSON objec
     "import",
     "--kind",
     "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    "--mode",
+    "snapshot",
     "--locator",
     "surveys/north",
     "--expected-version",
@@ -286,6 +294,7 @@ test("entity import and update carry declared attributes as one typed JSON objec
   assert.deepEqual(imported.command.action, {
     kind: "entity-import",
     entityKind: "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    mode: "snapshot",
     locator: "surveys/north",
     expectedVersion: 0,
     attributes: { region: "north", fiscalYear: 2026 },
@@ -342,6 +351,8 @@ test("entity import projects its concurrency and dry-run flags into one daemon A
     "import",
     "--kind",
     "software/coding/architecture-decision-record@1",
+    "--mode",
+    "snapshot",
     "--locator",
     "harness/adr/0001.md",
     "--expected-version",
@@ -354,6 +365,7 @@ test("entity import projects its concurrency and dry-run flags into one daemon A
   assert.deepEqual(parsed.command.action, {
     kind: "entity-import",
     entityKind: "software/coding/architecture-decision-record@1",
+    mode: "snapshot",
     locator: "harness/adr/0001.md",
     expectedVersion: 0,
     dryRun: true,
@@ -364,6 +376,8 @@ test("entity import projects its concurrency and dry-run flags into one daemon A
       "import",
       "--kind",
       "software/coding/architecture-decision-record@1",
+      "--mode",
+      "snapshot",
       "--locator",
       "moved.md",
       "--expected-version",
@@ -373,6 +387,47 @@ test("entity import projects its concurrency and dry-run flags into one daemon A
     ]).ok,
     false,
   );
+});
+
+test("entity import help and capabilities explain explicit reference and snapshot modes", () => {
+  const parsed = parseThinCommand([
+      "entity",
+      "import",
+      "--kind",
+      "entity-kind/KND-1234567890abcdef1234567890abcdef",
+      "--locator",
+      "https://feishu.example/minutes",
+      "--locator-kind",
+      "url",
+      "--mode",
+      "reference",
+      "--content-version",
+      "revision-42",
+      "--expected-version",
+      "0",
+    ]),
+    help = renderThinHelp([], "entity", "ha entity import"),
+    capabilities = renderThinCapabilities();
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok)
+    assert.deepEqual(parsed.command.action, {
+      kind: "entity-import",
+      entityKind: "entity-kind/KND-1234567890abcdef1234567890abcdef",
+      locator: "https://feishu.example/minutes",
+      locatorKind: "url",
+      mode: "reference",
+      contentVersion: "revision-42",
+      expectedVersion: 0,
+    });
+  for (const output of [help, capabilities]) {
+    assert.match(output, /Select --mode explicitly/u);
+    assert.match(output, /reference records the locator without reading it/u);
+    assert.match(output, /snapshot reads and stores observed bytes in Harness/u);
+    assert.match(output, /repository-path, url .* local-path .* external-key/u);
+    assert.match(output, /local path is resolvable only on the registering node/u);
+    assert.match(output, /--mode reference --expected-version 0/u);
+    assert.match(output, /--mode snapshot --expected-version 0/u);
+  }
 });
 
 test("entity update and archive preserve the entity revision fence", () => {

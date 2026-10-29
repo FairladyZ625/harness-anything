@@ -407,7 +407,7 @@ function catalogExplanation(
                 contractVersion: `${action.version.major}.${action.version.minor}`,
                 explain: action.explain,
                 syntax: {
-                  usage: `ha entity import --kind ${kind} --locator <locator> --expected-version <revision>`,
+                  usage: `ha entity import --kind ${kind} --locator <locator> --mode <reference|snapshot> --expected-version <revision>`,
                   inputs: action.input.fields,
                 },
               },

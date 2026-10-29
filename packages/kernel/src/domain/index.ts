@@ -368,6 +368,7 @@ export {
 } from "./vertical-declaration.ts";
 export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from "./vertical-declaration.ts";
 export { buildVerticalDeclarationRead } from "./vertical-declaration.ts";
+export { artifactLocatorKinds } from "./vertical-definition.ts";
 export type { VerticalDefinition } from "./vertical-definition.ts";
 export { settingsUpdateInputFields } from "./settings-action-contract.ts";
 export { repositorySettingsActionValues } from "./settings-action-values.ts";
@@ -405,6 +406,7 @@ export { artifactEntityImportActionInput } from "./artifact-entity-actions.ts";
 
 export {
   compileEntityContentObserved,
+  compileEntityReferenceDeclared,
   compileEntityArchived,
   compileEntityUpdated,
   compileEntityTargetMissing,
@@ -415,6 +417,7 @@ export {
   type AgentRetiredBundle,
   type EntityDeletedBundle,
   type EntityTargetMissingBundle,
+  type EntityReferenceDeclaredBundle,
   type EntityUpsertBundle,
 } from "./entity-event-compile.ts";
 export {
@@ -443,6 +446,7 @@ export {
   artifactObservationId,
   artifactMutationOperationId,
   canonicalArtifactLocator,
+  canonicalArtifactReferenceSourceIdentity,
   canonicalSourceIdentity,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,

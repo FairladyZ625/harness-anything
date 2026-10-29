@@ -80,7 +80,7 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
     });
     const baselineRevision = makeTaskEventReader({ repoId, rootDir }).read().revision,
       interrupted = await crashed.run(
-        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        { mode: "snapshot", kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
         binding,
       );
     // The receipt is the whole point of this stage: durable acceptance, no claim of publication, and the opId
@@ -226,7 +226,13 @@ test("An entity import interrupted before acceptance leaves nothing accepted and
         }
       },
     });
-    const request = { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+    const request = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: sourcePath,
+        expectedVersion: 0,
+      },
       baselineRevision = makeTaskEventReader({ repoId, rootDir }).read().revision,
       refused = await crashed.run(request, binding);
     assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
@@ -323,7 +329,13 @@ test("An entity import under a superseded writer epoch writes nothing while the 
       defaultWriterEpochFence: fenceOf(oldLease),
     });
     const held = await stale.run(
-      { kind: "entity-import", entityKind: researchKind, locator: "research/held.md", expectedVersion: 0 },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: "research/held.md",
+        expectedVersion: 0,
+      },
       fenced(oldAuthority, oldLease),
     );
     assert.equal(held.outcome, "applied", JSON.stringify(held));
@@ -334,7 +346,13 @@ test("An entity import under a superseded writer epoch writes nothing while the 
     const beforeStale = makeTaskEventReader({ repoId, rootDir }).read();
     const refused = await stale
       .run(
-        { kind: "entity-import", entityKind: researchKind, locator: "research/refused.md", expectedVersion: 0 },
+        {
+          mode: "snapshot",
+          kind: "entity-import",
+          entityKind: researchKind,
+          locator: "research/refused.md",
+          expectedVersion: 0,
+        },
         fenced(oldAuthority, oldLease),
       )
       .then(
@@ -362,7 +380,13 @@ test("An entity import under a superseded writer epoch writes nothing while the 
       defaultWriterEpochFence: fenceOf(newLease),
     });
     const accepted = await current.run(
-      { kind: "entity-import", entityKind: researchKind, locator: "research/refused.md", expectedVersion: 0 },
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: "research/refused.md",
+        expectedVersion: 0,
+      },
       fenced(newAuthority, newLease),
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
@@ -414,7 +438,13 @@ test("An import and the delete that ends it leave the source untouched, and a re
       ownerId: "entity-source-preservation-center",
       now: () => "2026-09-09T23:00:00.000Z",
     });
-    const request = { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+    const request = {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: researchKind,
+        locator: sourcePath,
+        expectedVersion: 0,
+      },
       imported = await first.run(request, binding),
       entityId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId,
       root = `entities/research/${entityId}`;
@@ -511,6 +541,7 @@ test("An instance pinned to schema v1 reads back unchanged from a cold process a
     const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef,
       pinned = await declaring.run(
         {
+          mode: "snapshot",
           kind: "entity-import",
           entityKind: kindRef,
           locator: "notes/pinned.md",
@@ -567,6 +598,7 @@ test("An instance pinned to schema v1 reads back unchanged from a cold process a
     // Control: the registry really did move, so the v1 answer above is a pin and not a reader that missed v2.
     const later = await cold.run(
       {
+        mode: "snapshot",
         kind: "entity-import",
         entityKind: kindRef,
         locator: "notes/later.md",
@@ -670,7 +702,7 @@ if (arm === "accept-and-hang") {
   });
   try {
     const receipt = await cell.run(
-      { kind: "entity-import", entityKind: kindRef, locator, expectedVersion: 0 },
+      { kind: "entity-import", entityKind: kindRef, locator, mode: "snapshot", expectedVersion: 0 },
       binding,
     );
     emit({ signal: "survived-its-killpoint", outcome: receipt.outcome, opId: receipt.opId });

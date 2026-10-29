@@ -3,9 +3,12 @@ import {
   artifactImportOperationId,
   importBindingGeneration,
   artifactObservationId,
+  canonicalArtifactReferenceSourceIdentity,
+  artifactLocatorKinds,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
   compileEntityContentObserved,
+  compileEntityReferenceDeclared,
   compileEntityTargetMissing,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
@@ -22,10 +25,13 @@ import {
   type CompiledArtifactKindContract,
   type EntityContentBlob,
   type EntityContentObservedBundle,
+  type EntityReferenceDeclaredBundle,
   type EntityEventV1,
   type EntityTargetMissingBundle,
   type WriteSource,
 } from "@harness-anything/kernel";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 export interface ArtifactSourceObserved {
   readonly status: "observed";
@@ -52,6 +58,9 @@ export interface ArtifactEntityImportRequest {
   readonly kind: string;
   readonly locator: string;
   readonly expectedVersion: number;
+  readonly mode?: "reference" | "snapshot";
+  readonly locatorKind?: ArtifactLocator["kind"];
+  readonly contentVersion?: string;
   readonly title?: string;
   /** Explicit relink pins the original source identity while changing only the locator. */
   readonly entityId?: string;
@@ -64,6 +73,8 @@ export interface ArtifactEntityImportRequest {
 export interface ArtifactEntityCurrent {
   readonly descriptor: ArtifactDescriptor | null;
   readonly revision: number;
+  /** Registration node for a node-local reference; metadata updates preserve this identity across edges. */
+  readonly sourceNodeId?: string;
   /** Every path the entity's latest accepted manifest binds, so a snapshot that drops one can retire it. */
   readonly ownedPaths?: readonly { readonly path: string; readonly sha256: string }[];
   /**
@@ -84,6 +95,9 @@ export interface ArtifactEntityImportPreview {
   readonly locator: ArtifactLocator;
   readonly currentContentVersion: string | null;
   readonly candidateContentVersion: string | null;
+  readonly mode: "reference" | "snapshot";
+  readonly contentState: "unobserved" | "observed";
+  readonly declaredContentVersion: string | null;
   readonly relationChanges: number;
   readonly expectedVersion: number;
   readonly currentRevision: number;
@@ -96,7 +110,7 @@ export interface ArtifactEntityImportPreview {
 export interface PreparedArtifactEntityImport {
   readonly contract: CompiledArtifactKindContract;
   /** `null` only when a dry run has no identity to compile against; every accepted path carries a bundle. */
-  readonly bundle: EntityContentObservedBundle | EntityTargetMissingBundle | null;
+  readonly bundle: EntityContentObservedBundle | EntityReferenceDeclaredBundle | EntityTargetMissingBundle | null;
   readonly preview: ArtifactEntityImportPreview;
   readonly replay: EntityEventV1 | null;
 }
@@ -117,6 +131,7 @@ export class ArtifactEntityServiceError extends Error {
 }
 
 export function makeArtifactEntityService(options: {
+  readonly repositoryId?: string;
   readonly contracts: readonly CompiledArtifactKindContract[];
   readonly resolveSource: (
     locator: ArtifactLocator,
@@ -141,6 +156,7 @@ export function makeArtifactEntityService(options: {
     envelope: {
       readonly actor: ActorIdentity;
       readonly source: WriteSource;
+      readonly sourceNodeId?: string;
       readonly occurredAt: string;
       readonly workspaceRevision: number;
     },
@@ -148,11 +164,29 @@ export function makeArtifactEntityService(options: {
     const contract = options.contracts.find(({ typeIdentity }) => typeIdentity === request.kind);
     if (!contract)
       throw new ArtifactEntityServiceError("entity_kind_not_found", `Artifact kind ${request.kind} is not compiled.`);
+    const mode = request.mode;
+    if (mode !== "reference" && mode !== "snapshot")
+      throw new ArtifactEntityServiceError("invalid_command", missingArtifactImportModeGuidance(request));
     if (!Number.isSafeInteger(request.expectedVersion) || request.expectedVersion < 0)
       throw new ArtifactEntityServiceError("invalid_command", "expectedVersion must be a non-negative integer.");
-    const locator = resolveArtifactLocator(request.locator, contract),
-      resolution = await resolveAuthoritatively(options.resolveSource, locator, contract),
-      resolvedSourceIdentity = canonicalSourceIdentity(resolution.source),
+    if (mode === "snapshot" && request.contentVersion !== undefined)
+      throw new ArtifactEntityServiceError(
+        "invalid_command",
+        "Snapshot contentVersion is computed from observed bytes; --content-version is only valid with --mode reference.",
+      );
+    const declaredContentVersion = request.contentVersion?.trim();
+    if (request.contentVersion !== undefined && !declaredContentVersion)
+      throw new ArtifactEntityServiceError("invalid_command", "contentVersion must be a non-empty string.");
+    const locator = resolveArtifactLocator(request.locator, contract, request.locatorKind, mode),
+      resolution = mode === "snapshot" ? await resolveAuthoritatively(options.resolveSource, locator, contract) : null,
+      resolvedSourceIdentity =
+        mode === "reference"
+          ? canonicalArtifactReferenceSourceIdentity(
+              locator,
+              options.repositoryId ?? "repository",
+              envelope.sourceNodeId,
+            )
+          : canonicalSourceIdentity(resolution!.source),
       sourceIdentity = request.sourceIdentity ?? resolvedSourceIdentity;
     if (request.sourceIdentity && !request.entityId)
       throw new ArtifactEntityServiceError(
@@ -165,8 +199,13 @@ export function makeArtifactEntityService(options: {
         `Entity identity ${request.entityId} is not a ${contract.declaration.idPrefix} identity.`,
       );
     const candidateContentVersion =
-        resolution.status === "observed" ? deriveArtifactContentVersion(resolution.witness) : null,
-      resolutionWitness = resolution.status === "observed" ? candidateContentVersion! : `missing:${resolution.reason}`,
+        resolution?.status === "observed" ? deriveArtifactContentVersion(resolution.witness) : null,
+      resolutionWitness =
+        mode === "reference"
+          ? `reference:${declaredContentVersion ?? "unversioned"}`
+          : resolution?.status === "observed"
+            ? candidateContentVersion!
+            : `missing:${resolution?.reason}`,
       binding = options.resolveSourceBinding(contract.typeIdentity, sourceIdentity),
       // The operation names the intent, so the same request always lands on the same operation even before any
       // identity exists. Only after that lookup fails is a new instance minted. The intent is scoped to the
@@ -201,7 +240,8 @@ export function makeArtifactEntityService(options: {
         entityId === null ? null : artifactObservationId({ entityId, locator, resolution: resolutionWitness });
     if (
       replay &&
-      (observationId === null || !isMatchingReplay(replay, contract.typeIdentity, entityId!, observationId))
+      (observationId === null ||
+        !isMatchingReplay(replay, contract.typeIdentity, entityId!, observationId, sourceIdentity))
     )
       throw new ArtifactEntityServiceError("invalid_command", `Operation ${opId} is not the requested observation.`);
     if (!replay && request.expectedVersion !== (current?.revision ?? 0))
@@ -229,50 +269,79 @@ export function makeArtifactEntityService(options: {
         actor: envelope.actor,
         source: envelope.source,
         occurredAt: envelope.occurredAt,
-      },
-      bundle =
-        entityId === null
-          ? null
-          : resolution.status === "observed"
-            ? compileEntityContentObserved({
-                ...eventInput,
-                contract: pinnedContract as Parameters<typeof compileEntityContentObserved>[0]["contract"],
-                contractSnapshot,
-                descriptor: {
-                  schema: descriptorSchemaRef(contract),
-                  typeIdentity: contract.typeIdentity,
-                  kindVersion,
-                  entityId: entityId!,
-                  title: request.title?.trim() || resolution.title.trim(),
-                  locator,
-                  contentVersion: candidateContentVersion!,
-                  attributes,
-                  source: sourceIdentity,
-                },
-                resolver: resolution.resolver,
-                observationId: observationId!,
-                sourceContent: resolution.content,
-                sourceDirectories: resolution.directories,
-                // Everything the previous snapshot bound is a retirement candidate; the compiler keeps the ones
-                // this snapshot still binds, so an update retires exactly the files that fell out of the source.
-                retirements: (current?.ownedPaths ?? []).map(({ path, sha256 }) => ({
-                  path,
-                  baseBlobSha256: sha256,
-                })),
-                // The same rule for directories: the compiler keeps the ones this snapshot still holds and
-                // retires the rest by name, so a directory nobody declared is never a candidate.
-                heldDirectories: current?.ownedDirectories ?? [],
-              })
-            : compileEntityTargetMissing({
-                ...eventInput,
-                contractSnapshot,
-                entityId: entityId!,
-                locator,
-                sourceIdentity,
-                resolver: resolution.resolver,
-                observationId: observationId!,
-                reason: resolution.reason,
-              });
+      };
+    let bundle: PreparedArtifactEntityImport["bundle"] = null;
+    if (entityId !== null && mode === "reference") {
+      bundle = compileEntityReferenceDeclared({
+        ...eventInput,
+        contract: pinnedContract as Parameters<typeof compileEntityReferenceDeclared>[0]["contract"],
+        contractSnapshot,
+        descriptor: {
+          schema: descriptorSchemaRef(contract),
+          typeIdentity: contract.typeIdentity,
+          kindVersion,
+          entityId,
+          title: request.title?.trim() || current?.descriptor?.title || titleFromLocator(locator),
+          locator,
+          contentVersion: null,
+          observationMode: "reference",
+          contentState: "unobserved",
+          ...(declaredContentVersion === undefined ? {} : { declaredContentVersion }),
+          attributes,
+          source: sourceIdentity,
+        },
+        ...(envelope.sourceNodeId === undefined ? {} : { sourceNodeId: envelope.sourceNodeId }),
+        observationId: observationId!,
+        retirements: (current?.ownedPaths ?? []).map(({ path, sha256 }) => ({
+          path,
+          baseBlobSha256: sha256,
+        })),
+        retiredDirectories: current?.ownedDirectories ?? [],
+      });
+    } else if (entityId !== null && resolution?.status === "observed") {
+      bundle = compileEntityContentObserved({
+        ...eventInput,
+        contract: pinnedContract as Parameters<typeof compileEntityContentObserved>[0]["contract"],
+        contractSnapshot,
+        descriptor: {
+          schema: descriptorSchemaRef(contract),
+          typeIdentity: contract.typeIdentity,
+          kindVersion,
+          entityId: entityId!,
+          title: request.title?.trim() || resolution.title.trim(),
+          locator,
+          contentVersion: candidateContentVersion!,
+          observationMode: "snapshot",
+          contentState: "observed",
+          attributes,
+          source: sourceIdentity,
+        },
+        resolver: resolution.resolver,
+        observationId: observationId!,
+        sourceContent: resolution.content,
+        sourceDirectories: resolution.directories,
+        // Everything the previous snapshot bound is a retirement candidate; the compiler keeps the ones
+        // this snapshot still binds, so an update retires exactly the files that fell out of the source.
+        retirements: (current?.ownedPaths ?? []).map(({ path, sha256 }) => ({
+          path,
+          baseBlobSha256: sha256,
+        })),
+        // The same rule for directories: the compiler keeps the ones this snapshot still holds and
+        // retires the rest by name, so a directory nobody declared is never a candidate.
+        heldDirectories: current?.ownedDirectories ?? [],
+      });
+    } else if (entityId !== null && resolution?.status === "missing") {
+      bundle = compileEntityTargetMissing({
+        ...eventInput,
+        contractSnapshot,
+        entityId: entityId!,
+        locator,
+        sourceIdentity,
+        resolver: resolution.resolver,
+        observationId: observationId!,
+        reason: resolution.reason,
+      });
+    }
     const entityRef = `${contract.typeIdentity}/${String(entityId)}`,
       preview: ArtifactEntityImportPreview = Object.freeze({
         schema: "artifact-entity-import-preview/v1",
@@ -281,15 +350,25 @@ export function makeArtifactEntityService(options: {
         kindVersion,
         sourceIdentity,
         locator,
+        mode,
+        contentState: bundle?.event.type === "entity_content_observed" ? "observed" : "unobserved",
+        declaredContentVersion: mode === "reference" ? (declaredContentVersion ?? null) : null,
         currentContentVersion: current?.descriptor?.contentVersion ?? null,
-        candidateContentVersion,
+        candidateContentVersion: mode === "snapshot" ? candidateContentVersion : null,
         relationChanges: options.countRelationChanges(entityRef),
         expectedVersion: request.expectedVersion,
         currentRevision: current?.revision ?? 0,
-        artifactOwner: entityId === null ? null : `entity/${entityId}/revision/${String(envelope.workspaceRevision)}`,
+        artifactOwner:
+          entityId === null || mode === "reference"
+            ? null
+            : `entity/${entityId}/revision/${String(envelope.workspaceRevision)}`,
         eventType:
           bundle?.event.type ??
-          (resolution.status === "observed" ? "entity_content_observed" : "entity_target_missing"),
+          (mode === "reference"
+            ? "entity_reference_declared"
+            : resolution?.status === "observed"
+              ? "entity_content_observed"
+              : "entity_target_missing"),
         operationId: opId,
         dryRun: request.dryRun === true,
       });
@@ -307,25 +386,89 @@ function mintedBytes(bytes: Uint8Array): Uint8Array {
   return bytes;
 }
 
-export function resolveArtifactLocator(value: string, contract: CompiledArtifactKindContract): ArtifactLocator {
+export function resolveArtifactLocator(
+  value: string,
+  contract: CompiledArtifactKindContract,
+  requestedKind?: ArtifactLocator["kind"],
+  mode?: "reference" | "snapshot",
+): ArtifactLocator {
   const allowed = contract.declaration.locatorKinds,
-    inferred = /^https?:\/\//iu.test(value)
-      ? "url"
-      : allowed.includes("repository-path")
-        ? "repository-path"
-        : allowed.length === 1
-          ? allowed[0]!
-          : null;
-  if (!inferred || !allowed.includes(inferred))
+    inferred = requestedKind ?? (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value) ? "url" : null);
+  const kind =
+    inferred ?? (mode === "reference" ? null : allowed.includes("repository-path") ? "repository-path" : null);
+  if (!kind || (!allowed.includes(kind) && !(mode === "reference" && artifactLocatorKinds.includes(kind))))
     throw new ArtifactEntityServiceError(
       "invalid_command",
-      `Locator ${value} is ambiguous or is not allowed for ${contract.typeIdentity}.`,
+      "Locator " + value + " needs an explicit --locator-kind and a kind allowed by " + contract.typeIdentity + ".",
     );
   try {
-    return canonicalArtifactLocator({ kind: inferred, value });
+    const locatorValue =
+      kind === "local-path" && !value.startsWith("file:")
+        ? path.isAbsolute(value)
+          ? pathToFileURL(value).toString()
+          : (() => {
+              throw new Error("Local path locator must be an absolute path or file URL.");
+            })()
+        : value;
+    return canonicalArtifactLocator({ kind, value: locatorValue } as ArtifactLocator);
   } catch (error) {
     throw new ArtifactEntityServiceError("invalid_command", error instanceof Error ? error.message : String(error));
   }
+}
+
+function missingArtifactImportModeGuidance(request: ArtifactEntityImportRequest): string {
+  const kind = request.kind || "<kind>",
+    locator = request.locator || "<locator>",
+    version = Number.isSafeInteger(request.expectedVersion) ? String(request.expectedVersion) : "0",
+    locatorKind = request.locatorKind ?? inferArtifactLocatorKind(locator),
+    snapshotSupportsLocator = locatorKind === "repository-path" || locatorKind === "url",
+    snapshotLocator = snapshotSupportsLocator ? locator : "docs/minutes.md",
+    snapshotLocatorKind = snapshotSupportsLocator ? locatorKind : "repository-path",
+    quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  return [
+    "Choose an explicit import mode:",
+    "- reference records only the locator without reading it; use this for a personal/non-central repository when the source should stay authoritative and easy to update.",
+    "- snapshot reads and stores the source bytes in Harness; use this for file documents governed by a central repository.",
+    "For URL, local path, or external key references, choose --locator-kind url|local-path|external-key. Local paths resolve only on the registering node.",
+    ...(snapshotSupportsLocator
+      ? []
+      : [
+          "Snapshot reads repository-path or URL sources. For a local path or external key, first place the document in the repository and use its relative path.",
+        ]),
+    "next: ha entity import --kind " +
+      quote(kind) +
+      " --locator " +
+      quote(locator) +
+      " --locator-kind " +
+      locatorKind +
+      " --mode reference" +
+      (request.contentVersion ? " --content-version " + quote(request.contentVersion) : "") +
+      " --expected-version " +
+      version,
+    "next: ha entity import --kind " +
+      quote(kind) +
+      " --locator " +
+      quote(snapshotLocator) +
+      " --locator-kind " +
+      snapshotLocatorKind +
+      " --mode snapshot --expected-version " +
+      version,
+  ].join("\n");
+}
+
+function inferArtifactLocatorKind(value: string): ArtifactLocator["kind"] {
+  if (value.startsWith("file:") || path.isAbsolute(value) || path.win32.isAbsolute(value)) return "local-path";
+  if (/^[^/:]+:[^/:]+:.+$/u.test(value)) return "external-key";
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value)) return "url";
+  return "repository-path";
+}
+
+function titleFromLocator(locator: ArtifactLocator): string {
+  if (locator.kind === "url" || locator.kind === "local-path") {
+    const value = locator.kind === "url" ? locator.value : new URL(locator.value).pathname;
+    return value.split("/").filter(Boolean).at(-1) ?? locator.value;
+  }
+  return locator.value.split(/[/:]/u).filter(Boolean).at(-1) ?? locator.value;
 }
 
 async function resolveAuthoritatively(
@@ -355,10 +498,18 @@ function descriptorSchemaRef(contract: CompiledArtifactKindContract): string {
   return value.const;
 }
 
-function isMatchingReplay(event: EntityEventV1, kind: string, entityId: string, observationId: string): boolean {
+function isMatchingReplay(
+  event: EntityEventV1,
+  kind: string,
+  entityId: string,
+  observationId: string,
+  sourceIdentity: string,
+): boolean {
   return (
     event.payload.entityKind === kind &&
     event.payload.entityId === entityId &&
+    "sourceIdentity" in event.payload &&
+    event.payload.sourceIdentity === sourceIdentity &&
     "observationId" in event.payload &&
     event.payload.observationId === observationId
   );

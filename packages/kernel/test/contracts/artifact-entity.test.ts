@@ -8,6 +8,7 @@ import {
   artifactObservationId,
   canonicalSourceIdentity,
   compileEntityContentObserved,
+  compileEntityReferenceDeclared,
   compileEntityTargetMissing,
   compileVerticalContract,
   createEntityStore,
@@ -146,6 +147,30 @@ test("Artifact descriptor codec is nine-field exact and repository paths use the
     );
 });
 
+test("kind locator declarations constrain snapshots while reference locators remain declarative", () => {
+  const artifact = compiledArtifact(),
+    snapshot = artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
+    localPathDescriptor = {
+      ...makeDescriptor(artifact, "repo:canonical:docs/adr.md"),
+      locator: { kind: "local-path" as const, value: canonicalArtifactUrl("file:///Users/example/notes.md") },
+    };
+
+  assert.deepEqual(snapshot.locatorKinds, ["repository-path", "url", "external-key"]);
+  assert.throws(() => decodeArtifactDescriptor(artifact.entityKindContract, localPathDescriptor));
+
+  const referenceDescriptor: ArtifactDescriptor = {
+    ...localPathDescriptor,
+    contentVersion: null,
+    observationMode: "reference",
+    contentState: "unobserved",
+  };
+  assert.equal(decodeArtifactDescriptor(artifact.entityKindContract, referenceDescriptor).locator.kind, "local-path");
+
+  const frozenContract = artifactEntityContractFromSnapshot(snapshot);
+  assert.throws(() => decodeArtifactDescriptor(frozenContract, localPathDescriptor));
+  assert.equal(decodeArtifactDescriptor(frozenContract, referenceDescriptor).locator.kind, "local-path");
+});
+
 test("instance identity survives a schema publication and a kind rename", () => {
   const v1 = compiledArtifact(),
     // The same kind after publishing version 2 and renaming it: one identity, two schema versions.
@@ -240,6 +265,71 @@ test("observed and missing artifact events are self-validating generic entity ev
     missing.plan.targets.some(({ kind }) => kind === "authored_file"),
     false,
   );
+});
+
+test("reference declarations carry locator metadata only and rebuild without a content blob", () => {
+  const artifact = compiledArtifact({ locatorKinds: ["repository-path", "url", "external-key", "local-path"] }),
+    entityId = mintArtifactEntityId({
+      idPrefix: artifact.declaration.idPrefix,
+      randomBytes: new Uint8Array(ARTIFACT_ENTITY_ID_BYTES).fill(9),
+    }),
+    locator = { kind: "url" as const, value: "https://feishu.example/doc/meeting?a=1&b=2" },
+    source = "url:https://feishu.example/doc/meeting?a=1&b=2",
+    descriptor = makeDescriptor(artifact, source, {
+      entityId,
+      title: "Meeting minutes",
+      locator,
+      contentVersion: null,
+      observationMode: "reference",
+      contentState: "unobserved",
+      declaredContentVersion: "revision-17",
+    }),
+    resolution = "reference:revision-17",
+    referenceInput = {
+      contract: artifact.entityKindContract as EntityStoreKindContract,
+      contractSnapshot: artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
+      descriptor,
+      sourceNodeId: "node-edge-1",
+      observationId: artifactObservationId({ entityId, locator, resolution }),
+      eventId: "event-reference-1",
+      opId: artifactImportOperationId({
+        entityKind: artifact.typeIdentity,
+        sourceIdentity: source,
+        locator,
+        resolution,
+      }),
+      workspaceRevision: 1,
+      actor,
+      source: "local",
+      occurredAt: "2026-09-02T00:00:00.000Z",
+    },
+    event = compileEntityReferenceDeclared(referenceInput);
+  assert.equal(event.blobs.length, 0);
+  assert.equal(event.event.type, "entity_reference_declared");
+  assert.deepEqual(validateCurrentEntityEvent(event.event), []);
+  assert.doesNotThrow(() => assertEntityEventInputs(event.event, event.plan, event.blobs));
+  const rootRetirement = compileEntityReferenceDeclared({
+    ...referenceInput,
+    eventId: "event-reference-root-retirement",
+    retiredDirectories: [`entities/adrs/${entityId}`],
+  });
+  assert.deepEqual(validateCurrentEntityEvent(rootRetirement.event), []);
+  assert.throws(
+    () =>
+      compileEntityReferenceDeclared({
+        ...referenceInput,
+        eventId: "event-reference-outside-retirement",
+        retiredDirectories: ["entities/adrs/another-entity"],
+      }),
+    /entity reference may only retire previously owned content/u,
+  );
+  const rebuilt = createEntityStore(entitySource([event.event], new Map()));
+  const record = rebuilt.get<ArtifactDescriptor>(artifact.typeIdentity, entityId);
+  assert.equal(record?.documentPath, null);
+  assert.equal(record?.documentSha256, null);
+  assert.equal(record?.value.contentVersion, null);
+  assert.equal(record?.value.contentState, "unobserved");
+  assert.equal(record?.value.declaredContentVersion, "revision-17");
 });
 
 test("an entity update restates owned content as manifest metadata without carrying its bytes", () => {

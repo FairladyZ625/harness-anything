@@ -44,6 +44,21 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   ...squadRunStatusWordRegister,
+  // Artifact reference declarations have no observed source content until snapshot import.
+  {
+    word: "unobserved",
+    entity: "Artifact",
+    field: "contentState",
+    meaning: "The locator is declared, but its source content has not been fetched or snapshotted.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "observed",
+    entity: "Artifact",
+    field: "contentState",
+    meaning: "The source content has been read and captured by the observed snapshot lifecycle.",
+    divergence: "entity-scoped",
+  },
   // dec_D8497012F42A999E054D7ADF6A CH1/CH2; unavailable reads carry an error instead.
   {
     word: "fresh",
