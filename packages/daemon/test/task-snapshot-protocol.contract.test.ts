@@ -6,6 +6,8 @@ import {
   validateDaemonTaskSnapshotList,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { review as validateReviewProtocolShape } from "../src/protocol/daemon-protocol-validate-entities.ts";
+import { closeoutReadiness, submissionDigest } from "@harness-anything/kernel";
+import type { CloseoutSnapshot, ExecutionV1, ReviewV1 } from "@harness-anything/kernel";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
 const gateWitness = {
@@ -97,6 +99,128 @@ const list = {
   rows: [row],
   invalidRows: [],
 } as const;
+
+/**
+ * The exact shape the kernel emits when a categorized finding has no safe automatic triage: the
+ * review gate stays open and `escalatedFindings` names the finding the owner must dispose. The wire
+ * validator must accept it — row isolation is a visible downgrade, not a review judgment.
+ */
+function kernelAssessmentWithEscalatedFinding() {
+  const commitSha = "c".repeat(40),
+    submission = {
+      commitSha,
+      deliverables: ["README.md"],
+      outputs: [],
+      completionClaim: "done",
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      completionContract: {
+        presetSnapshotDigest: `sha256:${"d".repeat(64)}`,
+        gates: [],
+        closeoutGates: { review: true, consent: false, factDisposition: false, codeDoc: false },
+      },
+    } as unknown as Parameters<typeof submissionDigest>[0],
+    execution = {
+      schema: "execution/v1",
+      executionId: "execution-escalated",
+      taskId: "task-escalated",
+      iteration: 1,
+      state: "submitted",
+      actor,
+      claimedAt: "2026-08-25T00:00:00.000Z",
+      submittedAt: "2026-08-25T00:01:00.000Z",
+      closedAt: null,
+      submission,
+      gateRuns: [],
+    } as unknown as ExecutionV1,
+    review = {
+      schema: "review/v1",
+      reviewId: "review-escalated",
+      taskId: "task-escalated",
+      executionId: "execution-escalated",
+      verdict: "approved",
+      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "reviewer" } },
+      capabilityRef: "execution-review@v1",
+      reason: "checked",
+      evidenceChecked: ["README.md"],
+      commitSha,
+      iteration: 1,
+      contentDigest: `sha256:${"e".repeat(64)}`,
+      submissionDigest: submissionDigest(submission),
+      reviewedAt: "2026-08-25T00:02:00.000Z",
+      findings: [
+        {
+          findingId: "F-escalated",
+          blocking: true,
+          text: "No automatic triage could classify this finding safely.",
+          category: "correctness",
+        },
+      ],
+      resolutions: [],
+    } as unknown as ReviewV1,
+    snapshot = {
+      task: {
+        status: "in_review",
+        iteration: 1,
+        completionGateIds: [],
+        taskId: "task-escalated",
+        taskClass: "standard",
+      },
+      executions: [execution],
+      reviews: [review],
+      consents: [],
+      gateWitnesses: [],
+    } as unknown as CloseoutSnapshot;
+  return closeoutReadiness(snapshot);
+}
+
+test("kernel closeout assessments carrying escalated findings pass the task snapshot contract", () => {
+  const assessment = kernelAssessmentWithEscalatedFinding(),
+    escalatedRow = { ...row, taskId: "task-escalated", closeoutAssessment: assessment };
+
+  assert.equal(assessment.blocker, "review");
+  assert.deepEqual(assessment.escalatedFindings, [{ reviewId: "review-escalated", findingId: "F-escalated" }]);
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [escalatedRow] }), []);
+  assert.deepEqual(isolateDaemonTaskSnapshotRows([escalatedRow]).invalidRows, []);
+});
+
+test("owner-blocking finding references pass the task snapshot contract too", () => {
+  const { escalatedFindings: _escalated, ...withoutEscalated } = kernelAssessmentWithEscalatedFinding(),
+    blockingRow = {
+      ...row,
+      taskId: "task-escalated",
+      closeoutAssessment: {
+        ...withoutEscalated,
+        blockingFindings: [{ reviewId: "review-escalated", findingId: "F-blocking" }],
+      },
+    };
+
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [blockingRow] }), []);
+});
+
+test("malformed finding references are still isolated", () => {
+  const assessment = kernelAssessmentWithEscalatedFinding(),
+    escalatedRow = { ...row, taskId: "task-escalated", closeoutAssessment: assessment };
+
+  for (const [label, malformed] of [
+    ["missing findingId", [{ reviewId: "review-escalated" }]],
+    ["empty reviewId", [{ reviewId: "", findingId: "F-escalated" }]],
+    ["stray finding field", [{ reviewId: "review-escalated", findingId: "F-escalated", disposition: "non_blocking" }]],
+    ["not an array", { reviewId: "review-escalated", findingId: "F-escalated" }],
+  ] as const) {
+    const malformedRow = {
+      ...escalatedRow,
+      closeoutAssessment: { ...assessment, escalatedFindings: malformed },
+    };
+    assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [malformedRow] }), [], label);
+    assert.equal(
+      isolateDaemonTaskSnapshotRows([malformedRow]).invalidRows[0]?.field,
+      "rows[0].closeoutAssessment",
+      label,
+    );
+  }
+});
 
 test("task snapshot protocol accepts audited gate witnesses", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
