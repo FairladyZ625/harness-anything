@@ -363,7 +363,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       },
       reviewIndependence: "execution",
       decisionReviewRequirement: "off",
-      review: { pathReviewers: [] },
+      // Persisted threshold declarations remain readable even though the completion path ignores
+      // them and treats review findings as report content.
+      review: { pathReviewers: [], thresholds: { correctness: 80, migration: 85, securityAuth: 90 } },
       reviewReturnBudget: 2,
       restoreDrillRetention: 3,
       locale: "en-US",
