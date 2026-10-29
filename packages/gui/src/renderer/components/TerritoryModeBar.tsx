@@ -60,10 +60,10 @@ export function TerritorySkelToggle({
       value={skel}
       onChange={onSkelChange}
       options={[
-        { value: "task", label: "任务" },
-        { value: "decision", label: "决策" },
-        { value: "fact", label: "事实" },
-        { value: "unified", label: "全域" },
+        { value: "task", label: "任务", testId: "territory-skel-task" },
+        { value: "decision", label: "决策", testId: "territory-skel-decision" },
+        { value: "fact", label: "事实", testId: "territory-skel-fact" },
+        { value: "unified", label: "全域", testId: "territory-skel-unified" },
       ]}
     />
   );

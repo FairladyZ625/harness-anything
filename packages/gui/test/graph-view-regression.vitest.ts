@@ -326,26 +326,52 @@ describe("graph territory show-archived preference storage", () => {
   });
 });
 
-it("decision scope has its own visible density switch and preserves task scope", async () => {
+it("fact and decision lenses show everything and hide the density switch; task/global keep the preference", async () => {
   setActiveLocale("zh-CN");
   window.localStorage.clear();
-  const { div, root } = await mountGraph({ viewMode: "territory", focusRef: null });
+  const oldFact = {
+    anchor: "fact/F-old",
+    category: "finding" as const,
+    text: "老的悬空事实",
+    at: "2026-01-01T00:00:00.000Z",
+    confidence: "high" as const,
+  };
+  const coldDecision = {
+    ...decision("d_cold"),
+    state: "in_effect" as const,
+    lastChangedAt: "2026-01-01T00:00:00.000Z",
+    ...decisionProjectionFields("in_effect"),
+  };
+  const { div, root } = await mountGraph({
+    viewMode: "territory",
+    focusRef: null,
+    facts: [oldFact],
+    decisions: [coldDecision],
+    relations: [],
+  });
   const click = async (text: string) => {
     const button = [...div.querySelectorAll("button")].find((button) => button.textContent?.trim() === text);
     expect(button, text).toBeDefined();
     await act(async () => button!.click());
   };
-  await click("决策");
   await act(async () => div.querySelector<HTMLButtonElement>("button[title='展开筛选面板']")!.click());
-  const allButton = div.querySelector<HTMLButtonElement>("[data-testid='graph-density-all']");
-  expect(allButton).not.toBeNull();
-  await act(async () => allButton!.click());
-  await click("任务");
-  const focus = div.querySelector("[data-testid=graph-density-focus]");
-  expect(focus?.getAttribute("aria-pressed")).toBe("true");
+
+  // 事实镜头:老 fact 也整块可见,没有「重点外」,也没有密度开关。
+  await click("事实");
+  expect(div.textContent).toContain("老的悬空事实");
+  expect(div.querySelector("[data-testid='territory-deferred-count']")).toBeNull();
+  expect(div.querySelector("[data-testid='graph-density-focus']")).toBeNull();
+
+  // 决策镜头:老的终态决策同样全量显示。
   await click("决策");
-  const all = div.querySelector("[data-testid=graph-density-all]");
-  expect(all?.getAttribute("aria-pressed")).toBe("true");
+  expect(div.textContent).toContain("决策 d_cold");
+  expect(div.querySelector("[data-testid='territory-deferred-count']")).toBeNull();
+  expect(div.querySelector("[data-testid='graph-density-focus']")).toBeNull();
+
+  // 任务镜头仍跟随持久化偏好(默认重点),开关回到面板。
+  await click("任务");
+  expect(div.querySelector("[data-testid='graph-density-focus']")?.getAttribute("aria-pressed")).toBe("true");
+
   await act(async () => root.unmount());
   div.remove();
 });

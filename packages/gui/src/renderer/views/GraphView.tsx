@@ -45,7 +45,7 @@ import {
   writeGraphTerritoryShowArchived,
 } from "../graph-territory-preferences";
 import { graphDensityPreferenceStorage, readGraphDensityFocusMode } from "../graph-density-preferences";
-import { useGraphDensity } from "../graph/useGraphDensity.ts";
+import { graphFocusAppliesToLens, useGraphDensity } from "../graph/useGraphDensity.ts";
 
 /** 领地初始视口:y 让出顶部悬浮 Panel(左上筛选条、居中模式条)的高度加边距。 */
 const TERRITORY_VIEWPORT = { x: 0, y: 64, zoom: 1 } as const;
@@ -227,7 +227,7 @@ function GraphViewInner({
   // 密度分层(重点模式,task_5ba031c2):默认开,判定本体在 model/taskFilters.ts
   // (isTaskGraphFocusSeed,与看板共用),localStorage 按视图记忆,坏值回落默认开。
   // 开关本体在 filters.density(筛选面板改它),这里只负责持久化与联动。
-  const { density, setDensityFilters } = useGraphDensity(viewMode, skel, filters, setFilters);
+  const { density, setDensityFilters } = useGraphDensity(skel, filters, setFilters);
   // 重点模式下被逐块展开(回到全量)的 zone 集;密度开关翻转时清空。
   const [revealedZones, setRevealedZones] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -445,7 +445,7 @@ function GraphViewInner({
       setFilters={setDensityFilters}
       entityTypeOptions={entityKinds}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
-      showDensity
+      showDensity={graphFocusAppliesToLens(skel)}
     />
   );
 
