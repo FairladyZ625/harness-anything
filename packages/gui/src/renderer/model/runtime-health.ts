@@ -16,8 +16,52 @@ import type { SystemRepoRow } from "../api-client.ts";
  */
 export const DAEMON_OBSERVED_STALE_SEC = 30;
 
+/**
+ * 瞬时状态的宽限:投影落后、daemon/cell 尚无结论,必须连续观测到这么久才算「降级」。
+ *
+ * 依据:两路读面(`systemQuery` / `tasksQuery`)都是 10s 一个快照(`QUERY_PACING_MS`),
+ * 所以 30s = 连续三个快照仍是同一状态,与 `DAEMON_OBSERVED_STALE_SEC` 的「连续三次
+ * 没回来」同一取数。多 worker 并发写台账造成的落后通常是亚秒级,会在下一次快照前
+ * 消失;跨过三个快照还落后就不是写放大,而是真的卡住。值直接取同一个常量,不另设
+ * 配置项,也不新增轮询。
+ */
+export const TRANSIENT_GRACE_SEC = DAEMON_OBSERVED_STALE_SEC;
+
 export type DaemonHealthState = "responsive" | "unresponsive" | "unknown";
 export type CellHealthState = SystemRepoRow["cellState"] | "unknown";
+
+/**
+ * 三档灯 + 两个中性档：
+ * - `syncing`:投影瞬时落后,正在追;
+ * - `starting`:daemon 刚起/仓在挂载/水合还没读完;
+ * - `degraded`:瞬时状态跨过宽限,或有隔离行这类真实不完整;
+ * - `down`:daemon 无响应或仓不可用。
+ */
+export type RuntimeHealthLevel = "ok" | "syncing" | "starting" | "degraded" | "down";
+
+/** 跨快照推进的瞬时状态起点;只由 `deriveRuntimeHealth` 读写,调用方原样回传。 */
+export interface RuntimeHealthTransient {
+  /** lag>0 首次被观测到的时刻;null = 当前没有落后。 */
+  readonly lagSince: string | null;
+  /** daemon 或 cell 第一次没有结论的时刻;null = 两者都有结论。 */
+  readonly unknownSince: string | null;
+  /** 本快照按 now 算出的已持续秒数;null = 当前不处于该状态。 */
+  readonly lagAgeSec: number | null;
+  readonly unknownAgeSec: number | null;
+}
+
+export const EMPTY_RUNTIME_HEALTH_TRANSIENT: RuntimeHealthTransient = {
+  lagSince: null,
+  unknownSince: null,
+  lagAgeSec: null,
+  unknownAgeSec: null,
+};
+
+/** enabled 仓里已 attached 的数量;只用于「启动中」的一句话说明。 */
+export interface RuntimeHealthMount {
+  readonly attached: number;
+  readonly total: number;
+}
 
 export interface RuntimeHealthDaemon {
   readonly state: DaemonHealthState;
@@ -61,6 +105,8 @@ export interface RuntimeHealth {
   readonly daemon: RuntimeHealthDaemon;
   readonly cell: RuntimeHealthCell;
   readonly projection: RuntimeHealthProjection;
+  readonly transient: RuntimeHealthTransient;
+  readonly mount: RuntimeHealthMount | null;
   readonly ledgerChange: RuntimeHealthLedgerChange;
 }
 
@@ -92,6 +138,13 @@ export interface RuntimeHealthInput {
   } | null;
   /** TanStack isLoading: pending 且正在请求,不会把未选仓的 disabled query 算成加载。 */
   readonly projectionLoading?: boolean;
+  /**
+   * 上一份派生携带的瞬时起点(只取两个 since)。调用方跨快照原样回传,不用新增轮询;
+   * 不传 = 本快照是第一次观测,所有瞬时状态从 0s 起算。
+   */
+  readonly prior?: Pick<RuntimeHealthTransient, "lagSince" | "unknownSince">;
+  /** daemon 全局挂载进度;读不到时不传。 */
+  readonly mount?: RuntimeHealthMount;
   readonly lastSnapshotAt: string | null;
   readonly now: string;
 }
@@ -114,10 +167,17 @@ export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
         : "responsive";
   const cell = input.repo;
   const remoteProxy = cell?.mode === "remote-proxy";
+  const cellState: CellHealthState =
+    remoteProxy && cell.cellState === "not_loaded" ? "attached" : (cell?.cellState ?? "unknown");
+  const lag =
+    input.projection === null ? null : Math.max(0, input.projection.sourceRevision - input.projection.watermark);
+  const lagSince = lag !== null && lag > 0 ? (input.prior?.lagSince ?? input.now) : null;
+  const unknownSince =
+    daemonState === "unknown" || cellState === "unknown" ? (input.prior?.unknownSince ?? input.now) : null;
   return {
     daemon: { state: daemonState, observedAgeSec, uptimeMs: input.daemon?.uptimeMs ?? null },
     cell: {
-      state: remoteProxy && cell.cellState === "not_loaded" ? "attached" : (cell?.cellState ?? "unknown"),
+      state: cellState,
       queueDepth: cell?.queueDepth ?? null,
       problem:
         remoteProxy && cell.cellState === "not_loaded"
@@ -136,31 +196,87 @@ export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
             hydrating: false,
           }
         : {
-            lag: Math.max(0, input.projection.sourceRevision - input.projection.watermark),
+            lag,
             loading: false,
             status: input.projection.status,
             isolatedRows: Math.max(0, input.projection.isolatedRows ?? 0),
             hydrating: input.projection.hydrating === true,
           },
+    transient: {
+      lagSince,
+      unknownSince,
+      lagAgeSec: lagSince === null ? null : ageSec(lagSince, input.now),
+      unknownAgeSec: unknownSince === null ? null : ageSec(unknownSince, input.now),
+    },
+    mount: input.mount ?? null,
     ledgerChange: { at: input.lastSnapshotAt, ageSec: ageSec(input.lastSnapshotAt, input.now) },
   };
 }
 
-/** 健康卡的整体灯:daemon 与 cell 任一红即红,投影落后或行集不完整只降黄。 */
-export function runtimeHealthWorst(health: RuntimeHealth): "ok" | "degraded" | "down" {
-  if (health.daemon.state === "unresponsive" || health.cell.state === "unavailable") return "down";
-  if (
-    health.cell.state === "warming" ||
-    health.cell.state === "not_loaded" ||
-    health.cell.state === "unknown" ||
-    health.daemon.state === "unknown" ||
-    (health.projection.lag ?? 0) > 0 ||
-    // A cut that is behind nothing can still be an incomplete row set: the daemon isolates rows it
-    // will not serve, or hydration has only read part of the pages. Lag 0 does not mean the board
-    // holds the ledger.
-    (health.projection.isolatedRows ?? 0) > 0 ||
-    health.projection.hydrating
-  )
-    return "degraded";
-  return "ok";
+/** 灯色之外还要知道「为什么」:面板据此给出一句话,判定只在这里做一次。 */
+export type RuntimeHealthCause =
+  | { readonly kind: "daemon-unresponsive" }
+  | { readonly kind: "cell-unavailable"; readonly problem: string | null }
+  | { readonly kind: "projection-isolated"; readonly rows: number }
+  | { readonly kind: "cell-warming" }
+  | { readonly kind: "cell-not-loaded" }
+  | { readonly kind: "projection-hydrating" }
+  | { readonly kind: "projection-lag"; readonly lag: number; readonly ageSec: number }
+  | { readonly kind: "daemon-unknown"; readonly ageSec: number }
+  | { readonly kind: "cell-unknown"; readonly ageSec: number };
+
+export interface RuntimeHealthAssessment {
+  readonly level: RuntimeHealthLevel;
+  readonly cause: RuntimeHealthCause | null;
+}
+
+/**
+ * 唯一判定入口。顺序即优先级:
+ * 1. daemon 无响应 / 仓不可用 = down;
+ * 2. 隔离行是真不完整,哪怕 lag 刚出现也是 degraded;
+ * 3. 挂载/水合是中性 starting(挂载失败会落到 unavailable,不靠 warming 超时猜);
+ * 4. 落后与「无结论」先按瞬时状态给中性档,跨过 TRANSIENT_GRACE_SEC 才降级。
+ */
+export function runtimeHealthAssessment(health: RuntimeHealth): RuntimeHealthAssessment {
+  if (health.daemon.state === "unresponsive") {
+    return { level: "down", cause: { kind: "daemon-unresponsive" } };
+  }
+  if (health.cell.state === "unavailable") {
+    return { level: "down", cause: { kind: "cell-unavailable", problem: health.cell.problem } };
+  }
+  const isolatedRows = health.projection.isolatedRows ?? 0;
+  if (isolatedRows > 0) {
+    return { level: "degraded", cause: { kind: "projection-isolated", rows: isolatedRows } };
+  }
+  if (health.cell.state === "warming") return { level: "starting", cause: { kind: "cell-warming" } };
+  if (health.cell.state === "not_loaded") return { level: "starting", cause: { kind: "cell-not-loaded" } };
+  if (health.projection.hydrating) return { level: "starting", cause: { kind: "projection-hydrating" } };
+  const lag = health.projection.lag ?? 0;
+  if (lag > 0) {
+    const ageSec = health.transient.lagAgeSec ?? 0;
+    return {
+      level: ageSec >= TRANSIENT_GRACE_SEC ? "degraded" : "syncing",
+      cause: { kind: "projection-lag", lag, ageSec },
+    };
+  }
+  if (health.daemon.state === "unknown") {
+    const ageSec = health.transient.unknownAgeSec ?? 0;
+    return {
+      level: ageSec >= TRANSIENT_GRACE_SEC ? "degraded" : "starting",
+      cause: { kind: "daemon-unknown", ageSec },
+    };
+  }
+  if (health.cell.state === "unknown") {
+    const ageSec = health.transient.unknownAgeSec ?? 0;
+    return {
+      level: ageSec >= TRANSIENT_GRACE_SEC ? "degraded" : "starting",
+      cause: { kind: "cell-unknown", ageSec },
+    };
+  }
+  return { level: "ok", cause: null };
+}
+
+/** 健康卡的整体灯;判定口径统一走 `runtimeHealthAssessment`。 */
+export function runtimeHealthWorst(health: RuntimeHealth): RuntimeHealthLevel {
+  return runtimeHealthAssessment(health).level;
 }

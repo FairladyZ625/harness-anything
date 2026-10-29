@@ -1,19 +1,36 @@
 import { ArrowClockwise, GearSix } from "@phosphor-icons/react";
-import { runtimeHealthWorst, type RuntimeHealth } from "../../model/runtime-health.ts";
+import {
+  runtimeHealthAssessment,
+  type RuntimeHealth,
+  type RuntimeHealthCause,
+  type RuntimeHealthLevel,
+} from "../../model/runtime-health.ts";
 import { formatDuration, formatRelative, formatTime } from "../../model/time.ts";
-import { t } from "../../i18n/index.tsx";
+import { t, type MessageKey } from "../../i18n/index.tsx";
 
-const HEALTH_TONE = {
+const HEALTH_TONE: Record<RuntimeHealthLevel, string> = {
   ok: "text-success",
+  syncing: "text-text-faint",
+  starting: "text-text-faint",
   degraded: "text-stale",
   down: "text-danger",
-} as const;
+};
 
-const HEALTH_LAMP = {
+const HEALTH_LAMP: Record<RuntimeHealthLevel, string> = {
   ok: "bg-success",
+  syncing: "bg-text-faint",
+  starting: "bg-text-faint",
   degraded: "bg-stale",
   down: "bg-danger",
-} as const;
+};
+
+const HEALTH_LABEL: Record<RuntimeHealthLevel, MessageKey> = {
+  ok: "components.appSidebar.healthOk",
+  syncing: "components.appSidebar.healthSyncing",
+  starting: "components.appSidebar.healthStarting",
+  degraded: "components.appSidebar.healthDegraded",
+  down: "components.appSidebar.healthDown",
+};
 
 const CELL_LABEL: Record<string, string> = {
   warming: "warming",
@@ -29,6 +46,49 @@ function ageText(seconds: number | null): string {
   return formatRelative(Date.now() - seconds * 1_000);
 }
 
+/** 秒龄换算成统一时长写法(与运行时长同一实现,不在面板里自拼)。 */
+function durationText(seconds: number): string {
+  return formatDuration(seconds * 1_000);
+}
+
+/** 当前这一档「是哪一项」:一句话,按判定给出的 cause 取文案。 */
+function causeText(cause: RuntimeHealthCause, health: RuntimeHealth): string {
+  switch (cause.kind) {
+    case "daemon-unresponsive":
+      return t("components.appSidebar.healthReasonDaemonUnresponsive");
+    case "daemon-unknown":
+      return t("components.appSidebar.healthReasonDaemonUnknown", { duration: durationText(cause.ageSec) });
+    case "cell-unavailable":
+      return cause.problem === null
+        ? t("components.appSidebar.healthReasonCellUnavailable")
+        : t("components.appSidebar.healthReasonCellUnavailableProblem", { problem: cause.problem });
+    case "cell-warming": {
+      const mount = health.mount;
+      return mount === null || mount.total === 0
+        ? t("components.appSidebar.healthReasonMounting")
+        : t("components.appSidebar.healthReasonMountingProgress", {
+            attached: String(mount.attached),
+            total: String(mount.total),
+          });
+    }
+    case "cell-not-loaded":
+      return t("components.appSidebar.healthReasonNotLoaded");
+    case "cell-unknown":
+      return t("components.appSidebar.healthReasonCellUnknown", { duration: durationText(cause.ageSec) });
+    case "projection-hydrating":
+      return t("components.appSidebar.healthHydrating");
+    case "projection-isolated":
+      return t("components.appSidebar.healthRowsIncomplete", {
+        count: new Intl.NumberFormat("en-US").format(cause.rows),
+      });
+    case "projection-lag":
+      return t("components.appSidebar.healthReasonLag", {
+        lag: String(cause.lag),
+        duration: durationText(cause.ageSec),
+      });
+  }
+}
+
 function projectionText(health: RuntimeHealth): string {
   // 行集不完整优先于落后读数:daemon 隔离掉不服务时,「落后 0 revisions」是假象,
   // 必须说「不完整」而不是「已追平」(2026-10-25 看板 92 / 台账 4,469)。
@@ -42,18 +102,24 @@ function projectionText(health: RuntimeHealth): string {
   if (health.projection.hydrating) return t("components.appSidebar.healthHydrating");
   if (health.projection.loading) return t("components.appSidebar.healthLagLoading");
   if (health.projection.lag === null) return t("components.appSidebar.healthLagUnknown");
-  return t("components.appSidebar.healthLagRevs", { lag: String(health.projection.lag) });
+  const lagText = t("components.appSidebar.healthLagRevs", { lag: String(health.projection.lag) });
+  const ageSec = health.transient.lagAgeSec;
+  // 同一句里给出「持续了多久」,让 0s 的瞬时落后和 40s 的真卡住可区分。
+  return health.projection.lag > 0 && ageSec !== null && ageSec > 0
+    ? `${lagText} · ${t("components.appSidebar.healthLagFor", { duration: durationText(ageSec) })}`
+    : lagText;
 }
 
-/** 折叠面(悬浮提示)承载原健康卡四行信号:daemon/cell/投影/最近台账变化。 */
+/** 折叠面(悬浮提示)承载原健康卡四行信号:先说当前是哪一项,再列 daemon/cell/投影/最近台账变化。 */
 export function systemHealthDetail(health: RuntimeHealth): string {
+  const { cause } = runtimeHealthAssessment(health);
   const daemon =
     health.daemon.state === "responsive"
       ? t("components.appSidebar.healthResponsive")
       : health.daemon.state === "unresponsive"
         ? t("components.appSidebar.healthUnresponsive")
         : t("components.appSidebar.healthUnknown");
-  return [
+  const lines = [
     `${t("components.appSidebar.healthDaemon")}: ${daemon}` +
       (health.daemon.uptimeMs === null
         ? ""
@@ -72,7 +138,8 @@ export function systemHealthDetail(health: RuntimeHealth): string {
             formatTime(health.ledgerChange.at, { style: "date-time-seconds" }) ?? "—"
           }`
     }`,
-  ].join("\n");
+  ];
+  return (cause === null ? lines : [causeText(cause, health), ...lines]).join("\n");
 }
 
 export interface LedgerStatusBarInput {
@@ -177,7 +244,7 @@ export function SystemStatusPanel({
   readonly onRefresh: () => void;
   readonly onOpenSystem: () => void;
 }) {
-  const worst = runtimeHealthWorst(health);
+  const worst = runtimeHealthAssessment(health).level;
   return (
     <div data-testid="sidebar-system-status" className="shrink-0 border-t border-border px-3 pt-1.5 pb-2">
       {/* 第一行:整体灯色 +「系统页」入口。整行可点,细节四路信号在 title 悬浮提示。 */}
@@ -194,11 +261,7 @@ export function SystemStatusPanel({
           className={`size-2 shrink-0 rounded-full ${HEALTH_LAMP[worst]}`}
         />
         <span className={`shrink-0 font-mono ui-micro font-semibold ${HEALTH_TONE[worst]}`}>
-          {worst === "ok"
-            ? t("components.appSidebar.healthOk")
-            : worst === "degraded"
-              ? t("components.appSidebar.healthDegraded")
-              : t("components.appSidebar.healthDown")}
+          {t(HEALTH_LABEL[worst])}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1 pl-1 font-mono ui-micro text-accent">
           <GearSix weight="bold" className="size-3" />

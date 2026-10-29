@@ -586,7 +586,8 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
     });
     expect(hydrating.projection.lag).toBe(0);
     expect(hydrating.projection.hydrating).toBe(true);
-    expect(runtimeHealthWorst(hydrating)).toBe("degraded");
+    // Hydration is a mount/start transient, not an alarm: neutral 「启动中」.
+    expect(runtimeHealthWorst(hydrating)).toBe("starting");
     const { div, root } = await mount(
       createElement(SystemStatusPanel, {
         status: { ...ledgerStatus, revision: 100 },
@@ -601,7 +602,107 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
     expect(line).toContain("行集加载中");
     expect(line).not.toContain("落后 0 revisions");
     expect(panel.textContent).not.toContain("运行正常");
+    expect(panel.textContent).not.toContain("降级运行");
+    expect(panel.textContent).toContain("启动中");
+    expect(panel.querySelector('[data-testid="sidebar-system-status-lamp"]')?.className).toContain("bg-text-faint");
     expect(systemHealthDetail(hydrating)).toContain("行集加载中");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("shows a fresh projection lag as neutral syncing with the observed duration, not degraded", async () => {
+    // The reported defect: a sub-second ledger wedge used to light 「降级运行」. With no prior
+    // snapshot the lag is 0s old; one more snapshot at 2s keeps it neutral but names the duration.
+    const fresh = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: NOW, uptimeMs: 3_600_000 },
+      repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },
+      projection: { watermark: 97, sourceRevision: 100, status: "pending" },
+      lastSnapshotAt: NOW,
+      now: NOW,
+    });
+    expect(runtimeHealthWorst(fresh)).toBe("syncing");
+    const persisting = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: NOW, uptimeMs: 3_600_000 },
+      repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },
+      projection: { watermark: 97, sourceRevision: 100, status: "pending" },
+      prior: { lagSince: "2026-08-31T11:59:58.000Z", unknownSince: null },
+      lastSnapshotAt: NOW,
+      now: NOW,
+    });
+    expect(runtimeHealthWorst(persisting)).toBe("syncing");
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: { ...ledgerStatus, revision: 100 },
+        health: persisting,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    expect(panel.textContent).toContain("同步中");
+    expect(panel.textContent).not.toContain("降级运行");
+    expect(panel.querySelector('[data-testid="sidebar-system-status-lamp"]')?.className).toContain("bg-text-faint");
+    const line = panel.querySelector('[data-testid="sidebar-system-status-projection"]')?.textContent ?? "";
+    expect(line).toContain("落后 3 revisions");
+    expect(line).toContain("已持续 2.0s");
+    const detail = systemHealthDetail(persisting);
+    expect(detail).toContain("投影落后 3 revisions · 已持续 2.0s");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("degrades only after the lag outlives the grace window", async () => {
+    const sustained = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: NOW, uptimeMs: 3_600_000 },
+      repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },
+      projection: { watermark: 97, sourceRevision: 100, status: "pending" },
+      prior: { lagSince: "2026-08-31T11:59:20.000Z", unknownSince: null },
+      lastSnapshotAt: NOW,
+      now: NOW,
+    });
+    expect(runtimeHealthWorst(sustained)).toBe("degraded");
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: { ...ledgerStatus, revision: 100 },
+        health: sustained,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    expect(panel.textContent).toContain("降级运行");
+    expect(panel.querySelector('[data-testid="sidebar-system-status-lamp"]')?.className).toContain("bg-stale");
+    expect(systemHealthDetail(sustained)).toContain("投影落后 3 revisions · 已持续 40s");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("shows a warming cell as neutral starting and names the mount progress", async () => {
+    const warming = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: NOW, uptimeMs: 12_000 },
+      repo: { cellState: "warming", queueDepth: 0, lastError: null, unavailableReason: null },
+      projection: { watermark: 100, sourceRevision: 100, status: "ready" },
+      mount: { attached: 14, total: 22 },
+      lastSnapshotAt: NOW,
+      now: NOW,
+    });
+    expect(runtimeHealthWorst(warming)).toBe("starting");
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: { ...ledgerStatus, revision: 100 },
+        health: warming,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    expect(panel.textContent).toContain("启动中");
+    expect(panel.textContent).not.toContain("降级运行");
+    expect(panel.querySelector('[data-testid="sidebar-system-status-lamp"]')?.className).toContain("bg-text-faint");
+    expect(systemHealthDetail(warming)).toContain("正在挂载 14/22");
     await act(async () => {
       root.unmount();
     });
