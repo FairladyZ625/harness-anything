@@ -137,18 +137,6 @@ function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   );
 }
 
-function hasRetiredReviewThresholds(event: PersistedCanonicalEventV1): boolean {
-  if (event.schema !== "settings-event/v1") return false;
-  const payload = (event as { readonly payload?: unknown }).payload;
-  if (!isRecord(payload) || !isRecord(payload.settings)) return false;
-  const review = payload.settings.review;
-  return (
-    isRecord(review) &&
-    isRecord(review.thresholds) &&
-    ["correctness", "migration", "securityAuth"].some((key) => Object.hasOwn(review.thresholds!, key))
-  );
-}
-
 function hasRetiredVerticalHostedCi(
   event: PersistedCanonicalEventV1,
   readContentBlob?: (sha256: string) => Uint8Array | null,
@@ -260,16 +248,6 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     name: "settings.closeout.codeDoc",
     fields: ["Settings.closeout.overrides.codeDoc"],
     matches: hasRetiredSettingsCloseoutCodeDoc,
-  },
-  {
-    kind: "event-migration",
-    name: "settings.review.thresholds",
-    fields: [
-      "Settings.review.thresholds.correctness",
-      "Settings.review.thresholds.migration",
-      "Settings.review.thresholds.securityAuth",
-    ],
-    matches: hasRetiredReviewThresholds,
   },
   {
     kind: "event-migration",
