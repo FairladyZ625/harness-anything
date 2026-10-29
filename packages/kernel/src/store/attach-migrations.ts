@@ -13,7 +13,7 @@ import {
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { RETIRED_SETTINGS_PATHS } from "../domain/settings.ts";
 import { historicalReadConclusions } from "../domain/index.ts";
-import { TaskEventStoreError, type CanonicalEventStore } from "./task-event-store-types.ts";
+import type { CanonicalEventStore } from "./task-event-store-types.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 
 export type AttachMigrationRegistryEntry =
@@ -312,11 +312,10 @@ export function applyAttachMigrations(input: {
     canPersistWatermarks =
       input.store.readAttachMigrationScanWatermarks !== undefined &&
       input.store.recordAttachMigrationScanWatermarks !== undefined,
-    watermarks = canPersistWatermarks ? input.store.readAttachMigrationScanWatermarks!() : new Map<string, number>(),
-    scanFrom = pending.length === 0 ? total : Math.min(...pending.map(({ name }) => watermarks.get(name) ?? 0));
+    watermarks = new Map<string, number>(canPersistWatermarks ? input.store.readAttachMigrationScanWatermarks!() : []);
 
-  if (pending.some(({ name }) => (watermarks.get(name) ?? 0) > total))
-    throw new TaskEventStoreError("invalid_store", "attach migration scan watermark is ahead of the ledger head");
+  for (const { name } of pending) if ((watermarks.get(name) ?? 0) > total) watermarks.delete(name);
+  const scanFrom = pending.length === 0 ? total : Math.min(...pending.map(({ name }) => watermarks.get(name) ?? 0));
 
   if (pending.length > 0 && scanFrom < total) {
     let cursor: string | null = String(scanFrom),

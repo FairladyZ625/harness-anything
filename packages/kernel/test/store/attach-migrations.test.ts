@@ -243,6 +243,26 @@ test("an advanced attach head scans only events after the saved watermark", () =
   assert.ok([...watermarks.values()].every((revision) => revision === 3));
 });
 
+test("a watermark ahead of the rolled-back head is discarded and rescanned", () => {
+  const { store, events, reads, watermarks } = fakeStore([
+    envelope("task-event/v1", { task: { title: "Historical one" } }, "historical-one", 1),
+    envelope("task-event/v1", { task: { title: "Historical two" } }, "historical-two", 2),
+  ]);
+
+  applyAttachMigrations({ store });
+  assert.ok([...watermarks.values()].every((revision) => revision === 2));
+
+  events.pop();
+  const previousReadBatches = reads.readBatch;
+  reads.scannedRevisions.length = 0;
+  assert.doesNotThrow(() => applyAttachMigrations({ store }));
+
+  assert.deepEqual(reads.scannedRevisions, [1], "the stale watermark causes a scan from revision zero");
+  assert.equal(reads.readBatch, previousReadBatches + 1);
+  assert.equal(events.length, 1, "a zero-match rescan does not append an event");
+  assert.ok([...watermarks.values()].every((revision) => revision === 1));
+});
+
 test("attach migration scan reports monotonic progress while paging historical events", () => {
   const { store, reads } = fakeStore(
       Array.from({ length: 513 }, (_, index) =>
