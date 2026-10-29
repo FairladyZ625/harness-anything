@@ -433,10 +433,10 @@ export function settledApprovedReviewsForExecution(
 export function consentedApprovedReviewForExecution(
   reviews: readonly ReviewV1[],
   consents: readonly ReviewConsentV1[],
-  execution: ExecutionV1,
+  execution: ProjectedExecution,
   dispositions: readonly ReviewDispositionV1[] = [],
 ): ConsentedApprovedReview | undefined {
-  if (!execution.submission || !execution.submittedAt) return undefined;
+  if (execution.schema !== "execution/v1" || !execution.submission || !execution.submittedAt) return undefined;
   const currentReviews = reviewsForExecution(reviews, execution),
     currentSubmissionDigest = submissionDigest(execution.submission),
     submittedAt = Date.parse(execution.submittedAt);

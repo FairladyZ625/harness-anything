@@ -19,7 +19,7 @@ import type {
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { validateTaskReviewResponseV1 } from "./review.ts";
+import { consentedApprovedReviewForExecution, validateTaskReviewResponseV1 } from "./review.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
@@ -279,7 +279,8 @@ export const block: Transition = {
         lifecycleContractIssue(
           "invalid_transition",
           `BlockTask requires an unleased planned or active implementation task; an in_review cut must use ` +
-            `ha task rework ${command.taskId} --reason <why> or ha task review-consent ${command.taskId}`,
+            `ha task rework ${command.taskId} --reason <why> (consented cuts return the same way after a ` +
+            `pre-merge failure) or ha task review-consent ${command.taskId}`,
         ),
       );
     return issues;
@@ -384,7 +385,7 @@ export const unblock: Transition = {
         lifecycleContractIssue(
           "invalid_transition",
           `UnblockTask requires an unleased blocked task; an in_review cut must use ha task rework ${command.taskId} ` +
-            "--reason <why> or ha task review-consent",
+            "--reason <why> (a consented cut returns the same way after a pre-merge failure) or ha task review-consent",
         ),
       );
     return issues;
@@ -554,7 +555,7 @@ function reviewResponseSubmissionIssues(
   for (const response of responses) issues.push(...validateTaskReviewResponseV1(response));
   return issues;
 }
-/** The owner's only manual escape hatch: return an exhausted review cut to implementation. */
+/** The owner's manual escape hatch: return an exhausted, blocked, or already-consented cut to implementation. */
 export const rework: Transition = {
   actionId: "rework",
   matches: (command) => command.type === "ReworkTask",
@@ -581,7 +582,20 @@ export const rework: Transition = {
             value.findingRuling?.targetDigest === currentDigest &&
             value.findingRuling.reviewId === review.reviewId &&
             value.findingRuling.disposition === "blocker",
-        );
+        ),
+      // The owner's forward verdict is final for merge, not for the frozen cut: once the current
+      // submission is consented, a pre-merge failure (for example a red CI run) has no review to
+      // return and no disposition to record, so the owner returns it with a reason. The consent
+      // stays recorded and unrevoked; only the cut reopens. The consent digest binding is the same
+      // predicate completion uses, so a stale consent never authorises a return.
+      consentedApprovedCut =
+        current !== undefined &&
+        consentedApprovedReviewForExecution(
+          snapshot.reviews,
+          snapshot.consents,
+          current,
+          snapshot.reviewDispositions ?? [],
+        )?.review.reviewId === command.reviewId;
     if (
       !task ||
       task.status !== "in_review" ||
@@ -599,16 +613,18 @@ export const rework: Transition = {
     if (
       !review ||
       review.submissionDigest !== currentDigest ||
-      (!ownerConfirmedBlocker && review.verdict !== "changes_requested")
+      (!ownerConfirmedBlocker && !consentedApprovedCut && review.verdict !== "changes_requested")
     )
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "Task rework requires a current changes_requested review or an owner-confirmed blocker finding",
+          "Task rework requires a current changes_requested review, an owner-confirmed blocker finding, " +
+            "or an owner-consented approved cut",
         ),
       );
     if (
       !ownerConfirmedBlocker &&
+      !consentedApprovedCut &&
       (!Number.isSafeInteger(proof.reworkBudget) ||
         (proof.reworkBudget as number) < 1 ||
         returned < (proof.reworkBudget as number))
