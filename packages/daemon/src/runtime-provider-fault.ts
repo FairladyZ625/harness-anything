@@ -7,8 +7,16 @@ const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
   capacity =
     /\b(?:capacity issues?|at capacity|overloaded|service is busy|temporarily unavailable|try again later|too many pending requests)\b/iu,
+  // A stream the provider failed to keep well-formed is a provider fault, not a task failure: the turn
+  // never produced an answer to judge, and retrying on another instance is the recovery the owner asked
+  // for (dec_FCD38D503B0C0752B83A417246 CH2 retries provider failures, not task failures). The texts
+  // are the DeepSeek Harness Messages adapter's own `MALFORMED_RESPONSE`/`STREAM_CLOSED` catalogue as
+  // measured from the installed 0.2.1-rc.2 bundle, so the family is named by what it is — a broken,
+  // truncated, or out-of-order SSE stream — instead of by each sentence. A well-formed body the adapter
+  // still refused (`expected a JSON object`, `returned no content`, `request failed (404)`, an aborted
+  // request) stays outside: those are not transport faults and must not switch providers.
   incompleteStream =
-    /\b(?:incomplete response|(?:stream|sse).*(?:disconnected|ended|incomplete|event type mismatch)|event type mismatch|before message_stop)\b/iu,
+    /\b(?:incomplete response|(?:stream|sse).*(?:disconnected|ended|incomplete|event type mismatch)|event type mismatch|before message_stop|deepseek messages (?:stream|sse|transport failed)\b)/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 

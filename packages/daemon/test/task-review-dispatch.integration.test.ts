@@ -954,6 +954,16 @@ test(
         f.launches.at(-1)!.args.includes("review-provider-session"),
         "the provider argv resumes the same session",
       );
+      // A resumed dispatch settles a provider-side failure like a fresh one, so it must carry the
+      // same fallback chain. Measured 2026-10-28 in deli-ai-lab: the fresh reviewer dispatch that hit
+      // `DeepSeek Messages SSE event type mismatch` switched to its second instance, while the
+      // resumed one had no chain and needed a manual re-dispatch.
+      assert.deepEqual(
+        secondProvider?.header.fallbackAttempt?.candidates.map(({ instance }) => instance),
+        ["review-first", "review-second"],
+        `a resumed dispatch has no provider fallback chain: ${JSON.stringify(secondProvider?.header)}`,
+      );
+      assert.equal(secondProvider?.header.fallbackAttempt?.attemptIndex, 0);
     } finally {
       await f.close();
     }
