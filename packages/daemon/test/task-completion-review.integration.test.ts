@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
 import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 
 /** The principal that records rework-driving verdicts: a person of its own, so denying its
  * runtime-spawn (which kills the automatic worker continuation at admission) never touches the
@@ -628,6 +629,96 @@ test("an owner returns an unreviewed cut to implementation", async () => {
     assert.ok(returnEvent?.type === "submission_returned");
     assert.equal(returnEvent.payload.reviewId, undefined);
     assert.equal(returnEvent.payload.reason, "CI is red.");
+  } finally {
+    await f.close();
+  }
+});
+
+test("an owner rework with no provider session falls back to a fresh worker dispatch", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false, autoProviderSession: true });
+  try {
+    await f.install();
+    const worker = await f.cell().spawnRuntime(
+      {
+        agentId: "closeout-reviewer",
+        role: "worker",
+        taskId,
+        dispatchKey: "task-rework-missing-provider-session-worker",
+        prompt: "Implement the first cut.",
+      },
+      owner,
+    );
+    assert.equal(worker.outcome, "applied", JSON.stringify(worker));
+    const source = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.dispatchKey === "task-rework-missing-provider-session-worker",
+      );
+    assert.ok(source?.type === "runtime_dispatch_requested");
+    assert.equal(source.payload.role, "worker");
+    const sourceCwd = path.resolve(f.launches.at(-1)!.cwd);
+    await f.waitForProviderBinding(source.payload.dispatchId, "review-provider-session");
+    assert.equal(readDispatchStream(f.root, source.payload.dispatchId)?.providerSessionId, "review-provider-session");
+
+    const workerBinding = withPolicyGroup(
+      withPolicyGroup(
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent" as const, id: `runtime-session:${source.payload.runtimeSessionId}` },
+          },
+          source: "local" as const,
+        },
+        "contributor",
+      ),
+      "maintainer",
+    );
+    const submitted = await f.submit(executionId, workerBinding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const reviewer = f
+      .events()
+      .find((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+    assert.ok(reviewer?.type === "runtime_dispatch_requested");
+    const reviewed = await f.review(reviewer.payload.runtimeSessionId, "review-missing-provider-session-approved");
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    await settleReviewerDispatch(f);
+    assert.equal((await f.consent("review-missing-provider-session-approved")).outcome, "applied");
+    await f.reopen();
+    const sourceStreamPath = dispatchStreamPath(f.root, source.payload.dispatchId),
+      sourceStream = readFileSync(sourceStreamPath, "utf8")
+        .split("\n")
+        .filter((line) => !line.includes('"kind":"provider_binding"'))
+        .join("\n");
+    writeFileSync(sourceStreamPath, sourceStream);
+    assert.equal(readDispatchStream(f.root, source.payload.dispatchId)?.providerSessionId, null);
+
+    const returned = (await f.run({ kind: "task-rework", taskId, reason: "Pre-merge CI is red." })) as Receipt;
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    const continuation = returned.continuation as Receipt | undefined;
+    assert.equal(continuation?.outcome, "applied", JSON.stringify(returned));
+    assert.equal(continuation?.mode, "fresh", JSON.stringify(returned));
+
+    const dispatches = f
+      .events()
+      .filter(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === taskId &&
+          event.payload.role !== "reviewer",
+      );
+    assert.equal(dispatches.length, 2, JSON.stringify(dispatches));
+    const fresh = dispatches.at(-1)!;
+    assert.equal(fresh.type, "runtime_dispatch_requested");
+    assert.equal(fresh.payload.resumedFromDispatchId, undefined, "fallback must be a new dispatch");
+    assert.equal(fresh.payload.agentId, source.payload.agentId, "fallback keeps the submitting worker identity");
+    assert.equal(readDispatchStream(f.root, fresh.payload.dispatchId)?.providerSessionId, null);
+    assert.match(f.launches.at(-1)!.prompt, /# Owner return/u);
+    assert.match(f.launches.at(-1)!.prompt, /Pre-merge CI is red/u);
+    assert.match(f.launches.at(-1)!.prompt, /# Previous submitted conclusion/u);
+    assert.equal(path.resolve(f.launches.at(-1)!.cwd), sourceCwd, "fallback keeps the submitting worker worktree");
+    assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
   } finally {
     await f.close();
   }

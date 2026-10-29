@@ -370,7 +370,7 @@ export async function fixture(
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     delivery = `${delivery} artifact:${report}@${accepted.revision}`;
   }
-  const submit = async (roundExecutionId = executionId) => {
+  const submit = async (roundExecutionId = executionId, binding: typeof owner = owner) => {
     // A returned blocking review belongs to the next implementation round. Freeze the worker's
     // response to every still-unanswered blocking finding before cutting that round; the lifecycle
     // contract rejects a submit that silently carries a prior rebuttal forward.
@@ -419,12 +419,15 @@ export async function fixture(
           return git(checkout, "rev-parse", "HEAD");
         })()
       : undefined;
-    const receipt = await run({
-      kind: "task-submit",
-      taskId,
-      executionId: roundExecutionId,
-      ...(commitSha ? { commitSha } : {}),
-    });
+    const receipt = await cell.run(
+      {
+        kind: "task-submit",
+        taskId,
+        executionId: roundExecutionId,
+        ...(commitSha ? { commitSha } : {}),
+      },
+      binding,
+    );
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
