@@ -215,7 +215,6 @@ const openTestsByFile = new Map();
 // Cumulative per-file failure counts: unlike the activity maps it survives an activity-file
 // reset, because an outcome that already happened cannot be un-counted by a later restart.
 const failuresByFile = new Map();
-const failureDetailsByFile = new Map();
 let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
@@ -238,7 +237,6 @@ const watchdog =
           console.error(
             `[node-test-watchdog] test file exceeded timeout: ${overdue.map(stalledFileReport).join(", ")}`,
           );
-          reportCollectedFailures(overdue);
           termination = terminateProcessTree(child);
         },
         Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
@@ -432,12 +430,7 @@ function refreshActivity() {
     if (event.state === "test-finished" && typeof event.file === "string") {
       const owner = repoRelativeTestFile(event.file);
       openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) - 1);
-      if (event.failed === true) {
-        failuresByFile.set(owner, (failuresByFile.get(owner) ?? 0) + 1);
-        const failures = failureDetailsByFile.get(owner) ?? [];
-        failures.push({ name: event.name, error: event.error });
-        failureDetailsByFile.set(owner, failures);
-      }
+      if (event.failed === true) failuresByFile.set(owner, (failuresByFile.get(owner) ?? 0) + 1);
     }
     if (event.state === "finished" && typeof event.file === "string") {
       const owner = repoRelativeTestFile(event.file);
@@ -450,18 +443,7 @@ function refreshActivity() {
       activeFiles.delete(owner);
       lastTestByFile.delete(owner);
       openTestsByFile.delete(owner);
-      failureDetailsByFile.delete(owner);
     }
-  }
-}
-
-function reportCollectedFailures(files) {
-  const failures = files.flatMap((file) => (failureDetailsByFile.get(file) ?? []).map((entry) => ({ file, ...entry })));
-  if (failures.length === 0) return;
-  console.error(`[node-test-watchdog] ${failures.length} test failure(s) observed before termination:`);
-  for (const { file, name, error } of failures) {
-    console.error(`[node-test-failure] ${file}: ${name}`);
-    console.error(error?.stack ?? `${error?.name ?? "Error"}: ${error?.message ?? "No error details provided"}`);
   }
 }
 
