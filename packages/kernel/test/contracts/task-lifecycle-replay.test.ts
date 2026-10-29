@@ -168,6 +168,7 @@ function reviewSecondRound(input: {
     readonly findingId: string;
     readonly resolution: "upheld" | "withdrawn";
   }[];
+  readonly priorResponse?: "adopt" | "rebut";
 }): ReturnType<typeof applyTransition> {
   const rounds = twoRoundLifecycleEvents({
       firstReviewFindings: [{ findingId: "F-1", blocking: true, text: "The original issue." }],
@@ -191,7 +192,7 @@ function reviewSecondRound(input: {
               {
                 reviewId: "review-round-one",
                 findingId: "F-1",
-                disposition: "rebut",
+                disposition: input.priorResponse ?? "rebut",
                 rationale: "The previous issue has been addressed in this cut.",
               },
             ],
@@ -291,6 +292,40 @@ test("a re-review must resolve every prior finding the worker rebutted", () => {
         resolutions: [],
       }),
     /exactly one resolution for rebutted finding review-round-one\/F-1/u,
+  );
+});
+
+test("an approved re-review omits resolutions for a fixed finding and reports how to correct an extraneous one", () => {
+  const registered = reviewSecondRound({
+    verdict: "approved",
+    findings: [],
+    resolutions: [],
+    priorResponse: "adopt",
+  });
+
+  assert.equal(registered.event.type, "review_recorded");
+  assert.equal(registered.snapshot.reviews.at(-1)?.verdict, "approved");
+  assert.throws(
+    () =>
+      reviewSecondRound({
+        verdict: "approved",
+        findings: [],
+        resolutions: [{ reviewId: "review-round-one", findingId: "F-1", resolution: "withdrawn" }],
+        priorResponse: "adopt",
+      }),
+    /remove this resolution\. Fixed or adopted prior findings need no resolution; include exactly one resolution only for each finding the worker rebutted/u,
+  );
+});
+
+test("a resolution for a nonexistent finding remains rejected with the same correction", () => {
+  assert.throws(
+    () =>
+      reviewSecondRound({
+        verdict: "approved",
+        findings: [],
+        resolutions: [{ reviewId: "review-round-one", findingId: "F-404", resolution: "withdrawn" }],
+      }),
+    /resolution review-round-one\/F-404 does not address a rebutted finding from the prior review round; remove this resolution/u,
   );
 });
 
