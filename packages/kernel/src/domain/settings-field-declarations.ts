@@ -832,7 +832,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
     minimum: 10_000,
     description: "Maximum time a dispatch may go without provider or workspace progress, in milliseconds.",
-    effect: "The owning node stops an idle dispatch and settles it through the declared provider fallback policy.",
+    effect: "Without an in-flight tool call or live child, silence settles as dispatch_stalled; no provider fallback.",
     group: "schedules-nodes",
     action: { field: "runtimeStallTimeoutMs", type: "number" },
     cli: { name: "--runtime-stall-timeout-ms", kind: "single", regex: "^[1-9][0-9]{4,}$" },

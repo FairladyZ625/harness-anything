@@ -9,7 +9,7 @@ import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProv
 import { deepSeekSessionUsageTotals } from "./runtime-spawn-deepseek-session.ts";
 import { observeRuntimeSpendCap } from "./runtime-spend-cap.ts";
 import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
-import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ProviderFrame, ProviderToolCallLifecycle, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
@@ -143,6 +143,20 @@ export async function consumeProviderLine(
     (parsed.finalText !== undefined && context.isStructuredSuccessResult(parsed.finalText));
   if (parsed.planIncomplete !== undefined) active.planIncomplete = parsed.planIncomplete;
   observeProviderFault(active, parsed);
+  observeToolCalls(active, parsed.toolCalls);
+}
+
+/** Keep the in-flight ledger the stall watchdog consults. A settled call removes its entry; a
+ *  repeated start for the same id keeps the first observation so a re-emitted frame cannot push
+ *  the call's timeout bound forward. */
+function observeToolCalls(active: ActiveRuntime, calls: readonly ProviderToolCallLifecycle[] | undefined): void {
+  if (!calls) return;
+  const observedAtMs = Date.now();
+  for (const call of calls) {
+    if (call.settled) active.inFlightToolCalls.delete(call.id);
+    else if (!active.inFlightToolCalls.has(call.id))
+      active.inFlightToolCalls.set(call.id, { startedAtMs: observedAtMs, timeoutMs: call.timeoutMs ?? null });
+  }
 }
 
 function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {

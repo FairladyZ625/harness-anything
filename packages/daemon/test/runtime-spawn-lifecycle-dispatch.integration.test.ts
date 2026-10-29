@@ -794,7 +794,11 @@ test("runtime resolver preserves installed declarations across missing and orpha
 
 test("dispatch reclaims an orphaned task lease instead of requiring a manual release", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-orphan-lease-"));
-  let clock = "2026-09-11T00:00:00.000Z";
+  // The stall watchdog measures idleness on the wall clock while this cell's `now` is injected:
+  // a fixed past date arms it with zero remaining and settles the "live" fixture runtime, whose
+  // terminal stall releases the lease this test needs orphaned. Anchor the injected clock at wall
+  // time; advancing it past the lease TTL still orphans the lease without crossing the real one.
+  let clock = new Date().toISOString();
   try {
     initIngressRepo(root, 4313);
     grantTestPolicyGroups(["person-orphan-lease", "person-orphan-stranger"], "admin");

@@ -1,9 +1,14 @@
 import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import type { DispatchStallEvidence } from "./dispatch-stream.ts";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
+
+/** A provider-declared tool timeout is a bound on the tool, not on the daemon receiving its
+ *  settling frame; this grace covers that delivery gap without stretching the bound materially. */
+const TOOL_CALL_SETTLE_GRACE_MS = 5_000;
 
 type ActiveRuntimeBase = Omit<
   ActiveRuntime,
@@ -25,6 +30,7 @@ type ActiveRuntimeBase = Omit<
   | "cancelOpId"
   | "spendCapExceeded"
   | "lastProgressAtMs"
+  | "inFlightToolCalls"
   | "workspaceActivityCount"
   | "stalledAt"
   | "recordProviderProgress"
@@ -86,6 +92,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     cancelOpId: null,
     spendCapExceeded: false,
     lastProgressAtMs,
+    inFlightToolCalls: new Map(),
     workspaceActivityCount: base.workspaceActivityCount ?? 0,
     stalledAt: base.stalledAt ?? null,
     recordProviderProgress: null,
@@ -117,6 +124,8 @@ type RuntimeObservationHandles = {
   timer: NodeJS.Timeout | null;
   watcher: FSWatcher | null;
   disposed: boolean;
+  /** True while the current deadline is the extended one granted by an in-flight tool call. */
+  deferring: boolean;
 };
 
 const observationHandles = new WeakMap<ActiveRuntime, RuntimeObservationHandles>();
@@ -141,10 +150,17 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   )
     return;
   stallSettlementStarted.add(active);
-  const newlyStalled = active.stalledAt === null;
-  active.stalledAt ??= context.input.now();
+  const newlyStalled = active.stalledAt === null,
+    stalledAt = active.stalledAt ?? context.input.now();
+  // Freeze the judgment before the probe: a provider frame that lands while `ps` runs is later
+  // than the deadline this settlement already decided, so it must not move the progress clock
+  // the evidence quotes.
+  active.stalledAt ??= stalledAt;
+  // The evidence names what the judgment saw before anything is terminated: the deadline's
+  // inputs and the process subtree that a real long tool would still be running in.
+  const liveProcessPids = newlyStalled ? await liveDescendantPids(active) : null;
   active.lossReason = `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`;
-  if (newlyStalled) active.stream.appendStalled?.(active.stalledAt);
+  if (newlyStalled) active.stream.appendStalled?.(stalledAt, stallEvidence(active, stalledAt, liveProcessPids));
   // One termination path: the process tree when the launch can enumerate it, otherwise the
   // process group. A termination failure is a real fault and propagates to the scheduling
   // boundary instead of being replaced by a second kill attempt that hides it.
@@ -154,6 +170,42 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   await context.publishExit(active, null);
 }
 
+/** The dispatch-stream record that lets an operator replay why this attempt was cancelled. */
+function stallEvidence(
+  active: ActiveRuntime,
+  stalledAt: string,
+  liveProcessPids: readonly number[] | null,
+): DispatchStallEvidence {
+  return {
+    lastProgressAt: new Date(active.lastProgressAtMs).toISOString(),
+    stallTimeoutMs: active.stallTimeoutMs,
+    idleMs: Math.max(0, Date.parse(stalledAt) - active.lastProgressAtMs),
+    inFlightToolCalls: [...active.inFlightToolCalls].map(([toolCallId, call]) => ({
+      toolCallId,
+      startedAt: new Date(call.startedAtMs).toISOString(),
+      timeoutMs: call.timeoutMs,
+    })),
+    liveProcessPids,
+  };
+}
+
+async function liveDescendantPids(active: ActiveRuntime): Promise<readonly number[] | null> {
+  const probe = await active.process.liveDescendantPids?.();
+  // Unavailable stays null: the record must say the process table could not be read, and the
+  // caller keeps its historical deadline instead of treating silence as an empty subtree.
+  return probe?.available ? probe.pids : null;
+}
+
+/** The latest deadline an in-flight tool call may hold the watchdog to. Null when nothing is in
+ *  flight; a call that declared no timeout gets one further stall window, never an open bound. */
+function toolCallBoundMs(active: ActiveRuntime): number | null {
+  if (active.inFlightToolCalls.size === 0) return null;
+  let bound = 0;
+  for (const call of active.inFlightToolCalls.values())
+    bound = Math.max(bound, call.startedAtMs + (call.timeoutMs ?? active.stallTimeoutMs));
+  return bound + TOOL_CALL_SETTLE_GRACE_MS;
+}
+
 function armStallDeadline(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
@@ -161,15 +213,30 @@ function armStallDeadline(
 ): void {
   if (handles.disposed || active.stalledAt !== null) return;
   if (handles.timer) clearTimeout(handles.timer);
-  const remaining = Math.max(0, active.stallTimeoutMs - (Date.now() - active.lastProgressAtMs));
+  const baseDeadline = active.lastProgressAtMs + active.stallTimeoutMs,
+    deadline = handles.deferring ? (toolCallBoundMs(active) ?? baseDeadline) : baseDeadline,
+    remaining = Math.max(0, deadline - Date.now());
   handles.timer = setTimeout(() => {
     context.input.schedule(async () => {
       if (context.processes.get(active.runtimeSessionId) !== active || context.exiting.has(active.runtimeSessionId))
         return;
-      const elapsed = Date.now() - active.lastProgressAtMs;
-      if (elapsed < active.stallTimeoutMs) {
+      if (Date.now() < deadline) {
         armStallDeadline(context, active, handles);
         return;
+      }
+      // The base deadline is evidence of silence, not yet of a stall: a provider-announced tool
+      // call that still has live child processes is work in progress, so hold the deadline to the
+      // call's own timeout instead of killing the subtree mid-command.
+      if (!handles.deferring) {
+        const bound = toolCallBoundMs(active);
+        if (bound !== null && bound > Date.now()) {
+          const childPids = await liveDescendantPids(active);
+          if (childPids !== null && childPids.length > 0) {
+            handles.deferring = true;
+            armStallDeadline(context, active, handles);
+            return;
+          }
+        }
       }
       await settleStalledRuntime(context, active);
     }, active.binding);
@@ -178,7 +245,7 @@ function armStallDeadline(
 }
 
 function attachRuntimeObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
-  const handles: RuntimeObservationHandles = { timer: null, watcher: null, disposed: false };
+  const handles: RuntimeObservationHandles = { timer: null, watcher: null, disposed: false, deferring: false };
   const localRoot =
       typeof context.input.rootDir === "string" ? resolveHarnessLayout(context.input.rootDir).localRoot : null,
     localRootRelative = localRoot === null ? null : path.relative(active.cwd, localRoot),
@@ -193,11 +260,16 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
   const progress = (workspaceChanged: boolean): void => {
     if (handles.disposed || context.processes.get(active.runtimeSessionId) !== active || active.stalledAt !== null)
       return;
-    if (Date.now() - active.lastProgressAtMs >= active.stallTimeoutMs) {
+    const observedAtMs = Date.now();
+    // A frame that arrives after the deadline while a tool call is in flight is most likely that
+    // call's settling update: record it as progress instead of settling an attempt the provider is
+    // still serving. With no tool in flight the historical late-frame judgment is unchanged.
+    if (observedAtMs - active.lastProgressAtMs >= active.stallTimeoutMs && active.inFlightToolCalls.size === 0) {
       context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
       return;
     }
-    active.lastProgressAtMs = Date.now();
+    handles.deferring = false;
+    active.lastProgressAtMs = observedAtMs;
     if (workspaceChanged) {
       active.workspaceActivityCount += 1;
       active.stream.appendWorkspaceActivity?.(context.input.now());

@@ -1,5 +1,6 @@
 export { launchExitNotification } from "./runtime-spawn-process.ts";
 export type {
+  LiveDescendantProbeResult,
   RemoteRuntimePersistence,
   RuntimeDaemonRoute,
   RuntimeAttemptTerminal,

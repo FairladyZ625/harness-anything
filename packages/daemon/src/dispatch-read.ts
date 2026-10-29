@@ -677,6 +677,7 @@ function isClassification(value: unknown): value is NonNullable<TaskDispatchRow[
     value === "provider_fault" ||
     value === "provider_quota" ||
     value === "worker_stop" ||
+    value === "dispatch_stalled" ||
     value === "awaiting_ruling" ||
     value === "needs_attention" ||
     value === "gate_red" ||

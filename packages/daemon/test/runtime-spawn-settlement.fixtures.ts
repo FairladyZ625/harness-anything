@@ -43,6 +43,9 @@ export function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     workspaceActivityCount: 0,
     stallTimeoutMs: 300_000,
     lastProgressAtMs: Date.now(),
+    inFlightToolCalls: new Map(),
+    providerToolSteps: new Set(),
+    durableOutputCount: 0,
     writeItemObserved: true,
     ...overrides,
   } as ActiveRuntime;

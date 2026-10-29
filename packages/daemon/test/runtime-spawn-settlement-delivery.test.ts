@@ -232,7 +232,7 @@ test("a post-submit stall settles the accepted cut and names the remaining owner
   assert.match(outcomeBodies[0]!, /stalled during post-submit wrap-up/u);
   assert.match(outcomeBodies[0]!, /owner\/CEO/u);
   assert.match(outcomeBodies[0]!, /PR/u);
-  assert.deepEqual(fallbackTerminals, [{ classification: "provider_fault", outcome: "succeeded" }]);
+  assert.deepEqual(fallbackTerminals, [{ classification: "dispatch_stalled", outcome: "succeeded" }]);
   assert.equal(
     git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(),
     git(fixture.worker, "rev-parse", "HEAD").trim(),
@@ -265,7 +265,7 @@ test("a pre-submit stall remains failed without an accepted execution submission
   );
 
   assert.equal(outcomes[0]?.outcome, "failed");
-  assert.deepEqual(fallbackTerminals, [{ classification: "provider_fault", outcome: "failed" }]);
+  assert.deepEqual(fallbackTerminals, [{ classification: "dispatch_stalled", outcome: "failed" }]);
 });
 
 test("task settlement archives a bounded, scrubbed conclusion and the worktree exit HEAD", async (context) => {

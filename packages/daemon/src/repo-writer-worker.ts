@@ -22,7 +22,7 @@ import {
   type SerializableRepoCellBindingV1,
   type SerializableKeycloakAuthorization,
 } from "./repo-writer-protocol.ts";
-import type { RuntimeProcess } from "./runtime-spawn.ts";
+import type { LiveDescendantProbeResult, RuntimeProcess } from "./runtime-spawn.ts";
 import {
   assertWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
@@ -395,6 +395,10 @@ async function startRepoWriterWorker(): Promise<void> {
       ...(launched.terminateTree
         ? { terminateTree: () => asyncCapability("runtimeTerminateTree", { processId }).then(() => undefined) }
         : {}),
+      liveDescendantPids: () =>
+        asyncCapability("runtimeLiveDescendantPids", { processId }).then(
+          (result) => result as LiveDescendantProbeResult,
+        ),
       release: () => runtimeProcesses.delete(processId),
     };
   }

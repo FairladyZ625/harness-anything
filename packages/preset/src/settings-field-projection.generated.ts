@@ -796,7 +796,8 @@ export const settingsFieldProtocolProjection = {
       field: "runtimeStallTimeoutMs",
       description: "Maximum time a dispatch may go without provider or workspace progress, in milliseconds.",
       group: "schedules-nodes",
-      effect: "The owning node stops an idle dispatch and settles it through the declared provider fallback policy.",
+      effect:
+        "Without an in-flight tool call or live child, silence settles as dispatch_stalled; no provider fallback.",
       name: "--runtime-stall-timeout-ms",
       kind: "single",
       regex: "^[1-9][0-9]{4,}$",
