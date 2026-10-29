@@ -473,22 +473,18 @@ function codexCommandCompleted(value: Record<string, unknown>): boolean {
  * the refusal is recorded instead of thrown out of the host. */
 function continuationArgs(
   append: (value: Readonly<Record<string, unknown>>) => void,
-  resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[],
+  resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[] | null,
   baseArgs: readonly string[],
   providerSessionId: string,
 ): readonly string[] | null {
-  try {
-    return resumeArgs(baseArgs, providerSessionId);
-  } catch (error) {
-    consumeKnownError(error);
-    append({
-      kind: "continuation_refused",
-      providerSessionId,
-      reason: scrubProviderValue(error instanceof Error ? error.message : String(error)) as string,
-      occurredAt: new Date().toISOString(),
-    });
-    return null;
-  }
+  const resumed = resumeArgs(baseArgs, providerSessionId);
+  if (resumed !== null) return resumed;
+  append({
+    kind: "continuation_refused",
+    providerSessionId,
+    occurredAt: new Date().toISOString(),
+  });
+  return null;
 }
 
 function providerSteerState(

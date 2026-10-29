@@ -93,7 +93,10 @@ export interface RuntimeProviderDeclaration {
   readonly steer?:
     | {
         readonly strategy: "interrupt-resume";
-        readonly resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[];
+        /** The provider argv for resuming `providerSessionId`, or null when this dispatch's argv
+         * cannot be expressed as a resume command. Null is a settled answer, not an error: the
+         * caller keeps the evidence it already has and records the refusal. */
+        readonly resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[] | null;
       }
     | { readonly strategy: "cancel-reprompt" };
   readonly sessionIdentity: {
