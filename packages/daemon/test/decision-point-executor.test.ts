@@ -891,20 +891,21 @@ test("an exhausted rate limit resumes a resumable dispatch before falling back t
   assert.equal(stored[0]?.action?.action, "resume");
 });
 
-test("a delivered cut turns the provider-less default into no_action", async (t) => {
+test("a delivered cut retains a terminal provider cause while defaulting to no_action", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
+  const decisionProvider = openTestDecisionProvider(rootDir, async () => {
+    throw Object.assign(new Error("Invalid URL"), {
+      name: "NotFoundResponseError",
+      statusCode: 404,
+      data$: { error: { code: 404, message: "Invalid URL" } },
+    });
+  });
+  await configureTestDecisionProvider(decisionProvider);
   const executor = openTestExecutor({
       rootDir,
-      providers: {
-        list: () => [provider],
-        port: {
-          decide: async () => {
-            throw Object.assign(new Error("rate limited"), { code: "decision_rate_limited" });
-          },
-        },
-      },
+      providers: { list: decisionProvider.list, port: decisionProvider.port },
       now: () => "2026-10-19T00:00:01.000Z",
     }),
     { cell, spawns, relates } = fakeIncidentCell({
@@ -918,7 +919,11 @@ test("a delivered cut turns the provider-less default into no_action", async (t)
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.action?.selected, "no_action");
   assert.equal(stored[0]?.action?.action, "no_action");
-  assert.match(String(stored[0]?.action?.reason), /Decisions API unavailable/u);
+  assert.match(
+    String(stored[0]?.action?.reason),
+    /decision_transport after 0 retries: The OpenRouter Decisions request could not be completed/u,
+  );
+  assert.match(String(stored[0]?.action?.reason), /HTTP 404 NotFoundResponseError: Invalid URL/u);
 });
 
 test("the deterministic default still escalates when a guard forbids every automatic action", async (t) => {

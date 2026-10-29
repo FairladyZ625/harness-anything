@@ -267,13 +267,12 @@ export function openDecisionProviderService(input: {
           question: probeQuestion,
         });
       } catch (error) {
-        const mapped = mapOpenRouterFailure(error),
-          failed = {
-            ...current,
-            probe: { state: "failed" as const, checkedAt: now(), code: decisionFailureCode(mapped) },
-          };
+        const failed = {
+          ...current,
+          probe: { state: "failed" as const, checkedAt: now(), code: decisionFailureCode(error) },
+        };
         persist(read().map((entry) => (entry.providerId === id ? failed : entry)));
-        throw mapped;
+        throw error;
       }
       const checkedAt = now(),
         updated = { ...current, probe: { state: "ready" as const, checkedAt } };
@@ -342,7 +341,7 @@ function invokeDecisionWithRetry(
     })
     .catch((error: unknown) => {
       const code = decisionFailureCode(error),
-        mapped = mapOpenRouterFailure(error),
+        mapped = mapOpenRouterFailure(error, input.apiKey),
         retryable = retryableDecisionFailure(error, code);
       if (!retryable || retries >= decisionRetryMaxRetries) {
         if (retryable && retries > 0)
@@ -368,7 +367,6 @@ function retryableDecisionFailure(error: unknown, code: DecisionPortFailureCode)
   if (code === "decision_rate_limited" || code === "decision_timeout") return true;
   if (code !== "decision_transport" || typeof error !== "object" || error === null) return false;
   const row = error as {
-      readonly code?: unknown;
       readonly name?: unknown;
       readonly statusCode?: unknown;
       readonly status?: unknown;
@@ -376,7 +374,7 @@ function retryableDecisionFailure(error: unknown, code: DecisionPortFailureCode)
     status = typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null,
     name = typeof row.name === "string" ? row.name : "";
   if (status !== null) return status >= 500;
-  return row.code === "decision_transport" || name.includes("Connection") || name.includes("Network");
+  return name.includes("Connection") || name.includes("Network");
 }
 
 function takeCredential(
@@ -635,18 +633,84 @@ function completeDistributionByCount(
   );
 }
 
-function mapOpenRouterFailure(error: unknown): Error {
-  const code = decisionFailureCode(error);
+const decisionFailureDetailMaxLength = 400;
+
+function mapOpenRouterFailure(error: unknown, apiKey?: string): Error {
+  const code = decisionFailureCode(error),
+    detail = decisionFailureDetail(error, apiKey),
+    withDetail = (summary: string): string => (detail === "" ? summary : `${summary} ${detail}`);
   if (code === "provider_credential_unavailable")
-    return providerError(code, "OpenRouter rejected the configured Decisions API key.");
-  if (code === "decision_rate_limited") return providerError(code, "OpenRouter rate limited the Decisions request.");
-  if (code === "decision_timeout") return providerError(code, "The Decisions request timed out.");
+    return providerError(code, withDetail("OpenRouter rejected the configured Decisions API key."), 0);
+  if (code === "decision_rate_limited")
+    return providerError(code, withDetail("OpenRouter rate limited the Decisions request."), 0);
+  if (code === "decision_timeout") return providerError(code, withDetail("The Decisions request timed out."), 0);
   if (code === "decision_protocol_invalid")
-    return providerError(code, "OpenRouter returned an invalid Decisions response.");
+    return providerError(code, withDetail("OpenRouter returned an invalid Decisions response."), 0);
   if (code === "decision_transport")
-    return providerError(code, "The OpenRouter Decisions request could not be completed.");
+    return providerError(code, withDetail("The OpenRouter Decisions request could not be completed."), 0);
   if (error instanceof Error) return error;
   return new Error(String(error));
+}
+
+/**
+ * One actionable sentence about a provider failure: HTTP status, SDK error class,
+ * provider error code, and SDK's parsed message field. The raw response body is
+ * never copied, and a known credential is replaced before the text reaches a log or receipt.
+ */
+function decisionFailureDetail(error: unknown, apiKey?: string): string {
+  if (typeof error === "string") return redactDecisionSecret(error, apiKey);
+  if (!error || typeof error !== "object") return redactDecisionSecret(String(error), apiKey);
+  const row = error as {
+      readonly name?: unknown;
+      readonly message?: unknown;
+      readonly statusCode?: unknown;
+      readonly status?: unknown;
+      readonly code?: unknown;
+      readonly error?: unknown;
+      readonly data$?: unknown;
+    },
+    status = typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null,
+    name = typeof row.name === "string" && row.name !== "" ? row.name : null,
+    providerCode = nestedProviderErrorCode(row),
+    message = typeof row.message === "string" ? row.message.trim() : "",
+    head = [
+      status === null ? null : `HTTP ${String(status)}`,
+      name,
+      providerCode === null || providerCode === status ? null : `code=${String(providerCode)}`,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(" ");
+  const detail = head === "" ? message : message === "" ? head : `${head}: ${message}`;
+  return redactDecisionSecret(detail, apiKey);
+}
+
+function nestedProviderErrorCode(row: {
+  readonly code?: unknown;
+  readonly error?: unknown;
+  readonly data$?: unknown;
+}): string | number | null {
+  for (const candidate of [row.code, providerErrorCode(row.error), providerErrorCode(row.data$)]) {
+    if (typeof candidate === "string" || typeof candidate === "number") return candidate;
+  }
+  return null;
+}
+
+function providerErrorCode(value: unknown): unknown {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { readonly code?: unknown; readonly error?: unknown };
+  if (typeof row.code === "string" || typeof row.code === "number") return row.code;
+  const nested = row.error;
+  if (!nested || typeof nested !== "object") return null;
+  const nestedCode = (nested as { readonly code?: unknown }).code;
+  return typeof nestedCode === "string" || typeof nestedCode === "number" ? nestedCode : null;
+}
+
+function redactDecisionSecret(text: string, apiKey?: string): string {
+  const secret = apiKey?.trim(),
+    redacted = secret && secret.length >= 4 ? text.split(secret).join("[redacted]") : text;
+  return redacted.length > decisionFailureDetailMaxLength
+    ? `${redacted.slice(0, decisionFailureDetailMaxLength)}…`
+    : redacted;
 }
 
 function decisionFailureCode(error: unknown): DecisionPortFailureCode {
