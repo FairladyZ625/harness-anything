@@ -494,7 +494,11 @@ export type DaemonGuiReadPayloadMap = {
     readonly path: string;
   };
   readonly "repo.tasks.completion.read": { readonly taskId: string };
-  readonly "repo.tasks.runtimeContext.read": { readonly taskId: string };
+  readonly "repo.tasks.runtimeContext.read": {
+    readonly taskId: string;
+    /** Settlement-time callers skip the dispatch they are closing so the seed is the prior stop. */
+    readonly excludeDispatchId?: string;
+  };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   readonly "repo.tasks.deliveryDiff.read": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */

@@ -28,7 +28,7 @@ test("a budget-exhausted worker stop is a guard escalation, not a question", () 
   if (plan.action !== "needs_attention") return;
   assert.match(plan.rationale, /^needs_attention:/u);
   assert.match(plan.rationale, /Worker stopped without a submitted delivery on round 4/u);
-  assert.match(plan.rationale, /automatic redispatch budget 3\/3 used/u);
+  assert.match(plan.rationale, /automatic redispatch budget 3\/3 used on consecutive stops without worktree progress/u);
   assert.match(plan.rationale, /Next: ha agent run worker_agent --task task_incident_action/u);
   assert.doesNotMatch(plan.rationale, /^question:/u);
 });

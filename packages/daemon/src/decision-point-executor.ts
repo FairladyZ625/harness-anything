@@ -13,21 +13,14 @@ import {
   type DecisionQuestionDeclaration,
   type DecisionRequest,
   type DecisionProviderRecord,
-  type SettingsV1,
-  type TaskProjectionQueries,
   type VerticalDefinition,
 } from "@harness-anything/kernel";
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { RepoCell } from "./repo-cell-types.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { decisionAdvisoryFromProvider, openDecisionAnnotationStore } from "./decision-annotations.ts";
-import {
-  appendIncidentActionReceipt,
-  countAppliedIncidentActions,
-  readIncidentActionReceipt,
-} from "./decision-incident-receipt.ts";
+import { appendIncidentActionReceipt, readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
-import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import {
   defaultIncidentDisposition,
   executeIncidentAction,
@@ -68,7 +61,10 @@ export function openDecisionPointExecutor(input: {
     /** Why a provider-less disposition was chosen; the executed action carries no reason of its
      * own, and the receipt must still say the Decisions API was unavailable. */
     readonly note: string | null;
-    readonly budget: IncidentDecisionFields["reworkBudget"] | null;
+    readonly budget: IncidentDecisionFields["continuationBudget"] | null;
+    /** Whether this stop measured worktree progress; a progressing stop resets the streak instead
+     * of consuming the next continuation slot. */
+    readonly progressed: boolean;
   }): Promise<void> => {
     const outcome = await executeIncidentAction({
         cell: args.cell,
@@ -79,7 +75,24 @@ export function openDecisionPointExecutor(input: {
         keycloakSession: input.keycloakSession,
       }),
       decidedAt = input.now(),
-      reason = outcome.reason ?? args.note;
+      reason = outcome.reason ?? args.note,
+      /** The receipt records the streak this action ends on: an applied resume/rerun adds one
+       * no-progress stop, while a progressing stop resets the streak to zero for every disposition
+       * (an escalation must not lose the reset the worktree proved). A refusal or no_action on a
+       * no-progress stop consumes nothing and keeps the pre-action numbers the guard already
+       * quotes. */
+      settledBudget =
+        args.budget === null
+          ? null
+          : {
+              ...args.budget,
+              used:
+                outcome.action === "resume" || outcome.action === "rerun"
+                  ? args.progressed
+                    ? 0
+                    : args.budget.used + 1
+                  : args.budget.used,
+            };
     await annotations.settleAction(
       args.key,
       {
@@ -91,7 +104,7 @@ export function openDecisionPointExecutor(input: {
         status: outcome.status,
         reason,
         successorDispatchId: outcome.successorDispatchId,
-        budget: args.budget,
+        budget: settledBudget,
       },
       decidedAt,
     );
@@ -106,7 +119,7 @@ export function openDecisionPointExecutor(input: {
       attention: outcome.attention,
       reason,
       successorDispatchId: outcome.successorDispatchId,
-      budget: args.budget,
+      budget: settledBudget,
       decidedAt,
     });
   };
@@ -164,14 +177,7 @@ export function openDecisionPointExecutor(input: {
         if (!enabledPoints.includes(`${pointId}@${bindingDigest.slice(0, 12)}`)) continue;
         const executable = question.version === incidentDispositionQuestionVersion,
           incident = executable
-            ? await readIncidentFields(
-                cell,
-                input.rootDir,
-                task.taskId,
-                dispatchRead.dispatches,
-                event,
-                settingsRead.settings,
-              )
+            ? await readIncidentFields(cell, input.rootDir, task.taskId, dispatchId, dispatchRead.dispatches, event)
             : null,
           projected =
             incident === null
@@ -255,12 +261,13 @@ export function openDecisionPointExecutor(input: {
             resumable: Boolean(dispatch?.resume),
             agentId: dispatch?.agentId ?? null,
             roundsUsed: incident?.fields?.roundsUsed ?? dispatchRead.dispatches.length,
-            budget: incident?.fields?.reworkBudget ?? { used: 0, limit: 0 },
+            budget: incident?.fields?.continuationBudget ?? { used: 0, limit: 0 },
             // A continuation inherits the worktree; with no measured HEAD there is no known base
             // to continue from, so automatic execution is not admissible.
             headKnown: incident?.fields !== undefined && incident.fields.headStatus !== "unavailable",
           },
-          recordBudget = incident?.fields?.reworkBudget ?? null,
+          recordBudget = incident?.fields?.continuationBudget ?? null,
+          progressed = incident?.fields?.headStatus === "changed",
           apply = (selected: string, plan: IncidentActionPlan, note: string | null) =>
             settle({
               cell,
@@ -273,6 +280,7 @@ export function openDecisionPointExecutor(input: {
               plan,
               note,
               budget: recordBudget,
+              progressed,
             }),
           escalate = (guard: string, next = `ha task dispatches ${task.taskId}`) =>
             apply("needs_attention", incidentGuardPlan({ taskId: task.taskId, guard, evidence, next }), null),
@@ -385,39 +393,32 @@ interface IncidentRead {
 }
 
 /** One incident-context read at the projection cut: continuation seed and worktree HEAD reuse
- * task_3fedf360's construction, the budget comes from the single effective-budget source, and
- * the used count is this task's applied automatic dispositions so far. */
+ * task_3fedf360's construction, and the continuation streak is read from the durable receipts on
+ * the canonical dispatch rows (not the local annotation store, whose retention window would let a
+ * busy repository forget old dispositions and reopen the cap). A measured HEAD change is the only
+ * evidence that resets the streak. */
 async function readIncidentFields(
   cell: RepoCell,
   rootDir: string,
   taskId: string,
+  dispatchId: string,
   dispatches: readonly TaskDispatchRow[],
   event: OutcomeEvent,
-  settings: SettingsV1,
 ): Promise<IncidentRead> {
   try {
-    const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", { taskId }),
+    const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", {
+        taskId,
+        // The dispatch being settled already archived its own exit HEAD, so the seed must skip it;
+        // otherwise headStatus compares the current worktree with itself and never measures the
+        // progress this stop made relative to the previous one.
+        excludeDispatchId: dispatchId,
+      }),
       toolCallCount = event.payload.runtimeMetrics?.toolCallCount,
       fields = await incidentDecisionFields({
         rootDir,
         runtimeContext,
-        dispatchCount: dispatches.length,
+        dispatches,
         toolCallCount: typeof toolCallCount === "number" ? toolCallCount : null,
-        effectiveBudget: readEffectiveReviewReturnBudget({
-          // The merged settings facet carries repository-owned fields verbatim; the function
-          // itself still owns the absent-entity default, so no default is copied here. Only
-          // `.value` is read on this row.
-          getEntity: (kind: string, id: string) =>
-            kind === "settings" && id === "repository"
-              ? // Only `.value` is read on this row; the surrounding entity freshness fields are
-                // not part of the effective-budget read.
-                ({ value: settings } as unknown as ReturnType<TaskProjectionQueries["getEntity"]>)
-              : null,
-        }),
-        // The budget fence counts durable receipts on canonical dispatch rows, not the local
-        // annotation store: that store truncates to its newest entries and would let a busy
-        // repository forget old automatic dispositions and reopen the cap.
-        used: countAppliedIncidentActions(dispatches),
       });
     return {
       runtimeContext,
@@ -505,7 +506,10 @@ function incidentFieldSegment(
     case "task.roundsUsed":
       return `rounds_used: ${String(incident.roundsUsed)}`;
     case "task.reworkBudget":
-      return `rework_budget: used=${String(incident.reworkBudget.used)} limit=${String(incident.reworkBudget.limit)} source=${incident.reworkBudget.source}`;
+      // The declared input id and its projected label are a frozen decision contract (the binding
+      // digest is registered in enabledPoints); the value carried here is the daemon-measured
+      // continuation streak, no longer the repository's review-return budget.
+      return `rework_budget: used=${String(incident.continuationBudget.used)} limit=${String(incident.continuationBudget.limit)} source=${incident.continuationBudget.source}`;
     default:
       return null;
   }

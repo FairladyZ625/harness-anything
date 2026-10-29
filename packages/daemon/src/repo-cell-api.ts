@@ -466,7 +466,12 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     "repo.tasks.completion.read": (payload) =>
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId"), context.rootDir),
     "repo.tasks.runtimeContext.read": (payload) =>
-      readTaskRuntimeContext(context.rootDir, context.projection, context.requiredCellText(payload.taskId, "taskId")),
+      readTaskRuntimeContext(
+        context.rootDir,
+        context.projection,
+        context.requiredCellText(payload.taskId, "taskId"),
+        typeof payload.excludeDispatchId === "string" ? payload.excludeDispatchId : null,
+      ),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
     "repo.tasks.deliveryDiff.read": (payload) =>

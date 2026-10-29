@@ -662,7 +662,7 @@ test("agenda labels a guard escalation as needs-handling instead of an owner que
     attention: "guard",
     reason,
     successorDispatchId: null,
-    budget: { used: 3, limit: 3, source: "repository" },
+    budget: { used: 3, limit: 3, source: "daemon" },
     decidedAt: "2026-10-28T11:01:00.000Z",
   });
   const base = projectionStub({ taskRows: [taskWithExecution] }),

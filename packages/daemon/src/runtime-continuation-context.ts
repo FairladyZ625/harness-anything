@@ -45,17 +45,23 @@ export function continuationContext(
   };
 }
 
-/** Read the latest archived conclusion for an execution without loading its terminal result. */
+/** Read the latest archived conclusion for an execution without loading its terminal result.
+ * `excludeDispatchId` answers the settlement-time question instead of the launch-time one: the
+ * dispatch being settled already archived its own exit HEAD, so including it would compare the
+ * current worktree with itself and report `unchanged` for every stop. Excluding it yields the
+ * seed a *later* dispatch would inherit: the previous dispatch's exit HEAD. */
 export function latestRuntimeContinuationSeed(
   projection: TaskProjection,
   taskId: string,
   executionIds: readonly string[],
+  excludeDispatchId: string | null = null,
 ): RuntimeContinuationSeed | null {
   const read = projection.read(taskId),
     packagePath = read.packagePath;
   if (packagePath === null) return null;
   const rows = [...new Set(executionIds)]
     .flatMap((executionId) => projection.readRuntimeDispatchesByTaskExecution(taskId, executionId))
+    .filter(({ event }) => event.payload.dispatchId !== excludeDispatchId)
     .sort((left, right) => left.event.occurredAt.localeCompare(right.event.occurredAt));
   for (const row of [...rows].reverse()) {
     const document = projection.readDocument(

@@ -9,7 +9,7 @@ import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "./dispatch
  * canonical dispatch read instead of a second ledger. */
 export const incidentActionRecordKind = "decision_action";
 
-const budgetSources = new Set(["task", "repository"]);
+const budgetSources = new Set(["task", "repository", "daemon"]);
 const actions = new Set(["resume", "rerun", "needs_attention", "no_action"]);
 const statuses = new Set(["claimed", "applied", "failed"]);
 
@@ -30,17 +30,28 @@ export function readIncidentActionReceipt(rootDir: string, dispatchId: string): 
   return record === null || record === undefined ? null : incidentActionFromRecord(record);
 }
 
-/** Automatic dispositions already consumed by a task, counted from canonical dispatch rows (their
- * durable receipts) rather than a retention-capped local annotation file. A `claimed` fence and a
- * failed action consume nothing: only an applied resume/rerun actually launched a successor. */
-export function countAppliedIncidentActions(
+/** The continuation budget already consumed by this task's current no-progress streak, read from
+ * the canonical dispatch receipts rather than the retention-capped local annotation file. Every
+ * applied disposition records the streak it ended on, not only resume/rerun: a progressing stop
+ * that escalated or did nothing must still persist the reset, otherwise the next no-progress stop
+ * would inherit a streak the worktree already disproved. The newest receipt with a recorded budget
+ * is the whole durable state; a measured worktree HEAD change resets it before the gate reads it.
+ * A receipt with no budget (an owner dismissal) and a task with no receipt start at zero. Receipts
+ * written before the streak was recorded carry the old pre-action lifetime count, so the reader
+ * treats that number as a conservative streak estimate; it converges as new receipts are written.
+ * A `claimed` fence carries no streak and is ignored. */
+export function incidentContinuationUsed(
   rows: readonly { readonly decisionAction?: TaskDispatchDecisionAction }[],
+  progressed: boolean,
 ): number {
-  return rows.filter(
-    (row) =>
-      row.decisionAction?.status === "applied" &&
-      (row.decisionAction.action === "resume" || row.decisionAction.action === "rerun"),
-  ).length;
+  if (progressed) return 0;
+  let latest: SettledIncidentAction | null = null;
+  for (const row of rows) {
+    const action = row.decisionAction;
+    if (action?.status !== "applied" || action.budget === null) continue;
+    if (latest === null || action.decidedAt > latest.decidedAt) latest = action;
+  }
+  return latest?.budget?.used ?? 0;
 }
 
 /** Validate one stored record into the public row shape. A vocabulary value this daemon never

@@ -407,6 +407,6 @@ function validTaskDispatchDecisionAction(value: unknown): boolean {
         integer(value.budget.limit) &&
         Number(value.budget.used) >= 0 &&
         Number(value.budget.limit) >= 0 &&
-        ["task", "repository"].includes(String(value.budget.source))))
+        ["task", "repository", "daemon"].includes(String(value.budget.source))))
   );
 }
