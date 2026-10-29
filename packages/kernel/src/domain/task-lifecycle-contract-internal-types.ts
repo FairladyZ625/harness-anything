@@ -43,6 +43,8 @@ export interface TaskLifecycleSnapshot {
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewResponses?: readonly TaskReviewResponseV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
+  /** Center-owned settlement inputs joined into read snapshots, never written to Task events. */
+  readonly reviewFindingTriages?: readonly ReviewFindingTriageV1[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly edgesTaken: readonly TaskEdgeTaken[];
   readonly lease: LeaseV1 | null;

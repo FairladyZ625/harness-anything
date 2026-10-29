@@ -341,6 +341,18 @@ test("a recorded changes_requested review guides the owner's disposition instead
   assert.equal(taskCompletionNext(at(3), context).next?.action, "ha task dispatch-review task-1");
 });
 
+test("a dismissed review is not an effective review and guides a fresh dispatch", () => {
+  const reviewed = at(4),
+    dismissed = {
+      ...reviewed,
+      reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-dismissed", verdict: "dismissed" as const }],
+    },
+    result = taskCompletionNext(dismissed, context);
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.next?.action, "ha task dispatch-review task-1");
+  assert.match(result.next?.reason ?? "", /no recorded review/u);
+});
+
 test("completion readiness names an owner finding ruling when approved review settlement escalates", () => {
   const reviewed = at(4),
     escalated = {
@@ -373,6 +385,64 @@ test("completion readiness names an owner finding ruling when approved review se
   assert.match(result.next!.reason, /Finding review-execution\/F-escalated escalated/u);
   assert.match(result.next!.reason, /the task owner must choose a disposition for this finding/u);
   assert.doesNotMatch(result.next!.action, /dispatch-review/u);
+});
+
+test("completion readiness lists every escalated finding command in one next action", () => {
+  const reviewed = at(4),
+    escalated = {
+      ...reviewed,
+      reviews: [
+        {
+          ...reviewed.reviews[0]!,
+          findings: [
+            {
+              findingId: "F-first",
+              blocking: false,
+              text: "First unresolved finding.",
+              category: "correctness" as const,
+            },
+            {
+              findingId: "F-second",
+              blocking: false,
+              text: "Second unresolved finding.",
+              category: "completeness" as const,
+            },
+          ],
+        },
+      ],
+      reviewFindingTriages: [],
+    },
+    result = taskCompletionNext(escalated, context);
+
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.match(result.next!.action, /--finding-id 'F-first'/u);
+  assert.match(result.next!.action, /--finding-id 'F-second'/u);
+  assert.match(result.next!.reason, /review-execution\/F-first, review-execution\/F-second/u);
+});
+
+test("completion readiness gives a whole-review disposal command for blocking unclassified findings", () => {
+  const reviewed = at(4),
+    unclassified = {
+      ...reviewed,
+      reviews: [
+        {
+          ...reviewed.reviews[0]!,
+          findings: [
+            { findingId: "F-legacy-one", blocking: true, text: "First unclassified finding." },
+            { findingId: "F-legacy-two", blocking: true, text: "Second unclassified finding." },
+          ],
+        },
+      ],
+      reviewFindingTriages: [],
+    },
+    result = taskCompletionNext(unclassified, context);
+
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(
+    result.next!.action,
+    "ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --dispose 'review-execution' --rationale <why>",
+  );
+  assert.match(result.next!.reason, /review-execution\/F-legacy-one, review-execution\/F-legacy-two/u);
 });
 
 test("completion readiness returns an owner-confirmed blocker to implementation", () => {

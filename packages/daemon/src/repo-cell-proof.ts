@@ -472,13 +472,9 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-consent@v1",
       capabilityRef: authorizationDecision.policyRef,
-      ...(command.findingId !== undefined && command.findingDisposition !== undefined
-        ? {
-            reviewFindingTriages: readReviewTriageRecords(rootDir).filter(
-              (record) => record.target.kind === "task" && record.target.id === command.taskId,
-            ),
-          }
-        : {}),
+      reviewFindingTriages: readReviewTriageRecords(rootDir).filter(
+        (record) => record.target.kind === "task" && record.target.id === command.taskId,
+      ),
       authorizationDecision,
     };
   }

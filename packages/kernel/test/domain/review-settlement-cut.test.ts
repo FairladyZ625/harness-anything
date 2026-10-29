@@ -251,6 +251,125 @@ test("the task owner can adjudicate one escalated finding through review consent
   );
 });
 
+test("owner consent clears a non-blocking complete-evidence ci-required finding without changing shared settlement", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    reviewed = {
+      ...recorded,
+      findings: [
+        {
+          findingId: "C1-ci-required",
+          blocking: false,
+          text: "The required CI check is recorded on the merged PR.",
+          category: "ci-required" as const,
+          anchor: "PR #4073 required checks",
+          evidenceDigest: digest,
+        },
+      ],
+    },
+    before = { ...original, reviews: [reviewed], consents: [], reviewFindingTriages: [] },
+    priorConsent = {
+      schema: "review-consent/v1" as const,
+      consentId: "consent-ci-required-prior",
+      taskId: reviewed.taskId,
+      executionId: reviewed.executionId,
+      reviewId: reviewed.reviewId,
+      reviewDigest: reviewDigest(reviewed),
+      contentDigest: reviewed.contentDigest,
+      submissionDigest: submissionDigest(original.executions[0]!.submission!),
+      actor: implementer,
+      source: "local" as const,
+      consentedAt: "2026-10-27T00:59:00.000Z",
+    },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: reviewed.taskId,
+          executionId: reviewed.executionId,
+          reviewId: reviewed.reviewId,
+          consentId: "consent-ci-required",
+          reviewDigest: reviewDigest(reviewed),
+          contentDigest: reviewed.contentDigest,
+        },
+      ),
+      eventId: "event-consent-ci-required",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    };
+
+  assert.equal(closeoutReadiness(before).blocker, "review");
+  assert.notEqual(
+    closeoutReadiness({ ...before, consents: [priorConsent] }).blocker,
+    "review",
+    "matching owner consent releases this non-blocking finding from the Task review gate",
+  );
+  const result = applyTransition(before, command, {
+    actorBinding: implementer,
+    capability: "execution-consent@v1",
+    capabilityRef: "cap-consent-ci-required",
+    reviewFindingTriages: [],
+  } satisfies ReviewConsentProof);
+  assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+  assert.equal(currentCutSettlement([reviewed], result.snapshot.executions[0]!, [])?.outcome, "changes_requested");
+});
+
+test("owner consent is rejected when a finding is truly blocking", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    reviewed = {
+      ...recorded,
+      findings: [
+        {
+          findingId: "F-blocking",
+          blocking: true,
+          text: "This finding must be fixed before completion.",
+          category: "correctness" as const,
+        },
+      ],
+    },
+    before = { ...original, reviews: [reviewed], consents: [], reviewFindingTriages: [] },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: reviewed.taskId,
+          executionId: reviewed.executionId,
+          reviewId: reviewed.reviewId,
+          consentId: "consent-blocking",
+          reviewDigest: reviewDigest(reviewed),
+          contentDigest: reviewed.contentDigest,
+        },
+      ),
+      eventId: "event-consent-blocking",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    };
+
+  assert.throws(
+    () =>
+      applyTransition(before, command, {
+        actorBinding: implementer,
+        capability: "execution-consent@v1",
+        capabilityRef: "cap-consent-blocking",
+        reviewFindingTriages: [],
+      } satisfies ReviewConsentProof),
+    /owner consent cannot waive unresolved findings: review-execution\/F-blocking; resolve them first with ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --finding-id 'F-blocking'/u,
+  );
+});
+
 test("a ruling on a settled finding names the escalated findings the owner must dispose", () => {
   const { snapshot: original } = lifecycleFixture({ complete: false }),
     recorded = original.reviews[0]!,
@@ -608,6 +727,49 @@ test("the owner can write a digest-bound disposition for an approved historical 
     submissionDigest(result.snapshot.executions[0]!.submission!),
   );
   assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+});
+
+test("owner consent cannot waive a historical finding without a category", () => {
+  const { snapshot: original } = lifecycleFixture({ complete: false }),
+    recorded = original.reviews[0]!,
+    historical = {
+      ...recorded,
+      findings: [{ findingId: "legacy-non-blocking", blocking: false, text: "A non-blocking historical note." }],
+    },
+    before = { ...original, reviews: [historical], consents: [] },
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: before.revision,
+        },
+        {
+          type: "RecordReviewConsent" as const,
+          taskId: historical.taskId,
+          executionId: historical.executionId,
+          reviewId: historical.reviewId,
+          consentId: "consent-legacy-non-blocking",
+          reviewDigest: reviewDigest(historical),
+          contentDigest: historical.contentDigest,
+        },
+      ),
+      eventId: "event-consent-legacy-non-blocking",
+      workspaceRevision: before.revision + 1,
+      occurredAt: "2026-10-27T01:00:00.000Z",
+    };
+
+  assert.throws(
+    () =>
+      applyTransition(before, command, {
+        actorBinding: implementer,
+        capability: "execution-consent@v1",
+        capabilityRef: "cap-consent-legacy-non-blocking",
+      } satisfies ReviewConsentProof),
+    /owner consent cannot waive unresolved findings: review-execution\/legacy-non-blocking; resolve them first with ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --dispose 'review-execution' --rationale <why>/u,
+  );
+  assert.equal(closeoutReadiness(before).blocker, "review");
 });
 
 test("a categorized nit cannot hide an unanswered historical blocker", () => {

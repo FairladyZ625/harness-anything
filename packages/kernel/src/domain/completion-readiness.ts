@@ -1,11 +1,14 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
   closeoutReadiness,
+  currentCutSettlement,
   currentExecutionCuts,
   gateSatisfied,
   isRetiredCiRequirement,
   deliveryTargetLabel,
   lineageOrphan,
+  reviewConsentBlockers,
+  unfiledReviewFindings,
   type CloseoutGateStatus,
   type CompletionDeliveryStatus,
 } from "./closeout-readiness.ts";
@@ -344,14 +347,39 @@ function evaluateCompletion(
   // The assessment already carries the gate judgment; re-deriving review or consent here
   // would duplicate the one closeout-readiness decision.
   if (assessment.blocker === "review") {
-    if (assessment.escalatedFindings?.length) {
-      const { reviewId, findingId } = assessment.escalatedFindings[0]!;
+    const escalatedFindings = assessment.escalatedFindings ?? [],
+      settlement = currentCutSettlement(
+        snapshot.reviews,
+        execution,
+        snapshot.reviewFindingTriages ?? [],
+        snapshot.reviewDispositions ?? [],
+      ),
+      unfiledPending = unfiledReviewFindings(snapshot.reviews, execution, snapshot.reviewDispositions ?? []),
+      unfiledReviews = [...new Set(unfiledPending.map(({ reviewId }) => reviewId))],
+      commands = [
+        ...escalatedFindings.map(({ reviewId, findingId }) =>
+          findingRulingCommand(task.taskId, executionId, reviewId, findingId),
+        ),
+        ...unfiledReviews.map((reviewId) => reviewDispositionCommand(task.taskId, executionId, reviewId)),
+      ];
+    if (commands.length) {
+      const findingRefs = [...escalatedFindings, ...unfiledPending].map(
+        ({ reviewId, findingId }) => `${reviewId}/${findingId}`,
+      );
+      if (escalatedFindings.length === 1 && unfiledPending.length === 0)
+        return one(
+          "review_missing",
+          "review",
+          commands[0]!,
+          `Finding ${findingRefs[0]} escalated because automated review could not classify it safely; ` +
+            "the task owner must choose a disposition for this finding.",
+        );
       return one(
         "review_missing",
         "review",
-        findingRulingCommand(task.taskId, executionId, reviewId, findingId),
-        `Finding ${reviewId}/${findingId} escalated because automated review could not classify it safely; ` +
-          "the task owner must choose a disposition for this finding.",
+        commands.join("; "),
+        `Findings ${[...new Set(findingRefs)].join(", ")} require owner disposition before consent; ` +
+          "the listed commands resolve each pending finding.",
       );
     }
     if (assessment.blockingFindings?.length)
@@ -362,11 +390,35 @@ function evaluateCompletion(
         `The current finding settlement has ${String(assessment.blockingFindings.length)} blocker(s); ` +
           "the task owner must return this cut to implementation.",
       );
+    const recorded = reviewsForExecution(snapshot.reviews, execution),
+      effectiveReviews = recorded.filter((review) => review.verdict !== "dismissed");
+    if (effectiveReviews.length === 0)
+      return one(
+        "review_missing",
+        "review",
+        `ha task dispatch-review ${task.taskId}`,
+        "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+      );
+    const blockers = reviewConsentBlockers(
+      snapshot.reviews,
+      execution,
+      snapshot.reviewFindingTriages ?? [],
+      snapshot.reviewDispositions ?? [],
+      settlement,
+    );
+    if (blockers.length)
+      return one(
+        "review_missing",
+        "review",
+        `ha task dispatch-review ${task.taskId}`,
+        `Recorded review findings ${blockers.map(({ reviewId, findingId }) => `${reviewId}/${findingId}`).join(", ")} ` +
+          "still block owner consent; obtain a fresh independent review or return the cut.",
+      );
     return one(
       "review_missing",
       "review",
-      `ha task dispatch-review ${task.taskId}`,
-      "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+      reviewConsentCommands(task.taskId, recorded, execution).join(" or "),
+      "The submitted cut has recorded review(s) but still needs the owner's consent; review the findings and consent to the selected approved cut.",
     );
   }
   if (assessment.blocker === "consent")
@@ -456,6 +508,14 @@ export function findingRulingCommand(taskId: string, executionId: string, review
     `ha task review-consent ${taskId} --execution-id ${executionId} ` +
     `--review-id ${quoted(reviewId)} --finding-id ${quoted(findingId)} ` +
     "--finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> --rationale <why>"
+  );
+}
+
+export function reviewDispositionCommand(taskId: string, executionId: string, reviewId: string): string {
+  const quoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  return (
+    `ha task review-consent ${taskId} --execution-id ${executionId} ` +
+    `--review-id ${quoted(reviewId)} --dispose ${quoted(reviewId)} --rationale <why>`
   );
 }
 
