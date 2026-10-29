@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   applyVerticalKindCommand,
+  compileVerticalContract,
   compileVerticalDeclarationEvent,
   decodeVerticalDefinition,
   normalizeHistoricalVerticalDocument,
   parseVerticalDeclarationDocument,
+  resolveGovernedRelationAuthority,
   VERTICAL_DECLARATION_PATH,
   type CanonicalEventStore,
   type TaskProjection,
@@ -19,7 +21,9 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { noChanges, reject } from "./entity-action-write-helpers.ts";
 
 /** The one projection facility the declaration is read through; nothing here needs wider authority. */
-export type VerticalDeclarationReader = Pick<TaskProjection, "readDocument">;
+export type VerticalDeclarationReader = Pick<TaskProjection, "readDocument"> & {
+  readonly readDecisionDocumentState?: TaskProjection["readDecisionDocumentState"];
+};
 
 /**
  * The installed Kind state, read from the canonical record the declaration events project. A vertical
@@ -64,7 +68,14 @@ export async function runVerticalDeclarationAction(input: {
     });
   const nextRevision = (input.store.readHead()?.revision ?? 0) + 1,
     occurredAt = input.now(),
-    result = candidate(input.action, current, occurredAt, nextRevision, input.mintKindId ?? mintKindId);
+    result = candidate(
+      input.action,
+      current,
+      occurredAt,
+      nextRevision,
+      input.mintKindId ?? mintKindId,
+      input.projection,
+    );
   if (current && JSON.stringify(result.definition) === JSON.stringify(current.definition))
     return noChanges({
       opId: `vertical-declaration-unchanged-${current.revision}`,
@@ -126,6 +137,7 @@ function candidate(
   occurredAt: string,
   acceptedRevision: number,
   mint: () => string,
+  decisionReader: VerticalDeclarationReader,
 ): {
   readonly type: "vertical_declared" | "vertical_kind_upserted" | "vertical_kind_retired";
   readonly definition: ReturnType<typeof decodeVerticalDefinition>;
@@ -161,6 +173,22 @@ function candidate(
     });
   // Fail-closed revalidation of the command's constructed kind rows before acceptance.
   const definition = decodeVerticalDefinition(command.definition);
+  // The declaration compiles to the registry every kind-addressed write resolves through. A row that
+  // decodes but cannot compile — an unapproved decision pin on a declared relation is the motivating
+  // case — would otherwise be accepted here and then reject the *import* of every kind, not just this
+  // one. Compiling at the write boundary charges the defect to the command that introduced it.
+  // Compile against the decisions this declaration cites (plus the canonical receipt), not a single
+  // hard-coded decision: an Agent may legitimately govern a relation with any accepted decision.
+  try {
+    compileVerticalContract(definition, resolveGovernedRelationAuthority(decisionReader, definition));
+  } catch (error) {
+    // Compilation is the declaration's second validation pass, so its refusal is the caller's input
+    // being wrong. The kernel's decode path names the same condition; keep the receipt code aligned
+    // so the CLI can show the compiler's sentence as the repair hint.
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      code: "vertical_declaration_invalid",
+    });
+  }
   return {
     type: retire ? "vertical_kind_retired" : "vertical_kind_upserted",
     definition,

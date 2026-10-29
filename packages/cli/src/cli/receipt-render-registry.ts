@@ -51,6 +51,11 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["agent-history", renderAgentHistoryReceipt],
   ["agent-diff", renderAgentDiffReceipt],
   ["agent-version-read", renderAgentVersionReceipt],
+  ["vertical-kind-list", renderVerticalKindList],
+  ["vertical-kind-show", renderVerticalKindShow],
+  ["vertical-kind-upsert", renderVerticalKindMutation],
+  ["vertical-kind-publish-schema", renderVerticalKindMutation],
+  ["vertical-kind-retire", renderVerticalKindMutation],
   ["event-show", renderEventShowReceipt],
   ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
@@ -490,6 +495,57 @@ function renderAgentVersionReceipt(receipt: Record<string, unknown>): string {
 function renderEventShowReceipt(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt);
   return payload?.event !== undefined ? JSON.stringify(payload.event, null, 2) : renderSuccessfulReceipt(receipt);
+}
+
+function renderVerticalKindList(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "vertical-kind-list/v1" || !Array.isArray(payload.kinds))
+    return renderSuccessfulReceipt(receipt);
+  const lines = payload.kinds.filter(isRecord).map(verticalKindRowLine);
+  return [
+    ...(lines.length ? lines : ["No declared Artifact kinds."]),
+    `declarationRevision=${String(payload.declarationRevision)}`,
+  ].join("\n");
+}
+
+function renderVerticalKindShow(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt),
+    kind = payload && payload.schema === "vertical-kind-show/v1" && isRecord(payload.kind) ? payload.kind : null;
+  if (!payload || kind === null) return renderSuccessfulReceipt(receipt);
+  const versions = Array.isArray(kind.schemaVersions) ? kind.schemaVersions.filter(isRecord) : [],
+    latest = versions.at(-1),
+    relations = Array.isArray(kind.relations) ? kind.relations : [];
+  return [
+    verticalKindRowLine(kind),
+    `attributes=${JSON.stringify(latest?.attributes ?? {})}`,
+    `relations=${JSON.stringify(relations)}`,
+    `declarationRevision=${String(payload.declarationRevision)}`,
+  ].join("\n");
+}
+
+function verticalKindRowLine(kind: Record<string, unknown>): string {
+  const versions = Array.isArray(kind.schemaVersions) ? kind.schemaVersions.filter(isRecord) : [],
+    newest = versions.at(-1);
+  return [
+    String(kind.kindId),
+    String(kind.id),
+    `revision=${String(kind.revision ?? "-")}`,
+    `schemaVersion=${String(newest?.version ?? "-")}`,
+    kind.retired === true ? "retired" : "active",
+  ].join(" | ");
+}
+
+/** The receipt names the opaque identity and the new canonical revision, which the next fence uses. */
+function renderVerticalKindMutation(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "vertical-declaration-result/v1") return renderSuccessfulReceipt(receipt);
+  return [
+    `${String(receipt.command ?? "vertical-kind")}: ${String(receipt.outcome ?? "applied")}`,
+    `kindId=${String(payload.kindId ?? "-")}`,
+    `kindRef=${String(payload.kindRef ?? "-")}`,
+    `kindVersion=${String(payload.kindVersion ?? "-")}`,
+    `revision=${String(receipt.revision ?? payload.revision ?? "-")}`,
+  ].join("\n");
 }
 
 function parseEvidence(receipt: Record<string, unknown>): Record<string, unknown> | null {

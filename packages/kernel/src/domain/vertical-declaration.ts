@@ -149,7 +149,16 @@ export function applyVerticalKindCommand(input: {
     revision: declaredRevision,
     ...facets
   } = input.declaration;
+  // Retirement is its own command with its own reason and center timestamp. A declaration that
+  // carries the lifecycle back in would let an upsert resurrect an archived Kind or rewrite why it
+  // was archived, so those facets never enter through this door.
+  const retirementFacet = (["retired", "retiredAt", "reason"] as const).find((field) => facets[field] !== undefined);
   if (!artifact) {
+    if (retirementFacet !== undefined)
+      verticalError(
+        "invalid_field",
+        `A new vertical kind is active; ${retirementFacet} is not a declaration facet (retirement is a separate command).`,
+      );
     if (declaredRevision !== undefined)
       verticalError("invalid_field", "A new vertical kind may not choose the revision it is accepted at.");
     if (declaredVersions !== undefined)
@@ -187,6 +196,31 @@ export function applyVerticalKindCommand(input: {
     verticalError(
       "destructive_kind_change",
       "store.pathTemplate is immutable because existing entity documents depend on it.",
+    );
+  // An instance records the descriptor contract it was imported under. Changing either facet makes
+  // every stored descriptor disagree with the new schema, and update/archive then reject that
+  // instance forever (`invalid_entity_contract`); the change is therefore a different Kind, not an
+  // edit of this one.
+  if (
+    facets.descriptorSchemaRef !== undefined &&
+    stableStringify(facets.descriptorSchemaRef) !== stableStringify(artifact.descriptorSchemaRef)
+  )
+    verticalError(
+      "destructive_kind_change",
+      "descriptorSchemaRef is immutable because existing entity descriptors were imported with it.",
+    );
+  if (
+    facets.locatorKinds !== undefined &&
+    stableStringify(facets.locatorKinds) !== stableStringify(artifact.locatorKinds)
+  )
+    verticalError(
+      "destructive_kind_change",
+      "locatorKinds are immutable because existing entity descriptors pin their locator kinds.",
+    );
+  if (retirementFacet !== undefined)
+    verticalError(
+      "destructive_kind_change",
+      `Retirement is not an upsert facet; use ha vertical kind retire to archive ${artifact.id} with a reason.`,
     );
   // A restated declaration may carry the versions it read back, but it can never change one: a
   // published interpretation is what the instances pinned to it are still validated against.

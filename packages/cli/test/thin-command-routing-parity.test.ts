@@ -424,7 +424,7 @@ test("entity update and archive preserve the entity revision fence", () => {
     });
 });
 
-test("vertical exposes validate while entity-kind writes stay GUI and daemon RPC only", () => {
+test("vertical exposes validate and the kind authoring commands while retired entity-kind aliases stay absent", () => {
   const validate = parseThinCommand(["vertical", "validate", "--source", "software/coding"]);
   assert.equal(validate.ok, true);
   if (validate.ok)
@@ -432,6 +432,31 @@ test("vertical exposes validate while entity-kind writes stay GUI and daemon RPC
       kind: "vertical-validate",
       verticalSource: "software/coding",
     });
+  for (const argv of [
+    ["vertical", "kind", "list"],
+    ["vertical", "kind", "show", "runbook"],
+    [
+      "vertical",
+      "kind",
+      "upsert",
+      "--declaration",
+      '{"id":"runbook","entityType":"artifact"}',
+      "--expected-version",
+      "0",
+    ],
+    [
+      "vertical",
+      "kind",
+      "publish-schema",
+      "runbook",
+      "--attributes",
+      '{"owner":{"type":"string"}}',
+      "--expected-version",
+      "3",
+    ],
+    ["vertical", "kind", "retire", "runbook", "--reason", "Superseded", "--expected-version", "4"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, true, argv.join(" "));
   for (const argv of [
     ["vertical", "entity-kind", "upsert", "--from-file", "kind.json"],
     ["vertical", "entity-kind", "publish-schema", "runbook", "--from-file", "attributes.json"],
@@ -675,7 +700,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     template: ["template-list", "template-render"],
     unpin: ["entity-unpin"],
-    vertical: ["vertical-validate"],
+    vertical: [
+      "vertical-kind-list",
+      "vertical-kind-publish-schema",
+      "vertical-kind-retire",
+      "vertical-kind-show",
+      "vertical-kind-upsert",
+      "vertical-validate",
+    ],
     work: ["work-create", "work-list", "work-show"],
   });
 });

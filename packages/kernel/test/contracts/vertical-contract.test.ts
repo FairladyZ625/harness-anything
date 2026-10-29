@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { baseEntityActionIds } from "../../src/domain/base-entity.ts";
 import { decodeVerticalDefinition } from "../../src/schemas/vertical-definition.ts";
+import { applyVerticalKindCommand } from "../../src/domain/vertical-declaration.ts";
 import {
   acceptVerticalRegistryCandidate,
   compileVerticalContract,
@@ -168,6 +169,83 @@ test("the center revision fence compiles only the accepted edge candidate", () =
   );
   assert.equal(accepted.revision, 1);
   assert.equal(accepted.verticals[0]?.artifactKinds[0]?.declaration.id, "architecture-decision-record");
+});
+
+test("an upsert cannot rewrite identity facets or the retirement lifecycle", () => {
+  const current = artifact({ revision: 4 }),
+    definition = decodedVertical(current),
+    upsert = (declaration: Record<string, unknown>) =>
+      applyVerticalKindCommand({
+        definition,
+        acceptedRevision: 9,
+        expectedVersion: 4,
+        kind: "upsert",
+        kindId: adrKindId,
+        declaration,
+      });
+  const rejects = (declaration: Record<string, unknown>, match: RegExp): void =>
+    assert.throws(
+      () => upsert(declaration),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "destructive_kind_change" &&
+        match.test((error as Error).message),
+    );
+  rejects({ ...current, descriptorSchemaRef: "schema://task-frontmatter" }, /descriptorSchemaRef/u);
+  rejects({ ...current, locatorKinds: ["url"] }, /locatorKinds/u);
+  rejects({ ...current, retired: false }, /Retirement is not an upsert facet/u);
+  rejects({ ...current, retiredAt: "2030-01-01T00:00:00.000Z" }, /Retirement is not an upsert facet/u);
+  rejects({ ...current, reason: "rewritten" }, /Retirement is not an upsert facet/u);
+
+  // Restating the immutable facets exactly as read is what the GUI edit form does; only changing
+  // them is destructive, so a display edit still lands and moves the fence.
+  const restated = upsert({ ...current, display: { singular: "ADR", plural: "ADRs" } }),
+    restatedRow = restated.definition.entityKinds.find(({ kindId }) => kindId === adrKindId) as
+      | { readonly revision?: number; readonly descriptorSchemaRef?: string; readonly locatorKinds?: readonly string[] }
+      | undefined;
+  assert.equal(restatedRow?.revision, 9);
+  assert.equal(restatedRow?.descriptorSchemaRef, "schema://artifact-descriptor");
+  assert.deepEqual(restatedRow?.locatorKinds, ["repository-path"]);
+
+  // A retired Kind stays retired through an upsert that tries to bring it back.
+  const retired = applyVerticalKindCommand({
+    definition,
+    acceptedRevision: 9,
+    expectedVersion: 4,
+    kind: "retire",
+    kindId: adrKindId,
+    reason: "Superseded.",
+    retiredAt: "2026-10-29T00:00:00.000Z",
+  });
+  assert.throws(
+    () =>
+      applyVerticalKindCommand({
+        definition: retired.definition,
+        acceptedRevision: 10,
+        expectedVersion: 9,
+        kind: "upsert",
+        kindId: adrKindId,
+        declaration: { ...artifact({ revision: 9 }), retired: false },
+      }),
+    (error: unknown) =>
+      (error as { readonly code?: string }).code === "destructive_kind_change" &&
+      /Retirement is not an upsert facet/u.test((error as Error).message),
+  );
+
+  assert.throws(
+    () =>
+      applyVerticalKindCommand({
+        definition: decodedVertical(),
+        acceptedRevision: 1,
+        expectedVersion: 0,
+        kind: "upsert",
+        kindId: "new-kind",
+        mintedKindId: "KND-0123456789abcdef0123456789abcdef",
+        declaration: { ...artifact({ kindId: undefined, revision: undefined }), retired: true },
+      }),
+    (error: unknown) =>
+      (error as { readonly code?: string }).code === "invalid_field" &&
+      /is not a declaration facet/u.test((error as Error).message),
+  );
 });
 
 function decodedVertical(...artifacts: readonly unknown[]): ReturnType<typeof decodeVerticalDefinition> {
