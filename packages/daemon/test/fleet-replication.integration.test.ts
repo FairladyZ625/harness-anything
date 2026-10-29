@@ -394,6 +394,8 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   const center = await fixture.openCenter();
   const edge = fixture.startEdge("edge-three");
   await edge.waitForEvent("installed");
+  const replicationStatus = () => center.status().replicas.find((replica) => replica.nodeId === "edge-three");
+  assert.equal(replicationStatus()?.connected, true, "the installed edge owns a live replication session");
   const admin = new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot, {
       onNodeRemoved: (nodeId) => center.disconnectNode(nodeId),
     }),
@@ -409,13 +411,23 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
     expectedVersion: target.version,
   });
   assert.equal((removed as { ok?: boolean }).ok, true, JSON.stringify(removed));
-  // The cut lands on the live replication session, not only in the registry.
-  await Promise.race([edge.exited, edge.waitForEvent("error", 30_000)]);
+  // Observe the center's socket-close state, not whether the child process reported a terminal error.
+  await waitForState(
+    () => replicationStatus()?.connected === false,
+    () =>
+      `edge-three replication session is still connected after unregister; status=${JSON.stringify(replicationStatus())}`,
+  );
   const rejected = await rawPeer(fixture.track, center.port, fixture.cert, "edge-three", "secret-edge-three").then(
     (peer) => peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "after-cut", repoId: "replica-repo" }),
     (error) => `connect-failed:${String(error)}`,
   );
   t.diagnostic(`post-revoke session state: ${typeof rejected === "string" ? rejected : rejected.schema}`);
+  assert.ok(
+    typeof rejected === "string"
+      ? rejected.includes("node_owner_unregistered")
+      : rejected.schema === "fleet.error/v1" && rejected.code === "node_owner_unregistered",
+    `a new request from the unregistered node is rejected: ${JSON.stringify(rejected)}`,
+  );
 });
 
 test(
