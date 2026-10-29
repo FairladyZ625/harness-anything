@@ -135,6 +135,7 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     assert.equal(backup.schema, "ledger-backup-receipt/v1");
     assert.equal(backup.manifest, undefined);
     const manifest = JSON.parse(readFileSync(String(backup.manifestPath), "utf8")) as {
+      accepted: { readonly revision: number };
       files: readonly { size: number }[];
     };
     assert.equal(backup.fileCount, manifest.files.length);
@@ -155,6 +156,8 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     });
     assert.equal(restore.schema, "ledger-restore-drill-receipt/v1");
     assert.equal(restore.manifest, undefined);
+    assert.equal((restore.projection as { watermark: number }).watermark, manifest.accepted.revision);
+    assert.match((restore.projection as { stateDigest: string }).stateDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.equal(restored.schema, "ledger-restore-receipt/v1");
     assert.equal(restored.manifest, undefined);
     assert.equal(restored.writerEpoch, undefined);

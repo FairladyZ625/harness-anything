@@ -128,6 +128,44 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       );
   }
 
+  const siblingResolutionCompletion = {
+    ...base,
+    schema: "task-event/v1",
+    type: "task_completed",
+    payload: {
+      siblingResolution: {
+        sourceTaskId: "task-source",
+        rationale: "The sibling task completed this work.",
+        factRef: "fact/F-6A41C67E",
+      },
+    },
+  };
+  assert.deepEqual(interpretEmbeddedEntityProjections(executionContract, siblingResolutionCompletion), []);
+  assert.throws(
+    () =>
+      interpretEmbeddedEntityProjections(executionContract, {
+        ...siblingResolutionCompletion,
+        payload: {},
+      }),
+    /execution declaration must be a JSON object/u,
+  );
+  assert.throws(
+    () =>
+      interpretEmbeddedEntityProjections(executionContract, {
+        ...siblingResolutionCompletion,
+        payload: { siblingResolution: null },
+      }),
+    /execution declaration must be a JSON object/u,
+  );
+  assert.throws(
+    () =>
+      interpretEmbeddedEntityProjections(executionContract, {
+        ...siblingResolutionCompletion,
+        payload: { ...siblingResolutionCompletion.payload, execution: null },
+      }),
+    /execution declaration must be a JSON object/u,
+  );
+
   assert.equal(getEntityKindContract("execution")?.id.field, "executionId");
   assert.equal(getEntityKindContract("review")?.id.field, "reviewId");
   assert.deepEqual(getEntityKindContract("execution")?.authoring, {

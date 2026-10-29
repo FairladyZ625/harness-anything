@@ -124,6 +124,17 @@ export function interpretEmbeddedEntityProjections(
   if (declaration === null) return [];
   if (!isEntityRecord(event.payload)) throw new Error(`${event.schema}/${event.type} payload must be an object`);
   const payload = event.payload;
+  // Sibling-resolution completion is a legal task_completed variant with no execution
+  // declaration. Keep that event out of the execution entity projection; other missing or
+  // malformed declarations still go through the schema validator below.
+  if (
+    contract.kind === "execution" &&
+    event.schema === "task-event/v1" &&
+    event.type === "task_completed" &&
+    isEntityRecord(payload.siblingResolution) &&
+    payload.execution === undefined
+  )
+    return [];
   return declaration.embeddedEvents
     .filter((source) => source.schema === event.schema && source.types.includes(event.type))
     .map((source) => {

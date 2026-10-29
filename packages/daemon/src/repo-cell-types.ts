@@ -243,7 +243,7 @@ export interface RepoCell {
     readonly registration: DaemonRegistryRepo;
     readonly writerEpoch: number;
   }) => Promise<
-    ReturnType<typeof createLedgerBackup> | ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>
+    ReturnType<typeof createLedgerBackup> | Awaited<ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>>
   >;
   /** Replication-log retention, run on this repository's single write chain. */
   readonly pruneReplicationLog?: (beforeSequence: number) => Promise<void>;

@@ -387,21 +387,21 @@ export async function openRepoWriterCell(
   const backup: NonNullable<RepoCell["backup"]> = (request) => {
     queueDepth += 1;
     input.onQueueDepthChange?.(queueDepth);
-    const pending = chainRepoCellWrite(tail, () => {
+    const pending = chainRepoCellWrite(tail, async () => {
       queueDepth -= 1;
       input.onQueueDepthChange?.(queueDepth);
-      return request.kind === "backup"
-        ? backupRepo({
-            rootDir,
-            backupDir: request.backupDir,
-            registration: request.registration,
-            writerEpoch: request.writerEpoch,
-          })
-        : drillRepoBackup({
-            rootDir,
-            backupDir: request.backupDir,
-            ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
-          });
+      if (request.kind === "backup")
+        return backupRepo({
+          rootDir,
+          backupDir: request.backupDir,
+          registration: request.registration,
+          writerEpoch: request.writerEpoch,
+        });
+      return await drillRepoBackup({
+        rootDir,
+        backupDir: request.backupDir,
+        ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
+      });
     }).finally(() => input.onQueueDepthChange?.(queueDepth));
     tail = pending.then(
       () => undefined,

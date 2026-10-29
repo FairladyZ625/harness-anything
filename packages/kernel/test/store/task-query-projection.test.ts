@@ -19,10 +19,11 @@ import {
   type TaskRelationQuery,
 } from "../../src/projection/task-query-projection.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
-import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import type { CanonicalEventV1, DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "../../src/domain/task.ts";
 import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -32,7 +33,7 @@ const actor = { principal: { personId: "person-query" }, executor: null } as con
 
 /** In-memory canonical event stream: the same port shape the git-backed store exposes, so the
  * projection's real cold catch-up (batching, prefetch, drain) runs against synthetic events. */
-function memoryEventStore(events: readonly CanonicalEventV1[]) {
+function memoryEventStore(events: readonly CanonicalEventV1[], content = new Map<string, Uint8Array>()) {
   return {
     readHead: () =>
       events.length === 0
@@ -50,10 +51,10 @@ function memoryEventStore(events: readonly CanonicalEventV1[]) {
         cursor: start + slice.length >= events.length ? null : String(start + slice.length),
         done: start + slice.length >= events.length,
         accessedItems: slice.length,
-        prefetchContent: () => new Map<string, Uint8Array | null>(),
+        prefetchContent: () => new Map(content),
       };
     },
-    readContentBlob: () => null,
+    readContentBlob: (sha256: string) => content.get(sha256) ?? null,
   };
 }
 
@@ -238,6 +239,93 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
       projection.list({ status: "active", limit: 1 }).rows.map((row) => row.taskId),
       ["task_query_01"],
     );
+  });
+});
+
+test("cold replay accepts a sibling-resolution completion after a legacy dispatch artifact write", async () => {
+  const taskId = "task_query_legacy_dispatch",
+    task: TaskV2 = {
+      schema: "task/v2",
+      taskId,
+      title: "Legacy dispatch replay",
+      taskClass: "standard",
+      status: "planned",
+      graph: REPLAY_TASK_GRAPH,
+      currentNode: "implementation",
+      iteration: 0,
+      pinned: false,
+      createdBy: actor,
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+    },
+    created = envelope(task, 1, "task_created", { task }, "2026-10-29T00:00:00.000Z"),
+    dispatchBody = JSON.stringify({ dispatchId: "dispatch-legacy", parentRuntimeSessionId: "runtime-parent" }),
+    dispatchDigest = sha256Text(dispatchBody),
+    dispatchWrite: DocEventV1 = {
+      schema: "doc-event/v1",
+      eventId: "event-legacy-dispatch-write",
+      workspaceRevision: 2,
+      opId: "op-legacy-dispatch-write",
+      type: "documents_written",
+      actor,
+      source: "local",
+      occurredAt: "2026-10-29T00:00:01.000Z",
+      payload: {
+        executionId: null,
+        baseLedgerSha: { repoId: "projection-fixture", revision: 1, headDigest: `sha256:${"a".repeat(64)}` },
+        changes: [
+          {
+            path: `tasks/${taskId}-legacy-dispatch/artifacts/dispatches/dispatch-legacy.json`,
+            baseBlobSha256: null,
+            candidate: {
+              sha256: dispatchDigest,
+              size: Buffer.byteLength(dispatchBody),
+              mediaType: "application/json",
+            },
+            policyId: OPAQUE_TEXTUAL_POLICY_ID,
+            regionProofs: [],
+          },
+        ],
+      },
+    },
+    completedTask = { ...task, status: "done" } as TaskV2,
+    completed = envelope(
+      completedTask,
+      3,
+      "task_completed",
+      {
+        task: completedTask,
+        siblingResolution: {
+          sourceTaskId: "task_source",
+          rationale: "The sibling task completed this work.",
+          factRef: "fact/F-6A41C67E",
+        },
+        documentClaims: [],
+      },
+      "2026-10-29T00:00:02.000Z",
+    ),
+    events = [created, dispatchWrite, completed] as unknown as readonly CanonicalEventV1[];
+  assert.equal(dispatchWrite.payload.changes[0]?.candidate?.mediaType, "application/json");
+  assert.equal(dispatchBody.includes("parentRuntimeSessionId"), true);
+
+  await withTempStoreAsync(async (rootDir) => {
+    const projection = makeTaskProjection({
+      rootDir,
+      eventStore: memoryEventStore(events, new Map([[dispatchDigest, Buffer.from(dispatchBody)]])),
+    });
+    try {
+      const rebuilt = projection.rebuild(),
+        taskList = projection.list();
+      assert.equal(rebuilt.watermark, 3);
+      assert.equal(taskList.rows.find((row) => row.taskId === taskId)?.snapshot.task?.status, "done");
+      assert.equal(
+        projection.readDocument(`tasks/${taskId}-legacy-dispatch/artifacts/dispatches/dispatch-legacy.json`).document
+          ?.body,
+        dispatchBody,
+      );
+    } finally {
+      projection.close();
+    }
   });
 });
 
