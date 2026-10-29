@@ -47,6 +47,18 @@ test("dependency consumers remain fail-closed when the shared install fails", ()
   }
 });
 
+test("Windows integration shards preserve runner diagnostics after failures", () => {
+  const section = workflow
+    .split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu)
+    .find((candidate) => candidate.startsWith("windows-integration-shard:"));
+  assert.ok(section);
+  assert.match(section, /HARNESS_TEST_DIAGNOSTICS_DIR:\s*tmp\/node-test-diagnostics/u);
+  assert.match(section, /name: Preserve Windows test diagnostics/u);
+  assert.match(section, /if: always\(\)[\s\S]*?actions\/upload-artifact@v4/u);
+  assert.match(section, /path: tmp\/node-test-diagnostics\//u);
+  assert.match(section, /retention-days: 14/u);
+});
+
 test("crlf checkout orders PR artifact consumption and retains its nightly lane", () => {
   const section = workflow
     .split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu)

@@ -1192,6 +1192,6 @@ test("Agent install rejects a different model with a shared version prefix", asy
         /ha runtime instance list/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempStoreRoot(rootDir);
   }
 });

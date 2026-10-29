@@ -957,16 +957,20 @@ test("Directory artifact content version is stable across Git autocrlf settings"
     const versions = await Promise.all(
       sourcePaths.map(async (sourcePath) => {
         const receipt = await cell!.run(
-            { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
-            binding,
-          ),
-          preview = (
-            JSON.parse(String(receipt.evidence)) as {
-              preview: { candidateContentVersion: string };
-            }
-          ).preview;
+          {
+            mode: "snapshot",
+            kind: "entity-import",
+            entityKind: researchKind,
+            locator: sourcePath,
+            expectedVersion: 0,
+          },
+          binding,
+        );
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-        return preview.candidateContentVersion;
+        const preview = JSON.parse(String(receipt.evidence)) as {
+          preview: { candidateContentVersion: string };
+        };
+        return preview.preview.candidateContentVersion;
       }),
     );
     assert.equal(versions[0], versions[1]);
