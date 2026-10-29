@@ -62,11 +62,11 @@ test("a written record is read back for its own cut", () => {
   }
 });
 
-test("a corrupt journal reads as no records instead of throwing", () => {
+test("a corrupt journal reports its parse error", () => {
   const root = repository();
   try {
     writeJournal(root, "{not json");
-    assert.deepEqual(readReviewTriageRecords(root), []);
+    assert.throws(() => readReviewTriageRecords(root), SyntaxError);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

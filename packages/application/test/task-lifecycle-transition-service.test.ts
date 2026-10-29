@@ -108,7 +108,7 @@ test("completion blocker matrix returns one canonical next for every substantive
     const cases = [
       ["not_in_review", started.snapshot, ready],
       // A review-required cut enters in_review at submit; the verdict is the next thing owed.
-      ["review_missing", submitted.snapshot, ready],
+      ["review_pending", submitted.snapshot, ready],
       ["consent_missing", reviewed.snapshot, ready],
       [
         "delivery_missing",

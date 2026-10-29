@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  consentedApprovedReviewForExecution,
   currentSubmittedExecutions,
   discardedFindingCategories,
   getExecutableEntityAction,
@@ -11,6 +10,7 @@ import {
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  reviewsForExecution,
   reviewFindingDispositions,
   reviewFindingLabels,
   settledFindingCategories,
@@ -105,52 +105,33 @@ export function buildCommand(
     });
   }
   if (lifecycleAction?.commandType === "ReworkTask") {
-    const submitted = snapshot.executions.find(
-        (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted" && value.submission,
-      ),
-      currentDigest = submitted?.submission ? submissionDigest(submitted.submission) : undefined,
-      currentReviews = submitted
-        ? snapshot.reviews.filter(
-            (value) =>
-              value.executionId === submitted.executionId &&
-              value.iteration === submitted.iteration &&
-              value.submissionDigest === currentDigest,
-          )
-        : [],
-      review = submitted
-        ? (currentReviews.findLast((value) => value.verdict === "changes_requested") ??
-          // Consent is the owner's merge verdict, not a lock on the frozen cut: when a pre-merge
-          // check (a red CI run) fails afterwards, the same owner return applies to the approved cut.
-          consentedApprovedReviewForExecution(
-            snapshot.reviews,
-            snapshot.consents,
-            submitted,
-            snapshot.reviewDispositions ?? [],
-          )?.review ??
-          currentReviews.findLast(
-            (value) =>
-              value.verdict === "approved" &&
-              snapshot.reviewDispositions?.some(
-                (disposition) =>
-                  disposition.submissionDigest === currentDigest &&
-                  disposition.findingRuling?.targetDigest === currentDigest &&
-                  disposition.findingRuling.reviewId === value.reviewId &&
-                  disposition.findingRuling.disposition === "blocker",
-              ),
-          ))
-        : undefined;
-    if (!submitted || !review)
+    const requestedExecutionId = explicitExecutionId(action),
+      executionId =
+        requestedExecutionId ??
+        uniqueDerivedExecutionId(
+          currentSubmittedExecutions(snapshot),
+          "Current submitted execution",
+          `Run ha task show ${taskId}; only a current submitted execution can be returned.`,
+          (candidate) => `ha task rework ${taskId} --execution-id ${candidate} --reason <why>`,
+        );
+    if (requestedExecutionId) assertCurrentSubmittedExecution(snapshot, taskId, requestedExecutionId);
+    const submitted = currentSubmittedExecutions(snapshot).find((value) => value.executionId === executionId),
+      currentReviews = submitted ? reviewsForExecution(snapshot.reviews, submitted) : [],
+      requestedReviewId =
+        typeof action.reviewId === "string" ? requiredCellText(action.reviewId, "reviewId") : undefined,
+      review = requestedReviewId
+        ? currentReviews.find((value) => value.reviewId === requestedReviewId)
+        : currentReviews.at(-1);
+    if (requestedReviewId && !review)
       throw cellCodedError(
         "invalid_transition",
-        `Task ${taskId} has no current changes_requested review, owner-confirmed blocker, or consented ` +
-          `approved cut to return; if consent is still pending run ha task review-consent ${taskId}; ` +
-          `after consent a pre-merge failure returns with ha task rework ${taskId} --reason <why>.`,
+        `Review ${requestedReviewId} does not belong to the current submitted cut.`,
       );
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReworkTask",
       taskId,
-      executionId: submitted.executionId,
-      reviewId: review.reviewId,
+      executionId,
+      ...(review ? { reviewId: review.reviewId } : {}),
       reason: requiredCellText(action.reason, "reason"),
     });
   }
@@ -412,6 +393,7 @@ function reviewResolutions(value: unknown): readonly {
   readonly findingId: string;
   readonly resolution: "upheld" | "withdrawn";
 }[] {
+  if (value === undefined) return [];
   if (!Array.isArray(value)) throw cellCodedError("invalid_command", "resolutions must be an array.");
   return value.map((item, index) => {
     if (!item || typeof item !== "object" || Array.isArray(item))

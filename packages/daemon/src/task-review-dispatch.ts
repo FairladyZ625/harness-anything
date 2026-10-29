@@ -391,11 +391,6 @@ export function reviewDispatchPrompt(input: {
       `${historicalReadConclusions[0]!.conclusion} ` +
       "Use the shared Kernel readSubmissionFacts result for legacy paths; do not reject a legacy cut solely for " +
       "absent frozen facts or compare either machine-derived value against closeout prose.",
-    "For every artifact anchor in that submission, read the full center-accepted frozen content with " +
-      "ha doc show --path <anchor.path> --raw; do not substitute local files or require Git ancestry. " +
-      `Resolve package-relative artifacts/ paths under ${packagePath}/; full tasks/ paths are already resolved. ` +
-      "Your reviewer credential resolves only this submission's registered anchors at their frozen revisions " +
-      "through the center, including on an edge; binary artifact bodies are returned as base64.",
     `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
     "These are task completion requirements. Follow the repository's ordering of source review, " +
       "pre-merge checks, and post-merge verification. Distinguish observed check failures from pending " +
@@ -414,9 +409,6 @@ export function reviewDispatchPrompt(input: {
     "Read the task plan, closeout, and submitted delivery yourself. " +
       `${reviewFindingScopePrompt("first")} ${reviewFindingCategoryPrompt} ` +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
-    "For a re-review, include exactly one resolution only for each prior-round finding the worker explicitly rebutted, " +
-      "as {reviewId, findingId, resolution: upheld|withdrawn}; adopted or fixed findings need no resolution. " +
-      "Upheld findings go to the CEO, while a new blocking finding without an upheld resolution returns to the worker.",
     `Write this execution's review report to ${reportFile} and review input to ${packetFile}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
     derivedTaskActionProtocolCommands.find((command) => command.id === "task-review-execution")!.help,
@@ -550,7 +542,6 @@ export async function spawnCutReviewDispatch(
             ? [
                 `Previous review ${continuation.review.reviewId}: verdict=${continuation.review.verdict}; reason=${continuation.review.reason}.`,
                 `Previous findings: ${JSON.stringify(continuation.review.findings ?? [])}.`,
-                `Previous resolutions: ${JSON.stringify(continuation.review.resolutions ?? [])}.`,
               ]
             : []),
           reviewFindingScopePrompt("re-review"),

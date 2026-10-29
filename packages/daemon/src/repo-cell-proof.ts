@@ -420,7 +420,6 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "task-rework@v1",
       capabilityRef: authorizationDecision.policyRef,
-      reworkBudget: readEffectiveReviewReturnBudget(projection),
       authorizationDecision,
     } as TaskLifecycleServiceProof<typeof command>;
   }

@@ -114,12 +114,38 @@ const snapshot = (reviews: readonly ReviewV1[], triages: readonly ReviewFindingT
   } as unknown as CloseoutSnapshot;
 };
 
-test("a cut carrying a categorized finding passes only after its triage disposes it", () => {
-  const pending = review([{ findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" }]);
-  assert.equal(closeoutReadiness(snapshot([pending])).blocker, "review", "missing triage is unresolved review");
+function completeConsentedCut(consented: ReturnType<typeof lifecycleFixture>["snapshot"], suffix: string) {
+  const execution = consented.executions[0]!,
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: consented.revision,
+        },
+        { type: "CompleteTask" as const, taskId: execution.taskId, executionId: execution.executionId },
+      ),
+      eventId: `event-complete-${suffix}`,
+      workspaceRevision: consented.revision + 1,
+      occurredAt: "2026-10-27T01:01:00.000Z",
+    };
+  return applyTransition(consented, command, {
+    capability: "task-complete@v1",
+    capabilityRef: `cap-complete-${suffix}`,
+    actorRole: "owner",
+    noActiveLease: true,
+    closeoutGates: { review: true, consent: true, factDisposition: true },
+    gateReceipts: [],
+  });
+}
 
-  // The reviewer claimed a blocker, so one triage pass is not enough: an independent Critic must
-  // agree before the finding can be downgraded (CH4). Its agreement unlocks the review gate.
+test("finding settlement remains available without gating an approved review", () => {
+  const pending = review([{ findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" }]);
+  assert.equal(currentCutSettlement([pending], execution([pending]), [])?.outcome, "escalated");
+  assert.equal(closeoutReadiness(snapshot([pending])).blocker, "consent");
+
+  // The critic still settles the finding for triage consumers; consent owns the closeout decision.
   const confirmed = {
     ...triage("F1", "non_blocking", 0.6),
     critic: {
@@ -136,11 +162,11 @@ test("a cut carrying a categorized finding passes only after its triage disposes
       decidedAt: "2026-10-26T00:03:00.000Z",
     },
   };
-  const passed = closeoutReadiness(snapshot([pending], [confirmed]));
-  assert.notEqual(passed.blocker, "review", "a Critic-confirmed non-blocking finding unlocks the review gate");
+  const passed = currentCutSettlement([pending], execution([pending]), [confirmed]);
+  assert.equal(passed?.outcome, "passed");
 
-  const blocked = closeoutReadiness(snapshot([pending], [triage("F1", "blocker")]));
-  assert.equal(blocked.blocker, "review", "a blocker keeps the cut at review");
+  const blocked = currentCutSettlement([pending], execution([pending]), [triage("F1", "blocker")]);
+  assert.equal(blocked?.outcome, "changes_requested");
 });
 
 test("the task owner can adjudicate one escalated finding through review consent", () => {
@@ -186,8 +212,8 @@ test("the task owner can adjudicate one escalated finding through review consent
 
   assert.equal(
     closeoutReadiness(before).blocker,
-    "review",
-    "an approved review with an escalated finding remains unresolved before the owner writes",
+    "consent",
+    "an approved review awaits the owner's consent regardless of settlement",
   );
   const result = applyTransition(before, command, {
     actorBinding: implementer,
@@ -212,7 +238,7 @@ test("the task owner can adjudicate one escalated finding through review consent
       rationale: "The anchored code path proves this finding is not reproducible.",
     },
   );
-  assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+  assert.equal(closeoutReadiness(result.snapshot).blocker, undefined);
   assert.equal(result.snapshot.reviewDispositions?.[0]?.disposedReviewIds.length, 0);
   assert.equal(
     reduceTaskEvent(before, result.event).reviewDispositions?.[0]?.findingRuling?.findingId,
@@ -304,7 +330,7 @@ test("owner consent clears a non-blocking complete-evidence ci-required finding 
       occurredAt: "2026-10-27T01:00:00.000Z",
     };
 
-  assert.equal(closeoutReadiness(before).blocker, "review");
+  assert.equal(closeoutReadiness(before).blocker, "consent");
   assert.notEqual(
     closeoutReadiness({ ...before, consents: [priorConsent] }).blocker,
     "review",
@@ -316,11 +342,12 @@ test("owner consent clears a non-blocking complete-evidence ci-required finding 
     capabilityRef: "cap-consent-ci-required",
     reviewFindingTriages: [],
   } satisfies ReviewConsentProof);
-  assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+  assert.equal(closeoutReadiness(result.snapshot).blocker, undefined);
   assert.equal(currentCutSettlement([reviewed], result.snapshot.executions[0]!, [])?.outcome, "changes_requested");
+  assert.equal(completeConsentedCut(result.snapshot, "ci-required").snapshot.task?.status, "done");
 });
 
-test("owner consent is rejected when a finding is truly blocking", () => {
+test("owner consent closes the review gate despite an unsettled blocking finding", () => {
   const { snapshot: original } = lifecycleFixture({ complete: false }),
     recorded = original.reviews[0]!,
     reviewed = {
@@ -358,16 +385,15 @@ test("owner consent is rejected when a finding is truly blocking", () => {
       occurredAt: "2026-10-27T01:00:00.000Z",
     };
 
-  assert.throws(
-    () =>
-      applyTransition(before, command, {
-        actorBinding: implementer,
-        capability: "execution-consent@v1",
-        capabilityRef: "cap-consent-blocking",
-        reviewFindingTriages: [],
-      } satisfies ReviewConsentProof),
-    /owner consent cannot waive unresolved findings: review-execution\/F-blocking; resolve them first with ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --finding-id 'F-blocking'/u,
-  );
+  const consented = applyTransition(before, command, {
+    actorBinding: implementer,
+    capability: "execution-consent@v1",
+    capabilityRef: "cap-consent-blocking",
+    reviewFindingTriages: [],
+  } satisfies ReviewConsentProof);
+  assert.equal(consented.snapshot.consents.length, before.consents.length + 1);
+  assert.equal(closeoutReadiness(consented.snapshot).blocker, undefined);
+  assert.equal(completeConsentedCut(consented.snapshot, "unsettled-blocking-finding").snapshot.task?.status, "done");
 });
 
 test("a ruling on a settled finding names the escalated findings the owner must dispose", () => {
@@ -566,7 +592,7 @@ test("a finding ruling is digest-bound and leaves every other finding in the rev
 test("a cut with no categorized finding keeps the per-review approval path", () => {
   const plain = review([]);
   assert.equal(currentCutSettlement([plain], execution([plain]), []), null);
-  assert.notEqual(closeoutReadiness(snapshot([plain])).blocker, "review");
+  assert.equal(closeoutReadiness(snapshot([plain])).blocker, "consent");
 });
 
 test("only findings bound to this execution and iteration enter the cut's settlement", () => {
@@ -586,59 +612,7 @@ test("discarded findings never gate a cut, so formatting cannot block completion
     settlement?.discarded.map(({ findingId }) => findingId),
     ["S1"],
   );
-  assert.notEqual(closeoutReadiness(snapshot([onlyStyle])).blocker, "review");
-});
-
-test("a historical finding with no category is stranded until the owner disposes that review", () => {
-  // B-2: `category` did not exist when historical reviews were written, so every one of those
-  // findings reads as `category: undefined`. Without an exit the new predicate retroactively turns
-  // them into open review on cuts that already passed, and nothing the owner can do clears it.
-  const historical = review([{ findingId: "F1", blocking: false, text: "Old finding, no category." }]),
-    cut = execution([historical]),
-    submission = submissionDigest(cut.submission!),
-    stranded = snapshot([historical]);
-  assert.equal(closeoutReadiness(stranded).blocker, "review", "an unfiled finding is unresolved review");
-
-  const disposed = snapshot([historical]);
-  (disposed as unknown as { reviewDispositions: unknown[] }).reviewDispositions = [
-    {
-      schema: "review-disposition/v1",
-      dispositionId: "disposition-1",
-      taskId: "task-categorized",
-      executionId: "exec-categorized",
-      iteration: 1,
-      submissionDigest: submission,
-      disposedReviewIds: ["review-cut-1"],
-      rationale: "Reviewed and accepted at the time; the category field did not exist then.",
-      actor: { principal: { personId: "person_zeyu" }, executor: null },
-      source: "local",
-      disposedAt: "2026-10-27T00:05:00.000Z",
-    },
-  ];
-  assert.notEqual(
-    closeoutReadiness(disposed).blocker,
-    "review",
-    "the owner's disposition is the exit for a review filed before categories existed",
-  );
-
-  // A disposition pinned to another submission digest is not a disposition of this cut.
-  const otherCut = snapshot([historical]);
-  (otherCut as unknown as { reviewDispositions: unknown[] }).reviewDispositions = [
-    {
-      schema: "review-disposition/v1",
-      dispositionId: "disposition-2",
-      taskId: "task-categorized",
-      executionId: "exec-categorized",
-      iteration: 1,
-      submissionDigest: `sha256:${"9".repeat(64)}`,
-      disposedReviewIds: ["review-cut-1"],
-      rationale: "An earlier cut's disposition.",
-      actor: { principal: { personId: "person_zeyu" }, executor: null },
-      source: "local",
-      disposedAt: "2026-10-27T00:05:00.000Z",
-    },
-  ];
-  assert.equal(closeoutReadiness(otherCut).blocker, "review", "another cut's disposition cannot release this one");
+  assert.equal(closeoutReadiness(snapshot([onlyStyle])).blocker, "consent");
 });
 
 test("the owner can write a digest-bound disposition for an approved historical review", () => {
@@ -726,10 +700,10 @@ test("the owner can write a digest-bound disposition for an approved historical 
     result.snapshot.reviewDispositions?.[0]?.submissionDigest,
     submissionDigest(result.snapshot.executions[0]!.submission!),
   );
-  assert.notEqual(closeoutReadiness(result.snapshot).blocker, "review");
+  assert.equal(closeoutReadiness(result.snapshot).blocker, undefined);
 });
 
-test("owner consent cannot waive a historical finding without a category", () => {
+test("owner consent closes the review gate for an unclassified historical finding", () => {
   const { snapshot: original } = lifecycleFixture({ complete: false }),
     recorded = original.reviews[0]!,
     historical = {
@@ -760,16 +734,13 @@ test("owner consent cannot waive a historical finding without a category", () =>
       occurredAt: "2026-10-27T01:00:00.000Z",
     };
 
-  assert.throws(
-    () =>
-      applyTransition(before, command, {
-        actorBinding: implementer,
-        capability: "execution-consent@v1",
-        capabilityRef: "cap-consent-legacy-non-blocking",
-      } satisfies ReviewConsentProof),
-    /owner consent cannot waive unresolved findings: review-execution\/legacy-non-blocking; resolve them first with ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --dispose 'review-execution' --rationale <why>/u,
-  );
-  assert.equal(closeoutReadiness(before).blocker, "review");
+  const consented = applyTransition(before, command, {
+    actorBinding: implementer,
+    capability: "execution-consent@v1",
+    capabilityRef: "cap-consent-legacy-non-blocking",
+  } satisfies ReviewConsentProof);
+  assert.equal(consented.snapshot.consents.length, before.consents.length + 1);
+  assert.equal(closeoutReadiness(consented.snapshot).blocker, undefined);
 });
 
 test("a categorized nit cannot hide an unanswered historical blocker", () => {
@@ -782,8 +753,8 @@ test("a categorized nit cannot hide an unanswered historical blocker", () => {
   assert.equal(settled?.outcome, "passed", "the categorized nit itself has a finalized non-blocking triage");
   assert.equal(
     closeoutReadiness(snapshot([mixed], [triage("F1", "nit")])).blocker,
-    "review",
-    "the same cut still has a finding nobody categorized or answered",
+    "consent",
+    "an approved review with an unclassified finding still only awaits consent",
   );
 });
 
@@ -837,7 +808,7 @@ test("an owner returns a consented approved cut to implementation before merge",
   );
 });
 
-test("an approved cut without consent is still not returnable as rework", () => {
+test("the owner can return an approved cut before consent", () => {
   const { snapshot: approved } = lifecycleFixture({ complete: false }),
     recorded = approved.reviews[0]!,
     withoutConsent = { ...approved, consents: [] },
@@ -853,7 +824,6 @@ test("an approved cut without consent is still not returnable as rework", () => 
           type: "ReworkTask" as const,
           taskId: recorded.taskId,
           executionId: recorded.executionId,
-          reviewId: recorded.reviewId,
           reason: "Return this approved cut.",
         },
       ),
@@ -862,14 +832,12 @@ test("an approved cut without consent is still not returnable as rework", () => 
       occurredAt: "2026-10-28T02:00:00.000Z",
     };
 
-  assert.throws(
-    () =>
-      applyTransition(withoutConsent, command, {
-        actorBinding: implementer,
-        capability: "task-rework@v1",
-        capabilityRef: "cap-rework-unconsented",
-        reworkBudget: 3,
-      }),
-    /Task rework requires a current changes_requested review, an owner-confirmed blocker finding, or an owner-consented approved cut/u,
-  );
+  const returned = applyTransition(withoutConsent, command, {
+    actorBinding: implementer,
+    capability: "task-rework@v1",
+    capabilityRef: "cap-rework-unconsented",
+    reworkBudget: 3,
+  });
+  assert.equal(returned.snapshot.task?.status, "active");
+  assert.equal(returned.snapshot.task?.iteration, withoutConsent.task!.iteration + 1);
 });

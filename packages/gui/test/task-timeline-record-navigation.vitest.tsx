@@ -174,7 +174,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
       const changed = {
         ...response,
         completionNext: { ...response.completionNext!, action: "Review status updated" },
-        completionBlocker: { code: "review_missing", gate: "review" },
+        completionBlocker: { code: "review_pending", gate: "review" },
       };
       bridge.getTaskCompletion.mockResolvedValue(changed);
       await act(async () => {

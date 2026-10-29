@@ -329,22 +329,18 @@ export function validateReviewResolutions(
 ): readonly ContractValidationIssue[] {
   if (!Array.isArray(value)) return [invalidReviewIssue("review resolutions must be an array")];
   const issues: ContractValidationIssue[] = [];
-  const seen = new Set<string>();
   for (const resolution of value) {
     const fields = ["reviewId", "findingId", "resolution"] as const;
     if (!isRecord(resolution) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(resolution, fields)) {
       issues.push(invalidReviewIssue("review resolution fields are incomplete or unknown"));
       continue;
     }
-    const key = `${String(resolution.reviewId)}\0${String(resolution.findingId)}`;
     if (
       !isNonEmptyString(resolution.reviewId) ||
       !isNonEmptyString(resolution.findingId) ||
-      seen.has(key) ||
       !["upheld", "withdrawn"].includes(String(resolution.resolution))
     )
-      issues.push(invalidReviewIssue("review resolutions require unique review/finding ids and a valid resolution"));
-    else seen.add(key);
+      issues.push(invalidReviewIssue("review resolutions require review/finding ids and a valid resolution"));
   }
   return issues;
 }
@@ -391,12 +387,7 @@ export function approvedReviewHistoryForExecution(
   reviews: readonly ReviewV1[],
   execution: ExecutionV1,
 ): readonly ReviewV1[] {
-  return reviews.filter(
-    (review) =>
-      review.executionId === execution.executionId &&
-      review.verdict === "approved" &&
-      review.iteration === execution.iteration,
-  );
+  return reviewsForExecution(reviews, execution).filter((review) => review.verdict === "approved");
 }
 
 export function reviewsForExecution(reviews: readonly ReviewV1[], execution: ExecutionV1): readonly ReviewV1[] {
@@ -410,23 +401,6 @@ export function reviewsForExecution(reviews: readonly ReviewV1[], execution: Exe
       review.commitSha === execution.submission?.commitSha &&
       Date.parse(review.reviewedAt) >= submittedAt &&
       (review.submissionDigest === undefined || review.submissionDigest === pinned),
-  );
-}
-
-/** Approved Reviews of the current submission that no undisposed changes_requested on that cut contradicts. */
-export function settledApprovedReviewsForExecution(
-  reviews: readonly ReviewV1[],
-  execution: ProjectedExecution,
-  dispositions: readonly ReviewDispositionV1[] = [],
-): readonly ReviewV1[] {
-  if (execution.schema !== "execution/v1" || !execution.submission) return [];
-  const current = reviewsForExecution(reviews, execution),
-    currentSubmissionDigest = submissionDigest(execution.submission);
-  return current.filter(
-    (review) =>
-      review.verdict === "approved" &&
-      reviewConsentConflicts({ selectedReview: review, reviews: current, dispositions, currentSubmissionDigest })
-        .length === 0,
   );
 }
 

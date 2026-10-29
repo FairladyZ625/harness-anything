@@ -100,11 +100,7 @@ const list = {
   invalidRows: [],
 } as const;
 
-/**
- * The exact shape the kernel emits when a categorized finding has no safe automatic triage: the
- * review gate stays open and `escalatedFindings` names the finding the owner must dispose. The wire
- * validator must accept it — row isolation is a visible downgrade, not a review judgment.
- */
+/** A finding remains settlement data; closeout only exposes the single review/consent judgment. */
 function kernelAssessmentWithEscalatedFinding() {
   const commitSha = "c".repeat(40),
     submission = {
@@ -175,49 +171,26 @@ function kernelAssessmentWithEscalatedFinding() {
   return closeoutReadiness(snapshot);
 }
 
-test("kernel closeout assessments carrying escalated findings pass the task snapshot contract", () => {
+test("kernel closeout assessments with findings expose only the consent blocker", () => {
   const assessment = kernelAssessmentWithEscalatedFinding(),
     escalatedRow = { ...row, taskId: "task-escalated", closeoutAssessment: assessment };
 
-  assert.equal(assessment.blocker, "review");
-  assert.deepEqual(assessment.escalatedFindings, [{ reviewId: "review-escalated", findingId: "F-escalated" }]);
+  assert.equal(assessment.blocker, "consent");
+  assert.deepEqual(Object.keys(assessment).sort(), ["blocker", "executionId", "gates", "readiness"]);
   assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [escalatedRow] }), []);
   assert.deepEqual(isolateDaemonTaskSnapshotRows([escalatedRow]).invalidRows, []);
 });
 
-test("owner-blocking finding references pass the task snapshot contract too", () => {
-  const { escalatedFindings: _escalated, ...withoutEscalated } = kernelAssessmentWithEscalatedFinding(),
-    blockingRow = {
-      ...row,
-      taskId: "task-escalated",
-      closeoutAssessment: {
-        ...withoutEscalated,
-        blockingFindings: [{ reviewId: "review-escalated", findingId: "F-blocking" }],
-      },
-    };
-
-  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [blockingRow] }), []);
-});
-
-test("malformed finding references are still isolated", () => {
+test("retired finding fields are rejected by the closed closeout assessment contract", () => {
   const assessment = kernelAssessmentWithEscalatedFinding(),
     escalatedRow = { ...row, taskId: "task-escalated", closeoutAssessment: assessment };
-
-  for (const [label, malformed] of [
-    ["missing findingId", [{ reviewId: "review-escalated" }]],
-    ["empty reviewId", [{ reviewId: "", findingId: "F-escalated" }]],
-    ["stray finding field", [{ reviewId: "review-escalated", findingId: "F-escalated", disposition: "non_blocking" }]],
-    ["not an array", { reviewId: "review-escalated", findingId: "F-escalated" }],
-  ] as const) {
-    const malformedRow = {
-      ...escalatedRow,
-      closeoutAssessment: { ...assessment, escalatedFindings: malformed },
-    };
-    assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [malformedRow] }), [], label);
+  for (const field of ["escalatedFindings", "blockingFindings"]) {
+    const malformedRow = { ...escalatedRow, closeoutAssessment: { ...assessment, [field]: [] } };
+    assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [malformedRow] }), [], field);
     assert.equal(
       isolateDaemonTaskSnapshotRows([malformedRow]).invalidRows[0]?.field,
       "rows[0].closeoutAssessment",
-      label,
+      field,
     );
   }
 });

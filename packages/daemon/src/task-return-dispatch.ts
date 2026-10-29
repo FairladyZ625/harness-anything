@@ -16,8 +16,8 @@ type ReworkContext = {
   readonly taskId: string;
   /** The execution the cut closed: changes_requested, or the owner-returned consented approved cut. */
   readonly execution: ExecutionV1;
-  /** The recorded review verdict record; only its identity and reason reach the worker prompt. */
-  readonly review: { readonly reviewId: string; readonly reason: string };
+  /** The recorded review verdict record, when the owner returned a reviewed cut. */
+  readonly review?: { readonly reviewId: string; readonly reason: string };
   /** Ledger-relative path of the review report the reviewer registered, when one exists. */
   readonly reportPath: string | null;
   /** The owner's reason for a non-changes_requested ReworkTask; absent when the review verdict leads. */
@@ -62,21 +62,27 @@ export async function continueReviewRework(
   // let a superseded verdict decide this continuation's prompt and dispatch identity.
   const taskId = cell.requiredCellText(command.taskId, "taskId"),
     read = cell.projection.read(taskId),
-    reviewId = cell.requiredCellText(command.reviewId, "reviewId"),
-    review = read.snapshot.reviews.find((value) => value.reviewId === reviewId),
-    execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined,
+    reviewId = command.reviewId,
+    review = reviewId ? read.snapshot.reviews.find((value) => value.reviewId === reviewId) : undefined,
+    execution = review
+      ? read.snapshot.executions.find((value) => value.executionId === review.executionId)
+      : command.type === "ReworkTask"
+        ? read.snapshot.executions.find((value) => value.executionId === command.executionId)
+        : undefined,
     // A ReworkTask whose review is not changes_requested is an owner return: an approved cut the
     // owner already consented (pre-merge CI red) or one with a confirmed blocker has no review
     // verdict to continue from, so the owner's reason is the work order. A changes_requested return
     // keeps the review verdict and reviewer reason in the prompt even when the owner issued it.
     ownerReturnReason =
-      command.type === "ReworkTask" && review !== undefined && review.verdict !== "changes_requested"
-        ? command.reason
-        : null;
-  if (!review || !execution?.submission || (review.verdict !== "changes_requested" && ownerReturnReason === null))
+      command.type === "ReworkTask" && review?.verdict !== "changes_requested" ? command.reason : null;
+  if (
+    !execution?.submission ||
+    (command.type === "RecordReview" && (!review || !reviewId)) ||
+    (command.type === "ReworkTask" && review?.verdict !== "changes_requested" && ownerReturnReason === null)
+  )
     return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
-    const reportPath = read.packagePath ? reviewReportRelativePath(read.packagePath, reviewId) : null;
+    const reportPath = read.packagePath && reviewId ? reviewReportRelativePath(read.packagePath, reviewId) : null;
     if (ownerReturnReason === null && reportPath === null) return receipt;
     const step = await dispatchReviewRework(cell, {
       taskId,
@@ -97,11 +103,31 @@ export async function continueReviewRework(
         : {}),
     } as WriteReceiptDraft;
   }
-  const upheld = (review.resolutions ?? []).some((resolution) => resolution.resolution === "upheld"),
+  if (!review) return receipt;
+  const resolutions = review.resolutions ?? [],
+    priorReviews = read.snapshot.reviews.filter((value) => value.iteration < review.iteration),
+    priorIteration = priorReviews.length ? Math.max(...priorReviews.map((value) => value.iteration)) : -1,
+    priorIds = new Set(
+      priorReviews.filter((value) => value.iteration === priorIteration).map((value) => value.reviewId),
+    ),
+    rebutted = (read.snapshot.reviewResponses ?? []).filter(
+      (response) => response.disposition === "rebut" && priorIds.has(response.reviewId),
+    ),
+    upheld =
+      resolutions.some((resolution) => resolution.resolution === "upheld") ||
+      rebutted.some(
+        (response) =>
+          !resolutions.some(
+            (resolution) =>
+              resolution.reviewId === response.reviewId &&
+              resolution.findingId === response.findingId &&
+              resolution.resolution === "withdrawn",
+          ),
+      ),
     newBlocking = (review.findings ?? []).some(
       (finding) =>
         finding.blocking &&
-        !(review.resolutions ?? []).some(
+        !resolutions.some(
           (resolution) =>
             resolution.reviewId === review.reviewId &&
             resolution.findingId === finding.findingId &&
@@ -252,7 +278,7 @@ function prepareWorkerContinuation(cell: RepoCellOperationalContext, input: Rewo
             ]
           : [
               "# Review verdict: changes_requested",
-              `Review ${input.review.reviewId} on your submitted cut requested changes: ${input.review.reason}`,
+              `Review ${input.review?.reviewId ?? "the recorded review"} on your submitted cut requested changes: ${input.review?.reason ?? "the owner returned this cut without a recorded review"}`,
               `Read the full review report with ha doc show --path ${input.reportPath} --raw`,
               "Address the findings, then submit the reworked cut again.",
             ]
@@ -261,7 +287,7 @@ function prepareWorkerContinuation(cell: RepoCellOperationalContext, input: Rewo
       // The review names the return order: one cut can be returned again after another round, and
       // each order needs its own dispatch identity so a later return never re-mints an earlier
       // execution credential client.
-      dispatchKey: `task-return:${input.taskId}:${input.execution.executionId}:${input.review.reviewId}:${mode}`,
+      dispatchKey: `task-return:${input.taskId}:${input.execution.executionId}:${input.review?.reviewId ?? "owner"}:${mode}`,
     },
   };
 }

@@ -113,7 +113,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       >;
     assert.deepEqual(
       { outcome: missingMerge.outcome, code: missingMerge.code, steps: missingMerge.steps },
-      { outcome: "op_rejected", code: "review_missing", steps: [] },
+      { outcome: "op_rejected", code: "review_pending", steps: [] },
     );
     assert.deepEqual(store().read().events.slice(beforeMissingMerge), [], "an unmerged delivery returns guidance without writing a completion");
     assert.equal(
@@ -126,7 +126,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     await markMerged(cell, rootDir, "completion-facade", taskId, executionId, commitSha, binding);
     const beforeReviewBlock = store().read().revision,
       missingReview = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>;
-    assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code }, { outcome: "op_rejected", code: "review_missing" });
+    assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code }, { outcome: "op_rejected", code: "review_pending" });
     // The retired CI gate is derived from merge evidence and must not publish a copied observation event.
     assert.deepEqual(store().read().events.filter((event) => event.workspaceRevision > beforeReviewBlock).map((event) => event.type), []);
     assert.deepEqual(missingReview.steps, []);

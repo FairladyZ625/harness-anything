@@ -20,7 +20,8 @@ import {
   taskVisibility,
   workspaceTaskStatus,
   resolveHarnessLayout,
-  settledApprovedReviewsForExecution,
+  reviewsForExecution,
+  submissionDigest,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -1284,12 +1285,7 @@ function unsubmittedDeliveryAttentionRows(
 function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {
   return rows.flatMap((row) =>
     row.snapshot.executions
-      .filter(
-        (execution) =>
-          execution.state === "submitted" &&
-          settledApprovedReviewsForExecution(row.snapshot.reviews, execution, row.snapshot.reviewDispositions)
-            .length === 0,
-      )
+      .filter((execution) => execution.state === "submitted" && !hasCurrentSettledApproval(row, execution))
       .map((execution) => ({
         taskId: row.taskId,
         title: row.snapshot.task?.title ?? row.taskId,
@@ -1299,6 +1295,22 @@ function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutio
         submittedAt: execution.submittedAt ?? row.updatedAt,
         blockingAssessment: row.blockingAssessment,
       })),
+  );
+}
+
+function hasCurrentSettledApproval(row: AgendaSourceRow, execution: ProjectedExecution): boolean {
+  if (!execution.submission) return false;
+  const currentReviews = reviewsForExecution(row.snapshot.reviews, execution),
+    approved = currentReviews.some((review) => review.verdict === "approved"),
+    digest = submissionDigest(execution.submission),
+    disposed = new Set(
+      (row.snapshot.reviewDispositions ?? [])
+        .filter((value) => value.submissionDigest === digest && value.rationale.trim().length > 0)
+        .flatMap((value) => value.disposedReviewIds),
+    );
+  return (
+    approved &&
+    !currentReviews.some((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
   );
 }
 function compareAgendaTasks(left: AgendaTaskRow, right: AgendaTaskRow): number {

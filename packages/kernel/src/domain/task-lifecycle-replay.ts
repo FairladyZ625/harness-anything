@@ -139,7 +139,23 @@ function assertAtomic<C extends TaskLifecycleCommand>(
     const reviewFindings = command.findings ?? [],
       reviewResolutions = command.resolutions ?? [],
       hasStructuredReview = command.findings !== undefined || command.resolutions !== undefined,
-      upheld = reviewResolutions.some((resolution) => resolution.resolution === "upheld"),
+      priorReviews = snapshot.reviews.filter((review) => review.iteration < command.iteration),
+      priorIteration = priorReviews.length ? Math.max(...priorReviews.map((review) => review.iteration)) : -1,
+      priorIds = new Set(
+        priorReviews.filter((review) => review.iteration === priorIteration).map((review) => review.reviewId),
+      ),
+      rebutted = (snapshot.reviewResponses ?? []).filter(
+        (response) => response.disposition === "rebut" && priorIds.has(response.reviewId),
+      ),
+      upheld = rebutted.some(
+        (response) =>
+          !reviewResolutions.some(
+            (resolution) =>
+              resolution.reviewId === response.reviewId &&
+              resolution.findingId === response.findingId &&
+              resolution.resolution === "withdrawn",
+          ),
+      ),
       newBlocking = reviewFindings.some(
         (finding) =>
           finding.blocking &&

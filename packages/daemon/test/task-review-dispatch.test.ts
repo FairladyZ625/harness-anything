@@ -33,7 +33,7 @@ test("review prompts reference the frozen submission without inlining artifacts 
     gates: [],
   });
   assert.match(prompt, /Independently review task task_review_bounds/u);
-  assert.match(prompt, /JSON required fields: verdict, reason, evidenceChecked, findings, resolutions/u);
+  assert.match(prompt, /JSON required fields: verdict, reason, evidenceChecked, findings/u);
   assert.match(prompt, /verdict: approved\|changes_requested\|dismissed/u);
   assert.doesNotMatch(prompt, /Owner adjudication context/u);
   assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
@@ -43,13 +43,13 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.doesNotMatch(prompt, /REVIEW-ARTIFACT|REVIEW-SMALL-ARTIFACT|bodyTruncatedFromChars/u);
   assert.doesNotMatch(prompt, /raw-evidence\.txt|"artifacts":/u);
   assert.match(prompt, /ha task show task_review_bounds --json/u);
-  assert.match(prompt, /ha doc show --path <anchor.path> --raw/u);
-  assert.match(prompt, /registered anchors at their frozen revisions/u);
+  assert.doesNotMatch(prompt, /For every artifact anchor in that submission/u);
+  assert.doesNotMatch(prompt, /registered anchors at their frozen revisions/u);
   assert.match(prompt, /first review.*every blocking finding visible/u);
   assert.doesNotMatch(prompt, /previous report at/u);
 });
 
-test("re-review prompt requests resolutions only for prior findings the worker explicitly rebutted", () => {
+test("re-review prompt does not require resolution bookkeeping", () => {
   const prompt = reviewDispatchPrompt({
     taskId: "task_review_resolution_guidance",
     packagePath: "tasks/task-review-resolution-guidance",
@@ -61,11 +61,7 @@ test("re-review prompt requests resolutions only for prior findings the worker e
     } as unknown as ExecutionV1,
     gates: [],
   });
-  assert.match(
-    prompt,
-    /include exactly one resolution only for each prior-round finding the worker explicitly rebutted, as \{reviewId, findingId, resolution: upheld\|withdrawn\}; adopted or fixed findings need no resolution/u,
-  );
-  assert.doesNotMatch(prompt, /include resolutions for prior findings as/u);
+  assert.doesNotMatch(prompt, /exactly one resolution|Previous resolutions|prior-round finding/u);
 });
 
 test("a reviewer in its own checkout writes and registers through the canonical artifact root", () => {
@@ -175,7 +171,7 @@ test("review input accepts the dispatched field contract and rejects persisted-r
     reviewPacket("/unused", { kind: "task-review-execution", jsonInput: JSON.stringify(value) }).value,
     value,
   );
-  for (const field of ["findings", "resolutions"] as const) {
+  for (const field of ["findings"] as const) {
     const missing = { ...value };
     delete missing[field];
     assert.throws(
@@ -183,6 +179,12 @@ test("review input accepts the dispatched field contract and rejects persisted-r
       /Review JSON requires exactly/u,
     );
   }
+  const withoutResolutions = { ...value };
+  delete withoutResolutions.resolutions;
+  assert.deepEqual(
+    reviewPacket("/unused", { kind: "task-review-execution", jsonInput: JSON.stringify(withoutResolutions) }).value,
+    withoutResolutions,
+  );
   for (const metadata of [{ schema: "review/v1" }, { taskId: "task_1" }, { executionId: "exe_1" }])
     assert.throws(
       () =>

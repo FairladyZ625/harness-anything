@@ -12,7 +12,6 @@ import {
   isIndependentFrom,
   normalizeTaskLifecycleCommand,
   openSqliteEventStore,
-  settledApprovedReviewsForExecution,
   submissionDigest,
 } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
@@ -168,7 +167,6 @@ test("an amendment requires a Review of the new submission before consent and co
     const amended = await harness.amend("execution-1", "op-submit-amend", "corrected claim");
     const execution = amended.snapshot.executions[0];
     if (execution?.schema !== "execution/v1") throw new Error("native execution missing");
-    assert.deepEqual(settledApprovedReviewsForExecution(amended.snapshot.reviews, execution), []);
     assert.equal(
       consentedApprovedReviewForExecution(amended.snapshot.reviews, amended.snapshot.consents, {
         ...execution,
@@ -177,18 +175,12 @@ test("an amendment requires a Review of the new submission before consent and co
       undefined,
       "the old consent stays stale even when the amendment shares its millisecond",
     );
-    await assert.rejects(
-      harness.complete("execution-1", "op-complete-stale"),
-      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
-    );
+    await assert.rejects(harness.complete("execution-1", "op-complete-stale"), /consent-selected approved Review/u);
 
-    await assert.rejects(
-      harness.consent("execution-1", "op-consent-amended", "review-op-review-original"),
-      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
-    );
+    await assert.rejects(harness.consent("execution-1", "op-consent-amended", "review-op-review-original"));
     await assert.rejects(
       harness.complete("execution-1", "op-complete-stale-again"),
-      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
+      /consent-selected approved Review/u,
     );
     await harness.review("execution-1", "acceptance", "approved", "op-review-amended");
     await harness.consent("execution-1", "op-consent-current", "review-op-review-amended");

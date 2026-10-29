@@ -99,7 +99,7 @@ export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
 }
 export interface ReworkTaskIntent extends Intent<"ReworkTask"> {
   readonly executionId: string;
-  readonly reviewId: string;
+  readonly reviewId?: string;
   readonly reason: string;
 }
 export interface RecordReviewIntent extends Intent<"RecordReview"> {
@@ -221,8 +221,6 @@ export interface ReworkTaskProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "task-rework@v1";
   readonly capabilityRef: string;
-  /** The effective repository budget at this owner write; the transition only accepts exhaustion. */
-  readonly reworkBudget: number;
 }
 export interface ReviewProof {
   readonly actorBinding: ActorAxes;

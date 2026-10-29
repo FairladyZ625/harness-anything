@@ -254,31 +254,14 @@ export function executionEvidence(value: unknown): boolean {
   );
 }
 
-// The kernel's CloseoutAssessment is the contract source. The `satisfies` anchors below make a
-// kernel field addition or rename fail typecheck here instead of silently isolating every row that
-// carries the new field on the wire (the escalated-findings regression this guard prevents).
+// The kernel's CloseoutAssessment is the contract source. The `satisfies` anchor keeps its wire
+// shape closed when the assessment changes.
 const closeoutAssessmentFieldNames = Object.keys({
-    readiness: true,
-    executionId: true,
-    blocker: true,
-    escalatedFindings: true,
-    blockingFindings: true,
-    gates: true,
-  } satisfies Record<keyof CloseoutAssessment, true>),
-  closeoutFindingRefFieldNames = Object.keys({
-    reviewId: true,
-    findingId: true,
-  } satisfies Record<keyof NonNullable<CloseoutAssessment["escalatedFindings"]>[number], true>);
-
-function closeoutFindingRefs(value: unknown): boolean {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (finding) =>
-        exactRecord(finding, closeoutFindingRefFieldNames) && nonEmpty(finding.reviewId) && nonEmpty(finding.findingId),
-    )
-  );
-}
+  readiness: true,
+  executionId: true,
+  blocker: true,
+  gates: true,
+} satisfies Record<keyof CloseoutAssessment, true>);
 
 export function closeoutAssessment(value: unknown): boolean {
   if (
@@ -287,9 +270,9 @@ export function closeoutAssessment(value: unknown): boolean {
     !["not_required", "missing", "incomplete", "ready", "passed", "failed"].includes(String(value.readiness)) ||
     (value.executionId !== undefined && !nonEmpty(value.executionId)) ||
     (value.blocker !== undefined &&
-      !["execution", "review", "consent", "gate", "lineage", "projection_unknown"].includes(String(value.blocker))) ||
-    (value.escalatedFindings !== undefined && !closeoutFindingRefs(value.escalatedFindings)) ||
-    (value.blockingFindings !== undefined && !closeoutFindingRefs(value.blockingFindings)) ||
+      !["execution", "review_pending", "review_rejected", "consent", "gate", "lineage", "projection_unknown"].includes(
+        String(value.blocker),
+      )) ||
     !Array.isArray(value.gates)
   )
     return false;
