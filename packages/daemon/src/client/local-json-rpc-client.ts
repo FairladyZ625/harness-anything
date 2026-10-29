@@ -1,11 +1,10 @@
 import net from "node:net";
-import path from "node:path";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
 import type { JsonObject, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
-import { assertOwnedSocketDirectory, resolveLocalDaemonTarget } from "./local-daemon-target.ts";
+import { assertDaemonSocketDirectory, resolveLocalDaemonTarget } from "./local-daemon-target.ts";
 export {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -378,10 +377,7 @@ export function connectSocket(socketPath: string, timeoutMs: number): Promise<ne
 
 export function createDaemonEndpointSocket(endpoint: string): net.Socket {
   if (!endpoint.startsWith("tcp://")) {
-    // Windows named pipes have no directory to own, and abstract names (leading NUL) plus
-    // relative paths carry no per-user directory: only absolute POSIX paths have the parent
-    // boundary this client's hello credential trusts, so verify it before connecting.
-    if (process.platform !== "win32" && path.isAbsolute(endpoint)) assertOwnedSocketDirectory(path.dirname(endpoint));
+    assertDaemonSocketDirectory(endpoint);
     return net.createConnection(endpoint);
   }
   const url = new URL(endpoint);

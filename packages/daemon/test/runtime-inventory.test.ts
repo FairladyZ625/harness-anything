@@ -135,7 +135,10 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
 
 /** Production fresh-launch argv for one codex permission mode: what `prepareLaunch` hands the
  * worker host. Driving the real builder keeps this test off a hand-written toy argv. */
-function codexLaunchArgs(mode: "bypass" | "workspace-write" | "read-only"): readonly string[] {
+function codexLaunchArgs(
+  mode: "bypass" | "workspace-write" | "read-only",
+  callbackRelayPath?: string,
+): readonly string[] {
   return launchArgs(
     {
       schemaVersion: 2,
@@ -157,6 +160,7 @@ function codexLaunchArgs(mode: "bypass" | "workspace-write" | "read-only"): read
     "high",
     mode,
     false,
+    callbackRelayPath,
   );
 }
 
@@ -227,6 +231,48 @@ test("Codex resume rebuilds each mode's declared resume permission block instead
     // second steer would duplicate the mode's config overrides.
     assert.deepEqual(codexResumeArgs(resumed), resumed, `${mode} resume of a resume argv`);
   }
+});
+
+test("Codex callback socket grant is emitted once for fresh and resume with workspace boundaries retained", () => {
+  const relayPath = "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock",
+    grant = [
+      "--config",
+      'default_permissions="harness-callback-relay"',
+      "--config",
+      'permissions.harness-callback-relay.extends=":workspace"',
+      "--config",
+      'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}',
+      "--config",
+      "features.network_proxy=true",
+      "--config",
+      `permissions.harness-callback-relay.network={enabled=true,domains={},unix_sockets={"${relayPath}"="allow"}}`,
+    ];
+  const fresh = codexLaunchArgs("workspace-write", relayPath),
+    resumed = codexResumeArgs(fresh);
+  assert.deepEqual(fresh.slice(fresh.indexOf("--model") - grant.length, fresh.indexOf("--model") + 2), [
+    ...grant,
+    "--model",
+    "gpt-5.6-sol",
+  ]);
+  assert.deepEqual(resumed.slice(resumed.indexOf("--model") - grant.length, resumed.indexOf("--model") + 2), [
+    ...grant,
+    "--model",
+    "gpt-5.6-sol",
+  ]);
+  assert.equal(fresh.filter((argument) => argument === 'default_permissions="harness-callback-relay"').length, 1);
+  assert.equal(resumed.filter((argument) => argument === 'default_permissions="harness-callback-relay"').length, 1);
+  for (const args of [fresh, resumed]) {
+    assert.equal(args.includes("--sandbox"), false, "legacy sandbox selection overrides named profiles");
+    assert.equal(
+      args.some((argument) => /^sandbox_(mode|workspace_write)/u.test(argument)),
+      false,
+    );
+  }
+  assert.equal(
+    fresh.some((argument) => argument.includes("writable_roots")),
+    false,
+  );
+  assert.deepEqual(codexResumeArgs(resumed), resumed, "steering an already resumed session keeps one grant");
 });
 
 // The shape above is only correct if the real subcommand parser accepts it. `--help` is the

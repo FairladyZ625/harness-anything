@@ -346,7 +346,7 @@ export function openRuntimeInstanceStore(input: {
         request.effort === undefined && runtimeEffortRidesProviderConfig(config.kindId) ? null : effort,
         permissionMode,
         fast,
-        request.additionalWritableDirectories,
+        request.callbackRelayPath,
       ),
       definition = definitionSnapshot(config, model, effort, fast),
       // ACP agents take the model through the session handshake (a configOptions selector),
