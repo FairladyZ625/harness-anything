@@ -610,7 +610,19 @@ async function submittedCutReview(
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
-  const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
+  // The review is a new repository dispatch, not a write by the implementation execution that
+  // just submitted. A returned worker's execution credential can be at its terminal boundary by
+  // the time this post-write hook runs; carrying it into reviewer admission makes a durable submit
+  // succeed while suppressing the only reviewer dispatch. Keep the authenticated principal and
+  // source, while letting the reviewer dispatch perform its own repository authorization.
+  const { executionPrincipal: _executionPrincipal, ...principalBinding } = binding,
+    dispatched = await dispatchInReviewCutReview(
+      cell,
+      taskId,
+      action,
+      { ...principalBinding, actor: { principal: binding.actor.principal, executor: null } },
+      receipt,
+    );
   return dispatched ? { steps: [dispatched.step], warnings: dispatched.warnings } : { steps: [], warnings: [] };
 }
 

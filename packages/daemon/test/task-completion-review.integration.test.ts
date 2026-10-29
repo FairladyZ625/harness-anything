@@ -639,3 +639,58 @@ test("an owner returns a consented approved cut to implementation when pre-merge
     await f.close();
   }
 });
+
+test("a worker resubmission after consented CI rework dispatches the next reviewer", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+  try {
+    await f.install();
+    const first = (await f.submit()) as Receipt;
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    const reviewed = await f.review(runtimeSessionId(first), "review-round-one");
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    await settleReviewerDispatch(f);
+    assert.equal((await f.consent("review-round-one")).outcome, "applied");
+
+    const returned = (await f.run({ kind: "task-rework", taskId, reason: "CI is red." })) as Receipt;
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    const workerDispatch = f
+      .events()
+      .filter(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === taskId &&
+          event.payload.role !== "reviewer",
+      )
+      .at(-1);
+    assert.ok(workerDispatch?.type === "runtime_dispatch_requested");
+    const shown = (await f.run({ kind: "task-show", taskId })) as Receipt,
+      snapshot = JSON.parse(String(shown.evidence)) as { executions: { executionId: string; state: string }[] },
+      next = snapshot.executions.find((execution) => execution.state === "active");
+    assert.ok(next, JSON.stringify(snapshot));
+    const worker = withPolicyGroup(
+      {
+        actor: {
+          principal: owner.actor.principal,
+          executor: { kind: "agent" as const, id: `runtime-session:${workerDispatch.payload.runtimeSessionId}` },
+        },
+        source: "local" as const,
+      },
+      "contributor",
+    );
+    const submitted = (await f
+      .cell()
+      .run({ kind: "task-submit", taskId, executionId: next.executionId }, worker)) as Receipt;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const reviewDispatches = f
+      .events()
+      .filter((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+    assert.ok(
+      reviewDispatches.some(
+        (event) => event.type === "runtime_dispatch_requested" && event.payload.executionId === next.executionId,
+      ),
+      "the resubmitted round dispatches a reviewer for its new execution",
+    );
+  } finally {
+    await f.close();
+  }
+});
