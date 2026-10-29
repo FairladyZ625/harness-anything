@@ -49,6 +49,25 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.doesNotMatch(prompt, /previous report at/u);
 });
 
+test("re-review prompt requests resolutions only for prior findings the worker explicitly rebutted", () => {
+  const prompt = reviewDispatchPrompt({
+    taskId: "task_review_resolution_guidance",
+    packagePath: "tasks/task-review-resolution-guidance",
+    dispatchId: "dispatch_reviewresolution1",
+    execution: {
+      executionId: "exe_review_resolution_guidance",
+      iteration: 2,
+      submission: {},
+    } as unknown as ExecutionV1,
+    gates: [],
+  });
+  assert.match(
+    prompt,
+    /include exactly one resolution only for each prior-round finding the worker explicitly rebutted, as \{reviewId, findingId, resolution: upheld\|withdrawn\}; adopted or fixed findings need no resolution/u,
+  );
+  assert.doesNotMatch(prompt, /include resolutions for prior findings as/u);
+});
+
 test("a reviewer in its own checkout writes and registers through the canonical artifact root", () => {
   const artifactRoot = path.join(path.sep, "canonical", "harness"),
     packagePath = "tasks/task-review-artifact-root",

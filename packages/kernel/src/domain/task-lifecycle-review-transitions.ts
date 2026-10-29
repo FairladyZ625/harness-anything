@@ -109,7 +109,7 @@ function reviewIssues(
       issues.push(
         lifecycleContractIssue(
           "invalid_review",
-          `resolution ${resolution.reviewId}/${resolution.findingId} does not address a rebutted finding from the prior review round`,
+          `resolution ${resolution.reviewId}/${resolution.findingId} does not address a rebutted finding from the prior review round; remove this resolution. Fixed or adopted prior findings need no resolution; include exactly one resolution only for each finding the worker rebutted.`,
         ),
       );
   }
@@ -118,7 +118,7 @@ function reviewIssues(
       issues.push(
         lifecycleContractIssue(
           "invalid_review",
-          `re-review must include exactly one resolution for rebutted finding ${key.replace("\0", "/")}`,
+          `re-review must include exactly one resolution for rebutted finding ${key.replace("\0", "/")}; add one resolution marked upheld or withdrawn.`,
         ),
       );
   }

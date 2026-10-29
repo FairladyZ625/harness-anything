@@ -414,8 +414,9 @@ export function reviewDispatchPrompt(input: {
     "Read the task plan, closeout, and submitted delivery yourself. " +
       `${reviewFindingScopePrompt("first")} ${reviewFindingCategoryPrompt} ` +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
-    "For a re-review, include resolutions for prior findings as {reviewId, findingId, resolution: upheld|withdrawn}; " +
-      "upheld findings go to the CEO, while a new blocking finding without an upheld resolution returns to the worker.",
+    "For a re-review, include exactly one resolution only for each prior-round finding the worker explicitly rebutted, " +
+      "as {reviewId, findingId, resolution: upheld|withdrawn}; adopted or fixed findings need no resolution. " +
+      "Upheld findings go to the CEO, while a new blocking finding without an upheld resolution returns to the worker.",
     `Write this execution's review report to ${reportFile} and review input to ${packetFile}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
     derivedTaskActionProtocolCommands.find((command) => command.id === "task-review-execution")!.help,
