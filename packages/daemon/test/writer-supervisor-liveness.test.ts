@@ -73,6 +73,29 @@ test("a writer with no messages is terminated after 30 seconds of ready inactivi
   assert.equal(writer.terminateCalls, 1);
 });
 
+test("a failed first open does not prevent a later supervisor from opening", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const first = new FakeWriter(true),
+    second = new FakeWriter(),
+    workers = [first, second],
+    createWorker = () => workers.shift() as unknown as Worker,
+    opening = openWriterSupervisor(supervisorInput, { createWorker }),
+    rejected = assert.rejects(opening, /30000ms without progress/);
+
+  context.mock.timers.tick(30_000);
+  await rejected;
+  context.mock.timers.tick(1_000);
+  assert.equal(first.terminateCalls, 1);
+  assert.equal(workers.length, 1);
+
+  const reopened = openWriterSupervisor(supervisorInput, { createWorker });
+  second.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await reopened;
+  assert.equal(supervisor.status().state, "attached");
+  assert.equal(first.terminateCalls, 1);
+  await supervisor.close();
+});
+
 test("advancing watermark may continue beyond ten minutes; repeated watermark cannot renew it", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const writer = new FakeWriter();
@@ -160,6 +183,12 @@ test("completed runtime restorations extend startup, but duplicate, older and st
 
 class FakeWriter extends EventEmitter {
   terminateCalls = 0;
+  private readonly emitExitOnTerminate: boolean;
+
+  constructor(emitExitOnTerminate = false) {
+    super();
+    this.emitExitOnTerminate = emitExitOnTerminate;
+  }
 
   postMessage(message: unknown): void {
     if (!isControl(message)) return;
@@ -177,6 +206,7 @@ class FakeWriter extends EventEmitter {
 
   terminate(): Promise<number> {
     this.terminateCalls += 1;
+    if (this.emitExitOnTerminate) this.emit("exit", 0);
     return Promise.resolve(0);
   }
 }
