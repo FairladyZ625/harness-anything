@@ -59,7 +59,7 @@ test("bundled closeout reviewer is machine-independent and leaves instance model
   assert.deepEqual(reviewer.runtimes, []);
   assert.equal(reviewer.role, "reviewer");
   assert.equal(reviewer.instance, undefined);
-  assert.match(reviewer.instructions, /artifact delivery does not require a Git commit or ancestry/u);
+  assert.doesNotMatch(reviewer.instructions, /artifact delivery does not require a Git commit or ancestry/u);
   assert.match(reviewer.instructions, /frozen productionDelta \(including its baseSha\)/u);
   assert.match(reviewer.instructions, /do not compare those machine-derived values against prose/u);
   assert.match(reviewer.instructions, /Legacy code submissions may predate these optional fields/u);

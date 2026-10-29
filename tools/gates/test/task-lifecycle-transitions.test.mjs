@@ -630,10 +630,6 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
   );
   assert.deepEqual(reduceTaskEvent(capped.snapshot, ownerReturned.event), ownerReturned.snapshot);
   assert.throws(
-    () => applyTransition(capped.snapshot, rework(8), reworkProof(owner, 0)),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
-  );
-  assert.throws(
     () =>
       applyTransition(capped.snapshot, rework(8, "execution-1", "review-reject-1", outsider), reworkProof(outsider)),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
@@ -642,7 +638,7 @@ test("G10 a changes_requested verdict reopens rework below the budget and only r
     () => applyTransition(capped.snapshot, rework(8, "execution-1", "review-missing"), reworkProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_transition",
   );
-  // The proof without a usable budget is refused before any write.
+  // Rework budgets are no longer part of the owner-return proof.
   assert.throws(
     () =>
       applyTransition(submitted.snapshot, review(4), {

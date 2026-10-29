@@ -1,4 +1,8 @@
-import { currentSubmittedExecutions, consentedApprovedReviewForExecution } from "@harness-anything/kernel";
+import {
+  consentedApprovedReviewForExecution,
+  currentSubmittedExecutions,
+  reviewsForExecution,
+} from "@harness-anything/kernel";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 
@@ -19,10 +23,7 @@ export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "
       const cuts = currentSubmittedExecutions(snapshot);
       if (cuts.length !== 1) return [];
       const execution = cuts[0]!,
-        approved = snapshot.reviews.filter(
-          ({ executionId, iteration, verdict }) =>
-            executionId === execution.executionId && iteration === execution.iteration && verdict === "approved",
-        ),
+        approved = reviewsForExecution(snapshot.reviews, execution).filter(({ verdict }) => verdict === "approved"),
         delivery = readCompletionDeliveryStatus(cell.projection, snapshot, cell.rootDir);
       if (!delivery.required || delivery.merged !== true || approved.length === 0) return [];
       const consented =

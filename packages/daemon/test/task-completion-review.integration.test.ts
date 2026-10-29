@@ -603,49 +603,31 @@ test("consent applies once every review dispatch on the cut reached its terminal
   }
 });
 
-// task_2f5b047f21ac5ab30f027ebd10: consent approved the merge, but the pre-merge CI run then went red.
-// There is no changes_requested review and no finding to rule on, so the owner returns the frozen cut
-// with a reason. The same owner return then dispatches the worker with that reason.
-test("an owner returns a consented approved cut to implementation when pre-merge CI is red", async () => {
+// An owner can return a current cut before any reviewer has recorded a verdict. The owner reason is
+// the worker's continuation context, and the existing rework dispatch path still launches it.
+test("an owner returns an unreviewed cut to implementation", async () => {
   const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
     await f.install();
     const submitted = await f.submit();
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const reviewed = await f.review(runtimeSessionId(submitted), "review-approved");
-    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    await settleReviewerDispatch(f);
     assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
 
-    // Negative control: an approved but unconsented cut keeps the old refusal and dispatches nothing.
+    // An owner may return any current cut, including an approved but unconsented one.
     const launchesBefore = f.launches.length,
       unconsented = (await f.run({ kind: "task-rework", taskId, reason: "CI is red." })) as Receipt;
-    assert.equal(unconsented.outcome, "op_rejected", JSON.stringify(unconsented));
-    assert.equal(unconsented.code, "invalid_transition", JSON.stringify(unconsented));
-    assert.match(String(unconsented.rejectionExplanation), /consented approved cut/u);
-    assert.equal(f.launches.length, launchesBefore, "a refused return dispatches nothing");
-    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
-
-    assert.equal((await f.consent("review-approved")).outcome, "applied");
-    const returned = (await f.run({
-      kind: "task-rework",
-      taskId,
-      reason: "Pre-merge CI run 40701875942 is red on this approved cut.",
-    })) as Receipt;
-    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    assert.equal(unconsented.outcome, "applied", JSON.stringify(unconsented));
+    assert.equal(f.launches.length, launchesBefore + 1, "an owner return dispatches the worker");
     assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
-    const continuation = returned.continuation as Receipt | undefined;
-    assert.equal(continuation?.outcome, "applied", JSON.stringify(returned));
-    assert.equal(f.launches.length, launchesBefore + 1, "the owner return dispatches the worker");
-    assert.match(f.launches.at(-1)!.prompt, /Pre-merge CI run 40701875942 is red/u);
+    assert.match(f.launches.at(-1)!.prompt, /CI is red/u);
 
     const returnEvent = f
       .events()
       .filter((event) => event.type === "submission_returned")
       .at(-1);
     assert.ok(returnEvent?.type === "submission_returned");
-    assert.equal(returnEvent.payload.reviewId, "review-approved");
-    assert.equal(returnEvent.payload.reason, "Pre-merge CI run 40701875942 is red on this approved cut.");
+    assert.equal(returnEvent.payload.reviewId, undefined);
+    assert.equal(returnEvent.payload.reason, "CI is red.");
   } finally {
     await f.close();
   }

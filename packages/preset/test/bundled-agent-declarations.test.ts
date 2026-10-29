@@ -9,6 +9,9 @@ test("bundled agent ids are enumerable and every offered id resolves to a bundle
   for (const id of ids) assert.ok(readBundledAgentDeclaration(id)?.id === id);
   const reviewer = readBundledAgentDeclaration("closeout-reviewer");
   assert.ok(reviewer);
-  assert.match(reviewer.instructions, /an adopted or fixed finding needs no resolution/u);
-  assert.match(reviewer.instructions, /remove that resolution and resubmit the unchanged verdict and review id/u);
+  assert.doesNotMatch(reviewer.instructions, /an adopted or fixed finding needs no resolution/u);
+  assert.doesNotMatch(
+    reviewer.instructions,
+    /remove that resolution and resubmit the unchanged verdict and review id/u,
+  );
 });

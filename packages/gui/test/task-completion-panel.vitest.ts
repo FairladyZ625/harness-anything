@@ -34,7 +34,7 @@ describe("Task completion panel", () => {
     // 结论回流前既不能同意也不能结项;返工由 changes_requested 自动驱动。
     expect(panel.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
     expect(panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-complete"]')?.disabled).toBe(true);
-    expect(panel.textContent).toContain("独立评审尚未记录结论");
+    expect(panel.textContent).toContain("完成销账独立评审尚未批准当前 cut");
   });
 
   it("routes the owner-verdict button once the read reports the consent blocker", async () => {

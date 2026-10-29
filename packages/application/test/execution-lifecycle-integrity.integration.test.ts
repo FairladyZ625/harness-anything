@@ -175,18 +175,12 @@ test("an amendment requires a Review of the new submission before consent and co
       undefined,
       "the old consent stays stale even when the amendment shares its millisecond",
     );
-    await assert.rejects(
-      harness.complete("execution-1", "op-complete-stale"),
-      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
-    );
+    await assert.rejects(harness.complete("execution-1", "op-complete-stale"), /consent-selected approved Review/u);
 
-    await assert.rejects(
-      harness.consent("execution-1", "op-consent-amended", "review-op-review-original"),
-      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
-    );
+    await assert.rejects(harness.consent("execution-1", "op-consent-amended", "review-op-review-original"));
     await assert.rejects(
       harness.complete("execution-1", "op-complete-stale-again"),
-      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
+      /consent-selected approved Review/u,
     );
     await harness.review("execution-1", "acceptance", "approved", "op-review-amended");
     await harness.consent("execution-1", "op-consent-current", "review-op-review-amended");
