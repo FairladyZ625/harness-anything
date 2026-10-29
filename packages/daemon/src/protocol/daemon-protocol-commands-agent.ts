@@ -731,7 +731,17 @@ export const agentProtocolCommands = Object.freeze([
         { field: "sessionLifetimeSeconds", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
       cliInput("--expected-version", "single", false, { code: "invalid_field" }, { field: "expectedVersion" }),
-      cliInput("--operation-id", "single", false, { code: "invalid_field" }, { field: "operationId" }),
+      cliInput(
+        "--operation-id",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "operationId",
+          description:
+            "journal key for one access-administration write; generated when omitted, so pass it explicitly to retry the same operation",
+        },
+      ),
       cliInput("--listen-address", "single", false, { code: "invalid_field" }, { field: "listenAddress" }),
       cliInput("--hostname", "single", false, { code: "invalid_field" }),
       cliInput("--port", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   actionDeclarations,
@@ -550,7 +550,10 @@ export class AccessAdminService {
     actor: string,
     plan: (session: Session) => Promise<Plan | Conflict>,
   ): Promise<Record<string, unknown>> {
-    const operationId = text(request.operationId, "operationId"),
+    // An operationId is the journal key for retries and reconciliation, not an input the caller must
+    // invent: generate one when omitted and return it in the receipt like an explicitly supplied id.
+    const suppliedOperationId = request.operationId?.trim(),
+      operationId = suppliedOperationId ? suppliedOperationId : randomUUID(),
       operation = request.operation!;
     return this.#oidc.serialize(async () => {
       const recorded = this.#records(operationId);

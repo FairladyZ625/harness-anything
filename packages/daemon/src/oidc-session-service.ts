@@ -75,6 +75,7 @@ interface CenterToken {
   readonly expiresAt: number;
   readonly url: string;
   readonly realm: string;
+  readonly issuer: string;
 }
 
 /** A use this close to the access token's end renews it, so the token a request carries outlives the request. */
@@ -712,6 +713,9 @@ export class OidcSessionService {
 
   async #centerToken(rejectedAccessToken?: string): Promise<string> {
     const config = this.#config(),
+      // The listener is the issuer Keycloak mints under; a listener change restarts Keycloak and makes
+      // tokens from the previous issuer invalid, even though the loopback token endpoint is unchanged.
+      issuer = config.listener ? managedRbacListenerUrl(config.listener) : config.url,
       secretFile = path.join(this.#rbacRoot, "center-client-secret");
     if (!existsSync(secretFile))
       throw coded("rbac_admin_unavailable", "Keycloak center credentials are not configured.");
@@ -719,7 +723,13 @@ export class OidcSessionService {
       this.#centerTokenCache = undefined;
     const requestedAt = this.#ports.now(),
       cached = this.#centerTokenCache;
-    if (cached && cached.url === config.url && cached.realm === config.realm && cached.expiresAt > requestedAt)
+    if (
+      cached &&
+      cached.url === config.url &&
+      cached.realm === config.realm &&
+      cached.issuer === issuer &&
+      cached.expiresAt > requestedAt
+    )
       return cached.accessToken;
     const response = await this.#ports
       .fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`, {
@@ -749,6 +759,7 @@ export class OidcSessionService {
         expiresAt: requestedAt + expiresIn * 1_000 - Math.min(renewalMarginMs, expiresIn * 100),
         url: config.url,
         realm: config.realm,
+        issuer,
       };
     return accessToken;
   }
