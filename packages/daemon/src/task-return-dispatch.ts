@@ -188,7 +188,11 @@ async function dispatchContinuation(
     } catch (error) {
       // The rework round is already durable. Preserve the actual launch error and its code, so
       // the receipt never masquerades as a launched worker; only a rejected resume retries fresh.
-      if (attempt === 0 && continuation.mode === "resume" && runtimeErrorCode(error) === "runtime_resume_failed")
+      if (
+        attempt === 0 &&
+        continuation.mode === "resume" &&
+        ["runtime_resume_failed", "runtime_dispatch_not_resumable"].includes(runtimeErrorCode(error) ?? "")
+      )
         continue;
       const failure = cell.failed(input.opId, error);
       return { continuation: { mode: continuation.mode, ...failure }, steps: [failure] };
