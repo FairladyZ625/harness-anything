@@ -50,6 +50,15 @@ export const relationEndpointKinds = Object.freeze([
 
 /** decision → decision: policy lineage among decisions. */
 export const canonicalRelationDirections: readonly CanonicalRelationDirection[] = [
+  ...entityTypeContracts
+    .filter(({ kind, relationEndpoint }) => relationEndpoint.eligible && ["task", "decision", "fact"].includes(kind))
+    .map(({ kind }) => ({
+      type: "relates" as const,
+      sourceKind: "todo",
+      targetKind: kind,
+      reads: `the todo relates to the target ${kind}`,
+      registration: "ratified" as const,
+    })),
   // Assignment is a first-class Action-managed relation. Principal refs for node/team are
   // resolved by the center directory and intentionally do not become ledger EntityKinds.
   ...entityTypeContracts

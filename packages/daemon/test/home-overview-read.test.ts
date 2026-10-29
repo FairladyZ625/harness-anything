@@ -61,6 +61,7 @@ test("home overview: aggregates repos, calculates 3 numbers, top matters and han
       if (method === "repo.agenda.read") {
         return {
           schema: "daemon.agenda/v1",
+          todos: [],
           ok: true,
           awaitingYou: [
             {
@@ -119,6 +120,7 @@ test("home overview: aggregates repos, calculates 3 numbers, top matters and han
       if (method === "repo.agenda.read") {
         return {
           schema: "daemon.agenda/v1",
+          todos: [],
           ok: true,
           awaitingYou: [],
           awaitingRework: [],
@@ -140,6 +142,7 @@ test("home overview: aggregates repos, calculates 3 numbers, top matters and han
       if (method === "repo.agenda.read") {
         return {
           schema: "daemon.agenda/v1",
+          todos: [],
           ok: true,
           awaitingYou: [],
           awaitingRework: [],

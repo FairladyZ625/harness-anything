@@ -36,6 +36,8 @@ import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
+import { TodosView } from "../src/renderer/views/TodosView.tsx";
+import { todosClient, type TodoRow } from "../src/renderer/todos-client.ts";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
 import { CommandPalette, buildPaletteIndex } from "../src/renderer/components/CommandPalette.tsx";
@@ -51,6 +53,7 @@ import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import {
   REPO_ID,
+  TODO_ID,
   TASK_A_ID,
   TASK_B_ID,
   DECISION_ID,
@@ -95,6 +98,15 @@ import { scanDeadEntityIds } from "./entityIdScan.ts";
 
 const noop = () => undefined;
 const AT = "2026-08-20T00:00:00.000Z";
+const FIXTURE_TODO: TodoRow = {
+  id: TODO_ID,
+  text: "G10 探针待办",
+  completed: false,
+  archived: false,
+  open: true,
+  revision: 7,
+  ref: `todo/${TODO_ID}`,
+};
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
 beforeAll(() => {
@@ -257,6 +269,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     taskId === TASK_A_ID ? FIXTURE_RUNTIME_OVERVIEW : { ...FIXTURE_RUNTIME_OVERVIEW, sessions: [] },
   );
   vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(TOKEN_USAGE_READ);
+  vi.spyOn(todosClient, "list").mockResolvedValue([FIXTURE_TODO]);
   vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
     const requested =
         "taskId" in payload ? [payload.taskId as string] : [...(payload as { readonly taskIds: string[] }).taskIds],
@@ -842,6 +855,7 @@ const VIEW_RENDERERS = {
     }),
   settings: () => createElement(SettingsView, { repoId: REPO_ID }),
   identityAccess: () => createElement(IdentityAccessView),
+  todos: () => createElement(TodosView, { repoId: REPO_ID, onNavigateEntity: noop }),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
 const navViewIds = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId | "homeOverview" }[] }) =>

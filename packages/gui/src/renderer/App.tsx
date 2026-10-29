@@ -1,3 +1,4 @@
+import { TodosView } from "./views/TodosView.tsx";
 import { PageEntryBoundary } from "./components/primitives/EntryBoundary.tsx";
 import { pageEntryIdentity } from "./components/primitives/page-entry-identity.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -586,6 +587,33 @@ function AppShell() {
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
           <RepositoryReadNotice repoId={activeRepoId} />
+          {activeRepoId &&
+            !redesignView &&
+            (selected ||
+              (view === "workspace" && location.scopeRootTaskId) ||
+              ([
+                "decisionDetail",
+                "factDetail",
+                "entities",
+                "agentSquad",
+                "schedules",
+                "providers",
+                "sessions",
+              ].includes(view) &&
+                focusedEntityRef)) && (
+              <TodosView
+                key={`attached:${selected?.taskId ?? location.scopeRootTaskId ?? focusedEntityRef}`}
+                repoId={projectId}
+                targetRef={
+                  selected
+                    ? `task/${selected.taskId}`
+                    : view === "workspace"
+                      ? `task/${location.scopeRootTaskId}`
+                      : focusedEntityRef!.split("/").slice(0, 2).join("/")
+                }
+                onNavigateEntity={navigateToEntity}
+              />
+            )}
           <PageEntryBoundary
             key={projectId}
             identity={pageEntryIdentity(projectId, location)}
@@ -643,6 +671,13 @@ function AppShell() {
                     void openProject(repoId, targetView);
                   }}
                   onJoinCenter={edgeJoin.open}
+                />
+              ) : view === "todos" ? (
+                <TodosView
+                  key={focusedEntityRef ?? "todos"}
+                  repoId={projectId}
+                  focusedEntityRef={focusedEntityRef}
+                  onNavigateEntity={navigateToEntity}
                 />
               ) : view === "overview" ? (
                 workspaceSummaryQuery.data ? (

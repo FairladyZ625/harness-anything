@@ -166,6 +166,13 @@ const relationIdentity = Object.freeze({
 });
 
 export const entityTypeContracts = Object.freeze([
+  {
+    kind: "todo",
+    ...baseEntityTypeContract(
+      { field: "id", pattern: "^todo_[a-f0-9]{24}$", refTemplate: "todo/{id}" },
+      authoredResidency,
+    ),
+  },
   { kind: "task", ...baseEntityTypeContract(taskIdentity, authoredResidency, "supported") },
   { kind: "fact", ...baseEntityTypeContract(factIdentity, authoredResidency, "supported") },
   { kind: "decision", ...baseEntityTypeContract(decisionIdentity, authoredResidency, "supported") },

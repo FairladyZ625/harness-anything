@@ -313,6 +313,7 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
     queryClient.invalidateQueries({ queryKey: eventsQueryKeys.recent(repoId), refetchType: "active" }),
     // 产物投影(repo.artifacts.list)同样由台账切面派生:总览速览架与产物页共用的这条
     // 缓存随 cut 失效,两处都不需要自己的轮询。
+    queryClient.invalidateQueries({ queryKey: ["todos", repoId], refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: ["artifacts", repoId], refetchType: "active" }),
   ]);
 }

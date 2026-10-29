@@ -327,6 +327,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "unassign",
     ],
   },
+  todo: {
+    schemaId: "todo/v1",
+    refTemplate: "todo/{id}",
+    statuses: [],
+    actions: ["add", "list", "show", "done", "reopen", "archive", "relate", "promote"],
+  },
 } as const satisfies Readonly<Record<string, EntityKernelContract>>);
 
 /** Relation 的类型词表:kernel `relationTypes`,不是 statusVocabulary,所以单独投影。 */
@@ -401,6 +407,7 @@ const taskDoc: EntityKindDoc = {
     { type: "executes", sourceKind: "runtime-session", targetKind: "task" },
     { type: "awaits", sourceKind: "task", targetKind: "person" },
     { type: "assigned-to", sourceKind: "task", targetKind: "person" },
+    { type: "relates", sourceKind: "todo", targetKind: "task" },
   ],
   guiEntry: { view: "board", note: "看板 / 议程 / 列表;详情从任务行进入" },
   liveCount: "tasks",
@@ -457,9 +464,33 @@ const decisionDoc: EntityKindDoc = {
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "awaits", sourceKind: "decision", targetKind: "person" },
     { type: "assigned-to", sourceKind: "decision", targetKind: "person" },
+    { type: "relates", sourceKind: "todo", targetKind: "decision" },
   ],
   guiEntry: { view: "decisionPool", note: "待办签发总池的决策待裁域(专注裁决从域内进入);详情从决策行进入" },
   liveCount: "decisions",
+};
+
+const todoDoc: EntityKindDoc = {
+  kind: "todo",
+  ...kernelContract("todo"),
+  storage: "todos/{id}.json",
+  nestedFields: [],
+  liveCount: null,
+  definition:
+    "仓库级一句话待办。默认只显示未完成且未归档的条目；完成或归档后可在次级视图找回。关联可选，升级复用任务创建。",
+  fields: [
+    field("id", true, "string", "稳定待办 ID。"),
+    field("text", true, "string", "一句话内容。"),
+    field("completed", true, "boolean", "是否完成；重复勾选不反转状态。"),
+    field("archived", true, "boolean", "是否归档；不删除也不改变完成标记。"),
+    field("promotedTaskId", false, "string", "升级后的任务引用，同一待办只创建一个任务。"),
+  ],
+  edges: [
+    { type: "relates", sourceKind: "todo", targetKind: "decision" },
+    { type: "relates", sourceKind: "todo", targetKind: "fact" },
+    { type: "relates", sourceKind: "todo", targetKind: "task" },
+  ],
+  guiEntry: { view: "todos", note: "仓库待办清单" },
 };
 
 const factDoc: EntityKindDoc = {
@@ -521,6 +552,7 @@ const factDoc: EntityKindDoc = {
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "supersedes-fact", sourceKind: "fact", targetKind: "fact" },
     { type: "assigned-to", sourceKind: "fact", targetKind: "person" },
+    { type: "relates", sourceKind: "todo", targetKind: "fact" },
   ],
   guiEntry: { view: "graph", note: "关系图与 Task 详情·证据页签" },
   liveCount: null,
@@ -848,7 +880,7 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "triad",
     title: "三元语",
     summary: "内核的三个一等实体与把它们连起来的边:task 做什么、decision 为什么、fact 看到了什么。",
-    docs: [taskDoc, decisionDoc, factDoc, relationDoc],
+    docs: [taskDoc, decisionDoc, factDoc, todoDoc, relationDoc],
   },
   {
     id: "runtime",

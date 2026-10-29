@@ -1044,6 +1044,7 @@ export interface AgendaPinnedEntityRow {
 }
 
 export type DaemonAgendaResult = {
+  readonly todos: readonly { readonly id: string; readonly text: string; readonly ref: string }[];
   readonly schema: "daemon.agenda/v1";
   readonly ok: true;
   readonly command: "agenda";

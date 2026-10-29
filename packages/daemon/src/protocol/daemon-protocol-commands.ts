@@ -9,6 +9,7 @@ import {
   type CliInputGroup,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { EntityActionContract } from "@harness-anything/kernel";
+import { todoProtocolCommands } from "./daemon-protocol-commands-todo.ts";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
 import { assignmentProtocolCommands } from "./daemon-protocol-commands-assignment.ts";
 import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
@@ -153,6 +154,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...entityPinProtocolCommands,
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
+  ...todoProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,

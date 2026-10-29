@@ -23,6 +23,7 @@ const expectedKinds = [
   "settings",
   "squad",
   "task",
+  "todo",
 ] as const;
 const expectedResidency = {
   agent: { authored: "ledger" },
@@ -38,9 +39,10 @@ const expectedResidency = {
   settings: { authored: "ledger", current: "projection" },
   squad: { authored: "ledger" },
   task: { authored: "ledger" },
+  todo: { authored: "ledger" },
 } as const;
 
-test("one named kind-contract authority explains all thirteen entity kinds with one shape", () => {
+test("one named kind-contract authority explains all registered entity kinds with one shape", () => {
   assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
   for (const contract of entityKindContracts)
     assert.deepEqual(contract.residency, expectedResidency[contract.kind], `${contract.kind} residency`);

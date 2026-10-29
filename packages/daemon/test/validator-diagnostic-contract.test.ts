@@ -147,6 +147,7 @@ const relationGraph = {
   },
   agenda = {
     schema: "daemon.agenda/v1",
+    todos: [],
     ok: true,
     command: "agenda",
     status: "ready",

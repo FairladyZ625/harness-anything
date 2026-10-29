@@ -216,7 +216,7 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 166 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 172 declared writes, including repository Todo actions", () => {
   const result = auditDurableActionAuthorization(repoRoot);
   // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
   // dec_2AAF1D0612D3295C80F87E49FE CH1 authorizes daemon-mediated task push.
@@ -229,7 +229,8 @@ test("G0-2 traces all 166 declared writes, including queued task catalog ingress
   // The owner's 2026-10-24 decision-supersede deletion (task_a242ec14) and this task-adjudicate
   // deletion are both in this inventory: 166 -> 164; task-respond-review and task-rework add the current 166th.
   // task_90599b2e80d7db778e96419a2f (agenda B15) adds runtime-incident-dismiss: the owner's explicit close of an incident receipt.
-  assert.equal(result.rows.length, 166);
+  // task_8c579f0d2c896668e2fd92ab85 adds six canonical Todo writes; list/show remain repository reads.
+  assert.equal(result.rows.length, 172);
   assert.equal(result.rows.find(({ action }) => action === "task-respond-review")?.authorizationPort, true);
   assert.equal(
     result.rows.some(

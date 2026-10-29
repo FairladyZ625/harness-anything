@@ -73,6 +73,7 @@ export function entityDetailTargetOf(
   if (ref.startsWith("decisionsessions/")) {
     return decisionSessionsLocation(ref) ? { view: "sessions", focusedEntityRef: ref } : null;
   }
+  if (ref.startsWith("todo/")) return { view: "todos", focusedEntityRef: ref };
   if (ref.startsWith("fact/")) {
     return { view: "factDetail", focusedEntityRef: ref };
   }

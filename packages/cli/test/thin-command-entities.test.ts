@@ -1468,3 +1468,28 @@ test("ledger reconcile requires the declared SQLite generation", () => {
   assert.equal(parseThinCommand(["ledger", "reconcile"]).ok, false);
   assert.equal(parseThinCommand(["ledger", "reconcile", "--generation", "2"]).ok, false);
 });
+
+test("Todo CLI supports one-line add, optional relation, filters, recovery and promotion", () => {
+  for (const [argv, expected] of [
+    [["todo", "add", "A small reminder"], { kind: "todo-add", text: "A small reminder" }],
+    [
+      ["todo", "add", "Related", "--relate", "task/task-a"],
+      { kind: "todo-add", text: "Related", relate: "task/task-a" },
+    ],
+    [["todo", "list"], { kind: "todo-list" }],
+    [["todo", "list", "--done"], { kind: "todo-list", done: true }],
+    [["todo", "done", "todo_a"], { kind: "todo-done", todoId: "todo_a" }],
+    [["todo", "archive", "todo_a"], { kind: "todo-archive", todoId: "todo_a" }],
+    [["todo", "reopen", "todo_a"], { kind: "todo-reopen", todoId: "todo_a" }],
+    [
+      ["todo", "promote", "todo_a", "--work", "task_work"],
+      { kind: "todo-promote", todoId: "todo_a", work: "task_work" },
+    ],
+  ] as const) {
+    const parsed = parseThinCommand([...argv]);
+    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+    if (parsed.ok) assert.deepEqual(parsed.command.action, expected);
+  }
+  assert.equal(parseThinCommand(["todo", "promote", "todo_a"]).ok, false);
+  assert.equal(parseThinCommand(["todo", "delete", "todo_a"]).ok, false);
+});

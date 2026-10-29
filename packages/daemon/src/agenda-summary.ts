@@ -68,6 +68,7 @@ export function renderAgendaSummary(
     | "awaitingRuling"
     | "waitingOnOthers"
     | "dispatchable"
+    | "todos"
   >,
 ): string {
   const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
@@ -182,5 +183,10 @@ export function renderAgendaSummary(
       groups.waitingOnOthers.map(taskLine),
     ),
     section("可派队列", "status=planned 且 blocking=clear；下一步 ha runtime run", groups.dispatchable.map(taskLine)),
+    section(
+      "仓库待办",
+      "未完成且未归档；不参与注意力打分",
+      groups.todos.map((todo) => `- [ ] ${todo.ref} ${todo.text}`),
+    ),
   ].join("\n\n");
 }

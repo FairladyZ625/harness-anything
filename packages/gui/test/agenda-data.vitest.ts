@@ -64,6 +64,7 @@ const answeredRow = (relationId: string) => ({
 const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
   const full = {
     schema: "daemon.agenda/v1",
+    todos: [],
     ok: true as const,
     command: "agenda",
     status: "ready" as const,

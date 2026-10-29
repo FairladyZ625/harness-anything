@@ -1,3 +1,4 @@
+import { runTodoAction } from "./todo-action.ts";
 import { runTaskWitnessAction } from "./task-witness-action.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
 import { settleTask, submitTask } from "./repo-cell-submit.ts";
@@ -215,6 +216,13 @@ export function executeRepoAction(
       ),
     );
   const actionContract = getExecutableEntityAction(action.kind);
+  if (actionContract?.target.kind === "todo" && actionContract.execution)
+    return cell.entityActionExecutor.run(
+      action,
+      binding,
+      cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+      { entity: { todo: (_contract, intent, actor, opId) => runTodoAction(cell, intent, actor, opId) } },
+    );
   if (actionContract?.target.kind === "task" && actionContract.execution) {
     if (action.kind === "task-create") {
       const entering = cell.taskWipEnteringAction(action);

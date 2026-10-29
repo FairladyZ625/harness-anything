@@ -1,9 +1,11 @@
+import { readTodos } from "./todo-read.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   blockingOf,
+  todoIsOpen,
   closeoutReadiness,
   deriveRelationId,
   freshnessReasonOf,
@@ -462,7 +464,8 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function agenda(query: AgendaQuery = {}): DaemonAgendaResult {
-    const sourceLimit = query.limit ?? 100,
+    const todos = readTodos(projection).filter(todoIsOpen),
+      sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
       scope = agendaWorkScope(query.work),
       readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
@@ -840,6 +843,7 @@ export function makeTaskQueryReadModel(input: {
       ...cut,
       pinnedEntities,
       pinnedEntityOverflow,
+      todos,
       awaitingYou,
       answeredForYou,
       attentionItems,
@@ -860,6 +864,7 @@ export function makeTaskQueryReadModel(input: {
       summary: renderAgendaSummary({
         pinnedEntities,
         pinnedEntityOverflow,
+        todos,
         awaitingYou,
         answeredForYou,
         attentionItems,

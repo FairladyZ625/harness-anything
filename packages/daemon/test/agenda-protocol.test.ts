@@ -91,6 +91,7 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
     },
     agenda = {
       schema: "daemon.agenda/v1",
+      todos: [],
       ok: true,
       command: "agenda",
       status: "ready",

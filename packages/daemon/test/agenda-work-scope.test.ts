@@ -60,6 +60,7 @@ function taskRow(
 
 function scopeProjection(taskRows: readonly FixtureRow[], listCalls?: TaskProjectionListQuery[]): TaskProjection {
   return {
+    listEntities: () => [],
     readTaskIndex: () => ({
       ...cut,
       page: null,
