@@ -40,6 +40,7 @@ export const AGENT_ID = "g10-agent";
 export const SQUAD_ID = "g10-squad";
 export const PROVIDER_ID = "g10-provider";
 export const SESSION_ID = "g10-session";
+export const TODO_ID = "todo_g10alpha";
 
 /** 扫描针:fixture 实体宇宙的全部实体标识(按长度降序,便于重叠合并)。 */
 export const ENTITY_ID_NEEDLES: readonly string[] = [
@@ -52,6 +53,7 @@ export const ENTITY_ID_NEEDLES: readonly string[] = [
   SQUAD_ID,
   PROVIDER_ID,
   SESSION_ID,
+  TODO_ID,
 ].sort((a, b) => b.length - a.length);
 
 export const AT = "2026-08-20T00:00:00.000Z";
