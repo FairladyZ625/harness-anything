@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
+import type { RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import { isTaskGraphFocusSeed } from "../src/renderer/model/taskFilters.ts";
 import { selectGraphFocusSet, isInGraphFocusSet } from "../src/renderer/graph/focusSet.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
@@ -137,114 +137,5 @@ describe("selectGraphFocusSet(种子 + 一跳非 task 邻域)", () => {
     expect(isInGraphFocusSet(selection, "schedule/sweep")).toBe(true);
     // target agent 不在邻域 → 该 schedule 不进重点集。
     expect(isInGraphFocusSet(selection, "schedule/idle")).toBe(false);
-  });
-});
-
-/**
- * 事实镜头缺陷(2026-10-29 业主反馈):重点模式只以 task 为种子,于是 fact 块
- * (矛盾/已失效、悬空、正常·独立任务)全部折叠成「重点外 N 项」的空块。
- * fact/decision 必须按**自身**的置顶、状态与最近变更进入重点集。
- */
-describe("selectGraphFocusSet(事实/决策按自身判定进重点)", () => {
-  function fact(factId: string, at: string): FactRef {
-    return { anchor: `fact/${factId}`, category: "finding", text: factId, at, confidence: "high" };
-  }
-
-  function decision(decisionId: string, state: DecisionRow["state"], changedAt: string): DecisionRow {
-    return {
-      decisionId,
-      title: decisionId,
-      state,
-      question: "Q?",
-      chosen: [],
-      rejected: [],
-      claims: [],
-      proposedAt: changedAt,
-      lastChangedAt: changedAt,
-      capabilities: [],
-      claimsOpen: false,
-    } as DecisionRow;
-  }
-
-  const oldFact = fact("F-old", "2026-07-01T00:00:00.000Z");
-  const recentFact = fact("F-recent", "2026-08-20T00:00:00.000Z");
-  const oldProposed = decision("dec_proposed", "proposed", "2026-01-01T00:00:00.000Z");
-  const oldInEffect = decision("dec_effect", "in_effect", "2026-01-01T00:00:00.000Z");
-  const recentInEffect = decision("dec_recent", "in_effect", "2026-08-20T00:00:00.000Z");
-
-  it("最近 14 天观察到的 fact 自身就是种子 —— 无宿主、无引用也可见", () => {
-    const selection = selectGraphFocusSet({ tasks: [], decisions: [], facts: [recentFact], relations: [], now: NOW });
-    expect([...selection.entitySeedIds]).toEqual(["fact/F-recent"]);
-    expect(isInGraphFocusSet(selection, "fact/F-recent")).toBe(true);
-    expect(selection.seedCount).toBe(1);
-  });
-
-  it("阴性对照:老的未置顶 fact 仍折叠", () => {
-    const selection = selectGraphFocusSet({ tasks: [], decisions: [], facts: [oldFact], relations: [], now: NOW });
-    expect(isInGraphFocusSet(selection, "fact/F-old")).toBe(false);
-    expect(selection.seedCount).toBe(0);
-  });
-
-  it("置顶的老 fact 仍是种子(置顶来自唯一 pin 读面)", () => {
-    const selection = selectGraphFocusSet({
-      tasks: [],
-      decisions: [],
-      facts: [oldFact],
-      relations: [],
-      now: NOW,
-      pinnedRefs: new Set(["fact/F-old"]),
-    });
-    expect(isInGraphFocusSet(selection, "fact/F-old")).toBe(true);
-  });
-
-  it("proposed 决策恒为种子;近期变更的非 proposed 决策也进重点", () => {
-    const selection = selectGraphFocusSet({
-      tasks: [],
-      decisions: [oldProposed, recentInEffect],
-      facts: [],
-      relations: [],
-      now: NOW,
-    });
-    expect([...selection.entitySeedIds].sort()).toEqual(["decision/dec_proposed", "decision/dec_recent"]);
-    expect(isInGraphFocusSet(selection, "decision/dec_proposed")).toBe(true);
-    expect(isInGraphFocusSet(selection, "decision/dec_recent")).toBe(true);
-  });
-
-  it("阴性对照:老的、已终态且未置顶的决策仍折叠", () => {
-    const selection = selectGraphFocusSet({
-      tasks: [],
-      decisions: [oldInEffect],
-      facts: [],
-      relations: [],
-      now: NOW,
-    });
-    expect(isInGraphFocusSet(selection, "decision/dec_effect")).toBe(false);
-  });
-
-  it("置顶的老决策仍是种子", () => {
-    const selection = selectGraphFocusSet({
-      tasks: [],
-      decisions: [oldInEffect],
-      facts: [],
-      relations: [],
-      now: NOW,
-      pinnedRefs: new Set(["decision/dec_effect"]),
-    });
-    expect(isInGraphFocusSet(selection, "decision/dec_effect")).toBe(true);
-  });
-
-  it("老 fact 作为种子 task 的一跳邻居仍可见(既有邻域不退化)", () => {
-    const relations = [
-      { from: "task/t_live", to: "fact/F-old", kind: "produces", provenance: "local-document" },
-    ] as RelationEdge[];
-    const selection = selectGraphFocusSet({
-      tasks: [task("t_live")],
-      decisions: [],
-      facts: [oldFact],
-      relations,
-      now: NOW,
-    });
-    expect(selection.entitySeedIds.size).toBe(0);
-    expect(isInGraphFocusSet(selection, "fact/F-old")).toBe(true);
   });
 });

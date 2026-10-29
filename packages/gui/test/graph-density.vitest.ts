@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { FactRef, TaskRow } from "../src/renderer/model/types.ts";
 import { applyTerritoryDensity, partitionForSkel } from "../src/renderer/graph/territory.ts";
 import { selectGraphFocusSet } from "../src/renderer/graph/focusSet.ts";
+import { graphDensityForLens, graphFocusAppliesToLens } from "../src/renderer/graph/useGraphDensity.ts";
 import {
   graphDensityPreferenceStorage,
   readGraphDensityFocusMode,
@@ -64,27 +65,36 @@ describe("重点模式偏好(localStorage,坏值回落默认开)", () => {
   });
 });
 
-describe("applyTerritoryDensity(事实镜头:近期 fact 不再整块折叠)", () => {
-  const NOW = "2026-08-30T00:00:00.000Z";
-  const fact = (factId: string, at: string): FactRef => ({
-    anchor: `fact/${factId}`,
-    category: "finding",
-    text: factId,
-    at,
-    confidence: "high",
+describe("重点模式只作用于任务/全域镜头(事实/决策全量显示)", () => {
+  it("事实/决策镜头恒为全量;任务/全域跟随持久化偏好", () => {
+    for (const lens of ["fact", "decision"] as const) {
+      expect(graphFocusAppliesToLens(lens)).toBe(false);
+      expect(graphDensityForLens(lens, "focus")).toBe("all");
+      expect(graphDensityForLens(lens, "all")).toBe("all");
+    }
+    for (const lens of ["task", "unified"] as const) {
+      expect(graphFocusAppliesToLens(lens)).toBe(true);
+      expect(graphDensityForLens(lens, "focus")).toBe("focus");
+      expect(graphDensityForLens(lens, "all")).toBe("all");
+    }
   });
 
-  it("keeps the recent orphan fact and defers the old one (0/N block stays expandable)", () => {
-    const recent = fact("F-recent", "2026-08-20T00:00:00.000Z");
+  it("事实镜头整块可见:老的、未置顶 fact 也不会被折进重点外", () => {
+    const fact = (factId: string, at: string): FactRef => ({
+      anchor: `fact/${factId}`,
+      category: "finding",
+      text: factId,
+      at,
+      confidence: "high",
+    });
     const old = fact("F-old", "2026-07-01T00:00:00.000Z");
+    const recent = fact("F-recent", "2026-08-20T00:00:00.000Z");
     const partition = partitionForSkel("fact", [], [], [old, recent], [], []);
-    const focus = selectGraphFocusSet({ tasks: [], decisions: [], facts: [old, recent], relations: [], now: NOW });
-    const applied = applyTerritoryDensity(partition, focus, new Set());
+    const applied = applyTerritoryDensity(partition, null, new Set());
     const refs = applied.zones.flatMap((zone) => zone.chips.map((chip) => chip.navRef));
+    expect(refs).toContain("fact/F-old");
     expect(refs).toContain("fact/F-recent");
-    expect(refs).not.toContain("fact/F-old");
-    const orphanZone = applied.zones.find((zone) => zone.zoneId === "fact:anomaly:orphan");
-    expect(orphanZone?.deferred).toBe(1);
+    expect(applied.deferredCount).toBeUndefined();
   });
 });
 

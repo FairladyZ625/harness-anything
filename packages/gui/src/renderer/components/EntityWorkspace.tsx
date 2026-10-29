@@ -31,8 +31,6 @@ export interface EntityWorkspaceProps {
   facts: FactRef[];
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   factAnchors?: ReadonlyArray<FactAnchorRow>;
-  /** agenda 的 pinned refs(唯一 pin 读面),透传给 GraphView 的重点集。 */
-  pinnedEntityRefs?: ReadonlyArray<string>;
   /** 运行时平面(agent/schedule 节点行 + agent→task 派发边),透传给 GraphView。 */
   agents?: ReadonlyArray<AgentNodeRow>;
   schedules?: ReadonlyArray<ScheduleNodeRow>;
@@ -68,7 +66,6 @@ export function EntityWorkspace({
   facts,
   coverageRows,
   factAnchors,
-  pinnedEntityRefs,
   agents,
   schedules,
   runtimeRelations,
@@ -140,7 +137,6 @@ export function EntityWorkspace({
             facts={facts}
             coverageRows={coverageRows}
             factAnchors={factAnchors}
-            pinnedEntityRefs={pinnedEntityRefs}
             entityKinds={entityKinds}
             governedEntities={governedEntities}
             agents={agents}
