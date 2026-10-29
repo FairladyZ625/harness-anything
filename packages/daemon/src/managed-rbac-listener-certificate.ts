@@ -119,19 +119,22 @@ export function validateListenerInput(
   hostname: string | undefined,
   port: number | undefined,
 ): { readonly address: string; readonly hostname: string; readonly port: number } {
+  // DNS names are case-insensitive and URL parsing lower-cases them; normalize before comparing so a
+  // mixed-case hostname from the certificate is accepted as the name Keycloak will use as its issuer.
+  const normalizedHostname = hostname?.toLowerCase();
   if (
     !address ||
     isIP(address) === 0 ||
-    !hostname ||
+    !normalizedHostname ||
     !Number.isInteger(port) ||
     port === undefined ||
     port < 1 ||
     port > 65_535 ||
-    !URL.canParse(`https://${hostname}:${port}`) ||
-    new URL(`https://${hostname}:${port}`).hostname !== hostname
+    !URL.canParse(`https://${normalizedHostname}:${port}`) ||
+    new URL(`https://${normalizedHostname}:${port}`).hostname !== normalizedHostname
   )
     throw listenerError("A listener takes --hostname (as the certificate names it), --port, and an IP listen address.");
-  return { address, hostname, port };
+  return { address, hostname: normalizedHostname, port };
 }
 
 export function requestedListener(request: ManagedRbacRequest): ManagedRbacListener | undefined {

@@ -23,6 +23,10 @@ ha bootstrap --operation node-register --operation-id <unique-id> --node-id <nod
 create a network listener. The `listener-set` line above is the explicit opt-in
 that exposes Keycloak to other machines.
 
+Access-administration writes such as `grant` and `revoke` generate an `operation-id`
+when it is omitted and record it in the receipt; pass `--operation-id <id>`
+explicitly to retry or reconcile the same operation.
+
 Prepare the password in a file readable only by its owner (for example, mode
 `0600`); pass its path, never the password, on the command line. The CLI reads
 one trailing newline as a file terminator and sends the password only through

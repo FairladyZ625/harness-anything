@@ -545,6 +545,33 @@ test("self-signed listener input validates hostname and port before generating a
   }
 });
 
+test("a listener hostname is normalized to the lower-case form Keycloak uses as its issuer", async () => {
+  const managed = managedFixture();
+  try {
+    const set = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "domain",
+      listenAddress: "127.0.0.1",
+      hostname: "Center.Example.Test",
+      port: await availablePort(),
+      certificateFile: managed.certificateFile,
+      certificateKeyFile: managed.certificateKeyFile,
+      expectedVersion: await managed.version(),
+    });
+    assert.equal((set.listener as { hostname?: unknown }).hostname, "center.example.test");
+    assert.equal(managed.config().listener.hostname, "center.example.test");
+    assert.equal(
+      managed
+        .keycloakLaunches()
+        .at(-1)
+        ?.args.find((argument) => argument.startsWith("--hostname=")),
+      `--hostname=https://center.example.test:${managed.config().listener.port}`,
+    );
+  } finally {
+    await managed.close();
+  }
+});
+
 test("self-signed certificates are reused while current and replaced when the hostname changes", async () => {
   const managed = managedFixture();
   try {

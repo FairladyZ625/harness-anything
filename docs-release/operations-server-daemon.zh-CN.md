@@ -21,6 +21,9 @@ ha bootstrap --operation node-register --operation-id <unique-id> --node-id <nod
 `ha bootstrap` 只把 managed 登录服务留在 loopback HTTP，不会创建网络 listener；
 上面的 `listener-set` 才是把它开放给其他机器的显式选择。
 
+`grant`、`revoke` 等访问管理写操作在未提供 `--operation-id` 时自动生成一个并写入回执；
+需要重试或对账同一次操作时，显式传 `--operation-id <id>`。
+
 密码文件只允许所有者读取（例如 `0600`），argv 只放路径；CLI 去掉文件末尾一个换行，仅通过中心原始本地 socket 发送密码。使用后删除密码文件。
 
 尚无 `access-admin` 成员时，socket 所有者可配置既有 HTTPS listener；先读取版本，使用浏览器设备信任的证书。listener 设置与首管理员创建共用队列，只有一个首管理员能成功，之后排队的未登录设置也会被拒。管理员存在后，即使无人登录也不能重新开放窗口，必须以 `access-admin` 身份登录才能修改。边缘与远程 GUI 不能执行首次引导。

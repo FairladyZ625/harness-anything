@@ -368,6 +368,26 @@ test("the journal holds receipts only, and a lost receipt is reconciled without 
   );
 });
 
+test("a write without an operationId generates one and journals the same id", async (t) => {
+  const { keycloak, admin, journal } = await fixture(t);
+  keycloak.account("alice");
+  const granted = await admin.run({
+    operation: "grant",
+    personId: "alice",
+    groupId: "contributor",
+    resource: "repo-a",
+  });
+  assert.equal(granted.ok, true);
+  const operationId = String(granted.operationId);
+  assert.match(operationId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
+  assert.deepEqual(
+    journal()
+      .filter((record) => record.operationId === operationId)
+      .map((record) => record.phase),
+    ["intent", "settled"],
+  );
+});
+
 test("the read side lists every action facet, every held grant by person, and the receipts behind an answer", async (t) => {
   const { keycloak, admin, run, journal, root } = await fixture(t);
   keycloak.account("alice");

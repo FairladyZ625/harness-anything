@@ -1020,6 +1020,52 @@ test("a second center 401 surfaces without a third policy request or token acqui
   assert.equal((await active.service.center()).accessToken, "center-2");
 });
 
+test("a listener change retires the cached center token from the previous issuer", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-listener-token-")),
+    rbac = path.join(root, "rbac"),
+    configFile = path.join(rbac, "config.json"),
+    rejected = new Set<string>(),
+    adminTokens: string[] = [];
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(rbac, { recursive: true });
+  writeFileSync(configFile, JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
+  writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
+  let tokenCalls = 0;
+  const service = new OidcSessionService(root, {
+    now: () => 1_000,
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/protocol/openid-connect/token")) {
+        tokenCalls += 1;
+        return Response.json({ access_token: `center-${tokenCalls}`, expires_in: 300 });
+      }
+      if (url.endsWith("/roles/access-admin/users")) {
+        const authorization = new Headers(init?.headers).get("authorization") ?? "";
+        adminTokens.push(authorization);
+        // Keycloak rejects tokens minted under the issuer it no longer serves.
+        if ([...rejected].some((token) => authorization === `Bearer ${token}`))
+          return new Response(null, { status: 401 });
+        return Response.json([]);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch,
+  });
+  assert.deepEqual(await service.bootstrapStatus(), { ok: true, required: true });
+  // listener-set persists the new issuer and restarts Keycloak; the old center token stays cached in memory.
+  rejected.add("center-1");
+  writeFileSync(
+    configFile,
+    JSON.stringify({
+      url: "http://127.0.0.1:8080",
+      realm: "harness",
+      listener: { hostname: "center.example.test", port: 8443 },
+    }),
+  );
+  assert.deepEqual(await service.bootstrapStatus(), { ok: true, required: true });
+  assert.deepEqual(adminTokens, ["Bearer center-1", "Bearer center-2"]);
+  assert.equal(tokenCalls, 2);
+});
+
 test("the first administrator deletes the bootstrap user before retiring its password file", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-bootstrap-delete-")),
     rbac = path.join(root, "rbac"),
