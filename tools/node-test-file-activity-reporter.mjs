@@ -33,6 +33,7 @@ export default async function* reportTestActivity(source) {
       name: event.data.name,
       at: Date.now(),
       failed: event.type === "test:fail",
+      ...(event.type === "test:fail" ? { error: errorSummary(event.data.details?.error) } : {}),
     })}\n`;
   }
 }
@@ -54,4 +55,14 @@ function subtestOwner(event) {
   const file = event?.data?.file;
   if (typeof file !== "string" || typeof event.data.name !== "string") return null;
   return file.replaceAll("\\", "/");
+}
+
+function errorSummary(error) {
+  if (error === undefined) return undefined;
+  return {
+    name: error.name ?? "Error",
+    message: error.message ?? String(error),
+    stack: typeof error.stack === "string" ? error.stack : undefined,
+    code: error.code,
+  };
 }

@@ -178,6 +178,11 @@ test("runner watchdog fails and names a file whose process keeps an open handle"
     output,
     /\[node-test-watchdog\] test file exceeded timeout: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u,
   );
+  assert.match(
+    output,
+    /\[node-test-failure\] tools\/test-fixtures\/runner-watchdog\/a-completed\.test\.mjs: completed before a different file exceeded its deadline/u,
+  );
+  assert.match(output, /runner watchdog completed-file assertion details/u);
 });
 
 // A daemon started by a test is detached, so only the daemon itself can end with its test: it
