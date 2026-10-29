@@ -92,6 +92,8 @@ export interface ArtifactReferenceDeclaredPayload {
   readonly sourceIdentity: string;
   readonly sourceNodeId?: string;
   readonly declaredContentVersion?: string;
+  /** Present when an existing reference descriptor is edited through entity-update. */
+  readonly mutation?: "update";
   readonly resolver: "reference";
   readonly observationId: string;
   readonly artifactContract: ArtifactEntityContractSnapshot;
@@ -110,6 +112,8 @@ export interface EntityDeletedPayload {
   readonly entityId: string;
   readonly reason: string;
   readonly ownedContent: EntityOwnedContentV1;
+  /** Reference entities have no declaration document to retire. */
+  readonly referenceEntity?: true;
 }
 
 export interface AgentRetiredPayload {
@@ -577,6 +581,7 @@ function validateObservedPayload(
   if (!hasFields(payload, fields)) return ["entity_content_observed payload is invalid"];
   const common = validateArtifactPayload(payload, allowUnknownFields);
   if (common.length) return common;
+  if (!snapshotLocatorWasDeclared(payload)) return ["snapshot locator kind is not declared by its artifact kind"];
   if (typeof payload.observedContentVersion !== "string" || !payload.observedContentVersion)
     return ["entity observed content version is invalid"];
   const historical = isRecord(payload.artifactContract) && !Object.hasOwn(payload.artifactContract, "kindVersion"),
@@ -613,7 +618,7 @@ function validateReferencePayload(
       "artifactContract",
       "ownedContent",
     ],
-    allowedFields = [...fields, "sourceNodeId", "declaredContentVersion"];
+    allowedFields = [...fields, "sourceNodeId", "declaredContentVersion", "mutation"];
   if (
     !fields.every((field) => Object.hasOwn(payload, field)) ||
     (!allowUnknownFields && Object.keys(payload).some((field) => !allowedFields.includes(field)))
@@ -625,7 +630,8 @@ function validateReferencePayload(
     (payload.sourceNodeId !== undefined &&
       (typeof payload.sourceNodeId !== "string" || !payload.sourceNodeId.trim())) ||
     (payload.declaredContentVersion !== undefined &&
-      (typeof payload.declaredContentVersion !== "string" || !payload.declaredContentVersion.trim()))
+      (typeof payload.declaredContentVersion !== "string" || !payload.declaredContentVersion.trim())) ||
+    (payload.mutation !== undefined && payload.mutation !== "update")
   )
     return ["entity reference source binding or declared version is invalid"];
   let contract: EntityStoreKindContract, descriptor: ArtifactDescriptor;
@@ -655,7 +661,8 @@ function validateReferencePayload(
   if ((localPath || localKnowledgeBase) && typeof payload.sourceNodeId !== "string")
     return ["node-local artifact reference requires a source node binding"];
   if (
-    (typeof payload.sourceNodeId === "string" &&
+    (payload.mutation !== "update" &&
+      typeof payload.sourceNodeId === "string" &&
       isRecord(eventSource) &&
       eventSource.kind === "node" &&
       eventSource.nodeId !== payload.sourceNodeId) ||
@@ -674,7 +681,9 @@ function validateReferencePayload(
     manifest.content.length !== 0 ||
     manifest.bindings.length !== 0 ||
     manifest.directories.length !== 0 ||
-    manifest.retirements.some(({ path }) => !path.startsWith(root)) ||
+    manifest.retirements.some(
+      ({ path }) => path !== entityDocumentPath(contract, String(payload.entityId)) && !path.startsWith(root),
+    ) ||
     manifest.directoryRetirements.some(({ path }) => path !== contentRoot && !path.startsWith(root))
   )
     return ["entity reference may only retire previously owned content"];
@@ -691,7 +700,10 @@ function validateReferencePayload(
       resolution,
       bindingGeneration: importBindingGeneration(opId),
     });
-  return payload.observationId === expectedObservationId && opId === accepts
+  return payload.observationId === expectedObservationId &&
+    (payload.mutation === "update"
+      ? isArtifactMutationOperationId("update", String(payload.entityId), opId)
+      : opId === accepts)
     ? []
     : ["entity reference idempotency identity is invalid"];
 }
@@ -715,6 +727,7 @@ function validateMissingPayload(
   if (!hasFields(payload, fields)) return ["entity_target_missing payload is invalid"];
   const common = validateArtifactPayload(payload, allowUnknownFields);
   if (common.length) return common;
+  if (!snapshotLocatorWasDeclared(payload)) return ["snapshot locator kind is not declared by its artifact kind"];
   if (typeof payload.reason !== "string" || !payload.reason) return ["entity target-missing reason is invalid"];
   const historical = isRecord(payload.artifactContract) && !Object.hasOwn(payload.artifactContract, "kindVersion"),
     historicalOperation = historical
@@ -727,10 +740,16 @@ function validateMissingPayload(
 
 function validateDeletedPayload(
   payload: Record<string, unknown>,
-  hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
-  _allowUnknownFields: boolean,
+  _hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
+  allowUnknownFields: boolean,
 ): readonly string[] {
-  if (!hasFields(payload, ["entityKind", "entityId", "reason", "ownedContent"]))
+  const fields = ["entityKind", "entityId", "reason", "ownedContent"],
+    allowed = [...fields, "referenceEntity"];
+  if (
+    !fields.every((field) => Object.hasOwn(payload, field)) ||
+    (!allowUnknownFields && Object.keys(payload).some((field) => !allowed.includes(field))) ||
+    (payload.referenceEntity !== undefined && payload.referenceEntity !== true)
+  )
     return ["entity delete payload is invalid"];
   const errors = validateEntityOwnedContent(payload.ownedContent);
   if (errors.length) return errors;
@@ -744,7 +763,11 @@ function validateDeletedPayload(
     return manifest.ownerRef === `${String(payload.entityKind)}/${String(payload.entityId)}` &&
       manifest.content.length === 0 &&
       manifest.bindings.length === 0 &&
-      manifest.retirements.length >= 1 &&
+      (payload.referenceEntity === true
+        ? manifest.retirements.length === 0 &&
+          manifest.directories.length === 0 &&
+          manifest.directoryRetirements.length === 0
+        : manifest.retirements.length >= 1) &&
       typeof payload.reason === "string" &&
       payload.reason.trim().length > 0
       ? []
@@ -763,9 +786,23 @@ function validateDeletedPayload(
     manifest.content.length === 0 &&
     manifest.bindings.length === 0 &&
     manifest.directories.length === 0 &&
-    manifest.retirements.some(({ path }) => path === entityDocumentPath(contract, String(payload.entityId)))
+    (payload.referenceEntity === true
+      ? manifest.retirements.length === 0 && manifest.directoryRetirements.length === 0
+      : manifest.retirements.some(({ path }) => path === entityDocumentPath(contract, String(payload.entityId))))
     ? []
     : ["entity delete owned-content retirement is invalid"];
+}
+
+function snapshotLocatorWasDeclared(payload: Record<string, unknown>): boolean {
+  const snapshot = payload.artifactContract,
+    locator = payload.locator;
+  return (
+    isRecord(snapshot) &&
+    Array.isArray(snapshot.locatorKinds) &&
+    isRecord(locator) &&
+    typeof locator.kind === "string" &&
+    snapshot.locatorKinds.includes(locator.kind)
+  );
 }
 
 function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownFields: boolean): readonly string[] {

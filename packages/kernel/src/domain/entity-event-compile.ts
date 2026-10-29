@@ -206,6 +206,7 @@ export function compileEntityReferenceDeclared(
     readonly contractSnapshot: ArtifactEntityContractSnapshot;
     readonly descriptor: ArtifactDescriptor;
     readonly sourceNodeId?: string;
+    readonly mutation?: "update";
     readonly observationId: string;
     readonly retirements?: readonly EntityContentRetirement[];
     readonly retiredDirectories?: readonly string[];
@@ -239,6 +240,7 @@ export function compileEntityReferenceDeclared(
         ...(descriptor.declaredContentVersion === undefined
           ? {}
           : { declaredContentVersion: descriptor.declaredContentVersion }),
+        ...(input.mutation === undefined ? {} : { mutation: input.mutation }),
         resolver: "reference",
         observationId: input.observationId,
         artifactContract: input.contractSnapshot,
@@ -332,7 +334,8 @@ export function compileEntityDeleted(
   input: EntityEventEnvelopeInput & {
     readonly entityKind: string;
     readonly entityId: string;
-    readonly baseBlobSha256: string;
+    readonly baseBlobSha256?: string;
+    readonly referenceEntity?: boolean;
     readonly reason: string;
     readonly contract?: EntityStoreKindContract;
     readonly contentRetirements?: readonly EntityContentRetirement[];
@@ -347,10 +350,16 @@ export function compileEntityDeleted(
       schemaId: contract.schema.$id,
       schemaVersion: entitySchemaVersion(contract.schema.$id),
       bindings: [],
-      retirements: [
-        { path, baseBlobSha256: input.baseBlobSha256 },
-        ...(input.contentRetirements ?? []).filter((retired) => retired.path !== path),
-      ],
+      retirements: input.referenceEntity
+        ? []
+        : input.baseBlobSha256
+          ? [
+              { path, baseBlobSha256: input.baseBlobSha256 },
+              ...(input.contentRetirements ?? []).filter((retired) => retired.path !== path),
+            ]
+          : (() => {
+              throw new Error("Entity delete requires its declaration document retirement.");
+            })(),
       // A delete states every directory the entity held, because it will hold none of them afterwards. Nothing
       // is derived from what happens to be on disk: a directory the entity never held is not named here and is
       // therefore never touched, however empty it is.
@@ -363,6 +372,7 @@ export function compileEntityDeleted(
         entityKind: contract.kind,
         entityId: input.entityId,
         reason: input.reason.trim(),
+        ...(input.referenceEntity === true ? { referenceEntity: true as const } : {}),
         ownedContent,
       },
     };

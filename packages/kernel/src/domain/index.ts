@@ -368,6 +368,7 @@ export {
 } from "./vertical-declaration.ts";
 export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from "./vertical-declaration.ts";
 export { buildVerticalDeclarationRead } from "./vertical-declaration.ts";
+export { artifactLocatorKinds } from "./vertical-definition.ts";
 export type { VerticalDefinition } from "./vertical-definition.ts";
 export { settingsUpdateInputFields } from "./settings-action-contract.ts";
 export { repositorySettingsActionValues } from "./settings-action-values.ts";

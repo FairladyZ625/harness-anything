@@ -75,7 +75,9 @@ export interface EntityImportInput {
   readonly repoId: string;
   readonly entityKind: string;
   readonly locator: string;
+  readonly locatorKind: "repository-path" | "url" | "local-path" | "external-key";
   readonly mode: "reference" | "snapshot";
+  readonly contentVersion?: string;
   readonly title?: string;
   /** 按实例钉住的那一版属性声明填出来的值;这个种类没有声明属性时不递。 */
   readonly attributes?: Readonly<Record<string, unknown>>;
@@ -93,8 +95,10 @@ export async function importEntity(input: EntityImportInput): Promise<GuiActionR
       repoId: input.repoId,
       entityKind: input.entityKind,
       locator: input.locator,
+      locatorKind: input.locatorKind,
       mode: input.mode,
       expectedVersion: 0,
+      ...(input.contentVersion ? { contentVersion: input.contentVersion } : {}),
       ...(input.title ? { title: input.title } : {}),
       ...(input.attributes ? { attributes: input.attributes } : {}),
     } as { readonly repoId: string } & object,

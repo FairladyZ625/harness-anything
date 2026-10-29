@@ -4,6 +4,7 @@ import {
   importBindingGeneration,
   artifactObservationId,
   canonicalArtifactReferenceSourceIdentity,
+  artifactLocatorKinds,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
   compileEntityContentObserved,
@@ -72,6 +73,8 @@ export interface ArtifactEntityImportRequest {
 export interface ArtifactEntityCurrent {
   readonly descriptor: ArtifactDescriptor | null;
   readonly revision: number;
+  /** Registration node for a node-local reference; metadata updates preserve this identity across edges. */
+  readonly sourceNodeId?: string;
   /** Every path the entity's latest accepted manifest binds, so a snapshot that drops one can retire it. */
   readonly ownedPaths?: readonly { readonly path: string; readonly sha256: string }[];
   /**
@@ -393,7 +396,7 @@ export function resolveArtifactLocator(
     inferred = requestedKind ?? (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value) ? "url" : null);
   const kind =
     inferred ?? (mode === "reference" ? null : allowed.includes("repository-path") ? "repository-path" : null);
-  if (!kind || (!allowed.includes(kind) && !(mode === "reference" && kind === "local-path")))
+  if (!kind || (!allowed.includes(kind) && !(mode === "reference" && artifactLocatorKinds.includes(kind))))
     throw new ArtifactEntityServiceError(
       "invalid_command",
       "Locator " + value + " needs an explicit --locator-kind and a kind allowed by " + contract.typeIdentity + ".",

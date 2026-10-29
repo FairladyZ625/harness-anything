@@ -8,6 +8,7 @@ export interface ArtifactEntityState {
   readonly declarationClaimSha: string | null;
   readonly ownedContent: EntityOwnedContentV1 | null;
   readonly inlineDescriptor?: ArtifactDescriptor;
+  readonly sourceNodeId?: string;
 }
 
 /** One reducer for command folding and the disposable center/edge query projection. */
@@ -23,6 +24,7 @@ export function reduceArtifactEntityState(
       declarationClaimSha: null,
       ownedContent: event.payload.ownedContent,
       inlineDescriptor: event.payload.descriptor,
+      ...(event.payload.sourceNodeId === undefined ? {} : { sourceNodeId: event.payload.sourceNodeId }),
     };
   if (isEntityDeclarationEvent(event) && (event.type === "entity_content_observed" || event.type === "entity_updated"))
     return {
@@ -35,5 +37,6 @@ export function reduceArtifactEntityState(
     declarationClaimSha: before?.declarationClaimSha ?? null,
     ownedContent: before?.ownedContent ?? null,
     ...(before?.inlineDescriptor === undefined ? {} : { inlineDescriptor: before.inlineDescriptor }),
+    ...(before?.sourceNodeId === undefined ? {} : { sourceNodeId: before.sourceNodeId }),
   };
 }

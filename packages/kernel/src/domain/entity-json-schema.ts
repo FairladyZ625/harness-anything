@@ -45,6 +45,8 @@ export type EntityDocumentJsonSchema<T = unknown> = EntityJsonObjectSchema & {
   readonly $schema: "https://json-schema.org/draft/2020-12/schema";
   readonly $id: string;
   readonly Type?: T;
+  /** Artifact descriptor mode constraint; decodeArtifactDescriptor enforces this after generic schema parsing. */
+  readonly "x-artifact-snapshot-locator-kinds"?: readonly string[];
 };
 
 export interface EntitySchemaFieldExplanation {

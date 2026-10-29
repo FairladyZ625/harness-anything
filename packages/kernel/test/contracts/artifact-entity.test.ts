@@ -147,6 +147,30 @@ test("Artifact descriptor codec is nine-field exact and repository paths use the
     );
 });
 
+test("kind locator declarations constrain snapshots while reference locators remain declarative", () => {
+  const artifact = compiledArtifact(),
+    snapshot = artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
+    localPathDescriptor = {
+      ...makeDescriptor(artifact, "repo:canonical:docs/adr.md"),
+      locator: { kind: "local-path" as const, value: canonicalArtifactUrl("file:///Users/example/notes.md") },
+    };
+
+  assert.deepEqual(snapshot.locatorKinds, ["repository-path", "url", "external-key"]);
+  assert.throws(() => decodeArtifactDescriptor(artifact.entityKindContract, localPathDescriptor));
+
+  const referenceDescriptor: ArtifactDescriptor = {
+    ...localPathDescriptor,
+    contentVersion: null,
+    observationMode: "reference",
+    contentState: "unobserved",
+  };
+  assert.equal(decodeArtifactDescriptor(artifact.entityKindContract, referenceDescriptor).locator.kind, "local-path");
+
+  const frozenContract = artifactEntityContractFromSnapshot(snapshot);
+  assert.throws(() => decodeArtifactDescriptor(frozenContract, localPathDescriptor));
+  assert.equal(decodeArtifactDescriptor(frozenContract, referenceDescriptor).locator.kind, "local-path");
+});
+
 test("instance identity survives a schema publication and a kind rename", () => {
   const v1 = compiledArtifact(),
     // The same kind after publishing version 2 and renaming it: one identity, two schema versions.

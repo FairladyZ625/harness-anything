@@ -25,10 +25,13 @@ import { EntityAttributeFields } from "./EntityAttributeFields.tsx";
 import { RepoPathBrowser, commonParentDirectory } from "./RepoPathBrowser.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 
-/** 选中的来源:仓内路径(文件或目录)或外部 url。两种都只是一个 locator 字符串。 */
+const LOCATOR_KINDS = ["repository-path", "url", "local-path", "external-key"] as const;
+type LocatorKind = (typeof LOCATOR_KINDS)[number];
+
+/** 来源只保存 locator 元数据；只有 snapshot 预览会读取已声明的仓内文件或 URL。 */
 type SourceTarget =
   | { readonly kind: "repository-path"; readonly path: string; readonly directory: boolean }
-  | { readonly kind: "url"; readonly url: string };
+  | { readonly kind: Exclude<LocatorKind, "repository-path">; readonly value: string };
 
 /** 新实例会被钉到的那一版属性声明:版本号由中心铸,正文是这一版声明的属性表。 */
 export interface PinnedAttributeSchema {
@@ -73,25 +76,36 @@ export function NewEntityWizard({
   const locatorKinds = row.declaration?.locatorKinds ?? [];
   const acceptsPath = locatorKinds.includes("repository-path");
   const acceptsUrl = locatorKinds.includes("url");
+  const snapshotLocatorKinds = LOCATOR_KINDS.filter(
+    (kind) => (kind === "repository-path" || kind === "url") && locatorKinds.includes(kind),
+  );
   const seed = useMemo(() => {
     const paths = seedRows
       .map(({ locator }) => (locator?.kind === "repository-path" ? locator.value : null))
       .filter((path): path is string => path !== null);
     return commonParentDirectory(paths);
   }, [seedRows]);
-  const [sourceKind, setSourceKind] = useState<"repository-path" | "url">(acceptsPath ? "repository-path" : "url");
+  const [sourceKind, setSourceKind] = useState<LocatorKind>(
+    acceptsPath ? "repository-path" : acceptsUrl ? "url" : ((locatorKinds[0] as LocatorKind | undefined) ?? "url"),
+  );
   const [mode, setMode] = useState<"reference" | "snapshot" | null>(null);
   // 起点输入分「草稿」与「已确认」两态:少了这一层,第一个字符一敲进去浏览器就把输入框
   // 顶掉,人永远输不完一个目录名。
   const [seedDraft, setSeedDraft] = useState("");
   const [browseRoot, setBrowseRoot] = useState<string | null>(null);
-  const [url, setUrl] = useState("");
+  const [locatorValues, setLocatorValues] = useState<Record<Exclude<LocatorKind, "repository-path">, string>>({
+    url: "",
+    "local-path": "",
+    "external-key": "",
+  });
   const [target, setTarget] = useState<SourceTarget | null>(null);
+  const [declaredContentVersion, setDeclaredContentVersion] = useState("");
   const [titleOverride, setTitleOverride] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const preview = useDerivedPreview(repoId, row, target, mode);
-  const snapshotUrlSupported = mode !== "snapshot" || target?.kind !== "url" || /^https?:\/\//iu.test(target.url);
+  const snapshotUrlSupported = mode !== "snapshot" || target?.kind !== "url" || /^https?:\/\//iu.test(target.value);
+  const availableLocatorKinds = mode === "reference" ? LOCATOR_KINDS : snapshotLocatorKinds;
   const importable =
     mode !== null && target !== null && preview !== null && attributeIssues === 0 && snapshotUrlSupported;
   const browseSeed = seed ?? browseRoot;
@@ -103,8 +117,12 @@ export function NewEntityWizard({
     void importEntity({
       repoId,
       entityKind: row.kind,
-      locator: target.kind === "url" ? target.url : target.path,
+      locator: target.kind === "repository-path" ? target.path : target.value,
+      locatorKind: target.kind,
       mode,
+      ...(mode === "reference" && declaredContentVersion.trim()
+        ? { contentVersion: declaredContentVersion.trim() }
+        : {}),
       ...(titleOverride.trim() ? { title: titleOverride.trim() } : {}),
       ...(Object.keys(attributeReading.values).length > 0 ? { attributes: attributeReading.values } : {}),
     })
@@ -120,6 +138,13 @@ export function NewEntityWizard({
       })
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setBusy(false));
+  };
+
+  const changeMode = (nextMode: "reference" | "snapshot" | null) => {
+    setMode(nextMode);
+    setTarget(null);
+    const nextKinds = nextMode === "reference" ? LOCATOR_KINDS : snapshotLocatorKinds;
+    if (!nextKinds.includes(sourceKind)) setSourceKind(nextKinds[0] ?? "url");
   };
 
   return (
@@ -141,7 +166,7 @@ export function NewEntityWizard({
         <SegCtl
           label="登记模式"
           value={mode}
-          onChange={setMode}
+          onChange={changeMode}
           options={[
             {
               value: "reference",
@@ -161,9 +186,9 @@ export function NewEntityWizard({
 
       <section className="flex flex-col gap-2">
         <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">选择来源</h3>
-        {acceptsPath && acceptsUrl && (
+        {availableLocatorKinds.length > 1 && (
           <div className="flex gap-2" data-testid="new-entity-wizard-source-kind">
-            {(["repository-path", "url"] as const).map((kind) => (
+            {availableLocatorKinds.map((kind) => (
               <button
                 key={kind}
                 type="button"
@@ -180,27 +205,29 @@ export function NewEntityWizard({
                     : "border-border text-text-muted hover:text-text",
                 ].join(" ")}
               >
-                {kind === "repository-path" ? "仓内文件或文件夹" : "外部 URL"}
+                {locatorKindLabel(kind)}
               </button>
             ))}
           </div>
         )}
-        {sourceKind === "url" ? (
+        {sourceKind !== "repository-path" ? (
           <label className="flex flex-col gap-1 ui-meta text-text-muted">
-            外部 URL(引用只登记;快照模式会读取 http(s) 来源)
+            {locatorInputLabel(sourceKind, mode)}
             <input
-              data-testid="new-entity-wizard-url"
-              aria-label="外部 URL"
-              value={url}
+              data-testid={`new-entity-wizard-${sourceKind}`}
+              aria-label={locatorInputLabel(sourceKind, mode)}
+              value={locatorValues[sourceKind]}
               onChange={(event) => {
-                setUrl(event.target.value);
-                setTarget(validUrl(event.target.value) ? { kind: "url", url: event.target.value.trim() } : null);
+                const value = event.target.value,
+                  trimmed = value.trim();
+                setLocatorValues((previous) => ({ ...previous, [sourceKind]: value }));
+                setTarget(validLocatorValue(sourceKind, trimmed) ? { kind: sourceKind, value: trimmed } : null);
               }}
-              placeholder="https://example.com/issues/1"
+              placeholder={locatorPlaceholder(sourceKind)}
               className="rounded border border-border bg-surface px-2 py-1 font-mono ui-meta text-text"
             />
-            {url !== "" && !validUrl(url) && (
-              <span className="ui-micro text-status-blocked">须是带 scheme 的绝对 URL。</span>
+            {locatorValues[sourceKind] !== "" && !validLocatorValue(sourceKind, locatorValues[sourceKind].trim()) && (
+              <span className="ui-micro text-status-blocked">{invalidLocatorMessage(sourceKind)}</span>
             )}
             {mode === "snapshot" && target?.kind === "url" && !snapshotUrlSupported && (
               <span className="ui-micro text-status-blocked">URL 快照只支持 http(s)；其他 scheme 请选引用模式。</span>
@@ -265,14 +292,28 @@ export function NewEntityWizard({
         </section>
       )}
 
+      {mode === "reference" && (
+        <label className="flex flex-col gap-1 ui-meta text-text-muted">
+          调用方声明的内容版本(可留空;不会读取或校验来源)
+          <input
+            data-testid="new-entity-wizard-content-version"
+            aria-label="调用方声明的内容版本"
+            value={declaredContentVersion}
+            onChange={(event) => setDeclaredContentVersion(event.target.value)}
+            placeholder="revision-17 或 sha256:…"
+            className="rounded border border-border bg-surface px-2 py-1 font-mono ui-meta text-text"
+          />
+        </label>
+      )}
+
       <section className="flex flex-col gap-2" data-testid="new-entity-wizard-preview-area">
         <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">预览并导入</h3>
         {target === null ? (
           <p className="ui-meta text-text-faint">
-            {sourceKind === "url"
+            {sourceKind !== "repository-path"
               ? mode === "reference"
-                ? "输入要登记的 URL locator；不需要可达。"
-                : "输入一个 http(s) URL；快照会读取来源。"
+                ? `输入要登记的 ${locatorKindLabel(sourceKind)} locator；不需要可达。`
+                : "输入已声明的 http(s) URL；快照会读取来源。"
               : "先在上面选定一个文件或文件夹。"}
           </p>
         ) : preview === null ? (
@@ -287,7 +328,7 @@ export function NewEntityWizard({
             >
               <dt className="font-mono ui-micro text-text-faint">locator</dt>
               <dd data-testid="new-entity-wizard-locator" className="break-all font-mono ui-meta text-text">
-                {target.kind === "url" ? target.url : target.path}
+                {target.kind === "repository-path" ? target.path : target.value}
               </dd>
               <dt className="font-mono ui-micro text-text-faint">title(推导)</dt>
               <dd className="break-all ui-meta text-text">{preview.title}</dd>
@@ -380,7 +421,9 @@ function useDerivedPreview(
     enabled: mode === "snapshot" && fileTarget !== "",
   });
   if (target === null || idPrefix === null || mode === null) return null;
-  if (target.kind === "url") return { title: titleOfUrlLocator(target.url) };
+  if (target.kind === "url") return { title: titleOfUrlLocator(target.value) };
+  if (target.kind !== "repository-path")
+    return { title: titleOfFileLocator("", target.value.replaceAll("\\", "/").split(":").at(-1) ?? target.value) };
   if (mode === "reference")
     return {
       title: target.directory
@@ -421,4 +464,58 @@ function validUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function validLocalPath(value: string): boolean {
+  if (value.startsWith("file:")) {
+    try {
+      return new URL(value).protocol === "file:";
+    } catch {
+      return false;
+    }
+  }
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\");
+}
+
+function validLocatorValue(kind: Exclude<LocatorKind, "repository-path">, value: string): boolean {
+  if (!value) return false;
+  if (kind === "url") return validUrl(value);
+  if (kind === "local-path") return validLocalPath(value);
+  return true;
+}
+
+function locatorKindLabel(kind: LocatorKind): string {
+  return kind === "repository-path"
+    ? "仓内文件或文件夹"
+    : kind === "url"
+      ? "外部 URL"
+      : kind === "local-path"
+        ? "本机路径"
+        : "外部系统键";
+}
+
+function locatorInputLabel(kind: Exclude<LocatorKind, "repository-path">, mode: "reference" | "snapshot" | null) {
+  return kind === "url"
+    ? mode === "snapshot"
+      ? "外部 URL(http(s) 快照会读取正文;引用可用任意 scheme)"
+      : "外部 URL(引用只登记,不需要可达)"
+    : kind === "local-path"
+      ? "本机仓外路径(仅引用;只在登记节点定位)"
+      : "外部系统键(仅引用;例如 provider:project:key)";
+}
+
+function locatorPlaceholder(kind: Exclude<LocatorKind, "repository-path">): string {
+  return kind === "url"
+    ? "https://example.com/issues/1 或 feishu://doc/123"
+    : kind === "local-path"
+      ? "/Users/name/KnowledgeBase/minutes.md"
+      : "provider:project:key";
+}
+
+function invalidLocatorMessage(kind: Exclude<LocatorKind, "repository-path">): string {
+  return kind === "url"
+    ? "须是带 scheme 的绝对 URL。"
+    : kind === "local-path"
+      ? "须是绝对本机路径或 file URL。"
+      : "外部系统键不能为空。";
 }

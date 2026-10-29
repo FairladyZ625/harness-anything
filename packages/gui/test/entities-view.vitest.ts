@@ -488,6 +488,51 @@ describe("new entity wizard (goal 1)", () => {
         repoId: REPO_ID,
         entityKind: ADR_KIND,
         locator: "docs/adr/ADR-0002.md",
+        locatorKind: "repository-path",
+        mode: "reference",
+        expectedVersion: 0,
+      },
+    ]);
+  });
+
+  it("registers a node-local path and caller-declared version without reading source contents", async () => {
+    const state = stubCrudBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-reference");
+    await click(container, "new-entity-wizard-source-local-path");
+    await typeInto(container, "本机仓外路径(仅引用;只在登记节点定位)", "/Users/example/ZeYu-AI-Brain/minutes.md");
+    await typeInto(container, "调用方声明的内容版本", "revision-17");
+    expect(state.locatorCalls).toEqual([]);
+    await click(container, "new-entity-wizard-submit");
+    expect(state.imports).toEqual([
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "/Users/example/ZeYu-AI-Brain/minutes.md",
+        locatorKind: "local-path",
+        mode: "reference",
+        expectedVersion: 0,
+        contentVersion: "revision-17",
+      },
+    ]);
+  });
+
+  it("registers an external system key as a reference and leaves its declared version optional", async () => {
+    const state = stubCrudBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "new-entity-wizard-mode-reference");
+    await click(container, "new-entity-wizard-source-external-key");
+    await typeInto(container, "外部系统键(仅引用;例如 provider:project:key)", "local-kb:brain:minutes/2026-10-28");
+    expect(state.locatorCalls).toEqual([]);
+    await click(container, "new-entity-wizard-submit");
+    expect(state.imports).toEqual([
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "local-kb:brain:minutes/2026-10-28",
+        locatorKind: "external-key",
         mode: "reference",
         expectedVersion: 0,
       },
@@ -532,6 +577,7 @@ describe("new entity wizard (goal 1)", () => {
         repoId: REPO_ID,
         entityKind: ADR_KIND,
         locator: "docs/adr/research/notes.md",
+        locatorKind: "repository-path",
         mode: "snapshot",
         expectedVersion: 0,
       },
@@ -564,6 +610,7 @@ describe("new entity wizard (goal 1)", () => {
         repoId: REPO_ID,
         entityKind: ADR_KIND,
         locator: "docs/adr/research",
+        locatorKind: "repository-path",
         mode: "snapshot",
         expectedVersion: 0,
       },
@@ -667,6 +714,7 @@ describe("declared attributes on the new-entity wizard (E5)", () => {
         repoId: REPO_ID,
         entityKind: ADR_KIND,
         locator: "docs/adr/ADR-0002.md",
+        locatorKind: "repository-path",
         mode: "snapshot",
         expectedVersion: 0,
         attributes: { region: "north", fiscalYear: 2026, reviewed: true },

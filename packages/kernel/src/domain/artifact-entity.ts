@@ -5,6 +5,7 @@ import type {
   EntityAttributeDeclaration,
   EntityKindSchemaVersion,
 } from "./vertical-definition.ts";
+import { artifactLocatorKinds } from "./vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
 import { compiledPattern, parseEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import {
@@ -195,7 +196,7 @@ export function artifactDescriptorSchema(
       locator: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["repository-path", "url", "external-key", "local-path"] },
+          kind: { type: "string", enum: [...artifactLocatorKinds] },
           value: { type: "string", minLength: 1 },
         },
         required: ["kind", "value"],
@@ -209,6 +210,7 @@ export function artifactDescriptorSchema(
       source: { type: "string", minLength: 1 },
     },
     required: ARTIFACT_DESCRIPTOR_FIELDS,
+    "x-artifact-snapshot-locator-kinds": [...artifact.locatorKinds],
     additionalProperties: false,
   });
 }
@@ -243,6 +245,14 @@ export function decodeArtifactDescriptor(
   const descriptor = parseEntityJsonSchema(contract.schema, value, `${contract.kind} artifact descriptor`);
   if (!isArtifactDescriptor(descriptor))
     throw new ArtifactEntityContractError("Artifact descriptor fields do not match artifact-descriptor/v1.");
+  if (
+    descriptor.observationMode !== "reference" &&
+    contract.schema["x-artifact-snapshot-locator-kinds"] !== undefined &&
+    !contract.schema["x-artifact-snapshot-locator-kinds"].includes(descriptor.locator.kind)
+  )
+    throw new ArtifactEntityContractError(
+      `Snapshot locator kind ${descriptor.locator.kind} is not declared by artifact kind ${contract.kind}.`,
+    );
   const locator = canonicalArtifactLocator(descriptor.locator);
   if (locator.value !== descriptor.locator.value)
     throw new ArtifactEntityContractError("Artifact descriptor locator must already be canonical.");
@@ -305,7 +315,7 @@ export function artifactEntityContractSnapshot(input: {
     descriptorSchemaRef: input.declaration.descriptorSchemaRef,
     idPrefix: input.declaration.idPrefix,
     pathTemplate: input.declaration.store.pathTemplate,
-    locatorKinds: [...new Set([...input.declaration.locatorKinds, "local-path"])] as ArtifactLocatorKind[],
+    locatorKinds: [...input.declaration.locatorKinds],
   });
 }
 
@@ -344,7 +354,7 @@ export function artifactEntityContractFromSnapshot(
         locator: {
           type: "object",
           properties: {
-            kind: { type: "string", enum: ["repository-path", "url", "external-key", "local-path"] },
+            kind: { type: "string", enum: [...artifactLocatorKinds] },
             value: { type: "string", minLength: 1 },
           },
           required: ["kind", "value"],
@@ -358,6 +368,7 @@ export function artifactEntityContractFromSnapshot(
         source: { type: "string", minLength: 1 },
       },
       required: ARTIFACT_DESCRIPTOR_FIELDS,
+      "x-artifact-snapshot-locator-kinds": [...decoded.locatorKinds],
       additionalProperties: false,
     }),
     relations: { directions: [], edges: [] },
