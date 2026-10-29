@@ -558,6 +558,21 @@ test("historical task relation events replay into the Relation projection and su
       rows = [...rows, ...page.rows];
     }
     assert.deepEqual(rows, projected.rows);
+    // Freshness is computed per row from entity witnesses, so that path pages in memory after
+    // filtering and must not bind a LIMIT value the SQL does not carry (ERR_SQLITE_ERROR otherwise).
+    let freshPage = projection.readRelationQuery({ freshness: "current", limit: 1 }),
+      freshRows = [...freshPage.rows];
+    assert.equal(freshPage.page?.limit, 1);
+    while (freshPage.page?.nextCursor) {
+      freshPage = projection.readRelationQuery({
+        freshness: "current",
+        limit: 1,
+        cursor: freshPage.page.nextCursor,
+      });
+      freshRows = [...freshRows, ...freshPage.rows];
+    }
+    assert.deepEqual(freshRows, projected.rows);
+    assert.deepEqual(projection.readRelationQuery({ freshness: "orphaned", limit: 1 }).rows, []);
     // Entity/type filters narrow against the indexed columns.
     assert.deepEqual(
       projection.readRelationQuery({ entity: "task/task_query_03" }).rows.map((row) => row.relationId),
