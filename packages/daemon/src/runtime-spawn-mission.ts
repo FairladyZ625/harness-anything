@@ -394,11 +394,17 @@ export function taskQueryGuidance(taskId: string): string {
  * reading its turn, so a provider question tool either blocks the run or (measured on Codex
  * 2026-10-21, task_936005e1) fails the turn outright. The ruling request has one channel — an
  * artifact plus a stop — because a free-form final message is not a machine-readable ask.
- * The `__HARNESS_DISPATCH_ID__` token is rendered per dispatch, so the artifact path is concrete.
+ * Progress has one file channel too, and it differs by audience because the write boundary does:
+ * a worker owns its delivery report and `ha task progress append`, while a reviewer writes nothing
+ * but the review report it was dispatched to produce (`runtime-execution-scope.ts`). The shared
+ * line names neither command, so it stays true for both without advertising a write one of them
+ * cannot make. The `__HARNESS_DISPATCH_ID__` token is rendered per dispatch, so the artifact path
+ * is concrete.
  */
 export const unattendedRulingContract = [
   "# 无人值守会话：不能提问",
   "- 本会话没有应答方。不要调用任何提问/等待用户输入的 provider 工具：没人会回答，turn 会空转或直接失败。",
+  "- 进度写进本次派工要求你写的报告，不要用消息汇报。",
   "- 需要业主裁决时：把问题、可选项与你的建议写进任务包的 " +
     "`artifacts/rulings/__HARNESS_DISPATCH_ID__.md`，然后在交付报告里引用它并停下。" +
     "写不清楚的裁决请求等于没有提出问题。",

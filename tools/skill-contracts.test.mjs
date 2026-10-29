@@ -27,6 +27,7 @@ test("repository skills are discoverable with agent metadata", () => {
     .sort();
 
   assert.deepEqual(skillNames, [
+    "codex-unattended-turn",
     "create-agent",
     "create-skill",
     "gate-customization",

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex unattended turn"
+  short_description: "Keep a Codex turn alive across checkpoints until a settlement action runs"
+  default_prompt: "Use $codex-unattended-turn to keep this Codex dispatch working: write progress to the report or ha task progress append, and end only after ha task submit, ha task review-execution, or the ruling artifact."
