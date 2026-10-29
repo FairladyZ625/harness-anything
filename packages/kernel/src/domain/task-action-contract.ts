@@ -55,7 +55,7 @@ const reviewFields = Object.freeze(
 const reviewPacketFields = Object.freeze([
   ...reviewFields,
   field("findings", "json-object-array", true),
-  field("resolutions", "json-object-array", true),
+  field("resolutions", "json-object-array", false),
 ]);
 const createPacketFields = Object.freeze([
   field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
@@ -537,12 +537,12 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-command-transitions/rework.validate",
         "invalid_transition",
-        "The owner returns an unleased in_review cut after a current changes_requested review exhausts the automatic rework budget, after the owner confirms an escalated finding as a blocker, or after the owner consented the current approved cut and a pre-merge failure requires rework.",
+        "The owner returns any unleased in_review cut with an auditable reason.",
       ),
       criterion(
         "repo-cell-proof/proofFor.ReworkTask",
         "invalid_proof",
-        "The authenticated task-owning principal supplies the exhausted rework budget, a current owner-confirmed blocker, or a current owner consent, and an auditable reason.",
+        "The authenticated task-owning principal supplies an auditable reason.",
       ),
     ]),
     concurrency: taskConcurrency(

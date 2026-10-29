@@ -97,7 +97,7 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "submitted automatically awaits independent review",
       submitted,
       context,
-      "review_missing",
+      "review_pending",
       "ha task dispatch-review task-1",
     ],
     ["approved awaits the owner's verdict", at(4), context, "consent_missing", "ha task review-consent task-1"],
@@ -314,7 +314,7 @@ test("a contract that declares no closeout starts completion with its migration"
   assert.equal(taskCompletionNext(done, undeclared).blocker, null);
 });
 
-// Q1-R1-003: an adverse verdict past the rework budget is the owner's to dispose, not a missing review.
+// An adverse verdict is an explicit review rejection, not a missing review.
 test("a recorded changes_requested review guides the owner's disposition instead of another review dispatch", () => {
   const reviewed = at(4),
     changesRequested = {
@@ -322,16 +322,15 @@ test("a recorded changes_requested review guides the owner's disposition instead
       reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],
     },
     result = taskCompletionNext(changesRequested, context);
-  assert.equal(result.blocker?.code, "review_missing");
-  // No approved review exists on this cut, so the fillable consent command names the disposed
-  // changes_requested verdict itself (allowSelectedChangesRequested), never a placeholder.
+  assert.equal(result.blocker?.code, "review_rejected");
+  // The owner may return the cut or explicitly dispose the adverse verdict alongside consent.
   assert.equal(
     result.next?.action,
     "ha task rework task-1 --reason <why the owner is returning this cut>; or ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
   );
   assert.equal(result.next?.authority, "person-owner");
   assert.doesNotMatch(result.next!.reason, /no recorded review/u);
-  assert.match(result.next!.reason, /budget is exhausted/u);
+  assert.match(result.next!.reason, /requested changes/u);
   const index = rematerializeTaskDocuments({
     snapshot: changesRequested,
     packagePath: "tasks/task-1",
@@ -354,12 +353,12 @@ test("a dismissed review is not an effective review and guides a fresh dispatch"
       reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-dismissed", verdict: "dismissed" as const }],
     },
     result = taskCompletionNext(dismissed, context);
-  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.blocker?.code, "review_pending");
   assert.equal(result.next?.action, "ha task dispatch-review task-1");
   assert.match(result.next?.reason ?? "", /no recorded review/u);
 });
 
-test("completion readiness names an owner finding ruling when approved review settlement escalates", () => {
+test("completion readiness asks only for consent when an approved review has findings", () => {
   const reviewed = at(4),
     escalated = {
       ...reviewed,
@@ -380,17 +379,12 @@ test("completion readiness names an owner finding ruling when approved review se
     },
     result = taskCompletionNext(escalated, context);
 
-  assert.equal(result.blocker?.code, "review_missing");
-  assert.match(result.next!.action, /ha task review-consent task-1 --execution-id execution-1/u);
-  assert.match(result.next!.action, /--review-id 'review-execution' --finding-id 'F-escalated'/u);
-  assert.match(
+  assert.equal(result.blocker?.code, "consent_missing");
+  assert.equal(
     result.next!.action,
-    /--finding-disposition <blocker\|non_blocking\|nit\|pre_existing\|false_positive>/u,
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
   );
-  // task show prints this same reason as its completion hint, so the named finding must be there.
-  assert.match(result.next!.reason, /Finding review-execution\/F-escalated escalated/u);
-  assert.match(result.next!.reason, /the task owner must choose a disposition for this finding/u);
-  assert.doesNotMatch(result.next!.action, /dispatch-review/u);
+  assert.doesNotMatch(result.next!.action, /finding-id|finding-disposition/u);
 });
 
 test("a finding ruling consent reaches delivery despite historical returned review rounds", () => {
@@ -482,7 +476,7 @@ test("a finding ruling consent reaches delivery despite historical returned revi
   assert.doesNotMatch(result.next?.reason ?? "", /no recorded review/u);
 });
 
-test("completion readiness lists every escalated finding command in one next action", () => {
+test("completion readiness does not enumerate findings when consent is missing", () => {
   const reviewed = at(4),
     escalated = {
       ...reviewed,
@@ -509,13 +503,15 @@ test("completion readiness lists every escalated finding command in one next act
     },
     result = taskCompletionNext(escalated, context);
 
-  assert.equal(result.blocker?.code, "review_missing");
-  assert.match(result.next!.action, /--finding-id 'F-first'/u);
-  assert.match(result.next!.action, /--finding-id 'F-second'/u);
-  assert.match(result.next!.reason, /review-execution\/F-first, review-execution\/F-second/u);
+  assert.equal(result.blocker?.code, "consent_missing");
+  assert.equal(
+    result.next!.action,
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
+  );
+  assert.doesNotMatch(result.next!.action, /finding-id|finding-disposition/u);
 });
 
-test("completion readiness gives a whole-review disposal command for blocking unclassified findings", () => {
+test("completion readiness does not require whole-review disposal for unclassified findings", () => {
   const reviewed = at(4),
     unclassified = {
       ...reviewed,
@@ -532,15 +528,15 @@ test("completion readiness gives a whole-review disposal command for blocking un
     },
     result = taskCompletionNext(unclassified, context);
 
-  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.blocker?.code, "consent_missing");
   assert.equal(
     result.next!.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' --dispose 'review-execution' --rationale <why>",
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
   );
-  assert.match(result.next!.reason, /review-execution\/F-legacy-one, review-execution\/F-legacy-two/u);
+  assert.doesNotMatch(result.next!.action, /dispose|finding-id/u);
 });
 
-test("completion readiness returns an owner-confirmed blocker to implementation", () => {
+test("completion readiness ignores owner finding dispositions until consent", () => {
   const reviewed = at(4),
     escalated = {
       ...reviewed,
@@ -588,13 +584,15 @@ test("completion readiness returns an owner-confirmed blocker to implementation"
     },
     result = taskCompletionNext(ownerBlocked, context);
 
-  assert.equal(result.blocker?.code, "review_missing");
-  assert.equal(result.next?.action, "ha task rework task-1 --reason <why the owner is returning this cut>");
-  assert.match(result.next!.reason, /owner must return this cut to implementation/u);
-  assert.doesNotMatch(result.next!.action, /dispatch-review/u);
+  assert.equal(result.blocker?.code, "consent_missing");
+  assert.equal(
+    result.next?.action,
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
+  );
+  assert.doesNotMatch(result.next!.action, /rework|finding-id/u);
 });
 
-test("completion readiness does not offer owner rework for an automatically classified blocker", () => {
+test("completion readiness ignores automatic finding triage until consent", () => {
   const reviewed = at(4),
     escalated = {
       ...reviewed,
@@ -627,8 +625,12 @@ test("completion readiness does not offer owner rework for an automatically clas
     },
     result = taskCompletionNext(escalated, context);
 
-  assert.equal(result.blocker?.code, "review_missing");
-  assert.doesNotMatch(result.next!.action, /ha task rework/u);
+  assert.equal(result.blocker?.code, "consent_missing");
+  assert.equal(
+    result.next!.action,
+    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
+  );
+  assert.doesNotMatch(result.next!.action, /rework|finding-id/u);
 });
 
 test("a changes request on the current cut comes before missing merge evidence", () => {
@@ -639,7 +641,7 @@ test("a changes request on the current cut comes before missing merge evidence",
     },
     delivery = { required: true, merged: false, targetBranch: "main", platform: "github" as const },
     result = taskCompletionNext(changesRequested, { ...context, delivery });
-  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.blocker?.code, "review_rejected");
   assert.equal(
     result.next?.action,
     "ha task rework task-1 --reason <why the owner is returning this cut>; or ha task review-consent task-1 --execution-id execution-1 --review-id review-changes --dispose review-changes --rationale <why the adverse verdict is overruled>",
@@ -703,7 +705,7 @@ test("a consent-disposed changes_requested review no longer blocks completion", 
         },
       ],
     };
-  assert.equal(taskCompletionNext(withLate, context).blocker?.code, "review_missing");
+  assert.equal(taskCompletionNext(withLate, context).blocker?.code, "review_rejected");
   assert.equal(taskCompletionNext(disposed, context).blocker, null);
   const index = rematerializeTaskDocuments({
     snapshot: disposed,
@@ -725,7 +727,7 @@ test("an undisposed changes request prevents an approved review from reaching co
       ],
     },
     result = taskCompletionNext(conflicted, context);
-  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.blocker?.code, "review_rejected");
   // An approved review does exist on this cut, so the consent command names it and disposes the
   // adverse verdict beside it.
   assert.equal(

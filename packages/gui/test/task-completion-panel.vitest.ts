@@ -25,12 +25,12 @@ describe("Task completion panel", () => {
   it("shows the panel for an in_review task and waits while the review blocker stands", async () => {
     installBridge({
       completionAction: "ha task dispatch-review task-w3",
-      completionBlocker: { code: "review_missing", gate: "review" },
+      completionBlocker: { code: "review_pending", gate: "review" },
     });
     await mount();
     await clickTab("收口");
     const panel = byTestId("task-completion-panel");
-    // 评审未记录(blocker.code = review_missing)时没有任何可点按钮:评审员只查验,
+    // 评审未记录(blocker.code = review_pending)时没有任何可点按钮:评审员只查验,
     // 结论回流前既不能同意也不能结项;返工由 changes_requested 自动驱动。
     expect(panel.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
     expect(panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-complete"]')?.disabled).toBe(true);
@@ -61,7 +61,7 @@ describe("Task completion panel", () => {
     // 面板阶段只认结构化 blocker.code;action 文案换成完全不同的措辞,按钮状态必须不变。
     installBridge({
       completionAction: "请中心按评审流程处理这个任务的收口",
-      completionBlocker: { code: "review_missing", gate: "review" },
+      completionBlocker: { code: "review_pending", gate: "review" },
     });
     await mount();
     await clickTab("收口");

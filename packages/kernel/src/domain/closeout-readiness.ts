@@ -3,11 +3,7 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
-import {
-  consentedApprovedReviewForExecution,
-  reviewsForExecution,
-  settledApprovedReviewsForExecution,
-} from "./review.ts";
+import { consentedApprovedReviewForExecution, reviewsForExecution } from "./review.ts";
 import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
@@ -36,19 +32,19 @@ export interface CloseoutGateResult {
   readonly ok: boolean | null;
   readonly detail?: string;
 }
-export type CloseoutBlocker = "execution" | "review" | "consent" | "gate" | "lineage" | "projection_unknown";
+export type CloseoutBlocker =
+  | "execution"
+  | "review_pending"
+  | "review_rejected"
+  | "consent"
+  | "gate"
+  | "lineage"
+  | "projection_unknown";
 export interface CloseoutAssessment {
   readonly readiness: CloseoutReadiness;
   readonly executionId?: string;
   readonly blocker?: CloseoutBlocker;
-  readonly escalatedFindings?: readonly { readonly reviewId: string; readonly findingId: string }[];
-  readonly blockingFindings?: readonly { readonly reviewId: string; readonly findingId: string }[];
   readonly gates: readonly CloseoutGateResult[];
-}
-
-export interface CloseoutFindingRef {
-  readonly reviewId: string;
-  readonly findingId: string;
 }
 export interface CloseoutProjectionAvailability {
   readonly consents: "known" | "unknown";
@@ -131,7 +127,7 @@ export function closeoutReadiness(
   if (task.status === "submitted" && effectiveGates?.review !== false)
     return {
       readiness: "incomplete",
-      blocker: "review",
+      blocker: "review_pending",
       gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
     };
   if (task.status !== "in_review" && task.status !== "submitted")
@@ -159,7 +155,8 @@ export function closeoutReadiness(
     gates.some(({ status }) => status === "unknown")
   )
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
-  const approved = settledApprovedReviewsForExecution(snapshot.reviews, execution, snapshot.reviewDispositions ?? []),
+  const currentReviews = reviewsForExecution(snapshot.reviews, execution),
+    approved = currentReviews.filter((review) => review.verdict === "approved"),
     consented = consentedApprovedReviewForExecution(
       snapshot.reviews,
       snapshot.consents,
@@ -173,63 +170,23 @@ export function closeoutReadiness(
   const forwarded = (snapshot.forwardedCuts ?? []).some(
     (record) => record.executionId === execution.executionId && record.iteration === execution.iteration,
   );
-  // Per-finding settlement (dec_6A77D43B8523823ABA1F5E4D3C CH5): once a current cut carries a
-  // finding, each finding is the pass unit and a missing or ambiguous triage is unresolved review —
-  // never an approved one. A cut whose reviews raise no finding at all passes on its own verdict
-  // (CH1 "无 finding 时直接通过"), which is also how historical records still complete.
-  //
-  // A cut that raised a finding without a category must not slip back to the single-`approved`
-  // predicate: that predicate is exactly what C3 deletes, and it would let a reviewer return
-  // `changes_requested` findings and be overruled by one `approved` record. Such a cut is
-  // unresolved review — the reviewer answered neither the triage question nor "no findings".
-  // Pinning a cut means hashing its whole submission, and this judgment runs once per rendered
-  // board row. A repository whose reviews carry no finding at all cannot enter either branch below,
-  // so one cheap scan over the snapshot spares that hash; only a repository that actually records
-  // findings pays for the per-cut pinning.
-  const findingsRecorded = snapshot.reviews.some((review) => (review.findings ?? []).length > 0),
-    settlement = findingsRecorded
-      ? currentCutSettlement(
-          snapshot.reviews,
-          execution,
-          snapshot.reviewFindingTriages ?? [],
-          snapshot.reviewDispositions ?? [],
-        )
-      : null,
-    reviewOwed = effectiveGates?.review !== false || forwarded,
-    consentReviewBlockers = reviewConsentBlockers(
-      snapshot.reviews,
-      execution,
-      snapshot.reviewFindingTriages ?? [],
+  const reviewOwed = effectiveGates?.review !== false || forwarded,
+    disposed = disposedReviewIdsForSubmission(
       snapshot.reviewDispositions ?? [],
-      settlement,
+      submissionDigest(execution.submission),
     ),
-    escalatedFindingRefs = settlement?.escalated.map(({ reviewId, findingId }) => ({ reviewId, findingId })) ?? [],
-    targetDigest = submissionDigest(execution.submission),
-    blockingFindingRefs =
-      settlement?.blockers.filter(({ reviewId, findingId }) =>
-        (snapshot.reviewDispositions ?? []).some(
-          (value) =>
-            value.submissionDigest === targetDigest &&
-            value.findingRuling?.targetDigest === targetDigest &&
-            value.findingRuling.reviewId === reviewId &&
-            value.findingRuling.findingId === findingId &&
-            value.findingRuling.disposition === "blocker",
-        ),
-      ) ?? [],
-    reviewSatisfied =
-      consentReviewBlockers.length === 0 &&
-      (settlement === null
-        ? approved.length > 0 || consented !== undefined
-        : settlement.outcome === "passed" || consented !== undefined);
-  if (reviewOwed && !reviewSatisfied)
+    rejected = currentReviews.some(
+      (review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId),
+    );
+  if (reviewOwed && !consented && rejected)
     return {
       readiness: "incomplete",
       executionId: execution.executionId,
-      blocker: "review",
-      ...(escalatedFindingRefs.length ? { escalatedFindings: escalatedFindingRefs } : {}),
-      ...(blockingFindingRefs.length ? { blockingFindings: blockingFindingRefs } : {}),
+      blocker: "review_rejected",
       gates,
     };
+  if (reviewOwed && !consented && approved.length === 0)
+    return { readiness: "incomplete", executionId: execution.executionId, blocker: "review_pending", gates };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"),
@@ -296,81 +253,6 @@ export function currentCutSettlement(
     targetDigest: submissionDigest(execution.submission),
     rulings: dispositions.flatMap((value) => (value.findingRuling ? [value.findingRuling] : [])),
   });
-}
-
-/** Findings an explicit owner consent cannot waive on a Task cut. Shared settlement remains unchanged. */
-export function reviewConsentBlockers(
-  reviews: readonly ReviewV1[],
-  execution: ExecutionV1,
-  triages: readonly ReviewFindingTriageV1[],
-  dispositions: readonly ReviewDispositionV1[] = [],
-  knownSettlement?: ReviewFindingSettlement | null,
-): readonly CloseoutFindingRef[] {
-  if (!execution.submission) return [];
-  const targetDigest = submissionDigest(execution.submission),
-    rawFindings = reviewsForExecution(reviews, execution).flatMap((review) =>
-      (review.findings ?? []).map((finding) => ({ review, finding })),
-    ),
-    settlement = knownSettlement ?? currentCutSettlement(reviews, execution, triages, dispositions),
-    unfiled = unfiledReviewFindings(reviews, execution, dispositions),
-    refs = new Map<string, CloseoutFindingRef>();
-  for (const finding of unfiled) {
-    refs.set(`${finding.reviewId}/${finding.findingId}`, finding);
-  }
-  for (const settled of settlement?.findings ?? []) {
-    if (settled.outcome === "escalated") {
-      refs.set(`${settled.reviewId}/${settled.findingId}`, {
-        reviewId: settled.reviewId,
-        findingId: settled.findingId,
-      });
-      continue;
-    }
-    if (settled.outcome !== "blocked") continue;
-    const triage = triages.find(
-      (value) =>
-        value.reviewId === settled.reviewId &&
-        value.findingId === settled.findingId &&
-        value.targetDigest === targetDigest,
-    );
-    const raw = rawFindings.find(
-      ({ review, finding }) => review.reviewId === settled.reviewId && finding.findingId === settled.findingId,
-    )?.finding;
-    const consentExempt =
-      settled.category === "ci-required" &&
-      raw?.blocking === false &&
-      triage?.selected !== "blocker" &&
-      triage?.critic?.selected !== "blocker" &&
-      !dispositions.some(
-        (value) =>
-          value.submissionDigest === targetDigest &&
-          value.findingRuling?.targetDigest === targetDigest &&
-          value.findingRuling.reviewId === settled.reviewId &&
-          value.findingRuling.findingId === settled.findingId &&
-          value.findingRuling.disposition === "blocker",
-      );
-    if (!consentExempt)
-      refs.set(`${settled.reviewId}/${settled.findingId}`, {
-        reviewId: settled.reviewId,
-        findingId: settled.findingId,
-      });
-  }
-  return [...refs.values()];
-}
-
-export function unfiledReviewFindings(
-  reviews: readonly ReviewV1[],
-  execution: ExecutionV1,
-  dispositions: readonly ReviewDispositionV1[],
-): readonly CloseoutFindingRef[] {
-  if (!execution.submission) return [];
-  const disposed = disposedReviewIdsForSubmission(dispositions, submissionDigest(execution.submission));
-  return reviewsForExecution(reviews, execution).flatMap((review) =>
-    disposed.has(review.reviewId)
-      ? []
-      : (review.findings ?? [])
-          .filter((finding) => finding.category === undefined)
-          .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
-  );
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

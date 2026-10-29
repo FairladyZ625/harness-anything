@@ -62,18 +62,21 @@ export async function continueReviewRework(
   // let a superseded verdict decide this continuation's prompt and dispatch identity.
   const taskId = cell.requiredCellText(command.taskId, "taskId"),
     read = cell.projection.read(taskId),
-    reviewId = cell.requiredCellText(command.reviewId, "reviewId"),
-    review = read.snapshot.reviews.find((value) => value.reviewId === reviewId),
+    reviewId = command.reviewId,
+    review = reviewId ? read.snapshot.reviews.find((value) => value.reviewId === reviewId) : undefined,
     execution = review ? read.snapshot.executions.find((value) => value.executionId === review.executionId) : undefined,
     // A ReworkTask whose review is not changes_requested is an owner return: an approved cut the
     // owner already consented (pre-merge CI red) or one with a confirmed blocker has no review
     // verdict to continue from, so the owner's reason is the work order. A changes_requested return
     // keeps the review verdict and reviewer reason in the prompt even when the owner issued it.
     ownerReturnReason =
-      command.type === "ReworkTask" && review !== undefined && review.verdict !== "changes_requested"
-        ? command.reason
-        : null;
-  if (!review || !execution?.submission || (review.verdict !== "changes_requested" && ownerReturnReason === null))
+      command.type === "ReworkTask" && review?.verdict !== "changes_requested" ? command.reason : null;
+  if (
+    !review ||
+    !reviewId ||
+    !execution?.submission ||
+    (review.verdict !== "changes_requested" && ownerReturnReason === null)
+  )
     return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
     const reportPath = read.packagePath ? reviewReportRelativePath(read.packagePath, reviewId) : null;
@@ -97,11 +100,30 @@ export async function continueReviewRework(
         : {}),
     } as WriteReceiptDraft;
   }
-  const upheld = (review.resolutions ?? []).some((resolution) => resolution.resolution === "upheld"),
+  const resolutions = review.resolutions ?? [],
+    priorReviews = read.snapshot.reviews.filter((value) => value.iteration < review.iteration),
+    priorIteration = priorReviews.length ? Math.max(...priorReviews.map((value) => value.iteration)) : -1,
+    priorIds = new Set(
+      priorReviews.filter((value) => value.iteration === priorIteration).map((value) => value.reviewId),
+    ),
+    rebutted = (read.snapshot.reviewResponses ?? []).filter(
+      (response) => response.disposition === "rebut" && priorIds.has(response.reviewId),
+    ),
+    upheld =
+      resolutions.some((resolution) => resolution.resolution === "upheld") ||
+      rebutted.some(
+        (response) =>
+          !resolutions.some(
+            (resolution) =>
+              resolution.reviewId === response.reviewId &&
+              resolution.findingId === response.findingId &&
+              resolution.resolution === "withdrawn",
+          ),
+      ),
     newBlocking = (review.findings ?? []).some(
       (finding) =>
         finding.blocking &&
-        !(review.resolutions ?? []).some(
+        !resolutions.some(
           (resolution) =>
             resolution.reviewId === review.reviewId &&
             resolution.findingId === finding.findingId &&

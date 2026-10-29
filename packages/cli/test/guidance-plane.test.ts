@@ -862,19 +862,14 @@ test("task show renders the completion blocker as an appended completion gate", 
 });
 
 test("task show renders the same blocker hint and next command task complete reports", () => {
-  const reason =
-      "Finding review-execution/F-CE9D-02 escalated because automated review could not classify it safely; " +
-      "the task owner must choose a disposition for this finding.",
-    action =
-      "ha task review-consent task-1 --execution-id execution-1 --review-id 'review-execution' " +
-      "--finding-id 'F-CE9D-02' --finding-disposition <blocker|non_blocking|nit|pre_existing|false_positive> " +
-      "--rationale <why>",
+  const reason = "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
+    action = "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
     rendered = renderCliReceipt({
       ok: true,
       command: "task-show",
       evidence: JSON.stringify({
         task: { status: "in_review", currentNode: "review", completionGateIds: [] },
-        completionBlocker: { code: "review_missing", gate: "review" },
+        completionBlocker: { code: "consent_missing", gate: "consent" },
         completionNext: {
           reason,
           action,
@@ -883,7 +878,7 @@ test("task show renders the same blocker hint and next command task complete rep
         },
       }),
     });
-  assert.match(rendered.text, /completion gates: review \(review_missing\)/u);
+  assert.match(rendered.text, /completion gates: consent \(consent_missing\)/u);
   assert.ok(rendered.text.includes(`completion hint: ${reason}`));
   assert.ok(rendered.text.includes(`completion next: ${action}`));
 });

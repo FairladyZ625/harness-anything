@@ -188,7 +188,7 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
       consents: [],
     };
   assert.equal(closeoutReadiness(awaiting, undefined, lifted, mergedDelivery).readiness, "incomplete");
-  assert.equal(closeoutReadiness(awaiting, undefined, lifted, mergedDelivery).blocker, "review");
+  assert.equal(closeoutReadiness(awaiting, undefined, lifted, mergedDelivery).blocker, "review_pending");
   // An approved review settles the corridor; consent stays lifted with the profile.
   const approvedOnly = { ...awaiting, reviews: forwarded.reviews, consents: [] };
   assert.equal(closeoutReadiness(approvedOnly, undefined, lifted, mergedDelivery).readiness, "ready");

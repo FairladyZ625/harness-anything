@@ -154,7 +154,7 @@ test("strict profile read side keeps demanding review and consent", () => {
   });
   assert.equal(Object.hasOwn(context.closeoutGates, "fact"), false);
   assert.equal(strictSubmitted.task?.status, "in_review");
-  assert.equal(taskCompletionNext(strictSubmitted, context).blocker?.code, "review_missing");
+  assert.equal(taskCompletionNext(strictSubmitted, context).blocker?.code, "review_pending");
 });
 
 test("a repository without a settings entity reads the standard default gates", () => {
@@ -176,7 +176,7 @@ test("the task query closeout judgment follows the effective gate set", () => {
     strict = repoCellTaskQueryJudgmentsFor(projection({ profile: "strict" })).closeout(strictSubmitted, availability);
   assert.equal(standard.readiness, "ready");
   assert.equal(strict.readiness, "incomplete");
-  assert.equal(strict.blocker, "review");
+  assert.equal(strict.blocker, "review_pending");
 });
 
 test("a planned top-level task with children is a derived work root and completion names work show", () => {
@@ -540,7 +540,7 @@ test("merge evidence retires only the CI gate and does not lift review or consen
 
   assert.equal(results.find(({ gateId }) => gateId === "ci")?.status, "passed");
   assert.equal(results.find(({ gateId }) => gateId === "quality")?.status, "missing");
-  assert.equal(taskCompletionNext(strictSubmitted, { ...context, delivery }).blocker?.code, "review_missing");
+  assert.equal(taskCompletionNext(strictSubmitted, { ...context, delivery }).blocker?.code, "review_pending");
 
   const approvedWithoutConsent = lifecycleFixture().events.slice(0, 4).reduce(reduceTaskEvent, {
     revision: 0,

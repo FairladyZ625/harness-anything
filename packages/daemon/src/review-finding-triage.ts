@@ -74,19 +74,14 @@ export function reviewTriageStorePath(rootDir: string): string {
  * Every triage record the center has minted for this repository, without opening the writer.
  *
  * The closeout judgment is a read: it must not need a Decisions provider, and it must not create the
- * journal as a side effect of being asked. A missing or unreadable file is therefore "no records
- * yet" — the same answer a fresh repository gives — never an implicit pass (a finding with no
- * record escalates in `settleReviewFindings`).
+ * journal as a side effect of being asked. A missing file is "no records yet" — the same answer a fresh
+ * repository gives — never an implicit pass (a finding with no record escalates in `settleReviewFindings`).
  */
 export function readReviewTriageRecords(rootDir: string): readonly ReviewTriageStoreRecord[] {
   const target = reviewTriageStorePath(rootDir);
   if (!existsSync(target)) return [];
-  try {
-    const parsed = JSON.parse(readFileSync(target, "utf8")) as Partial<TriageFile>;
-    return parsed.schema === storeSchema && Array.isArray(parsed.records) ? parsed.records : [];
-  } catch {
-    return [];
-  }
+  const parsed = JSON.parse(readFileSync(target, "utf8")) as Partial<TriageFile>;
+  return parsed.schema === storeSchema && Array.isArray(parsed.records) ? parsed.records : [];
 }
 
 /**

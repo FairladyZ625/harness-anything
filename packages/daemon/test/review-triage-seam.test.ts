@@ -157,19 +157,19 @@ function recordMintedFor(mintedFor: string): Record<string, unknown> {
   };
 }
 
-test("a categorized finding keeps the cut at review until the journal answers for its cut", () => {
+test("triage remains cut-bound settlement data without controlling review consent", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-triage-seam-"));
   try {
     const { snapshot, submissionDigest: cutDigest } = cut([
       { findingId: "F1", blocking: true, text: "Drops the fence.", category: "correctness" },
     ]);
     const before = repoCellTaskQueryJudgmentsFor(projection(snapshot), root).closeout(snapshot, availability);
-    assert.equal(before.blocker, "review", "a categorized finding with no triage is unresolved review");
+    assert.equal(before.blocker, undefined, "untriaged finding does not block consent");
 
     journal(root, [recordMintedFor(cutDigest)]);
 
     const after = repoCellTaskQueryJudgmentsFor(projection(snapshot), root).closeout(snapshot, availability);
-    assert.notEqual(after.blocker, "review", "the journal's answer unlocks the review gate");
+    assert.equal(after.blocker, undefined, "triage answer does not change the consent judgment");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -185,7 +185,7 @@ test("a record minted for another cut digest does not settle this one", () => {
     journal(root, [recordMintedFor(otherDigest)]);
 
     const judgment = repoCellTaskQueryJudgmentsFor(projection(snapshot), root).closeout(snapshot, availability);
-    assert.equal(judgment.blocker, "review", "an old cut's answer cannot pass a new cut");
+    assert.equal(judgment.blocker, undefined, "an old cut's answer cannot affect the consent judgment");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

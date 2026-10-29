@@ -1,14 +1,11 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
   closeoutReadiness,
-  currentCutSettlement,
   currentExecutionCuts,
   gateSatisfied,
   isRetiredCiRequirement,
   deliveryTargetLabel,
   lineageOrphan,
-  reviewConsentBlockers,
-  unfiledReviewFindings,
   type CloseoutGateStatus,
   type CompletionDeliveryStatus,
 } from "./closeout-readiness.ts";
@@ -32,7 +29,8 @@ export type CompletionBlockerCode =
   | "not_in_review"
   | "task_blocked"
   | "executor_missing"
-  | "review_missing"
+  | "review_pending"
+  | "review_rejected"
   | "consent_missing"
   | "delivery_missing"
   | "decision_lineage_missing"
@@ -291,27 +289,6 @@ function evaluateCompletion(
     },
     assessment = closeoutReadiness(snapshot, undefined, closeoutGates, context.delivery);
   const submission = execution.submission;
-  // A changes request on the current cut ends that cut: no witness can complete it, so the owner's
-  // return comes before any missing evidence.
-  const changes = includeReview
-    ? changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? [])
-    : undefined;
-  if (changes) {
-    // The exhaustion scenario often has no approved review on the cut; the consent side accepts
-    // the disposed changes_requested verdict itself (review-consent-validity's
-    // allowSelectedChangesRequested), so the printed command is always fillable as printed.
-    const consentReviewId =
-      approvedReviewHistoryForExecution(snapshot.reviews, execution).at(-1)?.reviewId ?? changes.reviewId;
-    return one(
-      "review_missing",
-      "review",
-      `ha task rework ${task.taskId} --reason <why the owner is returning this cut>; or ` +
-        `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${consentReviewId} ` +
-        `--dispose ${changes.reviewId} --rationale <why the adverse verdict is overruled>`,
-      `Review ${changes.reviewId} requested changes and the rework budget is exhausted; the owner ` +
-        "can return the cut to implementation, dispose the verdict with consent, or supersede the task.",
-    );
-  }
   const gate = assessment.gates.find(({ gateId, status }) => {
     const requirement = submission.completionContract.gates.find((candidate) => candidate.gateId === gateId);
     return (
@@ -346,79 +323,36 @@ function evaluateCompletion(
   if (!includeReview) return [];
   // The assessment already carries the gate judgment; re-deriving review or consent here
   // would duplicate the one closeout-readiness decision.
-  if (assessment.blocker === "review") {
-    const escalatedFindings = assessment.escalatedFindings ?? [],
-      settlement = currentCutSettlement(
-        snapshot.reviews,
-        execution,
-        snapshot.reviewFindingTriages ?? [],
-        snapshot.reviewDispositions ?? [],
-      ),
-      unfiledPending = unfiledReviewFindings(snapshot.reviews, execution, snapshot.reviewDispositions ?? []),
-      unfiledReviews = [...new Set(unfiledPending.map(({ reviewId }) => reviewId))],
-      commands = [
-        ...escalatedFindings.map(({ reviewId, findingId }) =>
-          findingRulingCommand(task.taskId, executionId, reviewId, findingId),
-        ),
-        ...unfiledReviews.map((reviewId) => reviewDispositionCommand(task.taskId, executionId, reviewId)),
-      ];
-    if (commands.length) {
-      const findingRefs = [...escalatedFindings, ...unfiledPending].map(
-        ({ reviewId, findingId }) => `${reviewId}/${findingId}`,
-      );
-      if (escalatedFindings.length === 1 && unfiledPending.length === 0)
-        return one(
-          "review_missing",
-          "review",
-          commands[0]!,
-          `Finding ${findingRefs[0]} escalated because automated review could not classify it safely; ` +
-            "the task owner must choose a disposition for this finding.",
-        );
+  if (assessment.blocker === "review_pending")
+    return one(
+      "review_pending",
+      "review",
+      `ha task dispatch-review ${task.taskId}`,
+      "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+    );
+  if (assessment.blocker === "review_rejected") {
+    const changes = changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? []);
+    if (changes) {
+      const consentReviewId =
+        approvedReviewHistoryForExecution(snapshot.reviews, execution).at(-1)?.reviewId ?? changes.reviewId;
       return one(
-        "review_missing",
+        "review_rejected",
         "review",
-        commands.join("; "),
-        `Findings ${[...new Set(findingRefs)].join(", ")} require owner disposition before consent; ` +
-          "the listed commands resolve each pending finding.",
+        `ha task rework ${task.taskId} --reason <why the owner is returning this cut>; or ` +
+          `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${consentReviewId} ` +
+          `--dispose ${changes.reviewId} --rationale <why the adverse verdict is overruled>`,
+        `Review ${changes.reviewId} requested changes; the owner can return the cut, dispose the verdict with consent, or supersede the task.`,
       );
     }
-    if (assessment.blockingFindings?.length)
-      return one(
-        "review_missing",
-        "review",
-        `ha task rework ${task.taskId} --reason <why the owner is returning this cut>`,
-        `The current finding settlement has ${String(assessment.blockingFindings.length)} blocker(s); ` +
-          "the task owner must return this cut to implementation.",
-      );
     const recorded = reviewsForExecution(snapshot.reviews, execution),
       effectiveReviews = recorded.filter((review) => review.verdict !== "dismissed");
-    if (effectiveReviews.length === 0)
-      return one(
-        "review_missing",
-        "review",
-        `ha task dispatch-review ${task.taskId}`,
-        "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
-      );
-    const blockers = reviewConsentBlockers(
-      snapshot.reviews,
-      execution,
-      snapshot.reviewFindingTriages ?? [],
-      snapshot.reviewDispositions ?? [],
-      settlement,
-    );
-    if (blockers.length)
-      return one(
-        "review_missing",
-        "review",
-        `ha task dispatch-review ${task.taskId}`,
-        `Recorded review findings ${blockers.map(({ reviewId, findingId }) => `${reviewId}/${findingId}`).join(", ")} ` +
-          "still block owner consent; obtain a fresh independent review or return the cut.",
-      );
     return one(
-      "review_missing",
+      "review_rejected",
       "review",
-      reviewConsentCommands(task.taskId, recorded, execution).join(" or "),
-      "The submitted cut has recorded review(s) but still needs the owner's consent; review the findings and consent to the selected approved cut.",
+      effectiveReviews.length
+        ? `ha task rework ${task.taskId} --reason <why the owner is returning this cut>`
+        : `ha task dispatch-review ${task.taskId}`,
+      "The current review verdict does not approve this cut; the owner can return it to implementation.",
     );
   }
   if (assessment.blocker === "consent")

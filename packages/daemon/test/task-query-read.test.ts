@@ -1751,7 +1751,7 @@ test("single-task completion read carries the canonical next and validates its r
     () =>
       parseDaemonGuiReadResult("repo.tasks.completion.read", {
         ...result,
-        completionBlocker: { code: "review_missing" },
+        completionBlocker: { code: "review_pending" },
       }),
     /completionBlocker/,
   );

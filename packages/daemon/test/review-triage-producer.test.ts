@@ -148,7 +148,7 @@ test("a review with a categorized finding settles once the producer writes its t
       snapshotFor(review),
       availability,
     );
-    assert.equal(before.blocker, "review", "no triage record yet: the cut is unresolved review");
+    assert.equal(before.blocker, undefined, "triage settlement no longer vetoes owner consent");
 
     const settlement = await makeReviewTriageProducer({
       rootDir,

@@ -363,7 +363,7 @@ export async function completeTask(
         ]);
       return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
     }
-    // review_missing and consent_missing are hard stops (owner adjudication 2026-09-19): the
+    // Review and consent blockers are hard stops: the
     // verdict and consent belong to the owner's explicit actions, never to a complete that
     // would otherwise dispatch reviewers or write consent inline on someone's behalf.
     if (blocker.code === "doc_sync_required") {

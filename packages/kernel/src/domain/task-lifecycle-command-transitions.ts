@@ -19,7 +19,7 @@ import type {
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { consentedApprovedReviewForExecution, validateTaskReviewResponseV1 } from "./review.ts";
+import { validateTaskReviewResponseV1 } from "./review.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
@@ -555,7 +555,7 @@ function reviewResponseSubmissionIssues(
   for (const response of responses) issues.push(...validateTaskReviewResponseV1(response));
   return issues;
 }
-/** The owner's manual escape hatch: return an exhausted, blocked, or already-consented cut to implementation. */
+/** The task owner can return any unleased submitted cut to implementation. */
 export const rework: Transition = {
   actionId: "rework",
   matches: (command) => command.type === "ReworkTask",
@@ -565,37 +565,15 @@ export const rework: Transition = {
       issues = revisionIssues(snapshot, command),
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
-      review = snapshot.reviews.find(
-        (value) =>
-          value.reviewId === command.reviewId &&
-          value.executionId === command.executionId &&
-          value.iteration === current?.iteration,
-      ),
-      returned = snapshot.executions.filter((value) => value.state === "changes_requested").length,
-      currentDigest = current?.submission ? submissionDigest(current.submission) : undefined,
-      ownerConfirmedBlocker =
-        currentDigest !== undefined &&
-        review?.verdict === "approved" &&
-        (snapshot.reviewDispositions ?? []).some(
-          (value) =>
-            value.submissionDigest === currentDigest &&
-            value.findingRuling?.targetDigest === currentDigest &&
-            value.findingRuling.reviewId === review.reviewId &&
-            value.findingRuling.disposition === "blocker",
-        ),
-      // The owner's forward verdict is final for merge, not for the frozen cut: once the current
-      // submission is consented, a pre-merge failure (for example a red CI run) has no review to
-      // return and no disposition to record, so the owner returns it with a reason. The consent
-      // stays recorded and unrevoked; only the cut reopens. The consent digest binding is the same
-      // predicate completion uses, so a stale consent never authorises a return.
-      consentedApprovedCut =
-        current !== undefined &&
-        consentedApprovedReviewForExecution(
-          snapshot.reviews,
-          snapshot.consents,
-          current,
-          snapshot.reviewDispositions ?? [],
-        )?.review.reviewId === command.reviewId;
+      review = command.reviewId
+        ? snapshot.reviews.find(
+            (value) =>
+              value.reviewId === command.reviewId &&
+              value.executionId === command.executionId &&
+              value.iteration === current?.iteration,
+          )
+        : undefined,
+      currentDigest = current?.submission ? submissionDigest(current.submission) : undefined;
     if (
       !task ||
       task.status !== "in_review" ||
@@ -610,29 +588,11 @@ export const rework: Transition = {
           "Task rework requires an unleased in_review task with a current submitted execution",
         ),
       );
-    if (
-      !review ||
-      review.submissionDigest !== currentDigest ||
-      (!ownerConfirmedBlocker && !consentedApprovedCut && review.verdict !== "changes_requested")
-    )
+    if (command.reviewId && (!review || review.submissionDigest !== currentDigest))
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "Task rework requires a current changes_requested review, an owner-confirmed blocker finding, " +
-            "or an owner-consented approved cut",
-        ),
-      );
-    if (
-      !ownerConfirmedBlocker &&
-      !consentedApprovedCut &&
-      (!Number.isSafeInteger(proof.reworkBudget) ||
-        (proof.reworkBudget as number) < 1 ||
-        returned < (proof.reworkBudget as number))
-    )
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_transition",
-          "Task rework for a changes_requested review is available only after the repository rework budget is exhausted",
+          "Task rework reviewId must name a review of the current submission",
         ),
       );
     if (!isNonEmptyString(command.reason))
@@ -645,9 +605,7 @@ export const rework: Transition = {
       !task ||
       !isSamePerson(task.createdBy, command.actor)
     )
-      issues.push(
-        lifecycleContractIssue("invalid_proof", "only the task-owning principal may return exhausted rework"),
-      );
+      issues.push(lifecycleContractIssue("invalid_proof", "only the task-owning principal may return a cut to rework"));
     return issues;
   },
   reduce: (snapshot, raw) => {
@@ -672,7 +630,7 @@ export const rework: Transition = {
         task,
         execution: nextExecution,
         reason: command.reason,
-        reviewId: command.reviewId,
+        ...(command.reviewId ? { reviewId: command.reviewId } : {}),
       }),
     };
   },

@@ -131,7 +131,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       // dec_BB2BCE9F995CD3A126E2918734 CH4: no fact quota — the strict cut waits on review, not facts.
       const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
-      assert.equal(completed.code, "review_missing");
+      assert.equal(completed.code, "review_pending");
       assert.doesNotMatch(JSON.stringify(completed), /fact_missing|code_doc_missing/);
       // The standard preset no longer freezes any gate, so the receipt names the empty set instead of
       // the retired code/doc requirement (owner 2026-10-21 B3). A task created before the retirement

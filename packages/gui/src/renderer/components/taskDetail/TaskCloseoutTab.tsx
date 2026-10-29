@@ -211,7 +211,7 @@ export function TaskCloseoutTab({
 /**
  * 完成销账面板:完成/评审/同意的状态只有一个来源——`repo.tasks.completion.read`
  * 的 completionNext 与 completionBlocker,不从 task 行自行推导。阶段由结构化
- * blocker.code 判别(review_missing=待独立评审,consent_missing=待同意),
+ * blocker.code 判别(review_pending=待独立评审,review_rejected=评审退回,consent_missing=待同意),
  * action 文案只作展示;面板动作只镜像这条入口(「提交完成」=无 consent 的
  * task-complete,由 daemon 在 review 门派发独立评审;评审批准后 read 会给出
  * consent_missing,那时「同意完成」才可点)。不提供人工填 verdict 的按钮,
@@ -234,7 +234,7 @@ function CompletionPanel({
     stage =
       code === "consent_missing"
         ? ("consent" as const)
-        : code === "review_missing"
+        : code === "review_pending" || code === "review_rejected"
           ? ("review" as const)
           : code === undefined || code === null
             ? ("ready" as const)

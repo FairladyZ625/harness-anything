@@ -270,11 +270,11 @@ function reviewSecondRound(input: {
   );
 }
 
-test("upheld prior finding keeps the cut at review for CEO disposition", () => {
+test("omitted resolution treats a prior rebutted finding as upheld", () => {
   const result = reviewSecondRound({
     verdict: "changes_requested",
     findings: [{ findingId: "F-2", blocking: true, text: "A second blocking concern." }],
-    resolutions: [{ reviewId: "review-round-one", findingId: "F-1", resolution: "upheld" }],
+    resolutions: [],
   });
 
   assert.equal(result.snapshot.task?.status, "in_review");
@@ -283,19 +283,17 @@ test("upheld prior finding keeps the cut at review for CEO disposition", () => {
   assert.equal(result.event.payload.edge, undefined);
 });
 
-test("a re-review must resolve every prior finding the worker rebutted", () => {
-  assert.throws(
-    () =>
-      reviewSecondRound({
-        verdict: "changes_requested",
-        findings: [{ findingId: "F-2", blocking: true, text: "A second blocking concern." }],
-        resolutions: [],
-      }),
-    /exactly one resolution for rebutted finding review-round-one\/F-1/u,
-  );
+test("a re-review may omit resolutions for a prior finding the worker rebutted", () => {
+  const result = reviewSecondRound({
+    verdict: "changes_requested",
+    findings: [{ findingId: "F-2", blocking: true, text: "A second blocking concern." }],
+    resolutions: [],
+  });
+  assert.equal(result.event.type, "review_recorded");
+  assert.equal(result.snapshot.task?.status, "in_review");
 });
 
-test("an approved re-review omits resolutions for a fixed finding and reports how to correct an extraneous one", () => {
+test("an approved re-review accepts an extra resolution for a fixed finding", () => {
   const registered = reviewSecondRound({
     verdict: "approved",
     findings: [],
@@ -305,28 +303,22 @@ test("an approved re-review omits resolutions for a fixed finding and reports ho
 
   assert.equal(registered.event.type, "review_recorded");
   assert.equal(registered.snapshot.reviews.at(-1)?.verdict, "approved");
-  assert.throws(
-    () =>
-      reviewSecondRound({
-        verdict: "approved",
-        findings: [],
-        resolutions: [{ reviewId: "review-round-one", findingId: "F-1", resolution: "withdrawn" }],
-        priorResponse: "adopt",
-      }),
-    /remove this resolution\. Fixed or adopted prior findings need no resolution; include exactly one resolution only for each finding the worker rebutted/u,
-  );
+  const extra = reviewSecondRound({
+    verdict: "approved",
+    findings: [],
+    resolutions: [{ reviewId: "review-round-one", findingId: "F-1", resolution: "withdrawn" }],
+    priorResponse: "adopt",
+  });
+  assert.equal(extra.snapshot.reviews.at(-1)?.verdict, "approved");
 });
 
-test("a resolution for a nonexistent finding remains rejected with the same correction", () => {
-  assert.throws(
-    () =>
-      reviewSecondRound({
-        verdict: "approved",
-        findings: [],
-        resolutions: [{ reviewId: "review-round-one", findingId: "F-404", resolution: "withdrawn" }],
-      }),
-    /resolution review-round-one\/F-404 does not address a rebutted finding from the prior review round; remove this resolution/u,
-  );
+test("a resolution for a nonexistent finding does not reject the review", () => {
+  const result = reviewSecondRound({
+    verdict: "approved",
+    findings: [],
+    resolutions: [{ reviewId: "review-round-one", findingId: "F-404", resolution: "withdrawn" }],
+  });
+  assert.equal(result.snapshot.reviews.at(-1)?.verdict, "approved");
 });
 
 test("withdrawn prior finding with no new blocker does not reopen the cut", () => {

@@ -61,7 +61,6 @@ export {
   consentedApprovedReviewForExecution,
   reviewsForExecution,
   reviewVerdicts,
-  settledApprovedReviewsForExecution,
 } from "./review.ts";
 export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
 

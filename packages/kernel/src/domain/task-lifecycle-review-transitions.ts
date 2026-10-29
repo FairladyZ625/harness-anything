@@ -22,13 +22,8 @@ import type {
   TaskCompletedEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
-import {
-  closeoutReadiness,
-  currentCutSettlement,
-  reviewConsentBlockers,
-  unfiledReviewFindings,
-} from "./closeout-readiness.ts";
-import { findingRulingCommand, reviewDispositionCommand } from "./completion-readiness.ts";
+import { closeoutReadiness, currentCutSettlement } from "./closeout-readiness.ts";
+import { findingRulingCommand } from "./completion-readiness.ts";
 import { isValidCloseoutGateRecord } from "./settings-closeout.ts";
 import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
@@ -97,31 +92,7 @@ function reviewIssues(
   if (!Array.isArray(command.findings))
     issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
   else issues.push(...validateReviewFindings(command.findings));
-  if (!Array.isArray(command.resolutions))
-    issues.push(lifecycleContractIssue("missing_field", "new Review records must include a resolutions array"));
-  else issues.push(...validateReviewResolutions(command.resolutions));
-  const priorRebuttedFindings = priorRebuttedFindingKeys(snapshot, command.iteration),
-    suppliedResolutionKeys = new Map<string, number>();
-  for (const resolution of command.resolutions ?? []) {
-    const key = `${resolution.reviewId}\0${resolution.findingId}`;
-    suppliedResolutionKeys.set(key, (suppliedResolutionKeys.get(key) ?? 0) + 1);
-    if (!priorRebuttedFindings.includes(key))
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_review",
-          `resolution ${resolution.reviewId}/${resolution.findingId} does not address a rebutted finding from the prior review round; remove this resolution. Fixed or adopted prior findings need no resolution; include exactly one resolution only for each finding the worker rebutted.`,
-        ),
-      );
-  }
-  for (const key of priorRebuttedFindings) {
-    if (suppliedResolutionKeys.get(key) !== 1)
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_review",
-          `re-review must include exactly one resolution for rebutted finding ${key.replace("\0", "/")}; add one resolution marked upheld or withdrawn.`,
-        ),
-      );
-  }
+  if (command.resolutions !== undefined) issues.push(...validateReviewResolutions(command.resolutions));
   // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
   // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
   if (
@@ -138,17 +109,6 @@ function reviewIssues(
   return issues;
 }
 
-function priorRebuttedFindingKeys(snapshot: TaskLifecycleSnapshot, iteration: number): readonly string[] {
-  const priorReviews = snapshot.reviews.filter((review) => review.iteration < iteration);
-  if (priorReviews.length === 0) return [];
-  const priorIteration = Math.max(...priorReviews.map((review) => review.iteration)),
-    priorReviewIds = new Set(
-      priorReviews.filter((review) => review.iteration === priorIteration).map((review) => review.reviewId),
-    );
-  return (snapshot.reviewResponses ?? [])
-    .filter((response) => response.disposition === "rebut" && priorReviewIds.has(response.reviewId))
-    .map((response) => `${response.reviewId}\0${response.findingId}`);
-}
 function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 {
   const qualificationEvidence =
     command.externalCompletionAnchor === undefined
@@ -227,7 +187,23 @@ function reworkReopen(
 ): { readonly task: TaskV2; readonly execution: ExecutionV1; readonly edge: TaskEdgeTaken } | null {
   if (command.verdict !== "changes_requested") return null;
   const resolutions = recorded.resolutions ?? [],
-    upheld = resolutions.some((resolution) => resolution.resolution === "upheld"),
+    priorReviews = snapshot.reviews.filter((review) => review.iteration < command.iteration),
+    priorIteration = priorReviews.length ? Math.max(...priorReviews.map((review) => review.iteration)) : -1,
+    priorIds = new Set(
+      priorReviews.filter((review) => review.iteration === priorIteration).map((review) => review.reviewId),
+    ),
+    rebutted = (snapshot.reviewResponses ?? []).filter(
+      (response) => response.disposition === "rebut" && priorIds.has(response.reviewId),
+    ),
+    upheld = rebutted.some(
+      (response) =>
+        !resolutions.some(
+          (resolution) =>
+            resolution.reviewId === response.reviewId &&
+            resolution.findingId === response.findingId &&
+            resolution.resolution === "withdrawn",
+        ),
+    ),
     newBlocking = (recorded.findings ?? []).some(
       (finding) =>
         finding.blocking &&
@@ -422,23 +398,7 @@ export const consent: Transition = {
               isReviewDispositionEligible(value),
           )
           .map((value) => value.reviewId),
-      ),
-      consentBlockers = current?.submission
-        ? reviewConsentBlockers(snapshot.reviews, current, proof.reviewFindingTriages ?? [], [
-            ...(snapshot.reviewDispositions ?? []),
-            ...(proposedDisposition ? [proposedDisposition] : []),
-          ])
-        : [],
-      settlement = current?.submission
-        ? currentCutSettlement(snapshot.reviews, current, proof.reviewFindingTriages ?? [], [
-            ...(snapshot.reviewDispositions ?? []),
-            ...(proposedDisposition ? [proposedDisposition] : []),
-          ])
-        : null,
-      unfiled =
-        current?.submission && !hasDispositionAction
-          ? unfiledReviewFindings(snapshot.reviews, current, snapshot.reviewDispositions ?? [])
-          : [];
+      );
     if (hasDispositionAction && command.actor.principal.personId !== snapshot.task?.createdBy.principal.personId)
       issues.push(
         lifecycleContractIssue("invalid_proof", "review override consent requires the task owner's principal"),
@@ -543,35 +503,6 @@ export const consent: Transition = {
             "--rationale <why>",
         ),
       );
-    if (consentBlockers.length && !hasDispositionAction)
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_transition",
-          "owner consent cannot waive unresolved findings: " +
-            consentBlockers.map(({ reviewId, findingId }) => `${reviewId}/${findingId}`).join(", ") +
-            "; resolve them first with " +
-            [
-              ...consentBlockers.flatMap(({ reviewId, findingId }) => {
-                const isEscalated = settlement?.escalated.some(
-                    (value) => value.reviewId === reviewId && value.findingId === findingId,
-                  ),
-                  isUnfiled = unfiled.some((value) => value.reviewId === reviewId && value.findingId === findingId);
-                if (isEscalated)
-                  return [findingRulingCommand(command.taskId, command.executionId, reviewId, findingId)];
-                if (isUnfiled) return [reviewDispositionCommand(command.taskId, command.executionId, reviewId)];
-                return [];
-              }),
-              ...(consentBlockers.some(
-                ({ reviewId, findingId }) =>
-                  !settlement?.escalated.some(
-                    (value) => value.reviewId === reviewId && value.findingId === findingId,
-                  ) && !unfiled.some((value) => value.reviewId === reviewId && value.findingId === findingId),
-              )
-                ? [`ha task dispatch-review ${command.taskId}`]
-                : []),
-            ].join("; "),
-        ),
-      );
     if (
       !recorded ||
       command.reviewDigest !== reviewDigest(recorded) ||
@@ -672,24 +603,7 @@ export const complete: Transition = {
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
       gatesValid = isValidCloseoutGateRecord(proof.closeoutGates),
-      assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined, proof.delivery),
-      currentDigest = current?.submission ? submissionDigest(current.submission) : undefined,
-      selectedConsent =
-        current && [...snapshot.consents].reverse().find((value) => value.executionId === current.executionId),
-      selectedReview = selectedConsent
-        ? snapshot.reviews.find((value) => value.reviewId === selectedConsent.reviewId)
-        : undefined,
-      conflicts = currentDigest
-        ? reviewConsentConflicts({
-            selectedReview,
-            allowSelectedChangesRequested: true,
-            reviews: snapshot.reviews.filter(
-              (value) => value.executionId === command.executionId && value.iteration === current?.iteration,
-            ),
-            dispositions: snapshot.reviewDispositions ?? [],
-            currentSubmissionDigest: currentDigest,
-          })
-        : [];
+      assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined, proof.delivery);
     if (command.resolution) {
       if (
         !isNonEmptyString(command.resolution.resolvedByTaskId) ||
@@ -751,9 +665,7 @@ export const complete: Transition = {
             ? `CompleteTask for a ${task.taskClass} task requires an active decision derives edge; ` +
                 "run ha relation relate --source-ref decision/<decision-id>/<claim-id> --type derives " +
                 `--target-ref task/${task.taskId} --rationale <why this decision authorises the task> --expected-version 0`
-            : conflicts.length
-              ? `CompleteTask review consent conflicts: ${describeReviewConsentConflicts(conflicts)}`
-              : "CompleteTask requires a consent-selected approved Review",
+            : "CompleteTask requires a consent-selected approved Review",
         ),
       );
     if (
