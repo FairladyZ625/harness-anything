@@ -823,7 +823,7 @@ test("explicit launch rejects an unavailable model with an actionable instance h
   }
 });
 
-test("explicit launch resolves a provider/model declaration to its sole same-family catalog model", async () => {
+test("explicit launch rejects a different model with a shared version prefix", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-family-model-"));
   try {
     const store = openRuntimeInstanceStore({
@@ -843,13 +843,15 @@ test("explicit launch resolves a provider/model declaration to its sole same-fam
       enabled: true,
       auth: { mode: "api-key", credentialRef: "credential:v1:codex-family-model" },
     });
-    const prepared = await store.prepareLaunch("codex-family-model", {
-      cwd: "/workspace/repo",
-      prompt: "Use the only model in the requested family.",
-      model: '["openai","GPT-6.1-Astra"]',
-    });
-    assert.equal(prepared.definition.model, "gpt-5.6-sol");
-    assert.equal(prepared.args[prepared.args.indexOf("--model") + 1], "gpt-5.6-sol");
+    await assert.rejects(
+      store.prepareLaunch("codex-family-model", {
+        cwd: "/workspace/repo",
+        prompt: "Reject an unsupported model.",
+        model: '["openai","GPT-6.1-Astra"]',
+      }),
+      (error: unknown) =>
+        codedAs(error, "invalid_runtime_model") && error.message.includes("Supported models: gpt-5.6-sol"),
+    );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

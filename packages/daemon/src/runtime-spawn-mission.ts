@@ -268,8 +268,7 @@ export function resolveRuntimeInstanceCandidates(input: {
       (declaredType === undefined || declaredType === instance.kindId) &&
       (declaredTargets === undefined || agentRuntimeKindMatches(declaredTargets, instance.kindId)),
   );
-  // One resolver admits exact, case-insensitive, or unique same-family models; its tier ranking
-  // still gives exact spellings priority over the more permissive matches.
+  // One resolver admits exact or case-insensitive models and ranks exact spellings first.
   const declared = declaredModel
     ? typed.filter((instance) => agentRuntimeModelMatches(instance.models, declaredModel))
     : typed.filter((instance) => {

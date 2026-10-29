@@ -14,8 +14,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
  *  1. the declaration's runtimes row that admits the instance (an unbound dispatch shares one
  *     trailing row, which keeps its cross-kind behaviour unchanged);
  *  2. the declaration's `preferredInstances` order, when the instance is listed there;
- *  3. model-match tier: exact spelling beats case-insensitive spelling, then an unambiguous
- *     same-family catalog choice;
+ *  3. model-match tier: exact spelling beats case-insensitive spelling;
  *  4. live session load, dispatch only — see `prepareRuntimeInstance`;
  *  5. repository `runtime.allowedInstances` order, which the resolver already emits.
  *
@@ -37,7 +36,6 @@ export type RuntimeInstanceSelectionBasis =
   | "declared-preference"
   | "exact-model"
   | "case-insensitive-model"
-  | "single-model-family"
   | "runtime-row-order";
 
 export interface RuntimeInstanceSelection {
@@ -54,8 +52,8 @@ export interface RuntimeInstanceRank {
   readonly rowIndex: number;
   /** Index in `preferredInstances`; `MAX_SAFE_INTEGER` when the declaration does not list it. */
   readonly preferenceIndex: number;
-  /** Exact spelling, case-insensitive spelling, unique same-family model, or no match (3..0). */
-  readonly modelTier: 0 | 1 | 2 | 3;
+  /** Exact spelling, case-insensitive spelling, or no match (3, 2, 0). */
+  readonly modelTier: 0 | 2 | 3;
 }
 
 export interface RuntimeInstanceRankInput {
@@ -174,12 +172,6 @@ export function selectedRuntimeInstance(input: {
       "case-insensitive-model",
       `Instance ${input.selected} (${kind}) lists the declared model ${declaredModel} only with different ` +
         `letter case; no enabled instance spelled it verbatim. Pin the instance or the spelling to keep this choice.`,
-    );
-  if (declaredModel !== undefined && tier === 1)
-    return selection(
-      "single-model-family",
-      `Agent ${input.agent?.id ?? "dispatch"} declares model ${declaredModel}; instance ${input.selected} has one ` +
-        `supported model in the same family, so it resolves to ${launchModel}.`,
     );
   // No higher key separated the candidates. Say so instead of attributing the choice to the model
   // tier, which would be a hollow truth whenever every compatible instance spells the model the

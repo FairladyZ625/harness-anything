@@ -1170,8 +1170,8 @@ test("install and validate warn when a valid declaration leaves the instance cho
   }
 });
 
-test("Agent install accepts a sole same-family catalog model", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-single-model-family-")),
+test("Agent install rejects a different model with a shared version prefix", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-unavailable-model-")),
     declaration = {
       ...agent,
       id: "gpt-family-reviewer",
@@ -1179,15 +1179,20 @@ test("Agent install accepts a sole same-family catalog model", async () => {
       runtimes: [{ type: "codex", model: "gpt-6.1-astra" }],
     };
   try {
-    const report = (await install({
-      rootDir,
-      kind: "agent-install",
-      declaration,
-      runtimeInstances: [
-        { instanceId: "codex-single-family", kindId: "codex", models: ["gpt-5.6-sol"], enabled: true },
-      ],
-    })) as { readonly warnings?: readonly unknown[] };
-    assert.deepEqual(report.warnings ?? [], []);
+    await assert.rejects(
+      () =>
+        install({
+          rootDir,
+          kind: "agent-install",
+          declaration,
+          runtimeInstances: [
+            { instanceId: "codex-single-family", kindId: "codex", models: ["gpt-5.6-sol"], enabled: true },
+          ],
+        }),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "agent_model_unavailable" &&
+        /ha runtime instance list/u.test(String((error as Error).message)),
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

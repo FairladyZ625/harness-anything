@@ -626,27 +626,9 @@ test("provider/model declarations retain exact-match priority after extracting t
   );
 });
 
-test("a sole model in the declared family resolves when no exact spelling exists", () => {
-  const declared: RuntimeAgent = { ...agent(), runtimes: [{ type: "codex", model: "gpt-6.1-astra" }] },
-    instances = [instance("codex-single-family", "codex", "openai", ["gpt-5.6-sol"])];
-  assert.deepEqual(
-    resolveRuntimeInstanceCandidates({
-      agent: declared,
-      instances,
-      sessions: [],
-      allowedInstanceIds: ["codex-single-family"],
-    }),
-    ["codex-single-family"],
-  );
-  const selection = selectedRuntimeInstance({ agent: declared, instances, selected: "codex-single-family" });
-  assert.equal(selection.model, "gpt-5.6-sol");
-  assert.equal(selection.basis, "single-model-family");
-  assert.match(selection.reason, /declares model gpt-6\.1-astra.*resolves to gpt-5\.6-sol/u);
-});
-
-test("unique family fallback rejects other families and ambiguous same-family catalogs", () => {
+test("model compatibility rejects catalogs without an exact or case-insensitive match", () => {
   const declared: RuntimeAgent = { ...agent(), runtimes: [{ type: "codex", model: "gpt-6.1-astra" }] };
-  for (const models of [["claude-sonnet"], ["gpt-5.6-sol", "gpt-5.6-terra"]])
+  for (const models of [["claude-sonnet"], ["gpt-5.6-sol"], ["gpt-5.6-sol", "gpt-5.6-terra"]])
     assert.throws(
       () =>
         resolveRuntimeInstanceCandidates({
@@ -662,7 +644,7 @@ test("unique family fallback rejects other families and ambiguous same-family ca
     );
 });
 
-test("an explicit instance with no matching family fails before launch preparation", () => {
+test("an explicit instance with no matching model fails before launch preparation", () => {
   const declared = deepseekReviewer(),
     available = instance("ds-bailian", "deepseek-harness", "deepseek", ["gpt-5.6-sol"]);
   assert.throws(

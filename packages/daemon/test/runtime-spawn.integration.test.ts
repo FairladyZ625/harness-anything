@@ -440,13 +440,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     },
     {
       schema: "agent-declaration/v1",
-      id: "family-model",
-      name: "Family Model",
-      instructions: "Use the sole compatible model in this runtime family.",
-      runtimes: [{ type: "codex", model: "gpt-6.1-astra" }],
-    },
-    {
-      schema: "agent-declaration/v1",
       id: "case-model",
       name: "Case Model",
       instructions: "Use the model catalog spelling for this declaration.",
@@ -637,22 +630,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") <
           (launched?.prompt ?? "").indexOf("# Standard Task") &&
         (launched?.prompt ?? "").indexOf("# Standard Task") < (launched?.prompt ?? "").indexOf("# Mission"),
-    );
-    const resolvedFamily = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: "codex-agent-model",
-        agentId: "family-model",
-        cwd: { scope: "repo-root" },
-        prompt: "Use the declared family's sole model.",
-        taskId: null,
-        dispatchKey: "family-model-explicit-instance",
-      },
-      binding,
-    );
-    assert.equal(launched?.definition.model, "gpt-5.6-sol");
-    assert.match(
-      (resolvedFamily.runtimeSelection as { readonly reason: string }).reason,
-      /Agent family-model declares model gpt-6\.1-astra, which resolves to gpt-5\.6-sol on instance codex-agent-model/u,
     );
     const resolvedCase = await cell.spawnRuntime(
       {

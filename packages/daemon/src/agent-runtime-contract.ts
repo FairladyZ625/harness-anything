@@ -75,14 +75,12 @@ export const agentRuntimeTargetSummary = (runtimes: readonly { readonly type: st
 /**
  * How well one instance's model catalog answers a declared model: 3 when the exact string is
  * listed, 2 when only a case-insensitive spelling is (providers publish `Deepseek-V4.1-Flash`
- * where a declaration writes `deepseek-v4.1-flash`), 1 when the only model in the same named family
- * is unambiguous, and 0 when absent.
+ * where a declaration writes `deepseek-v4.1-flash`), and 0 when absent.
  *
- * Model ids are provider identifiers, so exact spelling stays strongest. Case folding is limited
- * to this resolver; the family fallback is accepted only when exactly one catalog entry shares the
- * model's leading family token. Ranking by tier keeps both stronger matches ahead of that fallback.
+ * Model ids are provider identifiers, so the resolver does not infer compatibility from a shared
+ * vendor or version prefix.
  */
-export type AgentRuntimeModelMatchTier = 0 | 1 | 2 | 3;
+export type AgentRuntimeModelMatchTier = 0 | 2 | 3;
 export interface AgentRuntimeModelResolution {
   readonly model: string;
   readonly tier: Exclude<AgentRuntimeModelMatchTier, 0>;
@@ -92,12 +90,7 @@ function modelIntent(value: string): string {
   // instance catalog exposes only the model id. Resolve that authored intent against the leaf id.
   return /^\[\s*"[^"]+"\s*,\s*"([^"]+)"\s*\]$/u.exec(value)?.[1] ?? value;
 }
-function modelFamily(value: string): string {
-  const intent = modelIntent(value),
-    versionedFamily = /^([a-z][a-z0-9]*?)-(?:v)?\d+(?:\.\d+)*(?:-|$)/iu.exec(intent)?.[1];
-  return versionedFamily?.toLowerCase() ?? intent.toLowerCase();
-}
-/** The sole implementation for exact, case-insensitive, and unique same-family model resolution. */
+/** The sole implementation for exact and case-insensitive model resolution. */
 export const agentRuntimeModelResolution = (
   models: readonly string[],
   requested: string | undefined,
@@ -108,9 +101,7 @@ export const agentRuntimeModelResolution = (
   const folded = intent.toLowerCase(),
     caseInsensitive = models.find((model) => model.toLowerCase() === folded);
   if (caseInsensitive !== undefined) return { model: caseInsensitive, tier: 2 };
-  const family = modelFamily(intent),
-    sameFamily = models.filter((model) => modelFamily(model) === family);
-  return sameFamily.length === 1 ? { model: sameFamily[0]!, tier: 1 } : null;
+  return null;
 };
 export const agentRuntimeModelTier = (
   models: readonly string[],

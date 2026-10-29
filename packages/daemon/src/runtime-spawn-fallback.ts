@@ -112,15 +112,14 @@ export function initialFallbackAttempt(
       health,
       now,
     }).filter((instanceId) => instanceId !== resumedInstanceId),
-    requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
-    // The pin stays attempt 0 even when model-tier ranking puts another compatible row first; keep
-    // all successors in resolver order, since slicing at the pin would drop those earlier rows.
-    successors =
-      pin === undefined || requestedIndex < 0
-        ? derivedInstances
-        : [pin, ...derivedInstances.filter((instanceId) => instanceId !== pin)],
+    configuredInstances = allowedInstanceIds?.filter((instanceId) => derivedInstances.includes(instanceId)),
+    fallbackOrder = configuredInstances ?? derivedInstances,
+    requestedIndex = pin ? fallbackOrder.indexOf(pin) : -1,
+    // A pinned attempt starts its fallback chain at its configured allowlist position; providers
+    // before it are not successors and must not be retried as fallbacks.
+    successors = pin === undefined || requestedIndex < 0 ? derivedInstances : fallbackOrder.slice(requestedIndex + 1),
     candidates = [
-      ...(pin !== undefined && requestedIndex < 0 ? [pin] : []),
+      ...(pin === undefined ? [] : [pin]),
       ...(resumedInstanceId === undefined ? [] : [resumedInstanceId]),
       ...successors,
     ].map((instanceId) => ({
