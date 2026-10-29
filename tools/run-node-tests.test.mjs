@@ -2,7 +2,16 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -155,34 +164,69 @@ test("filterTestFilesByNames keeps only exact selected repository paths", () => 
 });
 
 test("runner watchdog fails and names a file whose process keeps an open handle", () => {
+  const diagnosticsDirectory = mkdtempSync(path.join(os.tmpdir(), "ha-runner-diagnostics-"));
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_OPEN_HANDLE_FIXTURE: "1",
-    HARNESS_TEST_FILE_TIMEOUT_MS: "250",
+    HARNESS_TEST_FILE_TIMEOUT_MS: "3000",
+    HARNESS_TEST_DIAGNOSTICS_DIR: diagnosticsDirectory,
   };
   delete childEnv.NODE_TEST_CONTEXT;
-  const result = spawnSync(
-    process.execPath,
-    ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-watchdog"],
-    {
-      cwd: repoRoot,
-      encoding: "utf8",
-      env: childEnv,
-      timeout: 10_000,
-    },
-  );
-  const output = `${result.stdout}\n${result.stderr}`;
-  assert.equal(result.error, undefined, output);
-  assert.equal(result.status, 1, output);
-  assert.match(
-    output,
-    /\[node-test-watchdog\] test file exceeded timeout: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u,
-  );
-  assert.match(
-    output,
-    /\[node-test-failure\] tools\/test-fixtures\/runner-watchdog\/a-completed\.test\.mjs: completed before a different file exceeded its deadline/u,
-  );
-  assert.match(output, /runner watchdog completed-file assertion details/u);
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "tools/run-node-tests.mjs",
+        "--tier",
+        "fast",
+        "--file",
+        "tools/test-fixtures/runner-watchdog/a-completed.test.mjs",
+        "--file",
+        "tools/test-fixtures/runner-watchdog/open-handle.test.mjs",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: childEnv,
+        timeout: 10_000,
+      },
+    );
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.error, undefined, output);
+    assert.equal(result.status, 1, output);
+    assert.match(
+      output,
+      /\[node-test-watchdog\] test file exceeded timeout: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u,
+    );
+    assert.match(
+      output,
+      /\[node-test-failure\] tools\/test-fixtures\/runner-watchdog\/a-completed\.test\.mjs: completed before a different file exceeded its deadline/u,
+    );
+    assert.match(output, /runner watchdog completed-file assertion details/u);
+
+    const failureFile = readdirSync(diagnosticsDirectory).find((file) => file.startsWith("test-failures-"));
+    assert.ok(failureFile, `failure artifact missing; found ${readdirSync(diagnosticsDirectory).join(", ")}`);
+    const failures = readFileSync(path.join(diagnosticsDirectory, failureFile), "utf8")
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line));
+    const observedFailure = failures.find(
+      (failure) => failure.name === "completed before a different file exceeded its deadline",
+    );
+    assert.ok(observedFailure, "failure artifact omitted the completed test failure");
+    assert.equal(observedFailure.file, "tools/test-fixtures/runner-watchdog/a-completed.test.mjs");
+    assert.match(observedFailure.error.stack, /runner watchdog completed-file assertion details/u);
+
+    const watchdogFile = readdirSync(diagnosticsDirectory).find((file) => file.startsWith("watchdog-"));
+    assert.ok(watchdogFile, `watchdog artifact missing; found ${readdirSync(diagnosticsDirectory).join(", ")}`);
+    const watchdogReport = readFileSync(path.join(diagnosticsDirectory, watchdogFile), "utf8");
+    assert.match(watchdogReport, /last 200 child output line\(s\)/u);
+    assert.match(watchdogReport, /runner watchdog output tail 219/u);
+    assert.match(watchdogReport, /\[stall-report\].*active handle/u);
+    assert.match(watchdogReport, /\[stall-report\].*\btcp\b/iu);
+  } finally {
+    rmSync(diagnosticsDirectory, { recursive: true, force: true });
+  }
 });
 
 // A daemon started by a test is detached, so only the daemon itself can end with its test: it

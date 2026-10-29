@@ -223,7 +223,18 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
+      - name: Run Windows integration shard
+        env:
+          HARNESS_TEST_DIAGNOSTICS_DIR: tmp/node-test-diagnostics
+        run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
+      - name: Preserve Windows test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-integration-diagnostics-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/node-test-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 14
 
   nightly-daemon-soak:
     # Functional CI starts a small daemon, serves one client for seconds, and stops it. That shape

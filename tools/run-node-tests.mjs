@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -158,6 +158,15 @@ const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const testTemporaryRoot = mkdtempSync(join(tmpdir(), "ha-node-test-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
+const failureReporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-failure-reporter.mjs")).href;
+const diagnosticsDirectory = process.env.HARNESS_TEST_DIAGNOSTICS_DIR
+  ? resolve(repoRoot, process.env.HARNESS_TEST_DIAGNOSTICS_DIR)
+  : undefined;
+if (diagnosticsDirectory !== undefined) mkdirSync(diagnosticsDirectory, { recursive: true });
+const failureArtifactPath =
+  diagnosticsDirectory === undefined ? undefined : join(diagnosticsDirectory, `test-failures-${process.pid}.jsonl`);
+const watchdogArtifactPath =
+  diagnosticsDirectory === undefined ? undefined : join(diagnosticsDirectory, `watchdog-${process.pid}.log`);
 const quarantinePattern =
   process.env.HARNESS_TEST_QUARANTINE === "skip"
     ? exactNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
@@ -187,6 +196,8 @@ const child = spawn(
     ...coverageReporterArgs(coveragePath),
     `--test-reporter=${reporterUrl}`,
     `--test-reporter-destination=${activityPath}`,
+    `--test-reporter=${failureReporterUrl}`,
+    "--test-reporter-destination=stdout",
     `--import=${stallReportUrl}`,
     `--import=${daemonOwnerUrl}`,
     ...(quarantinePattern ? [`--test-skip-pattern=${quarantinePattern}`] : []),
@@ -200,6 +211,7 @@ const child = spawn(
       ...(stallReportMs === undefined
         ? { HARNESS_TEST_STALL_REPORT_MS: "0" }
         : { HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) }),
+      ...(failureArtifactPath === undefined ? {} : { HARNESS_TEST_FAILURE_ARTIFACT: failureArtifactPath }),
     },
     detached: process.platform !== "win32",
     stdio: ["inherit", "pipe", "pipe"],
@@ -241,6 +253,7 @@ const watchdog =
             `[node-test-watchdog] test file exceeded timeout: ${overdue.map(stalledFileReport).join(", ")}`,
           );
           reportCollectedFailures([...failureDetailsByFile.keys()]);
+          reportWatchdogDiagnostics();
           termination = terminateProcessTree(child);
         },
         Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
@@ -463,6 +476,29 @@ function reportCollectedFailures(files) {
   for (const { file, name, error } of failures) {
     console.error(`[node-test-failure] ${file}: ${name}`);
     console.error(error?.stack ?? `${error?.name ?? "Error"}: ${error?.message ?? "No error details provided"}`);
+  }
+}
+
+function reportWatchdogDiagnostics() {
+  const lines = output.split(/\r?\n/u);
+  if (lines.at(-1) === "") lines.pop();
+  const outputTail = lines.slice(-200);
+  const stallReportLines = lines.filter((line) => line.startsWith("[stall-report]"));
+  const report = [
+    `[node-test-watchdog] last ${outputTail.length} child output line(s):`,
+    ...outputTail,
+    `[node-test-watchdog] stall-report handle lines (${stallReportLines.length}):`,
+    ...(stallReportLines.length > 0
+      ? stallReportLines
+      : ["[stall-report] no handle report received before termination"]),
+    "",
+  ].join("\n");
+  process.stdout.write(`${report}\n`);
+  if (watchdogArtifactPath === undefined) return;
+  try {
+    writeFileSync(watchdogArtifactPath, report, "utf8");
+  } catch (error) {
+    console.error(`[node-test-watchdog-artifact] failed to write ${watchdogArtifactPath}: ${error.message}`);
   }
 }
 
