@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import test from "node:test";
 import { historicalReadConclusions, type ExecutionV1 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
@@ -46,6 +47,26 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.match(prompt, /registered anchors at their frozen revisions/u);
   assert.match(prompt, /first review.*every blocking finding visible/u);
   assert.doesNotMatch(prompt, /previous report at/u);
+});
+
+test("a reviewer in its own checkout writes and registers through the canonical artifact root", () => {
+  const artifactRoot = path.join(path.sep, "canonical", "harness"),
+    packagePath = "tasks/task-review-artifact-root",
+    prompt = reviewDispatchPrompt({
+      taskId: "task_review_artifact_root",
+      packagePath,
+      dispatchId: "dispatch_artifactroot0001",
+      execution: { executionId: "exe_artifact_root", iteration: 0, submission: {} } as unknown as ExecutionV1,
+      gates: [],
+      artifactRoot,
+    }),
+    packet = path.join(artifactRoot, packagePath, "artifacts", "reports", "dispatch_artifactroot0001.json");
+  assert.ok(prompt.includes(packet), "the registration packet is absolute, not cwd-relative");
+  assert.ok(prompt.includes(`--from-file ${packet}`), "registration names the canonical packet");
+  assert.ok(
+    prompt.includes(path.join(artifactRoot, packagePath, "artifacts", "reports", "dispatch_artifactroot0001.md")),
+    "the report path is absolute too",
+  );
 });
 
 test("decision review prompts hand the reviewer the exact registration identity fields", () => {

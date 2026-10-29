@@ -161,8 +161,10 @@ export function assertResumeAgent(
  * that launches it, checked out and prepared here before the dispatch is published, as a start's is: a setup step
  * that fails refuses the dispatch (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3) while a long install never holds the
  * repository write queue. `bindingFor` is where the two kinds of node differ: this node's projection, or what the
- * center delivered to an edge (dec_57370FF2021DADF04E3B21724D CH2). A resumed dispatch keeps its own cwd; a
- * reviewer, a dry-run preview and anything else start at the repository root.
+ * center delivered to an edge (dec_57370FF2021DADF04E3B21724D CH2). A resumed dispatch and a requested cwd keep
+ * their own checkout; a dry-run preview and a task with no binding start at the repository root. A reviewer is
+ * task-bound like an implementer here: relative writes from a review must land in its own checkout, never in the
+ * canonical root the review is judging.
  */
 export async function prepareDispatchWorktree(
   input: { readonly rootDir: string; readonly readSettings?: () => SettingsV1 },
@@ -179,11 +181,7 @@ export async function prepareDispatchWorktree(
   const resumed = typeof payload.dispatchId === "string" ? readDispatchStream(input.rootDir, payload.dispatchId) : null,
     taskId = typeof payload.taskId === "string" ? payload.taskId : (resumed?.header.taskId ?? null),
     binding =
-      payload.cwd === undefined &&
-      !resumed?.header.cwd &&
-      taskId &&
-      payload.role !== "reviewer" &&
-      payload.dryRun !== true
+      payload.cwd === undefined && !resumed?.header.cwd && taskId && payload.dryRun !== true
         ? bindingFor(taskId)
         : null;
   if (!taskId || !binding) {
@@ -226,10 +224,9 @@ export function projectedWorktreeBinding(input: {
 export function dispatchTaskPackageRoot(
   input: RuntimeSpawnerInput,
   taskId: string | null,
-  reviewer: boolean,
   remoteTask: { readonly worktree: TaskWorktreeBindingV1 | null; readonly packageRoot: string } | null,
 ): string | null {
-  if (!taskId || reviewer) return null;
+  if (!taskId) return null;
   if (remoteTask) return remoteTask.worktree ? null : remoteTask.packageRoot;
   const projection = requiredRuntimeProjection(input),
     read = requireCurrentTaskProjection(projection, taskId, "runtime.run"),

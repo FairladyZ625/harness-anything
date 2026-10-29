@@ -7,7 +7,7 @@ import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from 
  * owner's permissions this file's other tests rely on. A reviewer never needs to spawn. */
 const REWORK_REVIEWER_PERSON = "completion-rework-reviewer";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -67,7 +67,13 @@ async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSes
     }),
   );
   return f.cell().run(
-    { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: `harness/${packet}` },
+    {
+      kind: "task-review-execution",
+      taskId,
+      executionId,
+      reviewId,
+      fromFile: path.join(f.root, "harness", ...packet.split("/")),
+    },
     withPolicyGroup(
       {
         actor: {
@@ -80,6 +86,48 @@ async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSes
     ),
   );
 }
+
+test(
+  "a review dispatch runs in the task worktree, so a relative workspace link cannot reach the canonical root",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, true, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+    });
+    try {
+      await f.install();
+      await f.submit();
+      assert.equal(f.launches.length, 1, "the submission dispatched one reviewer");
+      const launched = f.launches[0]!,
+        cwd = path.resolve(launched.cwd),
+        bindingPath = path.resolve(f.root, ".worktrees", taskId);
+      assert.equal(cwd, bindingPath, "the reviewer runs in its own task worktree");
+      assert.notEqual(cwd, path.resolve(f.root), "the reviewer does not run in the canonical root");
+      assert.equal(execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(), cwd);
+      // The incident shape: `ln -s /tmp/review-…/packages/cli packages/cli` with packages/cli
+      // already present lands the link inside the current checkout. In the review worktree that
+      // write stays local; the canonical checkout must gain nothing.
+      const packageDir = path.join(cwd, "packages", "cli");
+      mkdirSync(packageDir, { recursive: true });
+      symlinkSync("/tmp/review-e03b3e5c-delivery/packages/cli", path.join(packageDir, "cli"));
+      assert.equal(existsSync(path.join(f.root, "packages", "cli", "cli")), false);
+      assert.doesNotMatch(
+        execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }),
+        /packages\//u,
+        "the canonical checkout gains no package path",
+      );
+      // The reviewer writes the report and packet to the canonical ledger by absolute path, so
+      // registration cannot depend on whichever checkout its shell happens to run in.
+      assert.ok(
+        launched.prompt.includes(path.join(f.root, "harness", f.packagePath, "artifacts", "reports")),
+        `review prompt must name the canonical artifact root: ${launched.prompt}`,
+      );
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 test("review dispatch starts over provider-sized evidence and reads every frozen anchor", async (t) => {
   const f = await fixture(false, true, false, false, false, {
@@ -1028,7 +1076,9 @@ test(
       const fallbackReport = `${f.packagePath}/artifacts/reports/${second.payload.dispatchId}.md`;
       assert.ok(
         fallback.prompt.includes(`--review-id review-${second.payload.dispatchId}`) &&
-          fallback.prompt.includes(`--from-file harness/${fallbackReport.replace(/\.md$/u, ".json")}`),
+          fallback.prompt.includes(
+            `--from-file ${path.join(f.root, "harness", ...fallbackReport.replace(/\.md$/u, ".json").split("/"))}`,
+          ),
         `fallback must register under its own dispatch identity: ${fallback.prompt}`,
       );
       assert.ok(

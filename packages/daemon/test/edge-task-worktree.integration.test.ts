@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -67,17 +68,34 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
   assert.equal(git(cwd, "branch", "--show-current"), taskId);
 });
 
-test("edge dispatch cwd follows its worktree or artifact package while review keeps the main checkout", async (t) => {
+test("edge dispatch cwd follows its worktree or artifact package, including the reviewer seat", async (t) => {
   const fixture = nodesFixture(t),
-    cases: readonly {
-      readonly name: string;
-      readonly payload: JsonObject;
-      readonly worktree?: TaskWorktreeBindingV1 | null;
-    }[] = [
-      { name: "a reviewer", payload: { role: "reviewer", executionId: "execution-a" } },
-      { name: "a requested cwd", payload: { cwd: { scope: "repo-root" } } },
-      { name: "a task the center binds no worktree to", payload: {}, worktree: null },
-    ];
+    reviewer = edgeSpawner(fixture.nodeA, binding);
+  await assert.rejects(
+    reviewer.spawn({
+      taskId,
+      runtimeInstanceId: "edge-instance",
+      dispatchKey: "edge-reviewer",
+      role: "reviewer",
+      executionId: "execution-a",
+    }),
+    launched,
+    "a reviewer",
+  );
+  const reviewCwd = path.join(fixture.nodeA, binding.path);
+  assert.deepEqual(reviewer.launchedIn, [reviewCwd], "a reviewer");
+  assert.equal(git(reviewCwd, "branch", "--show-current"), taskId);
+  assert.match(reviewer.prompts[0]!, new RegExp(`Task package root: ${path.join(reviewCwd, packagePath)}\n`, "u"));
+  assert.deepEqual(readdirSync(path.join(fixture.nodeA, ".worktrees")), [taskId]);
+
+  const cases: readonly {
+    readonly name: string;
+    readonly payload: JsonObject;
+    readonly worktree?: TaskWorktreeBindingV1 | null;
+  }[] = [
+    { name: "a requested cwd", payload: { cwd: { scope: "repo-root" } } },
+    { name: "a task the center binds no worktree to", payload: {}, worktree: null },
+  ];
   for (const [index, scenario] of cases.entries()) {
     const edge = edgeSpawner(fixture.nodeA, scenario.worktree === undefined ? binding : scenario.worktree);
     await assert.rejects(
@@ -96,9 +114,9 @@ test("edge dispatch cwd follows its worktree or artifact package while review ke
       scenario.name,
     );
     assert.match(edge.prompts[0]!, new RegExp(`Task package root: ${path.join(fixture.nodeA, packagePath)}\n`, "u"));
-    assert.equal(existsSync(path.join(fixture.nodeA, ".worktrees")), false, scenario.name);
+    assert.deepEqual(readdirSync(path.join(fixture.nodeA, ".worktrees")), [taskId], scenario.name);
   }
-  // A dry-run preview assembles the prompt and checks nothing out.
+  // A dry-run preview assembles the prompt and checks nothing else out.
   const preview = edgeSpawner(fixture.nodeA, binding),
     previewed = await preview.spawn({
       taskId,
@@ -107,7 +125,7 @@ test("edge dispatch cwd follows its worktree or artifact package while review ke
       dryRun: true,
     });
   assert.equal(previewed.schema, "agent-dispatch-preview/v1");
-  assert.equal(existsSync(path.join(fixture.nodeA, ".worktrees")), false);
+  assert.deepEqual(readdirSync(path.join(fixture.nodeA, ".worktrees")), [taskId]);
 });
 
 test("a Git-less edge has no worktree to give and works in its workspace root", async (t) => {
