@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -27,6 +27,12 @@ import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts
  * 回应、评审会话、裁决页签与源实体详情。
  */
 const AT = "2026-09-29T01:00:00.000Z";
+/**
+ * 用例里的「现在」固定在 fixture 之后 2 天。渲染的等待时长按 Date.now() 计算,
+ * 真实时钟走过 30 天后 formatRelative 回落绝对时间,两条相对时长断言随之必红;
+ * 只冻结 Date、保留真实 timer,最后一条用例的 vi.waitFor 仍可推进。
+ */
+const NOW = new Date(Date.parse(AT) + 2 * 24 * 60 * 60 * 1_000);
 const decisionRow = (decisionId: string): AgendaDecisionRow => ({
   decisionId,
   title: `决策 ${decisionId}`,
@@ -141,11 +147,16 @@ beforeAll(() => {
   setActiveLocale("zh-CN");
 });
 
+beforeEach(() => {
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+});
+
 afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
   root = null;
   container = null;
+  vi.useRealTimers();
 });
 
 function mount(element: ReturnType<typeof createElement>): HTMLElement {
