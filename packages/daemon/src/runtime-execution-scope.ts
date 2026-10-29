@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   stableStringify,
   isSameExecution,
@@ -250,10 +251,17 @@ export function requireCurrentExecutionScope(input: {
       if (!taskReview) throw executionCredentialRejected();
       const packagePath = input.projection.read(p.taskId).packagePath,
         reportPacket = `${packagePath}/artifacts/reports/${p.dispatchId}.json`;
+      const fromFile = String(input.action.fromFile ?? ""),
+        // A reviewer may run in its own worktree and therefore name the canonical packet by
+        // absolute path; the read boundary later proves that path is inside the workspace.
+        packetNamed =
+          fromFile.replace(/^harness\//u, "") === reportPacket ||
+          fromFile === reportPacket ||
+          (path.isAbsolute(fromFile) && fromFile.replace(/\\/gu, "/").endsWith(`/${reportPacket}`));
       if (
         input.action.reviewId !== `review-${p.dispatchId}` ||
         (p.source === "local"
-          ? String(input.action.fromFile ?? "").replace(/^harness\//u, "") !== reportPacket
+          ? !packetNamed
           : !Array.isArray(input.action.docChanges) ||
             input.action.docChanges.length !== 1 ||
             !isJsonObject(input.action.docChanges[0]) ||

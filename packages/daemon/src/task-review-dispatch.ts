@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
 import {
   completionGateIds,
   consumeKnownError,
@@ -6,6 +7,7 @@ import {
   createEntityStore,
   currentSubmittedExecutions,
   historicalReadConclusions,
+  resolveHarnessLayout,
   submissionDigest,
   decisionReviewContentDigest,
   type ExecutionV1,
@@ -359,13 +361,17 @@ export function reviewDispatchPrompt(input: {
   readonly execution: ExecutionV1;
   readonly gates: readonly string[];
   readonly ownerNote?: string;
+  /** Absolute authored root when the reviewer runs in a checkout that does not hold the ledger. */
+  readonly artifactRoot?: string;
 }): string {
   const { taskId, packagePath, dispatchId, execution, gates } = input,
     inapplicable = (execution.submission?.completionContract?.gates ?? [])
       .filter((gate) => !gateAppliesToSubmission(gate, execution.submission!))
       .map((gate) => gate.gateId),
     report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
-    packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
+    packet = `${packagePath}/artifacts/reports/${dispatchId}.json`,
+    reportFile = input.artifactRoot ? path.join(input.artifactRoot, report) : `harness/${report}`,
+    packetFile = input.artifactRoot ? path.join(input.artifactRoot, packet) : `harness/${packet}`;
   return [
     `Independently review task ${taskId}, execution ${execution.executionId}, ` + `iteration ${execution.iteration}.`,
     ...(input.ownerNote
@@ -410,11 +416,11 @@ export function reviewDispatchPrompt(input: {
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     "For a re-review, include resolutions for prior findings as {reviewId, findingId, resolution: upheld|withdrawn}; " +
       "upheld findings go to the CEO, while a new blocking finding without an upheld resolution returns to the worker.",
-    `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
+    `Write this execution's review report to ${reportFile} and review input to ${packetFile}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
     derivedTaskActionProtocolCommands.find((command) => command.id === "task-review-execution")!.help,
     `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
-      `--review-id review-${dispatchId} --from-file harness/${packet}.`,
+      `--review-id review-${dispatchId} --from-file ${packetFile}.`,
     "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +
       "do not review the replacement under this dispatch. If ha task review-execution returns error code " +
       "review_cut_superseded, the cut has been replaced; this error is terminal and must not be retried.",
@@ -566,6 +572,7 @@ export async function spawnCutReviewDispatch(
             cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
             input.execution.submission,
           ),
+          artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
         })
       }\n${continuationNote}`,
     payload = {
@@ -573,7 +580,6 @@ export async function spawnCutReviewDispatch(
       role: "reviewer",
       taskId: input.taskId,
       executionId: input.execution.executionId,
-      cwd: { scope: "repo-root" },
       dispatchKey: key,
       ...(continuation?.resume ? { dispatchId: continuation.dispatchId } : {}),
       ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
@@ -595,7 +601,8 @@ export async function spawnCutReviewDispatch(
     return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
   try {
     // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
+    const worktree = await cell.runtimeSpawner.prepareWorktree(payload);
+    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision }, worktree);
   } catch (error) {
     if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
       // A provider can reject a previously valid session after admission (for example after its
@@ -616,7 +623,10 @@ export async function spawnCutReviewDispatch(
       // authorization decision was evaluated over the same actor, target, and repository revision,
       // so carrying it forward adds no permission the cut dispatch did not already have.
       const fallbackError = await cell.runtimeSpawner
-        .spawn(fallbackPayload, { ...input.binding, authorizationDecision })
+        .prepareWorktree(fallbackPayload)
+        .then((worktree) =>
+          cell.runtimeSpawner.spawn(fallbackPayload, { ...input.binding, authorizationDecision }, worktree),
+        )
         .then(
           () => null,
           (error: unknown) => error,
@@ -743,6 +753,7 @@ export async function dispatchInReviewCutReview(
                 execution,
                 gates: completionGateIds(current.snapshot.task!.completionGateIds, execution.submission),
                 ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
+                artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
               })}\n${reviewPathSeatPrompt({ seat })}`,
           }
         : {}),
@@ -971,7 +982,6 @@ export async function dispatchTaskReview(
         role: "reviewer",
         taskId,
         executionId: execution.executionId,
-        cwd: { scope: "repo-root" },
         dispatchKey: key,
         ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
         ...(typeof action.model === "string" ? { model: action.model } : {}),
@@ -984,6 +994,7 @@ export async function dispatchTaskReview(
             dispatchId: ids.dispatchId,
             execution,
             gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
+            artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
           }) + (seatPrompt === null ? "" : `\n${seatPrompt}`),
       },
       authorizationDecision = await evaluateRepoCellAction({
@@ -1001,7 +1012,8 @@ export async function dispatchTaskReview(
     }
     try {
       // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-      await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+      const worktree = await cell.runtimeSpawner.prepareWorktree(payload);
+      await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree);
       // The spawner resolved the concrete instance; read it from the dispatch event this spawn
       // just applied so the receipt names the agent and instance that will run the review.
       const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;

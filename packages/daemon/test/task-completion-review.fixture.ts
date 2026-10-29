@@ -155,7 +155,7 @@ export async function fixture(
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
-  const launches: { prompt: string; instanceId: string; model: string; args: readonly string[] }[] = [],
+  const launches: { prompt: string; instanceId: string; model: string; args: readonly string[]; cwd: string }[] = [],
     launchWaiters = new Set<() => void>();
   const pendingProviders: {
     output?: (chunk: string) => void;
@@ -221,6 +221,7 @@ export async function fixture(
           instanceId: prepared.definition.instanceId,
           model: prepared.definition.model,
           args: prepared.args,
+          cwd: prepared.cwd,
         });
         providerSessionStarted = true;
         for (const notify of launchWaiters) notify();
