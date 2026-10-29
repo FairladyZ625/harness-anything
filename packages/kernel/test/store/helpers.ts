@@ -7,13 +7,17 @@ import type { WriteOp } from "../../src/ports/index.ts";
 import { closeTaskProjectionsUnder } from "../../src/projection/rebuildable-task-projection.ts";
 import { closeSqliteEventStoresUnder } from "../../src/store/sqlite-ledger-connections.ts";
 
+export function closeTempStoreResourcesUnder(rootDir: string): void {
+  closeTaskProjectionsUnder(rootDir);
+  closeSqliteEventStoresUnder(rootDir);
+}
+
 export function withTempStore<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-kernel-store-"));
   try {
     return fn(rootDir);
   } finally {
-    closeTaskProjectionsUnder(rootDir);
-    closeSqliteEventStoresUnder(rootDir);
+    closeTempStoreResourcesUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
@@ -23,8 +27,7 @@ export async function withTempStoreAsync<T>(fn: (rootDir: string) => Promise<T>)
   try {
     return await fn(rootDir);
   } finally {
-    closeTaskProjectionsUnder(rootDir);
-    closeSqliteEventStoresUnder(rootDir);
+    closeTempStoreResourcesUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
