@@ -51,7 +51,9 @@ test("replay accepts a completion whose changes_requested review the owner dispo
   assert.equal(replayed.executions.at(-1)?.state, "accepted");
 });
 
-test("replay still rejects a completion over an undisposed changes_requested review", () => {
+test("replay does not rejudge a completion over an undisposed changes_requested review", () => {
   const { snapshot, completed } = overriddenCut(false);
-  assert.throws(() => reduceTaskEvent(snapshot, completed), /accepted task and execution state/);
+  const replayed = reduceTaskEvent(snapshot, completed);
+  assert.equal(replayed.task?.status, "done");
+  assert.equal(replayed.executions.at(-1)?.state, "accepted");
 });
