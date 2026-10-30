@@ -129,6 +129,12 @@ export interface RuntimeAttemptTerminal {
   readonly binding: RuntimeBinding;
 }
 
+export interface StalledReviewerContinuation {
+  readonly dispatchId: string;
+  readonly task: RuntimeLeaseScope;
+  readonly binding: RuntimeBinding;
+}
+
 export type RuntimeAgent = {
   readonly id: string;
   readonly name: string;
@@ -417,6 +423,8 @@ export interface RuntimeSpawnerInput {
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
     schedule: TrustedScheduleRuntime | null,
   ) => void;
+  /** Re-enters the existing task-review dispatch lane once after a primary reviewer stalls. */
+  readonly onStalledReviewer?: (continuation: StalledReviewerContinuation) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
   readonly handoffTaskLease?: (input: {
     readonly taskId: string;
