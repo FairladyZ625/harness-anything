@@ -193,6 +193,9 @@ export const RETIRED_SETTINGS_PATHS = Object.freeze([
   ["ci", "workflows"],
   ["gates", "ci"],
   ["closeout", "overrides", "codeDoc"],
+  ["review", "thresholds", "correctness"],
+  ["review", "thresholds", "migration"],
+  ["review", "thresholds", "securityAuth"],
 ] as const);
 
 export const RETIRED_SETTINGS_GATE_ADAPTERS = Object.freeze(["github-actions", "gitlab-pipeline"] as const);
@@ -821,7 +824,7 @@ function assertDeclaredNestedKeys(
         throw new SettingsDeclarationError(
           `settings.${path.join(".")} field ${key} is not declared` +
             (RETIRED_SETTINGS_PATHS.some((retired) => retired.join(".") === [...path, key].join("."))
-              ? "; attach migrates retired CI settings before reads are served."
+              ? "; attach migrates retired settings before reads are served."
               : ""),
         );
   }

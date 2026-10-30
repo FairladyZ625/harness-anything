@@ -198,7 +198,6 @@ export function buildCommand(
       "reviewId",
       "dispose",
       "rationale",
-      "findingId",
       "expectedVersion",
       "commandType",
     ];
