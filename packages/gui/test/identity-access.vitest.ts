@@ -119,6 +119,7 @@ describe("IdentityAccessView", () => {
     expect(configure).toHaveBeenCalledWith(
       expect.objectContaining({ clientId: "harness-center", clientSecret: "fixture-write-only" }),
       undefined,
+      undefined,
     );
     expect(secret.value).toBe("");
     expect(container.textContent).not.toContain("fixture-write-only");
@@ -269,6 +270,6 @@ describe("device login requests", () => {
     await act(async () =>
       (container.querySelector('[data-testid="device-approve-node-two"]') as HTMLButtonElement).click(),
     );
-    expect(login).toHaveBeenCalledWith(undefined, expect.any(Function), "CCCC-DDDD");
+    expect(login).toHaveBeenCalledWith(undefined, expect.any(Function), "CCCC-DDDD", undefined);
   });
 });
