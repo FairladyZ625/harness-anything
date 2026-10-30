@@ -314,7 +314,7 @@ test("report projection follows the catalog summary cap and rejects empty or tru
   assert.equal(projectDecisionInput({ point, event, report: "[report truncated]" }), null);
 });
 
-test("incident projection keeps missing tool metrics distinct and carries the continuation streak and fixed budget", () => {
+test("incident projection keeps missing tool metrics distinct and carries the continuation allowance and fixed budget", () => {
   const event = outcomeEvent() as Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>;
   const incidentPoint = {
     ...point,
@@ -1041,12 +1041,13 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
   assert.deepEqual(stored[0]?.action?.budget, { used: 3, limit: 3, source: "daemon" });
 });
 
-test("a measured worktree HEAD change resets the continuation budget even at the limit", async (t) => {
+test("consecutive HEAD-changing stops stop auto-continuing on the fourth stop", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
-  // Three applied redispatches with the old lifetime counter would exhaust any limit of three.
-  // The latest receipt carries streak 3; the current stop measured a new commit, so it resets.
+  // Three applied redispatches that each followed a measured HEAD change. The reported defect
+  // reset the allowance to zero on that measurement, so the sequence could repeat forever. The
+  // allowance is task-level: the fourth stop must escalate instead of launching again.
   const priorIds = [
     "dispatch_00000000000000000000b001",
     "dispatch_00000000000000000000b002",
@@ -1056,7 +1057,7 @@ test("a measured worktree HEAD change resets the continuation budget even at the
     seedAppliedIncidentAction(
       rootDir,
       priorId,
-      { used: index + 1, limit: 3, source: "repository" },
+      { used: index + 1, limit: 3, source: "daemon" },
       `2026-10-18T00:00:0${String(index)}.000Z`,
     );
   const worktree = commitWorktree(rootDir);
@@ -1074,7 +1075,7 @@ test("a measured worktree HEAD change resets the continuation budget even at the
       },
       now: () => "2026-10-19T00:00:01.000Z",
     }),
-    { cell, spawns, runtimeContextReads } = fakeIncidentCell({
+    { cell, spawns, relates, runtimeContextReads } = fakeIncidentCell({
       rootDir,
       agentId: "terra",
       continuationContext: {
@@ -1094,12 +1095,57 @@ test("a measured worktree HEAD change resets the continuation budget even at the
     { taskId: "task-1", excludeDispatchId: dispatchId },
     "the settlement read must skip the dispatch being settled, or HEAD compares with itself",
   );
-  assert.equal(spawns.length, 1, "a progressing stop must not inherit an exhausted no-progress streak");
-  assert.match(requestState, /head_status: changed/u);
-  assert.match(requestState, /rework_budget: used=0 limit=3 source=daemon/u);
+  assert.equal(spawns.length, 0, "a HEAD change must not buy another automatic redispatch past the cap");
+  assert.equal(relates.length, 0, "the escalation rides the durable receipt, not an owner await");
+  assert.match(requestState, /head_status: changed/u, "the HEAD change still explains the continuation context");
+  assert.match(requestState, /rework_budget: used=3 limit=3 source=daemon/u);
   const receipt = readIncidentActionReceipt(rootDir, dispatchId);
   if (receipt === null || receipt.status === "claimed") assert.fail("expected an applied receipt");
-  assert.deepEqual(receipt.budget, { used: 0, limit: 3, source: "daemon" });
+  assert.equal(receipt.action, "needs_attention");
+  assert.match(String(receipt.reason), /budget is exhausted/u);
+  assert.deepEqual(receipt.budget, { used: 3, limit: 3, source: "daemon" });
+});
+
+test("a measured HEAD change consumes the next continuation slot instead of resetting it", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const priorId = "dispatch_00000000000000000000d001";
+  seedAppliedIncidentAction(rootDir, priorId, { used: 1, limit: 3, source: "daemon" }, "2026-10-18T00:00:01.000Z");
+  const worktree = commitWorktree(rootDir);
+  let requestState = "";
+  const executor = openTestExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: {
+          decide: async (request) => {
+            requestState = request.state[0] ?? "";
+            return choiceAnswer("rerun_same_identity");
+          },
+        },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns } = fakeIncidentCell({
+      rootDir,
+      agentId: "terra",
+      continuationContext: {
+        dispatchId: priorId,
+        lastConclusion: "committed progress on the worktree",
+        exitHead: "a".repeat(40),
+      },
+      workspace: { kind: "worktree", path: worktree.path, state: "materialized" },
+      priorDispatches: [{ dispatchId: priorId, receipt: readIncidentActionReceipt(rootDir, priorId) }],
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 1);
+  assert.match(requestState, /head_status: changed/u);
+  assert.match(requestState, /rework_budget: used=1 limit=3 source=daemon/u);
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  if (receipt === null || receipt.status === "claimed") assert.fail("expected an applied receipt");
+  assert.equal(receipt.action, "rerun");
+  assert.deepEqual(receipt.budget, { used: 2, limit: 3, source: "daemon" });
 });
 
 test("the repository review-return budget does not gate automatic continuation", async (t) => {
@@ -1110,8 +1156,8 @@ test("the repository review-return budget does not gate automatic continuation",
   seedAppliedIncidentAction(
     rootDir,
     priorId,
-    // The old counter made this one applied action equal to reviewReturnBudget: 1. The new
-    // streak reads 1 of 3 and must keep going.
+    // The old counter made this one applied action equal to reviewReturnBudget: 1. The
+    // task-level allowance reads 1 of 3 and must keep going.
     { used: 1, limit: 3, source: "repository" },
     "2026-10-18T00:00:01.000Z",
   );
@@ -1144,7 +1190,7 @@ test("the repository review-return budget does not gate automatic continuation",
   assert.deepEqual(receipt.budget, { used: 2, limit: 3, source: "daemon" });
 });
 
-test("the continuation streak reads the newest recorded disposition and is reset by measured progress", () => {
+test("the continuation allowance reads the newest recorded disposition", () => {
   const applied = (used: number, decidedAt: string, action: "resume" | "rerun" | "needs_attention" | "no_action") =>
       ({
         pointId: incidentPointId,
@@ -1170,40 +1216,33 @@ test("the continuation streak reads the newest recorded disposition and is reset
         } as const,
       },
     ];
-  assert.equal(incidentContinuationUsed(rows, false), 2, "the newest recorded disposition carries the streak");
-  assert.equal(incidentContinuationUsed(rows, true), 0, "a measured HEAD change resets the streak");
+  assert.equal(incidentContinuationUsed(rows), 2, "the newest recorded disposition carries the allowance");
   assert.equal(
-    incidentContinuationUsed(
-      [...rows, { decisionAction: applied(0, "2026-10-18T00:00:04.000Z", "needs_attention") }],
-      false,
-    ),
-    0,
-    "a progressing stop that escalates still persists the reset",
+    incidentContinuationUsed([...rows, { decisionAction: applied(3, "2026-10-18T00:00:04.000Z", "needs_attention") }]),
+    3,
+    "an owner escalation keeps the exhausted count as the newest durable state",
   );
   assert.equal(
-    incidentContinuationUsed(
-      [
-        {
-          decisionAction: {
-            pointId: incidentPointId,
-            questionVersion: incidentDispositionQuestionVersion,
-            status: "applied",
-            selected: "no_action",
-            action: "no_action",
-            attention: null,
-            reason: "owner dismissed the incident",
-            successorDispatchId: null,
-            budget: null,
-            decidedAt: "2026-10-18T00:00:05.000Z",
-          } as const,
-        },
-      ],
-      false,
-    ),
+    incidentContinuationUsed([
+      {
+        decisionAction: {
+          pointId: incidentPointId,
+          questionVersion: incidentDispositionQuestionVersion,
+          status: "applied",
+          selected: "no_action",
+          action: "no_action",
+          attention: null,
+          reason: "owner dismissed the incident",
+          successorDispatchId: null,
+          budget: null,
+          decidedAt: "2026-10-18T00:00:05.000Z",
+        } as const,
+      },
+    ]),
     0,
-    "an owner dismissal carries no streak and starts the next count at zero",
+    "an owner dismissal carries no allowance and starts the next count at zero",
   );
-  assert.equal(incidentContinuationUsed([], false), 0, "a task with no recorded disposition starts at zero");
+  assert.equal(incidentContinuationUsed([]), 0, "a task with no recorded disposition starts at zero");
 });
 
 test("a disabled provider takes the deterministic default instead of waiting for a ruling", async (t) => {

@@ -31,10 +31,10 @@ export type IncidentDispositionOption = (typeof incidentDispositionOptions)[numb
  * owner must handle but must never be shown as a question. */
 export type IncidentAttention = "question" | "guard";
 
-/** The fixed automatic-continuation allowance: how many consecutive stops without measured
- * worktree progress the daemon may redispatch before it escalates to the owner. It is a daemon
- * constant, not the repository's review-return budget: review returns bound how many times a
- * reviewer may send a delivery back, while this allowance only bounds a no-progress loop. */
+/** The fixed automatic-continuation allowance: how many automatic resume/rerun redispatches one
+ * task may consume in total before it escalates to the owner. It is a daemon constant, not the
+ * repository's review-return budget: review returns bound how many times a reviewer may send a
+ * delivery back, while this allowance bounds the cross-dispatch continuation loop. */
 export const incidentContinuationBudget = 3;
 
 export interface IncidentDecisionFields {
@@ -44,7 +44,7 @@ export interface IncidentDecisionFields {
   readonly exitHead: string | null;
   readonly currentHead: string | null;
   readonly roundsUsed: number;
-  /** Consecutive no-progress automatic redispatches consumed through this stop. The declared
+  /** Automatic resume/rerun redispatches consumed by this task through this stop. The declared
    * decision input id (`task.reworkBudget`) and its projected label are frozen contract names;
    * the measured value is this continuation allowance, independent of review returns. */
   readonly continuationBudget: {
@@ -78,7 +78,7 @@ export async function incidentDecisionFields(input: {
     currentHead: context.currentHead,
     roundsUsed: input.dispatches.length,
     continuationBudget: {
-      used: incidentContinuationUsed(input.dispatches, context.headStatus === "changed"),
+      used: incidentContinuationUsed(input.dispatches),
       limit: incidentContinuationBudget,
       source: "daemon",
     },
@@ -145,7 +145,7 @@ export function incidentGuardPlan(input: {
     rationale: [
       `needs_attention: ${input.guard}`,
       `Worker stopped without a submitted delivery on round ${String(input.evidence.roundsUsed)};`,
-      `automatic redispatch budget ${String(input.evidence.budget.used)}/${String(input.evidence.budget.limit)} used on consecutive stops without worktree progress.`,
+      `automatic redispatch budget ${String(input.evidence.budget.used)}/${String(input.evidence.budget.limit)} used on automatic redispatches for this task.`,
       ...(next === null ? [] : [`Next: ${next}`]),
     ].join(" "),
   };
