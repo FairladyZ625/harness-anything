@@ -153,7 +153,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
     loginResult = await joinFleetEdge({ link: encodeEdgeJoinLink(invite.link) }, mismatchedSessionPorts);
   assert.deepEqual(loginResult, { ok: true, pending: true, command: "edge-join" });
   assert.equal(loginAuthority?.certificate, cert.toString("utf8"));
-  assert.equal(loginTarget, path.join(temp, "repo-a"));
+  assert.equal(loginTarget, path.join(temp, "harness-edge", "repo-a"));
 
   const publicInvite = createEdgeJoinStore({ randomToken: () => "public-trust-token" }).create({
       centerOrigin: "https://center.example:8443",

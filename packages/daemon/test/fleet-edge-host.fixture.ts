@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 import { OidcSessionService, type OidcSessionPorts } from "../src/oidc-session-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -73,8 +74,16 @@ export async function fleetEdgeHostFixture(
       createConvenienceLinks: false,
     });
   const authority = options.oidcPorts?.loginAuthority
-    ? await options.oidcPorts.loginAuthority(edgeRoot)
-    : { url: f.owners.url, realm: "harness" };
+      ? await options.oidcPorts.loginAuthority(edgeRoot)
+      : { url: f.owners.url, realm: "harness" },
+    selectedAuthority = authority.url
+      ? authority
+      : {
+          url: "https://offline-center.example",
+          realm: "harness",
+          clientId: `harness-node-${options.nodeId ?? "node-one"}`,
+          clientSecret: options.credential ?? `secret-${options.nodeId ?? "node-one"}`,
+        };
   const issuer = authority.url
       ? String(
           (
@@ -85,19 +94,19 @@ export async function fleetEdgeHostFixture(
             ).json()
           ).issuer,
         )
-      : "",
+      : `${selectedAuthority.url}/realms/${selectedAuthority.realm}`,
     fetch = f.owners.keycloak.fetch,
     fixtureLoginAuthority =
       options.oidcPorts?.loginAuthority ??
       (() =>
         Promise.resolve({
-          url: authority.url,
-          realm: authority.realm,
+          url: selectedAuthority.url,
+          realm: selectedAuthority.realm,
           clientId: `harness-node-${options.nodeId ?? "node-one"}`,
           clientSecret: options.credential ?? `secret-${options.nodeId ?? "node-one"}`,
         }));
-  const signIn = (personId: string, sessionAuthority = authority) =>
-    managedRbacSessionStore(edgeUser, issuer, authority.realm).write(
+  const signIn = (personId: string, sessionAuthority = selectedAuthority) =>
+    managedRbacSessionStore(edgeUser, issuer, selectedAuthority.realm).write(
       JSON.stringify({
         schema: "harness-oidc-session/v3",
         issuer,
@@ -136,6 +145,15 @@ export async function fleetEdgeHostFixture(
       fetch,
       loginAuthority: fixtureLoginAuthority,
     }).status(edgeRoot);
+  else
+    oidcCenterSelections(edgeUser).write(
+      edgeRoot,
+      {
+        issuer,
+        authority: selectedAuthority,
+      },
+      true,
+    );
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.openCell ? { openCell: options.openCell } : {}),
