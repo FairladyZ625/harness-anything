@@ -705,7 +705,7 @@ export function makeTaskQueryReadModel(input: {
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         const full = projection.readDecision(decision.decisionId).decision;
         if (!full || decisionReviewRequirement === null) return { decision, signal: "ready" as const };
-        const readiness = decisionReviewState(full, decisionReviewRequirement, rootDir).acceptReviewReadiness;
+        const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
         if (!readiness) return { decision, signal: "ready" as const };
         if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
           return { decision, signal: "awaitingOwner" as const };
@@ -1281,11 +1281,11 @@ function unsubmittedDeliveryAttentionRows(
     ];
   });
 }
-/** 一页 task 行 → 当前切面尚无 settled approved 评审的 submitted execution 行;待派审/评审中两组共用这一谓词。 */
+/** Submitted execution rows that do not yet have an approved review for the current content cut. */
 function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {
   return rows.flatMap((row) =>
     row.snapshot.executions
-      .filter((execution) => execution.state === "submitted" && !hasCurrentSettledApproval(row, execution))
+      .filter((execution) => execution.state === "submitted" && !hasCurrentApprovedReview(row, execution))
       .map((execution) => ({
         taskId: row.taskId,
         title: row.snapshot.task?.title ?? row.taskId,
@@ -1298,7 +1298,7 @@ function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutio
   );
 }
 
-function hasCurrentSettledApproval(row: AgendaSourceRow, execution: ProjectedExecution): boolean {
+function hasCurrentApprovedReview(row: AgendaSourceRow, execution: ProjectedExecution): boolean {
   if (!execution.submission) return false;
   const currentReviews = reviewsForExecution(row.snapshot.reviews, execution),
     approved = currentReviews.some((review) => review.verdict === "approved"),

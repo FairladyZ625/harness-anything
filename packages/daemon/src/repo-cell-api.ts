@@ -718,7 +718,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       rootDir: context.rootDir,
       projection: context.projection,
       readPinnedEntities: context.projection.listPinnedEntities,
-      judgments: repoCellTaskQueryJudgmentsFor(context.projection, context.rootDir),
+      judgments: repoCellTaskQueryJudgmentsFor(context.projection),
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   // The runtime publication turn verifies any executor claim before it authorizes and executes.

@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "@harness-anything/application";
 import {
-  decisionReviewContentDigest,
   compileEntityUpsert,
   compileEntityDeleted,
   compileAgentRetired,
@@ -72,7 +71,6 @@ import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 import { decisionReviewState } from "./decision-review-read.ts";
-import { reviewTriageRecordsFor } from "./review-finding-triage.ts";
 import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 import { retireDecisionAwaitsAfterWrite } from "./terminal-awaits-retirement.ts";
@@ -596,7 +594,6 @@ export function makeEntityActionCatalogExecutor(input: {
       decisionApproval(action, binding),
       readDecisionReviewRequirement,
       relationBundle,
-      input.rootDir,
     );
   };
 
@@ -713,7 +710,6 @@ function compileDraft(
   // Only Decision writes consult the review requirement; other entity writes must not depend on Settings.
   readDecisionReviewRequirement: () => RepositorySettingsV1["decisionReviewRequirement"],
   relationBundle?: CanonicalWriteBundle,
-  rootDir?: string,
 ): CatalogBundle {
   if (draft.kind === "fact")
     return compileFactWrite({
@@ -816,24 +812,6 @@ function compileDraft(
     resolveLink: decisionRelationLinkResolver(projection),
     currentDocument,
     decisionReviewRequirement: readDecisionReviewRequirement(),
-    // The accept judgment reads the same settlement as the read surfaces: a categorized finding is
-    // only passed by a triage record minted for this Decision's current content digest.
-    //
-    // Only accept consults this, and only when a review actually filed a category. Hashing the body
-    // and reading the journal for every Decision write (reject, defer, amend included) is a cost the
-    // write never needed — G38 measured it as +2 sha256 on the reject path.
-    ...(draft.event.type === "decision_accepted" &&
-    read.decision !== null &&
-    currentDocument !== null &&
-    read.decision.reviews.some((review) => review.findings.some((finding) => finding.category !== undefined))
-      ? {
-          reviewFindingTriages: reviewTriageRecordsFor(rootDir ?? "", {
-            kind: "decision",
-            id: read.decision.decisionId,
-            digest: decisionReviewContentDigest(read.decision, currentDocument.body),
-          }),
-        }
-      : {}),
   });
 }
 

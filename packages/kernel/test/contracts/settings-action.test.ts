@@ -614,8 +614,8 @@ test("path reviewers write as one agent-and-path entry per line and read back ex
   const entries = ["data-migration packages/kernel/src/domain/", "gui-reviewer packages/gui/src/"],
     draft = compile({ reviewPathReviewers: entries });
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
-  // dec_6A77D43B8523823ABA1F5E4D3C CH3 adds review.thresholds beside pathReviewers, and settings
-  // always materialize their defaults, so the facet carries both.
+  // Review path seats are repository-owned settings; persisted threshold defaults remain readable
+  // even though findings are advisory report content.
   assert.deepEqual(draft.result.bundle.event.payload.settings.review, {
     pathReviewers: entries,
     thresholds: { correctness: 80, migration: 85, securityAuth: 90 },

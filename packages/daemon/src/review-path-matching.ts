@@ -7,8 +7,8 @@ import { readSubmissionFacts, type SubmissionV1 } from "@harness-anything/kernel
  * exact file — and a submitted cut whose frozen manifest touches a configured path seats that agent
  * *instead of* the default reviewer (dec_6A77D43B8523823ABA1F5E4D3C CH1).
  *
- * There is no second passing gate here: a professional seat's findings enter the same per-finding
- * triage and settlement as any other seat. The product defines only the routing mechanism; which
+ * There is no second passing gate here: a professional seat's findings remain report content like
+ * any other seat. The product defines only the routing mechanism; which
  * agents watch which paths is repository configuration, and what a professional reviewer requires
  * lives in that agent's own declaration.
  *
@@ -98,7 +98,7 @@ export function reviewPathSeats(hits: ReadonlyMap<string, readonly string[]>): r
 /**
  * The routing evidence a professional seat's mission adds: why this reviewer holds the cut's one
  * seat. It names the hit paths and the configured scope, never a second passing rule — that seat's
- * findings go through the same per-finding triage and settlement as any other seat.
+ * findings remain advisory report content like any other seat's.
  */
 export function reviewPathSeatPrompt(input: {
   readonly seat: { readonly reviewerId: string; readonly matchedPaths?: readonly string[] | undefined };
@@ -112,8 +112,8 @@ export function reviewPathSeatPrompt(input: {
     paths.includes(LEGACY_PATH_EVIDENCE_UNAVAILABLE)
       ? "This historical delivery has incomplete legacy path evidence, so the professional seat was chosen " +
         "conservatively. Review the full delivery within this reviewer's configured scope."
-      : "Apply this reviewer's own declared focus to the delivery. Its findings are triaged and settled exactly " +
-        "like any other seat's; holding this seat grants no separate approval.",
+      : "Apply this reviewer's own declared focus to the delivery. Its findings are report content like any " +
+        "other seat's; holding this seat grants no separate approval.",
   ].join("\n");
 }
 

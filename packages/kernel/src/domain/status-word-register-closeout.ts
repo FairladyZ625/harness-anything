@@ -109,64 +109,13 @@ export const closeoutStatusWordRegister: readonly StatusWordRegistration[] = [
     meaning: "Completion gate witness failed.",
     divergence: "entity-scoped",
   },
-  // ---- ReviewFinding.disposition (dec_6A77D43B8523823ABA1F5E4D3C CH2/CH3) ----
-  // The five dispositions the `review-finding-triage` Decision point may select. Each word is a
-  // judgment about one finding, not about the review that raised it.
-  {
-    word: "blocker",
-    entity: "Review",
-    field: "finding disposition",
-    meaning: "The finding names work this cut must fix before it can settle.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "non_blocking",
-    entity: "Review",
-    field: "finding disposition",
-    meaning: "The finding is real and worth fixing, but it does not hold this cut.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "nit",
-    entity: "Review",
-    field: "finding disposition",
-    meaning: "A preference with no correctness consequence; recorded so it is not re-raised.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "pre_existing",
-    entity: "Review",
-    field: "finding disposition",
-    meaning: "The finding holds on the base, not this cut; it belongs to the work that introduced it.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "false_positive",
-    entity: "Review",
-    field: "finding disposition",
-    meaning: "The finding does not describe the delivered code and is withdrawn.",
-    divergence: "entity-scoped",
-  },
-  // ---- ReviewCut.settlement outcome ----
-  {
-    word: "passed",
-    entity: "Review",
-    field: "settlement outcome",
-    meaning: "Every finding on the cut is disposed without a blocker, so the cut may settle.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "changes_requested",
-    entity: "Review",
-    field: "settlement outcome",
-    meaning: "Settlement found a blocking finding on this cut, which must be fixed before it settles.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "escalated",
-    entity: "Review",
-    field: "settlement outcome",
-    meaning: "A finding could not be classified safely inside the thresholds, so a person decides the cut.",
-    divergence: "entity-scoped",
-  },
+  // Historical ReviewDisposition/v1 finding rulings remain readable; current writes no longer
+  // produce or consume these words as a completion judgment.
+  ...(["blocker", "non_blocking", "nit", "pre_existing", "false_positive"] as const).map((word) => ({
+    word,
+    entity: "Review" as const,
+    field: "historical finding disposition",
+    meaning: "Legacy finding ruling retained for admitted event compatibility.",
+    divergence: "entity-scoped" as const,
+  })),
 ];

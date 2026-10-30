@@ -363,8 +363,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       },
       reviewIndependence: "execution",
       decisionReviewRequirement: "off",
-      // dec_6A77D43B8523823ABA1F5E4D3C CH3: the per-category triage floors materialize their
-      // defaults beside pathReviewers.
+      // Persisted threshold declarations remain readable even though the completion path ignores
+      // them and treats review findings as report content.
       review: { pathReviewers: [], thresholds: { correctness: 80, migration: 85, securityAuth: 90 } },
       reviewReturnBudget: 2,
       restoreDrillRetention: 3,

@@ -313,9 +313,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
   }),
   // dec_6A77D43B8523823ABA1F5E4D3C CH3: per-category triage confidence floors, as integer percent
   // so the existing `integer` field kind carries them without inventing a decimal value kind across
-  // the schema, validators, CLI and GUI. A category keeps its built-in floor unless overridden, and
-  // an entry can only raise it (reviewFindingThresholdsFor clamps upward), so a repository may demand
-  // more certainty than 0.80/0.85/0.90 but can never let a weak triage pass a held finding.
+  // the schema, validators, CLI and GUI. These persisted declarations remain readable while the
+  // review completion path treats findings as report content.
   defineSettingsField({
     path: ["review", "thresholds", "correctness"],
     ownership: repository,

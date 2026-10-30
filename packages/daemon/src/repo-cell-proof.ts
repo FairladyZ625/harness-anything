@@ -42,7 +42,6 @@ import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
-import { readReviewTriageRecords } from "./review-finding-triage.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -471,9 +470,6 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-consent@v1",
       capabilityRef: authorizationDecision.policyRef,
-      reviewFindingTriages: readReviewTriageRecords(rootDir).filter(
-        (record) => record.target.kind === "task" && record.target.id === command.taskId,
-      ),
       authorizationDecision,
     };
   }

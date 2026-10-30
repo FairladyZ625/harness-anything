@@ -10,13 +10,7 @@ import {
   type TaskMetadataV1,
 } from "../../src/index.ts";
 import { emptyTaskLifecycleSnapshot } from "../../src/domain/task-lifecycle.contract.ts";
-import {
-  applyTransition,
-  normalizeTaskLifecycleCommand,
-  reviewDigest,
-  type ReviewConsentProof,
-} from "../../src/domain/task-lifecycle.contract.ts";
-import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
+import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 const fixture = lifecycleFixture();
 const at = (count: number) => fixture.events.slice(0, count).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
@@ -375,7 +369,6 @@ test("completion readiness asks only for consent when an approved review has fin
           ],
         },
       ],
-      reviewFindingTriages: [],
     },
     result = taskCompletionNext(escalated, context);
 
@@ -385,95 +378,6 @@ test("completion readiness asks only for consent when an approved review has fin
     "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
   );
   assert.doesNotMatch(result.next!.action, /finding-id|finding-disposition/u);
-});
-
-test("a finding ruling consent reaches delivery despite historical returned review rounds", () => {
-  const reviewed = at(4),
-    submitted = reviewed.executions[0]!,
-    approved = reviewed.reviews[0]!,
-    // Rejected resolution attempts emit no Review event; the durable state keeps the prior rounds.
-    history = Array.from({ length: 5 }, (_, iteration) => {
-      const executionId = `execution-history-${String(iteration)}`;
-      return {
-        execution: {
-          ...submitted,
-          executionId,
-          iteration,
-          state: "changes_requested" as const,
-          closedAt: `2026-08-11T00:0${String(iteration + 1)}:00.000Z`,
-        },
-        review: {
-          ...approved,
-          reviewId: `review-history-${String(iteration)}`,
-          executionId,
-          iteration,
-          verdict: "changes_requested" as const,
-          resolutions: [],
-        },
-      };
-    }),
-    currentReview = {
-      ...approved,
-      iteration: 5,
-      findings: [
-        {
-          findingId: "N-15-01",
-          blocking: false,
-          text: "An escalated non-blocking finding for owner disposition.",
-          category: "correctness" as const,
-        },
-      ],
-    },
-    before = {
-      ...reviewed,
-      task: { ...reviewed.task!, iteration: 5 },
-      executions: [...history.map(({ execution }) => execution), { ...submitted, iteration: 5 }],
-      reviews: [...history.map(({ review }) => review), currentReview],
-      consents: [],
-      reviewDispositions: [],
-      reviewFindingTriages: [],
-    },
-    command = {
-      ...normalizeTaskLifecycleCommand(
-        {
-          workspaceId: "workspace-1",
-          actor: implementer,
-          source: "local",
-          expectedRevision: before.revision,
-        },
-        {
-          type: "RecordReviewConsent" as const,
-          taskId: currentReview.taskId,
-          executionId: currentReview.executionId,
-          reviewId: currentReview.reviewId,
-          consentId: "consent-current-finding-after-history",
-          reviewDigest: reviewDigest(currentReview),
-          contentDigest: currentReview.contentDigest,
-          findingId: "N-15-01",
-          findingDisposition: "non_blocking" as const,
-          rationale: "Accept the finding as follow-up owned outside this cut.",
-        },
-      ),
-      eventId: "event-current-finding-after-history",
-      workspaceRevision: before.revision + 1,
-      occurredAt: "2026-10-29T10:06:00.000Z",
-    },
-    consented = applyTransition(before, command, {
-      actorBinding: implementer,
-      capability: "execution-consent@v1",
-      capabilityRef: "cap-consent-current-finding-after-history",
-      reviewFindingTriages: [],
-    } satisfies ReviewConsentProof).snapshot,
-    disposition = consented.reviewDispositions?.at(-1),
-    result = taskCompletionNext(consented, {
-      ...context,
-      delivery: { required: true, merged: false, targetBranch: "main" },
-    });
-
-  assert.equal(disposition?.disposedReviewIds.length, 0);
-  assert.equal(consented.consents.at(-1)?.reviewId, currentReview.reviewId);
-  assert.equal(result.blocker?.code, "delivery_missing");
-  assert.doesNotMatch(result.next?.reason ?? "", /no recorded review/u);
 });
 
 test("completion readiness does not enumerate findings when consent is missing", () => {
@@ -499,7 +403,6 @@ test("completion readiness does not enumerate findings when consent is missing",
           ],
         },
       ],
-      reviewFindingTriages: [],
     },
     result = taskCompletionNext(escalated, context);
 
@@ -524,7 +427,6 @@ test("completion readiness does not require whole-review disposal for unclassifi
           ],
         },
       ],
-      reviewFindingTriages: [],
     },
     result = taskCompletionNext(unclassified, context);
 
@@ -534,103 +436,6 @@ test("completion readiness does not require whole-review disposal for unclassifi
     "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
   );
   assert.doesNotMatch(result.next!.action, /dispose|finding-id/u);
-});
-
-test("completion readiness ignores owner finding dispositions until consent", () => {
-  const reviewed = at(4),
-    escalated = {
-      ...reviewed,
-      reviews: [
-        {
-          ...reviewed.reviews[0]!,
-          findings: [
-            {
-              findingId: "F-owner-blocker",
-              blocking: false,
-              text: "Automated triage could not classify this finding.",
-              category: "correctness" as const,
-            },
-          ],
-        },
-      ],
-      reviewFindingTriages: [],
-    },
-    submission = escalated.executions.find(({ state }) => state === "submitted")!.submission!,
-    targetDigest = submissionDigest(submission),
-    ownerBlocked = {
-      ...escalated,
-      reviewDispositions: [
-        {
-          schema: "review-disposition/v1" as const,
-          dispositionId: "disposition-owner-blocker",
-          taskId: escalated.task!.taskId,
-          executionId: escalated.reviews[0]!.executionId,
-          iteration: escalated.reviews[0]!.iteration,
-          submissionDigest: targetDigest,
-          disposedReviewIds: [],
-          rationale: "This is a reproducible blocker.",
-          actor: escalated.task!.createdBy,
-          source: "local" as const,
-          disposedAt: "2026-10-27T01:00:00.000Z",
-          findingRuling: {
-            targetDigest,
-            reviewId: escalated.reviews[0]!.reviewId,
-            findingId: "F-owner-blocker",
-            disposition: "blocker" as const,
-            rationale: "This is a reproducible blocker.",
-          },
-        },
-      ],
-    },
-    result = taskCompletionNext(ownerBlocked, context);
-
-  assert.equal(result.blocker?.code, "consent_missing");
-  assert.equal(
-    result.next?.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
-  );
-  assert.doesNotMatch(result.next!.action, /rework|finding-id/u);
-});
-
-test("completion readiness ignores automatic finding triage until consent", () => {
-  const reviewed = at(4),
-    escalated = {
-      ...reviewed,
-      reviews: [
-        {
-          ...reviewed.reviews[0]!,
-          findings: [
-            {
-              findingId: "F-triaged-blocker",
-              blocking: true,
-              text: "Triage classified this finding as a blocker.",
-              category: "correctness" as const,
-            },
-          ],
-        },
-      ],
-      reviewFindingTriages: [
-        {
-          schema: "review-finding-triage/v1" as const,
-          reviewId: reviewed.reviews[0]!.reviewId,
-          findingId: "F-triaged-blocker",
-          targetDigest: submissionDigest(reviewed.executions.find(({ state }) => state === "submitted")!.submission!),
-          selected: "blocker" as const,
-          probabilities: { blocker: 0.95, non_blocking: 0.02, nit: 0.01, pre_existing: 0.01, false_positive: 0.01 },
-          model: "triage-model",
-          bindingDigest: submissionDigest(reviewed.executions.find(({ state }) => state === "submitted")!.submission!),
-          decidedAt: "2026-10-27T01:00:00.000Z",
-        },
-      ],
-    },
-    result = taskCompletionNext(escalated, context);
-
-  assert.equal(result.blocker?.code, "consent_missing");
-  assert.equal(
-    result.next!.action,
-    "ha task review-consent task-1 --execution-id execution-1 --review-id review-execution",
-  );
-  assert.doesNotMatch(result.next!.action, /rework|finding-id/u);
 });
 
 test("a changes request on the current cut comes before missing merge evidence", () => {

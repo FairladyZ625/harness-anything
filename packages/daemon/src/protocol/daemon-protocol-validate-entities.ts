@@ -532,14 +532,14 @@ export function reviewDisposition(value: unknown): boolean {
     "source",
     "disposedAt",
   ];
+  if (!recordWith(value, fields)) return false;
+  const hasRuling = Object.hasOwn(value, "findingRuling");
   const validRuling = (ruling: unknown): boolean =>
     recordWith(ruling, ["targetDigest", "reviewId", "findingId", "disposition", "rationale"]) &&
     exactRecord(ruling, ["targetDigest", "reviewId", "findingId", "disposition", "rationale"]) &&
     digest(ruling.targetDigest) &&
     [ruling.reviewId, ruling.findingId, ruling.rationale].every(nonEmpty) &&
     reviewFindingDispositionWords.includes(ruling.disposition as (typeof reviewFindingDispositionWords)[number]);
-  if (!recordWith(value, fields)) return false;
-  const hasRuling = Object.hasOwn(value, "findingRuling");
   if (!(exactRecord(value, fields) || (hasRuling && exactRecord(value, [...fields, "findingRuling"])))) return false;
   return (
     value.schema === "review-disposition/v1" &&

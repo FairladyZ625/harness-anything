@@ -2,7 +2,6 @@ import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import { isReviewDispositionEligible } from "./review-consent-validity.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -258,8 +257,8 @@ export function compileExecutionExecutorDeclaration(input: {
           "review node that originally declared no executor; unblock a blocked task before retrying",
       ),
     ]);
-  // The repair preserves the adjudication corridor: a `submitted` cut awaiting the owner's
-  // triage stays submitted; only pre-2026-09-19 history normalized an active-at-review task to
+  // The repair preserves the adjudication corridor: a `submitted` cut awaiting review
+  // stays submitted; only pre-2026-09-19 history normalized an active-at-review task to
   // in_review, which the replay invariant below still accepts.
   const nextTask = { ...task },
     nextExecution: ExecutionV1 = {
@@ -533,7 +532,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     const supersedes = event.payload.supersedesSubmissionId;
     if (supersedes === undefined) {
       // The event owns its status: review-required cuts enter in_review automatically; cuts
-      // without review and historical owner-triage submissions retain submitted on replay.
+      // without review and historical owner-forwarded submissions retain submitted on replay.
       if (
         !["submitted", "in_review"].includes(event.payload.task.status) ||
         event.payload.task.currentNode !== "review" ||
@@ -770,14 +769,19 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
             review.executionId === event.payload.execution.executionId &&
             review.iteration === event.payload.execution.iteration &&
             review.submissionDigest === event.payload.disposition.submissionDigest &&
-            isReviewDispositionEligible(review),
+            // This admits the historical approved + unclassified-finding shape that was writable
+            // before per-finding review disposition was removed. Current writes only dispose
+            // changes_requested reviews.
+            (review.verdict === "changes_requested" ||
+              (review.verdict === "approved" &&
+                (review.findings ?? []).some((finding) => finding.category === undefined))),
         ),
     )
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_proof",
-        "replayed review disposition is not bound to current changes_requested reviews or approved reviews with unclassified findings",
+        "replayed review disposition is not bound to a review admitted by the historical disposition shape",
       ),
     ]);
   if (
@@ -811,7 +815,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_proof",
-        "replayed owner ruling must be a one-time ruling by the task owner for an escalated finding on the current submission",
+        "replayed historical owner ruling must be a one-time ruling by the task owner on the current submission",
       ),
     ]);
   if (

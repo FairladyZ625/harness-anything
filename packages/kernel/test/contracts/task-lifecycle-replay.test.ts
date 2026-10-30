@@ -270,6 +270,21 @@ function reviewSecondRound(input: {
   );
 }
 
+test("changes_requested requires a blocking finding outside discarded categories", () => {
+  for (const category of ["style", "diagnostic", "cleanup"] as const) {
+    assert.throws(
+      () =>
+        twoRoundLifecycleEvents({
+          firstReviewFindings: [
+            { findingId: `discarded-${category}`, blocking: true, text: "Informational note", category },
+          ],
+        }),
+      /changes_requested review requires a blocking finding outside style\/diagnostic\/cleanup/u,
+      category,
+    );
+  }
+});
+
 test("omitted resolution treats a prior rebutted finding as upheld", () => {
   const result = reviewSecondRound({
     verdict: "changes_requested",

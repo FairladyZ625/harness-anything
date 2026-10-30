@@ -1,19 +1,15 @@
 import { createHash } from "node:crypto";
 import {
   currentSubmittedExecutions,
-  discardedFindingCategories,
   getExecutableEntityAction,
   heldLeaseForExecutionActor,
-  isDiscardedCategory,
   isDomainStatus,
-  isSettledFindingCategory,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  reviewFindingCategories,
   reviewsForExecution,
-  reviewFindingDispositions,
   reviewFindingLabels,
-  settledFindingCategories,
   submissionDigest,
   type ReviewFindingCategory,
   type ReviewFindingLabel,
@@ -203,7 +199,6 @@ export function buildCommand(
       "dispose",
       "rationale",
       "findingId",
-      "findingDisposition",
       "expectedVersion",
       "commandType",
     ];
@@ -264,12 +259,6 @@ export function buildCommand(
             submissionDigest(current.submission),
             reviewDigest(recorded),
             ...(Array.isArray(action.dispose) ? [...action.dispose].sort().map(String) : []),
-            ...(typeof action.findingId === "string" || typeof action.findingDisposition === "string"
-              ? [
-                  typeof action.findingId === "string" ? action.findingId : "",
-                  typeof action.findingDisposition === "string" ? action.findingDisposition : "",
-                ]
-              : []),
             typeof action.rationale === "string" ? action.rationale : "",
           ].join("\0"),
         )
@@ -281,10 +270,6 @@ export function buildCommand(
         ? { disposedReviewIds: action.dispose }
         : {}),
       ...(typeof action.rationale === "string" ? { rationale: action.rationale } : {}),
-      ...(typeof action.findingId === "string" ? { findingId: action.findingId } : {}),
-      ...(typeof action.findingDisposition === "string"
-        ? { findingDisposition: action.findingDisposition as (typeof reviewFindingDispositions)[number] }
-        : {}),
     });
   }
   if (lifecycleAction?.commandType === "RespondReview") {
@@ -359,11 +344,8 @@ function reviewFindings(value: unknown, field: string): readonly ReviewFindingV1
 
 function optionalFindingCategory(value: unknown, field: string): ReviewFindingCategory | undefined {
   if (value === undefined) return undefined;
-  if (!isSettledFindingCategory(String(value)) && !isDiscardedCategory(String(value)))
-    throw cellCodedError(
-      "invalid_command",
-      `${field} must be one of ${[...settledFindingCategories, ...discardedFindingCategories].join(", ")}.`,
-    );
+  if (!reviewFindingCategories.includes(value as ReviewFindingCategory))
+    throw cellCodedError("invalid_command", `${field} must be one of ${reviewFindingCategories.join(", ")}.`);
   return value as ReviewFindingCategory;
 }
 

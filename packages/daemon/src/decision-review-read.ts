@@ -7,7 +7,6 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { readDispatchStreamSummary } from "./dispatch-stream.ts";
-import { reviewTriageRecordsFor } from "./review-finding-triage.ts";
 import type { DaemonDecisionFullRow, DaemonDecisionReviewDispatchRow } from "./protocol/daemon-protocol-gui-types.ts";
 
 /**
@@ -17,7 +16,6 @@ import type { DaemonDecisionFullRow, DaemonDecisionReviewDispatchRow } from "./p
 export function decisionReviewState(
   row: DecisionProjectionRow,
   requirement: DecisionReviewRequirement,
-  rootDir?: string,
 ): {
   readonly currentReviewContentDigest: `sha256:${string}` | null;
   readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
@@ -27,20 +25,7 @@ export function decisionReviewState(
   return {
     currentReviewContentDigest: digest,
     acceptReviewReadiness:
-      row.state === "proposed"
-        ? decisionAcceptReviewReadiness(
-            row,
-            row.body.body,
-            requirement,
-            rootDir === undefined
-              ? []
-              : reviewTriageRecordsFor(rootDir, {
-                  kind: "decision",
-                  id: row.decisionId,
-                  digest,
-                }),
-          )
-        : null,
+      row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body, requirement) : null,
   };
 }
 
@@ -68,7 +53,7 @@ export function decisionFullListRows(input: {
   return input.decisions.map((decision, index) => ({
     ...decision,
     body: null,
-    ...decisionReviewState(decision, input.requirement, input.rootDir),
+    ...decisionReviewState(decision, input.requirement),
     readiness: input.readiness[index]!,
     reviewDispatches: readDecisionReviewDispatches({ rootDir: input.rootDir, projection: input.projection, decision }),
   }));

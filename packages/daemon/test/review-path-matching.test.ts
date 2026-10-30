@@ -176,7 +176,7 @@ test("the professional seat prompt names the routing evidence, not a second pass
   });
   assert.match(prompt, /professional reviewer data-migration/u);
   assert.ok(prompt.includes("- packages/kernel/src/domain/settings.ts"), prompt);
-  assert.match(prompt, /triaged and settled exactly like any other seat's/u);
+  assert.match(prompt, /findings are report content like any other seat's/u);
   assert.match(prompt, /grants no separate approval/u);
   assert.ok(!prompt.includes("attach-migrations.ts"), "the shared prompt must not hardcode one reviewer's contract");
 });
