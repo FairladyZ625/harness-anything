@@ -35,7 +35,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, localSystemBinding } from "./daemon-host-binding.ts";
+import { binding as deriveBinding, isDaemonSocketOwner, localSystemBinding } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -739,6 +739,17 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakCenter,
     sessionPrincipal: async (auth, method, params) => {
       await rbacResumed;
+      if (
+        isDaemonSocketOwner(auth) &&
+        [
+          "daemon.repo.register",
+          "daemon.repo.update",
+          "daemon.repo.unbind",
+          "daemon.repo.backup",
+          "daemon.repo.restoreDrill",
+        ].includes(method)
+      )
+        return undefined;
       const repo =
           params.repo && typeof params.repo === "object" ? (params.repo as Record<string, unknown>) : undefined,
         payload =

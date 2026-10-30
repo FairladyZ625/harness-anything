@@ -26,13 +26,18 @@ export async function localSystemActionBinding(
   const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
   if (!declaration || declaration.residency.scope === "canonical")
     throw hostCodedError("authentication_required", `Action ${kind} requires an authenticated repository principal.`);
+  const ownerUid = auth.unixSocketOwnerBoundary?.ownerUid;
+  return isDaemonSocketOwner(auth) ? defaultLocalBinding(ownerUid!, null) : principalBinding();
+}
+
+export function isDaemonSocketOwner(auth: DaemonAuthenticationContext): boolean {
   const daemonUid = process.getuid?.(),
-    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid,
-    isDaemonSocketOwner =
-      auth.transportKind === "unix-socket" &&
-      typeof ownerUid === "number" &&
-      (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
-  return isDaemonSocketOwner ? defaultLocalBinding(ownerUid!, null) : principalBinding();
+    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid;
+  return (
+    auth.transportKind === "unix-socket" &&
+    typeof ownerUid === "number" &&
+    (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0)
+  );
 }
 
 export function withDaemonWriterEpochFence(

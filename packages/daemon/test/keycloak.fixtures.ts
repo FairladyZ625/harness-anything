@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 
 export { OidcSessionService } from "../src/oidc-session-service.ts";
 
@@ -505,6 +506,7 @@ export function signInAt(
   personId: string,
   roles: readonly string[] = ["access-admin"],
   accessToken = `token-${personId}`,
+  loginTarget?: string,
 ): void {
   const configFile = path.join(userRoot, "rbac", "config.json"),
     config = existsSync(configFile)
@@ -519,11 +521,14 @@ export function signInAt(
       config.listener?.hostname && config.listener.port
         ? `https://${config.listener.hostname}:${config.listener.port}`
         : (config.url ?? keycloakUrl),
-    issuer = `${issuerBase}/realms/${realm}`;
+    issuer = `${issuerBase}/realms/${realm}`,
+    authority = { url: issuerBase, realm, clientId: "harness-gui" };
+  if (loginTarget) oidcCenterSelections(userRoot).write(loginTarget, { issuer, authority }, true);
   keycloakSessionStore(userRoot, issuer, realm).write(
     JSON.stringify({
       schema: "harness-oidc-session/v3",
       issuer,
+      ...(loginTarget ? { loginTarget, authority } : {}),
       accessToken,
       subject: personId,
       personId,

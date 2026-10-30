@@ -148,7 +148,7 @@ test(
       // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
       await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
       realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       assert.equal(
         run(fixture, "edge", [
@@ -261,7 +261,7 @@ test(
       assert.equal(anonymous.status, 1);
       assert.equal(anonymous.receipt.code, "authentication_required", JSON.stringify(anonymous.receipt));
       realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(shown.revision, pulled.ackCut);
       assert.doesNotMatch(String(shown.summary), /task=null/u);
@@ -513,7 +513,7 @@ test(
       await realm.control({ op: "account", personId: "edge-operator" });
       await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
       realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       const unregistered = sync("any-credential");
       assert.equal(unregistered.status, 1);
       assert.equal(unregistered.receipt.code, "authentication_failed");
@@ -566,7 +566,7 @@ test(
       ]);
       await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
       realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       const ungranted = sync(credential);
       assert.equal(ungranted.status, 1);
       assert.equal(ungranted.receipt.code, "authorization_denied", JSON.stringify(ungranted.receipt));
@@ -633,7 +633,7 @@ test(
       assert.equal(anonymousRead.status, 1);
       assert.equal(anonymousRead.receipt.code, "authentication_required", JSON.stringify(anonymousRead.receipt));
       realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       const readable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(readable.status, 0, JSON.stringify(readable.receipt));
 
