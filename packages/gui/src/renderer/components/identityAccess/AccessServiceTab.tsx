@@ -4,7 +4,7 @@ import type {
   AccessRejection,
   AccessSessionLifetimeReply,
 } from "../../../api/access-admin-contract.ts";
-import type { OidcAuthApi } from "../../../api/oidc-auth-contract.ts";
+import type { EmbeddedLoginPage, OidcAuthApi } from "../../../api/oidc-auth-contract.ts";
 import { isRejection, sessionDuration } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { BrowserView } from "../../views/BrowserView.tsx";
@@ -66,16 +66,20 @@ export function AccessServiceTab({
   );
 
   const refresh = async () => {
-    const nextSession = await auth.status(repoId, rootDir);
+    const nextSession = await (rootDir ? auth.status(repoId, rootDir) : auth.status(repoId));
     setSession(nextSession as RecordValue);
-    const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
+    const nextBinding = (await (rootDir
+      ? auth.bindingStatus(repoId, rootDir)
+      : auth.bindingStatus(repoId))) as RecordValue;
     if (nextBinding.configured === false) {
       setBinding(null);
       setBootstrapRequired(false);
       return;
     }
     setBinding(nextBinding);
-    const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
+    const bootstrap = (await (rootDir
+      ? auth.bootstrapStatus(repoId, rootDir)
+      : auth.bootstrapStatus(repoId))) as RecordValue;
     setBootstrapRequired(bootstrap.required === true);
   };
 
@@ -102,7 +106,7 @@ export function AccessServiceTab({
 
   useEffect(() => {
     const refreshRequests = () =>
-      void auth.status(repoId, rootDir).then(
+      void (rootDir ? auth.status(repoId, rootDir) : auth.status(repoId)).then(
         (reply) => setSession(reply as RecordValue),
         (error: unknown) => setFeedback(message(error)),
       );
@@ -115,12 +119,10 @@ export function AccessServiceTab({
       loggingIn.current = true;
       setLogin({ userCode });
       try {
-        await auth.login(
-          repoId,
-          (page) => setLogin({ userCode, url: page.url, partitionToken: page.partitionToken }),
-          userCode,
-          rootDir,
-        );
+        const openBrowser = (page: EmbeddedLoginPage) =>
+          setLogin({ userCode, url: page.url, partitionToken: page.partitionToken });
+        if (rootDir) await auth.login(repoId, openBrowser, userCode, rootDir);
+        else await auth.login(repoId, openBrowser, userCode);
       } finally {
         loggingIn.current = false;
         setLogin(null);
@@ -211,7 +213,12 @@ export function AccessServiceTab({
           ) : null}
           {bootstrapRequired ? (
             <BoardRegion region="bootstrap">
-              <BootstrapAdminForm busy={busy} submit={(input) => run(() => auth.bootstrapAdmin(input, rootDir))} />
+              <BootstrapAdminForm
+                busy={busy}
+                submit={(input) =>
+                  run(() => (rootDir ? auth.bootstrapAdmin(input, rootDir) : auth.bootstrapAdmin(input)))
+                }
+              />
             </BoardRegion>
           ) : null}
           <BoardRegion region="service" data-testid="access-service-card">
@@ -246,7 +253,11 @@ export function AccessServiceTab({
                       disabled={busy || (!authenticated && !ready)}
                       tip={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
                       testId="account-session-action"
-                      onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
+                      onClick={() =>
+                        void (authenticated
+                          ? run(() => (rootDir ? auth.logout(repoId, rootDir) : auth.logout(repoId)))
+                          : signIn())
+                      }
                     >
                       {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
                     </Button>
@@ -308,7 +319,13 @@ export function AccessServiceTab({
               <span className="ml-auto">
                 <Button
                   disabled={busy || binding?.mode === "managed"}
-                  onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId, rootDir))}
+                  onClick={() =>
+                    void run(() =>
+                      rootDir
+                        ? auth.configure({ mode: "managed" }, repoId, rootDir)
+                        : auth.configure({ mode: "managed" }, repoId),
+                    )
+                  }
                 >
                   {t("identityAccess.useManaged")}
                 </Button>
@@ -318,13 +335,18 @@ export function AccessServiceTab({
             <p className="text-status-blocked ui-body">{t("accessControl.service.danger")}</p>
             <details className="mt-3">
               <summary className="cursor-pointer py-2 ui-body">{t("identityAccess.externalTitle")}</summary>
-              <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId, rootDir))} />
+              <ExternalBindingForm
+                busy={busy}
+                submit={(input) =>
+                  run(() => (rootDir ? auth.configure(input, repoId, rootDir) : auth.configure(input, repoId)))
+                }
+              />
             </details>
             <div className="mt-3">
               <Button
                 testId="access-open-console"
                 disabled={busy || !ready}
-                onClick={() => void run(() => auth.openConsole(repoId, rootDir))}
+                onClick={() => void run(() => (rootDir ? auth.openConsole(repoId, rootDir) : auth.openConsole(repoId)))}
               >
                 {t("identityAccess.openConsole")}
               </Button>

@@ -110,11 +110,12 @@ export function AppSidebar({
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
-    if (!activeRepoId || !identityRoot) {
+    if (!activeRepoId) {
       setIdentity({ authenticated: false });
       return;
     }
-    void auth.status(activeRepoId, identityRoot).then((value) => {
+    const request = identityRoot ? auth.status(activeRepoId, identityRoot) : auth.status(activeRepoId);
+    void request.then((value) => {
       if (identityTarget.current !== activeRepoId) return;
       const status = value as { readonly authenticated?: boolean; readonly personId?: string };
       setIdentity({

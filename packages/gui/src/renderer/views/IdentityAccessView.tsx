@@ -42,14 +42,13 @@ export function IdentityAccessView({
   useEffect(() => {
     const refreshIdentity = () => {
       if (auth) {
-        if (!rootDir) {
-          setIdentity(t("identityAccess.signedOut"));
-          return;
-        }
-        void auth.status(repoId, rootDir).then((reply) => {
-          const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
-          setIdentity(status.authenticated ? String(status.personId) : t("identityAccess.signedOut"));
-        });
+        const request = rootDir ? auth.status(repoId, rootDir) : auth.status(repoId);
+        void request
+          .then((reply) => {
+            const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
+            setIdentity(status.authenticated ? String(status.personId) : t("identityAccess.signedOut"));
+          })
+          .catch(() => setIdentity(t("identityAccess.signedOut")));
       }
     };
     refreshIdentity();
