@@ -443,6 +443,10 @@ export async function fixture(
   const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
     await cell.awaitRuntimeOutcome(runtimeSessionId);
+    // The runtime settlement predicate can become true as soon as the session projection sees
+    // its terminal outcome. A queued read is the fixture's observable barrier for the outcome
+    // event itself; this avoids racing the writer queue on slower CI machines.
+    await run({ kind: "task-show", taskId });
     const outcome = events().find(
       (event) =>
         event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
