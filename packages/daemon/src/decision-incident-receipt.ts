@@ -30,21 +30,18 @@ export function readIncidentActionReceipt(rootDir: string, dispatchId: string): 
   return record === null || record === undefined ? null : incidentActionFromRecord(record);
 }
 
-/** The continuation budget already consumed by this task's current no-progress streak, read from
- * the canonical dispatch receipts rather than the retention-capped local annotation file. Every
- * applied disposition records the streak it ended on, not only resume/rerun: a progressing stop
- * that escalated or did nothing must still persist the reset, otherwise the next no-progress stop
- * would inherit a streak the worktree already disproved. The newest receipt with a recorded budget
- * is the whole durable state; a measured worktree HEAD change resets it before the gate reads it.
- * A receipt with no budget (an owner dismissal) and a task with no receipt start at zero. Receipts
- * written before the streak was recorded carry the old pre-action lifetime count, so the reader
- * treats that number as a conservative streak estimate; it converges as new receipts are written.
- * A `claimed` fence carries no streak and is ignored. */
+/** The automatic continuation allowance already consumed by this task, read from the canonical
+ * dispatch receipts rather than the retention-capped local annotation file. Every applied
+ * disposition records the count it ended on, not only resume/rerun: an escalation or no_action
+ * keeps the count so the next stop cannot inherit a lower number than the loop already used. The
+ * newest receipt with a recorded budget is the whole durable state; a measured worktree HEAD change
+ * is continuation context, never a reset. A receipt with no budget (an owner dismissal) and a task
+ * with no receipt start at zero. Receipts written before the allowance was recorded carry the old
+ * pre-action lifetime count, so the reader treats that number as a conservative estimate; it
+ * converges as new receipts are written. A `claimed` fence carries no count and is ignored. */
 export function incidentContinuationUsed(
   rows: readonly { readonly decisionAction?: TaskDispatchDecisionAction }[],
-  progressed: boolean,
 ): number {
-  if (progressed) return 0;
   let latest: SettledIncidentAction | null = null;
   for (const row of rows) {
     const action = row.decisionAction;

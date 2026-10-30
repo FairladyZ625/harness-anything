@@ -62,9 +62,6 @@ export function openDecisionPointExecutor(input: {
      * own, and the receipt must still say the Decisions API was unavailable. */
     readonly note: string | null;
     readonly budget: IncidentDecisionFields["continuationBudget"] | null;
-    /** Whether this stop measured worktree progress; a progressing stop resets the streak instead
-     * of consuming the next continuation slot. */
-    readonly progressed: boolean;
   }): Promise<void> => {
     const outcome = await executeIncidentAction({
         cell: args.cell,
@@ -76,22 +73,15 @@ export function openDecisionPointExecutor(input: {
       }),
       decidedAt = input.now(),
       reason = outcome.reason ?? args.note,
-      /** The receipt records the streak this action ends on: an applied resume/rerun adds one
-       * no-progress stop, while a progressing stop resets the streak to zero for every disposition
-       * (an escalation must not lose the reset the worktree proved). A refusal or no_action on a
-       * no-progress stop consumes nothing and keeps the pre-action numbers the guard already
-       * quotes. */
+      /** The receipt records the allowance this action ends on: an applied resume/rerun consumes
+       * one slot even when this stop measured a HEAD change. An escalation, no_action or refused
+       * launch consumes nothing and keeps the pre-action number the guard already quotes. */
       settledBudget =
         args.budget === null
           ? null
           : {
               ...args.budget,
-              used:
-                outcome.action === "resume" || outcome.action === "rerun"
-                  ? args.progressed
-                    ? 0
-                    : args.budget.used + 1
-                  : args.budget.used,
+              used: outcome.action === "resume" || outcome.action === "rerun" ? args.budget.used + 1 : args.budget.used,
             };
     await annotations.settleAction(
       args.key,
@@ -267,7 +257,6 @@ export function openDecisionPointExecutor(input: {
             headKnown: incident?.fields !== undefined && incident.fields.headStatus !== "unavailable",
           },
           recordBudget = incident?.fields?.continuationBudget ?? null,
-          progressed = incident?.fields?.headStatus === "changed",
           apply = (selected: string, plan: IncidentActionPlan, note: string | null) =>
             settle({
               cell,
@@ -280,7 +269,6 @@ export function openDecisionPointExecutor(input: {
               plan,
               note,
               budget: recordBudget,
-              progressed,
             }),
           escalate = (guard: string, next = `ha task dispatches ${task.taskId}`) =>
             apply("needs_attention", incidentGuardPlan({ taskId: task.taskId, guard, evidence, next }), null),
@@ -393,10 +381,10 @@ interface IncidentRead {
 }
 
 /** One incident-context read at the projection cut: continuation seed and worktree HEAD reuse
- * task_3fedf360's construction, and the continuation streak is read from the durable receipts on
- * the canonical dispatch rows (not the local annotation store, whose retention window would let a
- * busy repository forget old dispositions and reopen the cap). A measured HEAD change is the only
- * evidence that resets the streak. */
+ * task_3fedf360's construction, and the continuation allowance is read from the durable receipts
+ * on the canonical dispatch rows (not the local annotation store, whose retention window would let
+ * a busy repository forget old dispositions and reopen the cap). A measured HEAD change stays in
+ * the context as continuation evidence but does not reset the allowance. */
 async function readIncidentFields(
   cell: RepoCell,
   rootDir: string,
@@ -508,7 +496,7 @@ function incidentFieldSegment(
     case "task.reworkBudget":
       // The declared input id and its projected label are a frozen decision contract (the binding
       // digest is registered in enabledPoints); the value carried here is the daemon-measured
-      // continuation streak, no longer the repository's review-return budget.
+      // continuation allowance, no longer the repository's review-return budget.
       return `rework_budget: used=${String(incident.continuationBudget.used)} limit=${String(incident.continuationBudget.limit)} source=${incident.continuationBudget.source}`;
     default:
       return null;
