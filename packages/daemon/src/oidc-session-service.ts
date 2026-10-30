@@ -95,7 +95,6 @@ export class OidcSessionService {
   readonly #rbacRoot: string;
   readonly #ports: OidcSessionPorts;
   readonly #centers: ReturnType<typeof oidcCenterSelections>;
-  readonly #persistCenters: boolean;
   #pending: PendingLogin | undefined;
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
@@ -106,7 +105,6 @@ export class OidcSessionService {
   constructor(userRoot: string, ports: Partial<OidcSessionPorts> = {}) {
     this.#rbacRoot = path.join(userRoot, "rbac");
     this.#centers = oidcCenterSelections(userRoot);
-    this.#persistCenters = ports.sessionStore === undefined;
     this.#ports = {
       fetch,
       now: Date.now,
@@ -201,7 +199,7 @@ export class OidcSessionService {
     let response: Response;
     try {
       issuer = await this.#issuer(authority);
-      this.#centers.write(loginTarget, { authority, issuer }, this.#persistCenters);
+      this.#centers.write(loginTarget, { authority, issuer });
       response = await this.#fetchAuthority(
         authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
@@ -248,7 +246,7 @@ export class OidcSessionService {
       nextPollAt: this.#ports.now() + interval * 1_000,
       ...(loginTarget ? { loginTarget } : {}),
     };
-    this.#centers.write(loginTarget, { authority, issuer }, this.#persistCenters);
+    this.#centers.write(loginTarget, { authority, issuer });
     await this.#reportDevice(this.#device, true);
     return {
       ok: true,
@@ -411,7 +409,7 @@ export class OidcSessionService {
       authority,
       issuer,
     );
-    this.#centers.write(loginTarget, { authority, issuer }, this.#persistCenters);
+    this.#centers.write(loginTarget, { authority, issuer });
     if (generation === undefined) this.#writeSession(session, store);
     else
       await this.serialize(async () => {
@@ -539,7 +537,7 @@ export class OidcSessionService {
    */
   async bind(
     auth: DaemonAuthenticationContext,
-    loginTargetOrReplicaRead?: string | boolean,
+    loginTarget?: string,
     replicaRead = false,
   ): Promise<DaemonAuthenticationContext> {
     if (auth.transportKind === "fleet-tls") {
@@ -579,16 +577,13 @@ export class OidcSessionService {
         return bound;
       });
     }
-    const loginTarget = typeof loginTargetOrReplicaRead === "string" ? loginTargetOrReplicaRead : undefined,
-      allowReplicaRead = typeof loginTargetOrReplicaRead === "boolean" ? loginTargetOrReplicaRead : replicaRead,
-      { sessionStore } = await this.#centerIdentity(loginTarget),
+    const { sessionStore } = await this.#centerIdentity(loginTarget),
       generation = this.#loginGeneration,
       { session, unavailable } = await this.#use(sessionStore);
     if (!session || generation !== this.#loginGeneration) return auth;
-    if (allowReplicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now())
-      return auth;
+    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
     if (unavailable) {
-      if (!allowReplicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
+      if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
         return auth;
       return {
         ...auth,
@@ -944,7 +939,7 @@ export class OidcSessionService {
     if (selected) return { ...selected, sessionStore: this.#sessionStore(selected.issuer, selected.authority.realm) };
     const authority = authorityOverride ?? (await this.#loginAuthority(target, resetSession)),
       issuer = await this.#issuer(authority);
-    this.#centers.write(target, { authority, issuer }, this.#persistCenters);
+    this.#centers.write(target, { authority, issuer });
     return { authority, issuer, sessionStore: this.#sessionStore(issuer, authority.realm) };
   }
 

@@ -9,7 +9,7 @@ export interface OidcCenterSelection {
   readonly authority: OidcLoginAuthority;
 }
 
-/** Discovery identifies a binding once; ordinary session use must also work while its center is offline. */
+/** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
 export function oidcCenterSelections(userRoot: string) {
   const directory = path.join(userRoot, "rbac", "oidc-centers"),
     memory = new Map<string, OidcCenterSelection>();
@@ -32,12 +32,11 @@ export function oidcCenterSelections(userRoot: string) {
       memory.set(key, selection);
       return selection;
     },
-    write(target: string | undefined, selection: OidcCenterSelection, persist: boolean): void {
+    write(target: string | undefined, selection: OidcCenterSelection): void {
       const key = binding(target),
         { clientSecret: _secret, ...authority } = selection.authority,
         stored = { issuer: selection.issuer, authority };
       memory.set(key, stored);
-      if (!persist) return;
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       const file = path.join(directory, `${key}.json`),
         temporary = `${file}.tmp`;

@@ -706,7 +706,7 @@ test("offline identity is confined to replica reads and expires independently of
   active.clock.now += 65_000;
   active.keycloak.reachable = false;
   const auth = { transportKind: "unix-socket" as const };
-  const bound = await active.service.bind(auth, true);
+  const bound = await active.service.bind(auth, undefined, true);
   assert.equal(bound.oidcPrincipal, undefined);
   assert.equal(bound.replicaReadPrincipal?.personId, "person-zeyu");
   assert.equal(localDefaultBinding(bound, null, true).actor.principal.personId, "person-zeyu");
@@ -741,7 +741,7 @@ test("offline identity is confined to replica reads and expires independently of
   const store = sessionStore(active.root);
   const saved = JSON.parse(store.read()!);
   active.clock.now = saved.sessionExpiresAt;
-  assert.equal((await active.service.bind(auth, true)).replicaReadPrincipal, undefined);
+  assert.equal((await active.service.bind(auth, undefined, true)).replicaReadPrincipal, undefined);
   assert.equal(JSON.parse(store.read()!).expiresAt, saved.expiresAt);
 });
 
@@ -787,7 +787,7 @@ for (const end of ["expiry", "logout"] as const)
       );
       await signIn(active);
       active.clock.now += 65_000;
-      const bound = active.service.bind({ transportKind: "unix-socket" }, true);
+      const bound = active.service.bind({ transportKind: "unix-socket" }, undefined, true);
       await entered;
       const logout = end === "logout" ? active.service.logout() : undefined;
       if (end === "expiry") active.clock.now += 120_000;
@@ -807,7 +807,7 @@ test("HTTP 400 clears the session for offline reads and subsequent online uses",
   await signIn(active);
   active.clock.now += 65_000;
   active.keycloak.revoked = true;
-  const bound = await active.service.bind({ transportKind: "unix-socket" }, true);
+  const bound = await active.service.bind({ transportKind: "unix-socket" }, undefined, true);
   assert.equal(bound.replicaReadPrincipal, undefined);
   assert.equal(bound.oidcPrincipal, undefined);
   assert.equal(sessionStore(active.root).read(), undefined);
@@ -826,7 +826,7 @@ test("a reachable token endpoint error does not grant an offline identity", asyn
         ? Response.json({ issuer: testIssuer })
         : new Response(null, { status: 503 })) as typeof fetch,
   });
-  assert.equal((await service.bind({ transportKind: "unix-socket" }, true)).replicaReadPrincipal, undefined);
+  assert.equal((await service.bind({ transportKind: "unix-socket" }, undefined, true)).replicaReadPrincipal, undefined);
 });
 
 test("replica reads reject an ended session even when its access token has time remaining", async (t) => {
@@ -834,7 +834,7 @@ test("replica reads reject an ended session even when its access token has time 
   await signIn(active);
   const store = sessionStore(active.root);
   store.write(JSON.stringify({ ...JSON.parse(store.read()!), sessionExpiresAt: active.clock.now - 1 }));
-  const bound = await active.service.bind({ transportKind: "unix-socket" }, true);
+  const bound = await active.service.bind({ transportKind: "unix-socket" }, undefined, true);
   assert.equal(bound.oidcPrincipal, undefined);
   assert.equal(bound.replicaReadPrincipal, undefined);
   assert.equal(active.keycloak.refreshes, 0);

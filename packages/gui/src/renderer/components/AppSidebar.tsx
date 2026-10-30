@@ -114,7 +114,7 @@ export function AppSidebar({
       setIdentity({ authenticated: false });
       return;
     }
-    const request = identityRoot ? auth.status(activeRepoId, identityRoot) : auth.status(activeRepoId);
+    const request = auth.status(activeRepoId, identityRoot);
     void request.then((value) => {
       if (identityTarget.current !== activeRepoId) return;
       const status = value as { readonly authenticated?: boolean; readonly personId?: string };

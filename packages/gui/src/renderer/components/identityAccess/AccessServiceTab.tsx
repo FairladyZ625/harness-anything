@@ -66,20 +66,16 @@ export function AccessServiceTab({
   );
 
   const refresh = async () => {
-    const nextSession = await (rootDir ? auth.status(repoId, rootDir) : auth.status(repoId));
+    const nextSession = await auth.status(repoId, rootDir);
     setSession(nextSession as RecordValue);
-    const nextBinding = (await (rootDir
-      ? auth.bindingStatus(repoId, rootDir)
-      : auth.bindingStatus(repoId))) as RecordValue;
+    const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
     if (nextBinding.configured === false) {
       setBinding(null);
       setBootstrapRequired(false);
       return;
     }
     setBinding(nextBinding);
-    const bootstrap = (await (rootDir
-      ? auth.bootstrapStatus(repoId, rootDir)
-      : auth.bootstrapStatus(repoId))) as RecordValue;
+    const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
     setBootstrapRequired(bootstrap.required === true);
   };
 
@@ -106,7 +102,7 @@ export function AccessServiceTab({
 
   useEffect(() => {
     const refreshRequests = () =>
-      void (rootDir ? auth.status(repoId, rootDir) : auth.status(repoId)).then(
+      void auth.status(repoId, rootDir).then(
         (reply) => setSession(reply as RecordValue),
         (error: unknown) => setFeedback(message(error)),
       );
@@ -121,8 +117,7 @@ export function AccessServiceTab({
       try {
         const openBrowser = (page: EmbeddedLoginPage) =>
           setLogin({ userCode, url: page.url, partitionToken: page.partitionToken });
-        if (rootDir) await auth.login(repoId, openBrowser, userCode, rootDir);
-        else await auth.login(repoId, openBrowser, userCode);
+        await auth.login(repoId, openBrowser, userCode, rootDir);
       } finally {
         loggingIn.current = false;
         setLogin(null);
@@ -213,12 +208,7 @@ export function AccessServiceTab({
           ) : null}
           {bootstrapRequired ? (
             <BoardRegion region="bootstrap">
-              <BootstrapAdminForm
-                busy={busy}
-                submit={(input) =>
-                  run(() => (rootDir ? auth.bootstrapAdmin(input, rootDir) : auth.bootstrapAdmin(input)))
-                }
-              />
+              <BootstrapAdminForm busy={busy} submit={(input) => run(() => auth.bootstrapAdmin(input, rootDir))} />
             </BoardRegion>
           ) : null}
           <BoardRegion region="service" data-testid="access-service-card">
@@ -253,11 +243,7 @@ export function AccessServiceTab({
                       disabled={busy || (!authenticated && !ready)}
                       tip={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
                       testId="account-session-action"
-                      onClick={() =>
-                        void (authenticated
-                          ? run(() => (rootDir ? auth.logout(repoId, rootDir) : auth.logout(repoId)))
-                          : signIn())
-                      }
+                      onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
                     >
                       {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
                     </Button>
@@ -319,13 +305,7 @@ export function AccessServiceTab({
               <span className="ml-auto">
                 <Button
                   disabled={busy || binding?.mode === "managed"}
-                  onClick={() =>
-                    void run(() =>
-                      rootDir
-                        ? auth.configure({ mode: "managed" }, repoId, rootDir)
-                        : auth.configure({ mode: "managed" }, repoId),
-                    )
-                  }
+                  onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId, rootDir))}
                 >
                   {t("identityAccess.useManaged")}
                 </Button>
@@ -335,18 +315,13 @@ export function AccessServiceTab({
             <p className="text-status-blocked ui-body">{t("accessControl.service.danger")}</p>
             <details className="mt-3">
               <summary className="cursor-pointer py-2 ui-body">{t("identityAccess.externalTitle")}</summary>
-              <ExternalBindingForm
-                busy={busy}
-                submit={(input) =>
-                  run(() => (rootDir ? auth.configure(input, repoId, rootDir) : auth.configure(input, repoId)))
-                }
-              />
+              <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId, rootDir))} />
             </details>
             <div className="mt-3">
               <Button
                 testId="access-open-console"
                 disabled={busy || !ready}
-                onClick={() => void run(() => (rootDir ? auth.openConsole(repoId, rootDir) : auth.openConsole(repoId)))}
+                onClick={() => void run(() => auth.openConsole(repoId, rootDir))}
               >
                 {t("identityAccess.openConsole")}
               </Button>

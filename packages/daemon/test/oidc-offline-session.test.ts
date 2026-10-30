@@ -1,13 +1,18 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test, { type TestContext } from "node:test";
 import { OidcSessionService, type OidcSessionPorts } from "../src/oidc-session-service.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 
 // dec_F01770FD0DCF72683B7C4C7A47/CH6: the provider owns offline idle expiration.
-function offlineFixture(refreshExpiresIn: number) {
+function offlineFixture(refreshExpiresIn: number, t: TestContext) {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-oidc-offline-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
   let stored: string | undefined;
-  const state = { now: Date.now(), reachable: true, revoked: false, refreshes: 0, serial: 0 };
+  const state = { now: Date.now(), reachable: true, discoveryReachable: true, revoked: false, refreshes: 0, serial: 0 };
   const authority = { url: "http://127.0.0.1:8080", realm: "isolated", clientId: "harness-node-a" },
     loginTarget = "/unused-offline-test-edge",
     issuer = `${authority.url}/realms/${authority.realm}`;
@@ -34,7 +39,10 @@ function offlineFixture(refreshExpiresIn: number) {
       retireBootstrap: () => {},
     }),
     fetch: async (input, init) => {
-      if (String(input).endsWith("/.well-known/openid-configuration")) return Response.json({ issuer });
+      if (String(input).endsWith("/.well-known/openid-configuration")) {
+        if (!state.discoveryReachable) throw new TypeError("isolated provider discovery unavailable");
+        return Response.json({ issuer });
+      }
       if (String(input).endsWith("/auth/device"))
         return Response.json({
           device_code: "device-secret",
@@ -53,13 +61,13 @@ function offlineFixture(refreshExpiresIn: number) {
       return issue();
     },
   };
-  const open = () => new OidcSessionService("/unused-offline-test-root", ports);
+  const open = () => new OidcSessionService(userRoot, ports);
   return { state, open, store: ports.sessionStore!(issuer, authority.realm), loginTarget };
 }
 
 for (const refreshExpiresIn of [0, 60]) {
-  test(`offline token with refresh_expires_in=${refreshExpiresIn} survives restart and renews once for concurrent uses`, async () => {
-    const fixture = offlineFixture(refreshExpiresIn),
+  test(`offline token with refresh_expires_in=${refreshExpiresIn} survives restart and renews once for concurrent uses`, async (t) => {
+    const fixture = offlineFixture(refreshExpiresIn, t),
       first = fixture.open();
     await first.beginDevice(fixture.loginTarget);
     fixture.state.now += 1_000;
@@ -69,6 +77,8 @@ for (const refreshExpiresIn of [0, 60]) {
     assert.equal(login.expiresAt, null);
     assert.equal(JSON.stringify(login).includes("refresh-"), false);
     const restarted = fixture.open();
+    // The persisted center selection lets a restarted daemon locate this session without discovery.
+    fixture.state.discoveryReachable = false;
     fixture.state.now += 86_400_000;
     const [status, binding] = await Promise.all([
       restarted.status(fixture.loginTarget),
@@ -84,8 +94,8 @@ for (const refreshExpiresIn of [0, 60]) {
   });
 }
 
-test("offline network failure preserves credentials and only admits an explicitly selected replica read; provider rejection clears them", async () => {
-  const fixture = offlineFixture(0),
+test("offline network failure preserves credentials and only admits an explicitly selected replica read; provider rejection clears them", async (t) => {
+  const fixture = offlineFixture(0, t),
     service = fixture.open();
   await service.beginDevice(fixture.loginTarget);
   fixture.state.now += 1_000;

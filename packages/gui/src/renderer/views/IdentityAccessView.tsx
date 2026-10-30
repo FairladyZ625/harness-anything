@@ -42,7 +42,7 @@ export function IdentityAccessView({
   useEffect(() => {
     const refreshIdentity = () => {
       if (auth) {
-        const request = rootDir ? auth.status(repoId, rootDir) : auth.status(repoId);
+        const request = auth.status(repoId, rootDir);
         void request
           .then((reply) => {
             const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
