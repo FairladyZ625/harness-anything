@@ -168,7 +168,6 @@ for (const row of [{type:'thread.started',thread_id:id},
       userRoot,
       createConvenienceLinks: false,
     });
-    f.owners.signIn(userRoot, nodeId);
     // The edge config before the host opens: the edge daemon owns the resident replica stream.
     const request = {
       host: "127.0.0.1",
@@ -185,6 +184,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       path.join(rootDir, "fleet-edge.json"),
       JSON.stringify({ schema: "fleet-edge-config/v1", ...request }),
     );
+    f.owners.signIn(userRoot, nodeId, rootDir);
     const host = await openDaemonHost({
       daemonId: nodeId,
       userRoot,

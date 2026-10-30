@@ -823,6 +823,8 @@ test("repository modes close local, center-assignment, and edge command families
   }
   const host = await openSignedInHost({ daemonId: "host-modes", userRoot }),
     owners = await fleetNodeOwners({ userRoot, owners: { "node-mode": "writer" }, repoIds: ["local", "center"] });
+  for (const repo of readDaemonRegistry({ userRoot }).repos)
+    if (repo.canonicalRoot !== null) signInAt(userRoot, "writer", ["access-admin"], undefined, repo.canonicalRoot);
   await host.attachmentsSettled();
   const nodeAuth = (_repoId: string) => owners.auth({ nodeId: "node-mode" });
   try {
@@ -844,10 +846,8 @@ test("repository modes close local, center-assignment, and edge command families
         ? new RegExp(`repos=3 entry=(?:source|dist) commit=${sourceCommit.stdout.trim()}$`, "u")
         : /repos=3 entry=(?:source|dist) commit=unknown$/u,
     );
-    assert.equal(
-      (await host.run("local", { kind: "task-create", taskId: "task-local", title: "Local" }, auth)).outcome,
-      "applied",
-    );
+    const localTask = await host.run("local", { kind: "task-create", taskId: "task-local", title: "Local" }, auth);
+    assert.equal(localTask.outcome, "applied", JSON.stringify(localTask));
     assert.equal(
       (
         await host.run(
@@ -876,7 +876,7 @@ test("repository modes close local, center-assignment, and edge command families
       (await host.run("center", { kind: "projection-rebuild" }, mismatchedLocalAuth)).code,
       "authentication_required",
     );
-    signInAt(userRoot, "writer");
+    signInAt(userRoot, "writer", ["access-admin"], undefined, roots.center);
     assert.equal((await host.run("center", { kind: "projection-rebuild" }, auth)).outcome, "applied");
     assert.equal(
       (await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, nodeAuth("center")))
@@ -1192,5 +1192,8 @@ async function openSignedInHost(input: Parameters<typeof openDaemonHost>[0]) {
     readDaemonRegistry({ userRoot: input.userRoot }).repos.map((repo) => repo.repoId),
     "admin",
   );
+  for (const repo of readDaemonRegistry({ userRoot: input.userRoot }).repos)
+    if (repo.canonicalRoot !== null)
+      signInAt(input.userRoot!, "writer", ["access-admin"], undefined, repo.canonicalRoot);
   return openDaemonHost(input);
 }

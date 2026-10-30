@@ -36,7 +36,7 @@ test(
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
       } as const;
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(

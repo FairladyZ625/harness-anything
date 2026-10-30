@@ -78,6 +78,7 @@ function parseLastJsonObject(output) {
 test("quickstart without a Keycloak session gives bootstrap guidance before init", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-quickstart-signed-out-"));
   try {
+    realm.bind(path.join(rootDir, ".daemon-user"));
     const result = spawnSync(process.execPath, [demoScript, "--cli", cliEntry, "--root", rootDir], {
       cwd: repoRoot,
       encoding: "utf8",

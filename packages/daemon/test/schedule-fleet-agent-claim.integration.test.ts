@@ -90,7 +90,7 @@ test(
       await host.attachmentsSettled();
       const owners = await fleetNodeOwners({ userRoot, owners: { "edge-one": "operator-one" }, repoIds: [repoId] });
       // Retire an installed Agent before the center starts holding the writer epoch.
-      owners.signIn(userRoot, "edge-one");
+      owners.signIn(userRoot, "edge-one", repo);
       const retiredAgentId = "retired-schedule-agent";
       const installed = await host.run(
         repoId,

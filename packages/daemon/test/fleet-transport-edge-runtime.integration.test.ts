@@ -80,7 +80,6 @@ test(
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
       } as const;
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -115,6 +114,7 @@ test(
         quotaBytes: replicaQuota,
       }),
     );
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: fixture.subject.repoId,
@@ -427,7 +427,7 @@ test(
         { code: "authentication_required" },
       );
       // dec_F01770FD0DCF72683B7C4C7A47: recovery requires the device owner to sign in again.
-      fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
+      fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
       const sync = await edgeHost.fleet.edgeSync(
         {
           host: "127.0.0.1",
@@ -589,7 +589,6 @@ test(
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -598,6 +597,7 @@ test(
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     git(fixture.root, "clone", "--bare", "-q", edgeRoot, remote);
     git(edgeRoot, "remote", "add", "origin", remote);
     git(edgeRoot, "fetch", "-q", "origin");

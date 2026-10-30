@@ -100,9 +100,9 @@ export async function fleetNodeOwners(input: {
   return {
     keycloak: served.keycloak,
     bind: served.bind,
-    signIn: (userRoot: string, nodeId: string) => {
+    signIn: (userRoot: string, nodeId: string, loginTarget?: string) => {
       served.bind(userRoot);
-      signInAt(userRoot, ownerOf(nodeId)!, [], `device-token-${nodeId}`);
+      signInAt(userRoot, ownerOf(nodeId)!, [], `device-token-${nodeId}`, loginTarget);
     },
     url: served.url,
     close: served.close,
