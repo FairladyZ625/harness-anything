@@ -28,6 +28,8 @@ test("external credentials enter through CLI stdin, failed replacement preserves
     const json = (value: unknown, status = 200) =>
       response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value));
     if (url.pathname.includes("/wrong/")) return json({}, 404);
+    if (url.pathname === "/realms/fleet/.well-known/openid-configuration")
+      return json({ issuer: `${url.origin}/realms/fleet` });
     if (url.pathname.endsWith("/token")) {
       const params = new URLSearchParams(body);
       const valid = params.get("client_secret") === secret && params.get("client_id") === "harness-center";

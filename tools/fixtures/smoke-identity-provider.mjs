@@ -19,6 +19,8 @@ const server = createServer(async (request, response) => {
       response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value));
     const owner = [...realm.users.values()].find((user) => user.username === "owner");
     if (url.pathname === "/realms/harness") return json({ realm: "harness" });
+    if (url.pathname === "/realms/harness/.well-known/openid-configuration")
+      return json({ issuer: `${url.origin}/realms/harness` });
     if (url.pathname.endsWith("/auth/device")) {
       if (!owner || !realm.realmRoles.get("access-admin")?.members.has(owner.id)) return json({}, 403);
       challenge = form.get("code_challenge");
@@ -44,7 +46,9 @@ const server = createServer(async (request, response) => {
             .digest("base64url") !== challenge
         )
           return json({}, 401);
-        token = `fixture.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.fixture`;
+        token = `fixture.${Buffer.from(
+          JSON.stringify({ iss: `${url.origin}/realms/harness`, realm_access: { roles: ["access-admin"] } }),
+        ).toString("base64url")}.fixture`;
         realm.interactiveSession("owner", "smoke-device", url.origin, token);
         return json({
           access_token: token,

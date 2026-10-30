@@ -147,7 +147,10 @@ function parseRbacBootstrap(
     json,
     {
       kind: "rbac-bootstrap",
-      ...(["login", "session", "logout", "health"].includes(f.one.get("--operation") ?? "") ? { rootDir } : {}),
+      ...(["login", "session", "logout", "health"].includes(f.one.get("--operation") ?? "") ||
+      f.one.get("--mode") === "external"
+        ? { rootDir }
+        : {}),
       ...(f.one.get("--operation") ? { operation: f.one.get("--operation") } : {}),
       ...(f.one.get("--mode") ? { mode: f.one.get("--mode") } : {}),
       ...(f.one.get("--url") ? { url: f.one.get("--url") } : {}),

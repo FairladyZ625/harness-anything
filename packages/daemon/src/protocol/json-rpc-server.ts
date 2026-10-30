@@ -1029,6 +1029,7 @@ function trafficActorForLog(
 
 function sessionIndependentRbacOperation(method: string, params: JsonObject): boolean {
   if (method !== "daemon.rbac.manage") return false;
+  if (params.mode === "external") return true;
   return [
     "bootstrap",
     "bootstrap-admin",
