@@ -146,6 +146,7 @@ test(
         loginTarget: edgeRoot,
       }),
     );
+    await new OidcSessionService(userRoot).status(edgeRoot);
     const daemonOptions = {
       userRoot,
       daemonId: "edge-execution",
@@ -273,7 +274,7 @@ test(
     const initialLocalRead = await cli(["task", "show", taskId]);
     assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
     const initialDeviceSession = keycloakSessionStore(userRoot, loginIssuer).read()!;
-    const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout" });
+    const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout", rootDir: edgeRoot });
     assert.equal(edgeLogout.ok, true, JSON.stringify(edgeLogout));
     const logout = await new OidcSessionService(path.join(f.root, "user")).logout();
     assert.equal(logout.ok, true, JSON.stringify(logout));
@@ -568,7 +569,7 @@ test(
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, secret);
     assert.equal(existsSync(path.join(reviewUser, "rbac/config.json")), false);
     const savedReviewSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
-    assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+    assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout", rootDir: reviewRoot })).ok, true);
     await new OidcSessionService(path.join(f.root, "user")).logout();
     const reviewCli = async (args: string[]) => {
       const result = await spawnCli(["--root", reviewRoot, "--json", ...args], { ...process.env, ...reviewEnv });
@@ -853,7 +854,7 @@ test(
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, oldSecret);
     const s2DeviceSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
-    assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+    assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout", rootDir: reviewRoot })).ok, true);
     await new OidcSessionService(path.join(f.root, "user")).logout();
     assert.equal((await reviewCli(["task", "show", taskId])).code, "authentication_required");
     approveDeviceAgain(reviewUser, "node-slow", s2DeviceSession);

@@ -161,6 +161,14 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         authority: { url: fixture.owners.url, realm: "harness" },
       }),
     );
+    await new OidcSessionService(edgeUserRoot, {
+      fetch: fixture.owners.keycloak.fetch,
+      loginAuthority: async () => ({
+        url: fixture.owners.url,
+        realm: "harness",
+        clientId: `harness-node-${fixture.subject.nodeId}`,
+      }),
+    }).status(edgeRoot);
     let finish: (() => void) | undefined, cancel: (() => void) | undefined;
     const launchedIn: string[] = [],
       edgeHost = await openDaemonHost({
