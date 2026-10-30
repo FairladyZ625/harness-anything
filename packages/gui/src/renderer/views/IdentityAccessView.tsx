@@ -23,8 +23,10 @@ type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "reques
 export function IdentityAccessView({
   repos = [],
   repoId,
+  rootDir,
 }: {
   readonly repoId?: string;
+  readonly rootDir?: string;
   readonly repos?: readonly {
     readonly repoId: string;
     readonly displayName: string;
@@ -39,16 +41,20 @@ export function IdentityAccessView({
   const [identity, setIdentity] = useState<string>("");
   useEffect(() => {
     const refreshIdentity = () => {
-      if (auth)
-        void auth.status(repoId).then((reply) => {
-          const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
-          setIdentity(status.authenticated ? String(status.personId) : t("identityAccess.signedOut"));
-        });
+      if (auth) {
+        const request = auth.status(repoId, rootDir);
+        void request
+          .then((reply) => {
+            const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
+            setIdentity(status.authenticated ? String(status.personId) : t("identityAccess.signedOut"));
+          })
+          .catch(() => setIdentity(t("identityAccess.signedOut")));
+      }
     };
     refreshIdentity();
     window.addEventListener("harness-auth-changed", refreshIdentity);
     return () => window.removeEventListener("harness-auth-changed", refreshIdentity);
-  }, [auth, repoId]);
+  }, [auth, repoId, rootDir]);
   if (!auth) return <p role="alert">{t("identityAccess.electronOnly")}</p>;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="identity-access-view">
@@ -91,6 +97,7 @@ export function IdentityAccessView({
             auth={auth}
             access={access}
             repoId={repoId}
+            rootDir={rootDir}
             repoMode={repos.find((repo) => repo.repoId === repoId)?.mode}
           />
         ) : tab === "devices" ? (

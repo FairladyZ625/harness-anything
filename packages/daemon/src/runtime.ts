@@ -220,7 +220,17 @@ export async function startDaemon(input: {
               });
             return principal;
           },
-          sessionPrincipal: () => host!.sessionPrincipal({ transportKind: authContext.transportKind }),
+          sessionPrincipal: (method, params) =>
+            host!.sessionPrincipal(
+              {
+                transportKind: authContext.transportKind,
+                ...(authContext.unixSocketOwnerBoundary
+                  ? { unixSocketOwnerBoundary: authContext.unixSocketOwnerBoundary }
+                  : {}),
+              },
+              method,
+              params,
+            ),
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
           recordRequest: requestLog!.record,

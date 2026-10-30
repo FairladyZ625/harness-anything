@@ -52,6 +52,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
     syncs: Record<string, unknown>[] = [],
     progress: { readonly joinId: string; readonly repository: { repoId: string; phase: string } }[] = [],
     probes: string[] = [],
+    loginTargets: string[] = [],
     ports: EdgeJoinClientPorts = {
       probeCenter: async () => {
         probes.push("center");
@@ -59,10 +60,13 @@ test("one invitation creates and syncs an independent workspace for every reposi
       probeLogin: async () => {
         probes.push("login");
       },
-      session: async () => ({
-        accessToken: "person-access-token",
-        authority: { url: "https://login.example", realm: "harness", certificate: cert.toString("utf8") },
-      }),
+      session: async (loginTarget) => {
+        loginTargets.push(loginTarget);
+        return {
+          accessToken: "person-access-token",
+          authority: { url: "https://login.example", realm: "harness", certificate: cert.toString("utf8") },
+        };
+      },
       beginLogin: async () => assert.fail("an existing matching session must not start a login"),
       register: async (workspaceRoot, repoId) => {
         registrations.push(`${repoId}:${workspaceRoot}`);
@@ -102,6 +106,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
 
   assert.deepEqual(result.repoIds, ["repo-a", "repo-b"]);
   assert.deepEqual(probes, ["center", "login"], "both external addresses are checked before session or join use");
+  assert.deepEqual(loginTargets, [path.join(temp, "workspace", "repo-a")]);
   assert.equal(result.state, "synced");
   assert.equal(result.ok, true);
   assert.deepEqual(
@@ -132,21 +137,23 @@ test("one invitation creates and syncs an independent workspace for every reposi
     assert.equal(syncs[index]?.credential, "machine-credential");
   }
   assert.equal(JSON.stringify(result).includes("machine-credential"), false);
-  let loginAuthority: Record<string, unknown> | undefined;
+  let loginAuthority: Record<string, unknown> | undefined, loginTarget: string | undefined;
   const mismatchedSessionPorts: EdgeJoinClientPorts = {
       ...ports,
       session: async () => ({
         accessToken: "person-access-token",
         authority: { url: "https://login.example", realm: "harness", certificate: "another-root" },
       }),
-      beginLogin: async (authority) => {
+      beginLogin: async (authority, target) => {
         loginAuthority = authority;
+        loginTarget = target;
         return { ok: true, pending: true };
       },
     },
     loginResult = await joinFleetEdge({ link: encodeEdgeJoinLink(invite.link) }, mismatchedSessionPorts);
   assert.deepEqual(loginResult, { ok: true, pending: true, command: "edge-join" });
   assert.equal(loginAuthority?.certificate, cert.toString("utf8"));
+  assert.equal(loginTarget, path.join(temp, "harness-edge", "repo-a"));
 
   const publicInvite = createEdgeJoinStore({ randomToken: () => "public-trust-token" }).create({
       centerOrigin: "https://center.example:8443",

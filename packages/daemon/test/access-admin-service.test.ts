@@ -11,13 +11,20 @@ import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
-import { managedRbacReceiptJournal, managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { fleetCenterConfigPath, saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
+import {
+  fakeKeycloak,
+  keycloakIssuer,
+  keycloakRealm,
+  keycloakUrl,
+  keycloakUserRoot,
+  keycloakSessionStore,
+} from "./keycloak.fixtures.ts";
 
 async function fixture(
   t: TestContext,
@@ -274,14 +281,21 @@ test("custom groups compose Base groups, re-expand their grants, and trace every
 });
 
 test("two administrators editing one group from the same version: one applied, one version_conflict", async (t) => {
-  const { admin, run, signIn } = await fixture(t),
+  const { admin, run, signIn, oidc } = await fixture(t),
     read = async () =>
       (
         (await admin.run({ operation: "group-list" })).groups as { id: string; version: string; scopes: string[] }[]
       ).find((group) => group.id === "release")!;
   await run({ operation: "group-create", groupId: "release", scopes: ["task-review-execution"] });
-  const version = (await read()).version;
-  // Each request reads its administrator's session before it enters the queue; both are queued before either runs.
+  const version = (await read()).version,
+    firstSession = Promise.withResolvers<void>(),
+    requireRole = oidc.requireRole.bind(oidc);
+  t.mock.method(oidc, "requireRole", async (...args: Parameters<typeof oidc.requireRole>) => {
+    const session = await requireRole(...args);
+    firstSession.resolve();
+    return session;
+  });
+  // Capture the first administrator before replacing the shared fixture session; writes still overlap.
   signIn("admin-one");
   const first = run({
     operation: "group-update",
@@ -289,6 +303,7 @@ test("two administrators editing one group from the same version: one applied, o
     scopes: ["decision-review"],
     expectedVersion: version,
   });
+  await firstSession.promise;
   signIn("admin-two");
   const second = run({
       operation: "group-update",
@@ -1035,9 +1050,10 @@ test(
       members: new Set([adminUser.id]),
     });
     // 30.5s of access-token life: the entry role check does not renew; the invite's first round trips do.
-    managedRbacSessionStore(root).write(
+    keycloakSessionStore(root).write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer: keycloakIssuer,
         accessToken: "token-person-admin",
         refreshToken: "token-person-admin",
         subject: "person-admin",

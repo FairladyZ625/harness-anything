@@ -383,7 +383,7 @@ function daemonAutostartOptions(
 function daemonRequestParams(command: ThinCommand, repoId: string, env: NodeJS.ProcessEnv): JsonObject {
   if (command.method === "daemon.rbac.manage") {
     const { kind: operation, ...fields } = command.action;
-    return { ...fields, operation, repoId } as JsonObject;
+    return { ...fields, rootDir: command.rootDir, operation, repoId } as JsonObject;
   }
   return {
     repo: { repoId },

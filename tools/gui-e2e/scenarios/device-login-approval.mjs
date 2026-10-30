@@ -102,7 +102,11 @@ export default {
       await page.getByRole("tab", { name: /服务与会话|Service & session/u }).click();
       await page.getByTestId("device-login-node-one").waitFor();
       await page.getByTestId("device-login-node-two").waitFor();
-      assert.equal((await page.evaluate(() => window.harness.auth.status())).deviceLoginRequests.length, 2);
+      assert.equal(
+        (await page.evaluate((root) => window.harness.auth.status(undefined, root), fixture.rootDir))
+          .deviceLoginRequests.length,
+        2,
+      );
       for (const width of [1440, 1120]) {
         await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900), width);
         await page.waitForFunction((width) => window.innerWidth === width, width);

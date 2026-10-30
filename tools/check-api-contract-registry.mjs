@@ -205,7 +205,7 @@ function checkPrincipalBindings(graph, violations) {
     "OIDC verification before repository binding",
     null,
     call,
-    "deriveBinding(rootDir,{...(awaitoidc.bind(auth)),keycloakCenter},executor)",
+    "deriveBinding(rootDir,{...(awaitoidc.bind(auth,rootDir)),keycloakCenter},executor)",
   );
   requireSyntax(
     "assignment dispatch",

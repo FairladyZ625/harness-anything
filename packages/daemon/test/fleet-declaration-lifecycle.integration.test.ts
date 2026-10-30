@@ -56,7 +56,6 @@ test(
         path.join(edgeUser, "rbac/config.json"),
         readFileSync(path.join(fixture.userRoot, "rbac/config.json")),
       );
-      signInAt(edgeUser, fixture.owners.nodeOwner(nodeId)!, [], `device-token-${nodeId}`);
       const oidc = new OidcSessionService(edgeUser);
       writeFileSync(
         path.join(edgeRoot, "fleet-edge.json"),
@@ -73,6 +72,7 @@ test(
           quotaBytes: 64 * 1024 * 1024,
         }),
       );
+      signInAt(edgeUser, fixture.owners.nodeOwner(nodeId)!, [], `device-token-${nodeId}`, edgeRoot);
       registerDaemonRepo({
         canonicalRoot: edgeRoot,
         repoId,
@@ -357,7 +357,7 @@ test(
     const unsignedConsent = await invoke(consent, 1);
     assert.match(JSON.stringify(unsignedConsent), /authentication_required/u);
     fixture.owners.keycloak.interactiveSession("person-owner", "node-one", fixture.owners.url);
-    signInAt(edgeUser, "person-owner");
+    signInAt(edgeUser, "person-owner", ["access-admin"], undefined, edgeRoot);
     const unattendedConsent = await invoke(consent, 1);
     assert.match(JSON.stringify(unattendedConsent), /human_confirmation_required/u);
     const confirmed = await fixture.host.run(

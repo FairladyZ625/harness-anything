@@ -35,7 +35,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, localSystemBinding } from "./daemon-host-binding.ts";
+import { binding as deriveBinding, isDaemonSocketOwner, localSystemBinding } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -83,7 +83,7 @@ import { applyFleetMirrorCut } from "./fleet-edge-mirror.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, jsonRpcMethodContracts, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
@@ -222,9 +222,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await rbacResumed;
     return { ...(await oidc.center(rejectedAccessToken)), clientId: "harness-center" };
   };
-  const keycloakSession = async () => {
+  const keycloakSession = async (rootDir: string) => {
     await rbacResumed;
-    const principal = (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal;
+    const principal = (await oidc.bind({ transportKind: "unix-socket" }, rootDir)).oidcPrincipal;
     if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
     return { personId: principal.personId, accessToken: principal.accessToken, ...principal.authority };
   };
@@ -262,7 +262,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           "execution_credential_rejected",
           "Execution credential belongs to a different repository.",
         );
-      const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth));
+      const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth, rootDir));
       if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
       const base = {
         actor: runtimeExecutionActor(execution),
@@ -288,8 +288,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       ),
       principal =
         edge && replicaRead
-          ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, true)), keycloakCenter }, executor, true)
-          : await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
+          ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, rootDir, true)), keycloakCenter }, executor, true)
+          : await deriveBinding(rootDir, { ...(await oidc.bind(auth, rootDir)), keycloakCenter }, executor),
       base = edge
         ? principal
         : {
@@ -737,9 +737,41 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     remoteProxy,
     home,
     keycloakCenter,
-    sessionPrincipal: async (auth) => {
+    sessionPrincipal: async (auth, method, params) => {
       await rbacResumed;
-      return (await oidc.bind(auth)).oidcPrincipal;
+      if (
+        isDaemonSocketOwner(auth) &&
+        [
+          "daemon.repo.register",
+          "daemon.repo.update",
+          "daemon.repo.unbind",
+          "daemon.repo.backup",
+          "daemon.repo.restoreDrill",
+        ].includes(method)
+      )
+        return undefined;
+      const repo =
+          params.repo && typeof params.repo === "object" ? (params.repo as Record<string, unknown>) : undefined,
+        payload =
+          params.payload && typeof params.payload === "object"
+            ? (params.payload as Record<string, unknown>)
+            : undefined,
+        methodContract = jsonRpcMethodContracts.find((entry) => entry.method === method),
+        repoId =
+          (typeof repo?.repoId === "string" ? repo.repoId : undefined) ??
+          (typeof params.repoId === "string" ? params.repoId : undefined) ??
+          (typeof payload?.repoId === "string" ? payload.repoId : undefined),
+        requestedRoot = typeof params.rootDir === "string" ? canonicalRoot(params.rootDir, true) : undefined,
+        registered = repoId
+          ? readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+              (row) => row.repoId === repoId && row.state === "enabled" && row.canonicalRoot !== null,
+            )
+          : undefined,
+        rootDir = requestedRoot ?? registered?.canonicalRoot;
+      if (!rootDir && methodContract?.requiresRepo)
+        throw hostCodedError("oidc_center_required", "Select a repository with a configured center before continuing.");
+      if (!rootDir) return undefined;
+      return (await oidc.bind(auth, rootDir)).oidcPrincipal;
     },
     parkedWaitSignal: parkedWaitController.signal,
     ...createDaemonHostRepositoryApi(hostContext),
@@ -751,6 +783,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return (async () => {
         if (request.operation === "edge-join-progress")
           return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
+        const loginTarget =
+            request.rootDir ??
+            request.workspaceRoot ??
+            (request.repoId
+              ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)
+                  ?.canonicalRoot ?? undefined)
+              : undefined),
+          requireLoginTarget = () => {
+            if (!loginTarget)
+              throw hostCodedError("oidc_center_required", "Select a repository root to choose its identity center.");
+            return loginTarget;
+          };
         if (request.operation === "edge-join")
           return joinFleetEdge(
             {
@@ -759,21 +803,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
             },
             {
-              session: async () => (await oidc.bind(auth)).oidcPrincipal,
-              beginLogin: (authority) => oidc.beginDevice(undefined, authority),
+              session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
+              beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
               onProgress: edgeJoinProgress.record,
             },
           );
-        if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
-        const loginTarget =
-          request.rootDir ??
-          (request.repoId
-            ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)
-                ?.canonicalRoot ?? undefined)
-            : undefined);
+        if (request.mode === "external")
+          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (
@@ -786,7 +825,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
         if (request.operation === "login")
           return oidc.beginDevice(
-            loginTarget,
+            requireLoginTarget(),
             request.loginUrl && request.loginRealm && request.loginClientId
               ? { url: request.loginUrl, realm: request.loginRealm, clientId: request.loginClientId }
               : undefined,
@@ -794,16 +833,17 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.operation === "login-poll") return oidc.pollDevice();
         if (request.operation === "login-begin") {
           if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
-          return oidc.begin(request.redirectUri, loginTarget);
+          return oidc.begin(request.redirectUri, requireLoginTarget());
         }
         if (request.operation === "login-complete") {
           if (!request.code || !request.state)
             throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
           return oidc.complete(request.code, request.state);
         }
-        if (request.operation === "device-approval") return oidc.deviceApproval(request.code ?? "");
-        if (request.operation === "session") return oidc.status();
-        if (request.operation === "logout") return oidc.logout();
+        if (request.operation === "device-approval")
+          return oidc.deviceApproval(request.code ?? "", requireLoginTarget());
+        if (request.operation === "session") return oidc.status(requireLoginTarget());
+        if (request.operation === "logout") return oidc.logout(requireLoginTarget());
         if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
         if (request.operation === "bootstrap-admin") {
           const required = [request.username, request.email, request.displayName, request.password, request.personId];
@@ -821,12 +861,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           const required = [request.username, request.email, request.displayName, request.personId];
           if (required.some((value) => typeof value !== "string" || value.trim() === ""))
             throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
-          return oidc.invite({
-            username: request.username!,
-            email: request.email!,
-            displayName: request.displayName!,
-            personId: request.personId!,
-          });
+          return oidc.invite(
+            {
+              username: request.username!,
+              email: request.email!,
+              displayName: request.displayName!,
+              personId: request.personId!,
+            },
+            false,
+            requireLoginTarget(),
+          );
         }
         if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap")) {
           const accessAction =
@@ -846,9 +890,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               evaluatedAtCut: "keycloak:current",
               ...(request.repoId ? { repoId: request.repoId } : {}),
             });
-          return accessAdmin.run(request, auth.executionPrincipal?.personId);
+          return accessAdmin.run(
+            { ...request, ...(loginTarget ? { rootDir: loginTarget } : {}) },
+            auth.executionPrincipal?.personId,
+          );
         }
-        if (request.operation === "listener-set") return oidc.configureAuthority(() => managedRbac.run(request));
+        if (request.operation === "listener-set")
+          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",
           // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
@@ -903,7 +951,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       void runFleetReplicaSync({
         readAccessToken: async () => {
-          const auth = await oidc.bind({ transportKind: "unix-socket" });
+          const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
           // Resolve the current session token at request time so refreshes are observed.
           return auth.localSessionAccessToken ? await auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
         },

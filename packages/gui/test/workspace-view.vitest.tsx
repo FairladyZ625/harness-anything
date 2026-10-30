@@ -769,6 +769,8 @@ describe("overview narrative", () => {
   });
 
   it("renders every task entry as two lines: status + pre-colon title, then executor · blocker · last activity · supplement", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
     const lines = (host: HTMLElement, taskId: string) => {
       const grid = host.querySelector(`[data-task-row="${taskId}"] .grid`)!;
       return {
@@ -826,6 +828,8 @@ describe("overview narrative", () => {
   });
 
   it("renders overview remaining entries as two lines with the reason on the faint second line", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
     const host = await mount(
       <WorkspaceView
         scope={baseScope}
@@ -989,6 +993,8 @@ describe("tasks tab", () => {
   }
 
   it("shows filter chips with counts and groups by subgroup; done work sinks behind a divider", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
     const host = await openTasks();
     // FilterChips 的计数:全部 4,活跃 1,计划中 1,已完成 2。
     const chipTexts = [...host.querySelectorAll("button[aria-pressed]")].map((chip) => chip.textContent);

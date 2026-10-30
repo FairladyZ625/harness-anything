@@ -46,17 +46,23 @@ test("edge binding health reads the selected login authority through fleet disco
   let session: string | undefined,
     realmStatus = 200;
   const oidc = new OidcSessionService(userRoot, {
-    sessionStore: {
+    sessionStore: () => ({
       read: () => session,
       write: (value) => void (session = value),
       delete: () => void (session = undefined),
       retireBootstrap: () => undefined,
-    },
+    }),
     fetch: async (input) => {
       const url = String(input);
+      if (url.endsWith("/.well-known/openid-configuration")) {
+        const issuer = url.slice(0, -"/.well-known/openid-configuration".length);
+        return Response.json({ issuer });
+      }
       if (url.endsWith("/token"))
         return Response.json({
-          access_token: "header.e30.signature",
+          access_token: `header.${Buffer.from(
+            JSON.stringify({ iss: url.replace(/\/protocol\/openid-connect\/token$/u, "") }),
+          ).toString("base64url")}.signature`,
           refresh_token: "fixture-refresh",
           expires_in: 3600,
           refresh_expires_in: 3600,
@@ -151,7 +157,9 @@ test("edge binding health reads the selected login authority through fleet disco
     true,
   );
   assert.equal((await request({ operation: "session", repoId: "node-one" })).authenticated, true);
-  await assert.rejects(oidc.requireRole("access-admin"), { code: "authorization_denied" });
+  await assert.rejects(oidc.requireRole("access-admin", path.join(root, "node-one")), {
+    code: "authorization_denied",
+  });
   const binding = await request({ operation: "health", repoId: "node-one" });
   assert.equal(binding.ok, true);
   assert.equal(binding.ready, true, JSON.stringify(binding));
@@ -167,7 +175,7 @@ test("edge binding health reads the selected login authority through fleet disco
   });
   assert.equal((await request({ operation: "session-lifetime", repoId: "node-one" })).code, "authorization_denied");
   session = undefined;
-  assert.equal((await request({ operation: "session" })).authenticated, false);
+  assert.equal((await request({ operation: "session" })).code, "oidc_center_required");
   assert.equal((await request({ operation: "health", repoId: "node-two" })).realm, "node-two");
   assert.equal((await request({ operation: "health", rootDir: path.join(root, "node-one") })).realm, "node-one");
   assert.equal((await request({ operation: "health", repoId: "unknown" })).code, "repo_namespace_unknown");

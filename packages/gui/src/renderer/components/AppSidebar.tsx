@@ -98,6 +98,8 @@ export function AppSidebar({
   onOpenSystem,
 }: AppSidebarProps) {
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
+  const identityRepo = repos.find((repo) => repo.repoId === activeRepoId),
+    identityRoot = identityRepo?.canonicalRoot ?? undefined;
   const identityTarget = useRef(activeRepoId);
   identityTarget.current = activeRepoId;
   const [pinnedOpen, setPinnedOpen] = useState(true);
@@ -108,7 +110,12 @@ export function AppSidebar({
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
-    void auth.status(activeRepoId ?? undefined).then((value) => {
+    if (!activeRepoId) {
+      setIdentity({ authenticated: false });
+      return;
+    }
+    const request = auth.status(activeRepoId, identityRoot);
+    void request.then((value) => {
       if (identityTarget.current !== activeRepoId) return;
       const status = value as { readonly authenticated?: boolean; readonly personId?: string };
       setIdentity({
@@ -120,11 +127,11 @@ export function AppSidebar({
   useEffect(() => {
     setIdentity({ authenticated: false });
     refreshIdentity();
-  }, [activeRepoId]);
+  }, [activeRepoId, identityRoot]);
   useEffect(() => {
     window.addEventListener("harness-auth-changed", refreshIdentity);
     return () => window.removeEventListener("harness-auth-changed", refreshIdentity);
-  }, [activeRepoId]);
+  }, [activeRepoId, identityRoot]);
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
   const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,

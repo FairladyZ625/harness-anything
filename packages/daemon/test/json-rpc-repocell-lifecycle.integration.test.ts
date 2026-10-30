@@ -24,6 +24,7 @@ import {
   provisionPolicyTestRepository,
   policyTestCenter,
 } from "./keycloak-policy.fixtures.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -387,7 +388,8 @@ test("bootstrap validates local identity before repository initialization", asyn
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-identity-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), host = await openDaemonHost({ daemonId: "bootstrap-identity", userRoot });
   try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("rbac_not_configured")); assert.equal(existsSync(path.join(rootDir, ".git")), false);
     // With the authority installed the same request proceeds to the local-identity gate: no socket owner boundary still refuses before any write.
-    mkdirSync(path.join(userRoot, "rbac"), { recursive: true }); writeFileSync(path.join(userRoot, "rbac", "config.json"), JSON.stringify({ url: "https://rbac.invalid", realm: "harness" }));
+    signInPolicyTestUser(userRoot, "owner", ["identity"], "admin");
+    signInAt(userRoot, "owner", ["access-admin"], "token-owner", rootDir);
     await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
   finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });

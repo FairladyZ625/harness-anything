@@ -238,7 +238,7 @@ test(
     const confirmationPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
     const staleTime = new Date(Date.now() - 300_100);
     utimesSync(confirmationPath, staleTime, staleTime);
-    const store = managedRbacSessionStore(e.edgeUser);
+    const store = managedRbacSessionStore(e.edgeUser, e.issuer, "harness");
     const session = JSON.parse(store.read()!);
     store.write(JSON.stringify({ ...session, expiresAt: Date.now() - 1000 }));
     await f.center.close();

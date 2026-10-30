@@ -1,15 +1,20 @@
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 
 export { OidcSessionService } from "../src/oidc-session-service.ts";
 
 export const keycloakUrl = "http://127.0.0.1:8080",
-  keycloakRealm = "harness";
+  keycloakRealm = "harness",
+  keycloakIssuer = `${keycloakUrl}/realms/${keycloakRealm}`;
+
+export const keycloakSessionStore = (userRoot: string, issuer = keycloakIssuer, realm = keycloakRealm) =>
+  managedRbacSessionStore(userRoot, issuer, realm);
 
 type Named = { id: string; name: string };
 type Role = Named & {
@@ -31,8 +36,9 @@ type NodeClient = {
  * realm's AFFIRMATIVE strategy: a permission applies to the resources it names, or to every resource
  * when it names none, which is how an unbound scope permission behaves in Keycloak.
  */
-export function fakeKeycloak() {
-  let sequence = 0;
+export function fakeKeycloak(issuer = keycloakIssuer) {
+  let sequence = 0,
+    realmIssuer = issuer;
   const id = (prefix: string) => `${prefix}-${++sequence}`,
     scopes = new Map<string, Named>(),
     roles = new Map<string, Role>(),
@@ -43,6 +49,7 @@ export function fakeKeycloak() {
     permissions = new Map<string, Permission>(),
     users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
     tokens = new Map<string, string>(),
+    tokenIssuers = new Map<string, string>(),
     interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string; clientId?: string }>(),
     nodeClients = new Map<string, NodeClient>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
@@ -92,6 +99,7 @@ export function fakeKeycloak() {
       method = init?.method ?? "GET",
       body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : undefined,
       bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
+    if (url.pathname.endsWith("/.well-known/openid-configuration")) return json({ issuer: realmIssuer });
     if (url.pathname.endsWith("/protocol/openid-connect/userinfo")) {
       const user = users.get(tokens.get(bearer ?? "") ?? "");
       return user
@@ -143,8 +151,10 @@ export function fakeKeycloak() {
         const subject = tokens.get(form.get("refresh_token") ?? "");
         if (!subject) return json({ error: "invalid_grant" }, 400);
         const roles = [...realmRoles.values()].filter((role) => role.members.has(subject)).map((role) => role.name),
-          accessToken = `x.${Buffer.from(JSON.stringify({ realm_access: { roles } })).toString("base64url")}.x`;
+          issuer = tokenIssuers.get(form.get("refresh_token") ?? "") ?? realmIssuer,
+          accessToken = `x.${Buffer.from(JSON.stringify({ iss: issuer, realm_access: { roles } })).toString("base64url")}.x`;
         tokens.set(accessToken, subject);
+        tokenIssuers.set(accessToken, issuer);
         return json({
           access_token: accessToken,
           refresh_token: form.get("refresh_token"),
@@ -471,6 +481,10 @@ export function fakeKeycloak() {
       if (!subject) throw new Error(`unknown fixture account ${personId}`);
       tokens.set(`token-${personId}`, subject);
       tokens.set(token, subject);
+      const tokenIssuer = `${issuer}/realms/${keycloakRealm}`;
+      realmIssuer = tokenIssuer;
+      tokenIssuers.set(`token-${personId}`, tokenIssuer);
+      tokenIssuers.set(token, tokenIssuer);
       interactiveSessions.set(token, { personId, nodeId, issuer, ...(clientId ? { clientId } : {}) });
     },
     endInteractiveSession(token: string): void {
@@ -492,10 +506,29 @@ export function signInAt(
   personId: string,
   roles: readonly string[] = ["access-admin"],
   accessToken = `token-${personId}`,
+  loginTarget?: string,
 ): void {
-  managedRbacSessionStore(userRoot).write(
+  const configFile = path.join(userRoot, "rbac", "config.json"),
+    config = existsSync(configFile)
+      ? (JSON.parse(readFileSync(configFile, "utf8")) as {
+          readonly url?: string;
+          readonly realm?: string;
+          readonly listener?: { readonly hostname?: string; readonly port?: number };
+        })
+      : {},
+    realm = config.realm ?? keycloakRealm,
+    issuerBase =
+      config.listener?.hostname && config.listener.port
+        ? `https://${config.listener.hostname}:${config.listener.port}`
+        : (config.url ?? keycloakUrl),
+    issuer = `${issuerBase}/realms/${realm}`,
+    authority = { url: issuerBase, realm, clientId: "harness-gui" };
+  if (loginTarget) oidcCenterSelections(userRoot).write(loginTarget, { issuer, authority }, true);
+  keycloakSessionStore(userRoot, issuer, realm).write(
     JSON.stringify({
-      schema: "harness-oidc-session/v2",
+      schema: "harness-oidc-session/v3",
+      issuer,
+      ...(loginTarget ? { loginTarget, authority } : {}),
       accessToken,
       subject: personId,
       personId,
@@ -507,7 +540,20 @@ export function signInAt(
 
 /** Ends the session `signInAt` stored, so the daemon at `userRoot` answers as nobody signed in. */
 export function signOutAt(userRoot: string): void {
-  managedRbacSessionStore(userRoot).delete();
+  const configFile = path.join(userRoot, "rbac", "config.json"),
+    config = existsSync(configFile)
+      ? (JSON.parse(readFileSync(configFile, "utf8")) as {
+          readonly url?: string;
+          readonly realm?: string;
+          readonly listener?: { readonly hostname?: string; readonly port?: number };
+        })
+      : {},
+    realm = config.realm ?? keycloakRealm,
+    issuerBase =
+      config.listener?.hostname && config.listener.port
+        ? `https://${config.listener.hostname}:${config.listener.port}`
+        : (config.url ?? keycloakUrl);
+  keycloakSessionStore(userRoot, `${issuerBase}/realms/${realm}`, realm).delete();
 }
 
 /** A daemon user root bound to the fake realm, with one signed-in session holding `roles`. */
@@ -539,34 +585,34 @@ export async function serveKeycloak(): Promise<{
   readonly bind: (userRoot: string) => void;
   readonly close: () => Promise<void>;
 }> {
-  const keycloak = fakeKeycloak(),
-    server = createServer((request, response) => {
-      void (async () => {
-        let raw = "";
-        for await (const chunk of request) raw += String(chunk);
-        const form = request.headers["content-type"]?.includes("x-www-form-urlencoded") ?? false,
-          answer = await keycloak.fetch(`http://127.0.0.1${request.url}`, {
-            method: request.method,
-            headers: request.headers as Record<string, string>,
-            ...(raw === "" ? {} : { body: form ? new URLSearchParams(raw) : raw }),
-          });
-        response.statusCode = answer.status;
-        response.setHeader("content-type", "application/json");
-        const location = answer.headers.get("location");
-        if (location) response.setHeader("location", location);
-        response.end(await answer.text());
-      })().catch((error: unknown) => {
-        response.statusCode = 500;
-        response.end(JSON.stringify({ error: String(error) }));
-      });
+  const server = createServer((request, response) => {
+    void (async () => {
+      let raw = "";
+      for await (const chunk of request) raw += String(chunk);
+      const form = request.headers["content-type"]?.includes("x-www-form-urlencoded") ?? false,
+        answer = await keycloak.fetch(`http://127.0.0.1${request.url}`, {
+          method: request.method,
+          headers: request.headers as Record<string, string>,
+          ...(raw === "" ? {} : { body: form ? new URLSearchParams(raw) : raw }),
+        });
+      response.statusCode = answer.status;
+      response.setHeader("content-type", "application/json");
+      const location = answer.headers.get("location");
+      if (location) response.setHeader("location", location);
+      response.end(await answer.text());
+    })().catch((error: unknown) => {
+      response.statusCode = 500;
+      response.end(JSON.stringify({ error: String(error) }));
     });
+  });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   // A fixture that fails before its teardown registers must not hold the test process open.
   server.unref();
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fixture Keycloak did not bind a port");
-  const url = `http://127.0.0.1:${address.port}`;
+  const url = `http://127.0.0.1:${address.port}`,
+    keycloak = fakeKeycloak(`${url}/realms/${keycloakRealm}`);
   return {
     keycloak,
     url,

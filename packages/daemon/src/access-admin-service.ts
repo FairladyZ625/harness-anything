@@ -147,8 +147,8 @@ export class AccessAdminService {
         publicRequest ||
         request.operation === "permission-request-list" ||
         request.operation === "permission-request-decide"
-          ? this.#oidc.requireSession()
-          : this.#oidc.requireRole("access-admin"))
+          ? this.#oidc.requireSession(request.rootDir)
+          : this.#oidc.requireRole("access-admin", request.rootDir))
       ).personId;
     switch (request.operation as AccessAdminOperation) {
       case "group-list":

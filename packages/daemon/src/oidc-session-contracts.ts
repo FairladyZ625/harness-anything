@@ -33,13 +33,14 @@ export interface OidcSessionPorts {
   readonly defaultCaCertificates?: () => readonly string[];
   readonly now: () => number;
   readonly randomBytes: typeof randomBytes;
-  readonly sessionStore: OidcSessionStorePort;
+  readonly sessionStore: (issuer: string, realm: string) => OidcSessionStorePort;
   readonly reportDevice?: (target: string, notice: FleetDeviceLoginNotice) => Promise<void>;
   readonly loginAuthority?: (target: string) => Promise<OidcLoginAuthority>;
 }
 
 export interface StoredSession {
-  readonly schema: "harness-oidc-session/v2";
+  readonly schema: "harness-oidc-session/v3";
+  readonly issuer: string;
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly subject: string;

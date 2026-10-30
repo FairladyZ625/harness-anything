@@ -249,6 +249,7 @@ test("a center-local write and an edge write race through one queue under expect
       userRoot: path.join(parent, "user"),
       owners: { "edge-one": "writer" },
       repoIds: ["center"],
+      localPersonId: "writer",
     });
   try {
     const local = (action: Readonly<Record<string, unknown>>) =>

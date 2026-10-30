@@ -70,7 +70,10 @@ export function registerOidcAuthIpc(
         const closed = new Promise<null>((resolve) =>
           controller.signal.addEventListener("abort", () => resolve(null), { once: true }),
         );
-        const begun = await Promise.race([daemonRequest({ operation: "device-approval", code: userCode }), closed]);
+        const begun = await Promise.race([
+          daemonRequest({ operation: "device-approval", code: userCode, ...target }),
+          closed,
+        ]);
         if (begun === null) return { ok: true };
         const url = String(begun.authorizationUrl),
           grant = ports.openLoginWebview?.({
@@ -127,6 +130,7 @@ export function registerOidcAuthIpc(
       displayName: input.displayName,
       password: input.password,
       personId: input.personId,
+      ...authTarget(rawInput),
     });
   });
   registrar.handle(OIDC_CONFIGURE_CHANNEL, async (event, rawInput) => {
@@ -159,11 +163,17 @@ export function registerOidcAuthIpc(
 }
 
 function authTarget(input: unknown): JsonObject {
-  const repoId = input && typeof input === "object" ? (input as Record<string, unknown>).repoId : undefined;
-  if (repoId === undefined) return {};
-  if (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId))
+  const value = input && typeof input === "object" ? (input as Record<string, unknown>) : {},
+    repoId = value.repoId,
+    rootDir = value.rootDir;
+  if (repoId !== undefined && (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)))
     throw new Error("Select a valid repository login target.");
-  return { repoId };
+  if (rootDir !== undefined && (typeof rootDir !== "string" || rootDir.length === 0))
+    throw new Error("Select a valid repository root for login.");
+  return {
+    ...(typeof repoId === "string" ? { repoId } : {}),
+    ...(typeof rootDir === "string" ? { rootDir } : {}),
+  };
 }
 
 export function requireSuccessfulAuthReply(reply: JsonObject): JsonObject {

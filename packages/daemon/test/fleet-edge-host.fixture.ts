@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 import { OidcSessionService, type OidcSessionPorts } from "../src/oidc-session-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -73,12 +74,42 @@ export async function fleetEdgeHostFixture(
       createConvenienceLinks: false,
     });
   const authority = options.oidcPorts?.loginAuthority
-    ? await options.oidcPorts.loginAuthority(edgeRoot)
-    : { url: f.owners.url, realm: "harness" };
-  const signIn = (personId: string, sessionAuthority = authority) =>
-    managedRbacSessionStore(edgeUser).write(
+      ? await options.oidcPorts.loginAuthority(edgeRoot)
+      : { url: f.owners.url, realm: "harness" },
+    selectedAuthority = authority.url
+      ? authority
+      : {
+          url: "https://offline-center.example",
+          realm: "harness",
+          clientId: `harness-node-${options.nodeId ?? "node-one"}`,
+          clientSecret: options.credential ?? `secret-${options.nodeId ?? "node-one"}`,
+        };
+  const issuer = authority.url
+      ? String(
+          (
+            await (
+              await f.owners.keycloak.fetch(
+                `${authority.url}/realms/${authority.realm}/.well-known/openid-configuration`,
+              )
+            ).json()
+          ).issuer,
+        )
+      : `${selectedAuthority.url}/realms/${selectedAuthority.realm}`,
+    fetch = f.owners.keycloak.fetch,
+    fixtureLoginAuthority =
+      options.oidcPorts?.loginAuthority ??
+      (() =>
+        Promise.resolve({
+          url: selectedAuthority.url,
+          realm: selectedAuthority.realm,
+          clientId: `harness-node-${options.nodeId ?? "node-one"}`,
+          clientSecret: options.credential ?? `secret-${options.nodeId ?? "node-one"}`,
+        }));
+  const signIn = (personId: string, sessionAuthority = selectedAuthority) =>
+    managedRbacSessionStore(edgeUser, issuer, selectedAuthority.realm).write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer,
         accessToken:
           personId === (options.personId ?? "person-one")
             ? `device-token-${options.nodeId ?? "node-one"}`
@@ -109,13 +140,31 @@ export async function fleetEdgeHostFixture(
   };
   if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
   await options.beforeOpen?.(edgeRoot);
+  if (authority.url)
+    await new OidcSessionService(edgeUser, {
+      fetch,
+      loginAuthority: fixtureLoginAuthority,
+    }).status(edgeRoot);
+  else
+    oidcCenterSelections(edgeUser).write(
+      edgeRoot,
+      {
+        issuer,
+        authority: selectedAuthority,
+      },
+      true,
+    );
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.openCell ? { openCell: options.openCell } : {}),
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     userRoot: edgeUser,
-    oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch, ...options.oidcPorts }),
+    oidc: new OidcSessionService(edgeUser, {
+      fetch,
+      ...options.oidcPorts,
+      loginAuthority: fixtureLoginAuthority,
+    }),
   });
   t.after(async () => {
     await host.close();
@@ -126,7 +175,7 @@ export async function fleetEdgeHostFixture(
     host,
     build: { commit: null },
     authContext: auth,
-    sessionPrincipal: () => host.sessionPrincipal(auth),
+    sessionPrincipal: (method, params) => host.sessionPrincipal(auth, method, params),
     emit: async () => undefined,
   });
   t.after(() => rpc.close());
@@ -158,5 +207,5 @@ export async function fleetEdgeHostFixture(
       { kind: "register", rootDir: edgeRoot, repoId: options.repoId ?? "lease-repo", mode: "remote-edge" },
       auth,
     );
-  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register };
+  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer };
 }

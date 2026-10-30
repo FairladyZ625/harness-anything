@@ -512,7 +512,7 @@ export function createDaemonHostRuntimeApi(
         context.localOnly(auth);
         const receipt = await syncFleetEdgeMirror(
           { payload: request },
-          async () => (await context.oidc.bind(auth)).oidcPrincipal?.accessToken,
+          async () => (await context.oidc.bind(auth, request.workspaceRoot)).oidcPrincipal?.accessToken,
           () => context.startReplicaSyncs(),
         );
         await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();

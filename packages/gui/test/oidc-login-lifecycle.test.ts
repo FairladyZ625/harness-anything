@@ -15,7 +15,8 @@ const authority = { url: "https://center.example.test", realm: "harness", client
 
 /** Real service and IPC, loopback HTTP callback; only authority and provider I/O are controlled ports. */
 function fixture(ports: Partial<OidcSessionPorts> = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), "gui-oidc-lifecycle-"));
+  const root = mkdtempSync(path.join(tmpdir(), "gui-oidc-lifecycle-")),
+    repoRoot = path.join(root, "repo");
   const urls: string[] = [];
   let navigation = Promise.withResolvers<string>();
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
@@ -30,6 +31,8 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
   const service = new OidcSessionService(root, {
     loginAuthority: async () => authority,
     fetch: (async (input, init) => {
+      if (String(input).endsWith("/.well-known/openid-configuration"))
+        return Response.json({ issuer: `${authority.url}/realms/${authority.realm}` });
       if (String(input).endsWith("/userinfo")) return Response.json({ sub: "fresh-person" });
       const form = init!.body as URLSearchParams;
       const url = new URL(urls.at(-1)!);
@@ -39,7 +42,7 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
         url.searchParams.get("code_challenge"),
       );
       return Response.json({
-        access_token: "x.e30.x",
+        access_token: `x.${Buffer.from(JSON.stringify({ iss: `${authority.url}/realms/${authority.realm}` })).toString("base64url")}.x`,
         refresh_token: "fixture-refresh",
         expires_in: 300,
         refresh_expires_in: 1800,
@@ -63,7 +66,7 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
       daemonRequest: async (params) => {
         assert.equal(params.repoId, "remote-repo");
         if (params.operation === "login-begin") {
-          const request = service.begin(String(params.redirectUri), "remote-repo");
+          const request = service.begin(String(params.redirectUri), repoRoot);
           begins.push(request);
           return (await request) as never;
         }
@@ -77,6 +80,7 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
   );
   return {
     root,
+    repoRoot,
     service,
     sender,
     urls,
@@ -140,7 +144,7 @@ for (const termination of ["cancel", "destroyed"] as const) {
         assert.deepEqual(active.urls, [url]);
         await callback(url);
         assert.equal(((await second.result) as { authenticated: boolean }).authenticated, true);
-        assert.equal((await active.service.status()).personId, "fresh-person");
+        assert.equal((await active.service.status(active.repoRoot)).personId, "fresh-person");
         assert.equal(active.completes.length, 1);
       } finally {
         deferred.resolve(authority);
@@ -158,6 +162,8 @@ for (const action of ["none", "retry", "logout"] as const) {
     let calls = 0;
     const active = fixture({
       fetch: (async (input, init) => {
+        if (String(input).endsWith("/.well-known/openid-configuration"))
+          return Response.json({ issuer: `${authority.url}/realms/${authority.realm}` });
         if (String(input).endsWith("/revoke")) return new Response(null, { status: 204 });
         if (String(input).endsWith("/userinfo")) {
           const person = new Headers(init?.headers).get("authorization")!.split(".")[0]!.slice(7);
@@ -169,7 +175,7 @@ for (const action of ["none", "retry", "logout"] as const) {
           await release.promise;
         }
         return Response.json({
-          access_token: `${person}.e30.x`,
+          access_token: `${person}.${Buffer.from(JSON.stringify({ iss: `${authority.url}/realms/${authority.realm}` })).toString("base64url")}.x`,
           refresh_token: "fixture-refresh",
           expires_in: 300,
           refresh_expires_in: 1800,
@@ -187,19 +193,19 @@ for (const action of ["none", "retry", "logout"] as const) {
       assert.match(error.message, /already sent and may still complete/u);
       assert.equal(active.sender.listenerCount("destroyed"), 0);
       await assert.rejects(fetch(new URL(url).searchParams.get("redirect_uri")!));
-      assert.equal((await active.service.status()).authenticated, false);
+      assert.equal((await active.service.status(active.repoRoot)).authenticated, false);
       if (action === "retry") {
         const second = active.start();
         await callback(await second.navigation);
         assert.equal(((await second.result) as { personId: string }).personId, "new-person");
-      } else if (action === "logout") await active.service.logout();
+      } else if (action === "logout") await active.service.logout(active.repoRoot);
       const completion =
         action === "none"
           ? active.completes[0]!
           : assert.rejects(active.completes[0]!, { code: "oidc_login_superseded" });
       release.resolve();
       await completion;
-      const status = await active.service.status();
+      const status = await active.service.status(active.repoRoot);
       if (action === "logout") assert.equal(status.authenticated, false);
       else assert.equal(status.personId, action === "none" ? "old-person" : "new-person");
     } finally {

@@ -8,6 +8,7 @@ export type AccessAdminOperation = (typeof accessAdminOperations)[number];
 
 export interface AccessAdminRequest {
   readonly operation?: string;
+  readonly rootDir?: string;
   readonly operationId?: string;
   readonly groupId?: string;
   readonly displayName?: string;

@@ -50,7 +50,7 @@ export function createEdgeJoinProgressTap(): {
 
 export interface EdgeJoinClientPorts {
   /** The person signed in on this daemon, if any. */
-  readonly session: () => Promise<
+  readonly session: (loginTarget: string) => Promise<
     | {
         readonly accessToken: string;
         readonly authority: {
@@ -62,7 +62,7 @@ export interface EdgeJoinClientPorts {
       }
     | undefined
   >;
-  readonly beginLogin: (authority: OidcLoginAuthority) => Promise<Record<string, unknown>>;
+  readonly beginLogin: (authority: OidcLoginAuthority, loginTarget: string) => Promise<Record<string, unknown>>;
   readonly register: (rootDir: string, repoId: string) => Promise<unknown>;
   readonly sync: (payload: JsonObject) => Promise<Record<string, unknown>>;
   readonly join?: typeof requestFleetEdgeJoinPinned;
@@ -97,6 +97,7 @@ export async function joinFleetEdge(
     ...(link.loginBrowserUrl ? { browserUrl: link.loginBrowserUrl } : {}),
     ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
   };
+  const loginTarget = edgeWorkspaceRoot(link.repoIds[0]!, request.workspaceRoot, ports.homeDir ?? homedir());
   const center = new URL(link.centerOrigin),
     centerServername = link.centerServername ?? center.hostname,
     centerProbe = Promise.resolve().then(() =>
@@ -132,7 +133,7 @@ export async function joinFleetEdge(
         ),
       },
     );
-  const session = await ports.session();
+  const session = await ports.session(loginTarget);
   // An invitation CA is authoritative when present; public-trust invitations leave CA rotation unpinned.
   if (
     !session ||
@@ -142,7 +143,7 @@ export async function joinFleetEdge(
     (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
   )
     return {
-      ...(await ports.beginLogin(authority)),
+      ...(await ports.beginLogin(authority, loginTarget)),
       command: "edge-join",
       ...(link.transport ? { transport: link.transport } : {}),
     };

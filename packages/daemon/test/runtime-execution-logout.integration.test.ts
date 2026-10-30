@@ -244,7 +244,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const eventRows = (JSON.parse(String(events.evidence)) as { rows: { type: string }[] }).rows;
   assert.ok(eventRows.length > 0, JSON.stringify(events));
   assert.ok(eventRows.every((row) => row.type === "runtime_session_started"));
-  const logout = await rpc("daemon.rbac.manage", { operation: "logout" });
+  const logout = await rpc("daemon.rbac.manage", { operation: "logout", rootDir: root });
   assert.equal(logout.ok, true, JSON.stringify(logout));
   // dec_F01770FD0DCF72683B7C4C7A47/CH5: local execution needs the same current user session as Fleet.
   assert.equal((await implementation.cli(["task", "show", taskId])).code, "authentication_required");
@@ -314,7 +314,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   signInAt(userRoot, "owner");
 
   const reviewer = await launch("reviewer");
-  assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+  assert.equal((await rpc("daemon.rbac.manage", { operation: "logout", rootDir: root })).ok, true);
   assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");
   signInAt(userRoot, "owner");
   const reviewerTaskShow = await reviewer.cli(["task", "show", taskId]);
@@ -421,7 +421,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
       });
       assert.equal(cancelled.ok, true, JSON.stringify(cancelled));
     } else {
-      assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+      assert.equal((await rpc("daemon.rbac.manage", { operation: "logout", rootDir: root })).ok, true);
       assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");
       signInAt(userRoot, "owner");
       writeFileSync(path.join(parent, `${runtime.runtime}.finish`), "finish");

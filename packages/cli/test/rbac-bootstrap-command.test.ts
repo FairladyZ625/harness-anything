@@ -289,6 +289,7 @@ test("ha bootstrap parses one external Keycloak through the same command", () =>
   if (!parsed.ok) return;
   assert.deepEqual(parsed.command.action, {
     kind: "rbac-bootstrap",
+    rootDir: "/repo",
     mode: "external",
     url: "https://id.example",
     realm: "fleet",
