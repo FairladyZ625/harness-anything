@@ -567,15 +567,27 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
     );
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     onExit?.(0);
-    await cell.awaitRuntimeOutcome(String(claimedBeforeRetire.runtimeSessionId));
-    const settled = makeTaskEventReader({ repoId: "runtime-retired-agent", rootDir: root })
-      .read()
-      .events.some(
-        (event) =>
-          event.type === "runtime_session_outcome_observed" &&
-          event.payload.runtimeSessionId === claimedBeforeRetire.runtimeSessionId,
+    // The settle predicate reads the local terminal record one queued write before the daemon
+    // publishes the canonical outcome. Wait for that event itself; sampling the ledger at the
+    // predicate races the writer queue (the same mechanism that reddened the completion-review
+    // fixture under CI load).
+    const settledReader = makeTaskEventReader({ repoId: "runtime-retired-agent", rootDir: root });
+    try {
+      const settled = await eventuallyValue(
+        () =>
+          settledReader
+            .read()
+            .events.find(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === claimedBeforeRetire.runtimeSessionId,
+            ) ?? null,
+        3_000,
       );
-    assert.equal(settled, true);
+      assert.equal(settled.type, "runtime_session_outcome_observed");
+    } finally {
+      await settledReader.drain();
+    }
     await assert.rejects(
       cell.spawnRuntime(
         {
@@ -1094,8 +1106,8 @@ function initIngressRepo(root: string, uid: number): void {
   git(root, "commit", "-qm", "fixture");
 }
 
-async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
+async function eventuallyValue<T>(read: () => T | null | Promise<T | null>, attempts = 500): Promise<T> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const value = await read();
     if (value !== null) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));

@@ -173,6 +173,16 @@ export async function fixture(
     output?: (chunk: string) => void;
     exit?: (code: number | null) => void;
   }[] = [];
+  // A settled session exposes its outcome from the local dispatch stream one write before the
+  // daemon publishes the canonical `runtime_session_outcome_observed` event. `awaitOutcome` parks
+  // on that event, so the daemon's own outcome callback is its event-driven wake-up.
+  const outcomeArrivals = new Map<string, Set<() => void>>(),
+    noteOutcome = (runtimeSessionId: string) => {
+      const waiters = outcomeArrivals.get(runtimeSessionId);
+      if (!waiters) return;
+      outcomeArrivals.delete(runtimeSessionId);
+      for (const resolve of waiters) resolve();
+    };
   let instancesAvailable = available,
     remainingProviderFailures =
       typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0,
@@ -202,6 +212,7 @@ export async function fixture(
                   }))
                 : []),
             ],
+      onRuntimeOutcome: (event) => noteOutcome(event.payload.runtimeSessionId),
       prepareRuntimeLaunch: (instanceId, request) => ({
         definition: {
           schema: "agent-definition-snapshot/v1",
@@ -442,20 +453,22 @@ export async function fixture(
   let eventsReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
-    await cell.awaitRuntimeOutcome(runtimeSessionId);
-    // The runtime settlement predicate can become true as soon as the session projection sees
-    // its terminal outcome. A queued read is the fixture's observable barrier for the outcome
-    // event itself; this avoids racing the writer queue on slower CI machines.
-    await run({ kind: "task-show", taskId });
-    const outcome = events().find(
-      (event) =>
-        event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-    );
-    assert.ok(
-      outcome?.type === "runtime_session_outcome_observed",
-      `runtime session ${runtimeSessionId} has no outcome`,
-    );
-    return outcome.payload.outcome;
+    // Bind the wait to the canonical outcome event. The settle predicate becomes true when the
+    // dispatch stream records the terminal outcome, one queued write before the daemon publishes
+    // `runtime_session_outcome_observed`; reading the ledger at that earlier moment is the race
+    // that reddened integration-shard(2) under load.
+    for (;;) {
+      const outcome = events().find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+      if (outcome?.type === "runtime_session_outcome_observed") return outcome.payload.outcome;
+      await new Promise<void>((resolve) => {
+        const waiters = outcomeArrivals.get(runtimeSessionId) ?? new Set<() => void>();
+        waiters.add(resolve);
+        outcomeArrivals.set(runtimeSessionId, waiters);
+      });
+    }
   };
   return {
     root,
