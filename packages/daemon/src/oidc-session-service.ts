@@ -6,6 +6,7 @@ import type {
   DeviceLoginRequest,
   OidcLoginAuthority,
   OidcSessionPorts,
+  OidcSessionStorePort,
   StoredSession,
 } from "./oidc-session-contracts.ts";
 import {
@@ -26,6 +27,7 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 import { errorMessageWithCause } from "./error-cause.ts";
+import { oidcCenterSelections } from "./oidc-center-selection.ts";
 import {
   fetchWithTlsCa,
   probeSystemCaTrust,
@@ -49,12 +51,14 @@ interface PendingLogin {
   readonly redirectUri: string;
   readonly createdAt: number;
   readonly authority: OidcLoginAuthority;
+  readonly issuer: string;
   readonly loginTarget?: string;
 }
 
 interface PendingDeviceLogin {
   readonly notice: FleetDeviceLoginNotice;
   readonly authority: OidcLoginAuthority;
+  readonly issuer: string;
   readonly loginTarget?: string;
   readonly deviceCode: string;
   readonly verifier: string;
@@ -90,6 +94,8 @@ const renewalMarginMs = 30_000;
 export class OidcSessionService {
   readonly #rbacRoot: string;
   readonly #ports: OidcSessionPorts;
+  readonly #centers: ReturnType<typeof oidcCenterSelections>;
+  readonly #persistCenters: boolean;
   #pending: PendingLogin | undefined;
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
@@ -99,7 +105,15 @@ export class OidcSessionService {
 
   constructor(userRoot: string, ports: Partial<OidcSessionPorts> = {}) {
     this.#rbacRoot = path.join(userRoot, "rbac");
-    this.#ports = { fetch, now: Date.now, randomBytes, sessionStore: managedRbacSessionStore(userRoot), ...ports };
+    this.#centers = oidcCenterSelections(userRoot);
+    this.#persistCenters = ports.sessionStore === undefined;
+    this.#ports = {
+      fetch,
+      now: Date.now,
+      randomBytes,
+      sessionStore: (issuer, realm) => managedRbacSessionStore(userRoot, issuer, realm),
+      ...ports,
+    };
   }
 
   async begin(redirectUri: string, loginTarget?: string): Promise<Record<string, unknown>> {
@@ -109,7 +123,7 @@ export class OidcSessionService {
     // This daemon owns one browser login. Claim it before remote discovery can yield.
     const generation = ++this.#loginGeneration;
     this.#pending = undefined;
-    const authority = await this.#loginAuthority(loginTarget, true);
+    const { authority, issuer } = await this.#centerIdentity(loginTarget, true);
     this.#assertLoginGeneration(generation);
     const verifier = this.#ports.randomBytes(32).toString("base64url"),
       state = this.#ports.randomBytes(24).toString("base64url"),
@@ -121,6 +135,7 @@ export class OidcSessionService {
       redirectUri: redirect.toString(),
       createdAt: this.#ports.now(),
       authority,
+      issuer,
       ...(loginTarget ? { loginTarget } : {}),
     };
     // Under a listener Keycloak serves its login pages from the listener's hostname, so the browser starts there.
@@ -164,6 +179,7 @@ export class OidcSessionService {
     return this.#acceptTokens(
       (await tokenResponse.json()) as Record<string, unknown>,
       authority,
+      pending.issuer,
       pending.loginTarget,
       pending.generation,
     );
@@ -181,8 +197,11 @@ export class OidcSessionService {
   ): Promise<Record<string, unknown>> {
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url");
+    let issuer: string;
     let response: Response;
     try {
+      issuer = await this.#issuer(authority);
+      this.#centers.write(loginTarget, { authority, issuer }, this.#persistCenters);
       response = await this.#fetchAuthority(
         authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
@@ -221,6 +240,7 @@ export class OidcSessionService {
     this.#device = {
       notice,
       authority,
+      issuer,
       deviceCode: requiredString(device.device_code, "device_code"),
       verifier,
       interval,
@@ -228,6 +248,7 @@ export class OidcSessionService {
       nextPollAt: this.#ports.now() + interval * 1_000,
       ...(loginTarget ? { loginTarget } : {}),
     };
+    this.#centers.write(loginTarget, { authority, issuer }, this.#persistCenters);
     await this.#reportDevice(this.#device, true);
     return {
       ok: true,
@@ -270,8 +291,8 @@ export class OidcSessionService {
     });
   }
 
-  async deviceApproval(userCode: string): Promise<Record<string, unknown>> {
-    const session = await this.status(),
+  async deviceApproval(userCode: string, loginTarget?: string): Promise<Record<string, unknown>> {
+    const session = await this.status(loginTarget),
       requests = session.deviceLoginRequests as readonly DeviceLoginRequest[] | undefined,
       request = requests?.find((item) => item.userCode === userCode);
     if (!request) throw coded("oidc_device_missing", "The device login request is no longer pending for this person.");
@@ -356,7 +377,7 @@ export class OidcSessionService {
         throw coded("oidc_device_rejected", `Device authorization ended: ${String(result.error)}.`);
       }
       this.#device = undefined;
-      const accepted = await this.#acceptTokens(result, pending.authority, pending.loginTarget);
+      const accepted = await this.#acceptTokens(result, pending.authority, pending.issuer, pending.loginTarget);
       await this.#reportDevice(pending, false);
       return accepted;
     });
@@ -365,10 +386,15 @@ export class OidcSessionService {
   async #acceptTokens(
     tokens: Record<string, unknown>,
     authority: OidcLoginAuthority,
+    issuer: string,
     loginTarget?: string,
     generation?: number,
   ): Promise<Record<string, unknown>> {
     const accessToken = requiredString(tokens.access_token, "access_token"),
+      actualIssuer = requiredString(decodeJwtPayload(accessToken).iss, "iss");
+    if (actualIssuer !== issuer)
+      throw coded("oidc_issuer_mismatch", "The Keycloak token issuer does not match the selected center.");
+    const store = this.#sessionStore(issuer, authority.realm),
       userResponse = await this.#fetchAuthority(
         authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
@@ -379,20 +405,27 @@ export class OidcSessionService {
     const user = (await userResponse.json()) as Record<string, unknown>,
       subject = requiredString(user.sub, "sub"),
       personId = typeof user.harness_person_id === "string" ? user.harness_person_id : subject;
-    const session = this.#issued(tokens, { subject, personId, ...(loginTarget ? { loginTarget } : {}) }, authority);
-    if (generation === undefined) this.#writeSession(session);
+    const session = this.#issued(
+      tokens,
+      { subject, personId, ...(loginTarget ? { loginTarget } : {}) },
+      authority,
+      issuer,
+    );
+    this.#centers.write(loginTarget, { authority, issuer }, this.#persistCenters);
+    if (generation === undefined) this.#writeSession(session, store);
     else
       await this.serialize(async () => {
         // Serialize with renewal/logout; a late exchange must not replace the newer session.
         this.#assertLoginGeneration(generation);
-        this.#writeSession(session);
+        this.#writeSession(session, store);
       });
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
   /** `expiresAt` is the SSO deadline, or null when Keycloak decides offline validity on refresh. */
-  async status(): Promise<Record<string, unknown>> {
-    const session = await this.#live();
+  async status(loginTarget?: string): Promise<Record<string, unknown>> {
+    const { sessionStore } = await this.#centerIdentity(loginTarget),
+      session = await this.#live(sessionStore);
     if (!session) return { ok: true, authenticated: false };
     for (const [key, request] of this.#deviceRequests)
       if (request.expiresAt <= this.#ports.now()) this.#deviceRequests.delete(key);
@@ -427,18 +460,17 @@ export class OidcSessionService {
   }
 
   /** Queued behind a renewal in flight, so a session that is being renewed stays signed out. */
-  logout(): Promise<Record<string, unknown>> {
+  logout(loginTarget?: string): Promise<Record<string, unknown>> {
     ++this.#loginGeneration;
     this.#pending = undefined;
     const device = this.#device;
     this.#device = undefined;
     return this.serialize(async () => {
-      const session = this.#session();
-      this.#ports.sessionStore.delete();
+      const { authority: targetAuthority, sessionStore } = await this.#centerIdentity(loginTarget),
+        session = this.#session(sessionStore);
+      sessionStore.delete();
       if (session) {
-        const authority = session.authority?.clientId
-            ? (session.authority as OidcLoginAuthority)
-            : await this.#loginAuthority(session.loginTarget),
+        const authority = session.authority?.clientId ? (session.authority as OidcLoginAuthority) : targetAuthority,
           response = await this.#fetchAuthority(
             authority,
             `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/revoke`,
@@ -505,7 +537,11 @@ export class OidcSessionService {
    * only a server-selected edge replica read may retain its unexpired session identity.
    * Every online caller still requires a usable access token.
    */
-  async bind(auth: DaemonAuthenticationContext, replicaRead = false): Promise<DaemonAuthenticationContext> {
+  async bind(
+    auth: DaemonAuthenticationContext,
+    loginTargetOrReplicaRead?: string | boolean,
+    replicaRead = false,
+  ): Promise<DaemonAuthenticationContext> {
     if (auth.transportKind === "fleet-tls") {
       if (!auth.humanAccessToken)
         throw Object.assign(new Error("Sign in on this device before using Fleet."), {
@@ -543,12 +579,16 @@ export class OidcSessionService {
         return bound;
       });
     }
-    const generation = this.#loginGeneration;
-    const { session, unavailable } = await this.#use();
+    const loginTarget = typeof loginTargetOrReplicaRead === "string" ? loginTargetOrReplicaRead : undefined,
+      allowReplicaRead = typeof loginTargetOrReplicaRead === "boolean" ? loginTargetOrReplicaRead : replicaRead,
+      { sessionStore } = await this.#centerIdentity(loginTarget),
+      generation = this.#loginGeneration,
+      { session, unavailable } = await this.#use(sessionStore);
     if (!session || generation !== this.#loginGeneration) return auth;
-    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
+    if (allowReplicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now())
+      return auth;
     if (unavailable) {
-      if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
+      if (!allowReplicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
         return auth;
       return {
         ...auth,
@@ -559,7 +599,7 @@ export class OidcSessionService {
     return {
       ...auth,
       localSessionAccessToken: async () => {
-        const current = await this.#live();
+        const current = await this.#live(sessionStore);
         if (
           !current ||
           generation !== this.#loginGeneration ||
@@ -598,13 +638,15 @@ export class OidcSessionService {
     };
   }
 
-  async requireRole(role: string): Promise<StoredSession> {
-    return this.#requireRole(role, await this.#live());
+  async requireRole(role: string, loginTarget?: string): Promise<StoredSession> {
+    const { sessionStore } = await this.#centerIdentity(loginTarget);
+    return this.#requireRole(role, await this.#live(sessionStore));
   }
 
   /** Device administration must observe external session revocation before using center Admin REST. */
-  async requireSession(): Promise<StoredSession> {
-    const session = await this.#live();
+  async requireSession(loginTarget?: string): Promise<StoredSession> {
+    const { sessionStore } = await this.#centerIdentity(loginTarget),
+      session = await this.#live(sessionStore);
     if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
       response = await this.#fetchAuthority(
@@ -639,20 +681,23 @@ export class OidcSessionService {
   }
 
   /** D1: original-socket configuration is open until the first administrator exists. */
-  configureAuthority<T>(operation: () => Promise<T>): Promise<T> {
+  configureAuthority<T>(operation: () => Promise<T>, loginTarget?: string): Promise<T> {
     return this.serialize(async () => {
+      const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
       if (
         existsSync(path.join(this.#rbacRoot, "config.json")) &&
         !(await this.#bootstrapRequired(await this.#centerToken()))
-      )
-        await this.#requireRoleInWriter("access-admin");
+      ) {
+        if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
+        await this.#requireRoleInWriter("access-admin", sessionStore);
+      }
       return operation();
     });
   }
 
   /** Role check for a caller already inside the write queue: renewal runs directly, never queued behind itself. */
-  async #requireRoleInWriter(role: string): Promise<StoredSession> {
-    const { session, unavailable } = await this.#useCurrent();
+  async #requireRoleInWriter(role: string, sessionStore: OidcSessionStorePort): Promise<StoredSession> {
+    const { session, unavailable } = await this.#useCurrent(sessionStore);
     if (unavailable) throw unavailable;
     return this.#requireRole(role, session);
   }
@@ -679,14 +724,15 @@ export class OidcSessionService {
     readonly personId: string;
   }): Promise<Record<string, unknown>> {
     return this.serialize(async () => {
-      const token = await this.#centerToken();
+      const { sessionStore } = await this.#centerIdentity(),
+        token = await this.#centerToken();
       if (!(await this.#bootstrapRequired(token)))
         throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");
       await this.#ensureAccessAdminRole(token);
       const userId = await this.#createUser(token, input, false),
         role = await this.#adminJson("GET", "/roles/access-admin", token);
       await this.#adminJson("POST", `/users/${encodeURIComponent(userId)}/role-mappings/realm`, token, [role]);
-      await this.#removeBootstrapAdministrator(token);
+      await this.#removeBootstrapAdministrator(token, sessionStore);
       return { ok: true, created: true, personId: input.personId };
     });
   }
@@ -699,10 +745,12 @@ export class OidcSessionService {
       readonly personId: string;
     },
     withinWriter = false,
+    loginTarget?: string,
   ): Promise<Record<string, unknown>> {
+    const { sessionStore } = await this.#centerIdentity(loginTarget);
     // A caller already inside the write queue must not re-queue its own session renewal.
-    if (withinWriter) await this.#requireRoleInWriter("access-admin");
-    else await this.requireRole("access-admin");
+    if (withinWriter) await this.#requireRoleInWriter("access-admin", sessionStore);
+    else await this.requireRole("access-admin", loginTarget);
     const token = await this.#centerToken(),
       userId = await this.#createUser(token, input, true);
     await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
@@ -804,7 +852,7 @@ export class OidcSessionService {
     return userId;
   }
 
-  async #removeBootstrapAdministrator(token: string): Promise<void> {
+  async #removeBootstrapAdministrator(token: string, sessionStore: OidcSessionStorePort): Promise<void> {
     const users = await this.#adminJson("GET", "/users?username=harness-bootstrap&exact=true", token);
     if (!Array.isArray(users)) return;
     for (const user of users) {
@@ -815,7 +863,7 @@ export class OidcSessionService {
           token,
         );
     }
-    this.#ports.sessionStore.retireBootstrap();
+    sessionStore.retireBootstrap();
   }
 
   async #adminJson(
@@ -883,6 +931,36 @@ export class OidcSessionService {
     };
   }
 
+  async #centerIdentity(
+    target?: string,
+    resetSession = false,
+    authorityOverride?: OidcLoginAuthority,
+  ): Promise<{
+    readonly authority: OidcLoginAuthority;
+    readonly issuer: string;
+    readonly sessionStore: OidcSessionStorePort;
+  }> {
+    const selected = resetSession ? undefined : this.#centers.read(target);
+    if (selected) return { ...selected, sessionStore: this.#sessionStore(selected.issuer, selected.authority.realm) };
+    const authority = authorityOverride ?? (await this.#loginAuthority(target, resetSession)),
+      issuer = await this.#issuer(authority);
+    this.#centers.write(target, { authority, issuer }, this.#persistCenters);
+    return { authority, issuer, sessionStore: this.#sessionStore(issuer, authority.realm) };
+  }
+
+  async #issuer(authority: OidcLoginAuthority): Promise<string> {
+    const response = await this.#fetchAuthority(
+      authority,
+      `${authority.url}/realms/${encodeURIComponent(authority.realm)}/.well-known/openid-configuration`,
+    );
+    if (!response.ok) throw coded("oidc_discovery_unavailable", `Keycloak discovery returned HTTP ${response.status}.`);
+    return requiredString(((await response.json()) as Record<string, unknown>).issuer, "issuer");
+  }
+
+  #sessionStore(issuer: string, realm: string): OidcSessionStorePort {
+    return this.#ports.sessionStore(issuer, realm);
+  }
+
   async #fetchAuthority(
     authority: Pick<OidcLoginAuthority, "url" | "realm" | "certificate" | "servername">,
     input: string | URL,
@@ -910,25 +988,25 @@ export class OidcSessionService {
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
-  async #live(): Promise<StoredSession | undefined> {
-    const { session, unavailable } = await this.#use();
+  async #live(sessionStore: OidcSessionStorePort): Promise<StoredSession | undefined> {
+    const { session, unavailable } = await this.#use(sessionStore);
     if (unavailable) throw unavailable;
     return session;
   }
 
   /** A use near or past the access token's end renews the session first. */
-  async #use(): Promise<SessionUse> {
-    const session = this.#session();
+  async #use(sessionStore: OidcSessionStorePort): Promise<SessionUse> {
+    const session = this.#session(sessionStore);
     if (!session || !this.#lapsing(session)) return { session };
     return this.serialize(async () => {
       // Uses that queued behind a renewal find the session it wrote and do not renew again.
-      return this.#useCurrent();
+      return this.#useCurrent(sessionStore);
     });
   }
 
-  async #useCurrent(): Promise<SessionUse> {
-    const current = this.#session();
-    return current && this.#lapsing(current) ? this.#renew(current) : { session: current };
+  async #useCurrent(sessionStore: OidcSessionStorePort): Promise<SessionUse> {
+    const current = this.#session(sessionStore);
+    return current && this.#lapsing(current) ? this.#renew(current, sessionStore) : { session: current };
   }
 
   #lapsing(session: StoredSession): boolean {
@@ -936,7 +1014,7 @@ export class OidcSessionService {
   }
 
   /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
-  async #renew(session: StoredSession): Promise<SessionUse> {
+  async #renew(session: StoredSession, sessionStore: OidcSessionStorePort): Promise<SessionUse> {
     const generation = this.#loginGeneration,
       edge = session.loginTarget ? readFleetEdgeConfig(session.loginTarget) : null,
       authority =
@@ -967,7 +1045,7 @@ export class OidcSessionService {
       };
     // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
     if (response.status === 400) {
-      this.#ports.sessionStore.delete();
+      sessionStore.delete();
       return { session: undefined };
     }
     if (!response.ok)
@@ -977,12 +1055,15 @@ export class OidcSessionService {
       };
     const tokens = (await response.json()) as Record<string, unknown>;
     if (generation !== this.#loginGeneration) return { session: undefined };
+    const accessToken = requiredString(tokens.access_token, "access_token");
+    if (requiredString(decodeJwtPayload(accessToken).iss, "iss") !== session.issuer)
+      throw coded("oidc_issuer_mismatch", "The renewed token issuer does not match the selected center.");
     if (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) {
-      this.#ports.sessionStore.delete();
+      sessionStore.delete();
       return { session: undefined };
     }
-    const renewed = this.#issued(tokens, session, authority);
-    this.#writeSession(renewed);
+    const renewed = this.#issued(tokens, session, authority, session.issuer);
+    this.#writeSession(renewed, sessionStore);
     return { session: renewed };
   }
 
@@ -990,11 +1071,13 @@ export class OidcSessionService {
     tokens: Record<string, unknown>,
     identity: { readonly subject: string; readonly personId: string; readonly loginTarget?: string },
     authority: OidcLoginAuthority,
+    issuer: string,
   ): StoredSession {
     const accessToken = requiredString(tokens.access_token, "access_token"),
       now = this.#ports.now();
     return {
-      schema: "harness-oidc-session/v2",
+      schema: "harness-oidc-session/v3",
+      issuer,
       accessToken,
       refreshToken: requiredString(tokens.refresh_token, "refresh_token"),
       subject: identity.subject,
@@ -1016,12 +1099,12 @@ export class OidcSessionService {
     };
   }
 
-  #session(): StoredSession | undefined {
-    const value = this.#ports.sessionStore.read();
+  #session(sessionStore: OidcSessionStorePort): StoredSession | undefined {
+    const value = sessionStore.read();
     return value === undefined ? undefined : (JSON.parse(value) as StoredSession);
   }
-  #writeSession(session: StoredSession): void {
-    this.#ports.sessionStore.write(`${JSON.stringify(session)}\n`);
+  #writeSession(session: StoredSession, sessionStore: OidcSessionStorePort): void {
+    sessionStore.write(`${JSON.stringify(session)}\n`);
   }
 }
 

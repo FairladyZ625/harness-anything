@@ -46,17 +46,24 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
         JSON.stringify(
-          request.url?.endsWith("/auth/device")
-            ? {
-                device_code: "private-device",
-                user_code: "ABCD-EFGH",
-                verification_uri: "https://localhost/realms/harness/device",
-                expires_in: 600,
-                interval: 5,
-              }
-            : request.url?.endsWith("/token")
-              ? { access_token: "x.e30.x", refresh_token: "private-refresh", expires_in: 300, refresh_expires_in: 600 }
-              : { sub: "person-one", harness_person_id: "person-one" },
+          request.url?.endsWith("/.well-known/openid-configuration")
+            ? { issuer: `https://${request.headers.host}/realms/harness` }
+            : request.url?.endsWith("/auth/device")
+              ? {
+                  device_code: "private-device",
+                  user_code: "ABCD-EFGH",
+                  verification_uri: "https://localhost/realms/harness/device",
+                  expires_in: 600,
+                  interval: 5,
+                }
+              : request.url?.endsWith("/token")
+                ? {
+                    access_token: `x.${Buffer.from(JSON.stringify({ iss: `https://${request.headers.host}/realms/harness` })).toString("base64url")}.x`,
+                    refresh_token: "private-refresh",
+                    expires_in: 300,
+                    refresh_expires_in: 600,
+                  }
+                : { sub: "person-one", harness_person_id: "person-one" },
         ),
       );
     });
@@ -76,14 +83,16 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
       realm: "harness",
       clientId: "harness-node-one",
     },
+    loginTarget = root,
     service = new OidcSessionService(root, {
       now: () => now,
       defaultCaCertificates: () => defaultRoots,
+      loginAuthority: async () => authority,
     });
 
-  await assert.rejects(service.beginDevice(undefined, authority), /fetch failed/u);
+  await assert.rejects(service.beginDevice(loginTarget, authority), /fetch failed/u);
   await assert.rejects(
-    service.beginDevice(undefined, {
+    service.beginDevice(loginTarget, {
       ...authority,
       url: `https://127.0.0.1:${address.port}`,
       certificate: listener.cert,
@@ -91,7 +100,7 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
     /fetch failed/u,
     "an invitation CA does not bypass listener hostname verification",
   );
-  const accepted = await service.beginDevice(undefined, { ...authority, certificate: listener.cert });
+  const accepted = await service.beginDevice(loginTarget, { ...authority, certificate: listener.cert });
   assert.equal(accepted.userCode, "ABCD-EFGH");
   now = 5_000;
   assert.equal(
@@ -101,19 +110,19 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
   );
   now = 280_000;
   assert.equal(
-    (await service.status()).authenticated,
+    (await service.status(loginTarget)).authenticated,
     true,
     "a private-CA session renews without environment CA setup",
   );
   assert.equal(tokenRequests, 2, "device exchange and refresh both use the invitation CA");
-  await assert.rejects(service.beginDevice(undefined, { ...authority, certificate: wrong.cert }), /fetch failed/u);
+  await assert.rejects(service.beginDevice(loginTarget, { ...authority, certificate: wrong.cert }), /fetch failed/u);
 
   defaultRoots.push(listener.cert);
-  const publicTrustLogin = await service.beginDevice(undefined, authority);
+  const publicTrustLogin = await service.beginDevice(loginTarget, authority);
   assert.equal(publicTrustLogin.pending, true, "a system-trusted listener works with no invite CA");
   now = 285_000;
   assert.equal((await service.pollDevice()).authenticated, true);
   now = 560_000;
-  assert.equal((await service.status()).authenticated, true, "a no-CA session renews through system trust");
+  assert.equal((await service.status(loginTarget)).authenticated, true, "a no-CA session renews through system trust");
   assert.equal(tokenRequests, 4, "the public-trust login and its refresh use no invite CA");
 });

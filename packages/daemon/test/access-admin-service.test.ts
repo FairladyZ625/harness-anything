@@ -11,13 +11,20 @@ import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
-import { managedRbacReceiptJournal, managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { fleetCenterConfigPath, saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
+import {
+  fakeKeycloak,
+  keycloakIssuer,
+  keycloakRealm,
+  keycloakUrl,
+  keycloakUserRoot,
+  keycloakSessionStore,
+} from "./keycloak.fixtures.ts";
 
 async function fixture(
   t: TestContext,
@@ -1035,9 +1042,10 @@ test(
       members: new Set([adminUser.id]),
     });
     // 30.5s of access-token life: the entry role check does not renew; the invite's first round trips do.
-    managedRbacSessionStore(root).write(
+    keycloakSessionStore(root).write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer: keycloakIssuer,
         accessToken: "token-person-admin",
         refreshToken: "token-person-admin",
         subject: "person-admin",

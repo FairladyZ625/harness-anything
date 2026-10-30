@@ -1,9 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 
 test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
@@ -27,6 +28,8 @@ test("Device login without verification_uri_complete keeps secrets private and b
     fetch: (async (input, init) => {
       const request = new Request(input, init);
       calls.push(request);
+      if (String(input).endsWith("/.well-known/openid-configuration"))
+        return Response.json({ issuer: "http://127.0.0.1:8080/realms/harness" });
       if (String(input).endsWith("/auth/device"))
         return Response.json({
           device_code: "private-device",
@@ -42,18 +45,19 @@ test("Device login without verification_uri_complete keeps secrets private and b
       if (polls < 3)
         return Response.json({ error: polls === 1 ? "authorization_pending" : "slow_down" }, { status: 400 });
       return Response.json({
-        access_token: `x.${Buffer.from("{}").toString("base64url")}.x`,
+        access_token: `x.${Buffer.from(JSON.stringify({ iss: "http://127.0.0.1:8080/realms/harness" })).toString("base64url")}.x`,
         refresh_token: "private-refresh",
         expires_in: 300,
         refresh_expires_in: 21_600,
       });
     }) as typeof fetch,
   });
-  const begun = await service.beginDevice("edge-root");
+  const loginTarget = root,
+    begun = await service.beginDevice(loginTarget);
   assert.equal(begun.userCode, "ABCD-EFGH");
   assert.deepEqual(notices, [{ userCode: "ABCD-EFGH", createdAt: 0, expiresAt: 600_000, pending: true }]);
   assert.equal(JSON.stringify(begun).includes("private-device"), false);
-  const request = new URLSearchParams(await calls[0]!.text());
+  const request = new URLSearchParams(await calls.find((call) => call.url.endsWith("/auth/device"))!.text());
   assert.equal(request.get("code_challenge_method"), "S256");
   assert.equal(request.get("scope"), "openid profile email offline_access");
   assert.ok(request.get("code_challenge"));
@@ -70,10 +74,10 @@ test("Device login without verification_uri_complete keeps secrets private and b
   assert.deepEqual(notices.at(-1), { userCode: "ABCD-EFGH", createdAt: 0, expiresAt: 600_000, pending: false });
   assert.equal(JSON.stringify(notices).includes("private-device"), false);
   assert.equal(JSON.stringify(completed).includes("private-refresh"), false);
-  assert.equal((await service.bind({ transportKind: "unix-socket" })).oidcPrincipal?.personId, "person-a");
-  assert.deepEqual(await service.logout(), { ok: true, authenticated: false });
+  assert.equal((await service.bind({ transportKind: "unix-socket" }, loginTarget)).oidcPrincipal?.personId, "person-a");
+  assert.deepEqual(await service.logout(loginTarget), { ok: true, authenticated: false });
   assert.equal(calls.at(-1)?.url.endsWith("/revoke"), true);
-  assert.equal((await service.status()).authenticated, false);
+  assert.equal((await service.status(loginTarget)).authenticated, false);
 });
 
 test("invited login authority supplies a request-scoped TLS CA", async (t) => {
@@ -91,12 +95,20 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
     now = 0,
     tokenRequests = 0;
   const certificate = "-----BEGIN CERTIFICATE-----\\npublic-test-ca\\n-----END CERTIFICATE-----\\n";
+  const authority = {
+    url: "https://identity.example.test",
+    realm: "harness",
+    clientId: "harness-node-one",
+    certificate,
+  };
   const service = new OidcSessionService(root, {
     now: () => now,
     loginAuthority: async () => authority,
     fetch: (async (input, init) => {
       dispatcher = (init as RequestInit & { dispatcher?: unknown }).dispatcher;
       const url = String(input);
+      if (url.endsWith("/.well-known/openid-configuration"))
+        return Response.json({ issuer: "https://identity.example.test/realms/harness" });
       if (url.endsWith("/userinfo")) userInfoDispatcher = dispatcher;
       if (url.endsWith("/realms/harness")) bindingDispatcher = dispatcher;
       if (url.endsWith("/revoke")) logoutDispatcher = dispatcher;
@@ -111,25 +123,21 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
       if (url.endsWith("/userinfo")) return Response.json({ sub: "person-one", harness_person_id: "person-one" });
       tokenRequests++;
       return Response.json({
-        access_token: "x.e30.x",
+        access_token: `x.${Buffer.from(JSON.stringify({ iss: "https://identity.example.test/realms/harness" })).toString("base64url")}.x`,
         refresh_token: `refresh-${tokenRequests}`,
         expires_in: 60,
         refresh_expires_in: 600,
       });
     }) as typeof fetch,
   });
-  const authority = {
-    url: "https://identity.example.test",
-    realm: "harness",
-    clientId: "harness-node-one",
-    certificate,
-  };
-  await service.beginDevice(undefined, authority);
+  const loginTarget = "edge-root";
+  await service.beginDevice(loginTarget, authority);
   assert.ok(dispatcher, "the authority certificate is supplied through a request-scoped TLS dispatcher");
   now = 5_000;
   await service.pollDevice();
   assert.ok(userInfoDispatcher, "userinfo uses the invitation authority's request-scoped CA");
-  const issued = JSON.parse(readFileSync(path.join(root, "rbac/oidc-session.json"), "utf8"));
+  const issuer = "https://identity.example.test/realms/harness",
+    issued = JSON.parse(managedRbacSessionStore(root, issuer, "harness").read()!);
   assert.deepEqual(issued.authority, {
     url: authority.url,
     realm: authority.realm,
@@ -137,12 +145,16 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
     certificate,
   });
   now = 36_000;
-  await service.status();
+  await service.status(loginTarget);
   assert.equal(tokenRequests, 2, "the refresh request uses the persisted invited authority");
-  await service.bindingHealth("edge-root");
+  await service.bindingHealth(loginTarget);
   assert.ok(bindingDispatcher, "authority discovery uses the invitation's request-scoped CA");
-  await service.logout();
+  await service.logout(loginTarget);
   assert.ok(logoutDispatcher, "logout uses the session authority's request-scoped CA");
+  assert.ok(
+    managedRbacSessionStore(root, issuer, "harness").read() === undefined,
+    "logout clears only the selected center session",
+  );
 });
 
 test("SSH device authorization uses the loopback login endpoint and hands the browser to the canonical center URL", async (t) => {
@@ -155,6 +167,8 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
       fetch: (async (input, init) => {
         requests.push(String(input));
         dispatchers.push((init as RequestInit & { dispatcher?: unknown }).dispatcher);
+        if (String(input).endsWith("/.well-known/openid-configuration"))
+          return Response.json({ issuer: "https://127.0.0.1:41232/realms/harness" });
         return Response.json({
           device_code: "private-device",
           user_code: "SSH-CODE",
@@ -174,7 +188,10 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
     certificate: "public test CA",
   });
 
-  assert.deepEqual(requests, ["https://127.0.0.1:41232/realms/harness/protocol/openid-connect/auth/device"]);
+  assert.deepEqual(requests, [
+    "https://127.0.0.1:41232/realms/harness/.well-known/openid-configuration",
+    "https://127.0.0.1:41232/realms/harness/protocol/openid-connect/auth/device",
+  ]);
   assert.ok(dispatchers[0], "the loopback request still uses the invitation TLS authority");
   assert.equal(begun.verificationUri, "https://login.center.example:18544/realms/harness/device?user_code=SSH-CODE");
   assert.equal(JSON.stringify(begun).includes("private-device"), false);
@@ -205,6 +222,8 @@ test("device login survives transient transport loss and replaces a code invalid
       },
       fetch: (async (input) => {
         const url = String(input);
+        if (url.endsWith("/.well-known/openid-configuration"))
+          return Response.json({ issuer: "https://identity.example.test/realms/harness" });
         if (url.endsWith("/auth/device")) {
           const serial = ++deviceRequests;
           return Response.json({
@@ -220,7 +239,7 @@ test("device login survives transient transport loss and replaces a code invalid
           if (tokenRequests === 1) throw new TypeError("fetch failed", { cause });
           if (tokenRequests === 2) return Response.json({ error: "invalid_grant" }, { status: 400 });
           return Response.json({
-            access_token: "x.e30.x",
+            access_token: `x.${Buffer.from(JSON.stringify({ iss: "https://identity.example.test/realms/harness" })).toString("base64url")}.x`,
             refresh_token: "private-refresh",
             expires_in: 300,
             refresh_expires_in: 21_600,
@@ -273,6 +292,8 @@ test("device authorization signs in as harness-gui even when the rbac config nam
   const service = new OidcSessionService(root, {
     now: () => 0,
     fetch: (async (input, init) => {
+      if (String(input).endsWith("/.well-known/openid-configuration"))
+        return Response.json({ issuer: "http://127.0.0.1:8080/realms/harness" });
       if (String(input).endsWith("/auth/device")) {
         deviceRequest = new URLSearchParams(String(init?.body));
         return Response.json({

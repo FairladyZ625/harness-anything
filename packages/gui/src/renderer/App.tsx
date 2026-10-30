@@ -1081,6 +1081,7 @@ function AppShell() {
                   key={activeRepoId ?? "local"}
                   repos={systemQuery.data?.repos ?? []}
                   repoId={activeRepoId ?? undefined}
+                  rootDir={activeRepo?.canonicalRoot ?? undefined}
                 />
               ) : (
                 <SettingsView

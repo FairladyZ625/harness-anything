@@ -547,7 +547,7 @@ export function decisionPointBindingDigestForVertical(vertical: VerticalDefiniti
 export function openDecisionPointExecutorFactory(input: {
   readonly providers: { readonly list: () => readonly DecisionProviderRecord[]; readonly port: DecisionPort };
   readonly now: () => string;
-  readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
+  readonly keycloakSession: (rootDir: string) => Promise<RuntimeOperatorSession>;
 }) {
   const executors = new Map<
     string,
@@ -556,7 +556,11 @@ export function openDecisionPointExecutorFactory(input: {
   return (repoId: string, rootDir: string) => {
     const current = executors.get(repoId);
     if (current?.rootDir === rootDir) return current.executor;
-    const executor = openDecisionPointExecutor({ ...input, rootDir });
+    const executor = openDecisionPointExecutor({
+      ...input,
+      keycloakSession: () => input.keycloakSession(rootDir),
+      rootDir,
+    });
     executors.set(repoId, { rootDir, executor });
     return executor;
   };

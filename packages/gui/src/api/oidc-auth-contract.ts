@@ -42,13 +42,14 @@ export interface OidcAuthApi {
     repoId: string | undefined,
     openBrowser: (page: EmbeddedLoginPage) => void,
     userCode?: string,
+    rootDir?: string,
   ) => Promise<unknown>;
   readonly cancelLogin: () => Promise<unknown>;
-  readonly logout: (repoId?: string) => Promise<unknown>;
-  readonly status: (repoId?: string) => Promise<unknown>;
-  readonly bindingStatus: (repoId?: string) => Promise<unknown>;
-  readonly openConsole: (repoId?: string) => Promise<unknown>;
-  readonly configure: (input: RbacBindingInput, repoId?: string) => Promise<unknown>;
-  readonly bootstrapStatus: (repoId?: string) => Promise<unknown>;
-  readonly bootstrapAdmin: (input: BootstrapAdminInput) => Promise<unknown>;
+  readonly logout: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  readonly status: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  readonly bindingStatus: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  readonly openConsole: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  readonly configure: (input: RbacBindingInput, repoId?: string, rootDir?: string) => Promise<unknown>;
+  readonly bootstrapStatus: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  readonly bootstrapAdmin: (input: BootstrapAdminInput, rootDir?: string) => Promise<unknown>;
 }

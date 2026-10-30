@@ -916,18 +916,27 @@ export class ManagedRbacService {
   }
 }
 
-export function managedRbacSessionStore(userRoot: string): {
+export function managedRbacSessionStore(
+  userRoot: string,
+  issuer: string,
+  realm: string,
+): {
   readonly read: () => string | undefined;
   readonly write: (value: string) => void;
   readonly delete: () => void;
   readonly retireBootstrap: () => void;
 } {
   const root = path.join(userRoot, "rbac"),
-    file = path.join(root, "oidc-session.json");
+    key = createHash("sha256")
+      .update(JSON.stringify([issuer, realm]))
+      .digest("hex"),
+    directory = path.join(root, "oidc-sessions"),
+    file = path.join(directory, `${key}.json`);
+  rmSync(path.join(root, "oidc-session.json"), { force: true });
   return {
     read: () => (existsSync(file) ? readFileSync(file, "utf8") : undefined),
     write: (value) => {
-      mkdirSync(root, { recursive: true, mode: 0o700 });
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
       const temporary = `${file}.tmp`;
       writeFileSync(temporary, value, { mode: 0o600 });
       renameSync(temporary, file);

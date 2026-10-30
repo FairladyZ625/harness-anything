@@ -17,7 +17,8 @@ test("the first-admin window closes and later listener changes require access-ad
   let invalidMembership = false;
   const signedIn = (roles: readonly string[]): string =>
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer: "http://127.0.0.1:1/realms/harness",
         accessToken: "header.e30.signature",
         refreshToken: "refresh",
         subject: "keycloak-subject",
@@ -29,10 +30,12 @@ test("the first-admin window closes and later listener changes require access-ad
     oidc = new OidcSessionService(userRoot, {
       fetch: (async (input, init) => {
         const url = String(input);
+        if (url.endsWith("/.well-known/openid-configuration"))
+          return Response.json({ issuer: "http://127.0.0.1:1/realms/harness" });
         if (url.endsWith("/token")) {
           if ((init?.body as URLSearchParams).get("grant_type") === "refresh_token")
             return Response.json({
-              access_token: `header.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.signature`,
+              access_token: `header.${Buffer.from(JSON.stringify({ iss: "http://127.0.0.1:1/realms/harness", realm_access: { roles: ["access-admin"] } })).toString("base64url")}.signature`,
               refresh_token: "renewed",
               expires_in: 3600,
               refresh_expires_in: 3600,
@@ -48,12 +51,12 @@ test("the first-admin window closes and later listener changes require access-ad
         if (url.includes("username=harness-bootstrap")) return Response.json([]);
         return new Response(null, { status: 204 });
       }) as typeof fetch,
-      sessionStore: {
+      sessionStore: () => ({
         read: () => session,
         write: (value) => void (session = value),
         delete: () => void (session = undefined),
         retireBootstrap: () => undefined,
-      },
+      }),
     });
   mkdirSync(path.dirname(configFile), { recursive: true });
   writeFileSync(
@@ -74,6 +77,7 @@ test("the first-admin window closes and later listener changes require access-ad
   const before = readFileSync(configFile, "utf8"),
     host = await openDaemonHost({ daemonId: "listener-authorization", userRoot, oidc }),
     change = {
+      rootDir: userRoot,
       operation: "listener-set",
       listenAddress: "127.0.0.1",
       hostname: "center.example.test",
@@ -118,6 +122,7 @@ test("the first-admin window closes and later listener changes require access-ad
     await assert.rejects(
       host.manageRbac(
         {
+          rootDir: userRoot,
           mode: "external",
           url: "https://identity.example.test",
           realm: "fleet",

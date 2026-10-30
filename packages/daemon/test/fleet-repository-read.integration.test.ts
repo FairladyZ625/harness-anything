@@ -96,9 +96,10 @@ test(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
-    managedRbacSessionStore(edgeUser).write(
+    managedRbacSessionStore(edgeUser, `${f.owners.url}/realms/harness`, "harness").write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer: `${f.owners.url}/realms/harness`,
         accessToken: "token-person-one",
         subject: "person-one",
         personId: "person-one",

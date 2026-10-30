@@ -6,13 +6,12 @@ import test from "node:test";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
-import { OidcSessionService, signInAt } from "./keycloak.fixtures.ts";
+import { OidcSessionService, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
@@ -32,7 +31,8 @@ test(
     const f = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", undefined, [
       { instanceId: "edge-worker", enabled: true },
     ]);
-    const loginAuthorityUrl = "https://keycloak.fixture:443";
+    const loginAuthorityUrl = "https://keycloak.fixture:443",
+      loginIssuer = `${loginAuthorityUrl}/realms/harness`;
     const centerConfigPath = path.join(f.root, "user/rbac/config.json");
     writeFileSync(
       centerConfigPath,
@@ -94,7 +94,7 @@ test(
       f.owners.keycloak.endInteractiveSession(session.accessToken);
       const accessToken = `approved-${nodeId}-${++loginVersion}`;
       f.owners.keycloak.interactiveSession(session.personId, nodeId, loginAuthorityUrl, accessToken);
-      managedRbacSessionStore(userRoot).write(JSON.stringify({ ...session, accessToken }));
+      keycloakSessionStore(userRoot, loginIssuer).write(JSON.stringify({ ...session, accessToken }));
     };
     const peer = {
       ...config,
@@ -134,9 +134,10 @@ test(
   `,
     );
     f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, loginAuthorityUrl);
-    managedRbacSessionStore(userRoot).write(
+    keycloakSessionStore(userRoot, loginIssuer).write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer: loginIssuer,
         accessToken: "token-person-owner",
         subject: "person-owner",
         personId: "person-owner",
@@ -271,7 +272,7 @@ test(
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const initialLocalRead = await cli(["task", "show", taskId]);
     assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
-    const initialDeviceSession = managedRbacSessionStore(userRoot).read()!;
+    const initialDeviceSession = keycloakSessionStore(userRoot, loginIssuer).read()!;
     const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout" });
     assert.equal(edgeLogout.ok, true, JSON.stringify(edgeLogout));
     const logout = await new OidcSessionService(path.join(f.root, "user")).logout();
@@ -399,11 +400,13 @@ test(
     // Reassigning the node voids the execution's authority at the center; reads stay local.
     f.setOwner("person-other");
     // dec_F01770FD0DCF72683B7C4C7A47: the previous owner's session ends at transfer.
-    f.owners.keycloak.endInteractiveSession(JSON.parse(managedRbacSessionStore(userRoot).read()!).accessToken);
+    f.owners.keycloak.endInteractiveSession(
+      JSON.parse(keycloakSessionStore(userRoot, loginIssuer).read()!).accessToken,
+    );
     const reassigned = await cli(["task", "progress", "append", taskId, "--text", "Owner was reassigned."]);
     assert.equal(reassigned.outcome, "op_rejected", JSON.stringify(reassigned));
     f.setOwner("person-owner");
-    const restoredSession = JSON.parse(managedRbacSessionStore(userRoot).read()!);
+    const restoredSession = JSON.parse(keycloakSessionStore(userRoot, loginIssuer).read()!);
     f.owners.keycloak.interactiveSession("person-owner", config.nodeId, loginAuthorityUrl, restoredSession.accessToken);
     f.owners.keycloak.interactiveSession(
       "person-owner",
@@ -463,9 +466,10 @@ test(
       createConvenienceLinks: false,
     });
     f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl);
-    managedRbacSessionStore(reviewUser).write(
+    keycloakSessionStore(reviewUser, loginIssuer).write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer: loginIssuer,
         accessToken: "token-person-owner",
         subject: "person-owner",
         personId: "person-owner",
@@ -563,7 +567,7 @@ test(
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, secret);
     assert.equal(existsSync(path.join(reviewUser, "rbac/config.json")), false);
-    const savedReviewSession = managedRbacSessionStore(reviewUser).read()!;
+    const savedReviewSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
     await new OidcSessionService(path.join(f.root, "user")).logout();
     const reviewCli = async (args: string[]) => {
@@ -661,7 +665,8 @@ test(
     const s1 = await show();
     assert.ok(Array.isArray(s1.reviews));
     const ownerSession = {
-      schema: "harness-oidc-session/v2",
+      schema: "harness-oidc-session/v3",
+      issuer: loginIssuer,
       accessToken: "owner-return-node-one",
       subject: "person-owner",
       personId: "person-owner",
@@ -670,7 +675,7 @@ test(
       loginTarget: edgeRoot,
     };
     f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, loginAuthorityUrl, ownerSession.accessToken);
-    managedRbacSessionStore(userRoot).write(JSON.stringify(ownerSession));
+    keycloakSessionStore(userRoot, loginIssuer).write(JSON.stringify(ownerSession));
     const closeout = path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md");
     writeFileSync(
       closeout,
@@ -770,7 +775,7 @@ test(
     t.diagnostic("S1 reviewer read and fixed receipt rejected; canonical reviews unchanged and report absent.");
     assert.equal(s2.task.status, "in_review", "amend preserves the already forwarded review stage");
     f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl, "owner-return-node-slow");
-    managedRbacSessionStore(reviewUser).write(
+    keycloakSessionStore(reviewUser, loginIssuer).write(
       JSON.stringify({ ...ownerSession, accessToken: "owner-return-node-slow", loginTarget: reviewRoot }),
     );
     writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
@@ -847,7 +852,7 @@ test(
     );
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, oldSecret);
-    const s2DeviceSession = managedRbacSessionStore(reviewUser).read()!;
+    const s2DeviceSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
     await new OidcSessionService(path.join(f.root, "user")).logout();
     assert.equal((await reviewCli(["task", "show", taskId])).code, "authentication_required");

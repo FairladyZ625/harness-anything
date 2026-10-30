@@ -129,7 +129,7 @@ export function createDaemonHostRepositoryApi(
               ...(registeredPersonId ? { personId: registeredPersonId } : {}),
             }
           : request,
-        await context.oidc.bind(auth),
+        await context.oidc.bind(auth, requestedRoot),
       );
       const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
         bootstrap = {
@@ -824,7 +824,8 @@ export function createDaemonHostRepositoryApi(
               method,
               payload,
               connectionSignal: auth.connectionSignal,
-              readAccessToken: async () => (await context.oidc.bind(auth)).oidcPrincipal?.accessToken,
+              readAccessToken: async () =>
+                (await context.oidc.bind(auth, edge.canonicalRoot!)).oidcPrincipal?.accessToken,
             }),
           );
         }

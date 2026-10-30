@@ -75,10 +75,12 @@ export async function fleetEdgeHostFixture(
   const authority = options.oidcPorts?.loginAuthority
     ? await options.oidcPorts.loginAuthority(edgeRoot)
     : { url: f.owners.url, realm: "harness" };
+  const issuer = `${authority.url}/realms/${authority.realm}`;
   const signIn = (personId: string, sessionAuthority = authority) =>
-    managedRbacSessionStore(edgeUser).write(
+    managedRbacSessionStore(edgeUser, issuer, authority.realm).write(
       JSON.stringify({
-        schema: "harness-oidc-session/v2",
+        schema: "harness-oidc-session/v3",
+        issuer,
         accessToken:
           personId === (options.personId ?? "person-one")
             ? `device-token-${options.nodeId ?? "node-one"}`
@@ -126,7 +128,7 @@ export async function fleetEdgeHostFixture(
     host,
     build: { commit: null },
     authContext: auth,
-    sessionPrincipal: () => host.sessionPrincipal(auth),
+    sessionPrincipal: (method, params) => host.sessionPrincipal(auth, method, params),
     emit: async () => undefined,
   });
   t.after(() => rpc.close());
@@ -158,5 +160,5 @@ export async function fleetEdgeHostFixture(
       { kind: "register", rootDir: edgeRoot, repoId: options.repoId ?? "lease-repo", mode: "remote-edge" },
       auth,
     );
-  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register };
+  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer };
 }

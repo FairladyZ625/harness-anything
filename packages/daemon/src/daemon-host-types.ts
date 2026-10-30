@@ -27,6 +27,8 @@ export interface DaemonHost {
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly sessionPrincipal: (
     auth: DaemonAuthenticationContext,
+    method: string,
+    params: JsonObject,
   ) => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
   readonly parkedWaitSignal: AbortSignal;
   readonly run: (

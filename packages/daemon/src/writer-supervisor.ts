@@ -375,7 +375,7 @@ export async function openWriterSupervisor(
         sessionTokens.delete(call.payload as string);
         return;
       case "keycloakSession":
-        return input.keycloakSession!();
+        return input.keycloakSession!(call.payload as string);
       case "keycloakCenter":
         return input.keycloakCenter!(call.payload === null ? undefined : (call.payload as string));
       case "prepareRuntimeLaunch": {

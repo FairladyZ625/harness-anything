@@ -114,7 +114,7 @@ export interface RepoCellOpenInput {
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession?: () => Promise<RuntimeOperatorSession>;
+  readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch?: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
@@ -439,7 +439,7 @@ export async function openRepoWriterCell(
   // Async work outlives its initiating RPC. Resolve the daemon's current local session at acceptance;
   // a device request must keep its own verified session and can never borrow this local one.
   const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> =>
-    input.keycloakSession ? withOnlineRuntimeSession(binding, input.keycloakSession) : binding;
+    input.keycloakSession ? withOnlineRuntimeSession(binding, () => input.keycloakSession!(input.rootDir)) : binding;
   const authorizeRuntimeAction = async (
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],

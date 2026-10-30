@@ -141,23 +141,34 @@ const exposedHarnessApi = {
     inspectWorkspace: (input) => invoke(WORKSPACE_INSPECT_CHANNEL, input),
   } satisfies RepoAdminApi,
   auth: {
-    login: async (repoId, openBrowser, userCode) => {
+    login: async (repoId, openBrowser, userCode, rootDir) => {
       const listener = (_event: Electron.IpcRendererEvent, page: EmbeddedLoginPage) => openBrowser(page);
       ipcRenderer.on(OIDC_LOGIN_URL_CHANNEL, listener);
       try {
-        return await invoke(OIDC_LOGIN_CHANNEL, { ...(repoId ? { repoId } : {}), ...(userCode ? { userCode } : {}) });
+        return await invoke(OIDC_LOGIN_CHANNEL, {
+          ...(repoId ? { repoId } : {}),
+          ...(rootDir ? { rootDir } : {}),
+          ...(userCode ? { userCode } : {}),
+        });
       } finally {
         ipcRenderer.removeListener(OIDC_LOGIN_URL_CHANNEL, listener);
       }
     },
     cancelLogin: () => invoke(OIDC_CANCEL_LOGIN_CHANNEL, null),
-    logout: (repoId) => invoke(OIDC_LOGOUT_CHANNEL, repoId ? { repoId } : null),
-    status: (repoId) => invoke(OIDC_STATUS_CHANNEL, repoId ? { repoId } : null),
-    bindingStatus: (repoId) => invoke(OIDC_BINDING_STATUS_CHANNEL, repoId ? { repoId } : null),
-    openConsole: (repoId) => invoke(OIDC_OPEN_CONSOLE_CHANNEL, repoId ? { repoId } : null),
-    configure: (input, repoId) => invoke(OIDC_CONFIGURE_CHANNEL, { ...input, ...(repoId ? { repoId } : {}) }),
-    bootstrapStatus: (repoId) => invoke(OIDC_BOOTSTRAP_STATUS_CHANNEL, repoId ? { repoId } : null),
-    bootstrapAdmin: (input) => invoke(OIDC_BOOTSTRAP_ADMIN_CHANNEL, input),
+    logout: (repoId, rootDir) =>
+      invoke(OIDC_LOGOUT_CHANNEL, { ...(repoId ? { repoId } : {}), ...(rootDir ? { rootDir } : {}) }),
+    status: (repoId, rootDir) =>
+      invoke(OIDC_STATUS_CHANNEL, { ...(repoId ? { repoId } : {}), ...(rootDir ? { rootDir } : {}) }),
+    bindingStatus: (repoId, rootDir) =>
+      invoke(OIDC_BINDING_STATUS_CHANNEL, { ...(repoId ? { repoId } : {}), ...(rootDir ? { rootDir } : {}) }),
+    openConsole: (repoId, rootDir) =>
+      invoke(OIDC_OPEN_CONSOLE_CHANNEL, { ...(repoId ? { repoId } : {}), ...(rootDir ? { rootDir } : {}) }),
+    configure: (input, repoId, rootDir) =>
+      invoke(OIDC_CONFIGURE_CHANNEL, { ...input, ...(repoId ? { repoId } : {}), ...(rootDir ? { rootDir } : {}) }),
+    bootstrapStatus: (repoId, rootDir) =>
+      invoke(OIDC_BOOTSTRAP_STATUS_CHANNEL, { ...(repoId ? { repoId } : {}), ...(rootDir ? { rootDir } : {}) }),
+    bootstrapAdmin: (input, rootDir) =>
+      invoke(OIDC_BOOTSTRAP_ADMIN_CHANNEL, { ...input, ...(rootDir ? { rootDir } : {}) }),
   } satisfies OidcAuthApi,
   projects: {
     openDirectory: (input) => invoke(PROJECT_DIRECTORY_CHANNEL, input),

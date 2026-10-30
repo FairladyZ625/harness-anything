@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
@@ -16,7 +17,10 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 const sessionLifetimeSeconds = 21_600,
-  accessTokenSeconds = 60;
+  accessTokenSeconds = 60,
+  testIssuer = "http://127.0.0.1:8080/realms/harness";
+
+const sessionStore = (userRoot: string) => managedRbacSessionStore(userRoot, testIssuer, "harness");
 
 interface TestTlsCertificate {
   readonly keyFile: string;
@@ -116,7 +120,7 @@ function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext
     live = { refreshToken: "", lapsesAt: 0 },
     issue = () => {
       const serial = ++keycloak.issued,
-        claims = { realm_access: { roles: ["access-admin"] }, serial };
+        claims = { iss: testIssuer, realm_access: { roles: ["access-admin"] }, serial };
       live.refreshToken = `refresh-${serial}`;
       live.lapsesAt = clock.now + keycloak.lifetimeSeconds * 1_000;
       return Response.json({
@@ -143,6 +147,7 @@ function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext
       now: () => clock.now,
       randomBytes: ((size: number) => Buffer.alloc(size, ++nonce)) as typeof import("node:crypto").randomBytes,
       fetch: (async (input, init) => {
+        if (String(input).endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         requests.push(new Request(input, init));
         if (!String(input).endsWith("/token"))
           return Response.json({ sub: "keycloak-subject", harness_person_id: "person-zeyu" });
@@ -195,7 +200,22 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   assert.equal("accessToken" in completed, false);
   assert.equal("refreshToken" in completed, false);
   // The refresh token stays in the daemon's own session file, readable by the daemon's user only.
-  assert.equal(statSync(path.join(root, "rbac", "oidc-session.json")).mode & 0o777, 0o600);
+  const sessionFile = sessionStore(root).read();
+  assert.ok(sessionFile);
+  assert.equal(JSON.parse(sessionFile).issuer, testIssuer);
+  assert.equal(
+    statSync(
+      path.join(
+        root,
+        "rbac",
+        "oidc-sessions",
+        `${createHash("sha256")
+          .update(JSON.stringify([testIssuer, "harness"]))
+          .digest("hex")}.json`,
+      ),
+    ).mode & 0o777,
+    0o600,
+  );
 });
 
 test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async (t) => {
@@ -318,7 +338,7 @@ test("a session idle past the session lifetime is signed out, and not retried", 
   assert.equal((await active.service.status()).authenticated, true);
   active.clock.now += sessionLifetimeSeconds * 1_000;
   assert.deepEqual(await active.service.status(), { ok: true, authenticated: false });
-  assert.equal(managedRbacSessionStore(active.root).read(), undefined);
+  assert.equal(sessionStore(active.root).read(), undefined);
   assert.equal((await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal, undefined);
   await assert.rejects(active.service.requireRole("access-admin"), { code: "authentication_required" });
   assert.equal(active.keycloak.refreshes, 2);
@@ -377,7 +397,7 @@ test("a connection that outlives the access token carries the session as it is o
           jsonrpc: "2.0",
           id: 2,
           method: "daemon.rbac.manage",
-          params: { operation: "health" },
+          params: { operation: "group-list" },
         })) as {
           result: { serial: unknown };
         }
@@ -444,11 +464,12 @@ test("first administrator closes after one success and access-admin can invite",
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
-  const jwt = `x.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
+  const jwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
     service = new OidcSessionService(root, {
       fetch: (async (input, init) => {
         const url = String(input),
           method = init?.method ?? "GET";
+        if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) {
           const body = String(init?.body ?? "");
           return body.includes("authorization_code")
@@ -504,11 +525,12 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   let refreshes = 0;
-  const adminJwt = `x.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
+  const adminJwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
     service = new OidcSessionService(root, {
       fetch: (async (input, init) => {
         const url = String(input),
           method = init?.method ?? "GET";
+        if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) {
           const form = init?.body as URLSearchParams;
           if (form.get("grant_type") === "refresh_token") {
@@ -529,9 +551,10 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
       }) as typeof fetch,
     });
   // The stored session sits inside the 30s renewal margin, so its next use must renew before authorizing.
-  managedRbacSessionStore(root).write(
+  sessionStore(root).write(
     JSON.stringify({
-      schema: "harness-oidc-session/v2",
+      schema: "harness-oidc-session/v3",
+      issuer: testIssuer,
       accessToken: "stale-admin-token",
       refreshToken: "stale-admin-token",
       subject: "admin-subject",
@@ -581,7 +604,7 @@ for (const late of ["success", "failure"] as const) {
     const form = new URLSearchParams(await active.requests[0]!.text());
     assert.equal(form.get("redirect_uri"), "http://127.0.0.1:2222/callback");
     assert.equal(form.get("code"), "fresh-code");
-    assert.equal(JSON.parse(managedRbacSessionStore(active.root).read()!).loginTarget, "new-target");
+    assert.equal(JSON.parse(sessionStore(active.root).read()!).loginTarget, "new-target");
   });
 }
 
@@ -605,6 +628,7 @@ for (const stage of ["token", "userinfo"] as const) {
       1_000,
       {
         fetch: (async (input, init) => {
+          if (String(input).endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
           const token = String(input).endsWith("/token");
           const code = token
             ? (init!.body as URLSearchParams).get("code")
@@ -618,7 +642,7 @@ for (const stage of ["token", "userinfo"] as const) {
           return Response.json(
             token
               ? {
-                  access_token: `x.${Buffer.from(JSON.stringify({ person: code })).toString("base64url")}.x`,
+                  access_token: `x.${Buffer.from(JSON.stringify({ iss: testIssuer, person: code })).toString("base64url")}.x`,
                   refresh_token: "fixture-refresh",
                   expires_in: 300,
                   refresh_expires_in: 1800,
@@ -714,7 +738,7 @@ test("offline identity is confined to replica reads and expires independently of
   });
   assert.throws(() => localDefaultBinding(bound), { code: "authentication_required" });
   assert.equal((await active.service.bind(auth)).replicaReadPrincipal, undefined);
-  const store = managedRbacSessionStore(active.root);
+  const store = sessionStore(active.root);
   const saved = JSON.parse(store.read()!);
   active.clock.now = saved.sessionExpiresAt;
   assert.equal((await active.service.bind(auth, true)).replicaReadPrincipal, undefined);
@@ -735,13 +759,15 @@ for (const end of ["expiry", "logout"] as const)
         Date.now(),
         {
           fetch: (async (input, init) => {
+            if (String(input).endsWith("/.well-known/openid-configuration"))
+              return Response.json({ issuer: testIssuer });
             const grant = (init?.body as URLSearchParams | undefined)?.get("grant_type");
             if (grant === "refresh_token") {
               started();
               await waiting;
               if (response === "unreachable") throw new TypeError("unreachable");
               return Response.json({
-                access_token: "x.e30.x",
+                access_token: `x.${Buffer.from(JSON.stringify({ iss: testIssuer })).toString("base64url")}.x`,
                 refresh_token: "new",
                 expires_in: 60,
                 refresh_expires_in: 120,
@@ -749,7 +775,7 @@ for (const end of ["expiry", "logout"] as const)
             }
             if (String(input).endsWith("/token"))
               return Response.json({
-                access_token: "x.e30.x",
+                access_token: `x.${Buffer.from(JSON.stringify({ iss: testIssuer })).toString("base64url")}.x`,
                 refresh_token: "refresh",
                 expires_in: 60,
                 refresh_expires_in: 120,
@@ -771,7 +797,7 @@ for (const end of ["expiry", "logout"] as const)
       assert.equal(result.replicaReadPrincipal, undefined);
       if (logout) {
         await logout;
-        assert.equal(managedRbacSessionStore(active.root).read(), undefined);
+        assert.equal(sessionStore(active.root).read(), undefined);
       }
     });
   }
@@ -784,7 +810,7 @@ test("HTTP 400 clears the session for offline reads and subsequent online uses",
   const bound = await active.service.bind({ transportKind: "unix-socket" }, true);
   assert.equal(bound.replicaReadPrincipal, undefined);
   assert.equal(bound.oidcPrincipal, undefined);
-  assert.equal(managedRbacSessionStore(active.root).read(), undefined);
+  assert.equal(sessionStore(active.root).read(), undefined);
   assert.equal((await active.service.status()).authenticated, false);
   assert.equal(active.keycloak.refreshes, 1);
 });
@@ -792,10 +818,13 @@ test("HTTP 400 clears the session for offline reads and subsequent online uses",
 test("a reachable token endpoint error does not grant an offline identity", async (t) => {
   const active = fixture(Date.now(), {}, t);
   await signIn(active);
-  const store = managedRbacSessionStore(active.root);
+  const store = sessionStore(active.root);
   store.write(JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1 }));
   const service = new OidcSessionService(active.root, {
-    fetch: (async () => new Response(null, { status: 503 })) as typeof fetch,
+    fetch: (async (input) =>
+      String(input).endsWith("/.well-known/openid-configuration")
+        ? Response.json({ issuer: testIssuer })
+        : new Response(null, { status: 503 })) as typeof fetch,
   });
   assert.equal((await service.bind({ transportKind: "unix-socket" }, true)).replicaReadPrincipal, undefined);
 });
@@ -803,7 +832,7 @@ test("a reachable token endpoint error does not grant an offline identity", asyn
 test("replica reads reject an ended session even when its access token has time remaining", async (t) => {
   const active = fixture(Date.now(), {}, t);
   await signIn(active);
-  const store = managedRbacSessionStore(active.root);
+  const store = sessionStore(active.root);
   store.write(JSON.stringify({ ...JSON.parse(store.read()!), sessionExpiresAt: active.clock.now - 1 }));
   const bound = await active.service.bind({ transportKind: "unix-socket" }, true);
   assert.equal(bound.oidcPrincipal, undefined);
@@ -1077,12 +1106,13 @@ test("the first administrator deletes the bootstrap user before retiring its pas
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   writeFileSync(passwordFile, "bootstrap-secret", { mode: 0o600 });
   let created = false;
-  const store = managedRbacSessionStore(root),
+  const store = sessionStore(root),
     retire = store.retireBootstrap,
     service = new OidcSessionService(root, {
       fetch: (async (input, init) => {
         const url = String(input),
           method = init?.method ?? "GET";
+        if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) return Response.json({ access_token: "center-token" });
         if (url.endsWith("/roles/access-admin/users")) return Response.json([]);
         if (url.endsWith("/roles/access-admin") && method === "GET")
@@ -1102,13 +1132,13 @@ test("the first administrator deletes the bootstrap user before retiring its pas
         }
         return new Response(null, { status: 204 });
       }) as typeof fetch,
-      sessionStore: {
+      sessionStore: () => ({
         ...store,
         retireBootstrap: () => {
           calls.push("retire");
           retire();
         },
-      },
+      }),
     });
   assert.deepEqual(
     await service.bootstrapAdmin({

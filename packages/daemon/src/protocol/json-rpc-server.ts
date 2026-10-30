@@ -83,7 +83,10 @@ export function createJsonRpcProtocolServer(options: {
     credential: string,
   ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
   /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
-  readonly sessionPrincipal?: () => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
+  readonly sessionPrincipal?: (
+    method: string,
+    params: JsonObject,
+  ) => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
   readonly emit: (method: string, params: JsonObject) => Promise<void>;
   readonly connectionId?: string;
   readonly recordRequest?: (entry: DaemonRequestLogEntry) => void;
@@ -266,10 +269,17 @@ export function createJsonRpcProtocolServer(options: {
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
-    } else if (!daemonControl && !relayExecution && options.sessionPrincipal) {
+    } else if (
+      !daemonControl &&
+      !sessionIndependentRbacOperation(method, params as JsonObject) &&
+      !relayExecution &&
+      options.sessionPrincipal
+    ) {
       // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
       try {
-        Object.assign(options.authContext, { oidcPrincipal: await options.sessionPrincipal() });
+        Object.assign(options.authContext, {
+          oidcPrincipal: await options.sessionPrincipal(method, params as JsonObject),
+        });
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -560,7 +570,10 @@ export function createJsonRpcProtocolServer(options: {
           "../fleet-edge-task.ts"
         );
         if (executionCredential !== undefined)
-          localDefaultBinding({ ...options.authContext, oidcPrincipal: await options.sessionPrincipal?.() });
+          localDefaultBinding({
+            ...options.authContext,
+            oidcPrincipal: await options.sessionPrincipal?.(method, params as JsonObject),
+          });
         const relayedExecutionPrincipal =
           executionCredential === undefined
             ? undefined
@@ -586,7 +599,7 @@ export function createJsonRpcProtocolServer(options: {
               { payload: { ...params.payload, action: fleetAction as DaemonFleetTaskAction } as never },
               async () =>
                 (await options.host.run(String(fleetPayload.repoId), fleetAction as never, readAuth)) as never,
-              async () => (await options.sessionPrincipal?.())?.accessToken,
+              async () => (await options.sessionPrincipal?.(method, params as JsonObject))?.accessToken,
             ),
           );
         }
@@ -608,7 +621,7 @@ export function createJsonRpcProtocolServer(options: {
                 action: fleetAction as DaemonFleetTaskAction,
               },
             },
-            async () => (await options.sessionPrincipal?.())?.accessToken,
+            async () => (await options.sessionPrincipal?.(method, params as JsonObject))?.accessToken,
           ),
         );
       } catch (error) {
@@ -1012,6 +1025,25 @@ function trafficActorForLog(
     auth.replicaReadPrincipal?.personId ??
     (auth.unixSocketOwnerBoundary ? `local-user-${auth.unixSocketOwnerBoundary.ownerUid}` : null)
   );
+}
+
+function sessionIndependentRbacOperation(method: string, params: JsonObject): boolean {
+  if (method !== "daemon.rbac.manage") return false;
+  return [
+    "bootstrap",
+    "bootstrap-admin",
+    "bootstrap-status",
+    "device-approval",
+    "edge-join",
+    "edge-join-progress",
+    "health",
+    "login",
+    "login-begin",
+    "login-complete",
+    "login-poll",
+    "logout",
+    "session",
+  ].includes(String(params.operation));
 }
 
 function protocolFailure(command: string, error: unknown) {
