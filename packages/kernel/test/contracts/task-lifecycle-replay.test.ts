@@ -1050,20 +1050,41 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   );
 });
 
-test("historical acceptance cannot authorize a new completion with missing approval or mismatched bindings", () => {
+test("completion replay ignores current consent evidence but rejects structural mismatches", () => {
   const { snapshot, completed } = legacyCompletion();
+  const completion = completed as Extract<TaskEventV1, { type: "task_completed" }>;
+  const replayed = reduceTaskEvent({ ...snapshot, reviews: [], consents: [] }, {
+    ...completion,
+    payload: { ...completion.payload, historicalAcceptance: undefined },
+  } as TaskEventV1);
+  assert.equal(replayed.task?.status, "done");
+  assert.equal(replayed.executions[0]?.state, "accepted");
   for (const invalid of [
-    { ...snapshot, task: { ...snapshot.task!, iteration: snapshot.task!.iteration + 1 } },
-    { ...snapshot, reviews: [] },
-    { ...snapshot, consents: [] },
+    { ...completion, taskId: "other-task" },
+    { ...completion, payload: { ...completion.payload, task: { ...completion.payload.task, taskId: "other-task" } } },
+    {
+      ...completion,
+      payload: {
+        ...completion.payload,
+        execution: { ...completion.payload.execution!, taskId: "other-task" },
+      },
+    },
+    {
+      ...completion,
+      payload: { ...completion.payload, task: { ...completion.payload.task, status: "in_review" as const } },
+    },
+    {
+      ...completion,
+      payload: { ...completion.payload, execution: { ...completion.payload.execution!, state: "submitted" as const } },
+    },
   ])
     assert.throws(
       () =>
-        reduceTaskEvent(invalid, {
-          ...completed,
-          payload: { ...completed.payload, historicalAcceptance: undefined },
+        reduceTaskEvent(snapshot, {
+          ...invalid,
+          payload: { ...invalid.payload, historicalAcceptance: undefined },
         } as TaskEventV1),
-      /accepted task and execution state|invalid/,
+      /payload Task identity must match the envelope|accepted task and execution state|invalid/,
     );
 });
 

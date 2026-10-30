@@ -2,7 +2,6 @@ import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -11,7 +10,7 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { completionGateIds, isRetiredGateRequirement, judgeGateWitnesses } from "./closeout-readiness.ts";
+import { completionGateIds } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
 import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type {
@@ -21,7 +20,6 @@ import type {
   TaskLifecycleSnapshot,
   TransitionResult,
 } from "./task-lifecycle-contract-internal-types.ts";
-import type { CloseoutGate } from "./settings-closeout.ts";
 import { validateTaskLifecycleCommandEnvelope } from "./task-lifecycle-contract-commands.ts";
 import {
   errorCode,
@@ -885,9 +883,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (
     event.type === "task_completed" &&
     event.payload.execution !== undefined &&
-    ((!event.payload.historicalAcceptance &&
-      !acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId, event.payload.closeoutGates)) ||
-      event.payload.task.taskId !== event.taskId ||
+    (event.payload.task.taskId !== event.taskId ||
       event.payload.execution.taskId !== event.taskId ||
       event.payload.task.status !== "done" ||
       event.payload.execution.state !== "accepted" ||
@@ -901,49 +897,4 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
           "does not preserve the accepted task and execution state",
       ),
     ]);
-}
-
-// Accepted history retains its original witness shape; command admission still requires bound evidence.
-function acceptedCompletionWitnesses(
-  snapshot: TaskLifecycleSnapshot,
-  executionId: string,
-  closeoutGates?: Readonly<Record<CloseoutGate, boolean>>,
-): boolean {
-  const current = execution(snapshot, executionId);
-  if (
-    !snapshot.task ||
-    !["submitted", "in_review"].includes(snapshot.task.status) ||
-    current?.state !== "submitted" ||
-    current.iteration !== snapshot.task.iteration ||
-    !current.submission ||
-    (closeoutGates?.consent !== false &&
-      !snapshot.consents.some(
-        (consent) =>
-          consent.executionId === current.executionId &&
-          snapshot.reviews.some(
-            (review) =>
-              review.reviewId === consent.reviewId &&
-              // Same standard as the consent command: a changes-requested verdict the owner disposed
-              // against this cut carries consent exactly like an approved one.
-              (review.verdict === "approved" ||
-                (review.verdict === "changes_requested" &&
-                  disposedReviewIdsForSubmission(
-                    snapshot.reviewDispositions ?? [],
-                    submissionDigest(current.submission!),
-                  ).has(review.reviewId))) &&
-              consent.reviewDigest === reviewDigest(review) &&
-              consent.contentDigest === review.contentDigest,
-          ),
-      ))
-  )
-    return false;
-  return completionGateIds(snapshot.task.completionGateIds, current.submission).every((gateId) => {
-    const requirement = current.submission!.completionContract?.gates.find((gate) => gate.gateId === gateId);
-    // A retired requirement has no ledger witness to replay: hosted CI is re-derived from merge
-    // evidence (dec_4C06F7F902E91C4210020A9E75) and code/doc reconciliation never compared content.
-    if (isRetiredGateRequirement(gateId, requirement)) return true;
-    // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
-    const { status } = judgeGateWitnesses(snapshot.gateWitnesses, current, gateId, requirement);
-    return status === "passed" || status === "waived";
-  });
 }

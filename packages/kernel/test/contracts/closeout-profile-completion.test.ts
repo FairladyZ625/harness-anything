@@ -99,14 +99,14 @@ test("completion proof must carry a well-formed closeout gate set", () => {
     );
 });
 
-test("legacy completion replay without recorded gates still demands consent", () => {
+test("legacy completion replay without recorded gates does not rejudge consent", () => {
   const fixture = lifecycleFixture(),
     snapshot = snapshotAfter(5),
     { closeoutGates: _recorded, ...legacyPayload } = fixture.events[5]!.payload,
     legacy: TaskEventV1 = { ...fixture.events[5]!, payload: legacyPayload };
   assert.equal(fixture.events[5]!.type, "task_completed");
   assert.equal(reduceTaskEvent(snapshot, legacy).task?.status, "done");
-  assert.throws(() => reduceTaskEvent({ ...snapshot, consents: [] }, legacy), /accepted task and execution state/u);
+  assert.equal(reduceTaskEvent({ ...snapshot, consents: [] }, legacy).task?.status, "done");
 });
 
 test("read-side complete capability follows the effective closeout gate set", () => {
