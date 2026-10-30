@@ -21,6 +21,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import type { Snapshot } from "../src/repo-cell-types.ts";
+import { waitForArrival } from "./event-arrival.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
@@ -174,14 +175,26 @@ export async function fixture(
     exit?: (code: number | null) => void;
   }[] = [];
   // A settled session exposes its outcome from the local dispatch stream one write before the
-  // daemon publishes the canonical `runtime_session_outcome_observed` event. `awaitOutcome` parks
-  // on that event, so the daemon's own outcome callback is its event-driven wake-up.
+  // daemon publishes the canonical `runtime_session_outcome_observed` event. `awaitOutcome`
+  // subscribes to the daemon's outcome callback before each ledger read, so a publish that lands
+  // between the read and the wait cannot lose its only wake-up.
   const outcomeArrivals = new Map<string, Set<() => void>>(),
     noteOutcome = (runtimeSessionId: string) => {
       const waiters = outcomeArrivals.get(runtimeSessionId);
       if (!waiters) return;
       outcomeArrivals.delete(runtimeSessionId);
       for (const resolve of waiters) resolve();
+    },
+    subscribeOutcome = (runtimeSessionId: string, arrive: () => void) => {
+      const waiters = outcomeArrivals.get(runtimeSessionId) ?? new Set<() => void>();
+      waiters.add(arrive);
+      outcomeArrivals.set(runtimeSessionId, waiters);
+      return () => {
+        waiters.delete(arrive);
+        // Only drop the entry this subscription owns: a later wait may already have replaced it.
+        if (waiters.size === 0 && outcomeArrivals.get(runtimeSessionId) === waiters)
+          outcomeArrivals.delete(runtimeSessionId);
+      };
     };
   let instancesAvailable = available,
     remainingProviderFailures =
@@ -456,19 +469,18 @@ export async function fixture(
     // Bind the wait to the canonical outcome event. The settle predicate becomes true when the
     // dispatch stream records the terminal outcome, one queued write before the daemon publishes
     // `runtime_session_outcome_observed`; reading the ledger at that earlier moment is the race
-    // that reddened integration-shard(2) under load.
-    for (;;) {
-      const outcome = events().find(
-        (event) =>
-          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-      );
-      if (outcome?.type === "runtime_session_outcome_observed") return outcome.payload.outcome;
-      await new Promise<void>((resolve) => {
-        const waiters = outcomeArrivals.get(runtimeSessionId) ?? new Set<() => void>();
-        waiters.add(resolve);
-        outcomeArrivals.set(runtimeSessionId, waiters);
-      });
-    }
+    // that reddened integration-shard(2) under load. `waitForArrival` subscribes before it reads,
+    // so an event published between the read and the wait still wakes this waiter.
+    return await waitForArrival(
+      () => {
+        const outcome = events().find(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+        );
+        return outcome?.type === "runtime_session_outcome_observed" ? outcome.payload.outcome : null;
+      },
+      (arrive) => subscribeOutcome(runtimeSessionId, arrive),
+    );
   };
   return {
     root,
