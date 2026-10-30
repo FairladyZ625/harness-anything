@@ -1084,7 +1084,7 @@ test("completion replay ignores current consent evidence but rejects structural 
           ...invalid,
           payload: { ...invalid.payload, historicalAcceptance: undefined },
         } as TaskEventV1),
-      /accepted task and execution state|invalid/,
+      /payload Task identity must match the envelope|accepted task and execution state|invalid/,
     );
 });
 
