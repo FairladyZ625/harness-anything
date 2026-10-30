@@ -596,6 +596,7 @@ test(
           quotaBytes,
         }),
       );
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       // The sync command observes the resident stream; attach its registered config first.
       stop(fixture, "edge");
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
