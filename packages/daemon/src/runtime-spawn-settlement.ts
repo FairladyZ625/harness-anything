@@ -521,6 +521,18 @@ async function publishTerminalOutcome(
     body,
   );
   if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
+  if (
+    outcomeEvent.event &&
+    active.role === "reviewer" &&
+    active.task &&
+    payload.outcome === "failed" &&
+    payload.attempt?.classification === "dispatch_stalled"
+  )
+    context.input.onStalledReviewer?.({
+      dispatchId: active.dispatchId,
+      task: active.task,
+      binding: active.binding,
+    });
   context.input.recordLifecycle?.({
     event: "runtime_exit",
     runtimeSessionId: active.runtimeSessionId,

@@ -134,6 +134,7 @@ export async function fixture(
     readonly submitCommit?: boolean;
     readonly guiDelivery?: boolean;
     readonly providerRoundBackoffBaseSeconds?: number;
+    readonly stallTimeoutMs?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
     readonly autoProviderSession?: boolean;
@@ -296,9 +297,9 @@ export async function fixture(
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
     "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
     `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
-    (options.providerRoundBackoffBaseSeconds === undefined
+    (options.providerRoundBackoffBaseSeconds === undefined && options.stallTimeoutMs === undefined
       ? ""
-      : `  runtime:\n    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`) +
+      : `  runtime:\n${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
     (worktreeSetup?.length
       ? `  worktree:\n    setup:\n${worktreeSetup.map((step) => `      - ${JSON.stringify(step)}\n`).join("")}`
       : "");
@@ -442,6 +443,10 @@ export async function fixture(
   const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
     await cell.awaitRuntimeOutcome(runtimeSessionId);
+    // The runtime settlement predicate can become true as soon as the session projection sees
+    // its terminal outcome. A queued read is the fixture's observable barrier for the outcome
+    // event itself; this avoids racing the writer queue on slower CI machines.
+    await run({ kind: "task-show", taskId });
     const outcome = events().find(
       (event) =>
         event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,

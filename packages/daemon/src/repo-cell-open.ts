@@ -1,4 +1,5 @@
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
+import { dispatchTaskReview, reviewDispatchKey } from "./task-review-dispatch.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import {
@@ -495,6 +496,47 @@ export async function openRepoWriterCell(
       schedule(() => squadCoordinator.observeOutcome(event));
       outcomeWaiters.notify();
       input.onRuntimeOutcome?.(event);
+    },
+    onStalledReviewer: (continuation) => {
+      if (mode !== "local") return;
+      schedule(async () => {
+        const dispatch = projection.readRuntimeDispatchById(continuation.dispatchId)?.event,
+          taskId = continuation.task.taskId,
+          executionId = continuation.task.executionId;
+        if (
+          !dispatch ||
+          dispatch.payload.role !== "reviewer" ||
+          dispatch.payload.taskId !== taskId ||
+          dispatch.payload.executionId !== executionId ||
+          typeof dispatch.payload.agentId !== "string" ||
+          typeof dispatch.payload.dispatchKey !== "string"
+        )
+          return;
+        const current = await service.read(taskId),
+          execution = current.snapshot.executions.find((value) => value.executionId === executionId);
+        if (current.snapshot.task?.status !== "in_review" || execution?.state !== "submitted" || !execution.submission)
+          return;
+        const baseKey = reviewDispatchKey(taskId, execution, dispatch.payload.agentId);
+        // Only the original automatic cut key may start this recovery. Its one existing manual
+        // attempt key is the bound: an already-created attempt1 (manual or automatic) is never
+        // advanced by another stalled terminal callback.
+        if (
+          dispatch.payload.dispatchKey !== baseKey ||
+          projection.readRuntimeDispatchByDispatchKey(`${baseKey}:attempt1`) !== null
+        )
+          return;
+        const binding = {
+          ...continuation.binding,
+          actor: { principal: continuation.binding.actor.principal, executor: null },
+        };
+        const receipt = await dispatchTaskReview(
+          operationalContext,
+          { kind: "task-dispatch-review", taskIds: [taskId] },
+          binding,
+        );
+        if (receipt.outcome !== "applied")
+          console.warn(`[review-stall-recovery] task ${taskId} automatic attempt failed: ${JSON.stringify(receipt)}`);
+      }, continuation.binding);
     },
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) await settleExecutionLease(terminal);
