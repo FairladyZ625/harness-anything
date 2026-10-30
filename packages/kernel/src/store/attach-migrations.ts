@@ -111,10 +111,26 @@ function settingsAt(
 
 const retiredSettingsCodeDocPath = ["closeout", "overrides", "codeDoc"] as const;
 
-/** The settings paths retired by the `settings.ci` step; `closeout.overrides.codeDoc` has its own step. */
+/** The review thresholds own a step of their own; `settings.ci` must not absorb them. */
+const retiredSettingsReviewThresholdPaths = RETIRED_SETTINGS_PATHS.filter(
+    (path) => path[0] === "review" && path[1] === "thresholds",
+  ),
+  retiredSettingsReviewThresholdKeys = new Set(retiredSettingsReviewThresholdPaths.map((path) => path.join(".")));
+
+/** Settings paths retired by `settings.ci`; paths owned by another step are excluded. */
 const retiredSettingsCiPaths = RETIRED_SETTINGS_PATHS.filter(
-  (path) => path.join(".") !== retiredSettingsCodeDocPath.join("."),
+  (path) =>
+    path.join(".") !== retiredSettingsCodeDocPath.join(".") && !retiredSettingsReviewThresholdKeys.has(path.join(".")),
 );
+
+function hasRetiredSettingsReviewThresholds(event: PersistedCanonicalEventV1): boolean {
+  if (event.schema !== "settings-event/v1") return false;
+  const payload = (event as { readonly payload?: unknown }).payload;
+  if (!isRecord(payload)) return false;
+  const settings = payload.settings;
+  if (!isRecord(settings)) return false;
+  return retiredSettingsReviewThresholdPaths.some((path) => Object.hasOwn(settingsAt(settings, path), path.at(-1)!));
+}
 
 function hasRetiredSettingsCloseoutCodeDoc(event: PersistedCanonicalEventV1): boolean {
   if (event.schema !== "settings-event/v1") return false;
@@ -248,6 +264,12 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     name: "settings.closeout.codeDoc",
     fields: ["Settings.closeout.overrides.codeDoc"],
     matches: hasRetiredSettingsCloseoutCodeDoc,
+  },
+  {
+    kind: "event-migration",
+    name: "settings.review.thresholds",
+    fields: retiredSettingsReviewThresholdPaths.map((path) => `Settings.${path.join(".")}`),
+    matches: hasRetiredSettingsReviewThresholds,
   },
   {
     kind: "event-migration",

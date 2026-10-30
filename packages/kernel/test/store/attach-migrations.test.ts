@@ -97,6 +97,7 @@ test("attach migration registry covers each retired historical field and is idem
       "squad-run.subject",
       "settings.ci",
       "settings.closeout.codeDoc",
+      "settings.review.thresholds",
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
       "vertical.completion.closeoutCodeDoc",
@@ -113,6 +114,7 @@ test("attach migration registry covers each retired historical field and is idem
       "squad-run.subject",
       "settings.ci",
       "settings.closeout.codeDoc",
+      "settings.review.thresholds",
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
       "vertical.completion.closeoutCodeDoc",
@@ -139,6 +141,11 @@ test("attach migration registry covers each retired historical field and is idem
       "settings-event/v1",
       { settings: { closeout: { overrides: { codeDoc: true, review: false } } } },
       "old-closeout-settings",
+    ),
+    envelope(
+      "settings-event/v1",
+      { settings: { review: { thresholds: { correctness: 80, migration: 85, securityAuth: 90 } } } },
+      "old-review-thresholds",
     ),
     envelope(
       "vertical-declaration-event/v1",
@@ -185,14 +192,15 @@ test("attach migration registry covers each retired historical field and is idem
     "squad-run.subject",
     "settings.ci",
     "settings.closeout.codeDoc",
+    "settings.review.thresholds",
     "runtime.reviewDispatchKey",
     "vertical.completion.sources",
     "vertical.completion.closeoutCodeDoc",
   ]);
-  assert.equal(events.length, 17);
+  assert.equal(events.length, 19);
   const second = applyAttachMigrations({ store, now: () => "2026-10-20T00:00:02.000Z" });
   assert.deepEqual(second.applied, []);
-  assert.equal(events.length, 17);
+  assert.equal(events.length, 19);
   assert.equal(reads.queryEvents, 0, "attach migration scans use bounded event batches");
   assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
 });
@@ -575,7 +583,13 @@ test("historical projection normalizes each registered retired field without cha
     settings = normalizeHistoricalEvent(
       envelope(
         "settings-event/v1",
-        { settings: { ci: { workflows: ["retired"] }, gates: [{ adapter: "manual-attest" }] } },
+        {
+          settings: {
+            ci: { workflows: ["retired"] },
+            gates: [{ adapter: "manual-attest" }],
+            review: { thresholds: { correctness: 80, migration: 85, securityAuth: 90 } },
+          },
+        },
         "settings-normalize",
       ),
     ) as unknown as { readonly payload: { readonly settings: Record<string, unknown> } },

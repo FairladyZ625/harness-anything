@@ -370,6 +370,23 @@ test("review-execution and review-consent require a substantive physical report 
       JSON.stringify(degraded),
     );
     writeReviewReport(rootDir, packagePath, "review-landed");
+    // A findingId belonged to the retired per-finding settlement surface; consent must refuse it
+    // instead of silently deriving the same consent identity from a stale field.
+    const staleFinding = await cell!.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-landed",
+        findingId: "fixture-finding",
+      } as never,
+      owner,
+    );
+    assert.deepEqual(
+      { outcome: staleFinding.outcome, code: staleFinding.code },
+      { outcome: "op_rejected", code: "invalid_command" },
+      JSON.stringify(staleFinding),
+    );
     assert.equal((await consent("review-landed")).outcome, "applied");
   } finally {
     await cell?.close();
