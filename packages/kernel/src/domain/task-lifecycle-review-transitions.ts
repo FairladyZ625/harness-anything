@@ -87,6 +87,21 @@ function reviewIssues(
     issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
   else issues.push(...validateReviewFindings(command.findings));
   if (command.resolutions !== undefined) issues.push(...validateReviewResolutions(command.resolutions));
+  // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
+  // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
+  if (
+    command.verdict === "changes_requested" &&
+    command.findings !== undefined &&
+    !command.findings.some(
+      (item) => item.blocking && !["style", "diagnostic", "cleanup"].includes(item.category ?? "correctness"),
+    )
+  )
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_review",
+        "changes_requested review requires a blocking finding outside style/diagnostic/cleanup",
+      ),
+    );
   return issues;
 }
 
