@@ -281,16 +281,21 @@ test("custom groups compose Base groups, re-expand their grants, and trace every
 });
 
 test("two administrators editing one group from the same version: one applied, one version_conflict", async (t) => {
-  const { admin, run, signIn } = await fixture(t),
+  const { admin, run, signIn, oidc } = await fixture(t),
     read = async () =>
       (
         (await admin.run({ operation: "group-list" })).groups as { id: string; version: string; scopes: string[] }[]
       ).find((group) => group.id === "release")!;
   await run({ operation: "group-create", groupId: "release", scopes: ["task-review-execution"] });
-  const version = (await read()).version;
-  // Both requests target the same version. Session lookup is asynchronous, so the actor observed by
-  // a request may be the latest signed-in principal by the time lookup completes; actor ordering is
-  // not part of the optimistic-concurrency contract under test.
+  const version = (await read()).version,
+    firstSession = Promise.withResolvers<void>(),
+    requireRole = oidc.requireRole.bind(oidc);
+  t.mock.method(oidc, "requireRole", async (...args: Parameters<typeof oidc.requireRole>) => {
+    const session = await requireRole(...args);
+    firstSession.resolve();
+    return session;
+  });
+  // Capture the first administrator before replacing the shared fixture session; writes still overlap.
   signIn("admin-one");
   const first = run({
     operation: "group-update",
@@ -298,6 +303,7 @@ test("two administrators editing one group from the same version: one applied, o
     scopes: ["decision-review"],
     expectedVersion: version,
   });
+  await firstSession.promise;
   signIn("admin-two");
   const second = run({
       operation: "group-update",
@@ -307,10 +313,10 @@ test("two administrators editing one group from the same version: one applied, o
     }),
     results = await Promise.all([first, second]);
   assert.deepEqual(
-    results.map((result) => [result.ok, result.outcome]),
+    results.map((result) => [result.actor, result.ok, result.outcome]),
     [
-      [true, "applied"],
-      [false, "version_conflict"],
+      ["admin-one", true, "applied"],
+      ["admin-two", false, "version_conflict"],
     ],
   );
   assert.deepEqual((await read()).scopes, ["decision-review"]);
@@ -321,7 +327,7 @@ test("two administrators editing one group from the same version: one applied, o
     scopes: ["decision-reject", "decision-review"],
     expectedVersion: String(results[1]!.currentVersion),
   });
-  assert.deepEqual([retried.ok, retried.outcome], [true, "applied"]);
+  assert.deepEqual([retried.actor, retried.outcome], ["admin-two", "applied"]);
   assert.deepEqual((await read()).scopes, ["decision-reject", "decision-review"]);
 });
 

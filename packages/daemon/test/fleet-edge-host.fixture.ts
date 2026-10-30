@@ -75,7 +75,18 @@ export async function fleetEdgeHostFixture(
   const authority = options.oidcPorts?.loginAuthority
     ? await options.oidcPorts.loginAuthority(edgeRoot)
     : { url: f.owners.url, realm: "harness" };
-  const issuer = `${authority.url}/realms/${authority.realm}`,
+  const issuer = authority.url
+      ? String(
+          (
+            await (
+              await f.owners.keycloak.fetch(
+                `${authority.url}/realms/${authority.realm}/.well-known/openid-configuration`,
+              )
+            ).json()
+          ).issuer,
+        )
+      : "",
+    fetch = f.owners.keycloak.fetch,
     fixtureLoginAuthority =
       options.oidcPorts?.loginAuthority ??
       (() =>
@@ -120,10 +131,11 @@ export async function fleetEdgeHostFixture(
   };
   if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
   await options.beforeOpen?.(edgeRoot);
-  await new OidcSessionService(edgeUser, {
-    fetch: f.owners.keycloak.fetch,
-    loginAuthority: fixtureLoginAuthority,
-  }).status(edgeRoot);
+  if (authority.url)
+    await new OidcSessionService(edgeUser, {
+      fetch,
+      loginAuthority: fixtureLoginAuthority,
+    }).status(edgeRoot);
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.openCell ? { openCell: options.openCell } : {}),
@@ -131,7 +143,7 @@ export async function fleetEdgeHostFixture(
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     userRoot: edgeUser,
     oidc: new OidcSessionService(edgeUser, {
-      fetch: f.owners.keycloak.fetch,
+      fetch,
       ...options.oidcPorts,
       loginAuthority: fixtureLoginAuthority,
     }),

@@ -13,7 +13,10 @@ export default {
   description: "Account navigation, explicit logout, embedded PKCE login, cancellation and retry.",
   async run({ page, app, fixture, shot }) {
     const originalFetch = fixture.keycloak.fetch;
-    const accessToken = `fixture.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.fixture`;
+    const issuer = (
+        await (await originalFetch("http://127.0.0.1/realms/harness/.well-known/openid-configuration")).json()
+      ).issuer,
+      accessToken = `fixture.${Buffer.from(JSON.stringify({ iss: issuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.fixture`;
     let pending,
       exchanges = 0,
       refuse = false;
@@ -90,13 +93,14 @@ export default {
       await account.click();
       await page.getByRole("tab", { name: /^(?:服务与会话|Service & session)$/u }).click();
       await page.getByTestId("identity-session").filter({ hasText: "person-gui" }).waitFor();
-      assert.equal((await page.evaluate(() => window.harness.auth.status())).authenticated, true);
+      const status = () => page.evaluate((root) => window.harness.auth.status(undefined, root), fixture.rootDir);
+      assert.equal((await status()).authenticated, true);
       const action = page.getByTestId("account-session-action");
       await action.click();
       await page.waitForFunction(
         () => !document.querySelector('[data-testid="identity-session"]')?.textContent.includes("person-gui"),
       );
-      assert.equal((await page.evaluate(() => window.harness.auth.status())).authenticated, false);
+      assert.equal((await status()).authenticated, false);
 
       const openLogin = async () => {
         await action.click();
@@ -137,7 +141,7 @@ export default {
       await account.filter({ hasText: "person-gui" }).waitFor();
       assert.equal(exchanges, 1);
       await account.click();
-      assert.equal((await page.evaluate(() => window.harness.auth.status())).authenticated, true);
+      assert.equal((await status()).authenticated, true);
       await shot("account-signed-in");
       await action.click();
       await page.waitForFunction(

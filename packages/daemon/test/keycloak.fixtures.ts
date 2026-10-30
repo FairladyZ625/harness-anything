@@ -35,9 +35,9 @@ type NodeClient = {
  * realm's AFFIRMATIVE strategy: a permission applies to the resources it names, or to every resource
  * when it names none, which is how an unbound scope permission behaves in Keycloak.
  */
-export function fakeKeycloak() {
+export function fakeKeycloak(issuer = keycloakIssuer) {
   let sequence = 0,
-    realmIssuer = keycloakIssuer;
+    realmIssuer = issuer;
   const id = (prefix: string) => `${prefix}-${++sequence}`,
     scopes = new Map<string, Named>(),
     roles = new Map<string, Role>(),
@@ -580,34 +580,34 @@ export async function serveKeycloak(): Promise<{
   readonly bind: (userRoot: string) => void;
   readonly close: () => Promise<void>;
 }> {
-  const keycloak = fakeKeycloak(),
-    server = createServer((request, response) => {
-      void (async () => {
-        let raw = "";
-        for await (const chunk of request) raw += String(chunk);
-        const form = request.headers["content-type"]?.includes("x-www-form-urlencoded") ?? false,
-          answer = await keycloak.fetch(`http://127.0.0.1${request.url}`, {
-            method: request.method,
-            headers: request.headers as Record<string, string>,
-            ...(raw === "" ? {} : { body: form ? new URLSearchParams(raw) : raw }),
-          });
-        response.statusCode = answer.status;
-        response.setHeader("content-type", "application/json");
-        const location = answer.headers.get("location");
-        if (location) response.setHeader("location", location);
-        response.end(await answer.text());
-      })().catch((error: unknown) => {
-        response.statusCode = 500;
-        response.end(JSON.stringify({ error: String(error) }));
-      });
+  const server = createServer((request, response) => {
+    void (async () => {
+      let raw = "";
+      for await (const chunk of request) raw += String(chunk);
+      const form = request.headers["content-type"]?.includes("x-www-form-urlencoded") ?? false,
+        answer = await keycloak.fetch(`http://127.0.0.1${request.url}`, {
+          method: request.method,
+          headers: request.headers as Record<string, string>,
+          ...(raw === "" ? {} : { body: form ? new URLSearchParams(raw) : raw }),
+        });
+      response.statusCode = answer.status;
+      response.setHeader("content-type", "application/json");
+      const location = answer.headers.get("location");
+      if (location) response.setHeader("location", location);
+      response.end(await answer.text());
+    })().catch((error: unknown) => {
+      response.statusCode = 500;
+      response.end(JSON.stringify({ error: String(error) }));
     });
+  });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   // A fixture that fails before its teardown registers must not hold the test process open.
   server.unref();
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fixture Keycloak did not bind a port");
-  const url = `http://127.0.0.1:${address.port}`;
+  const url = `http://127.0.0.1:${address.port}`,
+    keycloak = fakeKeycloak(`${url}/realms/${keycloakRealm}`);
   return {
     keycloak,
     url,

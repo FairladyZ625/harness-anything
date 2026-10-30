@@ -33,6 +33,7 @@ async function fixture(t: TestContext) {
   const run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request });
   return {
     keycloak,
+    oidc,
     run,
     ...user,
     registry: keycloakNodeRegistry(async () => center, keycloak.fetch),
@@ -412,12 +413,19 @@ test("a failed old-owner consent revocation cannot publish a transferred device"
 });
 
 test("two registrations of one node from the same version: one applied, one version_conflict", async (t) => {
-  const { keycloak, run, nodes, signIn } = await fixture(t),
-    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-"));
+  const { keycloak, run, nodes, signIn, oidc } = await fixture(t),
+    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    firstSession = Promise.withResolvers<void>(),
+    requireRole = oidc.requireRole.bind(oidc);
+  t.mock.method(oidc, "requireRole", async (...args: Parameters<typeof oidc.requireRole>) => {
+    const session = await requireRole(...args);
+    firstSession.resolve();
+    return session;
+  });
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
   keycloak.account("bob");
-  // Both requests read their administrator's session before entering the queue; both are queued before either runs.
+  // Capture each administrator's session before replacing it; the queued writes still overlap.
   // Whichever wins reserves its own file; the loser answers the conflict before reserving anything.
   signIn("admin-one");
   const first = run({
@@ -426,6 +434,7 @@ test("two registrations of one node from the same version: one applied, one vers
     personId: "alice",
     credentialFile: path.join(directory, "admin-one.credential"),
   });
+  await firstSession.promise;
   signIn("admin-two");
   const second = run({
       operation: "node-register",

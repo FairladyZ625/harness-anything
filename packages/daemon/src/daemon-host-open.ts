@@ -792,8 +792,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
             },
             {
-              session: async () => (await oidc.bind(auth, requireLoginTarget())).oidcPrincipal,
-              beginLogin: (authority) => oidc.beginDevice(requireLoginTarget(), authority),
+              session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
+              beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
