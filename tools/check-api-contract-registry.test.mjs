@@ -112,7 +112,7 @@ test("W3 API registry follows a renamed transport-authority module", () =>
   }));
 
 for (const [label, before, after] of [
-  ["OIDC verification", "await oidc.bind(auth)", "auth"],
+  ["OIDC verification", "await oidc.bind(auth, rootDir)", "auth"],
   ["assignment binding call", "return nodeOwnerBinding(auth)", "return localDefaultBinding(auth, executor)"],
   ["local expiry guard", "auth.oidcPrincipal.expiresAt <= Date.now()", "false"],
   ["local person binding", "personId: auth.oidcPrincipal.personId", 'personId: "client-person"'],
@@ -248,7 +248,7 @@ import { run } from "./repository-dispatch.ts";
 import { keycloakNodeRegistry } from "./node-registry.ts";
 export function openDaemonHost() {
   const cells = new Map<string, RepoCell>();
-  const hostBinding = async (rootDir, auth, executor) => deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor);
+  const hostBinding = async (rootDir, auth, executor) => deriveBinding(rootDir, { ...(await oidc.bind(auth, rootDir)), keycloakCenter }, executor);
   const nodes = keycloakNodeRegistry(context.keycloakCenter);
   return { cells, binding, admit, run, hostBinding, nodes };
 }
