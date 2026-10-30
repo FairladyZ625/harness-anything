@@ -461,12 +461,15 @@ export class KeycloakPolicyAdapter {
   }
 
   async readPersonTeams(adminAccessToken: string, personId: string): Promise<readonly string[]> {
-    const userId = await this.findUserId(adminAccessToken, personId);
+    const userId = await this.#cachedUserId(adminAccessToken, personId);
     if (!userId) throw new Error(`Keycloak has no unique user for ${personId}.`);
-    const groups = await this.#pages<NamedRepresentation>(
-      adminAccessToken,
-      `/users/${encodeURIComponent(userId)}/groups`,
-    );
+    let groups: readonly NamedRepresentation[];
+    try {
+      groups = await this.#pages<NamedRepresentation>(adminAccessToken, `/users/${encodeURIComponent(userId)}/groups`);
+    } catch (error) {
+      if (staleIdentifierResponse(error)) this.#readCache.userIds.delete(personId);
+      throw error;
+    }
     return groups.map((group) => requiredId(group, "work team"));
   }
 
